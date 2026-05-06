@@ -101,6 +101,7 @@ type Scenario struct {
 	rightDragging   bool
 	hoverCell       [2]int // terrain cell currently under the mouse
 	followAgentID   uint64 // 0 = free camera; >0 = ID of followed skier
+	popup           *ui.Window
 }
 
 // NewScenario creates a Scenario scene that loads from the given path.
@@ -266,12 +267,27 @@ func (s *Scenario) Update(dt float64) {
 	// Ghost preview for lift placement.
 	s.updateLiftGhost(r)
 
+	// Popup window input — handle before world clicks so buttons consume the event.
+	popupConsumed := false
+	if s.popup != nil && s.popup.Visible {
+		s.popup.HandleInput(inp)
+		if inp.LeftClick && s.popup.ContainsPoint(inp.MousePos[0], inp.MousePos[1]) {
+			popupConsumed = true
+		}
+	}
+
 	// World click / drag — glade supports held-down; placement tools use click-only.
-	clickOrHeld := inp.LeftClick || (inp.LeftHeld && s.activeTool == toolGlade)
-	if clickOrHeld && !s.menuBar.ContainsY(inp.MousePos[1]) {
-		gx, gz := s.hoverCell[0], s.hoverCell[1]
-		if s.world.Terrain.InBounds(gx, gz) {
-			s.applyTool(gx, gz, r)
+	if !popupConsumed {
+		clickOrHeld := inp.LeftClick || (inp.LeftHeld && s.activeTool == toolGlade)
+		if clickOrHeld && !s.menuBar.ContainsY(inp.MousePos[1]) {
+			gx, gz := s.hoverCell[0], s.hoverCell[1]
+			if s.world.Terrain.InBounds(gx, gz) {
+				if s.activeTool == toolNone && inp.LeftClick {
+					s.tryOpenPopup(gx, gz, r.ScreenWidth(), r.ScreenHeight())
+				} else {
+					s.applyTool(gx, gz, r)
+				}
+			}
 		}
 	}
 
@@ -353,6 +369,9 @@ func (s *Scenario) Render(r *render.Renderer) {
 			break
 		}
 	}
+	if s.popup != nil && s.popup.Visible {
+		drawables = append(drawables, s.popup)
+	}
 	if s.escapeMenu.Visible() {
 		drawables = append(drawables, s.escapeMenu)
 	}
@@ -360,6 +379,69 @@ func (s *Scenario) Render(r *render.Renderer) {
 }
 
 func (s *Scenario) Destroy() {}
+
+// tryOpenPopup opens a popup window if a building or lift is at the clicked cell.
+func (s *Scenario) tryOpenPopup(gx, gz, screenW, screenH int) {
+	// Check buildings first.
+	for _, b := range s.world.Buildings {
+		if b.Pos[0] == gx && b.Pos[1] == gz {
+			s.openBuildingPopup(b, screenW, screenH)
+			return
+		}
+	}
+	// Check lift bases (within 1 cell).
+	for _, lift := range s.world.Lifts {
+		dx := lift.Base[0] - gx
+		dz := lift.Base[1] - gz
+		if dx*dx+dz*dz <= 1 {
+			s.openLiftPopup(lift, screenW, screenH)
+			return
+		}
+	}
+	// Nothing hit — close any open popup.
+	if s.popup != nil {
+		s.popup.Visible = false
+	}
+}
+
+func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
+	bldg := b
+	w := ui.NewWindow("Lodge", float32(screenW)/2-120, float32(screenH)/2-60)
+	w.AddLabel("Skiers inside", func() string {
+		return fmt.Sprintf("%d", bldg.SkierCount)
+	})
+	w.AddLabel("Spawn rate", func() string {
+		return fmt.Sprintf("%.2f/s", bldg.MeanSpawnRate)
+	})
+	w.AddLabel("Agents out", func() string {
+		count := 0
+		for _, a := range s.world.Agents {
+			if a.TargetBuildingID == bldg.ID {
+				count++
+			}
+		}
+		return fmt.Sprintf("%d", count)
+	})
+	w.Visible = true
+	s.popup = w
+}
+
+func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
+	l := lift
+	w := ui.NewWindow("Ski Lift", float32(screenW)/2-120, float32(screenH)/2-80)
+	w.AddLabel("Queue", func() string {
+		return fmt.Sprintf("%d skiers", len(l.Queue))
+	})
+	w.AddLabel("On lift", func() string {
+		return fmt.Sprintf("%d skiers", l.PassengerCount())
+	})
+	w.AddLabel("Chairs", func() string {
+		return fmt.Sprintf("%d", len(l.Chairs))
+	})
+	w.AddStepper("Speed (m/s)", &l.Speed, 0.5, 0.5, 8.0)
+	w.Visible = true
+	s.popup = w
+}
 
 // setTool toggles the given tool on; if it is already active, deactivates it.
 func (s *Scenario) setTool(t toolMode) {
@@ -399,7 +481,6 @@ func (s *Scenario) updateLiftGhost(r *render.Renderer) {
 	switch s.activeTool {
 	case toolLiftBase:
 		r.ClearGhostCable()
-		r.SetGhosts(render.MeshTower, nil)
 		if t.InBounds(gx, gz) {
 			r.SetGhosts(render.MeshLiftStation, []render.StaticInstance{
 				stationInstanceAt([2]int{gx, gz}, t),
@@ -414,7 +495,6 @@ func (s *Scenario) updateLiftGhost(r *render.Renderer) {
 				stationInstanceAt(s.liftBase, t),
 				stationInstanceAt([2]int{gx, gz}, t),
 			})
-			r.SetGhosts(render.MeshTower, render.ComputeLiftTowerInstances(s.liftBase, [2]int{gx, gz}, t))
 			r.SetGhostCable(s.liftBase, [2]int{gx, gz}, t)
 		} else {
 			r.ClearGhostCable()

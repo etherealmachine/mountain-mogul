@@ -88,8 +88,24 @@ func (w *World) PlaceLift(bx, bz, tx, tz int) *Lift {
 		ID:    w.NextID(),
 		Base:  [2]int{bx, bz},
 		Top:   [2]int{tx, tz},
-		Speed: 0.05, // fraction per second
+		Speed: 2.5, // m/s — realistic chairlift speed
 	}
+
+	// Initialise chairs evenly spaced around the loop.
+	const cellSize = 10.0
+	dx := float64(tx-bx) * cellSize
+	dz := float64(tz-bz) * cellSize
+	cableLen := math.Sqrt(dx*dx + dz*dz)
+	loopLen := cableLen * 2
+	numChairs := int(loopLen / ChairSpacingM)
+	if numChairs < 2 {
+		numChairs = 2
+	}
+	lift.Chairs = make([]Chair, numChairs)
+	for i := range lift.Chairs {
+		lift.Chairs[i] = Chair{Progress: float32(i) / float32(numChairs)}
+	}
+
 	w.Lifts = append(w.Lifts, lift)
 	if w.Terrain.InBounds(bx, bz) {
 		w.Terrain.Cells[bx][bz].Passable = false

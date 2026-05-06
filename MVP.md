@@ -211,8 +211,33 @@ Allows importing real-world terrain into a new scenario. Player enters a locatio
 
 ---
 
+## Completed
+
+### T-shaped towers + dual cables
+- Lift towers are now procedurally generated T-shapes per lift: a vertical pole (0.7 m wide × 18 m tall) with a horizontal crossbar (5 m wide) perpendicular to the cable direction. Crossbar top aligns exactly with cable height.
+- Two cables per lift: **up cable** (+1.5 m lateral offset) and **down/return cable** (−1.5 m), both generated as quad-strip meshes from `generateCableMesh`. Ghost preview during placement shows both cables and towers.
+- Tower and cable meshes are stored per-lift (`liftTowerMeshes`, `liftUpCables`, `liftDownCables`) and drawn as world-space meshes using the identity-transform trick (`setCableTransformAttribs`).
+
+### Chair-based lift system
+- `Chair` struct: `Progress float32` (0→1 full loop, 0=base, 0.5=top) + `Passengers [2]*Agent`.
+- `Lift.ChairPos(progress, terrain)` computes world position + heading for any progress value; used by both simulation and renderer.
+- `PlaceLift` auto-spawns chairs at ~30 m intervals around the loop (`ChairSpacingM`).
+- `tickLifts` advances all chairs by `lift.Speed / loopLength` fractions/sec. At progress=0.5 (top) passengers are unloaded and start skiing or returning to lodge. At progress=1.0 wrap the chair loads up to 2 skiers from the queue.
+- `Lift.Speed` is in **m/s** (default 2.5 m/s — realistic chairlift speed). `Lift.LoopLength()` converts to fractional progress per tick.
+
+### Chair rendering
+- Procedural chair mesh (`NewChairMesh`): suspension bar + seat + backrest + footbar, all hanging below the cable-attachment origin. All local Y ≤ 0 so the dynamic-shader limb animation never fires.
+- Separate `chairBatch` (dynamic) renders all chairs each frame: grey when empty, blue-tint when carrying passengers.
+
+### Pop-up info windows
+- `ui.Window`: floating panel with title bar, close button, label rows (live `getText` callbacks), and stepper rows (+/− buttons for float values).
+- Left-clicking a building cell (no tool active) opens a **Lodge** panel showing skier count, spawn rate, and agents currently out.
+- Left-clicking within 1 cell of a lift base opens a **Ski Lift** panel showing queue length, on-lift passenger count, chair count, and a speed stepper (0.5–8.0 m/s, step 0.5).
+- Popup clicks are consumed before world-click handling so buttons don't accidentally place/remove objects.
+
+### Simulation time scale
+- `Simulation.TimeScale` multiplier (default **5×**) compresses real seconds before passing to all sub-ticks. A real 5-minute lift ride takes ~1 minute of wall-clock time at this setting. Easily exposed to UI controls later.
+
+---
+
 ## Next Steps
-- The lift towers need to be a T shape with two cables, the up and down cable coming out of the base, passing through the top of the T
-- Then, we need chairs for the lift that we animate with skiers inside the chair, and two skiers per chair
-- We also need a queuing system for the lift, so we want to track the chairs, how fast they're moving, and actually pick up and drop off pairs of skiers, with a queue of skiers "stored" in the base of the lift waiting for pick
-- We need some generic pop-up windows, for example the lodge needs to be clickable to show a window with the count of skiers inside, click the lift to show skiers queued and on the lift, also need inputs so we can set lift speed

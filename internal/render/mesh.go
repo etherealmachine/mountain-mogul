@@ -8,15 +8,16 @@ import (
 
 // Mesh ID constants — also mirrored in world/objects.go to avoid circular imports.
 const (
-	MeshTree     uint32 = 0
-	MeshTree2    uint32 = 1
-	MeshTree3    uint32 = 2
-	MeshRock     uint32 = 3
-	MeshStump    uint32 = 4
-	MeshBuilding uint32 = 5
-	MeshTower        uint32 = 6
-	MeshAgent        uint32 = 7
-	MeshLiftStation  uint32 = 8
+	MeshTree        uint32 = 0
+	MeshTree2       uint32 = 1
+	MeshTree3       uint32 = 2
+	MeshRock        uint32 = 3
+	MeshStump       uint32 = 4
+	MeshBuilding    uint32 = 5
+	MeshTower       uint32 = 6
+	MeshAgent       uint32 = 7
+	MeshLiftStation uint32 = 8
+	MeshChair       uint32 = 9
 )
 
 // Mesh wraps a GPU vertex/index buffer.
@@ -73,6 +74,50 @@ func (m *Mesh) Delete() {
 	gl.DeleteVertexArrays(1, &m.VAO)
 	gl.DeleteBuffers(1, &m.VBO)
 	gl.DeleteBuffers(1, &m.EBO)
+}
+
+// NewChairMesh generates a gondola/chair shape for instanced rendering.
+// The origin (0,0,0) is the cable-attachment point; the seat hangs below.
+// Vertex layout: pos(3) + normal(3) — matches the dynamic shader (no UV needed).
+func NewChairMesh() *Mesh {
+	// Build the chair from a few simple quads.
+	// All Y values are <= 0 so the dynamic shader's limb-animation threshold (0.3) never fires.
+	type face struct {
+		verts  [4][3]float32
+		normal [3]float32
+	}
+
+	addBox := func(verts *[]float32, indices *[]uint32, minX, maxX, minY, maxY, minZ, maxZ float32) {
+		faces := []face{
+			{[4][3]float32{{minX, minY, maxZ}, {maxX, minY, maxZ}, {maxX, maxY, maxZ}, {minX, maxY, maxZ}}, [3]float32{0, 0, 1}},
+			{[4][3]float32{{maxX, minY, minZ}, {minX, minY, minZ}, {minX, maxY, minZ}, {maxX, maxY, minZ}}, [3]float32{0, 0, -1}},
+			{[4][3]float32{{maxX, minY, maxZ}, {maxX, minY, minZ}, {maxX, maxY, minZ}, {maxX, maxY, maxZ}}, [3]float32{1, 0, 0}},
+			{[4][3]float32{{minX, minY, minZ}, {minX, minY, maxZ}, {minX, maxY, maxZ}, {minX, maxY, minZ}}, [3]float32{-1, 0, 0}},
+			{[4][3]float32{{minX, maxY, maxZ}, {maxX, maxY, maxZ}, {maxX, maxY, minZ}, {minX, maxY, minZ}}, [3]float32{0, 1, 0}},
+			{[4][3]float32{{minX, minY, minZ}, {maxX, minY, minZ}, {maxX, minY, maxZ}, {minX, minY, maxZ}}, [3]float32{0, -1, 0}},
+		}
+		for _, f := range faces {
+			base := uint32(len(*verts) / 6)
+			for _, p := range f.verts {
+				*verts = append(*verts, p[0], p[1], p[2], f.normal[0], f.normal[1], f.normal[2])
+			}
+			*indices = append(*indices, base, base+1, base+2, base, base+2, base+3)
+		}
+	}
+
+	var verts []float32
+	var indices []uint32
+
+	// Suspension bar connecting cable to seat frame.
+	addBox(&verts, &indices, -0.05, 0.05, -1.3, 0, -0.05, 0.05)
+	// Seat: 1.5 m wide, 0.25 m thick, 0.7 m deep.
+	addBox(&verts, &indices, -0.75, 0.75, -1.55, -1.3, -0.35, 0.35)
+	// Seat back: vertical panel behind the seat.
+	addBox(&verts, &indices, -0.75, 0.75, -1.3, -0.8, -0.35, -0.2)
+	// Foot bar at bottom for passenger feet.
+	addBox(&verts, &indices, -0.75, 0.75, -1.85, -1.8, -0.05, 0.05)
+
+	return NewMesh(verts, indices, []int{3, 3})
 }
 
 // NewBoxMesh creates a simple box mesh with the given dimensions and color.

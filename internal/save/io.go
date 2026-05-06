@@ -74,6 +74,7 @@ func worldToData(w *world.World) ScenarioData {
 			BaseZ: l.Base[1],
 			TopX:  l.Top[0],
 			TopZ:  l.Top[1],
+			Speed: l.Speed,
 		}
 	}
 
@@ -146,7 +147,11 @@ func dataToWorld(data ScenarioData) *world.World {
 
 	// Restore lifts
 	for _, ld := range data.Lifts {
-		w.PlaceLift(ld.BaseX, ld.BaseZ, ld.TopX, ld.TopZ)
+		lift := w.PlaceLift(ld.BaseX, ld.BaseZ, ld.TopX, ld.TopZ)
+		// Guard against old saves that stored fractional speed (< 0.1) — treat as default.
+		if ld.Speed >= 0.1 {
+			lift.Speed = ld.Speed
+		}
 	}
 
 	// Restore agents

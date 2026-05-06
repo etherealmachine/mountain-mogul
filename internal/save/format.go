@@ -39,10 +39,11 @@ type BuildingData struct {
 
 // LiftData is a placed lift.
 type LiftData struct {
-	BaseX int `json:"bx"`
-	BaseZ int `json:"bz"`
-	TopX  int `json:"tx"`
-	TopZ  int `json:"tz"`
+	BaseX int     `json:"bx"`
+	BaseZ int     `json:"bz"`
+	TopX  int     `json:"tx"`
+	TopZ  int     `json:"tz"`
+	Speed float32 `json:"speed,omitempty"`
 }
 
 // AgentData is a saved agent state.

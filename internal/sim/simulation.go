@@ -24,6 +24,7 @@ const (
 type Simulation struct {
 	World      *world.World
 	Pathfinder *Pathfinder
+	TimeScale  float64 // simulation speed multiplier (default 5)
 }
 
 // NewSimulation creates a Simulation wrapping the given world.
@@ -31,11 +32,13 @@ func NewSimulation(w *world.World) *Simulation {
 	return &Simulation{
 		World:      w,
 		Pathfinder: NewPathfinder(w.Terrain),
+		TimeScale:  5.0,
 	}
 }
 
-// Tick advances the simulation by dt seconds.
+// Tick advances the simulation by dt real seconds.
 func (s *Simulation) Tick(dt float64) {
+	dt *= s.TimeScale
 	s.tickBuildings(dt)
 	s.tickLifts(dt)
 	s.tickAgents(dt)
@@ -72,44 +75,47 @@ func (s *Simulation) tickBuildings(dt float64) {
 func (s *Simulation) tickLifts(dt float64) {
 	w := s.World
 	for _, lift := range w.Lifts {
-		// Board queuing agents
-		for len(lift.Queue) > 0 && len(lift.Riders) < world.MaxRiders {
-			agent := lift.Queue[0]
-			lift.Queue = lift.Queue[1:]
-			lift.Riders = append(lift.Riders, world.LiftRider{Agent: agent, Progress: 0})
-			agent.State = world.StateRiding
+		loopLen := lift.LoopLength()
+		if loopLen < 1 {
+			continue
 		}
+		fracPerSec := float64(lift.Speed) / float64(loopLen)
+		for i := range lift.Chairs {
+			chair := &lift.Chairs[i]
+			prev := chair.Progress
+			chair.Progress += float32(fracPerSec * dt)
 
-		// Advance riders
-		toDeposit := make([]int, 0)
-		for i := range lift.Riders {
-			lift.Riders[i].Progress += float32(float64(lift.Speed) * dt)
-			if lift.Riders[i].Progress >= 1.0 {
-				toDeposit = append(toDeposit, i)
+			// At top (progress crosses 0.5): unload passengers.
+			if prev < 0.5 && chair.Progress >= 0.5 {
+				for j := range chair.Passengers {
+					agent := chair.Passengers[j]
+					if agent == nil {
+						continue
+					}
+					chair.Passengers[j] = nil
+					agent.Speed = 0
+					tx := float32(lift.Top[0]) * CellSize
+					tz := float32(lift.Top[1]) * CellSize
+					ty := w.Terrain.ElevationAt(lift.Top[0], lift.Top[1])
+					agent.Pos = mgl32.Vec3{tx, ty, tz}
+					if rand.Float64() < lodgeReturnProb && findBuilding(w, agent.TargetBuildingID) != nil {
+						agent.State = world.StateReturningToLodge
+					} else {
+						agent.State = world.StateSkiing
+						agent.TargetLiftID = lift.ID
+					}
+				}
 			}
-		}
 
-		// Deposit riders in reverse order to preserve indices
-		for j := len(toDeposit) - 1; j >= 0; j-- {
-			i := toDeposit[j]
-			rider := lift.Riders[i]
-			lift.Riders = append(lift.Riders[:i], lift.Riders[i+1:]...)
-
-			agent := rider.Agent
-			agent.Speed = 0
-
-			// Snap to top station position
-			tx := float32(lift.Top[0]) * CellSize
-			tz := float32(lift.Top[1]) * CellSize
-			ty := w.Terrain.ElevationAt(lift.Top[0], lift.Top[1])
-			agent.Pos = mgl32.Vec3{tx, ty, tz}
-
-			// Randomly choose: ski back to lodge or ski down to lift base
-			if rand.Float64() < lodgeReturnProb && findBuilding(w, agent.TargetBuildingID) != nil {
-				agent.State = world.StateReturningToLodge
-			} else {
-				agent.State = world.StateSkiing
-				agent.TargetLiftID = lift.ID
+			// At base (progress wraps past 1.0): load up to 2 skiers from queue.
+			if chair.Progress >= 1.0 {
+				chair.Progress -= 1.0
+				for j := 0; j < 2 && len(lift.Queue) > 0; j++ {
+					agent := lift.Queue[0]
+					lift.Queue = lift.Queue[1:]
+					chair.Passengers[j] = agent
+					agent.State = world.StateRiding
+				}
 			}
 		}
 	}
@@ -217,22 +223,14 @@ func (s *Simulation) tickRiding(agent *world.Agent, dt float64) {
 		if lift.ID != agent.TargetLiftID {
 			continue
 		}
-		for _, rider := range lift.Riders {
-			if rider.Agent == agent {
-				bx := float32(lift.Base[0]) * CellSize
-				bz := float32(lift.Base[1]) * CellSize
-				tx := float32(lift.Top[0]) * CellSize
-				tz := float32(lift.Top[1]) * CellSize
-				p := rider.Progress
-				posX := bx + (tx-bx)*p
-				posZ := bz + (tz-bz)*p
-				// Bilinear interpolation gives smooth Y without cell-boundary jumps.
-				posY := w.Terrain.InterpolatedElevationAt(posX, posZ) + 18.0
-				agent.Pos = mgl32.Vec3{posX, posY, posZ}
-				dx := tx - bx
-				dz := tz - bz
-				agent.Heading = float32(math.Atan2(float64(dx), float64(dz)))
-				return
+		for _, chair := range lift.Chairs {
+			for _, p := range chair.Passengers {
+				if p == agent {
+					pos, heading := lift.ChairPos(chair.Progress, w.Terrain)
+					agent.Pos = pos
+					agent.Heading = heading
+					return
+				}
 			}
 		}
 	}

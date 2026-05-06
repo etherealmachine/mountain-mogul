@@ -30,10 +30,17 @@ type Renderer struct {
 
 	staticBatches map[uint32]*Batch
 	dynamicBatch  *Batch
-	cableMeshes   map[uint64]*Mesh
+	chairBatch    *Batch
 
-	ghostBatches  map[uint32]*Batch
-	ghostCableMesh *Mesh
+	// Per-lift procedural meshes (keyed by lift ID).
+	liftTowerMeshes map[uint64]*Mesh
+	liftUpCables    map[uint64]*Mesh
+	liftDownCables  map[uint64]*Mesh
+
+	ghostBatches   map[uint32]*Batch
+	ghostTowerMesh *Mesh
+	ghostUpCable   *Mesh
+	ghostDownCable *Mesh
 
 	uiVAO, uiVBO uint32
 	whiteTexID   uint32 // 1×1 white texture; always bound to unit 0 during UI pass
@@ -41,7 +48,7 @@ type Renderer struct {
 	brushCenter mgl32.Vec2
 	brushRadius float32
 
-	HighlightAgentID    uint64
+	HighlightAgentID   uint64
 	TerrainOverlayMode int // 0 = normal, 1 = slope + contour
 
 	// logicalW/H are the window size in logical (point) pixels — these match
@@ -57,14 +64,16 @@ type Renderer struct {
 // NewRenderer initialises all shaders and GPU resources.
 func NewRenderer(w, h int, assetDir string) (*Renderer, error) {
 	r := &Renderer{
-		logicalW:      w,
-		logicalH:      h,
-		frameW:        w,
-		frameH:        h,
-		staticBatches: make(map[uint32]*Batch),
-		cableMeshes:   make(map[uint64]*Mesh),
-		ghostBatches:  make(map[uint32]*Batch),
-		assetDir:      assetDir,
+		logicalW:        w,
+		logicalH:        h,
+		frameW:          w,
+		frameH:          h,
+		staticBatches:   make(map[uint32]*Batch),
+		liftTowerMeshes: make(map[uint64]*Mesh),
+		liftUpCables:    make(map[uint64]*Mesh),
+		liftDownCables:  make(map[uint64]*Mesh),
+		ghostBatches:    make(map[uint32]*Batch),
+		assetDir:        assetDir,
 	}
 
 	r.Camera = NewCamera(w, h)
@@ -132,20 +141,22 @@ func (r *Renderer) initStaticMeshes() {
 		{MeshRock, "rock"},
 		{MeshStump, "stump"},
 		{MeshBuilding, "building"},
-		{MeshTower, "tower"},
-		{MeshAgent, "agent"},
 		{MeshLiftStation, "lift_station"},
 	}
 
 	for _, def := range meshDefs {
 		objPath := modelDir + def.name + ".obj"
 		mesh, texID := LoadOBJ(objPath, def.id)
-		if def.id == MeshAgent {
-			r.dynamicBatch = NewDynamicBatch(mesh, texID)
-		} else {
-			r.staticBatches[def.id] = NewStaticBatch(mesh, texID)
-		}
+		r.staticBatches[def.id] = NewStaticBatch(mesh, texID)
 	}
+
+	// Agent — dynamic batch.
+	agentMesh, agentTexID := LoadOBJ(modelDir+"agent.obj", MeshAgent)
+	r.dynamicBatch = NewDynamicBatch(agentMesh, agentTexID)
+
+	// Chair — dynamic batch with procedural mesh.
+	chairMesh := NewChairMesh()
+	r.chairBatch = NewDynamicBatch(chairMesh, whiteTexture())
 }
 
 // SetViewport updates the OpenGL framebuffer viewport. Call this from the
@@ -581,15 +592,11 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 			}
 		}
 	}
-
-	// Lift towers (placed procedurally along each lift)
-	for _, lift := range w.Lifts {
-		r.addLiftTowers(lift, w.Terrain)
-	}
 }
 
 // ComputeLiftTowerInstances returns StaticInstances for towers evenly spaced
 // along the path from base to top at terrain elevation.
+// Retained for ghost preview during lift placement.
 func ComputeLiftTowerInstances(base, top [2]int, t *world.Terrain) []StaticInstance {
 	const cellSize = float32(10.0)
 	const towerSpacing = float32(50.0)
@@ -628,36 +635,115 @@ func ComputeLiftTowerInstances(base, top [2]int, t *world.Terrain) []StaticInsta
 	return instances
 }
 
-func (r *Renderer) addLiftTowers(lift *world.Lift, t *world.Terrain) {
-	batch, ok := r.staticBatches[MeshTower]
-	if !ok {
-		return
-	}
-	for _, inst := range ComputeLiftTowerInstances(lift.Base, lift.Top, t) {
-		batch.staticInstances = append(batch.staticInstances, inst)
-	}
-	batch.dirty = true
-}
-
-// GenerateCableMesh creates a quad strip mesh for a lift cable.
-func (r *Renderer) GenerateCableMesh(lift *world.Lift, t *world.Terrain) *Mesh {
+// GenerateTowerMesh creates a world-space mesh of T-shaped towers for a lift.
+// Vertex layout: pos(3) + normal(3) + uv(2) — drawn with the static shader via
+// identity instance transform (setCableTransformAttribs).
+func GenerateTowerMesh(lift *world.Lift, t *world.Terrain) *Mesh {
 	const cellSize = float32(10.0)
-	const cableWidth = float32(0.3)
-	const steps = 20
+	const towerSpacing = float32(50.0)
+	const poleHalf = float32(0.35)
+	const towerH = world.TowerHeight
+	const barHalf = world.CrossbarHalf
+	const barThick = float32(0.3)
 
 	bx := float32(lift.Base[0]) * cellSize
 	bz := float32(lift.Base[1]) * cellSize
 	tx := float32(lift.Top[0]) * cellSize
 	tz := float32(lift.Top[1]) * cellSize
-
 	dx := tx - bx
 	dz := tz - bz
 	length := float32(math.Sqrt(float64(dx*dx + dz*dz)))
 	if length < 1 {
 		length = 1
 	}
+	dirX := dx / length
+	dirZ := dz / length
+	perpX := -dirZ
+	perpZ := dirX
 
-	// Perpendicular to cable direction (horizontal)
+	steps := int(length / towerSpacing)
+	if steps < 1 {
+		steps = 1
+	}
+
+	var verts []float32
+	var indices []uint32
+
+	emitBox := func(cx, cy, cz, halfFwd, halfH, halfPerp float32) {
+		// fwd axis = cable direction (dirX, dirZ), perp = (perpX, perpZ)
+		// Emit 6 faces of an oriented box centered at (cx, cy+halfH, cz).
+		type faceData struct {
+			corners [4][3]float32
+			normal  [3]float32
+		}
+
+		hw := halfFwd
+		hh := halfH
+		hp := halfPerp
+
+		// World-space corners relative to center base (cx, cy, cz):
+		// fwd axis: (dirX, 0, dirZ), up: (0,1,0), perp: (perpX, 0, perpZ)
+		c000 := [3]float32{cx - hw*dirX - hp*perpX, cy, cz - hw*dirZ - hp*perpZ}
+		c100 := [3]float32{cx + hw*dirX - hp*perpX, cy, cz + hw*dirZ - hp*perpZ}
+		c010 := [3]float32{cx - hw*dirX - hp*perpX, cy + 2*hh, cz - hw*dirZ - hp*perpZ}
+		c110 := [3]float32{cx + hw*dirX - hp*perpX, cy + 2*hh, cz + hw*dirZ - hp*perpZ}
+		c001 := [3]float32{cx - hw*dirX + hp*perpX, cy, cz - hw*dirZ + hp*perpZ}
+		c101 := [3]float32{cx + hw*dirX + hp*perpX, cy, cz + hw*dirZ + hp*perpZ}
+		c011 := [3]float32{cx - hw*dirX + hp*perpX, cy + 2*hh, cz - hw*dirZ + hp*perpZ}
+		c111 := [3]float32{cx + hw*dirX + hp*perpX, cy + 2*hh, cz + hw*dirZ + hp*perpZ}
+
+		faces := []faceData{
+			{[4][3]float32{c000, c100, c110, c010}, [3]float32{-perpX, 0, -perpZ}}, // -perp face
+			{[4][3]float32{c101, c001, c011, c111}, [3]float32{perpX, 0, perpZ}},   // +perp face
+			{[4][3]float32{c001, c000, c010, c011}, [3]float32{-dirX, 0, -dirZ}},   // -fwd face
+			{[4][3]float32{c100, c101, c111, c110}, [3]float32{dirX, 0, dirZ}},     // +fwd face
+			{[4][3]float32{c010, c110, c111, c011}, [3]float32{0, 1, 0}},           // top
+			{[4][3]float32{c001, c101, c100, c000}, [3]float32{0, -1, 0}},          // bottom
+		}
+		for _, f := range faces {
+			base := uint32(len(verts) / 8)
+			for _, p := range f.corners {
+				verts = append(verts, p[0], p[1], p[2], f.normal[0], f.normal[1], f.normal[2], 0, 0)
+			}
+			indices = append(indices, base, base+1, base+2, base, base+2, base+3)
+		}
+	}
+
+	for i := 0; i <= steps; i++ {
+		frac := float32(i) / float32(steps)
+		wx := bx + dx*frac
+		wz := bz + dz*frac
+		gx := int(wx / cellSize)
+		gz := int(wz / cellSize)
+		wy := t.ElevationAt(gx, gz)
+
+		// Vertical pole centered on the cable line at this point.
+		emitBox(wx, wy, wz, poleHalf, towerH/2, poleHalf)
+		// Horizontal T crossbar at the top of the pole, perpendicular to cable.
+		crossY := wy + towerH - barThick
+		emitBox(wx, crossY, wz, barThick/2, barThick/2, barHalf)
+	}
+
+	return NewMesh(verts, indices, []int{3, 3, 2})
+}
+
+// generateCableMesh creates a quad strip for one cable at the given lateral offset.
+// perpOff > 0 = up cable side, perpOff < 0 = down cable side.
+func generateCableMesh(lift *world.Lift, t *world.Terrain, perpOff float32) *Mesh {
+	const cellSize = float32(10.0)
+	const cableWidth = float32(0.15)
+	const steps = 30
+
+	bx := float32(lift.Base[0]) * cellSize
+	bz := float32(lift.Base[1]) * cellSize
+	tx := float32(lift.Top[0]) * cellSize
+	tz := float32(lift.Top[1]) * cellSize
+	dx := tx - bx
+	dz := tz - bz
+	length := float32(math.Sqrt(float64(dx*dx + dz*dz)))
+	if length < 1 {
+		length = 1
+	}
 	perpX := -dz / length
 	perpZ := dx / length
 
@@ -666,28 +752,23 @@ func (r *Renderer) GenerateCableMesh(lift *world.Lift, t *world.Terrain) *Mesh {
 
 	for i := 0; i <= steps; i++ {
 		frac := float32(i) / float32(steps)
-		cx := bx + dx*frac
-		cz := bz + dz*frac
-		gx := int(cx / cellSize)
-		gz := int(cz / cellSize)
-		cy := t.ElevationAt(gx, gz) + 18.0 // cable runs near tower tops
+		cx := bx + dx*frac + perpX*perpOff
+		cz := bz + dz*frac + perpZ*perpOff
+		cy := t.InterpolatedElevationAt(cx, cz) + world.CableHeight
 
-		// Two vertices across cable width
 		for side := -1; side <= 1; side += 2 {
 			s := float32(side) * cableWidth * 0.5
 			verts = append(verts,
 				cx+perpX*s, cy, cz+perpZ*s,
-				0, 1, 0, // normal up
+				0, 1, 0,
 				frac, float32((side+1)/2),
 			)
 		}
-
 		if i < steps {
 			base := uint32(i * 2)
 			indices = append(indices, base, base+1, base+2, base+1, base+3, base+2)
 		}
 	}
-
 	return NewMesh(verts, indices, []int{3, 3, 2})
 }
 
@@ -718,13 +799,17 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		batch.Draw()
 	}
 
-	// Cable pass — meshes carry world-space positions, so the instance transform
-	// must be identity. Set it via generic vertex attribute values since the cable
-	// VAO has no instance VBO at locations 3-7.
+	// Tower + cable pass — world-space meshes, drawn with identity instance transform.
 	gl.BindTexture(gl.TEXTURE_2D, r.whiteTexID)
 	setCableTransformAttribs()
-	for _, liftMesh := range r.cableMeshes {
-		liftMesh.Draw()
+	for _, m := range r.liftTowerMeshes {
+		m.Draw()
+	}
+	for _, m := range r.liftUpCables {
+		m.Draw()
+	}
+	for _, m := range r.liftDownCables {
+		m.Draw()
 	}
 
 	// Ghost pass — translucent preview of in-progress placements.
@@ -735,43 +820,68 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	for _, batch := range r.ghostBatches {
 		batch.Draw()
 	}
-	if r.ghostCableMesh != nil {
-		gl.BindTexture(gl.TEXTURE_2D, r.whiteTexID)
-		setCableTransformAttribs()
-		r.ghostCableMesh.Draw()
+	gl.BindTexture(gl.TEXTURE_2D, r.whiteTexID)
+	setCableTransformAttribs()
+	if r.ghostTowerMesh != nil {
+		r.ghostTowerMesh.Draw()
+	}
+	if r.ghostUpCable != nil {
+		r.ghostUpCable.Draw()
+	}
+	if r.ghostDownCable != nil {
+		r.ghostDownCable.Draw()
 	}
 	r.StaticShader.SetFloat("uAlpha", 1.0)
 	gl.DepthMask(true)
 	gl.Disable(gl.BLEND)
 
 	// Dynamic pass (agents)
+	r.DynamicShader.Use()
+	r.DynamicShader.SetMat4("uViewProj", vp)
+	r.DynamicShader.SetFloat("uTime", time)
+
 	if r.dynamicBatch != nil {
-		// Collect agent instances
 		instances := make([]DynamicInstance, 0, len(w.Agents))
 		for _, agent := range w.Agents {
-			// Riding agents carry an explicit cable Y; all others snap to the
-			// jitter-corrected visual terrain surface so they sit on the mesh.
 			posY := agent.Pos[1]
 			if agent.State != world.StateRiding {
 				posY = visualElevationAt(w.Terrain, agent.Pos[0], agent.Pos[2])
 			}
 			color := agentColor(agent.State)
 			if r.HighlightAgentID != 0 && agent.ID == r.HighlightAgentID {
-				color = [3]float32{1.0, 0.95, 0.1} // gold highlight for followed skier
+				color = [3]float32{1.0, 0.95, 0.1}
 			}
-			inst := DynamicInstance{
+			instances = append(instances, DynamicInstance{
 				Position: [3]float32{agent.Pos[0], posY, agent.Pos[2]},
 				Heading:  agent.Heading,
 				Color:    color,
-			}
-			instances = append(instances, inst)
+			})
 		}
 		r.dynamicBatch.SetDynamic(instances)
-
-		r.DynamicShader.Use()
-		r.DynamicShader.SetMat4("uViewProj", vp)
-		r.DynamicShader.SetFloat("uTime", time)
 		r.dynamicBatch.Draw()
+	}
+
+	// Chair pass
+	if r.chairBatch != nil {
+		chairInstances := make([]DynamicInstance, 0)
+		for _, lift := range w.Lifts {
+			for _, chair := range lift.Chairs {
+				pos, heading := lift.ChairPos(chair.Progress, w.Terrain)
+				// Chair color: grey when empty, blue-tint when carrying passengers.
+				hasPax := chair.Passengers[0] != nil || chair.Passengers[1] != nil
+				color := [3]float32{0.7, 0.7, 0.7}
+				if hasPax {
+					color = [3]float32{0.55, 0.65, 0.85}
+				}
+				chairInstances = append(chairInstances, DynamicInstance{
+					Position: [3]float32{pos[0], pos[1], pos[2]},
+					Heading:  heading,
+					Color:    color,
+				})
+			}
+		}
+		r.chairBatch.SetDynamic(chairInstances)
+		r.chairBatch.Draw()
 	}
 }
 
@@ -897,35 +1007,70 @@ func (r *Renderer) ClearAllGhosts() {
 	}
 }
 
-// SetGhostCable regenerates the ghost cable mesh from base to top.
+// SetGhostCable regenerates the ghost tower + cable meshes from base to top.
 func (r *Renderer) SetGhostCable(base, top [2]int, t *world.Terrain) {
-	if r.ghostCableMesh != nil {
-		r.ghostCableMesh.Delete()
+	if r.ghostTowerMesh != nil {
+		r.ghostTowerMesh.Delete()
+	}
+	if r.ghostUpCable != nil {
+		r.ghostUpCable.Delete()
+	}
+	if r.ghostDownCable != nil {
+		r.ghostDownCable.Delete()
 	}
 	tempLift := &world.Lift{Base: base, Top: top}
-	r.ghostCableMesh = r.GenerateCableMesh(tempLift, t)
+	r.ghostTowerMesh = GenerateTowerMesh(tempLift, t)
+	r.ghostUpCable = generateCableMesh(tempLift, t, world.CableGap)
+	r.ghostDownCable = generateCableMesh(tempLift, t, -world.CableGap)
 }
 
-// ClearGhostCable removes the ghost cable mesh.
+// ClearGhostCable removes the ghost tower + cable meshes.
 func (r *Renderer) ClearGhostCable() {
-	if r.ghostCableMesh != nil {
-		r.ghostCableMesh.Delete()
-		r.ghostCableMesh = nil
+	if r.ghostTowerMesh != nil {
+		r.ghostTowerMesh.Delete()
+		r.ghostTowerMesh = nil
+	}
+	if r.ghostUpCable != nil {
+		r.ghostUpCable.Delete()
+		r.ghostUpCable = nil
+	}
+	if r.ghostDownCable != nil {
+		r.ghostDownCable.Delete()
+		r.ghostDownCable = nil
 	}
 }
 
-// AddLiftCable generates and stores a cable mesh for a lift.
-func (r *Renderer) AddLiftCable(lift *world.Lift, t *world.Terrain) {
-	mesh := r.GenerateCableMesh(lift, t)
-	r.cableMeshes[lift.ID] = mesh
+// AddLiftMeshes generates and stores tower + cable meshes for a lift.
+func (r *Renderer) AddLiftMeshes(lift *world.Lift, t *world.Terrain) {
+	r.liftTowerMeshes[lift.ID] = GenerateTowerMesh(lift, t)
+	r.liftUpCables[lift.ID] = generateCableMesh(lift, t, world.CableGap)
+	r.liftDownCables[lift.ID] = generateCableMesh(lift, t, -world.CableGap)
 }
 
-// RemoveLiftCable removes a cable mesh.
-func (r *Renderer) RemoveLiftCable(liftID uint64) {
-	if m, ok := r.cableMeshes[liftID]; ok {
+// RemoveLiftMeshes removes all procedural meshes for a lift.
+func (r *Renderer) RemoveLiftMeshes(liftID uint64) {
+	if m, ok := r.liftTowerMeshes[liftID]; ok {
 		m.Delete()
-		delete(r.cableMeshes, liftID)
+		delete(r.liftTowerMeshes, liftID)
 	}
+	if m, ok := r.liftUpCables[liftID]; ok {
+		m.Delete()
+		delete(r.liftUpCables, liftID)
+	}
+	if m, ok := r.liftDownCables[liftID]; ok {
+		m.Delete()
+		delete(r.liftDownCables, liftID)
+	}
+}
+
+// AddLiftCable is kept for call-site compatibility; delegates to AddLiftMeshes.
+func (r *Renderer) AddLiftCable(lift *world.Lift, t *world.Terrain) {
+	r.AddLiftMeshes(lift, t)
+}
+
+// RemoveLiftCable is kept for call-site compatibility; delegates to RemoveLiftMeshes.
+func (r *Renderer) RemoveLiftCable(liftID uint64) {
+	r.RemoveLiftMeshes(liftID)
 }
 
 // ScreenWidth returns the window's logical width in points (matches mouse coords).
