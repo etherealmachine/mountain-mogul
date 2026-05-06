@@ -212,8 +212,6 @@ Allows importing real-world terrain into a new scenario. Player enters a locatio
 ---
 
 ## Next Steps
-- Can we use triplanar projection to improve our landscape look?
-  - Main problems - we have no textures right now, do we need multiple biomes? How does snow work on top of the textured landscape?
 - The lift towers need to be a T shape with two cables, the up and down cable coming out of the base, passing through the top of the T
 - Then, we need chairs for the lift that we animate with skiers inside the chair, and two skiers per chair
 - We also need a queuing system for the lift, so we want to track the chairs, how fast they're moving, and actually pick up and drop off pairs of skiers, with a queue of skiers "stored" in the base of the lift waiting for pick

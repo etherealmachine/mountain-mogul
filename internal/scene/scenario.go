@@ -172,6 +172,30 @@ func (s *Scenario) Update(dt float64) {
 		s.cycleFollow()
 	}
 
+	// C: toggle slope + contour overlay.
+	if inp.Pressed[glfw.KeyC] {
+		if r.TerrainOverlayMode == 0 {
+			r.TerrainOverlayMode = 1
+		} else {
+			r.TerrainOverlayMode = 0
+		}
+	}
+
+	// Q/E: rotate camera.
+	const rotSpeed = float32(90.0) // degrees per second
+	rotDelta := float32(0)
+	if inp.Held[glfw.KeyQ] {
+		rotDelta -= rotSpeed * float32(dt)
+	}
+	if inp.Held[glfw.KeyE] {
+		rotDelta += rotSpeed * float32(dt)
+	}
+	if rotDelta != 0 {
+		s.followAgentID = 0
+		r.Camera.Yaw += rotDelta
+		r.Camera.Recalculate()
+	}
+
 	// Menu bar input
 	s.menuBar.HandleInput(inp, float32(r.ScreenHeight()))
 

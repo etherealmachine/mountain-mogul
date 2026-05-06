@@ -125,9 +125,9 @@ func (t *Terrain) NormalAt(x, z float32) mgl32.Vec3 {
 
 	// approximate normal using cross products of grid tangents
 	// tangent in X direction
-	tx := mgl32.Vec3{1.0, e10 - e00, 0.0}
+	tx := mgl32.Vec3{10.0, e10 - e00, 0.0}
 	// tangent in Z direction
-	tz := mgl32.Vec3{0.0, e01 - e00, 1.0}
+	tz := mgl32.Vec3{0.0, e01 - e00, 10.0}
 
 	normal := tz.Cross(tx)
 	return normal.Normalize()

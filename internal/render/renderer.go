@@ -41,7 +41,8 @@ type Renderer struct {
 	brushCenter mgl32.Vec2
 	brushRadius float32
 
-	HighlightAgentID uint64
+	HighlightAgentID    uint64
+	TerrainOverlayMode int // 0 = normal, 1 = slope + contour
 
 	// logicalW/H are the window size in logical (point) pixels — these match
 	// GLFW mouse coordinates and are used for UI ortho projection and camera
@@ -165,9 +166,10 @@ func (r *Renderer) SetLogicalSize(w, h int) {
 }
 
 // buildTerrainVerts generates vertex and index data for the terrain mesh.
-// Each quad uses 6 vertices (two explicit triangles, no sharing) so each
-// triangle can carry its own flat normal. Diagonals alternate in a
-// checkerboard pattern and each corner gets a small deterministic Y jitter.
+// Vertex layout per vertex: pos(3) + flatNormal(3) + smoothNormal(3) + color(3) = 12 floats.
+// flatNormal is the per-triangle face normal (used for flat shading).
+// smoothNormal is the averaged normal across neighbouring faces (used for slope viz).
+// Diagonals alternate in a checkerboard pattern; each corner gets a small deterministic Y jitter.
 // Also emits 4 side walls and a bottom face to form a diorama-style block.
 func buildTerrainVerts(t *world.Terrain) ([]float32, []uint32) {
 	const cellSize = float32(10.0)
@@ -175,43 +177,97 @@ func buildTerrainVerts(t *world.Terrain) ([]float32, []uint32) {
 
 	numSurface := (t.Width - 1) * (t.Height - 1)
 	numSkirt := 2*(t.Width-1) + 2*(t.Height-1) + 1
-	verts := make([]float32, 0, (numSurface+numSkirt)*6*9)
+	verts := make([]float32, 0, (numSurface+numSkirt)*6*12)
 	indices := make([]uint32, 0, (numSurface+numSkirt)*6)
 
 	idx := uint32(0)
+
+	// ── Pre-compute jittered elevations ───────────────────────────────────────
+	jit := make([]float32, t.Width*t.Height)
+	for z := 0; z < t.Height; z++ {
+		for x := 0; x < t.Width; x++ {
+			jit[x*t.Height+z] = t.ElevationAt(x, z) + terrainJitter(x, z, cellSize)
+		}
+	}
+	jitAt := func(x, z int) float32 { return jit[x*t.Height+z] }
+
+	// ── Smooth normal accumulation ─────────────────────────────────────────────
+	// For each grid point, sum the face normals of every triangle that touches it,
+	// then normalise. This gives a per-vertex normal that represents the average
+	// surface direction across neighbouring triangles.
+	smoothAcc := make([][3]float32, t.Width*t.Height)
+	addAcc := func(x, z int, n [3]float32) {
+		if x >= 0 && x < t.Width && z >= 0 && z < t.Height {
+			i := x*t.Height + z
+			smoothAcc[i][0] += n[0]
+			smoothAcc[i][1] += n[1]
+			smoothAcc[i][2] += n[2]
+		}
+	}
+	for z := 0; z < t.Height-1; z++ {
+		for x := 0; x < t.Width-1; x++ {
+			p00 := [3]float32{float32(x) * cellSize, jitAt(x, z), float32(z) * cellSize}
+			p10 := [3]float32{float32(x+1) * cellSize, jitAt(x+1, z), float32(z) * cellSize}
+			p01 := [3]float32{float32(x) * cellSize, jitAt(x, z+1), float32(z+1) * cellSize}
+			p11 := [3]float32{float32(x+1) * cellSize, jitAt(x+1, z+1), float32(z+1) * cellSize}
+			if (x+z)%2 == 0 {
+				n1 := upwardNormal(p00, p10, p11)
+				n2 := upwardNormal(p00, p11, p01)
+				addAcc(x, z, n1); addAcc(x+1, z, n1); addAcc(x+1, z+1, n1)
+				addAcc(x, z, n2); addAcc(x+1, z+1, n2); addAcc(x, z+1, n2)
+			} else {
+				n1 := upwardNormal(p00, p10, p01)
+				n2 := upwardNormal(p10, p11, p01)
+				addAcc(x, z, n1); addAcc(x+1, z, n1); addAcc(x, z+1, n1)
+				addAcc(x+1, z, n2); addAcc(x+1, z+1, n2); addAcc(x, z+1, n2)
+			}
+		}
+	}
+	smoothAt := func(x, z int) [3]float32 {
+		n := smoothAcc[x*t.Height+z]
+		l := float32(math.Sqrt(float64(n[0]*n[0] + n[1]*n[1] + n[2]*n[2])))
+		if l < 1e-6 {
+			return [3]float32{0, 1, 0}
+		}
+		return [3]float32{n[0] / l, n[1] / l, n[2] / l}
+	}
 
 	// ── Surface ───────────────────────────────────────────────────────────────
 	for z := 0; z < t.Height-1; z++ {
 		for x := 0; x < t.Width-1; x++ {
 			color := terrainColor(t.Cells[x][z])
 
-			// Corner elevations with deterministic per-vertex jitter (~10% of cellSize).
-			e00 := t.ElevationAt(x, z) + terrainJitter(x, z, cellSize)
-			e10 := t.ElevationAt(x+1, z) + terrainJitter(x+1, z, cellSize)
-			e01 := t.ElevationAt(x, z+1) + terrainJitter(x, z+1, cellSize)
-			e11 := t.ElevationAt(x+1, z+1) + terrainJitter(x+1, z+1, cellSize)
+			p00 := [3]float32{float32(x) * cellSize, jitAt(x, z), float32(z) * cellSize}
+			p10 := [3]float32{float32(x+1) * cellSize, jitAt(x+1, z), float32(z) * cellSize}
+			p01 := [3]float32{float32(x) * cellSize, jitAt(x, z+1), float32(z+1) * cellSize}
+			p11 := [3]float32{float32(x+1) * cellSize, jitAt(x+1, z+1), float32(z+1) * cellSize}
 
-			p00 := [3]float32{float32(x) * cellSize, e00, float32(z) * cellSize}
-			p10 := [3]float32{float32(x+1) * cellSize, e10, float32(z) * cellSize}
-			p01 := [3]float32{float32(x) * cellSize, e01, float32(z+1) * cellSize}
-			p11 := [3]float32{float32(x+1) * cellSize, e11, float32(z+1) * cellSize}
-
-			// Alternate the shared diagonal in a checkerboard pattern.
+			// Track which grid point each triangle corner maps to for smooth normal lookup.
 			var tris [2][3][3]float32
+			var corners [2][3][2]int
 			if (x+z)%2 == 0 {
-				tris[0] = [3][3]float32{p00, p10, p11} // diagonal p00↔p11
+				tris[0] = [3][3]float32{p00, p10, p11}
 				tris[1] = [3][3]float32{p00, p11, p01}
+				corners[0] = [3][2]int{{x, z}, {x + 1, z}, {x + 1, z + 1}}
+				corners[1] = [3][2]int{{x, z}, {x + 1, z + 1}, {x, z + 1}}
 			} else {
-				tris[0] = [3][3]float32{p00, p10, p01} // diagonal p10↔p01
+				tris[0] = [3][3]float32{p00, p10, p01}
 				tris[1] = [3][3]float32{p10, p11, p01}
+				corners[0] = [3][2]int{{x, z}, {x + 1, z}, {x, z + 1}}
+				corners[1] = [3][2]int{{x + 1, z}, {x + 1, z + 1}, {x, z + 1}}
 			}
 
-			for _, tri := range tris {
+			for ti, tri := range tris {
 				n := upwardNormal(tri[0], tri[1], tri[2])
-				for _, p := range tri {
-					verts = append(verts, p[0], p[1], p[2])
-					verts = append(verts, n[0], n[1], n[2])
-					verts = append(verts, color[0], color[1], color[2])
+				for vi, p := range tri {
+					cx, cz := corners[ti][vi][0], corners[ti][vi][1]
+					sn := smoothAt(cx, cz)
+					verts = append(verts,
+						p[0], p[1], p[2],
+						n[0], n[1], n[2],
+						sn[0], sn[1], sn[2],
+						color[0], color[1], color[2],
+					)
 				}
 				indices = append(indices, idx, idx+1, idx+2)
 				idx += 3
@@ -221,10 +277,16 @@ func buildTerrainVerts(t *world.Terrain) ([]float32, []uint32) {
 
 	// ── Skirt (walls + bottom) ────────────────────────────────────────────────
 	wallColor := [3]float32{0.50, 0.40, 0.30}
+	upNorm := [3]float32{0, 1, 0} // smooth normal placeholder for skirt faces
 
 	emitTri := func(a, b, c, n, color [3]float32) {
 		for _, p := range [][3]float32{a, b, c} {
-			verts = append(verts, p[0], p[1], p[2], n[0], n[1], n[2], color[0], color[1], color[2])
+			verts = append(verts,
+				p[0], p[1], p[2],
+				n[0], n[1], n[2],
+				upNorm[0], upNorm[1], upNorm[2],
+				color[0], color[1], color[2],
+			)
 		}
 		indices = append(indices, idx, idx+1, idx+2)
 		idx += 3
@@ -373,7 +435,7 @@ func upwardNormal(a, b, c [3]float32) [3]float32 {
 }
 
 // BuildTerrainMesh creates the terrain mesh from the given Terrain.
-// Vertex layout: pos(3) + normal(3) + color(3) = 9 floats per vertex.
+// Vertex layout: pos(3) + flatNormal(3) + smoothNormal(3) + color(3) = 12 floats per vertex.
 func (r *Renderer) BuildTerrainMesh(t *world.Terrain) {
 	r.terrainWidth = t.Width
 	r.terrainHeight = t.Height
@@ -395,13 +457,15 @@ func (r *Renderer) BuildTerrainMesh(t *world.Terrain) {
 	gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo)
 	gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(indices)*4, gl.Ptr(indices), gl.STATIC_DRAW)
 
-	stride := int32(9 * 4)
+	stride := int32(12 * 4)
 	gl.EnableVertexAttribArray(0)
-	gl.VertexAttribPointerWithOffset(0, 3, gl.FLOAT, false, stride, 0)
+	gl.VertexAttribPointerWithOffset(0, 3, gl.FLOAT, false, stride, 0)  // aPos
 	gl.EnableVertexAttribArray(1)
-	gl.VertexAttribPointerWithOffset(1, 3, gl.FLOAT, false, stride, 12)
+	gl.VertexAttribPointerWithOffset(1, 3, gl.FLOAT, false, stride, 12) // aNormal (flat)
 	gl.EnableVertexAttribArray(2)
-	gl.VertexAttribPointerWithOffset(2, 3, gl.FLOAT, false, stride, 24)
+	gl.VertexAttribPointerWithOffset(2, 3, gl.FLOAT, false, stride, 24) // aSmoothNormal
+	gl.EnableVertexAttribArray(3)
+	gl.VertexAttribPointerWithOffset(3, 3, gl.FLOAT, false, stride, 36) // aColor
 	gl.BindVertexArray(0)
 
 	r.terrainVBO = vbo
@@ -640,6 +704,7 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		r.TerrainShader.SetMat4("uViewProj", vp)
 		r.TerrainShader.SetVec2("uBrushCenter", r.brushCenter)
 		r.TerrainShader.SetFloat("uBrushRadius", r.brushRadius)
+		r.TerrainShader.SetInt("uOverlayMode", r.TerrainOverlayMode)
 		r.terrainMesh.Draw()
 	}
 

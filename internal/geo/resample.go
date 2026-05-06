@@ -33,28 +33,10 @@ func ResampleToGrid(src [][]float32, destCols, destRows int) [][]float32 {
 		}
 	}
 
-	span := maxE - minE
-	if span < 1 {
-		span = 1
-	}
-
-	// Target max elevation = 30% of terrain horizontal extent (cellSize=10).
-	targetHeight := float32(destCols) * 10.0 * 0.30
-	scale := targetHeight / span
-	// Cap amplification: don't scale more than what a 30m span would produce.
-	// This prevents absurd exaggeration of nearly-flat terrain while allowing
-	// real mountains to reach the full targetHeight.
-	maxScale := targetHeight / 30.0
-	if scale > maxScale {
-		scale = maxScale
-	}
-	if scale < 0.05 {
-		scale = 0.05 // don't compress massive mountains into nothing
-	}
-
+	// Zero-base and apply 2× vertical exaggeration for gameplay.
 	for row := range out {
 		for col := range out[row] {
-			out[row][col] = (out[row][col] - minE) * scale
+			out[row][col] = (out[row][col] - minE) * 2.0
 		}
 	}
 	return out

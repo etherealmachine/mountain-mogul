@@ -392,17 +392,8 @@ func (t *TerrainImport) startFetch() {
 	fetchMinLon := t.mapBounds[2] + fx0*lonSpan
 	fetchMaxLon := t.mapBounds[2] + fx1*lonSpan
 
-	// Fetch at a capped resolution to limit API batch count, then resample up.
-	const maxFetchRes = 64
-	fetchCols := t.terrainCols
-	if fetchCols > maxFetchRes {
-		fetchCols = maxFetchRes
-	}
-	fetchRows := t.terrainRows
-	if fetchRows > maxFetchRes {
-		fetchRows = maxFetchRes
-	}
-	cols, rows := fetchCols, fetchRows
+	// cols/rows are ignored by the tile fetcher but kept for the function signature.
+	cols, rows := t.terrainCols, t.terrainRows
 
 	ctx, cancel := context.WithCancel(context.Background())
 	j := &tiJob{cancel: cancel}
