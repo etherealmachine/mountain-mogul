@@ -65,7 +65,7 @@ func RunHeadless(out io.Writer, key string, opts HeadlessOptions) error {
 
 	const dt = 1.0 / 60.0
 	steps := int(opts.SimSeconds / dt)
-	prevState := agent.State
+	prevActivity := world.Activity(w, agent)
 	arrived := false
 	var arrivedAt float64
 
@@ -76,11 +76,11 @@ func RunHeadless(out io.Writer, key string, opts HeadlessOptions) error {
 			arrivedAt = sim.SimTime
 			break
 		}
-		// Track state transitions for event lines (falls, etc.).
-		cur := w.Agents[0].State
-		if cur != prevState {
-			fmt.Fprintf(out, "  ! t=%6.2f  state %s → %s\n", sim.SimTime, stateName(prevState), stateName(cur))
-			prevState = cur
+		// Track activity transitions for event lines (falls, mode changes).
+		cur := world.Activity(w, w.Agents[0])
+		if cur != prevActivity {
+			fmt.Fprintf(out, "  ! t=%6.2f  %s → %s\n", sim.SimTime, prevActivity, cur)
+			prevActivity = cur
 		}
 	}
 
@@ -90,8 +90,8 @@ func RunHeadless(out io.Writer, key string, opts HeadlessOptions) error {
 	} else {
 		a := w.Agents[0]
 		d := dist3(a.Pos[0]-target[0], a.Pos[1]-target[1], a.Pos[2]-target[2])
-		fmt.Fprintf(out, "did NOT arrive within %.1fs (final pos=(%.1f,%.1f,%.1f) dist=%.1f state=%s)\n",
-			opts.SimSeconds, a.Pos[0], a.Pos[1], a.Pos[2], d, stateName(a.State))
+		fmt.Fprintf(out, "did NOT arrive within %.1fs (final pos=(%.1f,%.1f,%.1f) dist=%.1f activity=%s)\n",
+			opts.SimSeconds, a.Pos[0], a.Pos[1], a.Pos[2], d, world.Activity(w, a))
 	}
 	rec.writeSummary()
 	return nil
@@ -117,8 +117,8 @@ type traceRecorder struct {
 	prevSign          int8
 	techTicks         map[ai.Technique]int
 	totalTicks        int
-	prevState         world.AgentState
-	prevStateSet      bool
+	prevActivity      string
+	prevActivitySet   bool
 }
 
 func newTraceRecorder(id uint64, out io.Writer, period float64) *traceRecorder {
@@ -134,8 +134,8 @@ func (r *traceRecorder) AgentID() uint64 { return r.id }
 func (r *traceRecorder) Close() error    { return nil }
 
 func (r *traceRecorder) writeHeader() {
-	fmt.Fprintf(r.out, "  %-7s %-9s %-22s %5s %9s %-8s %4s %5s %-14s %6s\n",
-		"t", "state", "pos(x,y,z)", "spd", "head→axis", "tech", "bal", "slope", "probe C/R/L", "dist")
+	fmt.Fprintf(r.out, "  %-7s %-12s %-22s %5s %9s %-8s %4s %5s %-14s %6s\n",
+		"t", "activity", "pos(x,y,z)", "spd", "head→axis", "tech", "bal", "slope", "probe C/R/L", "dist")
 }
 
 func (r *traceRecorder) Record(f RecorderFrame) {
@@ -145,12 +145,12 @@ func (r *traceRecorder) Record(f RecorderFrame) {
 	}
 	r.techTicks[f.Technique]++
 
-	// Fall detection: rising edge into StateFallen.
-	if r.prevStateSet && f.State == world.StateFallen && r.prevState != world.StateFallen {
+	// Fall detection: rising edge into "Fallen" activity.
+	if r.prevActivitySet && f.Activity == "Fallen" && r.prevActivity != "Fallen" {
 		r.fallEvents++
 	}
-	r.prevState = f.State
-	r.prevStateSet = true
+	r.prevActivity = f.Activity
+	r.prevActivitySet = true
 
 	// Fall-line crossings: sign of (heading - axis) flips.
 	dev := wrapAngle(f.Heading - f.AxisHeading)
@@ -176,9 +176,9 @@ func (r *traceRecorder) Record(f RecorderFrame) {
 	headDev := wrapAngle(f.Heading - f.AxisHeading)
 	slopeDeg := math.Acos(math.Min(1, math.Max(-1, float64(f.SlopeCos)))) * 180 / math.Pi
 
-	fmt.Fprintf(r.out, "  %6.2f  %-9s (%6.1f,%5.1f,%6.1f) %5.2f %+7.2f° %-8s %4.2f %4.1f° %4.2f/%4.2f/%4.2f %6.1f\n",
+	fmt.Fprintf(r.out, "  %6.2f  %-12s (%6.1f,%5.1f,%6.1f) %5.2f %+7.2f° %-8s %4.2f %4.1f° %4.2f/%4.2f/%4.2f %6.1f\n",
 		f.SimTime,
-		stateName(f.State),
+		f.Activity,
 		f.Pos[0], f.Pos[1], f.Pos[2],
 		f.Speed,
 		headDev*180/math.Pi,
@@ -243,24 +243,6 @@ func techName(t ai.Technique) string {
 	return fmt.Sprintf("?%d", t)
 }
 
-func stateName(s world.AgentState) string {
-	switch s {
-	case world.StateWalking:
-		return "walk"
-	case world.StateQueuing:
-		return "queue"
-	case world.StateRiding:
-		return "lift"
-	case world.StateSkiing:
-		return "ski"
-	case world.StateReturningToLodge:
-		return "return"
-	case world.StateFallen:
-		return "fallen"
-	}
-	return fmt.Sprintf("?%d", s)
-}
-
 func skillName(s ai.SkillLevel) string {
 	switch s {
 	case ai.SkillBeginner:
@@ -281,22 +263,22 @@ func testbedKeys() []string {
 	return out
 }
 
-// targetPos resolves where an agent is heading (lodge or lift centre) so the
-// header can print a useful target. Falls back to the first lodge / lift.
+// targetPos resolves where an agent is heading (lodge or lift base) so the
+// header can print a useful target. Returns the agent's own position if the
+// TargetID resolves to nothing.
 func targetPos(w *world.World, a *world.Agent) [3]float32 {
 	const cellSize = 10.0
-	if a.TargetBuildingID != 0 {
-		for _, b := range w.Buildings {
-			if b.ID == a.TargetBuildingID {
-				return [3]float32{float32(b.Pos[0]) * cellSize, w.Terrain.ElevationAt(b.Pos[0], b.Pos[1]), float32(b.Pos[1]) * cellSize}
-			}
+	if a.TargetID == 0 {
+		return [3]float32{a.Pos[0], a.Pos[1], a.Pos[2]}
+	}
+	for _, b := range w.Buildings {
+		if b.ID == a.TargetID {
+			return [3]float32{float32(b.Pos[0]) * cellSize, w.Terrain.ElevationAt(b.Pos[0], b.Pos[1]), float32(b.Pos[1]) * cellSize}
 		}
 	}
-	if a.TargetLiftID != 0 {
-		for _, l := range w.Lifts {
-			if l.ID == a.TargetLiftID {
-				return [3]float32{float32(l.Base[0]) * cellSize, w.Terrain.ElevationAt(l.Base[0], l.Base[1]), float32(l.Base[1]) * cellSize}
-			}
+	for _, l := range w.Lifts {
+		if l.ID == a.TargetID {
+			return [3]float32{float32(l.Base[0]) * cellSize, w.Terrain.ElevationAt(l.Base[0], l.Base[1]), float32(l.Base[1]) * cellSize}
 		}
 	}
 	return [3]float32{a.Pos[0], a.Pos[1], a.Pos[2]}

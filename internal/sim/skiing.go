@@ -136,9 +136,8 @@ type MotorCmd struct {
 // =============================================================================
 
 // tickSkier runs one frame of the AI pipeline against `target`. Returns true
-// when the agent has arrived (within ArrivalThreshold) — caller transitions
-// state. Used by both StateSkiing (target = lift base) and
-// StateReturningToLodge (target = lodge).
+// when the agent has arrived (within ArrivalThreshold) — the caller decides
+// what arrival means (queue a lift, enter a lodge, etc.).
 func (s *Simulation) tickSkier(a *world.Agent, target mgl32.Vec3, dt float64) bool {
 	// Hard arrival check up front so we don't run a full pipeline for a
 	// last-tick that just snaps to target.
@@ -152,7 +151,7 @@ func (s *Simulation) tickSkier(a *world.Agent, target mgl32.Vec3, dt float64) bo
 	// L1: refresh route if stale or pointing somewhere else.
 	if a.Route.Goal == ai.GoalNone || a.Route.GoalPos != target || a.Route.StaleAt < s.SimTime {
 		a.Route = ai.Route{
-			Goal:    routeGoalFor(a),
+			Goal:    routeGoalFor(s.World, a),
 			GoalPos: target,
 			StaleAt: s.SimTime + routePlanInterval,
 		}
@@ -175,8 +174,7 @@ func (s *Simulation) tickSkier(a *world.Agent, target mgl32.Vec3, dt float64) bo
 	}
 	if a.Balance <= 0 {
 		a.Balance = 0
-		a.ResumeState = a.State
-		a.State = world.StateFallen
+		a.Fallen = true
 		a.FallTimer = 4
 		a.Speed = 0
 		recordFrame(s, a, target, dist, perc, intent, cmd)
@@ -190,25 +188,27 @@ func (s *Simulation) tickSkier(a *world.Agent, target mgl32.Vec3, dt float64) bo
 	return false
 }
 
-// tickFallen counts the agent down out of StateFallen and resumes. The
-// caller (tickAgents) routes here when state == StateFallen.
+// tickFallen counts the agent down out of the fallen window and resumes.
+// The agent's TargetID and other goal fields are untouched, so the next
+// dispatch resumes locomotion (ski or walk) toward the same target.
 func (s *Simulation) tickFallen(a *world.Agent, dt float64) {
 	a.FallTimer -= float32(dt)
 	if a.FallTimer <= 0 {
-		a.State = a.ResumeState
-		if a.State == world.StateFallen { // safety; shouldn't happen
-			a.State = world.StateSkiing
-		}
+		a.Fallen = false
 		a.Balance = 0.7
 		a.Speed = 0
 		a.Motor = ai.MotorState{}
 	}
 }
 
-// routeGoalFor picks the GoalKind matching the agent's current state.
-func routeGoalFor(a *world.Agent) ai.GoalKind {
-	if a.State == world.StateReturningToLodge {
-		return ai.GoalLodge
+// routeGoalFor returns the route's goal kind based on what kind of entity
+// the agent's TargetID resolves to. Used to label the route for the AI's
+// internal bookkeeping (the kind doesn't currently affect steering).
+func routeGoalFor(w *world.World, a *world.Agent) ai.GoalKind {
+	for _, b := range w.Buildings {
+		if b.ID == a.TargetID {
+			return ai.GoalLodge
+		}
 	}
 	return ai.GoalLift
 }
@@ -746,7 +746,7 @@ func recordFrame(s *Simulation, a *world.Agent, target mgl32.Vec3, dist float32,
 	s.Recorder.Record(RecorderFrame{
 		SimTime:         s.SimTime,
 		AgentID:         a.ID,
-		State:           a.State,
+		Activity:        world.Activity(s.World, a),
 		Pos:             a.Pos,
 		Heading:         a.Heading,
 		Target:          target,

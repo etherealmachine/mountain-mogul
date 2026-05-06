@@ -101,13 +101,14 @@ func worldToData(w *world.World) ScenarioData {
 	agents := make([]AgentData, len(w.Agents))
 	for i, a := range w.Agents {
 		agents[i] = AgentData{
-			Pos:              [3]float32{a.Pos[0], a.Pos[1], a.Pos[2]},
-			Heading:          a.Heading,
-			State:            int(a.State),
-			Path:             a.Path,
-			PathIdx:          a.PathIdx,
-			Speed:            a.Speed,
-			TargetBuildingID: a.TargetBuildingID,
+			Pos:      [3]float32{a.Pos[0], a.Pos[1], a.Pos[2]},
+			Heading:  a.Heading,
+			Path:     a.Path,
+			PathIdx:  a.PathIdx,
+			Speed:    a.Speed,
+			TargetID: a.TargetID,
+			OnLiftID: a.OnLiftID,
+			Queued:   a.Queued,
 		}
 	}
 
@@ -176,14 +177,15 @@ func dataToWorld(data ScenarioData) *world.World {
 	// Restore agents
 	for _, ad := range data.Agents {
 		agent := &world.Agent{
-			ID:               w.NextID(),
-			Pos:              mgl32.Vec3{ad.Pos[0], ad.Pos[1], ad.Pos[2]},
-			Heading:          ad.Heading,
-			State:            world.AgentState(ad.State),
-			Path:             ad.Path,
-			PathIdx:          ad.PathIdx,
-			Speed:            ad.Speed,
-			TargetBuildingID: ad.TargetBuildingID,
+			ID:       w.NextID(),
+			Pos:      mgl32.Vec3{ad.Pos[0], ad.Pos[1], ad.Pos[2]},
+			Heading:  ad.Heading,
+			Path:     ad.Path,
+			PathIdx:  ad.PathIdx,
+			Speed:    ad.Speed,
+			TargetID: ad.TargetID,
+			OnLiftID: ad.OnLiftID,
+			Queued:   ad.Queued,
 		}
 		w.Agents = append(w.Agents, agent)
 	}

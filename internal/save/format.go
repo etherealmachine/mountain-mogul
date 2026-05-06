@@ -48,11 +48,12 @@ type LiftData struct {
 
 // AgentData is a saved agent state.
 type AgentData struct {
-	Pos              [3]float32 `json:"pos"`
-	Heading          float32    `json:"heading"`
-	State            int        `json:"state"`
-	Path             [][2]int   `json:"path,omitempty"`
-	PathIdx          int        `json:"path_idx,omitempty"`
-	Speed            float32    `json:"speed,omitempty"`
-	TargetBuildingID uint64     `json:"target_building_id,omitempty"`
+	Pos      [3]float32 `json:"pos"`
+	Heading  float32    `json:"heading"`
+	Path     [][2]int   `json:"path,omitempty"`
+	PathIdx  int        `json:"path_idx,omitempty"`
+	Speed    float32    `json:"speed,omitempty"`
+	TargetID uint64     `json:"target_id,omitempty"`
+	OnLiftID uint64     `json:"on_lift_id,omitempty"`
+	Queued   bool       `json:"queued,omitempty"`
 }

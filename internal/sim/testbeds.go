@@ -194,8 +194,8 @@ func placeTargetLodge(w *world.World, gx, gz int) *world.Building {
 }
 
 // spawnTestbedSkier places a single skier at (gx, gz) heading toward `lodge`
-// in StateReturningToLodge so the existing tickReturning → tickSkier path
-// drives them. Traits are populated from the skill level.
+// with TargetID set so the locomotion dispatch picks ski-or-walk based on
+// terrain. Traits are populated from the skill level.
 func spawnTestbedSkier(w *world.World, gx, gz int, lodge *world.Building, skill ai.SkillLevel) *world.Agent {
 	const cellSize = 10.0
 	elev := w.Terrain.ElevationAt(gx, gz)
@@ -206,12 +206,11 @@ func spawnTestbedSkier(w *world.World, gx, gz int, lodge *world.Building, skill 
 	heading := float32(math.Atan2(float64(lodgeX-pos[0]), float64(lodgeZ-pos[2])))
 
 	a := &world.Agent{
-		ID:               w.NextID(),
-		Pos:              pos,
-		Heading:          heading,
-		State:            world.StateReturningToLodge,
-		TargetBuildingID: lodge.ID,
-		Traits:           ai.TraitsFor(skill),
+		ID:       w.NextID(),
+		Pos:      pos,
+		Heading:  heading,
+		TargetID: lodge.ID,
+		Traits:   ai.TraitsFor(skill),
 		Balance:          1.0,
 	}
 	w.Agents = append(w.Agents, a)

@@ -349,7 +349,6 @@ func (s *Scenario) Update(dt float64) {
 		rotDelta += rotSpeed * float32(dt)
 	}
 	if rotDelta != 0 {
-		s.followAgentID = 0
 		r.Camera.Yaw += rotDelta
 		r.Camera.Recalculate()
 	}
@@ -531,7 +530,7 @@ func (s *Scenario) updateOverlay(r *render.Renderer) {
 		})
 	}
 
-	if s.debugSteering && (a.State == world.StateSkiing || a.State == world.StateReturningToLodge) {
+	if s.debugSteering && a.TargetID != 0 && !a.Fallen && a.OnLiftID == 0 && !a.Queued {
 		if target, ok := skierTarget(s.world, a); ok {
 			lines = append(lines, steeringLines(s.world, a, target)...)
 		}
@@ -567,29 +566,29 @@ func steeringLines(w *world.World, a *world.Agent, target mgl32.Vec3) []render.D
 }
 
 // skierTarget returns the world-space target the agent is currently
-// steering toward (lift base for skiing; lodge for returning).
+// steering toward, resolved from the agent's TargetID against either the
+// world's lifts or buildings.
 func skierTarget(w *world.World, a *world.Agent) (mgl32.Vec3, bool) {
 	const cellSize = float32(10.0)
-	switch a.State {
-	case world.StateSkiing:
-		for _, lift := range w.Lifts {
-			if lift.ID == a.TargetLiftID {
-				return mgl32.Vec3{
-					float32(lift.Base[0]) * cellSize,
-					w.Terrain.ElevationAt(lift.Base[0], lift.Base[1]),
-					float32(lift.Base[1]) * cellSize,
-				}, true
-			}
+	if a.TargetID == 0 {
+		return mgl32.Vec3{}, false
+	}
+	for _, lift := range w.Lifts {
+		if lift.ID == a.TargetID {
+			return mgl32.Vec3{
+				float32(lift.Base[0]) * cellSize,
+				w.Terrain.ElevationAt(lift.Base[0], lift.Base[1]),
+				float32(lift.Base[1]) * cellSize,
+			}, true
 		}
-	case world.StateReturningToLodge:
-		for _, b := range w.Buildings {
-			if b.ID == a.TargetBuildingID {
-				return mgl32.Vec3{
-					float32(b.Pos[0]) * cellSize,
-					w.Terrain.ElevationAt(b.Pos[0], b.Pos[1]),
-					float32(b.Pos[1]) * cellSize,
-				}, true
-			}
+	}
+	for _, b := range w.Buildings {
+		if b.ID == a.TargetID {
+			return mgl32.Vec3{
+				float32(b.Pos[0]) * cellSize,
+				w.Terrain.ElevationAt(b.Pos[0], b.Pos[1]),
+				float32(b.Pos[1]) * cellSize,
+			}, true
 		}
 	}
 	return mgl32.Vec3{}, false
@@ -650,12 +649,15 @@ func (s *Scenario) Render(r *render.Renderer) {
 	r.ClearBrush()
 
 	drawables := []render.UIDrawable{s.menuBar}
+	if s.simSeed != 0 {
+		drawables = append(drawables, &seedLabel{seed: s.simSeed})
+	}
 	if s.activeTool == toolLiftTop {
 		drawables = append(drawables, &hintLabel{text: "Click to set lift top"})
 	}
 	for i, a := range s.world.Agents {
 		if a.ID == s.followAgentID {
-			drawables = append(drawables, &followLabel{agent: a, idx: i})
+			drawables = append(drawables, &followLabel{world: s.world, agent: a, idx: i})
 			break
 		}
 	}
@@ -723,10 +725,10 @@ func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 	w.AddLabel("Spawn rate", func() string {
 		return fmt.Sprintf("%.2f/s", bldg.MeanSpawnRate)
 	})
-	w.AddLabel("Agents out", func() string {
+	w.AddLabel("Inbound", func() string {
 		count := 0
 		for _, a := range s.world.Agents {
-			if a.TargetBuildingID == bldg.ID {
+			if a.TargetID == bldg.ID {
 				count++
 			}
 		}
@@ -887,37 +889,53 @@ func (s *Scenario) findFollowedAgent() *world.Agent {
 
 // followLabel draws a HUD banner showing which skier the camera is following.
 type followLabel struct {
+	world *world.World
 	agent *world.Agent
 	idx   int
 }
 
 func (f *followLabel) Draw(r *render.Renderer) {
-	state := agentStateLabel(f.agent.State)
-	text := fmt.Sprintf("Skier #%d  |  %s", f.idx+1, state)
-	const boxH = float32(render.GlyphH + 8)
-	w := float32(len(text)*render.GlyphAdvance + 20)
+	activity := world.Activity(f.world, f.agent)
+	row1 := fmt.Sprintf("Skier #%d  |  %s", f.idx+1, activity)
+	row2 := fmt.Sprintf("%.1f m/s", f.agent.Speed)
+	const padX = 10
+	const padY = 4
+	const lineGap = 2
+	maxLen := len(row1)
+	if len(row2) > maxLen {
+		maxLen = len(row2)
+	}
+	w := float32(maxLen*render.GlyphAdvance + 2*padX)
+	boxH := float32(render.GlyphH*2 + lineGap + 2*padY)
 	x := (float32(r.ScreenWidth()) - w) / 2
-	textY := float32(40) + (boxH-float32(render.GlyphH))/2
-	r.DrawColorRect(x, 40, w, boxH, mgl32.Vec4{0, 0, 0, 0.6})
+	y := float32(40)
+	r.DrawColorRect(x, y, w, boxH, mgl32.Vec4{0, 0, 0, 0.6})
 	if r.Font != nil {
-		r.Font.DrawText(r, text, x+10, textY, mgl32.Vec4{1, 0.95, 0.1, 1})
+		row1X := x + (w-float32(len(row1)*render.GlyphAdvance))/2
+		row2X := x + (w-float32(len(row2)*render.GlyphAdvance))/2
+		r.Font.DrawText(r, row1, row1X, y+padY, mgl32.Vec4{1, 0.95, 0.1, 1})
+		r.Font.DrawText(r, row2, row2X, y+padY+float32(render.GlyphH+lineGap), mgl32.Vec4{1, 0.95, 0.1, 1})
 	}
 }
 
-func agentStateLabel(state world.AgentState) string {
-	switch state {
-	case world.StateWalking:
-		return "Walking"
-	case world.StateQueuing:
-		return "Queuing"
-	case world.StateRiding:
-		return "On Lift"
-	case world.StateSkiing:
-		return "Skiing"
-	case world.StateReturningToLodge:
-		return "Heading Home"
+// seedLabel shows the deterministic RNG seed used by the current run.
+// Rendered only in testbed mode (Scenario.simSeed != 0) so the player can read
+// off the seed for reproducing a session.
+type seedLabel struct {
+	seed int64
+}
+
+func (sl *seedLabel) Draw(r *render.Renderer) {
+	text := fmt.Sprintf("seed=%d", sl.seed)
+	const boxH = float32(render.GlyphH + 8)
+	boxW := float32(len(text)*render.GlyphAdvance + 16)
+	x := float32(r.ScreenWidth()) - boxW - 4
+	y := float32(render.GlyphH + 14) // just below the menu bar
+	textY := y + (boxH-float32(render.GlyphH))/2
+	r.DrawColorRect(x, y, boxW, boxH, mgl32.Vec4{0, 0, 0, 0.6})
+	if r.Font != nil {
+		r.Font.DrawText(r, text, x+8, textY, mgl32.Vec4{0.85, 0.85, 0.85, 1})
 	}
-	return "Unknown"
 }
 
 // hintLabel draws a small text hint at the bottom of the screen.

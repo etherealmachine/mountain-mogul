@@ -14,7 +14,12 @@ const (
 	WalkSpeed = 2.0  // m/s
 	CellSize  = 10.0 // metres per grid cell
 
-	lodgeReturnProb = 0.25 // probability a skier returns to lodge at the top instead of skiing down
+	lodgeReturnProb = 0.25 // probability a skier targets a lodge from the lift top instead of skiing back to base
+
+	// skiSlopeThreshold is the slope angle (radians) above which descending
+	// toward the goal switches the agent into the skiing pipeline. Below
+	// this — or when the goal is uphill — they walk.
+	skiSlopeThreshold = 5 * math.Pi / 180
 )
 
 // Simulation drives all agent and building behaviour.
@@ -70,15 +75,13 @@ func (s *Simulation) tickBuildings(dt float64) {
 			}
 			b.SkierCount--
 			agent := w.SpawnAgent(b)
-			agent.TargetLiftID = nearest.ID
-			agent.TargetBuildingID = b.ID
+			agent.TargetID = nearest.ID
 			agent.Traits = ai.TraitsFor(rollSkillLevel(s.Rng))
 			agent.Balance = 1.0
 			path := s.Pathfinder.FindPath(b.Pos, nearest.Base)
 			if path != nil {
 				agent.Path = path
 				agent.PathIdx = 0
-				agent.State = world.StateWalking
 			} else {
 				w.RemoveAgent(agent.ID)
 				b.SkierCount++ // failed spawn; return to pool
@@ -108,6 +111,7 @@ func (s *Simulation) tickLifts(dt float64) {
 						continue
 					}
 					chair.Passengers[j] = nil
+					agent.OnLiftID = 0
 					agent.Speed = 0
 					agent.Motor = ai.MotorState{}
 					agent.Route = ai.Route{}
@@ -119,30 +123,14 @@ func (s *Simulation) tickLifts(dt float64) {
 					ty := w.Terrain.ElevationAt(lift.Top[0], lift.Top[1])
 					agent.Pos = mgl32.Vec3{tx, ty, tz}
 
-					// Pick state and a target so we can orient the skier downhill.
+					// Pick a fresh target so we can orient the skier downhill.
 					// Heading must be reset: while riding, Heading points up the lift
 					// cable, which would make the new tickSkier physics treat gravity
 					// as decelerating (cos θ_off < 0) and the skier would never start.
-					var target mgl32.Vec3
-					if s.Rng.Float64() < lodgeReturnProb && findBuilding(w, agent.TargetBuildingID) != nil {
-						agent.State = world.StateReturningToLodge
-						lodge := findBuilding(w, agent.TargetBuildingID)
-						target = mgl32.Vec3{
-							float32(lodge.Pos[0]) * CellSize,
-							w.Terrain.ElevationAt(lodge.Pos[0], lodge.Pos[1]),
-							float32(lodge.Pos[1]) * CellSize,
-						}
-					} else {
-						agent.State = world.StateSkiing
-						agent.TargetLiftID = lift.ID
-						target = mgl32.Vec3{
-							float32(lift.Base[0]) * CellSize,
-							w.Terrain.ElevationAt(lift.Base[0], lift.Base[1]),
-							float32(lift.Base[1]) * CellSize,
-						}
-					}
-					dx := target[0] - agent.Pos[0]
-					dz := target[2] - agent.Pos[2]
+					targetID, targetPos := pickTopTarget(w, lift, s.Rng)
+					agent.TargetID = targetID
+					dx := targetPos[0] - agent.Pos[0]
+					dz := targetPos[2] - agent.Pos[2]
 					agent.Heading = float32(math.Atan2(float64(dx), float64(dz)))
 				}
 			}
@@ -154,29 +142,50 @@ func (s *Simulation) tickLifts(dt float64) {
 					agent := lift.Queue[0]
 					lift.Queue = lift.Queue[1:]
 					chair.Passengers[j] = agent
-					agent.State = world.StateRiding
+					agent.OnLiftID = lift.ID
+					agent.Queued = false
 				}
 			}
 		}
 	}
 }
 
+// pickTopTarget chooses where a skier goes after unloading at the lift top:
+// either a randomly-picked lodge (lodgeReturnProb) or the lift's own base.
+// Returns the entity ID and its world-space position.
+func pickTopTarget(w *world.World, lift *world.Lift, rng *rand.Rand) (uint64, mgl32.Vec3) {
+	if rng.Float64() < lodgeReturnProb && len(w.Buildings) > 0 {
+		lodge := w.Buildings[rng.Intn(len(w.Buildings))]
+		return lodge.ID, mgl32.Vec3{
+			float32(lodge.Pos[0]) * CellSize,
+			w.Terrain.ElevationAt(lodge.Pos[0], lodge.Pos[1]),
+			float32(lodge.Pos[1]) * CellSize,
+		}
+	}
+	return lift.ID, mgl32.Vec3{
+		float32(lift.Base[0]) * CellSize,
+		w.Terrain.ElevationAt(lift.Base[0], lift.Base[1]),
+		float32(lift.Base[1]) * CellSize,
+	}
+}
+
+// tickAgents dispatches each agent to the appropriate handler based on its
+// implicit state. Order of checks matters: fallen short-circuits everything,
+// then on-lift, then queued, then path-walking, then goal locomotion.
 func (s *Simulation) tickAgents(dt float64) {
 	w := s.World
 	for _, agent := range w.Agents {
-		switch agent.State {
-		case world.StateWalking:
-			s.tickWalking(agent, dt)
-		case world.StateQueuing:
-			// Waiting; handled in tickLifts
-		case world.StateRiding:
-			s.tickRiding(agent, dt)
-		case world.StateSkiing:
-			s.tickSkiing(agent, dt)
-		case world.StateReturningToLodge:
-			s.tickReturning(agent, dt)
-		case world.StateFallen:
+		switch {
+		case agent.Fallen:
 			s.tickFallen(agent, dt)
+		case agent.OnLiftID != 0:
+			s.tickRiding(agent, dt)
+		case agent.Queued:
+			// Waiting in lift.Queue — boarding is driven by tickLifts.
+		case len(agent.Path) > 0 && agent.PathIdx < len(agent.Path):
+			s.tickPath(agent, dt)
+		default:
+			s.tickLocomote(agent, dt)
 		}
 	}
 }
@@ -195,14 +204,11 @@ func rollSkillLevel(rng *rand.Rand) ai.SkillLevel {
 	}
 }
 
-func (s *Simulation) tickWalking(agent *world.Agent, dt float64) {
+// tickPath walks the agent along their pathfinder route at WalkSpeed. When
+// the path ends and the target is a lift, they queue up; otherwise they fall
+// through to goal-based locomotion next tick.
+func (s *Simulation) tickPath(agent *world.Agent, dt float64) {
 	w := s.World
-	if len(agent.Path) == 0 || agent.PathIdx >= len(agent.Path) {
-		agent.State = world.StateQueuing
-		s.joinLiftQueue(agent)
-		return
-	}
-
 	target := agent.Path[agent.PathIdx]
 	tx := float32(target[0]) * CellSize
 	tz := float32(target[1]) * CellSize
@@ -217,50 +223,36 @@ func (s *Simulation) tickWalking(agent *world.Agent, dt float64) {
 		agent.Pos = targetPos
 		agent.PathIdx++
 		if agent.PathIdx >= len(agent.Path) {
-			agent.State = world.StateQueuing
-			s.joinLiftQueue(agent)
+			agent.Path = nil
+			agent.PathIdx = 0
+			s.onPathComplete(agent)
 		}
-	} else {
-		dirNorm := dir.Normalize()
-		agent.Pos = agent.Pos.Add(dirNorm.Mul(step))
-		agent.Heading = float32(math.Atan2(float64(dirNorm[0]), float64(dirNorm[2])))
-	}
-}
-
-func (s *Simulation) tickReturning(agent *world.Agent, dt float64) {
-	w := s.World
-	lodge := findBuilding(w, agent.TargetBuildingID)
-	if lodge == nil {
-		w.RemoveAgent(agent.ID)
 		return
 	}
-
-	lx := float32(lodge.Pos[0]) * CellSize
-	lz := float32(lodge.Pos[1]) * CellSize
-	ly := w.Terrain.ElevationAt(lodge.Pos[0], lodge.Pos[1])
-	lodgePos := mgl32.Vec3{lx, ly, lz}
-
-	if s.tickSkier(agent, lodgePos, dt) {
-		lodge.SkierCount++
-		w.RemoveAgent(agent.ID)
-	}
+	dirNorm := dir.Normalize()
+	agent.Pos = agent.Pos.Add(dirNorm.Mul(step))
+	agent.Heading = float32(math.Atan2(float64(dirNorm[0]), float64(dirNorm[2])))
 }
 
-func (s *Simulation) joinLiftQueue(agent *world.Agent) {
-	w := s.World
-	for _, lift := range w.Lifts {
-		if lift.ID == agent.TargetLiftID {
+// onPathComplete handles the transition out of pathfinder-walking. If the
+// target is a lift, the agent joins its queue; otherwise locomotion takes
+// over on the next tick.
+func (s *Simulation) onPathComplete(agent *world.Agent) {
+	for _, lift := range s.World.Lifts {
+		if lift.ID == agent.TargetID {
 			lift.Queue = append(lift.Queue, agent)
+			agent.Queued = true
 			return
 		}
 	}
-	agent.State = world.StateWalking
 }
 
+// tickRiding glues the agent to its current chair's position. Resolved by
+// scanning the named lift's chair passenger lists.
 func (s *Simulation) tickRiding(agent *world.Agent, dt float64) {
 	w := s.World
 	for _, lift := range w.Lifts {
-		if lift.ID != agent.TargetLiftID {
+		if lift.ID != agent.OnLiftID {
 			continue
 		}
 		for _, chair := range lift.Chairs {
@@ -276,36 +268,137 @@ func (s *Simulation) tickRiding(agent *world.Agent, dt float64) {
 	}
 }
 
-func (s *Simulation) tickSkiing(agent *world.Agent, dt float64) {
+// tickLocomote moves the agent toward TargetID, choosing ski or walk based
+// on local slope and goal direction. Steep downhill toward the goal → ski;
+// flat or uphill → walk straight.
+func (s *Simulation) tickLocomote(agent *world.Agent, dt float64) {
 	w := s.World
-	var liftBase mgl32.Vec3
-	found := false
-	for _, lift := range w.Lifts {
-		if lift.ID == agent.TargetLiftID {
-			bx := float32(lift.Base[0]) * CellSize
-			bz := float32(lift.Base[1]) * CellSize
-			by := w.Terrain.ElevationAt(lift.Base[0], lift.Base[1])
-			liftBase = mgl32.Vec3{bx, by, bz}
-			found = true
-			break
-		}
+	if agent.TargetID == 0 {
+		return
 	}
-	if !found {
-		nearest := w.NearestLift([2]int{
-			int(agent.Pos[0] / CellSize),
-			int(agent.Pos[2] / CellSize),
-		})
-		if nearest == nil {
-			return
-		}
-		agent.TargetLiftID = nearest.ID
+	targetPos, kind, ok := resolveTarget(w, agent.TargetID)
+	if !ok {
+		// Target vanished — drop it; next tick this agent is idle.
+		agent.TargetID = 0
 		return
 	}
 
-	if s.tickSkier(agent, liftBase, dt) {
-		agent.State = world.StateQueuing
-		s.joinLiftQueue(agent)
+	if shouldSki(w.Terrain, agent.Pos, targetPos) {
+		if s.tickSkier(agent, targetPos, dt) {
+			s.onArrive(agent, kind)
+		}
+		return
 	}
+	if s.tickWalkToward(agent, targetPos, dt) {
+		s.onArrive(agent, kind)
+	}
+}
+
+// shouldSki returns true if the slope at the agent's position is steep
+// enough AND the goal is in the downhill direction. Otherwise the agent
+// walks (flat ground or uphill goals).
+func shouldSki(t *world.Terrain, pos, target mgl32.Vec3) bool {
+	n := t.NormalAt(pos[0]/CellSize, pos[2]/CellSize)
+	slope := math.Acos(math.Min(1, math.Max(-1, float64(n[1]))))
+	if slope < skiSlopeThreshold {
+		return false
+	}
+	// Project: is the target in the downhill direction?
+	fall := mgl32.Vec2{n[0], n[2]} // gradient projects to the uphill direction's negative
+	fl := fall.Len()
+	if fl < 1e-4 {
+		return false
+	}
+	fallDir := fall.Mul(1.0 / fl) // unit downhill (terrain.NormalAt convention: descending matches +n.xz when normal tilts uphill)
+	dx := target[0] - pos[0]
+	dz := target[2] - pos[2]
+	axisLen := float32(math.Sqrt(float64(dx*dx + dz*dz)))
+	if axisLen < 1e-4 {
+		return false
+	}
+	axis := mgl32.Vec2{dx / axisLen, dz / axisLen}
+	return axis.Dot(fallDir) > 0
+}
+
+// tickWalkToward marches the agent straight at WalkSpeed toward target;
+// returns true on arrival (within ArrivalThreshold).
+func (s *Simulation) tickWalkToward(agent *world.Agent, target mgl32.Vec3, dt float64) bool {
+	dir := target.Sub(agent.Pos)
+	dx, dz := dir[0], dir[2]
+	distXZ := float32(math.Sqrt(float64(dx*dx + dz*dz)))
+	if distXZ < ArrivalThreshold {
+		agent.Pos = target
+		agent.Speed = 0
+		return true
+	}
+	dirNorm := mgl32.Vec2{dx / distXZ, dz / distXZ}
+	step := float32(WalkSpeed * dt)
+	if step > distXZ {
+		step = distXZ
+	}
+	agent.Pos[0] += dirNorm[0] * step
+	agent.Pos[2] += dirNorm[1] * step
+	agent.Pos[1] = s.World.Terrain.InterpolatedElevationAt(agent.Pos[0], agent.Pos[2])
+	agent.Heading = float32(math.Atan2(float64(dirNorm[0]), float64(dirNorm[1])))
+	agent.Speed = WalkSpeed
+	return false
+}
+
+// onArrive handles arrival at the agent's TargetID. For lift targets the
+// agent queues up; for building (lodge) targets the agent is absorbed.
+func (s *Simulation) onArrive(agent *world.Agent, kind targetKind) {
+	switch kind {
+	case targetLift:
+		for _, lift := range s.World.Lifts {
+			if lift.ID == agent.TargetID {
+				lift.Queue = append(lift.Queue, agent)
+				agent.Queued = true
+				return
+			}
+		}
+	case targetBuilding:
+		for _, b := range s.World.Buildings {
+			if b.ID == agent.TargetID {
+				b.SkierCount++
+				s.World.RemoveAgent(agent.ID)
+				return
+			}
+		}
+	}
+}
+
+// targetKind discriminates an Agent.TargetID lookup result.
+type targetKind uint8
+
+const (
+	targetNone targetKind = iota
+	targetLift
+	targetBuilding
+)
+
+// resolveTarget looks up an agent's TargetID against the world's lifts and
+// buildings, returning the target's world-space position and which kind it
+// was. ok=false when the ID matches nothing (e.g. the entity was removed).
+func resolveTarget(w *world.World, id uint64) (mgl32.Vec3, targetKind, bool) {
+	for _, l := range w.Lifts {
+		if l.ID == id {
+			return mgl32.Vec3{
+				float32(l.Base[0]) * CellSize,
+				w.Terrain.ElevationAt(l.Base[0], l.Base[1]),
+				float32(l.Base[1]) * CellSize,
+			}, targetLift, true
+		}
+	}
+	for _, b := range w.Buildings {
+		if b.ID == id {
+			return mgl32.Vec3{
+				float32(b.Pos[0]) * CellSize,
+				w.Terrain.ElevationAt(b.Pos[0], b.Pos[1]),
+				float32(b.Pos[1]) * CellSize,
+			}, targetBuilding, true
+		}
+	}
+	return mgl32.Vec3{}, targetNone, false
 }
 
 // findBuilding returns the building with the given ID, or nil.

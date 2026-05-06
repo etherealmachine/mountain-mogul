@@ -860,10 +860,10 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		instances := make([]DynamicInstance, 0, len(w.Agents))
 		for _, agent := range w.Agents {
 			posY := agent.Pos[1]
-			if agent.State != world.StateRiding {
+			if agent.OnLiftID == 0 {
 				posY = visualElevationAt(w.Terrain, agent.Pos[0], agent.Pos[2])
 			}
-			color := agentColor(agent.State)
+			color := agentColor(w, agent)
 			if r.HighlightAgentID != 0 && agent.ID == r.HighlightAgentID {
 				color = [3]float32{1.0, 0.95, 0.1}
 			}
@@ -911,18 +911,20 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	}
 }
 
-func agentColor(state world.AgentState) [3]float32 {
-	switch state {
-	case world.StateWalking:
+func agentColor(w *world.World, a *world.Agent) [3]float32 {
+	switch world.Activity(w, a) {
+	case "Walking":
 		return [3]float32{0.2, 0.6, 0.9}
-	case world.StateQueuing:
+	case "Queuing":
 		return [3]float32{0.9, 0.7, 0.2}
-	case world.StateRiding:
+	case "On Lift":
 		return [3]float32{0.9, 0.4, 0.1}
-	case world.StateSkiing:
+	case "To Lift":
 		return [3]float32{0.1, 0.8, 0.3}
-	case world.StateReturningToLodge:
+	case "To Lodge":
 		return [3]float32{0.8, 0.3, 0.8}
+	case "Fallen":
+		return [3]float32{0.8, 0.1, 0.1}
 	}
 	return [3]float32{1, 1, 1}
 }

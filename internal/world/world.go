@@ -138,9 +138,8 @@ func (w *World) SpawnAgent(b *Building) *Agent {
 	z := b.Pos[1]
 	elev := w.Terrain.ElevationAt(x, z)
 	agent := &Agent{
-		ID:    w.NextID(),
-		Pos:   mgl32.Vec3{float32(x) * cellSize, elev, float32(z) * cellSize},
-		State: StateWalking,
+		ID:  w.NextID(),
+		Pos: mgl32.Vec3{float32(x) * cellSize, elev, float32(z) * cellSize},
 	}
 	w.Agents = append(w.Agents, agent)
 	return agent

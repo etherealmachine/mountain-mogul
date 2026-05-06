@@ -2,13 +2,11 @@ package sim
 
 import (
 	"encoding/csv"
-	"fmt"
 	"os"
 	"strconv"
 
 	"github.com/go-gl/mathgl/mgl32"
 	"mountain-mogul/internal/ai"
-	"mountain-mogul/internal/world"
 )
 
 // RecorderFrame is one tick of state for a skiing agent. Fields cover every
@@ -16,9 +14,9 @@ import (
 // balance) so a CSV log is enough to reason about the agent's decision after
 // the fact.
 type RecorderFrame struct {
-	SimTime float64
-	AgentID uint64
-	State   world.AgentState
+	SimTime  float64
+	AgentID  uint64
+	Activity string
 
 	Pos     mgl32.Vec3
 	Heading float32
@@ -82,7 +80,7 @@ func (c *CSVRecorder) Record(fr RecorderFrame) {
 	row := []string{
 		strconv.FormatFloat(fr.SimTime, 'f', 4, 64),
 		strconv.FormatUint(fr.AgentID, 10),
-		fmt.Sprintf("%d", fr.State),
+		fr.Activity,
 		f32(fr.Pos[0]), f32(fr.Pos[1]), f32(fr.Pos[2]),
 		f32(fr.Heading),
 		f32(fr.Target[0]), f32(fr.Target[1]), f32(fr.Target[2]),
@@ -109,7 +107,7 @@ func (c *CSVRecorder) Close() error {
 }
 
 var csvHeader = []string{
-	"sim_t", "agent_id", "state",
+	"sim_t", "agent_id", "activity",
 	"pos_x", "pos_y", "pos_z",
 	"heading_rad",
 	"tgt_x", "tgt_y", "tgt_z",
