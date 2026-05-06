@@ -113,6 +113,15 @@ func NewDynamicBatch(mesh *Mesh, texID uint32) *Batch {
 	return b
 }
 
+// Delete releases the instance VBO. The mesh and texture are owned externally
+// and are not deleted here.
+func (b *Batch) Delete() {
+	if b.instanceVBO != 0 {
+		gl.DeleteBuffers(1, &b.instanceVBO)
+		b.instanceVBO = 0
+	}
+}
+
 // AddStatic appends a static instance and marks the batch dirty.
 func (b *Batch) AddStatic(t mgl32.Mat4, tint mgl32.Vec3) {
 	inst := StaticInstance{ColorTint: [3]float32{tint[0], tint[1], tint[2]}}

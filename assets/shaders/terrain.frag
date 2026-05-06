@@ -45,7 +45,8 @@ float triDetail(vec3 pos, float scale) {
 }
 
 void main() {
-    vec3 triW = triWeights(vNormal);
+    vec3 nSmooth = normalize(vSmoothNormal);
+    vec3 triW = triWeights(nSmooth);
 
     // Flat faces → snow, steep/vertical faces → rock
     vec3 snowColor = vec3(0.90, 0.94, 1.00);
@@ -57,7 +58,7 @@ void main() {
                  + triDetail(vWorldPos, 0.45)  * 0.4;
     baseColor *= mix(0.88, 1.08, detail);
 
-    vec3 lit = computeLighting(vNormal, baseColor);
+    vec3 lit = computeLighting(nSmooth, baseColor);
     fragColor = vec4(lit, 1.0);
 
     if (uOverlayMode == 1) {

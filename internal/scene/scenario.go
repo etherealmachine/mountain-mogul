@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/go-gl/glfw/v3.3/glfw"
 	"github.com/go-gl/mathgl/mgl32"
@@ -106,7 +109,15 @@ type Scenario struct {
 	pauseBtn        *ui.Button
 	speedBtns       []*ui.Button // index aligned with speedOptions
 	popup           *ui.Window
-	savePath        string // where Save / escape-menu Load operate
+	savePath        string // where Save / escape-menu Load operate; "" → disabled (testbeds)
+	prebuiltWorld   *world.World
+	simSeed         int64 // 0 = wall-clock; nonzero forces deterministic RNG
+
+	// Debug instrumentation (see plan: orbiting-skier debug aids).
+	csvRecorder       *sim.CSVRecorder
+	pendingScreenshot bool
+	toastText         string
+	toastExpiry       float32 // s.time at which toast disappears
 }
 
 // speedOptions lists the time-scale presets shown in the menu bar.
@@ -132,15 +143,32 @@ func NewScenarioFromSave() *Scenario {
 	}
 }
 
+// NewScenarioFromWorld creates a Scenario backed by a programmatically-built
+// world (e.g. a sim.Testbed). seed is forwarded to NewSimulationWithSeed for
+// reproducibility; pass 0 for wall-clock seeding. Save/Load are disabled in
+// this mode so a debug run can't clobber the user save slot.
+func NewScenarioFromWorld(w *world.World, seed int64) *Scenario {
+	return &Scenario{
+		prebuiltWorld: w,
+		simSeed:       seed,
+	}
+}
+
 func (s *Scenario) Init(app *engine.App) error {
 	s.app = app
 
-	w, err := save.LoadScenario(s.scenarioPath)
-	if err != nil {
-		// Fall back to a blank world
-		fmt.Printf("Scenario load error (%v), creating blank world\n", err)
-		t := world.NewTerrain(32, 32)
-		w = world.NewWorld(t)
+	var w *world.World
+	if s.prebuiltWorld != nil {
+		w = s.prebuiltWorld
+	} else {
+		loaded, err := save.LoadScenario(s.scenarioPath)
+		if err != nil {
+			// Fall back to a blank world
+			fmt.Printf("Scenario load error (%v), creating blank world\n", err)
+			t := world.NewTerrain(32, 32)
+			loaded = world.NewWorld(t)
+		}
+		w = loaded
 	}
 	s.installWorld(w)
 
@@ -181,13 +209,13 @@ func (s *Scenario) Init(app *engine.App) error {
 // per-lift meshes for the previous world (if any) before bringing up the new.
 func (s *Scenario) installWorld(w *world.World) {
 	r := s.app.Renderer
-	if s.world != nil {
-		for _, lift := range s.world.Lifts {
-			r.RemoveLiftCable(lift.ID)
-		}
-	}
+	r.ResetSceneState()
 	s.world = w
-	s.sim = sim.NewSimulation(w)
+	if s.simSeed != 0 {
+		s.sim = sim.NewSimulationWithSeed(w, s.simSeed)
+	} else {
+		s.sim = sim.NewSimulation(w)
+	}
 	r.BuildTerrainMesh(w.Terrain)
 	r.RebuildStaticBatch(w)
 	for _, lift := range w.Lifts {
@@ -197,6 +225,10 @@ func (s *Scenario) installWorld(w *world.World) {
 
 // saveScenario writes the current world to the save slot.
 func (s *Scenario) saveScenario() {
+	if s.savePath == "" {
+		s.setToast("Save disabled in testbed mode")
+		return
+	}
 	if err := save.SaveScenario(s.savePath, s.world); err != nil {
 		fmt.Println("Save error:", err)
 		return
@@ -207,6 +239,10 @@ func (s *Scenario) saveScenario() {
 // loadScenario reloads the world from the save slot, replacing the live world
 // and resetting any transient UI state (active tool, popup, follow, debug).
 func (s *Scenario) loadScenario() {
+	if s.savePath == "" {
+		s.setToast("Load disabled in testbed mode")
+		return
+	}
 	w, err := save.LoadScenario(s.savePath)
 	if err != nil {
 		fmt.Println("Load error:", err)
@@ -271,6 +307,24 @@ func (s *Scenario) Update(dt float64) {
 		s.debugSteering = !s.debugSteering
 		if !s.debugSteering {
 			r.SetDebugLines(nil)
+		}
+	}
+
+	// L: toggle CSV log of the followed skier (debug instrumentation).
+	if inp.Pressed[glfw.KeyL] {
+		s.toggleSkierLog()
+	}
+
+	// F12: capture a screenshot of the current frame to debug/screens/.
+	if inp.Pressed[glfw.KeyF12] {
+		s.pendingScreenshot = true
+	}
+
+	// Auto-stop CSV log if the followed skier changed or no longer exists.
+	if s.csvRecorder != nil {
+		a := s.findFollowedAgent()
+		if a == nil || a.ID != s.csvRecorder.AgentID() {
+			s.stopSkierLog("Logging stopped: skier no longer followed")
 		}
 	}
 
@@ -369,7 +423,18 @@ func (s *Scenario) Update(dt float64) {
 	}
 
 	// World click / drag — glade supports held-down; placement tools use click-only.
-	if !popupConsumed {
+	clickConsumed := popupConsumed
+	if !clickConsumed && inp.LeftClick && s.activeTool == toolNone && !s.menuBar.ContainsY(inp.MousePos[1]) {
+		// Skier pick takes priority over popups when no tool is active.
+		if a := s.pickAgent(r.Camera, inp.MousePos); a != nil {
+			s.followAgentID = a.ID
+			if s.popup != nil {
+				s.popup.Visible = false
+			}
+			clickConsumed = true
+		}
+	}
+	if !clickConsumed {
 		clickOrHeld := inp.LeftClick || (inp.LeftHeld && s.activeTool == toolGlade)
 		if clickOrHeld && !s.menuBar.ContainsY(inp.MousePos[1]) {
 			gx, gz := s.hoverCell[0], s.hoverCell[1]
@@ -547,10 +612,30 @@ func (s *Scenario) Render(r *render.Renderer) {
 	if s.escapeMenu.Visible() {
 		drawables = append(drawables, s.escapeMenu)
 	}
+	if s.toastText != "" && s.time < s.toastExpiry {
+		drawables = append(drawables, &toastLabel{text: s.toastText})
+	}
 	r.DrawUI(drawables)
+
+	// Screenshot is taken AFTER UI is drawn so the captured frame matches what
+	// the user sees. The "saved" toast is set after capture so it appears only
+	// on subsequent frames, never in the screenshot itself.
+	if s.pendingScreenshot {
+		s.pendingScreenshot = false
+		path := filepath.Join("debug", "screens", time.Now().Format("20060102-150405")+".png")
+		if err := r.SaveScreenshot(path); err != nil {
+			s.setToast("Screenshot failed: " + err.Error())
+		} else {
+			s.setToast("Screenshot saved → " + path)
+		}
+	}
 }
 
-func (s *Scenario) Destroy() {}
+func (s *Scenario) Destroy() {
+	if s.app != nil && s.app.Renderer != nil {
+		s.app.Renderer.ResetSceneState()
+	}
+}
 
 // tryOpenPopup opens a popup window if a building or lift is at the clicked cell.
 func (s *Scenario) tryOpenPopup(gx, gz, screenW, screenH int) {
@@ -692,26 +777,49 @@ func stationInstanceAt(cell [2]int, t *world.Terrain) render.StaticInstance {
 	return inst
 }
 
-// cycleFollow advances the followed skier. First call picks a random skier;
-// subsequent calls cycle forward through the agents slice.
+// cycleFollow jumps the camera to a random skier. When already following a
+// skier, the current one is excluded so each Tab press visibly changes target.
 func (s *Scenario) cycleFollow() {
 	agents := s.world.Agents
 	if len(agents) == 0 {
 		s.followAgentID = 0
 		return
 	}
-	if s.followAgentID == 0 {
-		s.followAgentID = agents[rand.Intn(len(agents))].ID
-		return
-	}
-	for i, a := range agents {
-		if a.ID == s.followAgentID {
-			s.followAgentID = agents[(i+1)%len(agents)].ID
-			return
+	current := s.followAgentID
+	candidates := agents
+	if current != 0 && len(agents) > 1 {
+		candidates = make([]*world.Agent, 0, len(agents)-1)
+		for _, a := range agents {
+			if a.ID != current {
+				candidates = append(candidates, a)
+			}
 		}
 	}
-	// Followed agent no longer exists; wrap to first.
-	s.followAgentID = agents[0].ID
+	s.followAgentID = candidates[rand.Intn(len(candidates))].ID
+}
+
+// pickAgent returns the front-most agent under the cursor, or nil if none.
+// Treats each skier as a sphere of pickRadius around its world position.
+func (s *Scenario) pickAgent(cam *render.Camera, mousePos mgl32.Vec2) *world.Agent {
+	const pickRadius = float32(2.5)
+	const pickRadius2 = pickRadius * pickRadius
+	origin, dir := cam.ScreenToWorldRay(mousePos)
+	var best *world.Agent
+	bestT := float32(math.Inf(1))
+	for _, a := range s.world.Agents {
+		oc := a.Pos.Sub(origin)
+		t := oc.Dot(dir)
+		if t < 0 {
+			continue
+		}
+		closest := origin.Add(dir.Mul(t))
+		diff := closest.Sub(a.Pos)
+		if diff.Dot(diff) <= pickRadius2 && t < bestT {
+			bestT = t
+			best = a
+		}
+	}
+	return best
 }
 
 // findFollowedAgent returns the agent being followed, or nil if it no longer exists.
@@ -773,4 +881,73 @@ func (h *hintLabel) Draw(r *render.Renderer) {
 	if r.Font != nil {
 		r.Font.DrawText(r, h.text, 8+4, textY, mgl32.Vec4{1, 1, 0.5, 1})
 	}
+}
+
+// toastLabel draws a transient status message near the bottom-centre of the
+// screen. Used for screenshot/log toggle confirmations.
+type toastLabel struct {
+	text string
+}
+
+func (t *toastLabel) Draw(r *render.Renderer) {
+	const boxH = float32(render.GlyphH + 8)
+	boxW := float32(len(t.text)*render.GlyphAdvance + 20)
+	x := (float32(r.ScreenWidth()) - boxW) / 2
+	y := float32(r.ScreenHeight()) - boxH - 30
+	textY := y + (boxH-float32(render.GlyphH))/2
+	r.DrawColorRect(x, y, boxW, boxH, mgl32.Vec4{0, 0, 0, 0.75})
+	if r.Font != nil {
+		r.Font.DrawText(r, t.text, x+10, textY, mgl32.Vec4{1, 1, 1, 1})
+	}
+}
+
+// toggleSkierLog starts or stops a CSV recorder for the followed skier.
+func (s *Scenario) toggleSkierLog() {
+	if s.csvRecorder != nil {
+		s.stopSkierLog("Logging stopped")
+		return
+	}
+	a := s.findFollowedAgent()
+	if a == nil {
+		s.setToast("Press Tab to follow a skier first")
+		return
+	}
+	if err := os.MkdirAll("debug", 0o755); err != nil {
+		s.setToast("Log dir error: " + err.Error())
+		return
+	}
+	ts := time.Now().Format("20060102-150405")
+	path := filepath.Join("debug", fmt.Sprintf("skier-%d-%s.csv", a.ID, ts))
+	rec, err := sim.NewCSVRecorder(path, a.ID)
+	if err != nil {
+		s.setToast("Log open error: " + err.Error())
+		return
+	}
+	s.csvRecorder = rec
+	s.sim.Recorder = rec
+	s.setToast(fmt.Sprintf("Logging skier #%d → %s", a.ID, path))
+}
+
+// stopSkierLog flushes and closes the active recorder, if any. msg is shown
+// in the toast (along with the path) so the user knows where the file landed.
+func (s *Scenario) stopSkierLog(msg string) {
+	if s.csvRecorder == nil {
+		return
+	}
+	path := s.csvRecorder.Path()
+	if err := s.csvRecorder.Close(); err != nil {
+		fmt.Println("CSV close error:", err)
+	}
+	s.csvRecorder = nil
+	s.sim.Recorder = nil
+	if msg == "" {
+		msg = "Logging stopped"
+	}
+	s.setToast(msg + " → " + path)
+}
+
+// setToast displays a transient status message for ~3 seconds.
+func (s *Scenario) setToast(text string) {
+	s.toastText = text
+	s.toastExpiry = s.time + 3.0
 }

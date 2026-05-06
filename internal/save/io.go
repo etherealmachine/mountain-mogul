@@ -162,7 +162,6 @@ func dataToWorld(data ScenarioData) *world.World {
 		if bd.SkierCount > 0 {
 			b.SkierCount = bd.SkierCount
 		}
-		b.InitNextSpawn()
 	}
 
 	// Restore lifts

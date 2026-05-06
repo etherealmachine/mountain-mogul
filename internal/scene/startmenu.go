@@ -45,6 +45,9 @@ func (s *StartMenu) Init(app *engine.App) error {
 			ed := NewEditor(s.app.AssetDir + "/scenarios/tutorial.json")
 			s.app.PushScene(ed)
 		}},
+		{"Testbeds", func() {
+			s.app.PushScene(NewTestbedMenu())
+		}},
 		{"Settings", func() {
 			fmt.Println("Settings: not yet implemented")
 		}},

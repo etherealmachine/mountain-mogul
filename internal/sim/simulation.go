@@ -3,19 +3,16 @@ package sim
 import (
 	"math"
 	"math/rand"
+	"time"
 
 	"github.com/go-gl/mathgl/mgl32"
+	"mountain-mogul/internal/ai"
 	"mountain-mogul/internal/world"
 )
 
 const (
 	WalkSpeed = 2.0  // m/s
 	CellSize  = 10.0 // metres per grid cell
-
-	// Skiing physics constants
-	g     = 9.81  // gravitational acceleration (m/s²)
-	mu    = 0.05  // kinetic friction coefficient (groomed snow)
-	kDrag = 0.01  // air resistance per unit mass (m⁻¹)
 
 	lodgeReturnProb = 0.25 // probability a skier returns to lodge at the top instead of skiing down
 )
@@ -24,21 +21,37 @@ const (
 type Simulation struct {
 	World      *world.World
 	Pathfinder *Pathfinder
-	TimeScale  float64 // simulation speed multiplier (default 5)
+	TimeScale  float64    // simulation speed multiplier (default 5)
+	SimTime    float64    // accumulated sim seconds (post-TimeScale)
+	Rng        *rand.Rand // single source for all gameplay randomness; testbeds seed this for determinism
+
+	// Recorder, if non-nil, receives one RecorderFrame per skiing tick.
+	// Used by the debug CSV log; default nil.
+	Recorder Recorder
 }
 
-// NewSimulation creates a Simulation wrapping the given world.
+// NewSimulation creates a Simulation wrapping the given world, seeded from
+// the wall clock. Use NewSimulationWithSeed for reproducible runs.
 func NewSimulation(w *world.World) *Simulation {
+	return NewSimulationWithSeed(w, time.Now().UnixNano())
+}
+
+// NewSimulationWithSeed creates a Simulation with a fixed RNG seed. Identical
+// seed + identical world produces identical agent trajectories — the property
+// testbeds rely on.
+func NewSimulationWithSeed(w *world.World, seed int64) *Simulation {
 	return &Simulation{
 		World:      w,
 		Pathfinder: NewPathfinder(w.Terrain),
 		TimeScale:  5.0,
+		Rng:        rand.New(rand.NewSource(seed)),
 	}
 }
 
 // Tick advances the simulation by dt real seconds.
 func (s *Simulation) Tick(dt float64) {
 	dt *= s.TimeScale
+	s.SimTime += dt
 	s.tickBuildings(dt)
 	s.tickLifts(dt)
 	s.tickAgents(dt)
@@ -50,7 +63,7 @@ func (s *Simulation) tickBuildings(dt float64) {
 		return
 	}
 	for _, b := range w.Buildings {
-		if b.AdvanceTimer(dt) {
+		if b.AdvanceTimer(dt, s.Rng) {
 			nearest := w.NearestLift(b.Pos)
 			if nearest == nil {
 				continue
@@ -59,6 +72,8 @@ func (s *Simulation) tickBuildings(dt float64) {
 			agent := w.SpawnAgent(b)
 			agent.TargetLiftID = nearest.ID
 			agent.TargetBuildingID = b.ID
+			agent.Traits = ai.TraitsFor(rollSkillLevel(s.Rng))
+			agent.Balance = 1.0
 			path := s.Pathfinder.FindPath(b.Pos, nearest.Base)
 			if path != nil {
 				agent.Path = path
@@ -94,7 +109,11 @@ func (s *Simulation) tickLifts(dt float64) {
 					}
 					chair.Passengers[j] = nil
 					agent.Speed = 0
-					agent.TurnPhase = 0
+					agent.Motor = ai.MotorState{}
+					agent.Route = ai.Route{}
+					if agent.Balance < 0.5 {
+						agent.Balance = 1.0 // ride up restored balance
+					}
 					tx := float32(lift.Top[0]) * CellSize
 					tz := float32(lift.Top[1]) * CellSize
 					ty := w.Terrain.ElevationAt(lift.Top[0], lift.Top[1])
@@ -105,7 +124,7 @@ func (s *Simulation) tickLifts(dt float64) {
 					// cable, which would make the new tickSkier physics treat gravity
 					// as decelerating (cos θ_off < 0) and the skier would never start.
 					var target mgl32.Vec3
-					if rand.Float64() < lodgeReturnProb && findBuilding(w, agent.TargetBuildingID) != nil {
+					if s.Rng.Float64() < lodgeReturnProb && findBuilding(w, agent.TargetBuildingID) != nil {
 						agent.State = world.StateReturningToLodge
 						lodge := findBuilding(w, agent.TargetBuildingID)
 						target = mgl32.Vec3{
@@ -156,7 +175,23 @@ func (s *Simulation) tickAgents(dt float64) {
 			s.tickSkiing(agent, dt)
 		case world.StateReturningToLodge:
 			s.tickReturning(agent, dt)
+		case world.StateFallen:
+			s.tickFallen(agent, dt)
 		}
+	}
+}
+
+// rollSkillLevel samples the lodge-population skill distribution: 60% beginner,
+// 30% intermediate, 10% advanced. Per-lodge tuning is a future extension.
+func rollSkillLevel(rng *rand.Rand) ai.SkillLevel {
+	r := rng.Float64()
+	switch {
+	case r < 0.6:
+		return ai.SkillBeginner
+	case r < 0.9:
+		return ai.SkillIntermediate
+	default:
+		return ai.SkillAdvanced
 	}
 }
 
@@ -271,73 +306,6 @@ func (s *Simulation) tickSkiing(agent *world.Agent, dt float64) {
 		agent.State = world.StateQueuing
 		s.joinLiftQueue(agent)
 	}
-}
-
-// tickSkier runs one frame of steering + slope physics for a skiing agent
-// moving toward `target`. Returns true when the agent has reached the target.
-//
-// Steering blends target-seek, fall-line bias, tree-avoidance probes, and an
-// S-turn impulse for speed control. The result rotates the agent's stored
-// Heading at MaxAngularSpeed. Physics integrates speed using gravity along
-// the heading direction (g·sinθ_slope·cosθ_off), the standard kinetic
-// friction term, plus a carving-friction term that scrubs speed when the
-// agent traverses (μ_edge·g·cosθ_slope·|sinθ_off|).
-func (s *Simulation) tickSkier(agent *world.Agent, target mgl32.Vec3, dt float64) bool {
-	w := s.World
-	delta := target.Sub(agent.Pos)
-	dist := delta.Len()
-	if dist < ArrivalThreshold {
-		agent.Pos = target
-		return true
-	}
-
-	normal := w.Terrain.NormalAt(agent.Pos[0]/CellSize, agent.Pos[2]/CellSize)
-	fall := fallLine(normal)
-
-	var desired float32
-	if dist < ArrivalRadius {
-		// Final approach: ignore fall-line and tree avoidance and point straight
-		// at the target, otherwise the skier orbits the goal at their min-speed
-		// turning radius without ever crossing the arrival threshold.
-		desired = float32(math.Atan2(float64(delta[0]), float64(delta[2])))
-		agent.TurnPhase = 0
-	} else {
-		seek := mgl32.Vec2{delta[0], delta[2]}
-		avoid := treeAvoidance(w.Terrain, agent.Pos, agent.Heading)
-		desired = desiredHeading(seek, fall, avoid, agent.Speed, ComfortSpeed, &agent.TurnPhase)
-	}
-	agent.Heading = rotateToward(agent.Heading, desired, MaxAngularSpeed, dt)
-
-	hx := float32(math.Sin(float64(agent.Heading)))
-	hz := float32(math.Cos(float64(agent.Heading)))
-
-	cosTheta := float64(normal[1])
-	sinTheta := math.Sqrt(math.Max(0, 1-cosTheta*cosTheta))
-
-	cosOff := 1.0
-	sinOffAbs := 0.0
-	if fall.Len() > 1e-4 {
-		cosOff = float64(hx*fall[0] + hz*fall[1])
-		sinOffAbs = math.Abs(float64(hx*fall[1] - hz*fall[0]))
-	}
-
-	speed := float64(agent.Speed)
-	a := g*sinTheta*cosOff - mu*g*cosTheta - MuEdge*g*cosTheta*sinOffAbs - kDrag*speed*speed
-	agent.Speed = float32(math.Max(0, speed+a*dt))
-
-	// Walking/skating floor: real skiers pole or skate when terrain flattens
-	// or they bleed off too much speed, rather than coming to rest mid-run.
-	// Modelled as a hard speed floor — physics still runs above this, so on
-	// real downhill they accelerate well past it.
-	if agent.Speed < SkiWalkSpeed {
-		agent.Speed = SkiWalkSpeed
-	}
-
-	step := agent.Speed * float32(dt)
-	agent.Pos[0] += hx * step
-	agent.Pos[2] += hz * step
-	agent.Pos[1] = w.Terrain.InterpolatedElevationAt(agent.Pos[0], agent.Pos[2])
-	return false
 }
 
 // findBuilding returns the building with the given ID, or nil.

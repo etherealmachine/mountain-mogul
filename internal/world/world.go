@@ -61,7 +61,6 @@ func (w *World) PlaceBuilding(x, z int) *Building {
 		MeanSpawnRate: 0.5, // mean: 1 skier per 2 seconds
 		SkierCount:    100,
 	}
-	b.InitNextSpawn()
 	w.Buildings = append(w.Buildings, b)
 	if w.Terrain.InBounds(x, z) {
 		w.Terrain.Cells[x][z].Passable = false

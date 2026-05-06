@@ -41,6 +41,7 @@ func (e *Editor) Init(app *engine.App) error {
 	e.world = w
 
 	r := app.Renderer
+	r.ResetSceneState()
 	r.BuildTerrainMesh(w.Terrain)
 	r.RebuildStaticBatch(w)
 	for _, lift := range w.Lifts {
@@ -267,7 +268,11 @@ func (e *Editor) Render(r *render.Renderer) {
 	r.DrawUI(edDrawables)
 }
 
-func (e *Editor) Destroy() {}
+func (e *Editor) Destroy() {
+	if e.app != nil && e.app.Renderer != nil {
+		e.app.Renderer.ResetSceneState()
+	}
+}
 
 func clampF(v, lo, hi float32) float32 {
 	if v < lo {

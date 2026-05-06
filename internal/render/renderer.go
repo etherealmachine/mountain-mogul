@@ -2,7 +2,11 @@ package render
 
 import (
 	"fmt"
+	"image"
+	"image/png"
 	"math"
+	"os"
+	"path/filepath"
 
 	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/mathgl/mgl32"
@@ -30,24 +34,13 @@ type Renderer struct {
 	Camera        *Camera
 	Font          *Font // may be nil; gracefully skip text
 
-	terrainMesh   *Mesh
-	terrainVBO    uint32
-	terrainWidth  int
-	terrainHeight int
+	// scene owns all GPU state coupled to the current World. Replaced wholesale
+	// by ResetSceneState on every scene transition.
+	scene *SceneResources
 
 	staticBatches map[uint32]*Batch
 	dynamicBatch  *Batch
 	chairBatch    *Batch
-
-	// Per-lift procedural meshes (keyed by lift ID).
-	liftTowerMeshes map[uint64]*Mesh
-	liftUpCables    map[uint64]*Mesh
-	liftDownCables  map[uint64]*Mesh
-
-	ghostBatches   map[uint32]*Batch
-	ghostTowerMesh *Mesh
-	ghostUpCable   *Mesh
-	ghostDownCable *Mesh
 
 	uiVAO, uiVBO uint32
 	whiteTexID   uint32 // 1×1 white texture; always bound to unit 0 during UI pass
@@ -74,16 +67,13 @@ type Renderer struct {
 // NewRenderer initialises all shaders and GPU resources.
 func NewRenderer(w, h int, assetDir string) (*Renderer, error) {
 	r := &Renderer{
-		logicalW:        w,
-		logicalH:        h,
-		frameW:          w,
-		frameH:          h,
-		staticBatches:   make(map[uint32]*Batch),
-		liftTowerMeshes: make(map[uint64]*Mesh),
-		liftUpCables:    make(map[uint64]*Mesh),
-		liftDownCables:  make(map[uint64]*Mesh),
-		ghostBatches:    make(map[uint32]*Batch),
-		assetDir:        assetDir,
+		logicalW:      w,
+		logicalH:      h,
+		frameW:        w,
+		frameH:        h,
+		scene:         newSceneResources(),
+		staticBatches: make(map[uint32]*Batch),
+		assetDir:      assetDir,
 	}
 
 	r.Camera = NewCamera(w, h)
@@ -474,13 +464,13 @@ func upwardNormal(a, b, c [3]float32) [3]float32 {
 // BuildTerrainMesh creates the terrain mesh from the given Terrain.
 // Vertex layout: pos(3) + flatNormal(3) + smoothNormal(3) + color(3) = 12 floats per vertex.
 func (r *Renderer) BuildTerrainMesh(t *world.Terrain) {
-	r.terrainWidth = t.Width
-	r.terrainHeight = t.Height
+	r.scene.terrainWidth = t.Width
+	r.scene.terrainHeight = t.Height
 
 	verts, indices := buildTerrainVerts(t)
 
-	if r.terrainMesh != nil {
-		r.terrainMesh.Delete()
+	if r.scene.terrainMesh != nil {
+		r.scene.terrainMesh.Delete()
 	}
 
 	var vao, vbo, ebo uint32
@@ -505,8 +495,8 @@ func (r *Renderer) BuildTerrainMesh(t *world.Terrain) {
 	gl.VertexAttribPointerWithOffset(3, 3, gl.FLOAT, false, stride, 36) // aColor
 	gl.BindVertexArray(0)
 
-	r.terrainVBO = vbo
-	r.terrainMesh = &Mesh{
+	r.scene.terrainVBO = vbo
+	r.scene.terrainMesh = &Mesh{
 		VAO:        vao,
 		VBO:        vbo,
 		EBO:        ebo,
@@ -518,11 +508,11 @@ func (r *Renderer) BuildTerrainMesh(t *world.Terrain) {
 // the existing VBO. Use this after sculpting individual cells instead of
 // doing a full BuildTerrainMesh (which allocates new GL objects).
 func (r *Renderer) FlushTerrainVerts(t *world.Terrain) {
-	if r.terrainMesh == nil {
+	if r.scene.terrainMesh == nil {
 		return
 	}
 	verts, _ := buildTerrainVerts(t)
-	gl.BindBuffer(gl.ARRAY_BUFFER, r.terrainVBO)
+	gl.BindBuffer(gl.ARRAY_BUFFER, r.scene.terrainVBO)
 	gl.BufferData(gl.ARRAY_BUFFER, len(verts)*4, gl.Ptr(verts), gl.DYNAMIC_DRAW)
 	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
 }
@@ -806,13 +796,13 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	vp := r.Camera.ViewProj()
 
 	// Terrain pass
-	if r.terrainMesh != nil {
+	if r.scene.terrainMesh != nil {
 		r.TerrainShader.Use()
 		r.TerrainShader.SetMat4("uViewProj", vp)
 		r.TerrainShader.SetVec2("uBrushCenter", r.brushCenter)
 		r.TerrainShader.SetFloat("uBrushRadius", r.brushRadius)
 		r.TerrainShader.SetInt("uOverlayMode", r.TerrainOverlayMode)
-		r.terrainMesh.Draw()
+		r.scene.terrainMesh.Draw()
 	}
 
 	// Static pass
@@ -828,13 +818,13 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	// Tower + cable pass — world-space meshes, drawn with identity instance transform.
 	gl.BindTexture(gl.TEXTURE_2D, r.whiteTexID)
 	setCableTransformAttribs()
-	for _, m := range r.liftTowerMeshes {
+	for _, m := range r.scene.liftTowers {
 		m.Draw()
 	}
-	for _, m := range r.liftUpCables {
+	for _, m := range r.scene.liftUpCables {
 		m.Draw()
 	}
-	for _, m := range r.liftDownCables {
+	for _, m := range r.scene.liftDownCables {
 		m.Draw()
 	}
 
@@ -843,19 +833,19 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 	gl.DepthMask(false)
 	r.StaticShader.SetFloat("uAlpha", 0.4)
-	for _, batch := range r.ghostBatches {
+	for _, batch := range r.scene.ghostBatches {
 		batch.Draw()
 	}
 	gl.BindTexture(gl.TEXTURE_2D, r.whiteTexID)
 	setCableTransformAttribs()
-	if r.ghostTowerMesh != nil {
-		r.ghostTowerMesh.Draw()
+	if r.scene.ghostTower != nil {
+		r.scene.ghostTower.Draw()
 	}
-	if r.ghostUpCable != nil {
-		r.ghostUpCable.Draw()
+	if r.scene.ghostUpCable != nil {
+		r.scene.ghostUpCable.Draw()
 	}
-	if r.ghostDownCable != nil {
-		r.ghostDownCable.Draw()
+	if r.scene.ghostDownCable != nil {
+		r.scene.ghostDownCable.Draw()
 	}
 	r.StaticShader.SetFloat("uAlpha", 1.0)
 	gl.DepthMask(true)
@@ -1052,76 +1042,76 @@ func (r *Renderer) ClearBrush() {
 // SetGhosts replaces the ghost instances for one mesh type.
 // The ghost batch is lazily created from the corresponding static batch's mesh and texture.
 func (r *Renderer) SetGhosts(meshID uint32, instances []StaticInstance) {
-	if _, ok := r.ghostBatches[meshID]; !ok {
+	if _, ok := r.scene.ghostBatches[meshID]; !ok {
 		sb, ok := r.staticBatches[meshID]
 		if !ok {
 			return
 		}
-		r.ghostBatches[meshID] = NewStaticBatch(sb.mesh, sb.textureID)
+		r.scene.ghostBatches[meshID] = NewStaticBatch(sb.mesh, sb.textureID)
 	}
-	r.ghostBatches[meshID].SetStaticInstances(instances)
+	r.scene.ghostBatches[meshID].SetStaticInstances(instances)
 }
 
 // ClearAllGhosts zeros all ghost batch instance lists.
 func (r *Renderer) ClearAllGhosts() {
-	for _, b := range r.ghostBatches {
+	for _, b := range r.scene.ghostBatches {
 		b.SetStaticInstances(nil)
 	}
 }
 
 // SetGhostCable regenerates the ghost tower + cable meshes from base to top.
 func (r *Renderer) SetGhostCable(base, top [2]int, t *world.Terrain) {
-	if r.ghostTowerMesh != nil {
-		r.ghostTowerMesh.Delete()
+	if r.scene.ghostTower != nil {
+		r.scene.ghostTower.Delete()
 	}
-	if r.ghostUpCable != nil {
-		r.ghostUpCable.Delete()
+	if r.scene.ghostUpCable != nil {
+		r.scene.ghostUpCable.Delete()
 	}
-	if r.ghostDownCable != nil {
-		r.ghostDownCable.Delete()
+	if r.scene.ghostDownCable != nil {
+		r.scene.ghostDownCable.Delete()
 	}
 	tempLift := &world.Lift{Base: base, Top: top}
-	r.ghostTowerMesh = GenerateTowerMesh(tempLift, t)
-	r.ghostUpCable = generateCableMesh(tempLift, t, world.CableGap)
-	r.ghostDownCable = generateCableMesh(tempLift, t, -world.CableGap)
+	r.scene.ghostTower = GenerateTowerMesh(tempLift, t)
+	r.scene.ghostUpCable = generateCableMesh(tempLift, t, world.CableGap)
+	r.scene.ghostDownCable = generateCableMesh(tempLift, t, -world.CableGap)
 }
 
 // ClearGhostCable removes the ghost tower + cable meshes.
 func (r *Renderer) ClearGhostCable() {
-	if r.ghostTowerMesh != nil {
-		r.ghostTowerMesh.Delete()
-		r.ghostTowerMesh = nil
+	if r.scene.ghostTower != nil {
+		r.scene.ghostTower.Delete()
+		r.scene.ghostTower = nil
 	}
-	if r.ghostUpCable != nil {
-		r.ghostUpCable.Delete()
-		r.ghostUpCable = nil
+	if r.scene.ghostUpCable != nil {
+		r.scene.ghostUpCable.Delete()
+		r.scene.ghostUpCable = nil
 	}
-	if r.ghostDownCable != nil {
-		r.ghostDownCable.Delete()
-		r.ghostDownCable = nil
+	if r.scene.ghostDownCable != nil {
+		r.scene.ghostDownCable.Delete()
+		r.scene.ghostDownCable = nil
 	}
 }
 
 // AddLiftMeshes generates and stores tower + cable meshes for a lift.
 func (r *Renderer) AddLiftMeshes(lift *world.Lift, t *world.Terrain) {
-	r.liftTowerMeshes[lift.ID] = GenerateTowerMesh(lift, t)
-	r.liftUpCables[lift.ID] = generateCableMesh(lift, t, world.CableGap)
-	r.liftDownCables[lift.ID] = generateCableMesh(lift, t, -world.CableGap)
+	r.scene.liftTowers[lift.ID] = GenerateTowerMesh(lift, t)
+	r.scene.liftUpCables[lift.ID] = generateCableMesh(lift, t, world.CableGap)
+	r.scene.liftDownCables[lift.ID] = generateCableMesh(lift, t, -world.CableGap)
 }
 
 // RemoveLiftMeshes removes all procedural meshes for a lift.
 func (r *Renderer) RemoveLiftMeshes(liftID uint64) {
-	if m, ok := r.liftTowerMeshes[liftID]; ok {
+	if m, ok := r.scene.liftTowers[liftID]; ok {
 		m.Delete()
-		delete(r.liftTowerMeshes, liftID)
+		delete(r.scene.liftTowers, liftID)
 	}
-	if m, ok := r.liftUpCables[liftID]; ok {
+	if m, ok := r.scene.liftUpCables[liftID]; ok {
 		m.Delete()
-		delete(r.liftUpCables, liftID)
+		delete(r.scene.liftUpCables, liftID)
 	}
-	if m, ok := r.liftDownCables[liftID]; ok {
+	if m, ok := r.scene.liftDownCables[liftID]; ok {
 		m.Delete()
-		delete(r.liftDownCables, liftID)
+		delete(r.scene.liftDownCables, liftID)
 	}
 }
 
@@ -1135,11 +1125,71 @@ func (r *Renderer) RemoveLiftCable(liftID uint64) {
 	r.RemoveLiftMeshes(liftID)
 }
 
+// ResetSceneState releases every GPU resource and UI flag tied to the current
+// World, returning the renderer to a clean slate. Call this on every scene
+// transition (entering a new scenario, leaving one) so resources from a
+// previous World can't bleed into the next.
+//
+// Engine-scoped resources (shaders, fonts, the agent/chair batches, UI/debug
+// VAOs) are preserved.
+func (r *Renderer) ResetSceneState() {
+	if r.scene != nil {
+		r.scene.Delete()
+	}
+	r.scene = newSceneResources()
+
+	// Engine-owned static-batch shells survive scene transitions, but their
+	// per-world instance lists must be cleared so trees/buildings/lifts from
+	// the previous World don't keep drawing.
+	for _, b := range r.staticBatches {
+		b.ClearStatic()
+	}
+
+	r.brushCenter = mgl32.Vec2{}
+	r.brushRadius = 0
+	r.HighlightAgentID = 0
+	r.TerrainOverlayMode = 0
+	r.debugVertCount = 0
+}
+
 // ScreenWidth returns the window's logical width in points (matches mouse coords).
 func (r *Renderer) ScreenWidth() int { return r.logicalW }
 
 // ScreenHeight returns the window's logical height in points (matches mouse coords).
 func (r *Renderer) ScreenHeight() int { return r.logicalH }
+
+// SaveScreenshot reads the default framebuffer with glReadPixels and writes it
+// as a PNG to path. Must be called after rendering and before SwapBuffers (so
+// the back buffer still holds the freshly drawn frame). Creates parent dirs as
+// needed.
+func (r *Renderer) SaveScreenshot(path string) error {
+	w, h := r.frameW, r.frameH
+	if w <= 0 || h <= 0 {
+		return fmt.Errorf("screenshot: invalid framebuffer size %dx%d", w, h)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+
+	buf := make([]byte, w*h*4)
+	gl.PixelStorei(gl.PACK_ALIGNMENT, 1)
+	gl.ReadPixels(0, 0, int32(w), int32(h), gl.RGBA, gl.UNSIGNED_BYTE, gl.Ptr(buf))
+
+	// glReadPixels origin is bottom-left; PNG origin is top-left. Flip rows.
+	img := image.NewNRGBA(image.Rect(0, 0, w, h))
+	stride := w * 4
+	for y := 0; y < h; y++ {
+		src := buf[(h-1-y)*stride : (h-y)*stride]
+		copy(img.Pix[y*img.Stride:y*img.Stride+stride], src)
+	}
+
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return png.Encode(f, img)
+}
 
 // setCableTransformAttribs sets the generic vertex attributes for locations 3-7 to an
 // identity transform with white tint. Cable meshes have no instance VBO at those locations,
