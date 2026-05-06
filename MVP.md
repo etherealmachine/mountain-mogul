@@ -240,4 +240,68 @@ Allows importing real-world terrain into a new scenario. Player enters a locatio
 
 ---
 
+## Current Simulation
+
+### Agent Lifecycle
+
+Agents cycle through five states:
+
+```
+[Lodge] --Poisson spawn--> Walking (A* path to nearest lift base)
+                               |
+                          (path complete)
+                               |
+                            Queuing (waiting at lift base)
+                               |
+                          (chair arrives, ≤2 per chair)
+                               |
+                            Riding (position locked to ChairPos)
+                               |
+                          (progress crosses 0.5 = top)
+                               |
+                    25% ReturningToLodge    75% Skiing
+                         |                      |
+                    (reach lodge)          (reach lift base)
+                         |                      |
+                    SkierCount++           → Queuing
+                    agent removed          (loop forever)
+```
+
+### Building Spawner
+
+`Building.AdvanceTimer(dt)` implements a Poisson arrival process: inter-arrival times are exponentially distributed with mean `1/MeanSpawnRate`. A spawn is skipped if `SkierCount == 0` (no skiers left in the lodge pool) or no lifts exist. On a failed A* pathfind the agent is immediately removed and the skier returned to the pool.
+
+### Pathfinding
+
+`Pathfinder.FindPath` runs A* with a Manhattan heuristic over the 4-connected terrain grid. A cell is walkable when `Passable && TreeDensity < 0.5`. The destination (lift base) is always reachable even if its cell is structurally blocked.
+
+### Lift Tick
+
+Every chair advances by `lift.Speed / lift.LoopLength()` fractional progress per sim-second. Crossing `progress = 0.5` unloads passengers at the lift top; wrapping past `progress = 1.0` loads up to 2 skiers from the head of the queue.
+
+### Skiing Physics
+
+Both `StateSkiing` and `StateReturningToLodge` use the same slope-physics model:
+
+| Parameter | Value | Meaning |
+|---|---|---|
+| `g` | 9.81 m/s² | gravitational acceleration |
+| `μ` | 0.05 | kinetic friction (groomed snow) |
+| `kDrag` | 0.01 m⁻¹ | air resistance per unit mass |
+
+Net acceleration per frame: `a = g·sinθ − μ·g·cosθ − kDrag·v²`
+
+`sinθ` is derived from the terrain normal at the agent's current XZ position (`cosθ = normal.y`). Speed is integrated forward (`v += a·dt`, floored at 0) and the agent moves at speed `v` in a straight line toward its target (lift base or lodge).
+
+### Known Weaknesses
+
+- **No trail network.** Skiers head straight-line toward the lift base — they will happily ski uphill, cross impassable terrain, or clip through trees.
+- **Single-lift targeting.** At spawn, the agent is assigned the nearest lift and never re-evaluates. No multi-lift resort routing.
+- **No grooming effect.** The `Cell.Groomed` flag exists but is unused; μ is always 0.05 regardless.
+- **No tree-density speed penalty during skiing.** `Cell.TreeDensity` slows agents only in the original design note; the physics tick ignores it.
+- **Straight-line return.** `StateReturningToLodge` skis in a straight line to the lodge; no path following or terrain avoidance.
+- **No agent cap.** Buildings spawn indefinitely from `SkierCount`; there is no global or per-lift agent limit.
+
+---
+
 ## Next Steps
