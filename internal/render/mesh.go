@@ -79,43 +79,42 @@ func (m *Mesh) Delete() {
 // Used as a fallback when OBJ files are not present.
 func NewBoxMesh(w, h, d float32, color [3]float32) *Mesh {
 	hw := w / 2
-	hh := h / 2
 	hd := d / 2
 	r, g, b := color[0], color[1], color[2]
 
-	// Each face: 4 vertices with pos(3) + normal(3) + uv(2) = 8 floats
-	// Using the same vertex layout as OBJ loader: pos, normal, uv
+	// Each face: 4 vertices with pos(3) + normal(3) + uv(2) = 8 floats.
+	// Origin is at the bottom-centre so placement Y is the ground level.
 	vertices := []float32{
 		// Front face (z = +hd), normal (0, 0, 1)
-		-hw, -hh, hd, 0, 0, 1, 0, 0,
-		hw, -hh, hd, 0, 0, 1, 1, 0,
-		hw, hh, hd, 0, 0, 1, 1, 1,
-		-hw, hh, hd, 0, 0, 1, 0, 1,
+		-hw, 0, hd, 0, 0, 1, 0, 0,
+		hw, 0, hd, 0, 0, 1, 1, 0,
+		hw, h, hd, 0, 0, 1, 1, 1,
+		-hw, h, hd, 0, 0, 1, 0, 1,
 		// Back face (z = -hd), normal (0, 0, -1)
-		hw, -hh, -hd, 0, 0, -1, 0, 0,
-		-hw, -hh, -hd, 0, 0, -1, 1, 0,
-		-hw, hh, -hd, 0, 0, -1, 1, 1,
-		hw, hh, -hd, 0, 0, -1, 0, 1,
+		hw, 0, -hd, 0, 0, -1, 0, 0,
+		-hw, 0, -hd, 0, 0, -1, 1, 0,
+		-hw, h, -hd, 0, 0, -1, 1, 1,
+		hw, h, -hd, 0, 0, -1, 0, 1,
 		// Left face (x = -hw), normal (-1, 0, 0)
-		-hw, -hh, -hd, -1, 0, 0, 0, 0,
-		-hw, -hh, hd, -1, 0, 0, 1, 0,
-		-hw, hh, hd, -1, 0, 0, 1, 1,
-		-hw, hh, -hd, -1, 0, 0, 0, 1,
+		-hw, 0, -hd, -1, 0, 0, 0, 0,
+		-hw, 0, hd, -1, 0, 0, 1, 0,
+		-hw, h, hd, -1, 0, 0, 1, 1,
+		-hw, h, -hd, -1, 0, 0, 0, 1,
 		// Right face (x = +hw), normal (1, 0, 0)
-		hw, -hh, hd, 1, 0, 0, 0, 0,
-		hw, -hh, -hd, 1, 0, 0, 1, 0,
-		hw, hh, -hd, 1, 0, 0, 1, 1,
-		hw, hh, hd, 1, 0, 0, 0, 1,
-		// Top face (y = +hh), normal (0, 1, 0)
-		-hw, hh, hd, 0, 1, 0, 0, 0,
-		hw, hh, hd, 0, 1, 0, 1, 0,
-		hw, hh, -hd, 0, 1, 0, 1, 1,
-		-hw, hh, -hd, 0, 1, 0, 0, 1,
-		// Bottom face (y = -hh), normal (0, -1, 0)
-		-hw, -hh, -hd, 0, -1, 0, 0, 0,
-		hw, -hh, -hd, 0, -1, 0, 1, 0,
-		hw, -hh, hd, 0, -1, 0, 1, 1,
-		-hw, -hh, hd, 0, -1, 0, 0, 1,
+		hw, 0, hd, 1, 0, 0, 0, 0,
+		hw, 0, -hd, 1, 0, 0, 1, 0,
+		hw, h, -hd, 1, 0, 0, 1, 1,
+		hw, h, hd, 1, 0, 0, 0, 1,
+		// Top face (y = h), normal (0, 1, 0)
+		-hw, h, hd, 0, 1, 0, 0, 0,
+		hw, h, hd, 0, 1, 0, 1, 0,
+		hw, h, -hd, 0, 1, 0, 1, 1,
+		-hw, h, -hd, 0, 1, 0, 0, 1,
+		// Bottom face (y = 0), normal (0, -1, 0)
+		-hw, 0, -hd, 0, -1, 0, 0, 0,
+		hw, 0, -hd, 0, -1, 0, 1, 0,
+		hw, 0, hd, 0, -1, 0, 1, 1,
+		-hw, 0, hd, 0, -1, 0, 0, 1,
 	}
 
 	// Tint the vertex colors into the UV channels (we'll use white texture * color)

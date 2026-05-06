@@ -9,10 +9,15 @@ import (
 )
 
 const (
-	SkiSpeed      = 15.0 // m/s open slope
-	WalkSpeed     = 2.0  // m/s
-	CellSize      = 10.0 // metres per grid cell
-	treeCollisionRate = 2.0 // expected collisions/sec at density=1, skillFactor=1
+	WalkSpeed = 2.0  // m/s
+	CellSize  = 10.0 // metres per grid cell
+
+	// Skiing physics constants
+	g     = 9.81  // gravitational acceleration (m/s²)
+	mu    = 0.05  // kinetic friction coefficient (groomed snow)
+	kDrag = 0.01  // air resistance per unit mass (m⁻¹)
+
+	lodgeReturnProb = 0.25 // probability a skier returns to lodge at the top instead of skiing down
 )
 
 // Simulation drives all agent and building behaviour.
@@ -38,7 +43,6 @@ func (s *Simulation) Tick(dt float64) {
 
 func (s *Simulation) tickBuildings(dt float64) {
 	w := s.World
-	// Only spawn if there's at least one lift
 	if len(w.Lifts) == 0 {
 		return
 	}
@@ -48,16 +52,18 @@ func (s *Simulation) tickBuildings(dt float64) {
 			if nearest == nil {
 				continue
 			}
+			b.SkierCount--
 			agent := w.SpawnAgent(b)
 			agent.TargetLiftID = nearest.ID
+			agent.TargetBuildingID = b.ID
 			path := s.Pathfinder.FindPath(b.Pos, nearest.Base)
 			if path != nil {
 				agent.Path = path
 				agent.PathIdx = 0
 				agent.State = world.StateWalking
 			} else {
-				// No path found; skip spawning this agent
 				w.RemoveAgent(agent.ID)
+				b.SkierCount++ // failed spawn; return to pool
 			}
 		}
 	}
@@ -89,14 +95,22 @@ func (s *Simulation) tickLifts(dt float64) {
 			rider := lift.Riders[i]
 			lift.Riders = append(lift.Riders[:i], lift.Riders[i+1:]...)
 
-			// Deposit at top
 			agent := rider.Agent
+			agent.Speed = 0
+
+			// Snap to top station position
 			tx := float32(lift.Top[0]) * CellSize
 			tz := float32(lift.Top[1]) * CellSize
 			ty := w.Terrain.ElevationAt(lift.Top[0], lift.Top[1])
 			agent.Pos = mgl32.Vec3{tx, ty, tz}
-			agent.State = world.StateSkiing
-			agent.TargetLiftID = lift.ID
+
+			// Randomly choose: ski back to lodge or ski down to lift base
+			if rand.Float64() < lodgeReturnProb && findBuilding(w, agent.TargetBuildingID) != nil {
+				agent.State = world.StateReturningToLodge
+			} else {
+				agent.State = world.StateSkiing
+				agent.TargetLiftID = lift.ID
+			}
 		}
 	}
 }
@@ -110,10 +124,11 @@ func (s *Simulation) tickAgents(dt float64) {
 		case world.StateQueuing:
 			// Waiting; handled in tickLifts
 		case world.StateRiding:
-			// Handled in tickLifts; update visual position along cable
 			s.tickRiding(agent, dt)
 		case world.StateSkiing:
 			s.tickSkiing(agent, dt)
+		case world.StateReturningToLodge:
+			s.tickReturning(agent, dt)
 		}
 	}
 }
@@ -150,6 +165,41 @@ func (s *Simulation) tickWalking(agent *world.Agent, dt float64) {
 	}
 }
 
+func (s *Simulation) tickReturning(agent *world.Agent, dt float64) {
+	w := s.World
+	lodge := findBuilding(w, agent.TargetBuildingID)
+	if lodge == nil {
+		w.RemoveAgent(agent.ID)
+		return
+	}
+
+	lx := float32(lodge.Pos[0]) * CellSize
+	lz := float32(lodge.Pos[1]) * CellSize
+	ly := w.Terrain.ElevationAt(lodge.Pos[0], lodge.Pos[1])
+	lodgePos := mgl32.Vec3{lx, ly, lz}
+
+	dir := lodgePos.Sub(agent.Pos)
+	dist := dir.Len()
+
+	if dist < 1.0 {
+		agent.Pos = lodgePos
+		lodge.SkierCount++
+		w.RemoveAgent(agent.ID)
+		return
+	}
+
+	// Physics: same slope/friction/drag model as tickSkiing
+	normal := w.Terrain.NormalAt(agent.Pos[0]/CellSize, agent.Pos[2]/CellSize)
+	cosTheta := float64(normal[1])
+	sinTheta := math.Sqrt(math.Max(0, 1-cosTheta*cosTheta))
+	a := g*sinTheta - mu*g*cosTheta - kDrag*float64(agent.Speed)*float64(agent.Speed)
+	agent.Speed = float32(math.Max(0, float64(agent.Speed)+a*dt))
+
+	dirNorm := dir.Normalize()
+	agent.Pos = agent.Pos.Add(dirNorm.Mul(agent.Speed * float32(dt)))
+	agent.Heading = float32(math.Atan2(float64(dirNorm[0]), float64(dirNorm[2])))
+}
+
 func (s *Simulation) joinLiftQueue(agent *world.Agent) {
 	w := s.World
 	for _, lift := range w.Lifts {
@@ -158,12 +208,10 @@ func (s *Simulation) joinLiftQueue(agent *world.Agent) {
 			return
 		}
 	}
-	// Lift not found; re-walk
 	agent.State = world.StateWalking
 }
 
 func (s *Simulation) tickRiding(agent *world.Agent, dt float64) {
-	// Visual interpolation along cable — find the rider's progress
 	w := s.World
 	for _, lift := range w.Lifts {
 		if lift.ID != agent.TargetLiftID {
@@ -175,15 +223,12 @@ func (s *Simulation) tickRiding(agent *world.Agent, dt float64) {
 				bz := float32(lift.Base[1]) * CellSize
 				tx := float32(lift.Top[0]) * CellSize
 				tz := float32(lift.Top[1]) * CellSize
-				by := w.Terrain.ElevationAt(lift.Base[0], lift.Base[1])
-				ty := w.Terrain.ElevationAt(lift.Top[0], lift.Top[1])
 				p := rider.Progress
-				agent.Pos = mgl32.Vec3{
-					bx + (tx-bx)*p,
-					by + (ty-by)*p + 5.0, // 5m above terrain
-					bz + (tz-bz)*p,
-				}
-				// heading along lift
+				posX := bx + (tx-bx)*p
+				posZ := bz + (tz-bz)*p
+				// Bilinear interpolation gives smooth Y without cell-boundary jumps.
+				posY := w.Terrain.InterpolatedElevationAt(posX, posZ) + 18.0
+				agent.Pos = mgl32.Vec3{posX, posY, posZ}
 				dx := tx - bx
 				dz := tz - bz
 				agent.Heading = float32(math.Atan2(float64(dx), float64(dz)))
@@ -195,7 +240,6 @@ func (s *Simulation) tickRiding(agent *world.Agent, dt float64) {
 
 func (s *Simulation) tickSkiing(agent *world.Agent, dt float64) {
 	w := s.World
-	// Find target lift base
 	var liftBase mgl32.Vec3
 	found := false
 	for _, lift := range w.Lifts {
@@ -209,7 +253,6 @@ func (s *Simulation) tickSkiing(agent *world.Agent, dt float64) {
 		}
 	}
 	if !found {
-		// Lift gone; find nearest
 		nearest := w.NearestLift([2]int{
 			int(agent.Pos[0] / CellSize),
 			int(agent.Pos[2] / CellSize),
@@ -225,37 +268,33 @@ func (s *Simulation) tickSkiing(agent *world.Agent, dt float64) {
 	dist := dir.Len()
 
 	if dist < 1.0 {
-		// Reached lift base — join queue
 		agent.Pos = liftBase
 		agent.State = world.StateQueuing
 		s.joinLiftQueue(agent)
 		return
 	}
 
-	// Sample tree density at agent's current cell.
-	gx := int(agent.Pos[0] / CellSize)
-	gz := int(agent.Pos[2] / CellSize)
-	density := float32(0)
-	if w.Terrain.InBounds(gx, gz) {
-		density = w.Terrain.Cells[gx][gz].TreeDensity
-	}
+	// Physics: derive slope angle from terrain normal at agent position.
+	normal := w.Terrain.NormalAt(agent.Pos[0]/CellSize, agent.Pos[2]/CellSize)
+	cosTheta := float64(normal[1])
+	sinTheta := math.Sqrt(math.Max(0, 1-cosTheta*cosTheta))
 
-	// Tree collision — probability scales with density, dt, and skill.
-	// TODO: replace constant skillFactor with agent.SkillFactor when that field exists.
-	if density > 0 {
-		const skillFactor = 1.0
-		p := float64(density) * dt * treeCollisionRate / skillFactor
-		if rand.Float64() < p {
-			w.RemoveAgent(agent.ID) // placeholder for a proper injury/removal event
-			return
-		}
-	}
-
-	// Speed reduced in proportion to tree density (dense trees = ~40% of open speed).
-	speed := float64(SkiSpeed) * float64(1.0-0.6*density)
+	// Net acceleration: gravity along slope - friction - air drag
+	a := g*sinTheta - mu*g*cosTheta - kDrag*float64(agent.Speed)*float64(agent.Speed)
+	agent.Speed = float32(math.Max(0, float64(agent.Speed)+a*dt))
 
 	dirNorm := dir.Normalize()
-	step := float32(speed * dt)
+	step := agent.Speed * float32(dt)
 	agent.Pos = agent.Pos.Add(dirNorm.Mul(step))
 	agent.Heading = float32(math.Atan2(float64(dirNorm[0]), float64(dirNorm[2])))
+}
+
+// findBuilding returns the building with the given ID, or nil.
+func findBuilding(w *world.World, id uint64) *world.Building {
+	for _, b := range w.Buildings {
+		if b.ID == id {
+			return b
+		}
+	}
+	return nil
 }

@@ -28,12 +28,13 @@ type ObjectData struct {
 	Rotation float32 `json:"r,omitempty"`
 }
 
-// BuildingData is a placed building.
+// BuildingData is a placed lodge.
 type BuildingData struct {
-	X         int     `json:"x"`
-	Z         int     `json:"z"`
-	Rotation  float32 `json:"r,omitempty"`
-	SpawnRate float64 `json:"spawn_rate"`
+	X             int     `json:"x"`
+	Z             int     `json:"z"`
+	Rotation      float32 `json:"r,omitempty"`
+	MeanSpawnRate float64 `json:"mean_spawn_rate"`
+	SkierCount    int     `json:"skier_count,omitempty"`
 }
 
 // LiftData is a placed lift.
@@ -46,9 +47,11 @@ type LiftData struct {
 
 // AgentData is a saved agent state.
 type AgentData struct {
-	Pos     [3]float32 `json:"pos"`
-	Heading float32    `json:"heading"`
-	State   int        `json:"state"`
-	Path    [][2]int   `json:"path,omitempty"`
-	PathIdx int        `json:"path_idx,omitempty"`
+	Pos              [3]float32 `json:"pos"`
+	Heading          float32    `json:"heading"`
+	State            int        `json:"state"`
+	Path             [][2]int   `json:"path,omitempty"`
+	PathIdx          int        `json:"path_idx,omitempty"`
+	Speed            float32    `json:"speed,omitempty"`
+	TargetBuildingID uint64     `json:"target_building_id,omitempty"`
 }

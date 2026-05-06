@@ -53,13 +53,15 @@ func (w *World) RemoveObject(id uint64) {
 	}
 }
 
-// PlaceBuilding places a building and marks the cell as impassable.
+// PlaceBuilding places a lodge and marks the cell as impassable.
 func (w *World) PlaceBuilding(x, z int) *Building {
 	b := &Building{
-		ID:        w.NextID(),
-		Pos:       [2]int{x, z},
-		SpawnRate: 0.5, // default: 1 agent per 2 seconds
+		ID:            w.NextID(),
+		Pos:           [2]int{x, z},
+		MeanSpawnRate: 0.5, // mean: 1 skier per 2 seconds
+		SkierCount:    100,
 	}
+	b.InitNextSpawn()
 	w.Buildings = append(w.Buildings, b)
 	if w.Terrain.InBounds(x, z) {
 		w.Terrain.Cells[x][z].Passable = false

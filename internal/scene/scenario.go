@@ -3,6 +3,7 @@ package scene
 import (
 	"fmt"
 	"math"
+	"math/rand"
 
 	"github.com/go-gl/glfw/v3.3/glfw"
 	"github.com/go-gl/mathgl/mgl32"
@@ -87,18 +88,19 @@ const (
 
 // Scenario is the main gameplay scene.
 type Scenario struct {
-	app           *engine.App
-	world         *world.World
-	sim           *sim.Simulation
-	menuBar       *ui.MenuBar
-	escapeMenu    *EscapeMenu
-	toolButtons   map[toolMode]*ui.Button
-	activeTool    toolMode
-	liftBase      [2]int // first click for lift placement
-	scenarioPath  string
-	time          float32
-	rightDragging bool
-	hoverCell     [2]int // terrain cell currently under the mouse
+	app             *engine.App
+	world           *world.World
+	sim             *sim.Simulation
+	menuBar         *ui.MenuBar
+	escapeMenu      *EscapeMenu
+	toolButtons     map[toolMode]*ui.Button
+	activeTool      toolMode
+	liftBase        [2]int // first click for lift placement
+	scenarioPath    string
+	time            float32
+	rightDragging   bool
+	hoverCell       [2]int // terrain cell currently under the mouse
+	followAgentID   uint64 // 0 = free camera; >0 = ID of followed skier
 }
 
 // NewScenario creates a Scenario scene that loads from the given path.
@@ -140,7 +142,7 @@ func (s *Scenario) Init(app *engine.App) error {
 	// Build menu bar
 	s.toolButtons = make(map[toolMode]*ui.Button)
 	s.menuBar = ui.NewMenuBar(0, 32)
-	s.toolButtons[toolBuilding] = s.menuBar.AddButton("Place Building", func() { s.setTool(toolBuilding) })
+	s.toolButtons[toolBuilding] = s.menuBar.AddButton("Build Lodge", func() { s.setTool(toolBuilding) })
 	s.toolButtons[toolLiftBase] = s.menuBar.AddButton("Place Lift", func() { s.setTool(toolLiftBase) })
 	s.toolButtons[toolGlade] = s.menuBar.AddButton("Glade", func() { s.setTool(toolGlade) })
 	s.toolButtons[toolRemove] = s.menuBar.AddButton("Remove", func() { s.setTool(toolRemove) })
@@ -165,6 +167,11 @@ func (s *Scenario) Update(dt float64) {
 		return
 	}
 
+	// Tab: cycle the followed skier (first press picks random, subsequent press advances).
+	if inp.Pressed[glfw.KeyTab] {
+		s.cycleFollow()
+	}
+
 	// Menu bar input
 	s.menuBar.HandleInput(inp, float32(r.ScreenHeight()))
 
@@ -177,6 +184,7 @@ func (s *Scenario) Update(dt float64) {
 	}
 	if s.rightDragging {
 		if inp.MouseDelta.Len() > 0 {
+			s.followAgentID = 0
 			dx, dz := r.Camera.PanDelta(inp.MouseDelta)
 			r.Camera.Target[0] += dx
 			r.Camera.Target[2] += dz
@@ -204,6 +212,7 @@ func (s *Scenario) Update(dt float64) {
 		keyDelta[1] -= keyPanSpeed * float32(dt)
 	}
 	if keyDelta[0] != 0 || keyDelta[1] != 0 {
+		s.followAgentID = 0
 		dx, dz := r.Camera.PanDelta(keyDelta)
 		r.Camera.Target[0] += dx
 		r.Camera.Target[2] += dz
@@ -244,6 +253,16 @@ func (s *Scenario) Update(dt float64) {
 
 	// Tick simulation
 	s.sim.Tick(dt)
+
+	// Camera follow: track the selected agent using the freshest positions.
+	if s.followAgentID != 0 {
+		if agent := s.findFollowedAgent(); agent != nil {
+			r.Camera.Target = agent.Pos
+			r.Camera.Recalculate()
+		} else {
+			s.followAgentID = 0
+		}
+	}
 }
 
 const gladeRadius = 2 // cells
@@ -296,12 +315,19 @@ func (s *Scenario) Render(r *render.Renderer) {
 		r.ClearBrush()
 	}
 
+	r.HighlightAgentID = s.followAgentID
 	r.DrawWorld(s.world, s.time)
 	r.ClearBrush()
 
 	drawables := []render.UIDrawable{s.menuBar}
 	if s.activeTool == toolLiftTop {
 		drawables = append(drawables, &hintLabel{text: "Click to set lift top"})
+	}
+	for i, a := range s.world.Agents {
+		if a.ID == s.followAgentID {
+			drawables = append(drawables, &followLabel{agent: a, idx: i})
+			break
+		}
 	}
 	if s.escapeMenu.Visible() {
 		drawables = append(drawables, s.escapeMenu)
@@ -386,6 +412,71 @@ func stationInstanceAt(cell [2]int, t *world.Terrain) render.StaticInstance {
 	inst := render.StaticInstance{ColorTint: [3]float32{1, 1, 1}}
 	copy(inst.Transform[:], m[:])
 	return inst
+}
+
+// cycleFollow advances the followed skier. First call picks a random skier;
+// subsequent calls cycle forward through the agents slice.
+func (s *Scenario) cycleFollow() {
+	agents := s.world.Agents
+	if len(agents) == 0 {
+		s.followAgentID = 0
+		return
+	}
+	if s.followAgentID == 0 {
+		s.followAgentID = agents[rand.Intn(len(agents))].ID
+		return
+	}
+	for i, a := range agents {
+		if a.ID == s.followAgentID {
+			s.followAgentID = agents[(i+1)%len(agents)].ID
+			return
+		}
+	}
+	// Followed agent no longer exists; wrap to first.
+	s.followAgentID = agents[0].ID
+}
+
+// findFollowedAgent returns the agent being followed, or nil if it no longer exists.
+func (s *Scenario) findFollowedAgent() *world.Agent {
+	for _, a := range s.world.Agents {
+		if a.ID == s.followAgentID {
+			return a
+		}
+	}
+	return nil
+}
+
+// followLabel draws a HUD banner showing which skier the camera is following.
+type followLabel struct {
+	agent *world.Agent
+	idx   int
+}
+
+func (f *followLabel) Draw(r *render.Renderer) {
+	state := agentStateLabel(f.agent.State)
+	text := fmt.Sprintf("Skier #%d  |  %s", f.idx+1, state)
+	w := float32(len(text)*8 + 16)
+	x := (float32(r.ScreenWidth()) - w) / 2
+	r.DrawColorRect(x, 40, w, 20, mgl32.Vec4{0, 0, 0, 0.6})
+	if r.Font != nil {
+		r.Font.DrawText(r, text, x+8, 44, mgl32.Vec4{1, 0.95, 0.1, 1})
+	}
+}
+
+func agentStateLabel(state world.AgentState) string {
+	switch state {
+	case world.StateWalking:
+		return "Walking"
+	case world.StateQueuing:
+		return "Queuing"
+	case world.StateRiding:
+		return "On Lift"
+	case world.StateSkiing:
+		return "Skiing"
+	case world.StateReturningToLodge:
+		return "Heading Home"
+	}
+	return "Unknown"
 }
 
 // hintLabel draws a small text hint at the bottom of the screen.

@@ -59,6 +59,45 @@ func (t *Terrain) ElevationAt(x, z int) float32 {
 	return t.Cells[x][z].Elevation
 }
 
+// InterpolatedElevationAt returns the bilinearly-interpolated terrain elevation
+// at a world-space position. Smoother than ElevationAt for continuous motion.
+func (t *Terrain) InterpolatedElevationAt(wx, wz float32) float32 {
+	const cellSize = float32(10.0)
+	xi := int(wx / cellSize)
+	zi := int(wz / cellSize)
+	if xi < 0 {
+		xi = 0
+	}
+	if xi >= t.Width-1 {
+		xi = t.Width - 2
+	}
+	if zi < 0 {
+		zi = 0
+	}
+	if zi >= t.Height-1 {
+		zi = t.Height - 2
+	}
+	fx := wx/cellSize - float32(xi)
+	fz := wz/cellSize - float32(zi)
+	if fx < 0 {
+		fx = 0
+	}
+	if fx > 1 {
+		fx = 1
+	}
+	if fz < 0 {
+		fz = 0
+	}
+	if fz > 1 {
+		fz = 1
+	}
+	e00 := t.ElevationAt(xi, zi)
+	e10 := t.ElevationAt(xi+1, zi)
+	e01 := t.ElevationAt(xi, zi+1)
+	e11 := t.ElevationAt(xi+1, zi+1)
+	return (1-fz)*((1-fx)*e00+fx*e10) + fz*((1-fx)*e01+fx*e11)
+}
+
 // NormalAt returns the surface normal at the given (continuous) grid position
 // by bilinear-sampling the elevation of neighboring cells.
 func (t *Terrain) NormalAt(x, z float32) mgl32.Vec3 {

@@ -59,10 +59,11 @@ func worldToData(w *world.World) ScenarioData {
 	buildings := make([]BuildingData, len(w.Buildings))
 	for i, b := range w.Buildings {
 		buildings[i] = BuildingData{
-			X:         b.Pos[0],
-			Z:         b.Pos[1],
-			Rotation:  b.Rotation,
-			SpawnRate: b.SpawnRate,
+			X:             b.Pos[0],
+			Z:             b.Pos[1],
+			Rotation:      b.Rotation,
+			MeanSpawnRate: b.MeanSpawnRate,
+			SkierCount:    b.SkierCount,
 		}
 	}
 
@@ -79,11 +80,13 @@ func worldToData(w *world.World) ScenarioData {
 	agents := make([]AgentData, len(w.Agents))
 	for i, a := range w.Agents {
 		agents[i] = AgentData{
-			Pos:     [3]float32{a.Pos[0], a.Pos[1], a.Pos[2]},
-			Heading: a.Heading,
-			State:   int(a.State),
-			Path:    a.Path,
-			PathIdx: a.PathIdx,
+			Pos:              [3]float32{a.Pos[0], a.Pos[1], a.Pos[2]},
+			Heading:          a.Heading,
+			State:            int(a.State),
+			Path:             a.Path,
+			PathIdx:          a.PathIdx,
+			Speed:            a.Speed,
+			TargetBuildingID: a.TargetBuildingID,
 		}
 	}
 
@@ -132,7 +135,13 @@ func dataToWorld(data ScenarioData) *world.World {
 	for _, bd := range data.Buildings {
 		b := w.PlaceBuilding(bd.X, bd.Z)
 		b.Rotation = bd.Rotation
-		b.SpawnRate = bd.SpawnRate
+		if bd.MeanSpawnRate > 0 {
+			b.MeanSpawnRate = bd.MeanSpawnRate
+		}
+		if bd.SkierCount > 0 {
+			b.SkierCount = bd.SkierCount
+		}
+		b.InitNextSpawn()
 	}
 
 	// Restore lifts
@@ -143,12 +152,14 @@ func dataToWorld(data ScenarioData) *world.World {
 	// Restore agents
 	for _, ad := range data.Agents {
 		agent := &world.Agent{
-			ID:      w.NextID(),
-			Pos:     mgl32.Vec3{ad.Pos[0], ad.Pos[1], ad.Pos[2]},
-			Heading: ad.Heading,
-			State:   world.AgentState(ad.State),
-			Path:    ad.Path,
-			PathIdx: ad.PathIdx,
+			ID:               w.NextID(),
+			Pos:              mgl32.Vec3{ad.Pos[0], ad.Pos[1], ad.Pos[2]},
+			Heading:          ad.Heading,
+			State:            world.AgentState(ad.State),
+			Path:             ad.Path,
+			PathIdx:          ad.PathIdx,
+			Speed:            ad.Speed,
+			TargetBuildingID: ad.TargetBuildingID,
 		}
 		w.Agents = append(w.Agents, agent)
 	}

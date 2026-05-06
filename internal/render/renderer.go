@@ -41,6 +41,8 @@ type Renderer struct {
 	brushCenter mgl32.Vec2
 	brushRadius float32
 
+	HighlightAgentID uint64
+
 	// logicalW/H are the window size in logical (point) pixels — these match
 	// GLFW mouse coordinates and are used for UI ortho projection and camera
 	// ray-casting. frameW/H are the actual OpenGL framebuffer dimensions and
@@ -300,6 +302,65 @@ func terrainJitter(gx, gz int, cellSize float32) float32 {
 	h *= 0x45d9f3b
 	h ^= h >> 16
 	return (float32(h)/float32(^uint32(0)) - 0.5) * 0.2 * cellSize
+}
+
+// visualElevationAt returns the exact terrain mesh surface height at world
+// position (wx, wz). It replicates the same triangle selection and barycentric
+// interpolation used in buildTerrainVerts — including per-vertex jitter and the
+// checkerboard diagonal pattern — so agents always sit on (never below) the mesh.
+func visualElevationAt(t *world.Terrain, wx, wz float32) float32 {
+	const cellSize = float32(10.0)
+	xi := int(wx / cellSize)
+	zi := int(wz / cellSize)
+	if xi < 0 {
+		xi = 0
+	}
+	if xi >= t.Width-1 {
+		xi = t.Width - 2
+	}
+	if zi < 0 {
+		zi = 0
+	}
+	if zi >= t.Height-1 {
+		zi = t.Height - 2
+	}
+	fx := wx/cellSize - float32(xi)
+	fz := wz/cellSize - float32(zi)
+	if fx < 0 {
+		fx = 0
+	}
+	if fx > 1 {
+		fx = 1
+	}
+	if fz < 0 {
+		fz = 0
+	}
+	if fz > 1 {
+		fz = 1
+	}
+
+	e00 := t.ElevationAt(xi, zi) + terrainJitter(xi, zi, cellSize)
+	e10 := t.ElevationAt(xi+1, zi) + terrainJitter(xi+1, zi, cellSize)
+	e01 := t.ElevationAt(xi, zi+1) + terrainJitter(xi, zi+1, cellSize)
+	e11 := t.ElevationAt(xi+1, zi+1) + terrainJitter(xi+1, zi+1, cellSize)
+
+	// Mirror the checkerboard diagonal from buildTerrainVerts.
+	if (xi+zi)%2 == 0 {
+		// Diagonal runs from p00→p11.
+		// Lower-left triangle (p00, p10, p11): fz ≤ fx
+		// Upper-right triangle (p00, p11, p01): fz > fx
+		if fz <= fx {
+			return (1-fx)*e00 + (fx-fz)*e10 + fz*e11
+		}
+		return (1-fz)*e00 + fx*e11 + (fz-fx)*e01
+	}
+	// Diagonal runs from p10→p01.
+	// Lower-right triangle (p00, p10, p01): fx+fz ≤ 1
+	// Upper-left  triangle (p10, p11, p01): fx+fz > 1
+	if fx+fz <= 1 {
+		return (1-fx-fz)*e00 + fx*e10 + fz*e01
+	}
+	return (1-fz)*e10 + (fx+fz-1)*e11 + (1-fx)*e01
 }
 
 // upwardNormal computes the face normal for a triangle and ensures it points upward.
@@ -595,6 +656,7 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	// Cable pass — meshes carry world-space positions, so the instance transform
 	// must be identity. Set it via generic vertex attribute values since the cable
 	// VAO has no instance VBO at locations 3-7.
+	gl.BindTexture(gl.TEXTURE_2D, r.whiteTexID)
 	setCableTransformAttribs()
 	for _, liftMesh := range r.cableMeshes {
 		liftMesh.Draw()
@@ -609,6 +671,7 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		batch.Draw()
 	}
 	if r.ghostCableMesh != nil {
+		gl.BindTexture(gl.TEXTURE_2D, r.whiteTexID)
 		setCableTransformAttribs()
 		r.ghostCableMesh.Draw()
 	}
@@ -621,10 +684,20 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		// Collect agent instances
 		instances := make([]DynamicInstance, 0, len(w.Agents))
 		for _, agent := range w.Agents {
+			// Riding agents carry an explicit cable Y; all others snap to the
+			// jitter-corrected visual terrain surface so they sit on the mesh.
+			posY := agent.Pos[1]
+			if agent.State != world.StateRiding {
+				posY = visualElevationAt(w.Terrain, agent.Pos[0], agent.Pos[2])
+			}
+			color := agentColor(agent.State)
+			if r.HighlightAgentID != 0 && agent.ID == r.HighlightAgentID {
+				color = [3]float32{1.0, 0.95, 0.1} // gold highlight for followed skier
+			}
 			inst := DynamicInstance{
-				Position: [3]float32{agent.Pos[0], agent.Pos[1], agent.Pos[2]},
+				Position: [3]float32{agent.Pos[0], posY, agent.Pos[2]},
 				Heading:  agent.Heading,
-				Color:    agentColor(agent.State),
+				Color:    color,
 			}
 			instances = append(instances, inst)
 		}
@@ -647,6 +720,8 @@ func agentColor(state world.AgentState) [3]float32 {
 		return [3]float32{0.9, 0.4, 0.1}
 	case world.StateSkiing:
 		return [3]float32{0.1, 0.8, 0.3}
+	case world.StateReturningToLodge:
+		return [3]float32{0.8, 0.3, 0.8}
 	}
 	return [3]float32{1, 1, 1}
 }
@@ -802,7 +877,7 @@ func setCableTransformAttribs() {
 	gl.VertexAttrib4f(4, 0, 1, 0, 0) // identity col 1
 	gl.VertexAttrib4f(5, 0, 0, 1, 0) // identity col 2
 	gl.VertexAttrib4f(6, 0, 0, 0, 1) // identity col 3
-	gl.VertexAttrib3f(7, 1, 1, 1)    // white tint
+	gl.VertexAttrib3f(7, 0.15, 0.15, 0.15) // dark charcoal tint
 }
 
 // treeCountFromDensity maps a cell's TreeDensity to the number of tree instances to place.
