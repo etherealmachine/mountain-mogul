@@ -118,7 +118,18 @@ type Scenario struct {
 	pendingScreenshot bool
 	toastText         string
 	toastExpiry       float32 // s.time at which toast disappears
+
+	// Trail of world-space positions for the currently followed skier.
+	// Reset when followAgentID changes; appended when at least
+	// trackMinSpacing metres past the last sample.
+	track       []mgl32.Vec3
+	trackOwner  uint64
 }
+
+const (
+	trackMinSpacing = 0.5  // m; minimum distance from last sample before appending
+	trackMaxPoints  = 6000 // hard cap; old points dropped when exceeded
+)
 
 // speedOptions lists the time-scale presets shown in the menu bar.
 var speedOptions = []float64{1, 5, 10}
@@ -463,29 +474,75 @@ func (s *Scenario) Update(dt float64) {
 		}
 	}
 
-	// Steering debug overlay.
-	if s.debugSteering {
-		s.updateDebugLines(r)
-	}
+	// Track + optional steering overlay for the followed skier.
+	s.updateOverlay(r)
 }
 
-// updateDebugLines pushes a steering visualisation for the followed skier
-// to the renderer. Cleared when no skier is followed or the agent isn't
-// in a skiing state.
-func (s *Scenario) updateDebugLines(r *render.Renderer) {
+// updateOverlay maintains the followed skier's track and (optionally) the
+// steering-debug visualisation, then pushes both to the renderer in a single
+// SetDebugLines batch. The track resets whenever the followed skier changes
+// or follow is disabled.
+func (s *Scenario) updateOverlay(r *render.Renderer) {
 	a := s.findFollowedAgent()
-	if a == nil || (a.State != world.StateSkiing && a.State != world.StateReturningToLodge) {
-		r.SetDebugLines(nil)
-		return
-	}
-	target, ok := skierTarget(s.world, a)
-	if !ok {
-		r.SetDebugLines(nil)
-		return
-	}
-	d := sim.ComputeSteeringDebug(s.world.Terrain, a, target)
 
-	// Lift origin a bit above the agent so lines are not buried in mesh.
+	// Reset the track when follow target changes (including dropped follow).
+	if a == nil || a.ID != s.trackOwner {
+		s.track = s.track[:0]
+		s.trackOwner = 0
+	}
+	if a == nil {
+		r.SetDebugLines(nil)
+		return
+	}
+	if s.trackOwner == 0 {
+		s.trackOwner = a.ID
+	}
+
+	// Append the latest position when the skier has moved meaningfully and
+	// the sim is running. Skipping while paused avoids piling up duplicates.
+	if !s.paused {
+		add := len(s.track) == 0
+		if !add {
+			last := s.track[len(s.track)-1]
+			dx := a.Pos[0] - last[0]
+			dy := a.Pos[1] - last[1]
+			dz := a.Pos[2] - last[2]
+			if dx*dx+dy*dy+dz*dz >= trackMinSpacing*trackMinSpacing {
+				add = true
+			}
+		}
+		if add {
+			s.track = append(s.track, a.Pos)
+			if len(s.track) > trackMaxPoints {
+				s.track = s.track[len(s.track)-trackMaxPoints:]
+			}
+		}
+	}
+
+	lines := make([]render.DebugLine, 0, len(s.track)+8)
+	const trackHover = 0.4 // m above terrain so the line is not buried
+	const trackR, trackG, trackB = 1.0, 0.55, 0.1 // warm orange
+	for i := 1; i < len(s.track); i++ {
+		p, q := s.track[i-1], s.track[i]
+		lines = append(lines, render.DebugLine{
+			A:     mgl32.Vec3{p[0], p[1] + trackHover, p[2]},
+			B:     mgl32.Vec3{q[0], q[1] + trackHover, q[2]},
+			Color: [3]float32{trackR, trackG, trackB},
+		})
+	}
+
+	if s.debugSteering && (a.State == world.StateSkiing || a.State == world.StateReturningToLodge) {
+		if target, ok := skierTarget(s.world, a); ok {
+			lines = append(lines, steeringLines(s.world, a, target)...)
+		}
+	}
+
+	r.SetDebugLines(lines)
+}
+
+// steeringLines builds the F3 steering-debug visualisation for the agent.
+func steeringLines(w *world.World, a *world.Agent, target mgl32.Vec3) []render.DebugLine {
+	d := sim.ComputeSteeringDebug(w.Terrain, a, target)
 	origin := mgl32.Vec3{a.Pos[0], a.Pos[1] + 1.5, a.Pos[2]}
 	mk := func(dir mgl32.Vec2, length float32, color [3]float32) render.DebugLine {
 		return render.DebugLine{
@@ -494,23 +551,19 @@ func (s *Scenario) updateDebugLines(r *render.Renderer) {
 			Color: color,
 		}
 	}
-
 	lines := make([]render.DebugLine, 0, 5)
 	if d.FallLine.Len() > 1e-4 {
-		lines = append(lines, mk(d.FallLine, 10, [3]float32{0.1, 0.9, 1.0})) // cyan
+		lines = append(lines, mk(d.FallLine, 10, [3]float32{0.1, 0.9, 1.0}))
 	}
 	hx := float32(math.Sin(float64(d.DesiredHead)))
 	hz := float32(math.Cos(float64(d.DesiredHead)))
-	lines = append(lines, mk(mgl32.Vec2{hx, hz}, 10, [3]float32{1.0, 0.95, 0.1})) // yellow
-
+	lines = append(lines, mk(mgl32.Vec2{hx, hz}, 10, [3]float32{1.0, 0.95, 0.1}))
 	for _, p := range d.Probes {
-		// Length scales 0.4 → 1.0 of ProbeDistance with density.
 		length := float32(sim.ProbeDistance) * (0.4 + 0.6*p.Density)
-		// Colour: pale red when clear, saturated red when dense.
 		shade := 0.4 + 0.6*p.Density
 		lines = append(lines, mk(p.Dir, length, [3]float32{shade, 0.15, 0.15}))
 	}
-	r.SetDebugLines(lines)
+	return lines
 }
 
 // skierTarget returns the world-space target the agent is currently

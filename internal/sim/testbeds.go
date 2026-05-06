@@ -3,32 +3,49 @@ package sim
 import (
 	"math"
 	"math/rand"
+	"strings"
 
 	"github.com/go-gl/mathgl/mgl32"
 	"mountain-mogul/internal/ai"
 	"mountain-mogul/internal/world"
 )
 
-// Testbed is a small, named world that drives both pure-Go tests and the
-// in-game testbed picker. The contract: Build returns a fresh *world.World
-// containing terrain, an optional target lodge, and one or more pre-spawned
-// skiers. Builders are expected to be deterministic given the rng so the
-// visual mode and tests see identical worlds.
+// Testbed is a small, named world that drives the in-game testbed picker and
+// the headless `-testbed` CLI runner. The contract: Build returns a fresh
+// *world.World containing terrain, an optional target lodge, and one or more
+// pre-spawned skiers. Builders are expected to be deterministic given the rng
+// so the visual mode and the headless runner see identical worlds.
+//
+// Key is the stable identifier used by the headless runner; it matches the
+// build function name so `go run . -testbed BuildSlope10Intermediate` is
+// unambiguous. Name is the human-readable label shown in the menu.
 type Testbed struct {
+	Key   string
 	Name  string
 	Build func(rng *rand.Rand) *world.World
 	Seed  int64
 }
 
 // Testbeds is the registry surfaced by the start-menu testbed picker and by
-// the test suite. Append new entries here.
+// the headless runner. Append new entries here.
 var Testbeds = []Testbed{
-	{Name: "Flat plane (beginner)", Build: BuildFlatPlane, Seed: 1},
-	{Name: "10° slope (intermediate)", Build: BuildSlope10Intermediate, Seed: 1},
-	{Name: "15° slope (intermediate)", Build: BuildInclinedPlane, Seed: 1},
-	{Name: "20° slope (advanced)", Build: BuildSlope20Advanced, Seed: 1},
-	{Name: "Slope with flat runout (advanced)", Build: BuildRunout, Seed: 1},
-	{Name: "Bowl (intermediate)", Build: BuildBowl, Seed: 1},
+	{Key: "BuildFlatPlane", Name: "Flat plane (beginner)", Build: BuildFlatPlane, Seed: 1},
+	{Key: "BuildSlope10Intermediate", Name: "10° slope (intermediate)", Build: BuildSlope10Intermediate, Seed: 1},
+	{Key: "BuildInclinedPlane", Name: "15° slope (intermediate)", Build: BuildInclinedPlane, Seed: 1},
+	{Key: "BuildSlope20Advanced", Name: "20° slope (advanced)", Build: BuildSlope20Advanced, Seed: 1},
+	{Key: "BuildRunout", Name: "Slope with flat runout (advanced)", Build: BuildRunout, Seed: 1},
+	{Key: "BuildBowl", Name: "Bowl (intermediate)", Build: BuildBowl, Seed: 1},
+}
+
+// FindTestbed returns the testbed whose Key matches `key` (case-insensitive).
+// Returns nil if not found.
+func FindTestbed(key string) *Testbed {
+	for i := range Testbeds {
+		if strings.EqualFold(Testbeds[i].Key, key) {
+			return &Testbeds[i]
+		}
+	}
+	return nil
 }
 
 // BuildFlatPlane: 600 × 400 m flat terrain, lodge at the centre, beginner

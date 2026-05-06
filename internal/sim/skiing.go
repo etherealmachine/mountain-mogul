@@ -48,9 +48,22 @@ const (
 	flatSlopeL  = 0.05 // sin(~2.9°)
 	steepSlopeL = 0.20 // sin(~11.5°)
 
-	// Parallel-turn arc width range
-	parallelMinArc = 18 * math.Pi / 180
-	parallelMaxArc = 65 * math.Pi / 180
+	// Parallel-turn arc width range. The motor anchors arc width on slope
+	// (steeper terrain → wider arcs to scrub), not on speed-vs-comfort, so
+	// even on a gentle slope where the skier never reaches comfort speed the
+	// turns still have visible amplitude.
+	parallelMinArc = 35 * math.Pi / 180
+	parallelMaxArc = 70 * math.Pi / 180
+
+	// Minimum sim-time the skier dwells on one side of the fall line before
+	// allowing a phase flip. Stops sub-second pinging across the axis and
+	// gives each carve room to develop.
+	parallelMinDwell = 0.7 // seconds
+
+	// Heading-rotation cap while the parallel motor is engaged. Lower than
+	// the global maxAngularSpeed so carved arcs read as turns rather than
+	// snaps. Other techniques (hockey, sideslip) keep the global cap.
+	parallelTurnRate = 55 * math.Pi / 180 // rad/s
 
 	// Tree perception
 	probeForwardDist = 12.0                // m
@@ -112,6 +125,10 @@ type MotorCmd struct {
 	Heading     float32 // commanded heading; physics rotates toward this
 	Scrub       float32 // m/s² extra deceleration beyond passive friction
 	BalanceCost float32 // balance drain per second
+	// MaxTurnRate caps heading rotation this tick (rad/s). 0 = use the global
+	// maxAngularSpeed default. Techniques use this to express that a carved
+	// arc shouldn't rotate as fast as an emergency hockey stop.
+	MaxTurnRate float32
 }
 
 // =============================================================================
@@ -403,8 +420,8 @@ func selectTechnique(traits ai.SkierTraits, prev ai.MotorState, intent Intent, p
 		return MotorCmd{Heading: intent.AxisHeading, Scrub: 3.0, BalanceCost: 0.06}, next
 
 	case ai.TechParallel:
-		heading, motor := parallelHeading(next, intent, perc)
-		return MotorCmd{Heading: heading, Scrub: 0, BalanceCost: 0.02}, motor
+		heading, motor := parallelHeading(traits, next, intent, perc)
+		return MotorCmd{Heading: heading, Scrub: 0, BalanceCost: 0.02, MaxTurnRate: float32(parallelTurnRate)}, motor
 
 	case ai.TechHockey:
 		// Hard 90° edge-set for a brief pulse. The hockey state ends when
@@ -478,24 +495,36 @@ func pickTechnique(traits ai.SkierTraits, prev ai.MotorState, intent Intent, per
 	return ai.TechStraight
 }
 
-// parallelHeading drives the linked-turn oscillation. Arc width grows with
-// the speed-over-target ratio so a fast skier turns wider arcs to scrub
-// (carving friction in physics translates wider arcs into more deceleration);
-// a controlled skier holds tighter arcs for cleaner progress along the axis.
-func parallelHeading(state ai.MotorState, intent Intent, perc Perception) (float32, ai.MotorState) {
+// parallelHeading drives the linked-turn oscillation. Arc width is anchored
+// on slope-vs-comfort, not speed-vs-comfort: even on gentle terrain where the
+// skier never reaches comfort speed, arcs stay wide enough to read as turns.
+// On steep terrain the arcs widen further so cross-fall scrub does more work.
+//
+// A minimum dwell time per phase (parallelMinDwell) prevents sub-second
+// pinging across the fall line — real carves carry the skier past axis and
+// the next turn initiates only after the previous one has developed.
+func parallelHeading(traits ai.SkierTraits, state ai.MotorState, intent Intent, perc Perception) (float32, ai.MotorState) {
 	if state.TurnPhase == 0 {
 		state.TurnPhase = 1
 	}
 
-	speedRatio := perc.Speed / max32(intent.Speed, 1)
-	t := clamp32((speedRatio-0.6)/0.6, 0, 1) // 0 below comfort, 1 at 1.2x
+	// Slope-driven arc width. ratio=1 means the agent is at their comfort
+	// slope; below comfort still gets a healthy arc, well above comfort
+	// pushes toward the max.
+	comfortSlope := traits.ComfortSlope
+	if comfortSlope < 1e-3 {
+		comfortSlope = float32(20 * math.Pi / 180)
+	}
+	slopeRatio := perc.SlopeAngle / comfortSlope
+	t := clamp32((slopeRatio-0.3)/1.0, 0, 1) // 0 at 30% of comfort, 1 at 130%
 	arc := float32(parallelMinArc) + (float32(parallelMaxArc)-float32(parallelMinArc))*t
 
 	desired := wrapAngle(intent.AxisHeading + float32(state.TurnPhase)*arc)
 
-	// Phase flip: heading has rotated through ~85% of the current side's arc.
+	// Phase flip: heading reached the arc edge AND the carve has had time to
+	// develop. The dwell guard is what stops the squiggle.
 	deviation := wrapAngle(perc.Heading-intent.AxisHeading) * float32(state.TurnPhase)
-	if deviation > arc*0.85 {
+	if deviation > arc*0.85 && state.PhaseTime >= float32(parallelMinDwell) {
 		state.TurnPhase = -state.TurnPhase
 		state.PhaseTime = 0
 	}
@@ -540,7 +569,11 @@ func stressDelta(traits ai.SkierTraits, perc Perception, intent Intent, cmd Moto
 // =============================================================================
 
 func applyMotor(t *world.Terrain, a *world.Agent, cmd MotorCmd, perc Perception, dt float64) {
-	a.Heading = rotateToward(a.Heading, cmd.Heading, float32(maxAngularSpeed), dt)
+	turnRate := float32(maxAngularSpeed)
+	if cmd.MaxTurnRate > 0 {
+		turnRate = cmd.MaxTurnRate
+	}
+	a.Heading = rotateToward(a.Heading, cmd.Heading, turnRate, dt)
 
 	hx := float32(math.Sin(float64(a.Heading)))
 	hz := float32(math.Cos(float64(a.Heading)))
