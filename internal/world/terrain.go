@@ -98,6 +98,18 @@ func (t *Terrain) InterpolatedElevationAt(wx, wz float32) float32 {
 	return (1-fz)*((1-fx)*e00+fx*e10) + fz*((1-fx)*e01+fx*e11)
 }
 
+// TreeDensityAt returns the tree density at the given world-space XZ point
+// using nearest-cell sampling. Out-of-bounds returns 0 (clear).
+func (t *Terrain) TreeDensityAt(wx, wz float32) float32 {
+	const cellSize = float32(10.0)
+	xi := int(wx / cellSize)
+	zi := int(wz / cellSize)
+	if !t.InBounds(xi, zi) {
+		return 0
+	}
+	return t.Cells[xi][zi].TreeDensity
+}
+
 // NormalAt returns the surface normal at the given (continuous) grid position
 // by bilinear-sampling the elevation of neighboring cells.
 func (t *Terrain) NormalAt(x, z float32) mgl32.Vec3 {

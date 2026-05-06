@@ -24,4 +24,5 @@ type Agent struct {
 	TargetLiftID     uint64  // which lift to walk/ski toward
 	TargetBuildingID uint64  // home lodge (for returning after a run)
 	Speed            float32 // current skiing speed (m/s), physics-integrated
+	TurnPhase        int8    // S-turn side: -1 left, +1 right, 0 unset
 }

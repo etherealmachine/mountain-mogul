@@ -7,6 +7,7 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 	"mountain-mogul/internal/engine"
 	"mountain-mogul/internal/render"
+	"mountain-mogul/internal/save"
 	"mountain-mogul/internal/ui"
 )
 
@@ -34,7 +35,11 @@ func (s *StartMenu) Init(app *engine.App) error {
 			s.app.PushScene(scen)
 		}},
 		{"Load Save", func() {
-			fmt.Println("Load Save: not yet implemented")
+			if !save.SaveSlotExists() {
+				fmt.Println("Load Save: no save file at", save.SaveSlotPath())
+				return
+			}
+			s.app.PushScene(NewScenarioFromSave())
 		}},
 		{"Scenario Editor", func() {
 			ed := NewEditor(s.app.AssetDir + "/scenarios/tutorial.json")

@@ -3,10 +3,30 @@ package save
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 
 	"github.com/go-gl/mathgl/mgl32"
 	"mountain-mogul/internal/world"
 )
+
+// SaveSlotPath returns the path to the canonical user save slot. Falls back
+// to the working directory if the user's home directory cannot be determined.
+// The parent directory is created on access so callers can write directly.
+func SaveSlotPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return "mountain-mogul-save.json"
+	}
+	dir := filepath.Join(home, ".mountain-mogul")
+	_ = os.MkdirAll(dir, 0o755)
+	return filepath.Join(dir, "save.json")
+}
+
+// SaveSlotExists reports whether a save file exists at SaveSlotPath.
+func SaveSlotExists() bool {
+	_, err := os.Stat(SaveSlotPath())
+	return err == nil
+}
 
 // SaveScenario marshals the world to JSON and writes it to path.
 func SaveScenario(path string, w *world.World) error {

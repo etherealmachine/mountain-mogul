@@ -101,12 +101,35 @@ type Scenario struct {
 	rightDragging   bool
 	hoverCell       [2]int // terrain cell currently under the mouse
 	followAgentID   uint64 // 0 = free camera; >0 = ID of followed skier
+	debugSteering   bool   // F3: render steering forces on the followed skier
+	paused          bool
+	pauseBtn        *ui.Button
+	speedBtns       []*ui.Button // index aligned with speedOptions
 	popup           *ui.Window
+	savePath        string // where Save / escape-menu Load operate
 }
 
-// NewScenario creates a Scenario scene that loads from the given path.
-func NewScenario(path string) *Scenario {
-	return &Scenario{scenarioPath: path}
+// speedOptions lists the time-scale presets shown in the menu bar.
+var speedOptions = []float64{1, 5, 10}
+
+// NewScenario creates a Scenario that loads its initial world from
+// scenarioPath. Save / escape-menu Load operate on the user save slot
+// (save.SaveSlotPath), so playing a scenario never overwrites the source file.
+func NewScenario(scenarioPath string) *Scenario {
+	return &Scenario{
+		scenarioPath: scenarioPath,
+		savePath:     save.SaveSlotPath(),
+	}
+}
+
+// NewScenarioFromSave creates a Scenario whose initial load and subsequent
+// saves both target the user save slot — used by the main-menu "Load Save".
+func NewScenarioFromSave() *Scenario {
+	slot := save.SaveSlotPath()
+	return &Scenario{
+		scenarioPath: slot,
+		savePath:     slot,
+	}
 }
 
 func (s *Scenario) Init(app *engine.App) error {
@@ -119,26 +142,9 @@ func (s *Scenario) Init(app *engine.App) error {
 		t := world.NewTerrain(32, 32)
 		w = world.NewWorld(t)
 	}
-	s.world = w
-	s.sim = sim.NewSimulation(w)
+	s.installWorld(w)
 
-	// Build terrain mesh
-	r := app.Renderer
-	r.BuildTerrainMesh(w.Terrain)
-	r.RebuildStaticBatch(w)
-
-	// Generate cable meshes for existing lifts
-	for _, lift := range w.Lifts {
-		r.AddLiftCable(lift, w.Terrain)
-	}
-
-	s.escapeMenu = NewEscapeMenu(app, func() {
-		if err := save.SaveScenario(s.scenarioPath, s.world); err != nil {
-			fmt.Println("Save error:", err)
-		} else {
-			fmt.Println("Saved to", s.scenarioPath)
-		}
-	})
+	s.escapeMenu = NewEscapeMenu(app, s.saveScenario, s.loadScenario)
 
 	// Build menu bar
 	s.toolButtons = make(map[toolMode]*ui.Button)
@@ -148,7 +154,85 @@ func (s *Scenario) Init(app *engine.App) error {
 	s.toolButtons[toolGlade] = s.menuBar.AddButton("Glade", func() { s.setTool(toolGlade) })
 	s.toolButtons[toolRemove] = s.menuBar.AddButton("Remove", func() { s.setTool(toolRemove) })
 
+	// Speed / pause controls — right-aligned. The menu bar packs right-buttons
+	// right-to-left in insertion order, so insert Pause first to make it the
+	// leftmost of the cluster: [Pause] [1x] [5x] [10x] [right edge].
+	s.pauseBtn = s.menuBar.AddRightButton("Pause", func() {
+		s.paused = !s.paused
+		s.syncSpeedButtons()
+	})
+	s.speedBtns = make([]*ui.Button, len(speedOptions))
+	for i, mult := range speedOptions {
+		mult := mult
+		idx := i
+		label := fmt.Sprintf("%.0fx", mult)
+		s.speedBtns[idx] = s.menuBar.AddRightButton(label, func() {
+			s.sim.TimeScale = mult
+			s.paused = false
+			s.syncSpeedButtons()
+		})
+	}
+	s.syncSpeedButtons()
+
 	return nil
+}
+
+// installWorld swaps in a new world and rebuilds renderer state. Tears down
+// per-lift meshes for the previous world (if any) before bringing up the new.
+func (s *Scenario) installWorld(w *world.World) {
+	r := s.app.Renderer
+	if s.world != nil {
+		for _, lift := range s.world.Lifts {
+			r.RemoveLiftCable(lift.ID)
+		}
+	}
+	s.world = w
+	s.sim = sim.NewSimulation(w)
+	r.BuildTerrainMesh(w.Terrain)
+	r.RebuildStaticBatch(w)
+	for _, lift := range w.Lifts {
+		r.AddLiftCable(lift, w.Terrain)
+	}
+}
+
+// saveScenario writes the current world to the save slot.
+func (s *Scenario) saveScenario() {
+	if err := save.SaveScenario(s.savePath, s.world); err != nil {
+		fmt.Println("Save error:", err)
+		return
+	}
+	fmt.Println("Saved to", s.savePath)
+}
+
+// loadScenario reloads the world from the save slot, replacing the live world
+// and resetting any transient UI state (active tool, popup, follow, debug).
+func (s *Scenario) loadScenario() {
+	w, err := save.LoadScenario(s.savePath)
+	if err != nil {
+		fmt.Println("Load error:", err)
+		return
+	}
+	s.installWorld(w)
+
+	// Reset transient scene state — old references no longer point into the new world.
+	s.cancelTool()
+	if s.popup != nil {
+		s.popup.Visible = false
+	}
+	s.followAgentID = 0
+	s.app.Renderer.SetDebugLines(nil)
+	s.syncSpeedButtons()
+	fmt.Println("Loaded from", s.savePath)
+}
+
+// syncSpeedButtons highlights the active speed/pause button.
+func (s *Scenario) syncSpeedButtons() {
+	for i, btn := range s.speedBtns {
+		btn.SetActive(!s.paused && s.sim.TimeScale == speedOptions[i])
+	}
+	if s.pauseBtn != nil {
+		s.pauseBtn.SetActive(s.paused)
+	}
 }
 
 func (s *Scenario) Update(dt float64) {
@@ -182,6 +266,14 @@ func (s *Scenario) Update(dt float64) {
 		}
 	}
 
+	// F3: toggle steering debug overlay (visualises forces for followed skier).
+	if inp.Pressed[glfw.KeyF3] {
+		s.debugSteering = !s.debugSteering
+		if !s.debugSteering {
+			r.SetDebugLines(nil)
+		}
+	}
+
 	// Q/E: rotate camera.
 	const rotSpeed = float32(90.0) // degrees per second
 	rotDelta := float32(0)
@@ -198,7 +290,7 @@ func (s *Scenario) Update(dt float64) {
 	}
 
 	// Menu bar input
-	s.menuBar.HandleInput(inp, float32(r.ScreenHeight()))
+	s.menuBar.HandleInput(inp, float32(r.ScreenWidth()), float32(r.ScreenHeight()))
 
 	// Camera pan with right-click drag
 	if inp.RightClick {
@@ -291,8 +383,10 @@ func (s *Scenario) Update(dt float64) {
 		}
 	}
 
-	// Tick simulation
-	s.sim.Tick(dt)
+	// Tick simulation (skipped while paused).
+	if !s.paused {
+		s.sim.Tick(dt)
+	}
 
 	// Camera follow: track the selected agent using the freshest positions.
 	if s.followAgentID != 0 {
@@ -303,6 +397,84 @@ func (s *Scenario) Update(dt float64) {
 			s.followAgentID = 0
 		}
 	}
+
+	// Steering debug overlay.
+	if s.debugSteering {
+		s.updateDebugLines(r)
+	}
+}
+
+// updateDebugLines pushes a steering visualisation for the followed skier
+// to the renderer. Cleared when no skier is followed or the agent isn't
+// in a skiing state.
+func (s *Scenario) updateDebugLines(r *render.Renderer) {
+	a := s.findFollowedAgent()
+	if a == nil || (a.State != world.StateSkiing && a.State != world.StateReturningToLodge) {
+		r.SetDebugLines(nil)
+		return
+	}
+	target, ok := skierTarget(s.world, a)
+	if !ok {
+		r.SetDebugLines(nil)
+		return
+	}
+	d := sim.ComputeSteeringDebug(s.world.Terrain, a, target)
+
+	// Lift origin a bit above the agent so lines are not buried in mesh.
+	origin := mgl32.Vec3{a.Pos[0], a.Pos[1] + 1.5, a.Pos[2]}
+	mk := func(dir mgl32.Vec2, length float32, color [3]float32) render.DebugLine {
+		return render.DebugLine{
+			A:     origin,
+			B:     mgl32.Vec3{origin[0] + dir[0]*length, origin[1], origin[2] + dir[1]*length},
+			Color: color,
+		}
+	}
+
+	lines := make([]render.DebugLine, 0, 5)
+	if d.FallLine.Len() > 1e-4 {
+		lines = append(lines, mk(d.FallLine, 10, [3]float32{0.1, 0.9, 1.0})) // cyan
+	}
+	hx := float32(math.Sin(float64(d.DesiredHead)))
+	hz := float32(math.Cos(float64(d.DesiredHead)))
+	lines = append(lines, mk(mgl32.Vec2{hx, hz}, 10, [3]float32{1.0, 0.95, 0.1})) // yellow
+
+	for _, p := range d.Probes {
+		// Length scales 0.4 → 1.0 of ProbeDistance with density.
+		length := float32(sim.ProbeDistance) * (0.4 + 0.6*p.Density)
+		// Colour: pale red when clear, saturated red when dense.
+		shade := 0.4 + 0.6*p.Density
+		lines = append(lines, mk(p.Dir, length, [3]float32{shade, 0.15, 0.15}))
+	}
+	r.SetDebugLines(lines)
+}
+
+// skierTarget returns the world-space target the agent is currently
+// steering toward (lift base for skiing; lodge for returning).
+func skierTarget(w *world.World, a *world.Agent) (mgl32.Vec3, bool) {
+	const cellSize = float32(10.0)
+	switch a.State {
+	case world.StateSkiing:
+		for _, lift := range w.Lifts {
+			if lift.ID == a.TargetLiftID {
+				return mgl32.Vec3{
+					float32(lift.Base[0]) * cellSize,
+					w.Terrain.ElevationAt(lift.Base[0], lift.Base[1]),
+					float32(lift.Base[1]) * cellSize,
+				}, true
+			}
+		}
+	case world.StateReturningToLodge:
+		for _, b := range w.Buildings {
+			if b.ID == a.TargetBuildingID {
+				return mgl32.Vec3{
+					float32(b.Pos[0]) * cellSize,
+					w.Terrain.ElevationAt(b.Pos[0], b.Pos[1]),
+					float32(b.Pos[1]) * cellSize,
+				}, true
+			}
+		}
+	}
+	return mgl32.Vec3{}, false
 }
 
 const gladeRadius = 2 // cells

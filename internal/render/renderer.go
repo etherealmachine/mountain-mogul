@@ -14,12 +14,19 @@ type UIDrawable interface {
 	Draw(r *Renderer)
 }
 
+// DebugLine is a single world-space line segment for tuning overlays.
+type DebugLine struct {
+	A, B  mgl32.Vec3
+	Color [3]float32
+}
+
 // Renderer coordinates all rendering passes.
 type Renderer struct {
 	TerrainShader *Shader
 	StaticShader  *Shader
 	DynamicShader *Shader
 	UIShader      *Shader
+	DebugShader   *Shader
 	Camera        *Camera
 	Font          *Font // may be nil; gracefully skip text
 
@@ -44,6 +51,9 @@ type Renderer struct {
 
 	uiVAO, uiVBO uint32
 	whiteTexID   uint32 // 1×1 white texture; always bound to unit 0 during UI pass
+
+	debugVAO, debugVBO uint32
+	debugVertCount     int32 // number of debug vertices currently in the VBO
 
 	brushCenter mgl32.Vec2
 	brushRadius float32
@@ -102,6 +112,11 @@ func NewRenderer(w, h int, assetDir string) (*Renderer, error) {
 		return nil, fmt.Errorf("ui shader: %w", err)
 	}
 
+	r.DebugShader, err = LoadShader(shaderDir+"debug.vert", shaderDir+"debug.frag")
+	if err != nil {
+		return nil, fmt.Errorf("debug shader: %w", err)
+	}
+
 	// White fallback texture — always bound to unit 0 in the UI pass.
 	r.whiteTexID = whiteTexture()
 
@@ -118,6 +133,17 @@ func NewRenderer(w, h int, assetDir string) (*Renderer, error) {
 	gl.VertexAttribPointerWithOffset(0, 2, gl.FLOAT, false, 16, 0)
 	gl.EnableVertexAttribArray(1)
 	gl.VertexAttribPointerWithOffset(1, 2, gl.FLOAT, false, 16, 8)
+	gl.BindVertexArray(0)
+
+	// Debug-line VAO/VBO. Vertex layout: pos(3) + color(3) = 6 floats = 24 bytes.
+	gl.GenVertexArrays(1, &r.debugVAO)
+	gl.GenBuffers(1, &r.debugVBO)
+	gl.BindVertexArray(r.debugVAO)
+	gl.BindBuffer(gl.ARRAY_BUFFER, r.debugVBO)
+	gl.EnableVertexAttribArray(0)
+	gl.VertexAttribPointerWithOffset(0, 3, gl.FLOAT, false, 24, 0)
+	gl.EnableVertexAttribArray(1)
+	gl.VertexAttribPointerWithOffset(1, 3, gl.FLOAT, false, 24, 12)
 	gl.BindVertexArray(0)
 
 	// Load all mesh types
@@ -861,6 +887,16 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		r.dynamicBatch.Draw()
 	}
 
+	// Debug-line pass (steering overlay etc.) — runs before chairs so chairs draw over.
+	if r.debugVertCount > 0 && r.DebugShader != nil {
+		r.DebugShader.Use()
+		r.DebugShader.SetMat4("uViewProj", vp)
+		gl.BindVertexArray(r.debugVAO)
+		gl.LineWidth(2.5)
+		gl.DrawArrays(gl.LINES, 0, r.debugVertCount)
+		gl.BindVertexArray(0)
+	}
+
 	// Chair pass
 	if r.chairBatch != nil {
 		chairInstances := make([]DynamicInstance, 0)
@@ -980,6 +1016,26 @@ func (r *Renderer) DrawColorRect(x, y, w, h float32, color mgl32.Vec4) {
 	r.UIShader.SetInt("uUseTexture", 0)
 	r.UIShader.SetVec4("uColor", color)
 	r.drawRect(x, y, w, h)
+}
+
+// SetDebugLines uploads a fresh batch of debug line segments for the
+// next frame. Pass nil or an empty slice to clear.
+func (r *Renderer) SetDebugLines(lines []DebugLine) {
+	if len(lines) == 0 {
+		r.debugVertCount = 0
+		return
+	}
+	verts := make([]float32, 0, len(lines)*12)
+	for _, l := range lines {
+		verts = append(verts,
+			l.A[0], l.A[1], l.A[2], l.Color[0], l.Color[1], l.Color[2],
+			l.B[0], l.B[1], l.B[2], l.Color[0], l.Color[1], l.Color[2],
+		)
+	}
+	gl.BindBuffer(gl.ARRAY_BUFFER, r.debugVBO)
+	gl.BufferData(gl.ARRAY_BUFFER, len(verts)*4, gl.Ptr(verts), gl.DYNAMIC_DRAW)
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+	r.debugVertCount = int32(len(lines) * 2)
 }
 
 // SetBrush configures the terrain shader brush ring.

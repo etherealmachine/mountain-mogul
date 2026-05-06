@@ -8,8 +8,9 @@ import (
 
 // MenuBar is a horizontal toolbar across the top of the screen.
 type MenuBar struct {
-	Y, H    float32
-	Buttons []*Button
+	Y, H         float32
+	Buttons      []*Button // left-aligned, packed left-to-right
+	RightButtons []*Button // right-aligned, packed right-to-left from screen edge
 
 	bgColor mgl32.Vec4
 }
@@ -23,7 +24,7 @@ func NewMenuBar(y, h float32) *MenuBar {
 	}
 }
 
-// AddButton appends a button to the menu bar and returns it.
+// AddButton appends a left-aligned button to the menu bar.
 func (m *MenuBar) AddButton(label string, onClick func()) *Button {
 	const padding = float32(6)
 	x := float32(0)
@@ -36,11 +37,41 @@ func (m *MenuBar) AddButton(label string, onClick func()) *Button {
 	return btn
 }
 
+// AddRightButton appends a right-aligned button. Position is recomputed each
+// frame from the current screen width so resize works automatically.
+func (m *MenuBar) AddRightButton(label string, onClick func()) *Button {
+	const padding = float32(6)
+	w := float32(len(label)*render.GlyphAdvance) + 20
+	btn := NewButton(0, m.Y+padding, w, m.H-padding*2, label, onClick)
+	m.RightButtons = append(m.RightButtons, btn)
+	return btn
+}
+
+// layoutRight anchors all RightButtons to the right edge of the screen, packed
+// left-to-right in insertion order with `padding` between them.
+func (m *MenuBar) layoutRight(screenW float32) {
+	const padding = float32(6)
+	x := screenW - padding
+	for i := len(m.RightButtons) - 1; i >= 0; i-- {
+		btn := m.RightButtons[i]
+		x -= btn.W
+		btn.X = x
+		x -= padding
+	}
+}
+
 // HandleInput processes mouse input for the menu bar.
-func (m *MenuBar) HandleInput(input *engine.Input, screenH float32) {
+func (m *MenuBar) HandleInput(input *engine.Input, screenW, screenH float32) {
+	m.layoutRight(screenW)
 	mx := input.MousePos[0]
 	my := input.MousePos[1]
 	for _, btn := range m.Buttons {
+		btn.SetHovered(btn.Contains(mx, my))
+		if input.LeftClick && btn.Contains(mx, my) {
+			btn.Click()
+		}
+	}
+	for _, btn := range m.RightButtons {
 		btn.SetHovered(btn.Contains(mx, my))
 		if input.LeftClick && btn.Contains(mx, my) {
 			btn.Click()
@@ -50,9 +81,13 @@ func (m *MenuBar) HandleInput(input *engine.Input, screenH float32) {
 
 // Draw renders the menu bar background and all buttons.
 func (m *MenuBar) Draw(r *render.Renderer) {
-	// Draw full-width background
-	r.DrawColorRect(0, m.Y, float32(r.ScreenWidth()), m.H, m.bgColor)
+	screenW := float32(r.ScreenWidth())
+	m.layoutRight(screenW)
+	r.DrawColorRect(0, m.Y, screenW, m.H, m.bgColor)
 	for _, btn := range m.Buttons {
+		btn.Draw(r)
+	}
+	for _, btn := range m.RightButtons {
 		btn.Draw(r)
 	}
 }

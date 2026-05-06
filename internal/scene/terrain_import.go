@@ -113,7 +113,7 @@ func (t *TerrainImport) Update(dt float64) {
 	inp := t.app.Input
 	r := t.app.Renderer
 
-	t.menuBar.HandleInput(inp, float32(r.ScreenHeight()))
+	t.menuBar.HandleInput(inp, float32(r.ScreenWidth()), float32(r.ScreenHeight()))
 
 	switch t.state {
 	case tisSearch:

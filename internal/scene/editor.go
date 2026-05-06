@@ -82,7 +82,7 @@ func (e *Editor) Init(app *engine.App) error {
 		} else {
 			fmt.Println("Saved to", e.scenarioPath)
 		}
-	})
+	}, nil)
 
 	return nil
 }
@@ -132,7 +132,7 @@ func (e *Editor) Update(dt float64) {
 		r.Camera.Recalculate()
 	}
 
-	e.menuBar.HandleInput(inp, float32(r.ScreenHeight()))
+	e.menuBar.HandleInput(inp, float32(r.ScreenWidth()), float32(r.ScreenHeight()))
 
 	// Camera pan — right-drag or arrow keys
 	if inp.RightClick || inp.RightHeld {
