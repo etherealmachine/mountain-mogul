@@ -142,7 +142,7 @@ func (s *Scenario) Init(app *engine.App) error {
 
 	// Build menu bar
 	s.toolButtons = make(map[toolMode]*ui.Button)
-	s.menuBar = ui.NewMenuBar(0, 32)
+	s.menuBar = ui.NewMenuBar(0, render.GlyphH+10)
 	s.toolButtons[toolBuilding] = s.menuBar.AddButton("Build Lodge", func() { s.setTool(toolBuilding) })
 	s.toolButtons[toolLiftBase] = s.menuBar.AddButton("Place Lift", func() { s.setTool(toolLiftBase) })
 	s.toolButtons[toolGlade] = s.menuBar.AddButton("Glade", func() { s.setTool(toolGlade) })
@@ -406,7 +406,7 @@ func (s *Scenario) tryOpenPopup(gx, gz, screenW, screenH int) {
 
 func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 	bldg := b
-	w := ui.NewWindow("Lodge", float32(screenW)/2-120, float32(screenH)/2-60)
+	w := ui.NewWindow("Lodge", 0, 0)
 	w.AddLabel("Skiers inside", func() string {
 		return fmt.Sprintf("%d", bldg.SkierCount)
 	})
@@ -423,12 +423,13 @@ func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 		return fmt.Sprintf("%d", count)
 	})
 	w.Visible = true
+	w.Center(screenW, screenH)
 	s.popup = w
 }
 
 func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 	l := lift
-	w := ui.NewWindow("Ski Lift", float32(screenW)/2-120, float32(screenH)/2-80)
+	w := ui.NewWindow("Ski Lift", 0, 0)
 	w.AddLabel("Queue", func() string {
 		return fmt.Sprintf("%d skiers", len(l.Queue))
 	})
@@ -440,6 +441,7 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 	})
 	w.AddStepper("Speed (m/s)", &l.Speed, 0.5, 0.5, 8.0)
 	w.Visible = true
+	w.Center(screenW, screenH)
 	s.popup = w
 }
 
@@ -559,11 +561,13 @@ type followLabel struct {
 func (f *followLabel) Draw(r *render.Renderer) {
 	state := agentStateLabel(f.agent.State)
 	text := fmt.Sprintf("Skier #%d  |  %s", f.idx+1, state)
-	w := float32(len(text)*8 + 16)
+	const boxH = float32(render.GlyphH + 8)
+	w := float32(len(text)*render.GlyphAdvance + 20)
 	x := (float32(r.ScreenWidth()) - w) / 2
-	r.DrawColorRect(x, 40, w, 20, mgl32.Vec4{0, 0, 0, 0.6})
+	textY := float32(40) + (boxH-float32(render.GlyphH))/2
+	r.DrawColorRect(x, 40, w, boxH, mgl32.Vec4{0, 0, 0, 0.6})
 	if r.Font != nil {
-		r.Font.DrawText(r, text, x+8, 44, mgl32.Vec4{1, 0.95, 0.1, 1})
+		r.Font.DrawText(r, text, x+10, textY, mgl32.Vec4{1, 0.95, 0.1, 1})
 	}
 }
 
@@ -589,8 +593,12 @@ type hintLabel struct {
 }
 
 func (h *hintLabel) Draw(r *render.Renderer) {
-	r.DrawColorRect(4, float32(r.ScreenHeight())-24, float32(len(h.text)*8+8), 20, mgl32.Vec4{0, 0, 0, 0.7})
+	const boxH = float32(render.GlyphH + 8)
+	boxW := float32(len(h.text)*render.GlyphAdvance + 16)
+	y := float32(r.ScreenHeight()) - boxH - 4
+	textY := y + (boxH-float32(render.GlyphH))/2
+	r.DrawColorRect(4, y, boxW, boxH, mgl32.Vec4{0, 0, 0, 0.7})
 	if r.Font != nil {
-		r.Font.DrawText(r, h.text, 8, float32(r.ScreenHeight())-20, mgl32.Vec4{1, 1, 0.5, 1})
+		r.Font.DrawText(r, h.text, 8+4, textY, mgl32.Vec4{1, 1, 0.5, 1})
 	}
 }

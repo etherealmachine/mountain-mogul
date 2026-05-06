@@ -906,6 +906,12 @@ func (r *Renderer) DrawUI(elements []UIDrawable) {
 	gl.Disable(gl.DEPTH_TEST)
 	defer gl.Enable(gl.DEPTH_TEST)
 
+	// Alpha blending is required so font atlas transparent pixels don't
+	// overwrite the background with black.
+	gl.Enable(gl.BLEND)
+	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+	defer gl.Disable(gl.BLEND)
+
 	proj := mgl32.Ortho(0, float32(r.logicalW), float32(r.logicalH), 0, -1, 1)
 
 	r.UIShader.Use()

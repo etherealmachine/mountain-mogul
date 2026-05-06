@@ -17,6 +17,11 @@ const (
 	fontFirst    = 32  // space
 	fontLast     = 126 // ~
 	fontNumChars = fontLast - fontFirst + 1
+
+	// Glyph dimensions after 2× upscale — use these everywhere layout math is needed.
+	GlyphW       = 14 // pixel width of one glyph
+	GlyphH       = 26 // pixel height of one glyph
+	GlyphAdvance = 15 // horizontal step per character (GlyphW + 1 px letter spacing)
 )
 
 // Font renders bitmap text using basicfont.Face7x13 baked into a texture atlas.
@@ -97,7 +102,7 @@ func (f *Font) DrawText(r *Renderer, text string, x, y float32, col mgl32.Vec4) 
 		}
 		u0 := float32(idx*f.charW) / atlasWF
 		u1 := float32((idx+1)*f.charW) / atlasWF
-		r.drawRectUV(x+float32(i)*cw, y, cw, ch, u0, 0, u1, 1)
+		r.drawRectUV(x+float32(i)*GlyphAdvance, y, cw, ch, u0, 0, u1, 1)
 	}
 }
 

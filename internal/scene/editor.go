@@ -56,7 +56,7 @@ func (e *Editor) Init(app *engine.App) error {
 	r.Camera.Recalculate()
 
 	e.toolButtons = make(map[toolMode]*ui.Button)
-	e.menuBar = ui.NewMenuBar(0, 32)
+	e.menuBar = ui.NewMenuBar(0, render.GlyphH+10)
 	e.toolButtons[toolPlantTrees] = e.menuBar.AddButton("Plant Trees", func() { e.setTool(toolPlantTrees) })
 	e.toolButtons[toolGlade] = e.menuBar.AddButton("Glade", func() { e.setTool(toolGlade) })
 	e.toolButtons[toolEditorRaise] = e.menuBar.AddButton("Raise", func() { e.setTool(toolEditorRaise) })

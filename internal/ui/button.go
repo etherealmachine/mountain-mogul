@@ -64,9 +64,8 @@ func (b *Button) Draw(r *render.Renderer) {
 	r.DrawColorRect(b.X, b.Y, b.W, b.H, color)
 
 	if r.Font != nil {
-		// Draw label centered (approximate)
-		textX := b.X + 4
-		textY := b.Y + b.H/2 - 7
+		textX := b.X + 6
+		textY := b.Y + (b.H-float32(render.GlyphH))/2
 		r.Font.DrawText(r, b.Label, textX, textY, mgl32.Vec4{1, 1, 1, 1})
 	}
 }

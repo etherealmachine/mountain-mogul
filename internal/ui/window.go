@@ -9,11 +9,11 @@ import (
 )
 
 const (
-	winTitleH  = float32(22)
-	winPadding = float32(8)
-	winRowH    = float32(20)
-	winBtnW    = float32(22)
-	winW       = float32(240)
+	winTitleH    = float32(render.GlyphH + 10) // 36
+	winPadding   = float32(10)
+	winRowH      = float32(render.GlyphH + 10) // 36
+	winBtnW      = float32(24)
+	winValueAreaW = float32(130) // right portion: value text + stepper buttons
 )
 
 // rowKind classifies a window row.
@@ -25,13 +25,13 @@ const (
 )
 
 type windowRow struct {
-	kind    rowKind
-	label   string
-	getText func() string   // for rowLabel
-	val     *float32        // for rowStepper — pointer to live value
-	step    float32
-	minVal  float32
-	maxVal  float32
+	kind     rowKind
+	label    string
+	getText  func() string
+	val      *float32
+	step     float32
+	minVal   float32
+	maxVal   float32
 	minusBtn *Button
 	plusBtn  *Button
 }
@@ -42,15 +42,17 @@ type Window struct {
 	X, Y    float32
 	Visible bool
 
-	rows      []*windowRow
-	closeBtn  *Button
-	height    float32
+	rows     []*windowRow
+	closeBtn *Button
+	width    float32 // auto-computed from label widths
+	height   float32 // auto-computed from row count
+	labelW   float32 // label column right edge, relative to X
 }
 
 // NewWindow creates a window at the given screen position.
 func NewWindow(title string, x, y float32) *Window {
 	w := &Window{Title: title, X: x, Y: y}
-	w.closeBtn = NewButton(0, 0, 18, 18, "x", func() { w.Visible = false })
+	w.closeBtn = NewButton(0, 0, winBtnW, float32(render.GlyphH+4), "x", func() { w.Visible = false })
 	w.rebuildLayout()
 	return w
 }
@@ -72,14 +74,14 @@ func (w *Window) AddStepper(label string, val *float32, step, minVal, maxVal flo
 		maxVal: maxVal,
 	}
 	captured := row
-	row.minusBtn = NewButton(0, 0, winBtnW, winRowH-2, "-", func() {
+	row.minusBtn = NewButton(0, 0, winBtnW, winRowH-4, "-", func() {
 		v := *captured.val - captured.step
 		if v < captured.minVal {
 			v = captured.minVal
 		}
 		*captured.val = v
 	})
-	row.plusBtn = NewButton(0, 0, winBtnW, winRowH-2, "+", func() {
+	row.plusBtn = NewButton(0, 0, winBtnW, winRowH-4, "+", func() {
 		v := *captured.val + captured.step
 		if v > captured.maxVal {
 			v = captured.maxVal
@@ -91,23 +93,41 @@ func (w *Window) AddStepper(label string, val *float32, step, minVal, maxVal flo
 }
 
 func (w *Window) rebuildLayout() {
-	h := winTitleH + winPadding
+	// Width: derive from widest label + fixed value area, floored by title width.
+	maxLabelPx := float32(0)
+	for _, row := range w.rows {
+		lw := float32((len(row.label)+1)*render.GlyphAdvance) // +1 for ':'
+		if lw > maxLabelPx {
+			maxLabelPx = lw
+		}
+	}
+	w.labelW = winPadding + maxLabelPx + 8 // 8px gap between label and value
+
+	titleMinW := winPadding + float32(len(w.Title)*render.GlyphAdvance) + winBtnW + 20
+	w.width = w.labelW + winValueAreaW
+	if w.width < titleMinW {
+		w.width = titleMinW
+	}
+
+	// Height: title bar + rows + half-padding top and bottom.
+	h := winTitleH + winPadding/2
 	for _, row := range w.rows {
 		rowY := w.Y + h
 		if row.kind == rowStepper {
-			// [−] at right side, then value text, then [+]
-			row.minusBtn.X = w.X + winW - winBtnW*2 - 6
-			row.minusBtn.Y = rowY + 1
-			row.plusBtn.X = w.X + winW - winBtnW - 4
-			row.plusBtn.Y = rowY + 1
+			btnH := winRowH - 4
+			row.plusBtn.X = w.X + w.width - winBtnW - winPadding
+			row.plusBtn.Y = rowY + (winRowH-btnH)/2
+			row.minusBtn.X = row.plusBtn.X - winBtnW - 4
+			row.minusBtn.Y = row.plusBtn.Y
 		}
 		h += winRowH
 	}
-	h += winPadding
+	h += winPadding / 2
 	w.height = h
-	// Close button in top-right corner.
-	w.closeBtn.X = w.X + winW - 20
-	w.closeBtn.Y = w.Y + 2
+
+	// Close button flush with top-right corner.
+	w.closeBtn.X = w.X + w.width - winBtnW - 4
+	w.closeBtn.Y = w.Y + (winTitleH-float32(render.GlyphH+4))/2
 }
 
 // Reposition moves the window and rebuilds button positions.
@@ -117,21 +137,28 @@ func (w *Window) Reposition(x, y float32) {
 	w.rebuildLayout()
 }
 
+// Center repositions the window so it is centred on the screen.
+func (w *Window) Center(screenW, screenH int) {
+	w.Reposition(
+		float32(screenW)/2-w.width/2,
+		float32(screenH)/2-w.height/2,
+	)
+}
+
 // HandleInput processes mouse clicks.
 func (w *Window) HandleInput(inp *engine.Input) {
 	if !w.Visible {
 		return
 	}
 	mx, my := inp.MousePos[0], inp.MousePos[1]
-	if !inp.LeftClick {
-		// Update hover states only.
-		w.closeBtn.SetHovered(w.closeBtn.Contains(mx, my))
-		for _, row := range w.rows {
-			if row.kind == rowStepper {
-				row.minusBtn.SetHovered(row.minusBtn.Contains(mx, my))
-				row.plusBtn.SetHovered(row.plusBtn.Contains(mx, my))
-			}
+	w.closeBtn.SetHovered(w.closeBtn.Contains(mx, my))
+	for _, row := range w.rows {
+		if row.kind == rowStepper {
+			row.minusBtn.SetHovered(row.minusBtn.Contains(mx, my))
+			row.plusBtn.SetHovered(row.plusBtn.Contains(mx, my))
 		}
+	}
+	if !inp.LeftClick {
 		return
 	}
 	if w.closeBtn.Contains(mx, my) {
@@ -154,7 +181,7 @@ func (w *Window) HandleInput(inp *engine.Input) {
 
 // ContainsPoint returns true if the given point is inside the window.
 func (w *Window) ContainsPoint(x, y float32) bool {
-	return w.Visible && x >= w.X && x <= w.X+winW && y >= w.Y && y <= w.Y+w.height
+	return w.Visible && x >= w.X && x <= w.X+w.width && y >= w.Y && y <= w.Y+w.height
 }
 
 // Draw renders the window.
@@ -163,24 +190,25 @@ func (w *Window) Draw(r *render.Renderer) {
 		return
 	}
 
-	bgColor := mgl32.Vec4{0.08, 0.10, 0.14, 0.95}
-	titleBg := mgl32.Vec4{0.15, 0.20, 0.35, 1.0}
-	textColor := mgl32.Vec4{0.9, 0.95, 1.0, 1.0}
+	bgColor    := mgl32.Vec4{0.08, 0.10, 0.14, 0.95}
+	titleBg    := mgl32.Vec4{0.15, 0.20, 0.35, 1.0}
+	textColor  := mgl32.Vec4{0.9, 0.95, 1.0, 1.0}
 	labelColor := mgl32.Vec4{0.6, 0.7, 0.85, 1.0}
 
-	// Background.
-	r.DrawColorRect(w.X, w.Y, winW, w.height, bgColor)
-	// Title bar.
-	r.DrawColorRect(w.X, w.Y, winW, winTitleH, titleBg)
+	r.DrawColorRect(w.X, w.Y, w.width, w.height, bgColor)
+	r.DrawColorRect(w.X, w.Y, w.width, winTitleH, titleBg)
 	if r.Font != nil {
-		r.Font.DrawText(r, w.Title, w.X+winPadding, w.Y+5, textColor)
+		titleY := w.Y + (winTitleH-float32(render.GlyphH))/2
+		r.Font.DrawText(r, w.Title, w.X+winPadding, titleY, textColor)
 	}
 	w.closeBtn.Draw(r)
 
-	y := w.Y + winTitleH + winPadding
+	y := w.Y + winTitleH + winPadding/2
+	textOffY := (winRowH - float32(render.GlyphH)) / 2
+
 	for _, row := range w.rows {
 		if r.Font != nil {
-			r.Font.DrawText(r, row.label+":", w.X+winPadding, y+4, labelColor)
+			r.Font.DrawText(r, row.label+":", w.X+winPadding, y+textOffY, labelColor)
 		}
 		switch row.kind {
 		case rowLabel:
@@ -189,12 +217,12 @@ func (w *Window) Draw(r *render.Renderer) {
 				val = row.getText()
 			}
 			if r.Font != nil {
-				r.Font.DrawText(r, val, w.X+winW/2, y+4, textColor)
+				r.Font.DrawText(r, val, w.X+w.labelW, y+textOffY, textColor)
 			}
 		case rowStepper:
-			val := fmt.Sprintf("%.3f", *row.val)
+			val := fmt.Sprintf("%.2f", *row.val)
 			if r.Font != nil {
-				r.Font.DrawText(r, val, w.X+winW/2, y+4, textColor)
+				r.Font.DrawText(r, val, w.X+w.labelW, y+textOffY, textColor)
 			}
 			row.minusBtn.Draw(r)
 			row.plusBtn.Draw(r)

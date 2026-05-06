@@ -25,12 +25,12 @@ func NewMenuBar(y, h float32) *MenuBar {
 
 // AddButton appends a button to the menu bar and returns it.
 func (m *MenuBar) AddButton(label string, onClick func()) *Button {
-	const padding = float32(4)
+	const padding = float32(6)
 	x := float32(0)
 	for _, b := range m.Buttons {
 		x = b.X + b.W + padding
 	}
-	w := float32(len(label)*8) + 16
+	w := float32(len(label)*render.GlyphAdvance) + 20
 	btn := NewButton(x, m.Y+padding, w, m.H-padding*2, label, onClick)
 	m.Buttons = append(m.Buttons, btn)
 	return btn
