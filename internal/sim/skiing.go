@@ -313,7 +313,7 @@ func (s *Simulation) tickSkier(a *world.Agent, target mgl32.Vec3, dt float64) bo
 	perc.Confidence = a.Confidence
 
 	// L3: steer
-	intent, avoid := steer(a.Traits, a.Avoid, perc, float32(dt))
+	intent, avoid := steer(a.Traits, a.Avoid, perc, float32(dt), s.Rng)
 	a.Avoid = avoid
 
 	// L4: motor / technique
@@ -650,7 +650,7 @@ func scanTrees(t *world.Terrain, pos mgl32.Vec3, heading, speed float32) ([]Haza
 // SECTION 5 — Layer 3: Steering
 // =============================================================================
 
-func steer(traits ai.SkierTraits, avoid ai.AvoidState, perc Perception, dt float32) (Intent, ai.AvoidState) {
+func steer(traits ai.SkierTraits, avoid ai.AvoidState, perc Perception, dt float32, rng *rand.Rand) (Intent, ai.AvoidState) {
 	// In-trees override: when the skier is *inside* a dense cell, goal-seek
 	// is the wrong objective. Steer for the gap instead. Skip the tactical
 	// tree-bend below — that's for incoming hazards we still might dodge,
@@ -697,7 +697,9 @@ func steer(traits ai.SkierTraits, avoid ai.AvoidState, perc Perception, dt float
 	if maxSev > 0.3 {
 		avoid.Clear = 0
 		if avoid.Side == 0 {
-			avoid.Side = pickAvoidSide(perc.Trees, bx, bz)
+			hx := float32(math.Sin(float64(perc.Heading)))
+			hz := float32(math.Cos(float64(perc.Heading)))
+			avoid.Side = pickAvoidSide(perc.Trees, hx, hz, rng)
 		}
 		// Bend factor 1.0 means a fully-dense hazard rotates the axis ~57°
 		// off the fall line — strong enough to skirt a wide circular patch
@@ -830,18 +832,24 @@ func worstHazard(hs []Hazard) Hazard {
 
 // pickAvoidSide chooses which way to bend when the skier first detects trees.
 // Strategy: sum -h.Dir × h.Severity to get an "away" vector, then project onto
-// the axis-perpendicular (right of axis) to extract the lateral sign. If the
-// patch is dead-on symmetric, projection ≈ 0; in that case we default to +1
-// (right) so the agent always commits to *some* side rather than alternating.
-// The committed side persists in AvoidState until the probes go clear.
-func pickAvoidSide(hs []Hazard, axisX, axisZ float32) int8 {
+// the heading-perpendicular (right of heading) to extract the lateral sign.
+//
+// Heading-perp (not axis-perp) matters: scanTrees lays its 5 probes
+// symmetrically about heading, so projecting onto axis-perpendicular when
+// heading ≠ axis introduces a sin(heading − axis) bias term that
+// systematically pulls the skier to one side regardless of which side has
+// trees.
+//
+// On a true symmetric tie, coin-flip via rng so we never silently default to
+// one side. The committed side persists in AvoidState until the probes go
+// clear.
+func pickAvoidSide(hs []Hazard, headingX, headingZ float32, rng *rand.Rand) int8 {
 	var ax, az float32
 	for _, h := range hs {
 		ax -= h.Dir[0] * h.Severity
 		az -= h.Dir[1] * h.Severity
 	}
-	// Right-of-axis perpendicular (when axis is +z, perpRight = +x).
-	perpX, perpZ := axisZ, -axisX
+	perpX, perpZ := headingZ, -headingX
 	lateral := ax*perpX + az*perpZ
 	if lateral > 1e-3 {
 		return +1
@@ -849,7 +857,10 @@ func pickAvoidSide(hs []Hazard, axisX, axisZ float32) int8 {
 	if lateral < -1e-3 {
 		return -1
 	}
-	return +1 // dead-on symmetric: pick a side and commit
+	if rng != nil && rng.Float32() < 0.5 {
+		return -1
+	}
+	return +1
 }
 
 // =============================================================================
@@ -867,8 +878,16 @@ func selectTechnique(traits ai.SkierTraits, prev ai.MotorState, intent Intent, p
 		next.Active = tech
 		next.PhaseTime = 0
 		// Re-pick a fresh phase when entering Parallel from another tech.
+		// Direction is coin-flipped so the first arc isn't always to the
+		// right — that tiny initial east drift was enough to bias outcomes
+		// on a symmetric obstacle (skier ended up just east of patch center
+		// when strategic engaged, then asymmetric reinforcement kicked in).
 		if tech == ai.TechParallel && next.TurnPhase == 0 {
-			next.TurnPhase = 1
+			if rng != nil && rng.Float32() < 0.5 {
+				next.TurnPhase = -1
+			} else {
+				next.TurnPhase = 1
+			}
 		}
 		if tech != ai.TechParallel {
 			next.TurnPhase = 0
@@ -1011,7 +1030,13 @@ func pickTechnique(traits ai.SkierTraits, prev ai.MotorState, intent Intent, per
 // the next turn initiates only after the previous one has developed.
 func parallelHeading(traits ai.SkierTraits, state ai.MotorState, intent Intent, perc Perception, rng *rand.Rand) (float32, ai.MotorState) {
 	if state.TurnPhase == 0 {
-		state.TurnPhase = 1
+		// Coin-flip the first arc direction: a fixed +1 default biased the
+		// initial pre-strategic drift east on every seed.
+		if rng != nil && rng.Float32() < 0.5 {
+			state.TurnPhase = -1
+		} else {
+			state.TurnPhase = 1
+		}
 		// Initial jitter for the first turn.
 		state.ArcJitter = rng.Float32()*2 - 1
 		state.DwellJitter = rng.Float32()*2 - 1
@@ -1257,7 +1282,7 @@ func ComputeSteeringDebug(t *world.Terrain, a *world.Agent, target mgl32.Vec3) S
 		clone.Traits.SightRange = 25 // sensible default for the overlay
 	}
 	perc := perceive(t, &clone)
-	intent, _ := steer(clone.Traits, clone.Avoid, perc, 0)
+	intent, _ := steer(clone.Traits, clone.Avoid, perc, 0, nil)
 
 	hx := float32(math.Sin(float64(a.Heading)))
 	hz := float32(math.Cos(float64(a.Heading)))

@@ -210,17 +210,27 @@ func (b *builder) skier(skill ai.SkillLevel) *builder {
 	return b.skierAt(t.Width/2, 1, skill)
 }
 
-// skierAt is the explicit form of skier — caller picks the cell.
+// skierAt is the explicit form of skier — caller picks the cell. The skier
+// is positioned at the CELL CENTER (gx+0.5, gz+0.5)*cellSize rather than the
+// cell edge. With cell-edge spawning the skier-lodge axis lies on a cell
+// boundary, so any tiny lateral drift flips the strategic L/R probes
+// between adjacent cells with very different patch coverage — the symmetric
+// tree-patch testbed showed an 80%+ left bias that was actually quantization
+// asymmetry, not a behavioural bias. Cell-center spawn aligns the axis with
+// the patch's world center (also cell-center based) so drift up to ½ cell
+// either direction stays in the same probe-cell pair.
 func (b *builder) skierAt(gx, gz int, skill ai.SkillLevel) *builder {
 	if b.lastLodge == nil {
 		panic("skierAt: no lodge placed; call lodge() or lodgeAt() first")
 	}
 	const cellSize = 10.0
 	elev := b.w.Terrain.ElevationAt(gx, gz)
-	pos := mgl32.Vec3{float32(gx) * cellSize, elev, float32(gz) * cellSize}
+	pos := mgl32.Vec3{(float32(gx) + 0.5) * cellSize, elev, (float32(gz) + 0.5) * cellSize}
 
-	lx := float32(b.lastLodge.Pos[0]) * cellSize
-	lz := float32(b.lastLodge.Pos[1]) * cellSize
+	// Lodge target in the same convention so axis stays aligned through the
+	// patch center, not 5 m offset to one side.
+	lx := (float32(b.lastLodge.Pos[0]) + 0.5) * cellSize
+	lz := (float32(b.lastLodge.Pos[1]) + 0.5) * cellSize
 	heading := float32(math.Atan2(float64(lx-pos[0]), float64(lz-pos[2])))
 
 	a := &world.Agent{

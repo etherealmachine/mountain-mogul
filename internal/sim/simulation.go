@@ -153,15 +153,15 @@ func pickTopTarget(w *world.World, lift *world.Lift, rng *rand.Rand) (uint64, mg
 	if rng.Float64() < lodgeReturnProb && len(w.Buildings) > 0 {
 		lodge := w.Buildings[rng.Intn(len(w.Buildings))]
 		return lodge.ID, mgl32.Vec3{
-			float32(lodge.Pos[0]) * CellSize,
+			(float32(lodge.Pos[0]) + 0.5) * CellSize,
 			w.Terrain.ElevationAt(lodge.Pos[0], lodge.Pos[1]),
-			float32(lodge.Pos[1]) * CellSize,
+			(float32(lodge.Pos[1]) + 0.5) * CellSize,
 		}
 	}
 	return lift.ID, mgl32.Vec3{
-		float32(lift.Base[0]) * CellSize,
+		(float32(lift.Base[0]) + 0.5) * CellSize,
 		w.Terrain.ElevationAt(lift.Base[0], lift.Base[1]),
-		float32(lift.Base[1]) * CellSize,
+		(float32(lift.Base[1]) + 0.5) * CellSize,
 	}
 }
 
@@ -372,22 +372,29 @@ const (
 // resolveTarget looks up an agent's TargetID against the world's lifts and
 // buildings, returning the target's world-space position and which kind it
 // was. ok=false when the ID matches nothing (e.g. the entity was removed).
+//
+// Uses CELL-CENTER world coordinates ((gx+0.5)*cs) so the seeking axis from
+// any cell-center spawned agent runs through cell centers — important for
+// the strategic L/R probes, whose ±50 m lateral offsets land at cell-edge
+// world positions and otherwise pick up quantization asymmetry from probes
+// that fall in different patch-radius cells depending on the agent's
+// fractional cell position.
 func resolveTarget(w *world.World, id uint64) (mgl32.Vec3, targetKind, bool) {
 	for _, l := range w.Lifts {
 		if l.ID == id {
 			return mgl32.Vec3{
-				float32(l.Base[0]) * CellSize,
+				(float32(l.Base[0]) + 0.5) * CellSize,
 				w.Terrain.ElevationAt(l.Base[0], l.Base[1]),
-				float32(l.Base[1]) * CellSize,
+				(float32(l.Base[1]) + 0.5) * CellSize,
 			}, targetLift, true
 		}
 	}
 	for _, b := range w.Buildings {
 		if b.ID == id {
 			return mgl32.Vec3{
-				float32(b.Pos[0]) * CellSize,
+				(float32(b.Pos[0]) + 0.5) * CellSize,
 				w.Terrain.ElevationAt(b.Pos[0], b.Pos[1]),
-				float32(b.Pos[1]) * CellSize,
+				(float32(b.Pos[1]) + 0.5) * CellSize,
 			}, targetBuilding, true
 		}
 	}
