@@ -2,6 +2,7 @@ package sim
 
 import (
 	"math"
+	"math/rand"
 
 	"github.com/go-gl/mathgl/mgl32"
 	"mountain-mogul/internal/ai"
@@ -236,7 +237,7 @@ func (s *Simulation) tickSkier(a *world.Agent, target mgl32.Vec3, dt float64) bo
 			Goal:          routeGoalFor(s.World, a),
 			GoalPos:       target,
 			StaleAt:       s.SimTime + routePlanInterval,
-			StrategicBias: strategicScan(s.World.Terrain, a.Pos, axisDir, axisDist),
+			StrategicBias: strategicScan(s.World.Terrain, a.Pos, axisDir, axisDist, s.Rng),
 		}
 	}
 
@@ -400,18 +401,23 @@ func findClearCell(t *world.Terrain, pos mgl32.Vec3) ([2]int, bool) {
 //
 // On a perfectly-symmetric obstacle the L-R differential collapses to
 // ~0 (both lateral probes hit the disk equally). When that happens we
-// fall back to a default-right bias rather than picking nothing — same
-// philosophy as the tactical pickAvoidSide. A future PreferredSide
-// personality trait can vary this default per-skier.
+// flip a coin from rng — random per-scan, drawing from the deterministic
+// per-sim Rng so testbed seeds stay reproducible. Once the skier has
+// drifted any meaningful distance toward a chosen side, the diff signal
+// dominates and locks the direction in (the patch is now off-axis on
+// the opposite side, so left-vs-right density is no longer symmetric).
+// A future PreferredSide personality trait can replace the coin flip
+// with a per-skier preference.
 //
-// Cost: 3 × strategicNSamples = 36 TreeDensityAt calls per call. Called
-// once per Route refresh (every 2 s) per agent.
-func strategicScan(t *world.Terrain, pos mgl32.Vec3, axisDir mgl32.Vec2, axisDist float32) float32 {
-	rng := float32(strategicRange)
-	if axisDist < rng {
-		rng = axisDist
+// Cost: 3 × strategicNSamples = 36 TreeDensityAt calls per call + at
+// most one rng.Float32(). Called once per Route refresh (every 2 s)
+// per agent.
+func strategicScan(t *world.Terrain, pos mgl32.Vec3, axisDir mgl32.Vec2, axisDist float32, rng *rand.Rand) float32 {
+	scanRange := float32(strategicRange)
+	if axisDist < scanRange {
+		scanRange = axisDist
 	}
-	if rng < strategicMinDist {
+	if scanRange < strategicMinDist {
 		return 0
 	}
 
@@ -423,7 +429,7 @@ func strategicScan(t *world.Terrain, pos mgl32.Vec3, axisDir mgl32.Vec2, axisDis
 	var centre, left, right, totalW float32
 	for i := 1; i <= strategicNSamples; i++ {
 		f := float32(i) / float32(strategicNSamples)
-		d := rng * f
+		d := scanRange * f
 		cx := pos[0] + axisDir[0]*d
 		cz := pos[2] + axisDir[1]*d
 		w := 1 - 0.5*f // closer matters more; far end at 0.5×
@@ -452,6 +458,9 @@ func strategicScan(t *world.Terrain, pos mgl32.Vec3, axisDir mgl32.Vec2, axisDis
 		abs = -abs
 	}
 	if abs < strategicSymmetryFloor {
+		if rng.Float32() < 0.5 {
+			return -strategicSymmetryDefault
+		}
 		return strategicSymmetryDefault
 	}
 	bias := diff / strategicBiasScale
