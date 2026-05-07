@@ -623,7 +623,7 @@ func steeringLines(w *world.World, a *world.Agent, target mgl32.Vec3) []render.D
 	hz := float32(math.Cos(float64(d.DesiredHead)))
 	lines = append(lines, mk(mgl32.Vec2{hx, hz}, 10, [3]float32{1.0, 0.95, 0.1}))
 	for _, p := range d.Probes {
-		length := float32(sim.ProbeDistance) * (0.4 + 0.6*p.Density)
+		length := d.ProbeDist * (0.4 + 0.6*p.Density)
 		shade := 0.4 + 0.6*p.Density
 		lines = append(lines, mk(p.Dir, length, [3]float32{shade, 0.15, 0.15}))
 	}
@@ -710,8 +710,10 @@ func (s *Scenario) Render(r *render.Renderer) {
 	}
 
 	r.HighlightAgentID = s.followAgentID
+	s.applyPerceptionCone(r)
 	r.DrawWorld(s.world, s.time)
 	r.ClearBrush()
+	r.ClearPerceptionCone()
 
 	drawables := []render.UIDrawable{s.menuBar}
 	if s.simSeed != 0 {
@@ -955,6 +957,38 @@ func (s *Scenario) findFollowedAgent() *world.Agent {
 	return nil
 }
 
+// applyPerceptionCone forwards the followed skier's perception fan to the
+// renderer. Only emits a cone for agents that are actively skiing — when the
+// agent is walking, queuing, on a lift, or fallen, Sense is stale and we
+// hide the highlight. Match against Activity rather than introspecting Sense
+// because the snapshot has no "fresh" flag.
+func (s *Scenario) applyPerceptionCone(r *render.Renderer) {
+	if s.followAgentID == 0 {
+		r.ClearPerceptionCone()
+		return
+	}
+	a := s.findFollowedAgent()
+	if a == nil {
+		r.ClearPerceptionCone()
+		return
+	}
+	switch world.Activity(s.world, a) {
+	case "To Lodge", "To Lift", "Traveling":
+		// active skiing — fall through
+	default:
+		r.ClearPerceptionCone()
+		return
+	}
+	if a.Sense.ProbeDist <= 0 {
+		r.ClearPerceptionCone()
+		return
+	}
+	hx := float32(math.Sin(float64(a.Heading)))
+	hz := float32(math.Cos(float64(a.Heading)))
+	cosHalf := float32(math.Cos(float64(a.Sense.ProbeHalfAngle)))
+	r.SetPerceptionCone(a.Pos, mgl32.Vec2{hx, hz}, cosHalf, a.Sense.ProbeDist)
+}
+
 // followLabel draws a HUD banner showing which skier the camera is following.
 type followLabel struct {
 	world *world.World
@@ -964,25 +998,85 @@ type followLabel struct {
 
 func (f *followLabel) Draw(r *render.Renderer) {
 	activity := world.Activity(f.world, f.agent)
-	row1 := fmt.Sprintf("Skier #%d  |  %s", f.idx+1, activity)
-	row2 := fmt.Sprintf("%.1f m/s", f.agent.Speed)
+
+	rows := []string{
+		fmt.Sprintf("Skier #%d  |  %s  |  %s", f.idx+1, activity, f.agent.Motor.Active.String()),
+		fmt.Sprintf("%.1f m/s    bal %.2f", f.agent.Speed, f.agent.Balance),
+	}
+	// Perception/intent rows are stale unless the agent is actively skiing.
+	if isSkiingActivity(activity) {
+		s := f.agent.Sense
+		row4 := fmt.Sprintf("avoid %s   urg %.2f   worst %.2f @ %.0fm",
+			avoidGlyph(f.agent.Avoid.Side, f.agent.Avoid.Clear),
+			s.Urgency, s.WorstSeverity, s.WorstDist)
+		if s.InTrees {
+			row4 += fmt.Sprintf("   IN TREES (%.2f)", s.AtCellDensity)
+		}
+		if abs := s.StrategicBias; abs > 0.05 || abs < -0.05 {
+			glyph := "->"
+			mag := s.StrategicBias
+			if s.StrategicBias < 0 {
+				glyph = "<-"
+				mag = -mag
+			}
+			row4 += fmt.Sprintf("   strat %s %.2f", glyph, mag)
+		}
+		rows = append(rows,
+			fmt.Sprintf("probes  C %.2f   R %.2f / L %.2f    look %.0fm",
+				s.ProbeC, s.ProbeR, s.ProbeL, s.ProbeDist),
+			row4,
+		)
+	}
+
 	const padX = 10
 	const padY = 4
 	const lineGap = 2
-	maxLen := len(row1)
-	if len(row2) > maxLen {
-		maxLen = len(row2)
+	maxLen := 0
+	for _, row := range rows {
+		if len(row) > maxLen {
+			maxLen = len(row)
+		}
 	}
 	w := float32(maxLen*render.GlyphAdvance + 2*padX)
-	boxH := float32(render.GlyphH*2 + lineGap + 2*padY)
+	boxH := float32(render.GlyphH*len(rows)+lineGap*(len(rows)-1)) + float32(2*padY)
 	x := (float32(r.ScreenWidth()) - w) / 2
 	y := float32(40)
 	r.DrawColorRect(x, y, w, boxH, mgl32.Vec4{0, 0, 0, 0.6})
 	if r.Font != nil {
-		row1X := x + (w-float32(len(row1)*render.GlyphAdvance))/2
-		row2X := x + (w-float32(len(row2)*render.GlyphAdvance))/2
-		r.Font.DrawText(r, row1, row1X, y+padY, mgl32.Vec4{1, 0.95, 0.1, 1})
-		r.Font.DrawText(r, row2, row2X, y+padY+float32(render.GlyphH+lineGap), mgl32.Vec4{1, 0.95, 0.1, 1})
+		col := mgl32.Vec4{1, 0.95, 0.1, 1}
+		for i, row := range rows {
+			rowX := x + (w-float32(len(row)*render.GlyphAdvance))/2
+			rowY := y + float32(padY) + float32(i*(render.GlyphH+lineGap))
+			r.Font.DrawText(r, row, rowX, rowY, col)
+		}
+	}
+}
+
+// isSkiingActivity reports whether the agent's current activity carries fresh
+// Sense data (i.e. the skiing pipeline ran this tick). Walking / queuing /
+// on-lift / fallen leave Sense stale.
+func isSkiingActivity(activity string) bool {
+	switch activity {
+	case "To Lodge", "To Lift", "Traveling":
+		return true
+	}
+	return false
+}
+
+// avoidGlyph renders the steering layer's tree-avoidance commit as a short,
+// fixed-width token for the HUD. Side reports the chosen side (-1 left, +1
+// right, 0 none); Clear is seconds since the last hazard tick.
+func avoidGlyph(side int8, clear float32) string {
+	switch side {
+	case -1:
+		return "<- L"
+	case +1:
+		return "-> R"
+	default:
+		if clear > 0 {
+			return fmt.Sprintf("--   (clear %.1fs)", clear)
+		}
+		return "--"
 	}
 }
 

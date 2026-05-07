@@ -13,9 +13,16 @@ layout(location = 7) in vec3 iColorTint;
 
 uniform mat4 uViewProj;
 
+// Followed-skier perception fan. uPerceptionRadius == 0 disables.
+uniform vec3  uPerceptionOrigin;
+uniform vec2  uPerceptionForwardXZ;   // unit (sin(h), cos(h))
+uniform float uPerceptionCosHalfAngle;
+uniform float uPerceptionRadius;
+
 out vec3 vColor;
 flat out vec3 vNormal;
 out vec2 vTexCoord;
+flat out float vPerceived;
 
 void main() {
     mat4 iTransform = mat4(iTransform0, iTransform1, iTransform2, iTransform3);
@@ -23,5 +30,19 @@ void main() {
     vNormal = normalMatrix * aNormal;
     vColor = iColorTint;
     vTexCoord = aTexCoord;
+
+    // Per-instance perception-fan test. Trees are point-instanced, so testing
+    // the instance origin (translation column of iTransform) gives a uniform
+    // glow on the whole tree — easier to read than a per-fragment bisection.
+    vPerceived = 0.0;
+    if (uPerceptionRadius > 0.0) {
+        vec2 d = iTransform3.xz - uPerceptionOrigin.xz;
+        float dist = length(d);
+        if (dist <= uPerceptionRadius && dist > 0.0001) {
+            float cosA = dot(d / dist, uPerceptionForwardXZ);
+            vPerceived = step(uPerceptionCosHalfAngle, cosA);
+        }
+    }
+
     gl_Position = uViewProj * iTransform * vec4(aPos, 1.0);
 }

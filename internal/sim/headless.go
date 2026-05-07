@@ -226,23 +226,7 @@ func (r *traceRecorder) writeSummary() {
 // import-cycle worries when the file later grows.
 type Technique = ai.Technique
 
-func techName(t ai.Technique) string {
-	switch t {
-	case ai.TechStraight:
-		return "straight"
-	case ai.TechPizza:
-		return "pizza"
-	case ai.TechWedgeTurn:
-		return "wedge"
-	case ai.TechParallel:
-		return "parallel"
-	case ai.TechHockey:
-		return "hockey"
-	case ai.TechSideslip:
-		return "sideslp"
-	}
-	return fmt.Sprintf("?%d", t)
-}
+func techName(t ai.Technique) string { return t.String() }
 
 func skillName(s ai.SkillLevel) string {
 	switch s {

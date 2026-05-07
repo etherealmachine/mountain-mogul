@@ -51,6 +51,15 @@ type Renderer struct {
 	brushCenter mgl32.Vec2
 	brushRadius float32
 
+	// Perception-cone highlight (followed-skier diagnostic). When
+	// perceptionRadius > 0 the static shader tints any instance whose
+	// origin falls inside the fan toward warm yellow. Mirrors the brush
+	// uniform pattern.
+	perceptionOrigin       mgl32.Vec3
+	perceptionForwardXZ    mgl32.Vec2 // unit vector (sin(h), cos(h))
+	perceptionCosHalfAngle float32
+	perceptionRadius       float32 // 0 disables
+
 	HighlightAgentID   uint64
 	TerrainOverlayMode int // 0 = normal, 1 = slope + contour
 
@@ -810,6 +819,10 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	r.StaticShader.SetMat4("uViewProj", vp)
 	r.StaticShader.SetInt("uTexture", 0)
 	r.StaticShader.SetFloat("uAlpha", 1.0)
+	r.StaticShader.SetVec3("uPerceptionOrigin", r.perceptionOrigin)
+	r.StaticShader.SetVec2("uPerceptionForwardXZ", r.perceptionForwardXZ)
+	r.StaticShader.SetFloat("uPerceptionCosHalfAngle", r.perceptionCosHalfAngle)
+	r.StaticShader.SetFloat("uPerceptionRadius", r.perceptionRadius)
 	gl.ActiveTexture(gl.TEXTURE0)
 	for _, batch := range r.staticBatches {
 		batch.Draw()
@@ -1041,6 +1054,22 @@ func (r *Renderer) ClearBrush() {
 	r.brushRadius = 0
 }
 
+// SetPerceptionCone configures the static-shader perception fan used to
+// highlight trees the followed skier currently perceives. forward is a unit
+// XZ vector; cosHalfAngle is precomputed so the shader test is a single dot
+// product. radius == 0 disables the highlight.
+func (r *Renderer) SetPerceptionCone(origin mgl32.Vec3, forwardXZ mgl32.Vec2, cosHalfAngle, radius float32) {
+	r.perceptionOrigin = origin
+	r.perceptionForwardXZ = forwardXZ
+	r.perceptionCosHalfAngle = cosHalfAngle
+	r.perceptionRadius = radius
+}
+
+// ClearPerceptionCone disables the perception-cone highlight.
+func (r *Renderer) ClearPerceptionCone() {
+	r.perceptionRadius = 0
+}
+
 // SetGhosts replaces the ghost instances for one mesh type.
 // The ghost batch is lazily created from the corresponding static batch's mesh and texture.
 func (r *Renderer) SetGhosts(meshID uint32, instances []StaticInstance) {
@@ -1149,6 +1178,10 @@ func (r *Renderer) ResetSceneState() {
 
 	r.brushCenter = mgl32.Vec2{}
 	r.brushRadius = 0
+	r.perceptionOrigin = mgl32.Vec3{}
+	r.perceptionForwardXZ = mgl32.Vec2{}
+	r.perceptionCosHalfAngle = 0
+	r.perceptionRadius = 0
 	r.HighlightAgentID = 0
 	r.TerrainOverlayMode = 0
 	r.debugVertCount = 0

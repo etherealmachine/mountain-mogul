@@ -65,9 +65,50 @@ const (
 	// snaps. Other techniques (hockey, sideslip) keep the global cap.
 	parallelTurnRate = 55 * math.Pi / 180 // rad/s
 
-	// Tree perception
-	probeForwardDist = 12.0                // m
-	probeAngle       = 35 * math.Pi / 180  // rad; ±offset for side probes
+	// Tree perception. Distances scale with the skier's current speed
+	// (time-to-impact, not skill) so a slow skier at the top of a run plans
+	// calmly while a fast skier looks farther ahead but reacts later. All
+	// tiers share these constants — glade tolerance will be a separate trait.
+	treeLookahead   = 3.0                  // s; trajectory projected ahead for probes
+	treeProbeMin    = 12.0                 // m; floor — even idle skiers see nearby trees
+	treeProbeMax    = 40.0                 // m; cap — beyond this individual trees stop mattering
+	treeUrgencyTime = 1.0                  // s; "I'd hit this within a second" → scrub
+	treeStressTime  = 0.6                  // s; "I'd hit this very soon" → drain balance
+	probeAngle      = 35 * math.Pi / 180   // rad; ±offset for side probes
+
+	// In-trees aversion. Above this underfoot density the skier gives up
+	// goal-seeking and steers for the nearest gap. A future GladeTolerance
+	// trait will shift this per-skier; for now everyone is averse.
+	inTreesThreshold = 0.3
+	clearSampleDist  = 15.0 // m; radius of the 8-point gradient sample
+	inTreesSpeedCap  = 2.4  // m/s; hard target-speed cap while in trees
+
+	// Walking escape — when in-trees aversion fails to make progress, give
+	// up on skiing and walk out to the nearest clear cell. We use a pure
+	// "time-in-trees" gate (not a speed gate) because the skiing pipeline
+	// has a hard skiWalkSpeed = 2.0 m/s floor — an agent can be making
+	// negligible-but-nonzero progress and never look "stuck" by speed
+	// alone. The trigger is set well above a typical 0.8-density patch
+	// transit (~10 s) so Phase 2 fires only when Phase 1 has really
+	// failed (very dense patch, pinned in a corridor, etc.).
+	stuckTriggerS     = 12.0 // sim-seconds of in-trees before escape kicks in
+	clearCellDensity  = 0.3  // destination must have density below this
+	clearSearchRadius = 20   // cells; max spiral-search radius (~200 m)
+
+	// Strategic vision. Long-range read of the run ahead, run once per
+	// Route refresh, that biases the skier's line toward the cleaner side
+	// of distant tree masses. Far longer than the tactical perception cone
+	// (12-40 m) — a real skier can see hundreds of metres of slope below
+	// them and picks a line from the top.
+	strategicRange           = 300.0 // m; "almost-infinite vision" horizon
+	strategicLateralOffset   = 50.0  // m; near typical patch radius — straddles edges
+	strategicNSamples        = 12    // forward samples (every ~25 m at full range)
+	strategicMinDist         = 30.0  // m; below this, no strategic plan (close to goal)
+	strategicCentreThreshold = 0.15  // average centre density to engage at all
+	strategicSymmetryFloor   = 0.05  // |L−R| below this → symmetric → use default
+	strategicSymmetryDefault = 1.0   // default right bias on a symmetric obstacle (full commit)
+	strategicBiasScale       = 0.3   // diff → bias scaling (smaller ⇒ more sensitive)
+	strategicBendMax         = 0.30  // rad ≈ 17°; max axis bend at full bias
 
 	// Hockey stop pulse
 	hockeyDurationS = 0.6
@@ -109,6 +150,17 @@ type Perception struct {
 	Trees      []Hazard
 	TreeCenter float32 // density at the centre forward probe
 
+	// "I'm currently inside trees" — read from the agent's actual cell, not
+	// the cone ahead. Drives a different steering branch focused on getting
+	// out, not on dodging incoming hazards.
+	AtCellDensity float32    // TreeDensityAt(Pos.X, Pos.Z) — density underfoot
+	InTrees       bool       // AtCellDensity > inTreesThreshold
+	ClearDir      mgl32.Vec2 // unit XZ vector toward least-dense neighbourhood; zero when InTrees=false
+
+	// Long-range strategic side bias copied from Route. Drives a small
+	// constant axis bend in steer(); refreshed at Route cadence (2 s).
+	StrategicBias float32
+
 	InArrival bool // AxisDist < ArrivalRadius
 }
 
@@ -148,12 +200,43 @@ func (s *Simulation) tickSkier(a *world.Agent, target mgl32.Vec3, dt float64) bo
 		return true
 	}
 
+	// Stuck-in-trees detection. Accumulates while the agent is classified
+	// in-trees; if Phase 1's slow-and-steer-out hasn't gotten them clear
+	// after stuckTriggerS sim-seconds, we fall back to walking. We read
+	// a.Sense.InTrees from the *previous* tick because Perception isn't
+	// computed yet — that's fine, the timer only needs to be approximately
+	// correct over many ticks.
+	if a.Sense.InTrees {
+		a.StuckTimer += float32(dt)
+	} else {
+		a.StuckTimer = 0
+	}
+	if a.StuckTimer >= stuckTriggerS {
+		if cell, ok := findClearCell(s.World.Terrain, a.Pos); ok {
+			a.Path = [][2]int{cell}
+			a.PathIdx = 0
+			a.StuckTimer = 0
+			return false
+		}
+		// No clear cell anywhere — keep skiing; nothing better to do.
+		a.StuckTimer = 0
+	}
+
 	// L1: refresh route if stale or pointing somewhere else.
 	if a.Route.Goal == ai.GoalNone || a.Route.GoalPos != target || a.Route.StaleAt < s.SimTime {
+		// Compute axis to goal for the strategic scan. (steer() will
+		// re-derive this from Perception.AxisDir each tick; we need it
+		// here, before perceive runs, to feed strategicScan.)
+		axisDist := mgl32.Vec2{delta[0], delta[2]}.Len()
+		var axisDir mgl32.Vec2
+		if axisDist > 1e-3 {
+			axisDir = mgl32.Vec2{delta[0] / axisDist, delta[2] / axisDist}
+		}
 		a.Route = ai.Route{
-			Goal:    routeGoalFor(s.World, a),
-			GoalPos: target,
-			StaleAt: s.SimTime + routePlanInterval,
+			Goal:          routeGoalFor(s.World, a),
+			GoalPos:       target,
+			StaleAt:       s.SimTime + routePlanInterval,
+			StrategicBias: strategicScan(s.World.Terrain, a.Pos, axisDir, axisDist),
 		}
 	}
 
@@ -161,11 +244,16 @@ func (s *Simulation) tickSkier(a *world.Agent, target mgl32.Vec3, dt float64) bo
 	perc := perceive(s.World.Terrain, a)
 
 	// L3: steer
-	intent := steer(a.Traits, perc)
+	intent, avoid := steer(a.Traits, a.Avoid, perc, float32(dt))
+	a.Avoid = avoid
 
 	// L4: motor / technique
 	cmd, motor := selectTechnique(a.Traits, a.Motor, intent, perc, float32(dt))
 	a.Motor = motor
+
+	// Snapshot perception/intent for the follow HUD and perception-cone
+	// shader. Stale outside skiing — readers gate on Activity.
+	a.Sense = senseFrom(perc, intent, cmd)
 
 	// Balance drain & fall trigger.
 	a.Balance += stressDelta(a.Traits, perc, intent, cmd) * float32(dt)
@@ -238,38 +326,187 @@ func perceive(t *world.Terrain, a *world.Agent) Perception {
 		axisDir = axisXZ.Mul(1.0 / axisDist)
 	}
 
-	trees, treeCenter := scanTrees(t, pos, a.Heading, a.Traits.SightRange)
+	trees, treeCenter := scanTrees(t, pos, a.Heading, a.Speed)
+
+	atCell := t.TreeDensityAt(pos[0], pos[2])
+	inTrees := atCell > inTreesThreshold
+	var clearDir mgl32.Vec2
+	if inTrees {
+		clearDir = sampleClearDir(t, pos)
+	}
 
 	return Perception{
-		Pos:        pos,
-		Heading:    a.Heading,
-		Speed:      a.Speed,
-		Normal:     n,
-		SlopeAngle: slope,
-		SlopeAhead: slopeAhead,
-		FallDir:    fall,
-		FallScale:  fallScale,
-		AxisDir:    axisDir,
-		AxisDist:   axisDist,
-		Trees:      trees,
-		TreeCenter: treeCenter,
-		InArrival:  axisDist < ArrivalRadius,
+		Pos:           pos,
+		Heading:       a.Heading,
+		Speed:         a.Speed,
+		Normal:        n,
+		SlopeAngle:    slope,
+		SlopeAhead:    slopeAhead,
+		FallDir:       fall,
+		FallScale:     fallScale,
+		AxisDir:       axisDir,
+		AxisDist:      axisDist,
+		Trees:         trees,
+		TreeCenter:    treeCenter,
+		AtCellDensity: atCell,
+		InTrees:       inTrees,
+		ClearDir:      clearDir,
+		StrategicBias: a.Route.StrategicBias,
+		InArrival:     axisDist < ArrivalRadius,
 	}
+}
+
+// findClearCell spiral-searches outward from the agent's current cell for
+// the nearest grid cell with TreeDensity below clearCellDensity. Returns the
+// cell coordinate and true on success; false if nothing within
+// clearSearchRadius qualifies. Used by the walking-escape branch in
+// tickSkier when the skier has been stuck in trees too long.
+//
+// Search pattern: rings of increasing Chebyshev distance from the centre.
+// Within each ring, prefer cells closer to the fall-line (lower Y) — but
+// since the testbed-scale slope is uniform downhill, this falls out
+// naturally from the iteration order (we visit -dz before +dz at small dz,
+// which on a "south is downhill" slope tends downhill first; close enough
+// for an escape heuristic).
+func findClearCell(t *world.Terrain, pos mgl32.Vec3) ([2]int, bool) {
+	cx := int(pos[0] / CellSize)
+	cz := int(pos[2] / CellSize)
+	for r := 1; r <= clearSearchRadius; r++ {
+		// Iterate the ring of Chebyshev-distance r around (cx, cz).
+		for dx := -r; dx <= r; dx++ {
+			for dz := -r; dz <= r; dz++ {
+				if dx != -r && dx != r && dz != -r && dz != r {
+					continue // interior — already visited at smaller r
+				}
+				x, z := cx+dx, cz+dz
+				if !t.InBounds(x, z) {
+					continue
+				}
+				if t.Cells[x][z].TreeDensity < clearCellDensity {
+					return [2]int{x, z}, true
+				}
+			}
+		}
+	}
+	return [2]int{}, false
+}
+
+// strategicScan reads the run far ahead and returns a side-bias scalar in
+// [-1, +1]: negative leans left, positive leans right. Sampled along the
+// straight axis to the goal at strategicNSamples forward points, with
+// ±strategicLateralOffset perpendicular probes at each. The forward
+// (centre) average decides whether the path is dense enough to engage at
+// all; the L-R differential decides which side to lean.
+//
+// On a perfectly-symmetric obstacle the L-R differential collapses to
+// ~0 (both lateral probes hit the disk equally). When that happens we
+// fall back to a default-right bias rather than picking nothing — same
+// philosophy as the tactical pickAvoidSide. A future PreferredSide
+// personality trait can vary this default per-skier.
+//
+// Cost: 3 × strategicNSamples = 36 TreeDensityAt calls per call. Called
+// once per Route refresh (every 2 s) per agent.
+func strategicScan(t *world.Terrain, pos mgl32.Vec3, axisDir mgl32.Vec2, axisDist float32) float32 {
+	rng := float32(strategicRange)
+	if axisDist < rng {
+		rng = axisDist
+	}
+	if rng < strategicMinDist {
+		return 0
+	}
+
+	// Right-perpendicular to axis: when axis is (sin h, cos h), perpRight
+	// is (cos h, -sin h) — i.e. (axis.z, -axis.x).
+	rx := axisDir[1]
+	rz := -axisDir[0]
+
+	var centre, left, right, totalW float32
+	for i := 1; i <= strategicNSamples; i++ {
+		f := float32(i) / float32(strategicNSamples)
+		d := rng * f
+		cx := pos[0] + axisDir[0]*d
+		cz := pos[2] + axisDir[1]*d
+		w := 1 - 0.5*f // closer matters more; far end at 0.5×
+		totalW += w
+		centre += t.TreeDensityAt(cx, cz) * w
+		right += t.TreeDensityAt(cx+rx*strategicLateralOffset, cz+rz*strategicLateralOffset) * w
+		left += t.TreeDensityAt(cx-rx*strategicLateralOffset, cz-rz*strategicLateralOffset) * w
+	}
+	if totalW <= 0 {
+		return 0
+	}
+	centre /= totalW
+	left /= totalW
+	right /= totalW
+
+	if centre < strategicCentreThreshold {
+		return 0
+	}
+
+	diff := left - right // positive ⇒ right is denser ⇒ lean left? No: positive ⇒ left side has *more* trees ⇒ lean *right*.
+	// Wait — we sum density (more trees = bigger number). diff = left -
+	// right > 0 means LEFT is denser → lean RIGHT (away from trees) →
+	// bias > 0. Correct.
+	abs := diff
+	if abs < 0 {
+		abs = -abs
+	}
+	if abs < strategicSymmetryFloor {
+		return strategicSymmetryDefault
+	}
+	bias := diff / strategicBiasScale
+	if bias > 1 {
+		bias = 1
+	}
+	if bias < -1 {
+		bias = -1
+	}
+	return bias
+}
+
+// sampleClearDir returns a unit XZ vector pulling toward the least-dense
+// neighbourhood around pos. Eight cardinal+diagonal samples at clearSampleDist
+// metres; each contributes (1 - density) weight in its direction. The sum is
+// the gradient of "openness" — the direction that gets you out fastest.
+//
+// Returns the zero vector when the skier is in a uniform high-density area
+// and there's no usable signal; the caller falls back to fall-line.
+func sampleClearDir(t *world.Terrain, pos mgl32.Vec3) mgl32.Vec2 {
+	// Eight directions on the unit circle.
+	dirs := [8][2]float32{
+		{1, 0}, {0.7071, 0.7071}, {0, 1}, {-0.7071, 0.7071},
+		{-1, 0}, {-0.7071, -0.7071}, {0, -1}, {0.7071, -0.7071},
+	}
+	var sum mgl32.Vec2
+	for _, d := range dirs {
+		sx := pos[0] + d[0]*clearSampleDist
+		sz := pos[2] + d[1]*clearSampleDist
+		w := 1 - t.TreeDensityAt(sx, sz) // clearer = stronger pull
+		if w < 0 {
+			w = 0
+		}
+		sum[0] += d[0] * w
+		sum[1] += d[1] * w
+	}
+	l := float32(math.Sqrt(float64(sum[0]*sum[0] + sum[1]*sum[1])))
+	if l < 1e-3 {
+		return mgl32.Vec2{}
+	}
+	return mgl32.Vec2{sum[0] / l, sum[1] / l}
 }
 
 // scanTrees samples tree density at five forward probes and returns hazards
 // for any probe whose density exceeds a noise threshold. Centre density is
 // returned separately so the steering layer can quickly modulate target speed.
-func scanTrees(t *world.Terrain, pos mgl32.Vec3, heading, sightRange float32) ([]Hazard, float32) {
+// Probe distance is speed-scaled (lookahead time) and clamped — every skier
+// uses the same look-ahead behaviour regardless of skill.
+func scanTrees(t *world.Terrain, pos mgl32.Vec3, heading, speed float32) ([]Hazard, float32) {
 	hx := float32(math.Sin(float64(heading)))
 	hz := float32(math.Cos(float64(heading)))
 	rx := hz
 	rz := -hx
 
-	probeDist := sightRange * 0.6
-	if probeDist < probeForwardDist {
-		probeDist = probeForwardDist
-	}
+	probeDist := computeProbeDist(speed)
 
 	angles := []float64{0, probeAngle * 0.5, -probeAngle * 0.5, probeAngle, -probeAngle}
 	hazards := make([]Hazard, 0, len(angles))
@@ -299,7 +536,15 @@ func scanTrees(t *world.Terrain, pos mgl32.Vec3, heading, sightRange float32) ([
 // SECTION 5 — Layer 3: Steering
 // =============================================================================
 
-func steer(traits ai.SkierTraits, perc Perception) Intent {
+func steer(traits ai.SkierTraits, avoid ai.AvoidState, perc Perception, dt float32) (Intent, ai.AvoidState) {
+	// In-trees override: when the skier is *inside* a dense cell, goal-seek
+	// is the wrong objective. Steer for the gap instead. Skip the tactical
+	// tree-bend below — that's for incoming hazards we still might dodge,
+	// not for the situation we're already in.
+	if perc.InTrees {
+		return steerInTrees(traits, avoid, perc, dt)
+	}
+
 	// Axis: blend seek-toward-goal with fall-line bias, attenuated by slope.
 	// On flats fallScale ≈ 0 → axis = seek; on steeps the axis bends downhill.
 	bx := perc.AxisDir[0] + perc.FallDir[0]*perc.FallScale
@@ -313,16 +558,44 @@ func steer(traits ai.SkierTraits, perc Perception) Intent {
 	bz /= bl
 	axisHeading := float32(math.Atan2(float64(bx), float64(bz)))
 
-	// Tree avoidance: bend axis away from the worst hazard within view.
-	if h := worstHazard(perc.Trees); h.Severity > 0.3 {
-		// Cross product sign determines which side the hazard is on.
-		cross := bx*h.Dir[1] - bz*h.Dir[0]
-		side := float32(1)
-		if cross > 0 {
-			side = -1
+	// Strategic bias: small constant rotation toward the cleaner side of
+	// the long-range run-ahead, as judged at the last Route refresh.
+	// Always-on (no commit gate); deliberately small so it's a hint, not
+	// a force. Self-decaying — as the skier passes the obstacle, the next
+	// strategicScan sees the centre line clear and bias drops to 0.
+	if perc.StrategicBias != 0 {
+		axisHeading = wrapAngle(axisHeading + strategicBendMax*perc.StrategicBias)
+	}
+
+	// Tree avoidance: pick a side once, hold it until the patch clears.
+	//
+	// Why a commit: the perception field is symmetric when a skier is mid-
+	// patch (every probe equally dense), so a stateless rule has no signal
+	// to lean on and the per-tick bend alternates with the carve cycle —
+	// netting zero. Real skiers pick a side at the patch boundary, commit,
+	// and ride it out. We approximate that with a tiny state machine.
+	maxSev := float32(0)
+	for _, h := range perc.Trees {
+		if h.Severity > maxSev {
+			maxSev = h.Severity
 		}
-		bend := 0.35 * h.Severity // up to ~20°
-		axisHeading = wrapAngle(axisHeading + side*bend)
+	}
+	if maxSev > 0.3 {
+		avoid.Clear = 0
+		if avoid.Side == 0 {
+			avoid.Side = pickAvoidSide(perc.Trees, bx, bz)
+		}
+		// Bend factor 1.0 means a fully-dense hazard rotates the axis ~57°
+		// off the fall line — strong enough to skirt a wide circular patch
+		// once committed early. Lower factors (0.35-0.6) failed to pull the
+		// skier clear of a 60 m-radius grove in headless tests.
+		bend := 1.0 * maxSev
+		axisHeading = wrapAngle(axisHeading + float32(avoid.Side)*bend)
+	} else {
+		avoid.Clear += dt
+		if avoid.Clear > 1.0 {
+			avoid.Side = 0
+		}
 	}
 
 	// Desired speed: comfort × aggression, scaled down on steeper terrain or
@@ -353,7 +626,8 @@ func steer(traits ai.SkierTraits, perc Perception) Intent {
 			urgency = u2
 		}
 	}
-	if h := worstHazard(perc.Trees); h.Severity > 0.6 && h.Distance < traits.SightRange*0.4 {
+	if h := worstHazard(perc.Trees); h.Severity > 0.6 && perc.Speed > 0.1 &&
+		h.Distance/perc.Speed < treeUrgencyTime {
 		u2 := h.Severity
 		if u2 > urgency {
 			urgency = u2
@@ -370,7 +644,57 @@ func steer(traits ai.SkierTraits, perc Perception) Intent {
 		AxisHeading: axisHeading,
 		Speed:       speed,
 		Urgency:     urgency,
+	}, avoid
+}
+
+// steerInTrees handles the "I'm inside a dense patch, get me out" branch.
+// Goal-seek is suspended while in trees — the skier just wants to be on
+// clearer terrain. ClearDir already points toward the local minimum of
+// density; we blend it with the fall line so the skier prefers to ski
+// *down*-and-out rather than back uphill, then hard-clamp speed and pin
+// urgency high so the motor layer engages a scrub-heavy technique.
+//
+// Tree-avoidance commitment (`avoid`) is left untouched here; once the
+// agent emerges to clear ground the regular steer() will resume managing
+// it. We don't want a long stay in trees to flip-flop the commit.
+func steerInTrees(traits ai.SkierTraits, avoid ai.AvoidState, perc Perception, dt float32) (Intent, ai.AvoidState) {
+	// Axis: ClearDir (gradient out) + fall-line bias. ClearDir may be zero
+	// in a uniformly dense neighbourhood — fall back to fall-line in that
+	// case so the skier still drifts downhill rather than freezing.
+	bx := perc.ClearDir[0] + perc.FallDir[0]*perc.FallScale
+	bz := perc.ClearDir[1] + perc.FallDir[1]*perc.FallScale
+	bl := float32(math.Sqrt(float64(bx*bx + bz*bz)))
+	if bl < 1e-4 {
+		bx, bz = perc.FallDir[0], perc.FallDir[1]
+		bl = float32(math.Sqrt(float64(bx*bx + bz*bz)))
+		if bl < 1e-4 {
+			// flat + uniform trees: can't pick a direction. Hold heading.
+			bx = float32(math.Sin(float64(perc.Heading)))
+			bz = float32(math.Cos(float64(perc.Heading)))
+			bl = 1
+		}
 	}
+	bx /= bl
+	bz /= bl
+	axisHeading := float32(math.Atan2(float64(bx), float64(bz)))
+
+	// Hard cap on target speed regardless of comfort/aggression. The motor
+	// layer sees this is well below the current actual speed and engages
+	// pizza/sideslip/hockey via the existing overshoot dispatch.
+	speed := float32(inTreesSpeedCap)
+
+	// Pin urgency high so the technique dispatcher prefers scrub-heavy
+	// moves. 0.85 keeps it under the 0.8-strict Hockey threshold but well
+	// over the parallel-vs-pizza fork at 1.05× target speed.
+	urgency := float32(0.85)
+
+	_ = traits
+	_ = dt
+	return Intent{
+		AxisHeading: axisHeading,
+		Speed:       speed,
+		Urgency:     urgency,
+	}, avoid
 }
 
 func worstHazard(hs []Hazard) Hazard {
@@ -381,6 +705,30 @@ func worstHazard(hs []Hazard) Hazard {
 		}
 	}
 	return w
+}
+
+// pickAvoidSide chooses which way to bend when the skier first detects trees.
+// Strategy: sum -h.Dir × h.Severity to get an "away" vector, then project onto
+// the axis-perpendicular (right of axis) to extract the lateral sign. If the
+// patch is dead-on symmetric, projection ≈ 0; in that case we default to +1
+// (right) so the agent always commits to *some* side rather than alternating.
+// The committed side persists in AvoidState until the probes go clear.
+func pickAvoidSide(hs []Hazard, axisX, axisZ float32) int8 {
+	var ax, az float32
+	for _, h := range hs {
+		ax -= h.Dir[0] * h.Severity
+		az -= h.Dir[1] * h.Severity
+	}
+	// Right-of-axis perpendicular (when axis is +z, perpRight = +x).
+	perpX, perpZ := axisZ, -axisX
+	lateral := ax*perpX + az*perpZ
+	if lateral > 1e-3 {
+		return +1
+	}
+	if lateral < -1e-3 {
+		return -1
+	}
+	return +1 // dead-on symmetric: pick a side and commit
 }
 
 // =============================================================================
@@ -467,6 +815,21 @@ func pickTechnique(traits ai.SkierTraits, prev ai.MotorState, intent Intent, per
 		return ai.TechHockey
 	}
 
+	// High urgency without Hockey: fall through to a scrub-heavy technique.
+	// Pizza is the universal "stop now" tool — wedge both edges, drag.
+	// Without this clause, intermediate/beginner skiers in tree-emergency
+	// situations would stay on Parallel turns (zero scrub) and never
+	// actually slow down, because Sideslip's slope gate (below) is too
+	// strict to fire on moderate terrain.
+	if intent.Urgency > 0.8 {
+		if t.Has(ai.TechPizza) {
+			return ai.TechPizza
+		}
+		if t.Has(ai.TechSideslip) {
+			return ai.TechSideslip
+		}
+	}
+
 	// Sideslip on steeps when the agent is well over their comfort slope and
 	// clearly speed-overloaded.
 	if perc.SlopeAngle > traits.ComfortSlope*1.4 && perc.Speed > intent.Speed*1.3 && t.Has(ai.TechSideslip) {
@@ -550,7 +913,8 @@ func stressDelta(traits ai.SkierTraits, perc Perception, intent Intent, cmd Moto
 		excess := perc.SlopeAhead/traits.ComfortSlope - 1.2
 		d -= excess * 0.5
 	}
-	if h := worstHazard(perc.Trees); h.Severity > 0.5 && h.Distance < traits.SightRange*0.3 {
+	if h := worstHazard(perc.Trees); h.Severity > 0.5 && perc.Speed > 0.1 &&
+		h.Distance/perc.Speed < treeStressTime {
 		d -= h.Severity * 0.4
 	}
 	d -= cmd.BalanceCost
@@ -676,17 +1040,16 @@ func max32(a, b float32) float32 {
 // SECTION 10 — Debug API (consumed by F3 overlay in scene/scenario.go)
 // =============================================================================
 
-// ProbeDistance is the forward distance used when drawing perception probes
-// in the debug overlay. Exposed so the renderer can scale line lengths.
-const ProbeDistance = probeForwardDist
-
 // SteeringDebug is the legacy debug bundle used by the F3 overlay. Re-derived
 // from a fresh perception+steer pass against `target` so the overlay shows
-// what the agent would decide RIGHT NOW.
+// what the agent would decide RIGHT NOW. ProbeDist is the speed-scaled
+// look-ahead the simulation is currently using, exposed so the renderer can
+// scale debug line lengths to match.
 type SteeringDebug struct {
 	Pos         mgl32.Vec3
 	FallLine    mgl32.Vec2
 	DesiredHead float32 // axis heading from the steering layer
+	ProbeDist   float32 // m; current forward-probe distance
 	Probes      [3]struct {
 		Dir     mgl32.Vec2 // unit XZ; centre, right, left
 		Density float32
@@ -704,7 +1067,7 @@ func ComputeSteeringDebug(t *world.Terrain, a *world.Agent, target mgl32.Vec3) S
 		clone.Traits.SightRange = 25 // sensible default for the overlay
 	}
 	perc := perceive(t, &clone)
-	intent := steer(clone.Traits, perc)
+	intent, _ := steer(clone.Traits, clone.Avoid, perc, 0)
 
 	hx := float32(math.Sin(float64(a.Heading)))
 	hz := float32(math.Cos(float64(a.Heading)))
@@ -715,16 +1078,24 @@ func ComputeSteeringDebug(t *world.Terrain, a *world.Agent, target mgl32.Vec3) S
 		return mgl32.Vec2{c*hx + s*rx, c*hz + s*rz}
 	}
 
+	probeDist := float32(treeLookahead) * a.Speed
+	if probeDist < treeProbeMin {
+		probeDist = treeProbeMin
+	}
+	if probeDist > treeProbeMax {
+		probeDist = treeProbeMax
+	}
 	out := SteeringDebug{
 		Pos:         a.Pos,
 		FallLine:    perc.FallDir,
 		DesiredHead: intent.AxisHeading,
+		ProbeDist:   probeDist,
 	}
 	angles := [3]float64{0, probeAngle, -probeAngle}
 	for i, ang := range angles {
 		d := probeDir(ang)
 		out.Probes[i].Dir = d
-		out.Probes[i].Density = t.TreeDensityAt(a.Pos[0]+d[0]*probeForwardDist, a.Pos[2]+d[1]*probeForwardDist)
+		out.Probes[i].Density = t.TreeDensityAt(a.Pos[0]+d[0]*probeDist, a.Pos[2]+d[1]*probeDist)
 	}
 	return out
 }
@@ -766,6 +1137,63 @@ func recordFrame(s *Simulation, a *world.Agent, target mgl32.Vec3, dist float32,
 		SlopeCos:        perc.Normal[1],
 		InArrivalRadius: perc.InArrival,
 	})
+}
+
+// computeProbeDist returns the speed-scaled tree-perception lookahead used
+// by scanTrees, clamped to [treeProbeMin, treeProbeMax]. Exposed so the
+// follow HUD / perception-cone shader can render the same fan the AI sees.
+func computeProbeDist(speed float32) float32 {
+	d := float32(treeLookahead) * speed
+	if d < treeProbeMin {
+		d = treeProbeMin
+	}
+	if d > treeProbeMax {
+		d = treeProbeMax
+	}
+	return d
+}
+
+// senseFrom builds a display snapshot of the current tick's perception/intent/
+// motor decisions. The AI never reads this back; it exists for the renderer
+// and follow HUD to pick up between ticks.
+func senseFrom(perc Perception, intent Intent, cmd MotorCmd) ai.Sense {
+	probeC, probeR, probeL := perceptionProbeDensities(perc)
+	hx := float32(math.Sin(float64(perc.Heading)))
+	hz := float32(math.Cos(float64(perc.Heading)))
+	var worst Hazard
+	for _, h := range perc.Trees {
+		if h.Severity > worst.Severity {
+			worst = h
+		}
+	}
+	var worstSide int8
+	if worst.Severity > 0 {
+		cross := hx*worst.Dir[1] - hz*worst.Dir[0]
+		switch {
+		case cross > 0.05:
+			worstSide = +1
+		case cross < -0.05:
+			worstSide = -1
+		}
+	}
+	return ai.Sense{
+		ProbeDist:      computeProbeDist(perc.Speed),
+		ProbeHalfAngle: probeAngle,
+		ProbeC:         probeC,
+		ProbeR:         probeR,
+		ProbeL:         probeL,
+		WorstSeverity:  worst.Severity,
+		WorstDist:      worst.Distance,
+		WorstSide:      worstSide,
+		Urgency:        intent.Urgency,
+		AxisHeading:    intent.AxisHeading,
+		DesiredHeading: cmd.Heading,
+		TargetSpeed:    intent.Speed,
+		InTrees:        perc.InTrees,
+		AtCellDensity:  perc.AtCellDensity,
+		ClearDir:       perc.ClearDir,
+		StrategicBias:  perc.StrategicBias,
+	}
 }
 
 // perceptionProbeDensities re-derives the centre/right/left probe densities
