@@ -6,8 +6,10 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
 	"github.com/go-gl/mathgl/mgl32"
 	"mountain-mogul/internal/engine"
@@ -109,9 +111,12 @@ type Scenario struct {
 	pauseBtn        *ui.Button
 	speedBtns       []*ui.Button // index aligned with speedOptions
 	popup           *ui.Window
-	savePath        string // where Save / escape-menu Load operate; "" → disabled (testbeds)
+	saveAllowed     bool   // false in testbed mode; gates the Save prompt
+	saveName        string // last name used for Save; pre-fills the prompt next time
+	savePrompt      *savePrompt
 	prebuiltWorld   *world.World
-	simSeed         int64 // 0 = wall-clock; nonzero forces deterministic RNG
+	simSeed         int64                          // 0 = wall-clock; nonzero forces deterministic RNG
+	rebuild         func(seed int64) *world.World // non-nil ⇒ "New Seed" button shown
 
 	// Debug instrumentation (see plan: orbiting-skier debug aids).
 	csvRecorder       *sim.CSVRecorder
@@ -134,24 +139,24 @@ const (
 // speedOptions lists the time-scale presets shown in the menu bar.
 var speedOptions = []float64{1, 5, 10}
 
-// NewScenario creates a Scenario that loads its initial world from
-// scenarioPath. Save / escape-menu Load operate on the user save slot
-// (save.SaveSlotPath), so playing a scenario never overwrites the source file.
-func NewScenario(scenarioPath string) *Scenario {
-	return &Scenario{
-		scenarioPath: scenarioPath,
-		savePath:     save.SaveSlotPath(),
+// NewScenarioFromFile creates a Scenario that loads its initial world from
+// `path`. Used for both New Game (asset scenarios) and Load Game (named
+// saves). Save is enabled; the first Save click prompts for a name. If the
+// loaded path lives inside the user's saves directory, that name is used as
+// the default for subsequent saves so re-saving overwrites the same file.
+func NewScenarioFromFile(path string) *Scenario {
+	s := &Scenario{
+		scenarioPath: path,
+		saveAllowed:  true,
 	}
-}
-
-// NewScenarioFromSave creates a Scenario whose initial load and subsequent
-// saves both target the user save slot — used by the main-menu "Load Save".
-func NewScenarioFromSave() *Scenario {
-	slot := save.SaveSlotPath()
-	return &Scenario{
-		scenarioPath: slot,
-		savePath:     slot,
+	// If the file came from the user's saves directory, seed saveName with
+	// its basename so Save defaults to overwriting the same slot.
+	dir, file := filepath.Split(path)
+	cleanDir := filepath.Clean(dir)
+	if cleanDir == filepath.Clean(save.SavesDir()) && strings.HasSuffix(file, ".json") {
+		s.saveName = strings.TrimSuffix(file, ".json")
 	}
+	return s
 }
 
 // NewScenarioFromWorld creates a Scenario backed by a programmatically-built
@@ -162,6 +167,20 @@ func NewScenarioFromWorld(w *world.World, seed int64) *Scenario {
 	return &Scenario{
 		prebuiltWorld: w,
 		simSeed:       seed,
+	}
+}
+
+// NewScenarioFromTestbed creates a Scenario from a sim.Testbed and remembers
+// how to rebuild the world from a seed, so the menu bar can offer a
+// "New Seed" button that re-rolls the run without leaving the scene.
+func NewScenarioFromTestbed(tb *sim.Testbed) *Scenario {
+	rebuild := func(seed int64) *world.World {
+		return tb.Build(rand.New(rand.NewSource(seed)))
+	}
+	return &Scenario{
+		prebuiltWorld: rebuild(tb.Seed),
+		simSeed:       tb.Seed,
+		rebuild:       rebuild,
 	}
 }
 
@@ -183,7 +202,11 @@ func (s *Scenario) Init(app *engine.App) error {
 	}
 	s.installWorld(w)
 
-	s.escapeMenu = NewEscapeMenu(app, s.saveScenario, s.loadScenario)
+	if s.saveAllowed {
+		s.escapeMenu = NewEscapeMenu(app, s.openSavePrompt, s.gotoLoadMenu)
+	} else {
+		s.escapeMenu = NewEscapeMenu(app, nil, nil)
+	}
 
 	// Build menu bar
 	s.toolButtons = make(map[toolMode]*ui.Button)
@@ -192,6 +215,11 @@ func (s *Scenario) Init(app *engine.App) error {
 	s.toolButtons[toolLiftBase] = s.menuBar.AddButton("Place Lift", func() { s.setTool(toolLiftBase) })
 	s.toolButtons[toolGlade] = s.menuBar.AddButton("Glade", func() { s.setTool(toolGlade) })
 	s.toolButtons[toolRemove] = s.menuBar.AddButton("Remove", func() { s.setTool(toolRemove) })
+	if s.rebuild != nil {
+		s.menuBar.AddButton("New Seed", func() {
+			s.restartWithSeed(rand.Int63n(1_000_000))
+		})
+	}
 
 	// Speed / pause controls — right-aligned. The menu bar packs right-buttons
 	// right-to-left in insertion order, so insert Pause first to make it the
@@ -234,34 +262,64 @@ func (s *Scenario) installWorld(w *world.World) {
 	}
 }
 
-// saveScenario writes the current world to the save slot.
-func (s *Scenario) saveScenario() {
-	if s.savePath == "" {
+// openSavePrompt is hooked into the escape menu's Save button. Pops up a
+// modal text-input pre-filled with the current saveName (or a fresh
+// timestamp when the session has not saved yet). Disabled in testbed mode.
+func (s *Scenario) openSavePrompt() {
+	if !s.saveAllowed {
 		s.setToast("Save disabled in testbed mode")
 		return
 	}
-	if err := save.SaveScenario(s.savePath, s.world); err != nil {
-		fmt.Println("Save error:", err)
-		return
+	initial := s.saveName
+	if initial == "" {
+		initial = save.DefaultSaveName()
 	}
-	fmt.Println("Saved to", s.savePath)
+	s.savePrompt = newSavePrompt(initial,
+		func(name string) {
+			s.savePrompt = nil
+			s.commitSave(name)
+		},
+		func() {
+			s.savePrompt = nil
+		},
+	)
 }
 
-// loadScenario reloads the world from the save slot, replacing the live world
-// and resetting any transient UI state (active tool, popup, follow, debug).
-func (s *Scenario) loadScenario() {
-	if s.savePath == "" {
-		s.setToast("Load disabled in testbed mode")
+// commitSave writes the world to {SavesDir}/{name}.json and updates
+// saveName so the next prompt defaults to the same slot.
+func (s *Scenario) commitSave(name string) {
+	clean := save.SanitizeSaveName(name)
+	if clean == "" {
+		s.setToast("Save name cannot be empty")
 		return
 	}
-	w, err := save.LoadScenario(s.savePath)
+	path, err := save.SaveAs(clean, s.world)
 	if err != nil {
-		fmt.Println("Load error:", err)
+		s.setToast("Save error: " + err.Error())
 		return
 	}
-	s.installWorld(w)
+	s.saveName = clean
+	s.setToast("Saved to " + filepath.Base(path))
+}
 
-	// Reset transient scene state — old references no longer point into the new world.
+// gotoLoadMenu is hooked into the escape menu's Load button. Pops back to
+// the start menu and pushes the SaveList scene so the user can pick which
+// save to resume — uniform with the main-menu Load Game flow.
+func (s *Scenario) gotoLoadMenu() {
+	app := s.app
+	app.PopScene() // pop this scenario back to the start menu
+	app.PushScene(NewSaveList())
+}
+
+// restartWithSeed rebuilds the testbed world with a fresh RNG seed and
+// resets transient scene state (tool, popup, follow, debug overlays) so the
+// run starts clean. No-op if rebuild is nil (non-testbed scenarios).
+func (s *Scenario) restartWithSeed(seed int64) {
+	if s.rebuild == nil {
+		return
+	}
+	s.simSeed = seed
+	s.installWorld(s.rebuild(seed))
 	s.cancelTool()
 	if s.popup != nil {
 		s.popup.Visible = false
@@ -269,7 +327,7 @@ func (s *Scenario) loadScenario() {
 	s.followAgentID = 0
 	s.app.Renderer.SetDebugLines(nil)
 	s.syncSpeedButtons()
-	fmt.Println("Loaded from", s.savePath)
+	s.setToast(fmt.Sprintf("Restarted with seed=%d", seed))
 }
 
 // syncSpeedButtons highlights the active speed/pause button.
@@ -286,6 +344,13 @@ func (s *Scenario) Update(dt float64) {
 	s.time += float32(dt)
 	inp := s.app.Input
 	r := s.app.Renderer
+
+	// Save prompt is the topmost modal — it captures all input and even
+	// swallows Escape (handled inside its TextInput's Cancel binding).
+	if s.savePrompt != nil {
+		s.savePrompt.HandleInput(inp, float32(r.ScreenWidth()), float32(r.ScreenHeight()))
+		return
+	}
 
 	if inp.Pressed[glfw.KeyEscape] {
 		if s.activeTool != toolNone {
@@ -670,6 +735,9 @@ func (s *Scenario) Render(r *render.Renderer) {
 	if s.toastText != "" && s.time < s.toastExpiry {
 		drawables = append(drawables, &toastLabel{text: s.toastText})
 	}
+	if s.savePrompt != nil {
+		drawables = append(drawables, s.savePrompt)
+	}
 	r.DrawUI(drawables)
 
 	// Screenshot is taken AFTER UI is drawn so the captured frame matches what
@@ -1021,4 +1089,73 @@ func (s *Scenario) stopSkierLog(msg string) {
 func (s *Scenario) setToast(text string) {
 	s.toastText = text
 	s.toastExpiry = s.time + 3.0
+}
+
+// savePrompt is the modal "Save As" widget. Owns its own TextInput plus
+// OK / Cancel buttons; the parent Scenario routes input to it whenever
+// non-nil and draws it as the topmost UI element.
+type savePrompt struct {
+	input    *ui.TextInput
+	okBtn    *ui.Button
+	cancelBtn *ui.Button
+	onSubmit func(string)
+	onCancel func()
+}
+
+func newSavePrompt(initial string, onSubmit func(string), onCancel func()) *savePrompt {
+	p := &savePrompt{onSubmit: onSubmit, onCancel: onCancel}
+	p.input = ui.NewTextInput(0, 0, 0, 32, initial)
+	p.input.OnSubmit = func(text string) { p.onSubmit(text) }
+	p.input.OnCancel = func() { p.onCancel() }
+	p.okBtn = ui.NewButton(0, 0, 90, 32, "Save", func() { p.onSubmit(p.input.Text) })
+	p.cancelBtn = ui.NewButton(0, 0, 90, 32, "Cancel", func() { p.onCancel() })
+	return p
+}
+
+const savePromptW = 420
+const savePromptH = 150
+
+func (p *savePrompt) layout(sw, sh float32) {
+	x := (sw - savePromptW) / 2
+	y := (sh - savePromptH) / 2
+	const pad = 16
+	p.input.X = x + pad
+	p.input.Y = y + 50
+	p.input.W = savePromptW - 2*pad
+	p.okBtn.X = x + savePromptW - pad - p.okBtn.W
+	p.okBtn.Y = y + savePromptH - pad - p.okBtn.H
+	p.cancelBtn.X = p.okBtn.X - 12 - p.cancelBtn.W
+	p.cancelBtn.Y = p.okBtn.Y
+}
+
+func (p *savePrompt) HandleInput(inp *engine.Input, sw, sh float32) {
+	p.layout(sw, sh)
+	p.input.HandleInput(inp)
+	mx, my := inp.MousePos[0], inp.MousePos[1]
+	for _, b := range []*ui.Button{p.okBtn, p.cancelBtn} {
+		b.SetHovered(b.Contains(mx, my))
+		if inp.LeftClick && b.Contains(mx, my) {
+			b.Click()
+			return
+		}
+	}
+}
+
+func (p *savePrompt) Draw(r *render.Renderer) {
+	sw := float32(r.ScreenWidth())
+	sh := float32(r.ScreenHeight())
+	p.layout(sw, sh)
+	gl.Enable(gl.BLEND)
+	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+	defer gl.Disable(gl.BLEND)
+	r.DrawColorRect(0, 0, sw, sh, mgl32.Vec4{0, 0, 0, 0.55})
+	x := (sw - savePromptW) / 2
+	y := (sh - savePromptH) / 2
+	r.DrawColorRect(x, y, savePromptW, savePromptH, mgl32.Vec4{0.08, 0.12, 0.22, 0.98})
+	if r.Font != nil {
+		r.Font.DrawText(r, "Save As", x+16, y+16, mgl32.Vec4{1, 0.95, 0.8, 1})
+	}
+	p.input.Draw(r)
+	p.okBtn.Draw(r)
+	p.cancelBtn.Draw(r)
 }

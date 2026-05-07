@@ -24,12 +24,13 @@ type HeadlessOptions struct {
 
 // RunHeadless runs the named testbed without a GLFW window and writes a
 // human-readable trace + summary to `out`. Intended for `go run . -testbed
-// <Key>` so we can iterate on agent behaviour by reading what the AI
-// perceived and decided each tick, instead of asserting against thresholds.
-func RunHeadless(out io.Writer, key string, opts HeadlessOptions) error {
-	tb := FindTestbed(key)
-	if tb == nil {
-		return fmt.Errorf("unknown testbed %q; known: %s", key, strings.Join(testbedKeys(), ", "))
+// "<name prefix>"` so we can iterate on agent behaviour by reading what
+// the AI perceived and decided each tick, instead of asserting against
+// thresholds.
+func RunHeadless(out io.Writer, name string, opts HeadlessOptions) error {
+	tb, err := FindTestbed(name)
+	if err != nil {
+		return err
 	}
 	if opts.SimSeconds <= 0 {
 		opts.SimSeconds = 240
@@ -44,7 +45,7 @@ func RunHeadless(out io.Writer, key string, opts HeadlessOptions) error {
 
 	w := tb.Build(rand.New(rand.NewSource(seed)))
 	if len(w.Agents) == 0 {
-		return fmt.Errorf("testbed %q produced no agents", key)
+		return fmt.Errorf("testbed %q produced no agents", tb.Name)
 	}
 	agent := w.Agents[0]
 
@@ -54,7 +55,7 @@ func RunHeadless(out io.Writer, key string, opts HeadlessOptions) error {
 	sim.Recorder = rec
 
 	target := targetPos(w, agent)
-	fmt.Fprintf(out, "testbed: %s (%s)  seed=%d  sim_seconds=%.1f\n", tb.Key, tb.Name, seed, opts.SimSeconds)
+	fmt.Fprintf(out, "testbed: %s  seed=%d  sim_seconds=%.1f\n", tb.Name, seed, opts.SimSeconds)
 	fmt.Fprintf(out, "agent:   id=%d skill=%s pos=(%.1f,%.1f,%.1f) target=(%.1f,%.1f,%.1f) dist=%.1f\n\n",
 		agent.ID, skillName(agent.Traits.Skill),
 		agent.Pos[0], agent.Pos[1], agent.Pos[2],
@@ -253,14 +254,6 @@ func skillName(s ai.SkillLevel) string {
 		return "advanced"
 	}
 	return fmt.Sprintf("?%d", s)
-}
-
-func testbedKeys() []string {
-	out := make([]string, len(Testbeds))
-	for i, t := range Testbeds {
-		out[i] = t.Key
-	}
-	return out
 }
 
 // targetPos resolves where an agent is heading (lodge or lift base) so the

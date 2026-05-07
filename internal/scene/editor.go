@@ -22,6 +22,7 @@ type Editor struct {
 	activeTool   toolMode
 	scenarioPath string
 	hoverCell    [2]int // terrain cell currently under the mouse
+	radiusSlider *ui.VSlider // shown only when the active tool uses a brush
 }
 
 // NewEditor creates an Editor scene loading from the given path.
@@ -84,6 +85,11 @@ func (e *Editor) Init(app *engine.App) error {
 			fmt.Println("Saved to", e.scenarioPath)
 		}
 	}, nil)
+
+	// Brush-radius slider — repositioned each Render relative to screen size.
+	// Only shown while a brush-using tool is active. Range matches what the
+	// renderer can sensibly draw without hitting batch limits.
+	e.radiusSlider = ui.NewVSlider(0, 0, 18, 200, 1, 12, float32(defaultBrushRadius), "Radius")
 
 	return nil
 }
@@ -178,6 +184,14 @@ func (e *Editor) Update(dt float64) {
 		r.Camera.Recalculate()
 	}
 
+	// Brush-radius slider takes input before brush placement so dragging
+	// the thumb doesn't also paint trees underneath it.
+	sliderActive := false
+	if e.toolUsesRadiusSlider() {
+		e.layoutRadiusSlider(r)
+		sliderActive = e.radiusSlider.HandleInput(inp.MousePos[0], inp.MousePos[1], inp.LeftClick, inp.LeftHeld)
+	}
+
 	// Track terrain cell under mouse for brush preview.
 	if !e.menuBar.ContainsY(inp.MousePos[1]) {
 		gx, gz := screenToCell(r.Camera, e.world.Terrain, inp.MousePos)
@@ -186,11 +200,16 @@ func (e *Editor) Update(dt float64) {
 		e.hoverCell = [2]int{-1, -1}
 	}
 
-	// Tool application
-	if (inp.LeftClick || inp.LeftHeld) && !e.menuBar.ContainsY(inp.MousePos[1]) {
-		gx, gz := e.hoverCell[0], e.hoverCell[1]
-		if e.world.Terrain.InBounds(gx, gz) {
-			e.applyEditorTool(gx, gz, r, float32(dt))
+	// Tool application — suppressed when the slider is grabbing input or
+	// the cursor is over slider/menu chrome.
+	if !sliderActive && (inp.LeftClick || inp.LeftHeld) && !e.menuBar.ContainsY(inp.MousePos[1]) {
+		if e.toolUsesRadiusSlider() && e.radiusSlider.Contains(inp.MousePos[0], inp.MousePos[1]) {
+			// click began on the slider chrome
+		} else {
+			gx, gz := e.hoverCell[0], e.hoverCell[1]
+			if e.world.Terrain.InBounds(gx, gz) {
+				e.applyEditorTool(gx, gz, r, float32(dt))
+			}
 		}
 	}
 }
@@ -212,16 +231,36 @@ func (e *Editor) syncToolButtons() {
 	}
 }
 
-const editorBrushRadius = 2 // cells
+const defaultBrushRadius = 2 // cells
+
+// brushRadius returns the current radius for tools that use the slider, or
+// the default for tools that don't. Centralising it keeps applyEditorTool
+// and the hover preview in lockstep.
+func (e *Editor) brushRadius() int {
+	if e.toolUsesRadiusSlider() {
+		r := int(e.radiusSlider.Value + 0.5)
+		if r < 1 {
+			r = 1
+		}
+		return r
+	}
+	return defaultBrushRadius
+}
+
+// toolUsesRadiusSlider reports whether the radius slider is relevant for
+// the active tool — currently the two density brushes.
+func (e *Editor) toolUsesRadiusSlider() bool {
+	return e.activeTool == toolPlantTrees || e.activeTool == toolGlade
+}
 
 func (e *Editor) applyEditorTool(gx, gz int, r *render.Renderer, dt float32) {
 	w := e.world
 	switch e.activeTool {
 	case toolPlantTrees:
-		applyDensityBrush(w.Terrain, gx, gz, editorBrushRadius, 0.3)
+		applyDensityBrush(w.Terrain, gx, gz, e.brushRadius(), 0.3)
 		r.RebuildStaticBatch(w)
 	case toolGlade:
-		applyDensityBrush(w.Terrain, gx, gz, editorBrushRadius, -0.4)
+		applyDensityBrush(w.Terrain, gx, gz, e.brushRadius(), -0.4)
 		r.RebuildStaticBatch(w)
 	case toolEditorRaise:
 		w.Terrain.Cells[gx][gz].Elevation += 5.0 * dt
@@ -235,8 +274,14 @@ func (e *Editor) applyEditorTool(gx, gz int, r *render.Renderer, dt float32) {
 	}
 }
 
+// applyImportedTerrain replaces the entire scene with a fresh world built
+// from the imported elevations. Buildings, lifts, agents, placed objects,
+// and per-cell tree density are wiped — re-using terrain on top of an old
+// layout would leave lifts dangling in mid-air and trees floating above
+// new mountains. Cell defaults (snow depth, passability) match NewTerrain.
 func (e *Editor) applyImportedTerrain(elevs [][]float32, r *render.Renderer) {
-	t := e.world.Terrain
+	prev := e.world.Terrain
+	t := world.NewTerrain(prev.Width, prev.Height)
 	for row := 0; row < t.Height; row++ {
 		for col := 0; col < t.Width; col++ {
 			if row < len(elevs) && col < len(elevs[row]) {
@@ -244,16 +289,22 @@ func (e *Editor) applyImportedTerrain(elevs [][]float32, r *render.Renderer) {
 			}
 		}
 	}
+	e.world = world.NewWorld(t)
+	e.activeTool = toolNone
+	e.syncToolButtons()
+
+	r.ResetSceneState()
 	r.BuildTerrainMesh(t)
+	r.RebuildStaticBatch(e.world)
 }
 
 func (e *Editor) Render(r *render.Renderer) {
 	const cellSize = float32(10.0)
 	t := e.world.Terrain
-	if (e.activeTool == toolGlade || e.activeTool == toolPlantTrees) && t.InBounds(e.hoverCell[0], e.hoverCell[1]) {
+	if e.toolUsesRadiusSlider() && t.InBounds(e.hoverCell[0], e.hoverCell[1]) {
 		gx, gz := e.hoverCell[0], e.hoverCell[1]
 		center := mgl32.Vec2{float32(gx)*cellSize + cellSize/2, float32(gz)*cellSize + cellSize/2}
-		r.SetBrush(center, (float32(editorBrushRadius)+0.5)*cellSize)
+		r.SetBrush(center, (float32(e.brushRadius())+0.5)*cellSize)
 	} else {
 		r.ClearBrush()
 	}
@@ -262,10 +313,27 @@ func (e *Editor) Render(r *render.Renderer) {
 	r.ClearBrush()
 
 	edDrawables := []render.UIDrawable{e.menuBar}
+	if e.toolUsesRadiusSlider() {
+		e.layoutRadiusSlider(r)
+		edDrawables = append(edDrawables, e.radiusSlider)
+	}
 	if e.escapeMenu.Visible() {
 		edDrawables = append(edDrawables, e.escapeMenu)
 	}
 	r.DrawUI(edDrawables)
+}
+
+// layoutRadiusSlider positions the slider on the left edge, vertically
+// centred below the menu bar. Recomputed each frame so it tracks window
+// resizes.
+func (e *Editor) layoutRadiusSlider(r *render.Renderer) {
+	const trackW = float32(18)
+	const trackH = float32(200)
+	sh := float32(r.ScreenHeight())
+	e.radiusSlider.X = 28
+	e.radiusSlider.Y = (sh-trackH)/2 + 20
+	e.radiusSlider.W = trackW
+	e.radiusSlider.H = trackH
 }
 
 func (e *Editor) Destroy() {

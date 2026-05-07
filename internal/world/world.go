@@ -31,6 +31,15 @@ func (w *World) NextID() uint64 {
 	return id
 }
 
+// SetMinNextID raises the internal ID counter to at least n+1 so that
+// subsequent NextID() calls won't collide with `n`. Used by the save
+// loader after restoring entities with their original IDs.
+func (w *World) SetMinNextID(n uint64) {
+	if n+1 > w.nextID {
+		w.nextID = n + 1
+	}
+}
+
 // PlaceObject places a decorative natural object (rock, stump, lone tree).
 // Passability is not affected — trees use TreeDensity, rocks/stumps are decorative.
 func (w *World) PlaceObject(t ObjectType, x, z int) *PlacedObject {

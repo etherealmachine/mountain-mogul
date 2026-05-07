@@ -15,11 +15,6 @@ const (
 	CellSize  = 10.0 // metres per grid cell
 
 	lodgeReturnProb = 0.25 // probability a skier targets a lodge from the lift top instead of skiing back to base
-
-	// skiSlopeThreshold is the slope angle (radians) above which descending
-	// toward the goal switches the agent into the skiing pipeline. Below
-	// this — or when the goal is uphill — they walk.
-	skiSlopeThreshold = 5 * math.Pi / 180
 )
 
 // Simulation drives all agent and building behaviour.
@@ -294,22 +289,19 @@ func (s *Simulation) tickLocomote(agent *world.Agent, dt float64) {
 	}
 }
 
-// shouldSki returns true if the slope at the agent's position is steep
-// enough AND the goal is in the downhill direction. Otherwise the agent
-// walks (flat ground or uphill goals).
+// shouldSki returns true when the goal lies in the downhill direction from
+// the agent's position. Slope magnitude is irrelevant — the skiing physics
+// already handles gentle and flat sections (low gravity accel, friction
+// dominates) so a runout doesn't deserve a special case. Flat or uphill
+// goals fall back to walking.
 func shouldSki(t *world.Terrain, pos, target mgl32.Vec3) bool {
 	n := t.NormalAt(pos[0]/CellSize, pos[2]/CellSize)
-	slope := math.Acos(math.Min(1, math.Max(-1, float64(n[1]))))
-	if slope < skiSlopeThreshold {
-		return false
-	}
-	// Project: is the target in the downhill direction?
-	fall := mgl32.Vec2{n[0], n[2]} // gradient projects to the uphill direction's negative
+	fall := mgl32.Vec2{n[0], n[2]}
 	fl := fall.Len()
 	if fl < 1e-4 {
-		return false
+		return false // truly flat — no fall line to follow
 	}
-	fallDir := fall.Mul(1.0 / fl) // unit downhill (terrain.NormalAt convention: descending matches +n.xz when normal tilts uphill)
+	fallDir := fall.Mul(1.0 / fl)
 	dx := target[0] - pos[0]
 	dz := target[2] - pos[2]
 	axisLen := float32(math.Sqrt(float64(dx*dx + dz*dz)))

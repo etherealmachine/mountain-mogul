@@ -28,8 +28,10 @@ type ObjectData struct {
 	Rotation float32 `json:"r,omitempty"`
 }
 
-// BuildingData is a placed lodge.
+// BuildingData is a placed lodge. ID is preserved across save/load so that
+// agent.TargetID references stay valid.
 type BuildingData struct {
+	ID            uint64  `json:"id,omitempty"`
 	X             int     `json:"x"`
 	Z             int     `json:"z"`
 	Rotation      float32 `json:"r,omitempty"`
@@ -37,17 +39,31 @@ type BuildingData struct {
 	SkierCount    int     `json:"skier_count,omitempty"`
 }
 
-// LiftData is a placed lift.
-type LiftData struct {
-	BaseX int     `json:"bx"`
-	BaseZ int     `json:"bz"`
-	TopX  int     `json:"tx"`
-	TopZ  int     `json:"tz"`
-	Speed float32 `json:"speed,omitempty"`
+// ChairData is one chair on a lift loop — its position around the loop and
+// the IDs of the agents currently riding it.
+type ChairData struct {
+	Progress     float32   `json:"p"`
+	PassengerIDs [2]uint64 `json:"pax,omitempty"` // 0 = empty slot
 }
 
-// AgentData is a saved agent state.
+// LiftData is a placed lift, including its full runtime state (chair
+// positions and passenger references, queue order) so a save round-trips
+// without freezing skiers in mid-air.
+type LiftData struct {
+	ID       uint64      `json:"id,omitempty"`
+	BaseX    int         `json:"bx"`
+	BaseZ    int         `json:"bz"`
+	TopX     int         `json:"tx"`
+	TopZ     int         `json:"tz"`
+	Speed    float32     `json:"speed,omitempty"`
+	Chairs   []ChairData `json:"chairs,omitempty"`
+	QueueIDs []uint64    `json:"queue,omitempty"`
+}
+
+// AgentData is a saved agent state. ID is preserved so that lift chair /
+// queue references resolve back to the same agent on load.
 type AgentData struct {
+	ID       uint64     `json:"id,omitempty"`
 	Pos      [3]float32 `json:"pos"`
 	Heading  float32    `json:"heading"`
 	Path     [][2]int   `json:"path,omitempty"`

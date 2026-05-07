@@ -14,7 +14,7 @@ import (
 func init() { runtime.LockOSThread() }
 
 func main() {
-	testbed := flag.String("testbed", "", "run a registered testbed headless and log debug to stdout (e.g. BuildSlope10Intermediate, or 'list')")
+	testbed := flag.String("testbed", "", "run a registered testbed headless and log debug to stdout (matches a name prefix, e.g. \"10 degree slope\", or 'list')")
 	simSeconds := flag.Float64("sim-seconds", 240, "max sim seconds for headless testbed runs")
 	samplePeriod := flag.Float64("sample", 0.5, "sim seconds between trace rows in headless testbed runs")
 	seed := flag.Int64("seed", 0, "override testbed seed (0 = use the testbed's recommended seed)")
@@ -32,15 +32,15 @@ func main() {
 	app.Run()
 }
 
-func runHeadless(key string, simSeconds, samplePeriod float64, seed int64) {
-	if key == "list" {
+func runHeadless(name string, simSeconds, samplePeriod float64, seed int64) {
+	if name == "list" {
 		fmt.Println("registered testbeds:")
 		for _, t := range sim.Testbeds {
-			fmt.Printf("  %-28s %s\n", t.Key, t.Name)
+			fmt.Printf("  %s\n", t.Name)
 		}
 		return
 	}
-	err := sim.RunHeadless(os.Stdout, key, sim.HeadlessOptions{
+	err := sim.RunHeadless(os.Stdout, name, sim.HeadlessOptions{
 		SimSeconds:   simSeconds,
 		SamplePeriod: samplePeriod,
 		Seed:         seed,

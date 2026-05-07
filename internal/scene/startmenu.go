@@ -13,8 +13,9 @@ import (
 
 // StartMenu is the main menu scene.
 type StartMenu struct {
-	app     *engine.App
-	buttons []*ui.Button
+	app          *engine.App
+	buttons      []*ui.Button
+	hasContinue  bool // true when buttons currently include the Continue entry
 }
 
 // NewStartMenu creates a StartMenu scene.
@@ -24,37 +25,53 @@ func NewStartMenu() *StartMenu {
 
 func (s *StartMenu) Init(app *engine.App) error {
 	s.app = app
+	s.rebuildButtons()
+	return nil
+}
+
+// rebuildButtons regenerates the button list to match the current saves
+// state. The "Continue" entry is included only when ListSaves returns at
+// least one entry, so a fresh install starts without it.
+func (s *StartMenu) rebuildButtons() {
+	_, hasSave := save.MostRecentSave()
+	s.hasContinue = hasSave
 
 	type btnDef struct {
 		label string
 		fn    func()
 	}
 	defs := []btnDef{
-		{"Start Game", func() {
-			scen := NewScenario(s.app.AssetDir + "/scenarios/tutorial.json")
-			s.app.PushScene(scen)
+		{"New Game", func() {
+			s.app.PushScene(NewScenarioPicker())
 		}},
-		{"Load Save", func() {
-			if !save.SaveSlotExists() {
-				fmt.Println("Load Save: no save file at", save.SaveSlotPath())
+	}
+	if hasSave {
+		defs = append(defs, btnDef{"Continue", func() {
+			path, ok := save.MostRecentSave()
+			if !ok {
 				return
 			}
-			s.app.PushScene(NewScenarioFromSave())
+			s.app.PushScene(NewScenarioFromFile(path))
+		}})
+	}
+	defs = append(defs,
+		btnDef{"Load Game", func() {
+			s.app.PushScene(NewSaveList())
 		}},
-		{"Scenario Editor", func() {
+		btnDef{"Scenario Editor", func() {
 			ed := NewEditor(s.app.AssetDir + "/scenarios/tutorial.json")
 			s.app.PushScene(ed)
 		}},
-		{"Testbeds", func() {
+		btnDef{"Testbeds", func() {
 			s.app.PushScene(NewTestbedMenu())
 		}},
-		{"Settings", func() {
+		btnDef{"Settings", func() {
 			fmt.Println("Settings: not yet implemented")
 		}},
-		{"Exit", func() {
+		btnDef{"Exit", func() {
 			s.app.Window.SetShouldClose(true)
 		}},
-	}
+	)
 
 	s.buttons = make([]*ui.Button, 0, len(defs))
 	for _, d := range defs {
@@ -63,7 +80,6 @@ func (s *StartMenu) Init(app *engine.App) error {
 		btn.HoverColor = mgl32.Vec4{0.25, 0.45, 0.75, 0.95}
 		s.buttons = append(s.buttons, btn)
 	}
-	return nil
 }
 
 // layout recomputes button positions relative to the current screen size.
@@ -87,6 +103,12 @@ func (s *StartMenu) layout() {
 }
 
 func (s *StartMenu) Update(dt float64) {
+	// Re-evaluate Continue visibility every frame — when the user pops back
+	// here from a scenario where they just saved, the button needs to appear
+	// without an explicit lifecycle hook. Rebuild only on state change.
+	if _, hasSave := save.MostRecentSave(); hasSave != s.hasContinue {
+		s.rebuildButtons()
+	}
 	s.layout()
 
 	inp := s.app.Input

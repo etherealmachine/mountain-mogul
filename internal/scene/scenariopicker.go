@@ -1,44 +1,60 @@
 package scene
 
 import (
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+
 	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/mathgl/mgl32"
 	"mountain-mogul/internal/engine"
 	"mountain-mogul/internal/render"
-	"mountain-mogul/internal/sim"
 	"mountain-mogul/internal/ui"
 )
 
-// TestbedMenu lists registered sim.Testbeds and launches one as a Scenario
-// using the testbed's recommended seed for deterministic playback.
-type TestbedMenu struct {
+// ScenarioPicker lists every starter scenario in assets/scenarios/ so the
+// user can pick which one a New Game begins from. Models on TestbedMenu's
+// centred-button-stack pattern; Back returns to the start menu.
+type ScenarioPicker struct {
 	app     *engine.App
 	buttons []*ui.Button
 }
 
-func NewTestbedMenu() *TestbedMenu { return &TestbedMenu{} }
+func NewScenarioPicker() *ScenarioPicker { return &ScenarioPicker{} }
 
-func (s *TestbedMenu) Init(app *engine.App) error {
+func (s *ScenarioPicker) Init(app *engine.App) error {
 	s.app = app
-	for _, tb := range sim.Testbeds {
-		tb := tb
-		btn := ui.NewButton(0, 0, 280, 40, tb.Name, func() {
-			s.app.PushScene(NewScenarioFromTestbed(&tb))
-		})
-		btn.Color = mgl32.Vec4{0.15, 0.25, 0.45, 0.95}
-		btn.HoverColor = mgl32.Vec4{0.25, 0.45, 0.75, 0.95}
-		s.buttons = append(s.buttons, btn)
+	dir := filepath.Join(app.AssetDir, "scenarios")
+	entries, err := os.ReadDir(dir)
+	if err == nil {
+		files := make([]string, 0, len(entries))
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+				continue
+			}
+			files = append(files, e.Name())
+		}
+		sort.Strings(files)
+		for _, name := range files {
+			path := filepath.Join(dir, name)
+			label := strings.TrimSuffix(name, ".json")
+			btn := ui.NewButton(0, 0, 280, 40, label, func() {
+				s.app.ReplaceScene(NewScenarioFromFile(path))
+			})
+			btn.Color = mgl32.Vec4{0.15, 0.25, 0.45, 0.95}
+			btn.HoverColor = mgl32.Vec4{0.25, 0.45, 0.75, 0.95}
+			s.buttons = append(s.buttons, btn)
+		}
 	}
-	back := ui.NewButton(0, 0, 280, 40, "Back", func() {
-		s.app.PopScene()
-	})
+	back := ui.NewButton(0, 0, 280, 40, "Back", func() { s.app.PopScene() })
 	back.Color = mgl32.Vec4{0.4, 0.25, 0.25, 0.95}
 	back.HoverColor = mgl32.Vec4{0.6, 0.4, 0.4, 0.95}
 	s.buttons = append(s.buttons, back)
 	return nil
 }
 
-func (s *TestbedMenu) layout() {
+func (s *ScenarioPicker) layout() {
 	sw := float32(s.app.Renderer.ScreenWidth())
 	sh := float32(s.app.Renderer.ScreenHeight())
 	const btnW, btnH, spacing = float32(280), float32(40), float32(12)
@@ -53,20 +69,20 @@ func (s *TestbedMenu) layout() {
 	}
 }
 
-func (s *TestbedMenu) Update(dt float64) {
+func (s *ScenarioPicker) Update(dt float64) {
 	s.layout()
 	inp := s.app.Input
-	mx := inp.MousePos[0]
-	my := inp.MousePos[1]
+	mx, my := inp.MousePos[0], inp.MousePos[1]
 	for _, btn := range s.buttons {
 		btn.SetHovered(btn.Contains(mx, my))
 		if inp.LeftClick && btn.Contains(mx, my) {
 			btn.Click()
+			return
 		}
 	}
 }
 
-func (s *TestbedMenu) Render(r *render.Renderer) {
+func (s *ScenarioPicker) Render(r *render.Renderer) {
 	gl.ClearColor(0.635, 0.682, 0.918, 1.0)
 	gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
@@ -85,4 +101,4 @@ func (s *TestbedMenu) Render(r *render.Renderer) {
 	r.DrawUI(drawables)
 }
 
-func (s *TestbedMenu) Destroy() {}
+func (s *ScenarioPicker) Destroy() {}
