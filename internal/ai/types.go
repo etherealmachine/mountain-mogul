@@ -154,6 +154,16 @@ type Route struct {
 	// in the steering layer so the skier reads the run from the top and
 	// commits to a clearer line before the tactical cone gets close.
 	StrategicBias float32
+
+	// Forward outlook used by the Confidence drift model. LookaheadSlope
+	// is the mean slope angle (rad) along the goal axis; LookaheadDensity
+	// is the mean tree density on the centre line; PeakDensity is the
+	// max density seen on the centre line (drives the caution signal —
+	// any patch on your path should make you cautious, even if most of
+	// the lookahead is clear).
+	LookaheadSlope   float32
+	LookaheadDensity float32
+	PeakDensity      float32
 }
 
 // =============================================================================
@@ -166,6 +176,14 @@ type MotorState struct {
 	Active    Technique
 	TurnPhase int8    // -1 / 0 / +1; current side of an oscillating turn
 	PhaseTime float32 // seconds elapsed since the last technique/phase change
+
+	// Per-phase random jitter in [-1, +1], drawn from sim Rng on each
+	// phase flip. Drives small randomization of arc width and dwell so
+	// successive S-turns aren't dimensionally identical — real skiers
+	// don't carve perfectly equal turns. Two slots so arc and dwell
+	// jitter independently.
+	ArcJitter   float32
+	DwellJitter float32
 }
 
 // =============================================================================
@@ -216,4 +234,9 @@ type Sense struct {
 
 	// Strategic side bias [-1, +1]; negative leans left.
 	StrategicBias float32
+
+	// Confidence multiplier on target speed (clamped [0.5, 1.5]). Drifts
+	// up when forward outlook is gentler/clearer, down when steeper or
+	// hazardous. Hard-reset to 0.5 on fall.
+	Confidence float32
 }

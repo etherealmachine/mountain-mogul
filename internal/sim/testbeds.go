@@ -224,12 +224,13 @@ func (b *builder) skierAt(gx, gz int, skill ai.SkillLevel) *builder {
 	heading := float32(math.Atan2(float64(lx-pos[0]), float64(lz-pos[2])))
 
 	a := &world.Agent{
-		ID:       b.w.NextID(),
-		Pos:      pos,
-		Heading:  heading,
-		TargetID: b.lastLodge.ID,
-		Traits:   ai.TraitsFor(skill),
-		Balance:  1.0,
+		ID:         b.w.NextID(),
+		Pos:        pos,
+		Heading:    heading,
+		TargetID:   b.lastLodge.ID,
+		Traits:     ai.TraitsFor(skill),
+		Balance:    1.0,
+		Confidence: spawnConfidence,
 	}
 	b.w.Agents = append(b.w.Agents, a)
 	return b

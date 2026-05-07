@@ -999,9 +999,13 @@ type followLabel struct {
 func (f *followLabel) Draw(r *render.Renderer) {
 	activity := world.Activity(f.world, f.agent)
 
+	row2 := fmt.Sprintf("%.1f m/s    bal %.2f", f.agent.Speed, f.agent.Balance)
+	if isSkiingActivity(activity) && f.agent.Confidence > 0 {
+		row2 += fmt.Sprintf("    conf %.2f", f.agent.Confidence)
+	}
 	rows := []string{
 		fmt.Sprintf("Skier #%d  |  %s  |  %s", f.idx+1, activity, f.agent.Motor.Active.String()),
-		fmt.Sprintf("%.1f m/s    bal %.2f", f.agent.Speed, f.agent.Balance),
+		row2,
 	}
 	// Perception/intent rows are stale unless the agent is actively skiing.
 	if isSkiingActivity(activity) {

@@ -73,6 +73,7 @@ func (s *Simulation) tickBuildings(dt float64) {
 			agent.TargetID = nearest.ID
 			agent.Traits = ai.TraitsFor(rollSkillLevel(s.Rng))
 			agent.Balance = 1.0
+			agent.Confidence = spawnConfidence
 			path := s.Pathfinder.FindPath(b.Pos, nearest.Base)
 			if path != nil {
 				agent.Path = path

@@ -111,6 +111,51 @@ const (
 	strategicBiasScale       = 0.3   // diff → bias scaling (smaller ⇒ more sensitive)
 	strategicBendMax         = 0.30  // rad ≈ 17°; max axis bend at full bias
 
+	// Confidence drift model. Confidence is a per-agent multiplier on
+	// target speed that varies with forward outlook + recent state; it
+	// captures the anticipation behaviour real skiers exhibit (straighten
+	// out before a flat to ride momentum in; back off after a near-miss).
+	confidenceDriftRate     = 0.25 // /s; half-convergence ~2.8 s — slow enough that the "warming-up wide-arc" phase lasts several seconds
+	confidenceMin           = 0.5  // 50% of baseline target speed
+	confidenceMax           = 1.5  // 150% of baseline target speed
+	confSlopeGain           = 2.0  // /rad; gentler ahead → confidence up
+	confHazardGain          = 0.4  // density 1.0 → -0.4 confidence target
+
+	// Tuck anticipation: dispatcher widens the gentle-threshold when the
+	// strategic scan sees flatter terrain ahead. This is what makes the
+	// skier "straighten out before the runout" — independent of overall
+	// confidence so a tentative skier on a uniform steep doesn't tuck.
+	tuckAnticipation = 1.0  // multiplier on (slopeNow - slopeAhead) added to gentle
+	confBalanceGain         = 1.0  // balance shortfall below 0.7 → confidence down
+	confBalanceShelf        = 0.7  // balance below this starts eroding confidence
+	confBalanceGrowth       = 0.3  // bonus to target when balance is at confBalanceCeiling+
+	confBalanceCeiling      = 0.9  // balance above this contributes to growth
+	confPostFallReset       = 0.5  // confidence after recovery from a fall
+
+	// Parallel-turn shaping. Confidence narrows the arc and lengthens the
+	// dwell so a confident skier carves longer, tighter turns and a
+	// tentative skier swings wider with more frequent direction changes.
+	confArcOffsetMax    = 25 * math.Pi / 180 // rad; ±arc shift across [0.5, 1.5] confidence
+	confDwellExtension  = 1.5                // s/conf; per +1.0 confidence above 1.0, dwell grows by 1.5 s
+
+	// Spawn confidence — slightly cautious. A real skier doesn't start a
+	// run at peak confidence; they warm up over the first few seconds.
+	// Keeps initial arcs visibly wider, then narrows as the run goes
+	// well. balance growth pulls confidence up to ~1.3 within a few
+	// seconds on clear terrain.
+	spawnConfidence = 0.7
+
+	// Per-turn jitter magnitudes — applied as random offsets each time
+	// the parallel turn phase flips. Real skiers don't make identical
+	// turns; each carve is a little different in width and rhythm. The
+	// dwell jitter is the bigger lever for visible "wavelength"
+	// variation: cycle period ≈ 2 × dwell, so a ±0.7 s jitter on a
+	// ~1 s baseline produces 0.6 s–3.4 s cycles → 8 m–44 m wavelengths
+	// at 13 m/s. Arc jitter perturbs the amplitude/heading peaks.
+	arcJitterMag     = 18 * math.Pi / 180 // ±18° random arc shift per turn
+	dwellJitterMag   = 1.0                // ±1.0 s random dwell shift per turn
+	jitterDwellFloor = 0.35               // s; absolute floor when jitter dips dwell low. Jitter is random per turn so a single 0.35 s carve doesn't ping; sustained sub-second turns are still prevented by the dwell baseline
+
 	// Hockey stop pulse
 	hockeyDurationS = 0.6
 	hockeyScrub     = 8.0 // m/s² extra deceleration during the pulse
@@ -161,6 +206,19 @@ type Perception struct {
 	// Long-range strategic side bias copied from Route. Drives a small
 	// constant axis bend in steer(); refreshed at Route cadence (2 s).
 	StrategicBias float32
+
+	// Lookahead outlook copied from Route — drives the Confidence
+	// drift model. LookaheadSlope is mean slope ahead (rad);
+	// LookaheadDensity is mean centre-line tree density [0, 1];
+	// PeakDensity is the worst single density on the centre line.
+	LookaheadSlope   float32
+	LookaheadDensity float32
+	PeakDensity      float32
+
+	// Confidence multiplier on target speed (Agent.Confidence). Synced in
+	// tickSkier each tick after the Confidence drift step so steer() sees
+	// the fresh value.
+	Confidence float32
 
 	InArrival bool // AxisDist < ArrivalRadius
 }
@@ -233,28 +291,38 @@ func (s *Simulation) tickSkier(a *world.Agent, target mgl32.Vec3, dt float64) bo
 		if axisDist > 1e-3 {
 			axisDir = mgl32.Vec2{delta[0] / axisDist, delta[2] / axisDist}
 		}
+		outlook := strategicScan(s.World.Terrain, a.Pos, axisDir, axisDist, s.Rng)
 		a.Route = ai.Route{
-			Goal:          routeGoalFor(s.World, a),
-			GoalPos:       target,
-			StaleAt:       s.SimTime + routePlanInterval,
-			StrategicBias: strategicScan(s.World.Terrain, a.Pos, axisDir, axisDist, s.Rng),
+			Goal:             routeGoalFor(s.World, a),
+			GoalPos:          target,
+			StaleAt:          s.SimTime + routePlanInterval,
+			StrategicBias:    outlook.Bias,
+			LookaheadSlope:   outlook.LookaheadSlope,
+			LookaheadDensity: outlook.LookaheadDensity,
+			PeakDensity:      outlook.PeakDensity,
 		}
 	}
 
 	// L2: perceive
 	perc := perceive(s.World.Terrain, a)
 
+	// Confidence drift — slow per-tick adjustment of the speed multiplier
+	// based on forward outlook and current state. Mutates a.Confidence;
+	// we then sync into perc so this tick's steer() sees the fresh value.
+	updateConfidence(a, perc, float32(dt))
+	perc.Confidence = a.Confidence
+
 	// L3: steer
 	intent, avoid := steer(a.Traits, a.Avoid, perc, float32(dt))
 	a.Avoid = avoid
 
 	// L4: motor / technique
-	cmd, motor := selectTechnique(a.Traits, a.Motor, intent, perc, float32(dt))
+	cmd, motor := selectTechnique(a.Traits, a.Motor, intent, perc, float32(dt), s.Rng)
 	a.Motor = motor
 
 	// Snapshot perception/intent for the follow HUD and perception-cone
 	// shader. Stale outside skiing — readers gate on Activity.
-	a.Sense = senseFrom(perc, intent, cmd)
+	a.Sense = senseFrom(a, perc, intent, cmd)
 
 	// Balance drain & fall trigger.
 	a.Balance += stressDelta(a.Traits, perc, intent, cmd) * float32(dt)
@@ -285,6 +353,7 @@ func (s *Simulation) tickFallen(a *world.Agent, dt float64) {
 	if a.FallTimer <= 0 {
 		a.Fallen = false
 		a.Balance = 0.7
+		a.Confidence = confPostFallReset // skis cautious for a while after getting up
 		a.Speed = 0
 		a.Motor = ai.MotorState{}
 	}
@@ -337,23 +406,26 @@ func perceive(t *world.Terrain, a *world.Agent) Perception {
 	}
 
 	return Perception{
-		Pos:           pos,
-		Heading:       a.Heading,
-		Speed:         a.Speed,
-		Normal:        n,
-		SlopeAngle:    slope,
-		SlopeAhead:    slopeAhead,
-		FallDir:       fall,
-		FallScale:     fallScale,
-		AxisDir:       axisDir,
-		AxisDist:      axisDist,
-		Trees:         trees,
-		TreeCenter:    treeCenter,
-		AtCellDensity: atCell,
-		InTrees:       inTrees,
-		ClearDir:      clearDir,
-		StrategicBias: a.Route.StrategicBias,
-		InArrival:     axisDist < ArrivalRadius,
+		Pos:              pos,
+		Heading:          a.Heading,
+		Speed:            a.Speed,
+		Normal:           n,
+		SlopeAngle:       slope,
+		SlopeAhead:       slopeAhead,
+		FallDir:          fall,
+		FallScale:        fallScale,
+		AxisDir:          axisDir,
+		AxisDist:         axisDist,
+		Trees:            trees,
+		TreeCenter:       treeCenter,
+		AtCellDensity:    atCell,
+		InTrees:          inTrees,
+		ClearDir:         clearDir,
+		StrategicBias:    a.Route.StrategicBias,
+		LookaheadSlope:   a.Route.LookaheadSlope,
+		LookaheadDensity: a.Route.LookaheadDensity,
+		PeakDensity:      a.Route.PeakDensity,
+		InArrival:        axisDist < ArrivalRadius,
 	}
 }
 
@@ -392,6 +464,17 @@ func findClearCell(t *world.Terrain, pos mgl32.Vec3) ([2]int, bool) {
 	return [2]int{}, false
 }
 
+// strategicOutlook is the multi-output result of one strategic scan:
+// side-bias for steering, plus forward slope / density signals used by
+// the Confidence drift model. All derived from the same sample points
+// so we make one pass.
+type strategicOutlook struct {
+	Bias             float32 // [-1, +1] side bias
+	LookaheadSlope   float32 // mean slope angle along forward axis (rad)
+	LookaheadDensity float32 // mean tree density on centre line [0, 1]
+	PeakDensity      float32 // max density seen along the centre line
+}
+
 // strategicScan reads the run far ahead and returns a side-bias scalar in
 // [-1, +1]: negative leans left, positive leans right. Sampled along the
 // straight axis to the goal at strategicNSamples forward points, with
@@ -399,26 +482,25 @@ func findClearCell(t *world.Terrain, pos mgl32.Vec3) ([2]int, bool) {
 // (centre) average decides whether the path is dense enough to engage at
 // all; the L-R differential decides which side to lean.
 //
-// On a perfectly-symmetric obstacle the L-R differential collapses to
-// ~0 (both lateral probes hit the disk equally). When that happens we
-// flip a coin from rng — random per-scan, drawing from the deterministic
-// per-sim Rng so testbed seeds stay reproducible. Once the skier has
-// drifted any meaningful distance toward a chosen side, the diff signal
-// dominates and locks the direction in (the patch is now off-axis on
-// the opposite side, so left-vs-right density is no longer symmetric).
-// A future PreferredSide personality trait can replace the coin flip
-// with a per-skier preference.
+// Also computes the mean slope angle and centre-line density along the
+// scan, exposed via strategicOutlook so the Confidence drift model can
+// react to "terrain getting flatter / steeper / has trees ahead."
 //
-// Cost: 3 × strategicNSamples = 36 TreeDensityAt calls per call + at
-// most one rng.Float32(). Called once per Route refresh (every 2 s)
-// per agent.
-func strategicScan(t *world.Terrain, pos mgl32.Vec3, axisDir mgl32.Vec2, axisDist float32, rng *rand.Rand) float32 {
+// On a perfectly-symmetric obstacle the L-R differential collapses to
+// ~0. When that happens we flip a coin from rng — random per-scan,
+// drawing from the deterministic per-sim Rng so testbed seeds stay
+// reproducible. Once the skier has drifted any meaningful distance
+// toward a chosen side, the diff signal dominates.
+//
+// Cost: 3 × strategicNSamples TreeDensityAt + strategicNSamples
+// NormalAt calls per refresh, + at most one rng.Float32().
+func strategicScan(t *world.Terrain, pos mgl32.Vec3, axisDir mgl32.Vec2, axisDist float32, rng *rand.Rand) strategicOutlook {
 	scanRange := float32(strategicRange)
 	if axisDist < scanRange {
 		scanRange = axisDist
 	}
 	if scanRange < strategicMinDist {
-		return 0
+		return strategicOutlook{}
 	}
 
 	// Right-perpendicular to axis: when axis is (sin h, cos h), perpRight
@@ -426,7 +508,7 @@ func strategicScan(t *world.Terrain, pos mgl32.Vec3, axisDir mgl32.Vec2, axisDis
 	rx := axisDir[1]
 	rz := -axisDir[0]
 
-	var centre, left, right, totalW float32
+	var centre, left, right, slope, totalW, peak float32
 	for i := 1; i <= strategicNSamples; i++ {
 		f := float32(i) / float32(strategicNSamples)
 		d := scanRange * f
@@ -434,34 +516,56 @@ func strategicScan(t *world.Terrain, pos mgl32.Vec3, axisDir mgl32.Vec2, axisDis
 		cz := pos[2] + axisDir[1]*d
 		w := 1 - 0.5*f // closer matters more; far end at 0.5×
 		totalW += w
-		centre += t.TreeDensityAt(cx, cz) * w
+		centreSample := t.TreeDensityAt(cx, cz)
+		centre += centreSample * w
+		if centreSample > peak {
+			peak = centreSample
+		}
 		right += t.TreeDensityAt(cx+rx*strategicLateralOffset, cz+rz*strategicLateralOffset) * w
 		left += t.TreeDensityAt(cx-rx*strategicLateralOffset, cz-rz*strategicLateralOffset) * w
+		// Slope from the surface normal at this forward point. cos of
+		// the slope angle is the y component of the normal.
+		n := t.NormalAt(cx/CellSize, cz/CellSize)
+		ny := n[1]
+		if ny > 1 {
+			ny = 1
+		} else if ny < -1 {
+			ny = -1
+		}
+		slope += float32(math.Acos(float64(ny))) * w
 	}
 	if totalW <= 0 {
-		return 0
+		return strategicOutlook{}
 	}
 	centre /= totalW
 	left /= totalW
 	right /= totalW
+	slope /= totalW
 
-	if centre < strategicCentreThreshold {
-		return 0
+	out := strategicOutlook{
+		LookaheadSlope:   slope,
+		LookaheadDensity: centre,
+		PeakDensity:      peak,
 	}
 
-	diff := left - right // positive ⇒ right is denser ⇒ lean left? No: positive ⇒ left side has *more* trees ⇒ lean *right*.
-	// Wait — we sum density (more trees = bigger number). diff = left -
-	// right > 0 means LEFT is denser → lean RIGHT (away from trees) →
-	// bias > 0. Correct.
+	if centre < strategicCentreThreshold {
+		// No obstacle-driven bias, but slope/density outlook is still
+		// returned for the Confidence model.
+		return out
+	}
+
+	diff := left - right // positive ⇒ left side has more trees ⇒ lean right
 	abs := diff
 	if abs < 0 {
 		abs = -abs
 	}
 	if abs < strategicSymmetryFloor {
 		if rng.Float32() < 0.5 {
-			return -strategicSymmetryDefault
+			out.Bias = -strategicSymmetryDefault
+		} else {
+			out.Bias = strategicSymmetryDefault
 		}
-		return strategicSymmetryDefault
+		return out
 	}
 	bias := diff / strategicBiasScale
 	if bias > 1 {
@@ -470,7 +574,8 @@ func strategicScan(t *world.Terrain, pos mgl32.Vec3, axisDir mgl32.Vec2, axisDis
 	if bias < -1 {
 		bias = -1
 	}
-	return bias
+	out.Bias = bias
+	return out
 }
 
 // sampleClearDir returns a unit XZ vector pulling toward the least-dense
@@ -607,9 +712,16 @@ func steer(traits ai.SkierTraits, avoid ai.AvoidState, perc Perception, dt float
 		}
 	}
 
-	// Desired speed: comfort × aggression, scaled down on steeper terrain or
-	// when trees are dense ahead.
-	speed := traits.ComfortSpeed * (0.7 + 0.6*traits.Aggression)
+	// Desired speed: comfort × aggression × dynamic Confidence, scaled
+	// down on steeper terrain or when trees are dense ahead. Confidence
+	// is the anticipation multiplier — raises the target when lookahead
+	// is clear and gentler, drops it when steep/hazardous terrain is
+	// coming or balance is shaky.
+	conf := perc.Confidence
+	if conf <= 0 {
+		conf = 1.0 // legacy/saved agents that didn't init Confidence
+	}
+	speed := traits.ComfortSpeed * (0.7 + 0.6*traits.Aggression) * conf
 	if perc.SlopeAhead > traits.ComfortSlope {
 		excess := perc.SlopeAhead/traits.ComfortSlope - 1
 		speed *= 1 - clamp32(excess*0.6, 0, 0.6)
@@ -747,7 +859,7 @@ func pickAvoidSide(hs []Hazard, axisX, axisZ float32) int8 {
 // selectTechnique picks the best available technique for the current intent
 // and skill, then computes a MotorCmd from that technique's profile. Returns
 // the new MotorState so the caller can persist phase across ticks.
-func selectTechnique(traits ai.SkierTraits, prev ai.MotorState, intent Intent, perc Perception, dt float32) (MotorCmd, ai.MotorState) {
+func selectTechnique(traits ai.SkierTraits, prev ai.MotorState, intent Intent, perc Perception, dt float32, rng *rand.Rand) (MotorCmd, ai.MotorState) {
 	tech := pickTechnique(traits, prev, intent, perc)
 
 	next := prev
@@ -777,7 +889,7 @@ func selectTechnique(traits ai.SkierTraits, prev ai.MotorState, intent Intent, p
 		return MotorCmd{Heading: intent.AxisHeading, Scrub: 3.0, BalanceCost: 0.06}, next
 
 	case ai.TechParallel:
-		heading, motor := parallelHeading(traits, next, intent, perc)
+		heading, motor := parallelHeading(traits, next, intent, perc, rng)
 		return MotorCmd{Heading: heading, Scrub: 0, BalanceCost: 0.02, MaxTurnRate: float32(parallelTurnRate)}, motor
 
 	case ai.TechHockey:
@@ -857,7 +969,29 @@ func pickTechnique(traits ai.SkierTraits, prev ai.MotorState, intent Intent, per
 		}
 	}
 
-	// Default cruise.
+	// Default cruise. Parallel turns only make sense when the slope is
+	// steep enough to push the skier toward overspeed without active
+	// scrub. Below half the skier's comfort slope, straight-running is
+	// what a real skier does ("tuck through the runout"). The overspeed
+	// branch above still grabs Parallel back if straight-running actually
+	// builds too much speed, so it's the *default* that changes.
+	//
+	// Lookahead anticipation widens the gentle threshold when the
+	// strategic scan sees gentler terrain ahead. This is what makes the
+	// skier "straighten out before the runout" — driven by the
+	// terrain feature, not by overall confidence, so a tentative skier
+	// on a uniform steep doesn't tuck and a confident skier in a tree
+	// patch doesn't either.
+	gentle := traits.ComfortSlope * 0.5
+	if perc.LookaheadSlope > 0 {
+		anticipation := perc.SlopeAngle - perc.LookaheadSlope
+		if anticipation > 0 {
+			gentle += anticipation * float32(tuckAnticipation)
+		}
+	}
+	if perc.SlopeAngle <= gentle {
+		return ai.TechStraight
+	}
 	if t.Has(ai.TechParallel) {
 		return ai.TechParallel
 	}
@@ -875,14 +1009,17 @@ func pickTechnique(traits ai.SkierTraits, prev ai.MotorState, intent Intent, per
 // A minimum dwell time per phase (parallelMinDwell) prevents sub-second
 // pinging across the fall line — real carves carry the skier past axis and
 // the next turn initiates only after the previous one has developed.
-func parallelHeading(traits ai.SkierTraits, state ai.MotorState, intent Intent, perc Perception) (float32, ai.MotorState) {
+func parallelHeading(traits ai.SkierTraits, state ai.MotorState, intent Intent, perc Perception, rng *rand.Rand) (float32, ai.MotorState) {
 	if state.TurnPhase == 0 {
 		state.TurnPhase = 1
+		// Initial jitter for the first turn.
+		state.ArcJitter = rng.Float32()*2 - 1
+		state.DwellJitter = rng.Float32()*2 - 1
 	}
 
-	// Slope-driven arc width. ratio=1 means the agent is at their comfort
-	// slope; below comfort still gets a healthy arc, well above comfort
-	// pushes toward the max.
+	// Slope-driven arc width baseline. ratio=1 means the agent is at
+	// their comfort slope; below comfort still gets a healthy arc, well
+	// above comfort pushes toward the max.
 	comfortSlope := traits.ComfortSlope
 	if comfortSlope < 1e-3 {
 		comfortSlope = float32(20 * math.Pi / 180)
@@ -891,14 +1028,58 @@ func parallelHeading(traits ai.SkierTraits, state ai.MotorState, intent Intent, 
 	t := clamp32((slopeRatio-0.3)/1.0, 0, 1) // 0 at 30% of comfort, 1 at 130%
 	arc := float32(parallelMinArc) + (float32(parallelMaxArc)-float32(parallelMinArc))*t
 
+	// Confidence offset: high conf narrows the arc (tight short-radius
+	// turns; less scrub, more committed line); low conf widens it
+	// (sweeping turns; lots of scrub, slow descent). Maps confidence
+	// across [0.5, 1.5] to arc shifts of [+confArcOffsetMax, -confArcOffsetMax].
+	conf := perc.Confidence
+	if conf <= 0 {
+		conf = 1.0
+	}
+	confT := clamp32((conf-0.5)/1.0, 0, 1) // 0 at conf=0.5, 1 at conf=1.5
+	arc -= float32(confArcOffsetMax) * (confT*2 - 1)
+
+	// Per-turn jitter: each carve gets a small random width offset so
+	// successive turns aren't dimensionally identical.
+	arc += float32(arcJitterMag) * state.ArcJitter
+
+	if arc < float32(parallelMinArc) {
+		arc = float32(parallelMinArc)
+	}
+	if arc > float32(parallelMaxArc) {
+		arc = float32(parallelMaxArc)
+	}
+
+	// Confidence-extended dwell: high-conf skiers carve longer, more
+	// committed turns; baseline at conf=1.0 is parallelMinDwell. We only
+	// extend (never shorten below the existing safety floor) — the floor
+	// exists to prevent sub-second pinging across the fall line.
+	dwell := float32(parallelMinDwell)
+	if conf > 1.0 {
+		dwell += float32(confDwellExtension) * (conf - 1.0)
+	}
+
+	// Per-turn jitter on dwell as well — some turns last a beat longer,
+	// others snap back early. We allow jitter to dip below
+	// parallelMinDwell since the variation is random across turns
+	// (not sustained), but cap the absolute minimum at jitterDwellFloor
+	// so the agent can't ping mid-axis tick after tick.
+	dwell += float32(dwellJitterMag) * state.DwellJitter
+	if dwell < jitterDwellFloor {
+		dwell = jitterDwellFloor
+	}
+
 	desired := wrapAngle(intent.AxisHeading + float32(state.TurnPhase)*arc)
 
 	// Phase flip: heading reached the arc edge AND the carve has had time to
 	// develop. The dwell guard is what stops the squiggle.
 	deviation := wrapAngle(perc.Heading-intent.AxisHeading) * float32(state.TurnPhase)
-	if deviation > arc*0.85 && state.PhaseTime >= float32(parallelMinDwell) {
+	if deviation > arc*0.85 && state.PhaseTime >= dwell {
 		state.TurnPhase = -state.TurnPhase
 		state.PhaseTime = 0
+		// Re-roll jitter for the next turn.
+		state.ArcJitter = rng.Float32()*2 - 1
+		state.DwellJitter = rng.Float32()*2 - 1
 	}
 
 	return desired, state
@@ -1162,10 +1343,65 @@ func computeProbeDist(speed float32) float32 {
 	return d
 }
 
+// updateConfidence drifts the agent's Confidence multiplier toward a target
+// computed from forward outlook + balance state. Models the anticipation
+// behaviour: a real skier raises their target speed when they read clear,
+// gentler terrain ahead and lowers it when balance is shaky or hazards
+// loom. The drift is slow (~1.4 s to half-converge) so short fluctuations
+// don't whipsaw the speed target.
+func updateConfidence(a *world.Agent, perc Perception, dt float32) {
+	target := float32(1.0)
+
+	// Outlook 1: slope ahead vs current. Gentler ahead → confidence up.
+	// Only counts when the strategic scan actually populated lookahead
+	// data (LookaheadSlope > 0); otherwise the delta is meaningless.
+	if perc.LookaheadSlope > 0 {
+		slopeDelta := perc.SlopeAngle - perc.LookaheadSlope
+		target += confSlopeGain * slopeDelta
+	}
+
+	// Outlook 2: hazards ahead → confidence down. We use peak density
+	// (worst single sample on the centre line), not mean — a skier with
+	// any tree patch on their direct path should be cautious even if
+	// most of the lookahead is clear. Mean density would smear the
+	// signal across the whole scan and let "feel good" growth dominate.
+	target -= confHazardGain * perc.PeakDensity
+
+	// Current state: low balance erodes confidence.
+	if a.Balance < confBalanceShelf {
+		target -= confBalanceGain * (confBalanceShelf - a.Balance)
+	}
+
+	// Warming up: high balance feeds confidence growth, gated by clear
+	// outlook. "I feel good" requires both a healthy run-so-far AND a
+	// benign-looking run ahead — peak density is the right gate, same
+	// reasoning as the hazard penalty.
+	if a.Balance > confBalanceCeiling {
+		t := (a.Balance - confBalanceCeiling) / (1.0 - confBalanceCeiling)
+		if t > 1 {
+			t = 1
+		}
+		clearFactor := 1.0 - perc.PeakDensity
+		if clearFactor < 0 {
+			clearFactor = 0
+		}
+		target += confBalanceGrowth * t * clearFactor
+	}
+
+	// Slow drift toward target.
+	a.Confidence += (target - a.Confidence) * dt * confidenceDriftRate
+	if a.Confidence < confidenceMin {
+		a.Confidence = confidenceMin
+	}
+	if a.Confidence > confidenceMax {
+		a.Confidence = confidenceMax
+	}
+}
+
 // senseFrom builds a display snapshot of the current tick's perception/intent/
 // motor decisions. The AI never reads this back; it exists for the renderer
 // and follow HUD to pick up between ticks.
-func senseFrom(perc Perception, intent Intent, cmd MotorCmd) ai.Sense {
+func senseFrom(a *world.Agent, perc Perception, intent Intent, cmd MotorCmd) ai.Sense {
 	probeC, probeR, probeL := perceptionProbeDensities(perc)
 	hx := float32(math.Sin(float64(perc.Heading)))
 	hz := float32(math.Cos(float64(perc.Heading)))
@@ -1202,6 +1438,7 @@ func senseFrom(perc Perception, intent Intent, cmd MotorCmd) ai.Sense {
 		AtCellDensity:  perc.AtCellDensity,
 		ClearDir:       perc.ClearDir,
 		StrategicBias:  perc.StrategicBias,
+		Confidence:     a.Confidence,
 	}
 }
 

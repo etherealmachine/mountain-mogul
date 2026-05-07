@@ -33,11 +33,12 @@ type Agent struct {
 
 	// AI state — populated by sim package. The persistent types live in
 	// internal/ai to avoid a sim ↔ world import cycle.
-	Traits  ai.SkierTraits
-	Route   ai.Route
-	Motor   ai.MotorState
-	Avoid   ai.AvoidState
-	Balance float32 // 1.0 fresh; ≤0 triggers a fall
+	Traits     ai.SkierTraits
+	Route      ai.Route
+	Motor      ai.MotorState
+	Avoid      ai.AvoidState
+	Balance    float32 // 1.0 fresh; ≤0 triggers a fall
+	Confidence float32 // baseline 1.0; multiplier on target speed; clamped [0.5, 1.5]
 
 	// Display-only snapshot of the last skiing tick's perception/intent.
 	// Populated by sim.tickSkier; read by the follow HUD and the renderer's
