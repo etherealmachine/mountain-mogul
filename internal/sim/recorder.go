@@ -41,12 +41,10 @@ type RecorderFrame struct {
 	SlopeCos        float32
 	InArrivalRadius bool
 
-	// Strategy layer (route-cadence, refreshes every routePlanInterval).
-	StrategicBias    float32    // [-1, +1]: long-range L/R lean; -1 = lean left
-	LookaheadDensity float32    // mean centre-line tree density along the scan
-	PeakDensity      float32    // worst single density on the centre line
-	AvoidSide        int8       // committed avoid side (0 = no commit yet)
-	TargetGap        mgl32.Vec3 // chosen gap world-space center; zero = none
+	// Tactical avoid commit + path-planner waypoint queue.
+	AvoidSide     int8       // committed avoid side (0 = no commit yet)
+	NextWaypoint  mgl32.Vec3 // current axis target — front waypoint, or final goal if queue is empty
+	WaypointsLeft int8       // number of waypoints remaining in the queue (incl. front)
 }
 
 // Recorder consumes per-tick skiing frames. Implementations should be cheap —

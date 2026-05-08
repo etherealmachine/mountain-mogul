@@ -44,11 +44,6 @@ type Agent struct {
 	// Populated by sim.tickSkier; read by the follow HUD and the renderer's
 	// perception-cone shader. Stale outside of skiing — gate on Activity.
 	Sense ai.Sense
-
-	// Sim-seconds the skier has been "in trees and barely moving." When this
-	// crosses stuckTriggerS the skiing pipeline gives up and sets a walk
-	// path to the nearest clear cell.
-	StuckTimer float32
 }
 
 // Activity returns a short human-readable label describing what the agent is

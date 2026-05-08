@@ -92,10 +92,9 @@ type SkierTraits struct {
 	SightRange   float32 // metres; perception cone length
 
 	// MinGapWidth is the narrowest passage (in metres) the skier will
-	// consider when the strategy layer enumerates gaps through an obstacle.
+	// consider when the planner enumerates gaps through an obstacle.
 	// Beginners want wide highways; advanced skiers will commit to threading
-	// tighter lines. Used by strategicChoosePath to filter candidate gaps
-	// before the random pick.
+	// tighter lines. Filters candidate gaps before the random pick.
 	MinGapWidth float32
 }
 
@@ -149,38 +148,17 @@ const (
 	GoalLodge
 )
 
-// Route is the strategic plan: where the skier is heading. Updated rarely.
-// Path-finding around signs / hazards is a future extension that will populate
-// additional fields here without changing the lower layers' contract.
+// Route is the strategic plan: where the skier is heading. Updated at
+// routePlanInterval cadence. Waypoints are intermediate detour points the
+// skier should reach on the way to GoalPos — produced by the planner when
+// obstacles block the direct line. The skier always heads at the front
+// waypoint, falling back to GoalPos when the queue is empty.
 type Route struct {
-	Goal    GoalKind
-	GoalID  uint64     // entity id of the destination (lift or lodge)
-	GoalPos mgl32.Vec3 // world-space target position
-	StaleAt float64    // sim-time when this route should be replanned
-
-	// Long-range strategic side bias in [-1, +1]. Negative leans left,
-	// positive leans right. Refreshed at the same cadence as the rest of
-	// Route (every routePlanInterval). Drives a small constant axis bend
-	// in the steering layer so the skier reads the run from the top and
-	// commits to a clearer line before the tactical cone gets close.
-	StrategicBias float32
-
-	// Forward outlook used by the Confidence drift model. LookaheadSlope
-	// is the mean slope angle (rad) along the goal axis; LookaheadDensity
-	// is the mean tree density on the centre line; PeakDensity is the
-	// max density seen on the centre line (drives the caution signal —
-	// any patch on your path should make you cautious, even if most of
-	// the lookahead is clear).
-	LookaheadSlope   float32
-	LookaheadDensity float32
-	PeakDensity      float32
-
-	// TargetGap is the world-space center of a gap the strategy layer
-	// chose to thread through. Zero vector = no gap target (clear path or
-	// no qualifying gap), in which case the skier seeks GoalPos directly.
-	// When set, the steering layer uses TargetGap as the axis target until
-	// the skier passes its z (downhill) — then steering reverts to GoalPos.
-	TargetGap mgl32.Vec3
+	Goal      GoalKind
+	GoalID    uint64       // entity id of the destination (lift or lodge)
+	GoalPos   mgl32.Vec3   // world-space target position
+	StaleAt   float64      // sim-time when this route should be replanned
+	Waypoints []mgl32.Vec3 // ordered intermediate detour points; final goal is GoalPos, not in this list. Each stores world-space (x, y, z); y is used by the descent-past invalidation rule.
 }
 
 // =============================================================================
@@ -245,12 +223,10 @@ type Sense struct {
 	TargetSpeed    float32 // intent.Speed (m/s)
 
 	// In-trees state (set when underfoot density > inTreesThreshold).
+	// Display-only — the steering pipeline treats trees as a soft cost
+	// and doesn't branch on this.
 	InTrees       bool
-	AtCellDensity float32    // density at agent's cell
-	ClearDir      mgl32.Vec2 // unit XZ vector toward least-dense neighbourhood; zero when not InTrees
-
-	// Strategic side bias [-1, +1]; negative leans left.
-	StrategicBias float32
+	AtCellDensity float32 // density at agent's cell
 
 	// Confidence multiplier on target speed (clamped [0.5, 1.5]). Drifts
 	// up when forward outlook is gentler/clearer, down when steeper or

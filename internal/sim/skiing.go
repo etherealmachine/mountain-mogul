@@ -77,50 +77,33 @@ const (
 	treeStressTime  = 0.6                  // s; "I'd hit this very soon" → drain balance
 	probeAngle      = 35 * math.Pi / 180   // rad; ±offset for side probes
 
-	// In-trees aversion. Above this underfoot density the skier gives up
-	// goal-seeking and steers for the nearest gap. A future GladeTolerance
-	// trait will shift this per-skier; for now everyone is averse.
+	// In-trees signal. Above this underfoot density the HUD shows an
+	// "IN TREES" badge for the followed skier. Trees are a soft cost —
+	// they drain balance and scrub speed via physics — so the AI doesn't
+	// branch on this; it just keeps skiing toward the goal. A future
+	// GladeTolerance trait may modulate the badge / cost per skier.
 	inTreesThreshold = 0.3
-	clearSampleDist  = 15.0 // m; radius of the 8-point gradient sample
-	inTreesSpeedCap  = 2.4  // m/s; hard target-speed cap while in trees
 
-	// Walking escape — when in-trees aversion fails to make progress, give
-	// up on skiing and walk out to the nearest clear cell. We use a pure
-	// "time-in-trees" gate (not a speed gate) because the skiing pipeline
-	// has a hard skiWalkSpeed = 2.0 m/s floor — an agent can be making
-	// negligible-but-nonzero progress and never look "stuck" by speed
-	// alone. The trigger is set well above a typical 0.8-density patch
-	// transit (~10 s) so Phase 2 fires only when Phase 1 has really
-	// failed (very dense patch, pinned in a corridor, etc.).
-	stuckTriggerS     = 12.0 // sim-seconds of in-trees before escape kicks in
-	clearCellDensity  = 0.3  // destination must have density below this
-	clearSearchRadius = 20   // cells; max spiral-search radius (~200 m)
+	// Path planner. When an obstacle blocks the direct line to the goal,
+	// the planner reads a wide lateral profile across the forward axis,
+	// enumerates distinct clear gaps wider than the skier's MinGapWidth
+	// trait, and emits one waypoint at the chosen gap's centre. The skier
+	// commits to that waypoint until it's consumed (reach / bypass /
+	// below) — see waypointConsumed.
+	planLookDepth        = 200.0 // m forward; deep enough to pierce a typical patch
+	planLateralRange     = 150.0 // m; ±range scanned around the axis
+	planLateralStep      = 5.0   // m; sample spacing across the lateral range
+	planDensityThreshold = 0.15  // cell density above which a sample is "blocked"
+	planMinDist          = 30.0  // m; below this, no plan (skier is close to goal — head straight)
 
-	// Strategic vision. Long-range read of the run ahead, run once per
-	// Route refresh, that biases the skier's line toward the cleaner side
-	// of distant tree masses. Far longer than the tactical perception cone
-	// (12-40 m) — a real skier can see hundreds of metres of slope below
-	// them and picks a line from the top.
-	strategicRange           = 300.0 // m; "almost-infinite vision" horizon
-	strategicLateralOffset   = 50.0  // m; near typical patch radius — straddles edges
-	strategicNSamples        = 12    // forward samples (every ~25 m at full range)
-	strategicMinDist         = 30.0  // m; below this, no strategic plan (close to goal)
-	strategicCentreThreshold = 0.15  // average centre density to engage at all
-	strategicSymmetryFloor   = 0.05  // |L−R| below this → symmetric → use default
-	strategicSymmetryDefault = 1.0   // default right bias on a symmetric obstacle (full commit)
-	strategicBiasScale       = 0.3   // diff → bias scaling (smaller ⇒ more sensitive)
-	strategicBendMax         = 0.30  // rad ≈ 17°; max axis bend at full bias
-
-	// Path-choice scan: when there's a real obstacle ahead, the skier reads
-	// a wide lateral profile to enumerate distinct gaps and commit to one.
-	// This replaces the gentle-bias model for path-blocking obstacles —
-	// once a gap is chosen, the skier aims for its CENTER, not its edge.
-	strategicGapLookDepth        = 200.0 // m forward; deep enough to pierce a typical patch
-	strategicGapLateralRange     = 150.0 // m; ±range scanned around the axis
-	strategicGapLateralStep      = 5.0   // m; sample spacing across the lateral range
-	strategicGapDensityThreshold = 0.15  // cell density above which a sample is "blocked"
-	gapCommitLateralM            = 10.0  // m; once within this lateral distance of the chosen gap.x, switch axis from "head AT gap entry" to "head DOWN the gap line" — i.e. straighten out and descend through the gap rather than keep traversing across it. Smaller threshold = skier traverses harder to reach gap.x before straightening, so they pass closer to gap CENTER. Too small means heading rotation lag overshoots the gap.
-	gapClearBufferM              = 80.0  // m; how far past the gap.z the commit stays active. Patches extend in z (a circular grove is ~120 m tall on this scan); if we drop the gap override the moment skier_z passes gap.z, local probes catch the patch's southern half and re-engage avoid.Side, dragging the skier sideways into the corridor walls. Hold until clearly past.
+	// Waypoint consumption thresholds. A waypoint is dropped once any of:
+	//   reach: skier within waypointReachM of the waypoint
+	//   bypass: skier closer to final goal than waypoint by waypointBypassM
+	//   below: skier descended waypointDescentBufferM past wp.y
+	// Three OR'd rules grounded in geometry/physics; no timer.
+	waypointReachM         = 8.0
+	waypointBypassM        = 5.0
+	waypointDescentBufferM = 1.0
 
 	// Confidence drift model. Confidence is a per-agent multiplier on
 	// target speed that varies with forward outlook + recent state; it
@@ -133,9 +116,10 @@ const (
 	confHazardGain          = 0.4  // density 1.0 → -0.4 confidence target
 
 	// Tuck anticipation: dispatcher widens the gentle-threshold when the
-	// strategic scan sees flatter terrain ahead. This is what makes the
-	// skier "straighten out before the runout" — independent of overall
-	// confidence so a tentative skier on a uniform steep doesn't tuck.
+	// 10m-forward probe (perc.SlopeAhead) sees flatter terrain. This is
+	// what makes the skier "straighten out before the runout" — independent
+	// of overall confidence so a tentative skier on a uniform steep doesn't
+	// tuck.
 	tuckAnticipation = 1.0  // multiplier on (slopeNow - slopeAhead) added to gentle
 	confBalanceGain         = 1.0  // balance shortfall below 0.7 → confidence down
 	confBalanceShelf        = 0.7  // balance below this starts eroding confidence
@@ -201,37 +185,20 @@ type Perception struct {
 	FallDir    mgl32.Vec2
 	FallScale  float32 // smoothstepped slope strength in [0, 1]
 
-	AxisDir  mgl32.Vec2 // unit vector toward route goal in XZ
-	AxisDist float32    // metres to the goal in XZ
+	// AxisDir / AxisDist point at whichever target the skier is currently
+	// heading at: the front waypoint if the route has any, otherwise
+	// GoalPos. Computed in perceive() via nextAxisTarget(a).
+	AxisDir  mgl32.Vec2
+	AxisDist float32
 
 	Trees      []Hazard
 	TreeCenter float32 // density at the centre forward probe
 
-	// "I'm currently inside trees" — read from the agent's actual cell, not
-	// the cone ahead. Drives a different steering branch focused on getting
-	// out, not on dodging incoming hazards.
-	AtCellDensity float32    // TreeDensityAt(Pos.X, Pos.Z) — density underfoot
-	InTrees       bool       // AtCellDensity > inTreesThreshold
-	ClearDir      mgl32.Vec2 // unit XZ vector toward least-dense neighbourhood; zero when InTrees=false
-
-	// Long-range strategic side bias copied from Route. Drives a small
-	// constant axis bend in steer(); refreshed at Route cadence (2 s).
-	StrategicBias float32
-
-	// HasGapTarget is true when the strategy layer has committed the skier
-	// to thread a specific gap. While true, steer() should trust AxisDir
-	// (which points at the gap) rather than blending it with the fall line:
-	// committing to a gap means traversing across the slope to reach it,
-	// not just biasing the line a little.
-	HasGapTarget bool
-
-	// Lookahead outlook copied from Route — drives the Confidence
-	// drift model. LookaheadSlope is mean slope ahead (rad);
-	// LookaheadDensity is mean centre-line tree density [0, 1];
-	// PeakDensity is the worst single density on the centre line.
-	LookaheadSlope   float32
-	LookaheadDensity float32
-	PeakDensity      float32
+	// "I'm currently inside trees" — read from the agent's actual cell,
+	// not the cone ahead. Display-only: the steering layer treats trees
+	// as a soft cost and doesn't branch on this.
+	AtCellDensity float32 // TreeDensityAt(Pos.X, Pos.Z) — density underfoot
+	InTrees       bool    // AtCellDensity > inTreesThreshold
 
 	// Confidence multiplier on target speed (Agent.Confidence). Synced in
 	// tickSkier each tick after the Confidence drift step so steer() sees
@@ -285,65 +252,29 @@ func (s *Simulation) tickSkier(a *world.Agent, target mgl32.Vec3, dt float64) bo
 		return true
 	}
 
-	// Stuck detection. Accumulates while the skier is making no real
-	// progress: either classified in-trees (cell density underfoot above
-	// the threshold) OR pinned at the skiWalkSpeed floor (which means
-	// speed got driven down to the minimum and can't recover). The
-	// floor-speed branch catches the "tree-boundary tactical loop" case:
-	// the cell underfoot is clear so InTrees is false, but the forward
-	// probes keep hitting nearby trees, the avoid layer bends the axis
-	// every tick, and the skier oscillates at 2 m/s without making net
-	// progress toward the goal. We read a.Sense.InTrees and a.Speed from
-	// the *previous* tick because Perception isn't computed yet — fine
-	// since the timer only needs to be approximately correct.
-	if a.Sense.InTrees || a.Speed <= skiWalkSpeed+0.1 {
-		a.StuckTimer += float32(dt)
-	} else {
-		a.StuckTimer = 0
-	}
-	if a.StuckTimer >= stuckTriggerS {
-		if cell, ok := findClearCell(s.World.Terrain, a.Pos); ok {
-			a.Path = [][2]int{cell}
-			a.PathIdx = 0
-			a.StuckTimer = 0
-			return false
-		}
-		// No clear cell anywhere — keep skiing; nothing better to do.
-		a.StuckTimer = 0
-	}
-
-	// L1: refresh route if stale or pointing somewhere else.
-	if a.Route.Goal == ai.GoalNone || a.Route.GoalPos != target || a.Route.StaleAt < s.SimTime {
-		// Compute axis to goal for the strategic scan. (steer() will
-		// re-derive this from Perception.AxisDir each tick; we need it
-		// here, before perceive runs, to feed strategicScan.)
-		axisDist := mgl32.Vec2{delta[0], delta[2]}.Len()
-		var axisDir mgl32.Vec2
-		if axisDist > 1e-3 {
-			axisDir = mgl32.Vec2{delta[0] / axisDist, delta[2] / axisDist}
-		}
-		outlook := strategicScan(s.World.Terrain, a.Pos, axisDir, axisDist, s.Rng)
-		// Re-pick a gap only when the existing one is consumed (skier is
-		// well past it — gap.z + gapClearBufferM) or absent. Holding the
-		// choice across refreshes is what makes the skier "commit" to a
-		// path; the buffer past gap.z keeps the commit alive while the
-		// skier is still in the patch's z range so local tree-avoid
-		// probes can't yank them sideways into the corridor walls.
-		gap := a.Route.TargetGap
-		gapSet := gap[0] != 0 || gap[2] != 0
-		if !gapSet || gap[2]+gapClearBufferM <= a.Pos[2] {
-			gap = strategicChoosePath(s.World.Terrain, a.Pos, axisDir, axisDist, a.Traits.MinGapWidth, s.Rng)
-		}
+	// L1: route management.
+	//   1. Brand-new or goal-changed → wipe and replan from scratch.
+	//   2. Pop consumed waypoints (reach / bypass / below) — three OR'd
+	//      rules grounded in geometry and physics, no timer.
+	//   3. Stale refresh: replan only if the queue is empty. Sticky-once-
+	//      chosen prevents the rng-driven planner from re-rolling a different
+	//      gap each interval.
+	if a.Route.Goal == ai.GoalNone || a.Route.GoalPos != target {
 		a.Route = ai.Route{
-			Goal:             routeGoalFor(s.World, a),
-			GoalPos:          target,
-			StaleAt:          s.SimTime + routePlanInterval,
-			StrategicBias:    outlook.Bias,
-			LookaheadSlope:   outlook.LookaheadSlope,
-			LookaheadDensity: outlook.LookaheadDensity,
-			PeakDensity:      outlook.PeakDensity,
-			TargetGap:        gap,
+			Goal:      routeGoalFor(s.World, a),
+			GoalPos:   target,
+			StaleAt:   s.SimTime + routePlanInterval,
+			Waypoints: planWaypoints(s.World.Terrain, a.Pos, target, a.Traits.MinGapWidth, s.Rng),
 		}
+	}
+	for len(a.Route.Waypoints) > 0 && waypointConsumed(a.Pos, target, a.Route.Waypoints[0]) {
+		a.Route.Waypoints = a.Route.Waypoints[1:]
+	}
+	if a.Route.StaleAt < s.SimTime {
+		if len(a.Route.Waypoints) == 0 {
+			a.Route.Waypoints = planWaypoints(s.World.Terrain, a.Pos, target, a.Traits.MinGapWidth, s.Rng)
+		}
+		a.Route.StaleAt = s.SimTime + routePlanInterval
 	}
 
 	// L2: perceive
@@ -431,44 +362,10 @@ func perceive(t *world.Terrain, a *world.Agent) Perception {
 	nAhead := t.NormalAt((pos[0]+hx*10)/CellSize, (pos[2]+hz*10)/CellSize)
 	slopeAhead := float32(math.Acos(math.Min(1, math.Max(-1, float64(nAhead[1])))))
 
-	// Pick the axis target: a chosen gap (if the strategy layer found one
-	// AND the skier hasn't cleared it yet) overrides the lodge/lift goal.
-	//
-	// Two phases while committed:
-	//   FAR (laterally distant from gap.x): aim AT the gap entry. Axis is
-	//     steep — skier traverses aggressively to reach the gap line.
-	//   NEAR (within gapCommitLateralM of gap.x): aim DOWN the gap line —
-	//     (gap.x, GoalPos.z). Axis is mostly south with a tiny lateral
-	//     correction. Skier straightens out and descends through the gap.
-	// This is what the user described as "traverse hard, then straighten
-	// out and head downhill" — a single phase (axis = gap entry) leaves
-	// the skier perpendicular-ish to fall line right at the obstacle, where
-	// gravity stops contributing along velocity and they slow to a crawl.
-	//
-	// The commit holds until the skier is well past the gap (gap.z +
-	// gapClearBufferM) — patches extend in z, and dropping the override
-	// the moment skier_z crosses gap.z lets local tree-avoidance probes
-	// catch the patch's southern half and yank the axis sideways into
-	// the corridor walls.
-	axisTarget := a.Route.GoalPos
-	hasGap := false
-	gap := a.Route.TargetGap
-	if gap[0] != 0 || gap[2] != 0 {
-		if gap[2]+gapClearBufferM > pos[2] {
-			lateralErr := gap[0] - pos[0]
-			if lateralErr < 0 {
-				lateralErr = -lateralErr
-			}
-			if lateralErr < gapCommitLateralM {
-				// NEAR: line through gap. Skier descends through gap.x.
-				axisTarget = mgl32.Vec3{gap[0], 0, a.Route.GoalPos[2]}
-			} else {
-				// FAR: head at gap entry to traverse fast.
-				axisTarget = gap
-			}
-			hasGap = true
-		}
-	}
+	// Axis target: front waypoint if the route has any, else GoalPos.
+	// The route layer (tickSkier) is responsible for keeping the queue
+	// trimmed to live waypoints — perceive is just a reader.
+	axisTarget := nextAxisTarget(a)
 	goalDelta := axisTarget.Sub(pos)
 	axisXZ := mgl32.Vec2{goalDelta[0], goalDelta[2]}
 	axisDist := axisXZ.Len()
@@ -481,240 +378,71 @@ func perceive(t *world.Terrain, a *world.Agent) Perception {
 
 	atCell := t.TreeDensityAt(pos[0], pos[2])
 	inTrees := atCell > inTreesThreshold
-	var clearDir mgl32.Vec2
-	if inTrees {
-		clearDir = sampleClearDir(t, pos)
-	}
 
 	return Perception{
-		Pos:              pos,
-		Heading:          a.Heading,
-		Speed:            a.Speed,
-		Normal:           n,
-		SlopeAngle:       slope,
-		SlopeAhead:       slopeAhead,
-		FallDir:          fall,
-		FallScale:        fallScale,
-		AxisDir:          axisDir,
-		AxisDist:         axisDist,
-		Trees:            trees,
-		TreeCenter:       treeCenter,
-		AtCellDensity:    atCell,
-		InTrees:          inTrees,
-		ClearDir:         clearDir,
-		StrategicBias:    a.Route.StrategicBias,
-		LookaheadSlope:   a.Route.LookaheadSlope,
-		LookaheadDensity: a.Route.LookaheadDensity,
-		PeakDensity:      a.Route.PeakDensity,
-		HasGapTarget:     hasGap,
-		InArrival:        axisDist < ArrivalRadius,
+		Pos:           pos,
+		Heading:       a.Heading,
+		Speed:         a.Speed,
+		Normal:        n,
+		SlopeAngle:    slope,
+		SlopeAhead:    slopeAhead,
+		FallDir:       fall,
+		FallScale:     fallScale,
+		AxisDir:       axisDir,
+		AxisDist:      axisDist,
+		Trees:         trees,
+		TreeCenter:    treeCenter,
+		AtCellDensity: atCell,
+		InTrees:       inTrees,
+		InArrival:     axisDist < ArrivalRadius,
 	}
 }
 
-// findClearCell spiral-searches outward from the agent's current cell for
-// a clear grid cell (TreeDensity < clearCellDensity), preferring cells
-// that are DOWNHILL of the agent's current position. Returns the cell
-// coordinate and true on success; false if nothing within
-// clearSearchRadius qualifies.
-//
-// Search pattern: expand rings of Chebyshev distance until we find at
-// least one clear cell strictly below the agent's current elevation,
-// then return the LOWEST clear cell seen so far. If no downhill clear
-// cell exists anywhere within radius, fall back to the lowest clear
-// cell of any elevation. The earlier "first hit wins" iteration order
-// systematically picked uphill+west cells (the (-dx, -dz) corner of
-// the ring) and produced the "ski toward trees, walk uphill, repeat"
-// loop the user reported.
-func findClearCell(t *world.Terrain, pos mgl32.Vec3) ([2]int, bool) {
-	cx := int(pos[0] / CellSize)
-	cz := int(pos[2] / CellSize)
-	if !t.InBounds(cx, cz) {
-		return [2]int{}, false
+// nextAxisTarget returns the world-space point the skier should currently
+// head at: the front waypoint if the route has any, else the final goal.
+func nextAxisTarget(a *world.Agent) mgl32.Vec3 {
+	if len(a.Route.Waypoints) > 0 {
+		return a.Route.Waypoints[0]
 	}
-	hereY := t.Cells[cx][cz].Elevation
-
-	bestX, bestZ := 0, 0
-	bestY := float32(math.Inf(1))
-	found := false
-	for r := 1; r <= clearSearchRadius; r++ {
-		for dx := -r; dx <= r; dx++ {
-			for dz := -r; dz <= r; dz++ {
-				if dx != -r && dx != r && dz != -r && dz != r {
-					continue
-				}
-				x, z := cx+dx, cz+dz
-				if !t.InBounds(x, z) {
-					continue
-				}
-				if t.Cells[x][z].TreeDensity >= clearCellDensity {
-					continue
-				}
-				y := t.Cells[x][z].Elevation
-				if !found || y < bestY {
-					bestX, bestZ = x, z
-					bestY = y
-					found = true
-				}
-			}
-		}
-		// As soon as we have a clear cell that's actually downhill,
-		// commit. Otherwise keep widening the search.
-		if found && bestY < hereY {
-			return [2]int{bestX, bestZ}, true
-		}
-	}
-	if found {
-		return [2]int{bestX, bestZ}, true
-	}
-	return [2]int{}, false
+	return a.Route.GoalPos
 }
 
-// strategicOutlook is the multi-output result of one strategic scan:
-// side-bias for steering, plus forward slope / density signals used by
-// the Confidence drift model. All derived from the same sample points
-// so we make one pass.
-type strategicOutlook struct {
-	Bias             float32 // [-1, +1] side bias
-	LookaheadSlope   float32 // mean slope angle along forward axis (rad)
-	LookaheadDensity float32 // mean tree density on centre line [0, 1]
-	PeakDensity      float32 // max density seen along the centre line
-}
-
-// strategicScan reads the run far ahead and returns a side-bias scalar in
-// [-1, +1]: negative leans left, positive leans right. Sampled along the
-// straight axis to the goal at strategicNSamples forward points, with
-// ±strategicLateralOffset perpendicular probes at each. The forward
-// (centre) average decides whether the path is dense enough to engage at
-// all; the L-R differential decides which side to lean.
-//
-// Also computes the mean slope angle and centre-line density along the
-// scan, exposed via strategicOutlook so the Confidence drift model can
-// react to "terrain getting flatter / steeper / has trees ahead."
-//
-// On a perfectly-symmetric obstacle the L-R differential collapses to
-// ~0. When that happens we flip a coin from rng — random per-scan,
-// drawing from the deterministic per-sim Rng so testbed seeds stay
-// reproducible. Once the skier has drifted any meaningful distance
-// toward a chosen side, the diff signal dominates.
-//
-// Cost: 3 × strategicNSamples TreeDensityAt + strategicNSamples
-// NormalAt calls per refresh, + at most one rng.Float32().
-func strategicScan(t *world.Terrain, pos mgl32.Vec3, axisDir mgl32.Vec2, axisDist float32, rng *rand.Rand) strategicOutlook {
-	scanRange := float32(strategicRange)
-	if axisDist < scanRange {
-		scanRange = axisDist
-	}
-	if scanRange < strategicMinDist {
-		return strategicOutlook{}
-	}
-
-	// Right-perpendicular to axis: when axis is (sin h, cos h), perpRight
-	// is (cos h, -sin h) — i.e. (axis.z, -axis.x).
-	rx := axisDir[1]
-	rz := -axisDir[0]
-
-	var centre, left, right, slope, totalW, peak float32
-	for i := 1; i <= strategicNSamples; i++ {
-		f := float32(i) / float32(strategicNSamples)
-		d := scanRange * f
-		cx := pos[0] + axisDir[0]*d
-		cz := pos[2] + axisDir[1]*d
-		w := 1 - 0.5*f // closer matters more; far end at 0.5×
-		totalW += w
-		centreSample := t.TreeDensityAt(cx, cz)
-		centre += centreSample * w
-		if centreSample > peak {
-			peak = centreSample
-		}
-		right += t.TreeDensityAt(cx+rx*strategicLateralOffset, cz+rz*strategicLateralOffset) * w
-		left += t.TreeDensityAt(cx-rx*strategicLateralOffset, cz-rz*strategicLateralOffset) * w
-		// Slope from the surface normal at this forward point. cos of
-		// the slope angle is the y component of the normal.
-		n := t.NormalAt(cx/CellSize, cz/CellSize)
-		ny := n[1]
-		if ny > 1 {
-			ny = 1
-		} else if ny < -1 {
-			ny = -1
-		}
-		slope += float32(math.Acos(float64(ny))) * w
-	}
-	if totalW <= 0 {
-		return strategicOutlook{}
-	}
-	centre /= totalW
-	left /= totalW
-	right /= totalW
-	slope /= totalW
-
-	out := strategicOutlook{
-		LookaheadSlope:   slope,
-		LookaheadDensity: centre,
-		PeakDensity:      peak,
-	}
-
-	if centre < strategicCentreThreshold {
-		// No obstacle-driven bias, but slope/density outlook is still
-		// returned for the Confidence model.
-		return out
-	}
-
-	diff := left - right // positive ⇒ left side has more trees ⇒ lean right
-	abs := diff
-	if abs < 0 {
-		abs = -abs
-	}
-	if abs < strategicSymmetryFloor {
-		if rng.Float32() < 0.5 {
-			out.Bias = -strategicSymmetryDefault
-		} else {
-			out.Bias = strategicSymmetryDefault
-		}
-		return out
-	}
-	bias := diff / strategicBiasScale
-	if bias > 1 {
-		bias = 1
-	}
-	if bias < -1 {
-		bias = -1
-	}
-	out.Bias = bias
-	return out
-}
-
-// strategicChoosePath enumerates distinct gaps through any obstacle ahead
-// and commits the skier to threading one of them. Returns the world-space
-// position of the chosen gap's center (the point the skier should aim for),
-// or the zero vector when no qualifying gap was found — in that case the
-// caller falls back to the gentler StrategicBias drift.
+// planWaypoints reads the lateral density profile across the forward axis
+// to the goal, enumerates clear runs wider than minGapWidth, and returns
+// either an empty slice (no obstacle in the way, or the goal is too close
+// for a meaningful scan) or a one-element slice containing the chosen gap
+// centre. Pure function — no per-skier persistence; the caller (route
+// refresh in tickSkier) is responsible for keeping the chosen waypoint
+// "sticky" across refreshes.
 //
 // Algorithm:
-//  1. Sample tree density at strategicGapLookDepth metres forward, across
-//     ±strategicGapLateralRange laterally, every strategicGapLateralStep m.
-//  2. Mark each lateral sample as "clear" when density < threshold.
-//  3. Walk the lateral profile to enumerate contiguous clear runs as gaps.
-//  4. Drop gaps narrower than minGapWidth (per-skier preference: beginners
-//     want highways, advanced skiers will commit to threading tight lines).
-//  5. Pick uniformly at random among qualifying gaps. Width-weighting (or
-//     a per-skier preference for tight vs wide lines) is intentionally
-//     deferred — leaving uniform random keeps the simple "I considered both
-//     paths, picked one" behaviour. Future personality traits (e.g. an
-//     "attraction to challenge" coefficient) can land on top of this.
-//  6. Return the world-space center of the chosen gap.
-//
-// On a clear path (single huge gap spanning the lateral range) this still
-// returns the gap center — which is on-axis — so the skier just heads
-// straight. The override only does something interesting when the lateral
-// scan reveals discrete obstacles.
-func strategicChoosePath(t *world.Terrain, pos mgl32.Vec3, axisDir mgl32.Vec2, axisDist, minGapWidth float32, rng *rand.Rand) mgl32.Vec3 {
-	lookDepth := float32(strategicGapLookDepth)
+//  1. Compute axis to goal. If goal is within planMinDist, no plan.
+//  2. Sample tree density at planLookDepth m forward, across
+//     ±planLateralRange laterally, every planLateralStep m.
+//  3. Mark each lateral sample "clear" when density < planDensityThreshold.
+//  4. Enumerate contiguous clear runs as candidate gaps.
+//  5. Drop gaps narrower than minGapWidth (per-skier preference).
+//  6. If the lateral profile is fully clear → no waypoint (skier heads
+//     straight at the goal).
+//  7. Otherwise pick one gap uniformly at random and return its centre,
+//     elevation sampled from the terrain so the descent-past invalidation
+//     rule has a real altitude to compare.
+func planWaypoints(t *world.Terrain, pos, goal mgl32.Vec3, minGapWidth float32, rng *rand.Rand) []mgl32.Vec3 {
+	delta := goal.Sub(pos)
+	axisXZ := mgl32.Vec2{delta[0], delta[2]}
+	axisDist := axisXZ.Len()
+	if axisDist < 1e-3 {
+		return nil
+	}
+	axisDir := axisXZ.Mul(1.0 / axisDist)
+
+	lookDepth := float32(planLookDepth)
 	if axisDist < lookDepth*1.4 {
 		// Closer to goal: scan less far so the look point doesn't overshoot.
 		lookDepth = axisDist * 0.7
 	}
-	if lookDepth < strategicMinDist {
-		return mgl32.Vec3{}
+	if lookDepth < planMinDist {
+		return nil
 	}
 
 	fx := pos[0] + axisDir[0]*lookDepth
@@ -722,27 +450,22 @@ func strategicChoosePath(t *world.Terrain, pos mgl32.Vec3, axisDir mgl32.Vec2, a
 	rx := axisDir[1]
 	rz := -axisDir[0]
 
-	// Sample lateral density profile.
-	nSamples := int(2*strategicGapLateralRange/strategicGapLateralStep) + 1
+	nSamples := int(2*planLateralRange/planLateralStep) + 1
 	clear := make([]bool, nSamples)
 	anyBlocked := false
 	for i := 0; i < nSamples; i++ {
-		offset := -strategicGapLateralRange + float32(i)*strategicGapLateralStep
+		offset := -planLateralRange + float32(i)*planLateralStep
 		sx := fx + rx*offset
 		sz := fz + rz*offset
-		clear[i] = t.TreeDensityAt(sx, sz) < strategicGapDensityThreshold
+		clear[i] = t.TreeDensityAt(sx, sz) < planDensityThreshold
 		if !clear[i] {
 			anyBlocked = true
 		}
 	}
-	// No obstacles in the lateral profile — let the caller fall through to
-	// gentler models (StrategicBias) so we don't override straight-line
-	// seeking with a redundant "head to gap center" that's already on-axis.
 	if !anyBlocked {
-		return mgl32.Vec3{}
+		return nil
 	}
 
-	// Enumerate contiguous clear runs as gaps, filtered by min width.
 	type gap struct {
 		startIdx int
 		endIdx   int // inclusive
@@ -758,57 +481,61 @@ func strategicChoosePath(t *world.Terrain, pos mgl32.Vec3, axisDir mgl32.Vec2, a
 		for j < nSamples && clear[j] {
 			j++
 		}
-		// [i, j) is a clear run. Width = (count-1) * step.
-		widthM := float32(j-i-1) * strategicGapLateralStep
+		widthM := float32(j-i-1) * planLateralStep
 		if widthM >= minGapWidth {
 			gaps = append(gaps, gap{i, j - 1})
 		}
 		i = j
 	}
 	if len(gaps) == 0 {
-		return mgl32.Vec3{}
+		return nil
 	}
 
 	chosen := gaps[rng.Intn(len(gaps))]
 	centerIdx := (chosen.startIdx + chosen.endIdx) / 2
-	centerOffset := -strategicGapLateralRange + float32(centerIdx)*strategicGapLateralStep
+	centerOffset := -planLateralRange + float32(centerIdx)*planLateralStep
+	wpX := fx + rx*centerOffset
+	wpZ := fz + rz*centerOffset
 
-	return mgl32.Vec3{
-		fx + rx*centerOffset,
-		0, // y unused — steering reads only XZ
-		fz + rz*centerOffset,
-	}
+	// Sample terrain elevation at the chosen point so the descent-past
+	// invalidation rule (waypointConsumed) has a real altitude to compare
+	// against.
+	wpY := t.InterpolatedElevationAt(wpX, wpZ)
+
+	return []mgl32.Vec3{{wpX, wpY, wpZ}}
 }
 
-// sampleClearDir returns a unit XZ vector pulling toward the least-dense
-// neighbourhood around pos. Eight cardinal+diagonal samples at clearSampleDist
-// metres; each contributes (1 - density) weight in its direction. The sum is
-// the gradient of "openness" — the direction that gets you out fastest.
+// waypointConsumed reports whether the skier has cleared the waypoint and
+// the route layer should drop it. Three OR'd rules grounded in geometry
+// and physics, no timer:
 //
-// Returns the zero vector when the skier is in a uniform high-density area
-// and there's no usable signal; the caller falls back to fall-line.
-func sampleClearDir(t *world.Terrain, pos mgl32.Vec3) mgl32.Vec2 {
-	// Eight directions on the unit circle.
-	dirs := [8][2]float32{
-		{1, 0}, {0.7071, 0.7071}, {0, 1}, {-0.7071, 0.7071},
-		{-1, 0}, {-0.7071, -0.7071}, {0, -1}, {0.7071, -0.7071},
+//   reach:  dist2D(pos, wp) <= waypointReachM
+//           — skier is physically at the waypoint.
+//   bypass: dist2D(pos, goal) + waypointBypassM <= dist2D(wp, goal)
+//           — skier has gotten meaningfully closer to the final goal than
+//             the waypoint is.
+//   below:  pos.y < wp.y - waypointDescentBufferM
+//           — skier has descended past the waypoint's altitude. Skiers
+//             don't climb back up: once below, the waypoint is provably
+//             unreachable, so a new plan is in order. This is the
+//             unconditional safety net for the lateral-overshoot pathology
+//             where the skier passes wide of the wp without either reach
+//             or bypass firing.
+func waypointConsumed(pos, goal, wp mgl32.Vec3) bool {
+	dx := pos[0] - wp[0]
+	dz := pos[2] - wp[2]
+	if dx*dx+dz*dz <= waypointReachM*waypointReachM {
+		return true
 	}
-	var sum mgl32.Vec2
-	for _, d := range dirs {
-		sx := pos[0] + d[0]*clearSampleDist
-		sz := pos[2] + d[1]*clearSampleDist
-		w := 1 - t.TreeDensityAt(sx, sz) // clearer = stronger pull
-		if w < 0 {
-			w = 0
-		}
-		sum[0] += d[0] * w
-		sum[1] += d[1] * w
+	skierDist := mgl32.Vec2{goal[0] - pos[0], goal[2] - pos[2]}.Len()
+	gapDist := mgl32.Vec2{goal[0] - wp[0], goal[2] - wp[2]}.Len()
+	if skierDist+waypointBypassM <= gapDist {
+		return true
 	}
-	l := float32(math.Sqrt(float64(sum[0]*sum[0] + sum[1]*sum[1])))
-	if l < 1e-3 {
-		return mgl32.Vec2{}
+	if pos[1] < wp[1]-waypointDescentBufferM {
+		return true
 	}
-	return mgl32.Vec2{sum[0] / l, sum[1] / l}
+	return false
 }
 
 // scanTrees samples tree density at five forward probes and returns hazards
@@ -853,26 +580,11 @@ func scanTrees(t *world.Terrain, pos mgl32.Vec3, heading, speed float32) ([]Haza
 // =============================================================================
 
 func steer(traits ai.SkierTraits, avoid ai.AvoidState, perc Perception, dt float32, rng *rand.Rand) (Intent, ai.AvoidState) {
-	// In-trees override: when the skier is *inside* a dense cell, goal-seek
-	// is the wrong objective. Steer for the gap instead. Skip the tactical
-	// tree-bend below — that's for incoming hazards we still might dodge,
-	// not for the situation we're already in.
-	if perc.InTrees {
-		return steerInTrees(traits, avoid, perc, dt)
-	}
-
-	// Axis: blend seek-toward-goal with fall-line bias, attenuated by slope.
-	// On flats fallScale ≈ 0 → axis = seek; on steeps the axis bends downhill.
-	// When the skier has committed to a specific gap, drop the fall-line
-	// blend — the gap commitment IS a deliberate decision to traverse the
-	// slope to reach a chosen passage, and the blend would dilute that
-	// traverse angle by ~50% on a 15° slope (fallScale ≈ 1).
-	fallW := perc.FallScale
-	if perc.HasGapTarget {
-		fallW = 0
-	}
-	bx := perc.AxisDir[0] + perc.FallDir[0]*fallW
-	bz := perc.AxisDir[1] + perc.FallDir[1]*fallW
+	// Axis: blend seek-toward-target (waypoint or goal) with fall-line bias,
+	// attenuated by slope. On flats fallScale ≈ 0 → axis = seek; on steeps
+	// the axis bends downhill.
+	bx := perc.AxisDir[0] + perc.FallDir[0]*perc.FallScale
+	bz := perc.AxisDir[1] + perc.FallDir[1]*perc.FallScale
 	bl := float32(math.Sqrt(float64(bx*bx + bz*bz)))
 	if bl < 1e-4 {
 		bx, bz = perc.AxisDir[0], perc.AxisDir[1]
@@ -882,15 +594,6 @@ func steer(traits ai.SkierTraits, avoid ai.AvoidState, perc Perception, dt float
 	bz /= bl
 	axisHeading := float32(math.Atan2(float64(bx), float64(bz)))
 
-	// Strategic bias: small constant rotation toward the cleaner side of
-	// the long-range run-ahead, as judged at the last Route refresh.
-	// Always-on (no commit gate); deliberately small so it's a hint, not
-	// a force. Self-decaying — as the skier passes the obstacle, the next
-	// strategicScan sees the centre line clear and bias drops to 0.
-	if perc.StrategicBias != 0 {
-		axisHeading = wrapAngle(axisHeading + strategicBendMax*perc.StrategicBias)
-	}
-
 	// Tree avoidance: pick a side once, hold it until the patch clears.
 	//
 	// Why a commit: the perception field is symmetric when a skier is mid-
@@ -898,42 +601,43 @@ func steer(traits ai.SkierTraits, avoid ai.AvoidState, perc Perception, dt float
 	// to lean on and the per-tick bend alternates with the carve cycle —
 	// netting zero. Real skiers pick a side at the patch boundary, commit,
 	// and ride it out. We approximate that with a tiny state machine.
-	// Tactical tree avoidance is suppressed while a strategic gap commit
-	// is active: the chosen gap IS the plan, and the local commit-a-side
-	// mechanism would (a) bend the axis off the gap line during the
-	// approach and (b) leave a stale avoid.Side after the skier passes
-	// the gap that pulls them sideways into the corridor walls. We also
-	// reset any pre-existing commit so it doesn't reactivate the moment
-	// HasGapTarget drops.
-	if perc.HasGapTarget {
+	maxSev := float32(0)
+	for _, h := range perc.Trees {
+		if h.Severity > maxSev {
+			maxSev = h.Severity
+		}
+	}
+	// Fully-boxed escape: every probed direction is blocked, so
+	// bending picks an arbitrary side that's just as bad — and the
+	// commit ends up oscillating as the skier crosses cell boundaries
+	// and the "best" side flips. Drop the commit and let the skier
+	// plow forward toward the target. Trees are a soft cost: the
+	// existing TreeCenter speed scrub and physics balance drain
+	// already extract the right penalty for skiing through them.
+	centre, right, left := perceptionProbeDensities(perc)
+	fullyBoxed := centre > 0.3 && right > 0.3 && left > 0.3
+	switch {
+	case maxSev > 0.3 && !fullyBoxed:
+		avoid.Clear = 0
+		if avoid.Side == 0 {
+			hx := float32(math.Sin(float64(perc.Heading)))
+			hz := float32(math.Cos(float64(perc.Heading)))
+			avoid.Side = pickAvoidSide(perc.Trees, hx, hz, rng)
+		}
+		// Bend factor 1.0 means a fully-dense hazard rotates the axis
+		// ~57° off the fall line — strong enough to skirt a wide
+		// circular patch once committed early. Lower factors (0.35-0.6)
+		// failed to pull the skier clear of a 60 m-radius grove in
+		// headless tests.
+		bend := 1.0 * maxSev
+		axisHeading = wrapAngle(axisHeading + float32(avoid.Side)*bend)
+	case fullyBoxed:
 		avoid.Side = 0
 		avoid.Clear = 0
-	} else {
-		maxSev := float32(0)
-		for _, h := range perc.Trees {
-			if h.Severity > maxSev {
-				maxSev = h.Severity
-			}
-		}
-		if maxSev > 0.3 {
-			avoid.Clear = 0
-			if avoid.Side == 0 {
-				hx := float32(math.Sin(float64(perc.Heading)))
-				hz := float32(math.Cos(float64(perc.Heading)))
-				avoid.Side = pickAvoidSide(perc.Trees, hx, hz, rng)
-			}
-			// Bend factor 1.0 means a fully-dense hazard rotates the axis
-			// ~57° off the fall line — strong enough to skirt a wide
-			// circular patch once committed early. Lower factors (0.35-0.6)
-			// failed to pull the skier clear of a 60 m-radius grove in
-			// headless tests.
-			bend := 1.0 * maxSev
-			axisHeading = wrapAngle(axisHeading + float32(avoid.Side)*bend)
-		} else {
-			avoid.Clear += dt
-			if avoid.Clear > 1.0 {
-				avoid.Side = 0
-			}
+	default:
+		avoid.Clear += dt
+		if avoid.Clear > 1.0 {
+			avoid.Side = 0
 		}
 	}
 
@@ -986,56 +690,6 @@ func steer(traits ai.SkierTraits, avoid ai.AvoidState, perc Perception, dt float
 		urgency = 1
 	}
 
-	return Intent{
-		AxisHeading: axisHeading,
-		Speed:       speed,
-		Urgency:     urgency,
-	}, avoid
-}
-
-// steerInTrees handles the "I'm inside a dense patch, get me out" branch.
-// Goal-seek is suspended while in trees — the skier just wants to be on
-// clearer terrain. ClearDir already points toward the local minimum of
-// density; we blend it with the fall line so the skier prefers to ski
-// *down*-and-out rather than back uphill, then hard-clamp speed and pin
-// urgency high so the motor layer engages a scrub-heavy technique.
-//
-// Tree-avoidance commitment (`avoid`) is left untouched here; once the
-// agent emerges to clear ground the regular steer() will resume managing
-// it. We don't want a long stay in trees to flip-flop the commit.
-func steerInTrees(traits ai.SkierTraits, avoid ai.AvoidState, perc Perception, dt float32) (Intent, ai.AvoidState) {
-	// Axis: ClearDir (gradient out) + fall-line bias. ClearDir may be zero
-	// in a uniformly dense neighbourhood — fall back to fall-line in that
-	// case so the skier still drifts downhill rather than freezing.
-	bx := perc.ClearDir[0] + perc.FallDir[0]*perc.FallScale
-	bz := perc.ClearDir[1] + perc.FallDir[1]*perc.FallScale
-	bl := float32(math.Sqrt(float64(bx*bx + bz*bz)))
-	if bl < 1e-4 {
-		bx, bz = perc.FallDir[0], perc.FallDir[1]
-		bl = float32(math.Sqrt(float64(bx*bx + bz*bz)))
-		if bl < 1e-4 {
-			// flat + uniform trees: can't pick a direction. Hold heading.
-			bx = float32(math.Sin(float64(perc.Heading)))
-			bz = float32(math.Cos(float64(perc.Heading)))
-			bl = 1
-		}
-	}
-	bx /= bl
-	bz /= bl
-	axisHeading := float32(math.Atan2(float64(bx), float64(bz)))
-
-	// Hard cap on target speed regardless of comfort/aggression. The motor
-	// layer sees this is well below the current actual speed and engages
-	// pizza/sideslip/hockey via the existing overshoot dispatch.
-	speed := float32(inTreesSpeedCap)
-
-	// Pin urgency high so the technique dispatcher prefers scrub-heavy
-	// moves. 0.85 keeps it under the 0.8-strict Hockey threshold but well
-	// over the parallel-vs-pizza fork at 1.05× target speed.
-	urgency := float32(0.85)
-
-	_ = traits
-	_ = dt
 	return Intent{
 		AxisHeading: axisHeading,
 		Speed:       speed,
@@ -1199,25 +853,6 @@ func pickTechnique(traits ai.SkierTraits, prev ai.MotorState, intent Intent, per
 		return ai.TechSideslip
 	}
 
-	// Gap commit: when the strategy layer has chosen a passage, drop the
-	// S-turn carving and head straight at the gap. Linked turns swing the
-	// heading ±50° around the axis, and on a steep traverse (axis already
-	// 30°+ off the fall line) the "anti-traverse" phase ends up almost
-	// perpendicular to fall line — gravity does no work along velocity,
-	// friction wins, the skier crawls into the obstacle. Straight-line
-	// keeps the heading on axis so gravity contributes to forward motion.
-	//
-	// Placed ABOVE the overspeed branch on purpose: a committed traverse
-	// is already at a reduced fall-line component (the angled axis), so
-	// gravity acceleration is naturally throttled. Letting overspeed grab
-	// parallel back here would just re-introduce the perpendicular-swing
-	// problem we're trying to escape. Once the skier passes the gap z and
-	// HasGapTarget drops, the regular overspeed handler resumes and will
-	// brake normally if speed has drifted high.
-	if perc.HasGapTarget {
-		return ai.TechStraight
-	}
-
 	// Speed control: prefer parallel turns when going too fast; fall back to
 	// pizza for beginners. The parallel block also serves as the default
 	// cruising technique because linked turns are how real skiers move.
@@ -1237,15 +872,14 @@ func pickTechnique(traits ai.SkierTraits, prev ai.MotorState, intent Intent, per
 	// branch above still grabs Parallel back if straight-running actually
 	// builds too much speed, so it's the *default* that changes.
 	//
-	// Lookahead anticipation widens the gentle threshold when the
-	// strategic scan sees gentler terrain ahead. This is what makes the
-	// skier "straighten out before the runout" — driven by the
-	// terrain feature, not by overall confidence, so a tentative skier
-	// on a uniform steep doesn't tuck and a confident skier in a tree
-	// patch doesn't either.
+	// Lookahead anticipation widens the gentle threshold when the 10m
+	// forward probe sees gentler terrain. This is what makes the skier
+	// "straighten out before the runout" — driven by the terrain feature,
+	// not by overall confidence, so a tentative skier on a uniform steep
+	// doesn't tuck and a confident skier in a tree patch doesn't either.
 	gentle := traits.ComfortSlope * 0.5
-	if perc.LookaheadSlope > 0 {
-		anticipation := perc.SlopeAngle - perc.LookaheadSlope
+	if perc.SlopeAhead > 0 {
+		anticipation := perc.SlopeAngle - perc.SlopeAhead
 		if anticipation > 0 {
 			gentle += anticipation * float32(tuckAnticipation)
 		}
@@ -1598,11 +1232,9 @@ func recordFrame(s *Simulation, a *world.Agent, target mgl32.Vec3, dist float32,
 		SlopeCos:        perc.Normal[1],
 		InArrivalRadius: perc.InArrival,
 
-		StrategicBias:    perc.StrategicBias,
-		LookaheadDensity: perc.LookaheadDensity,
-		PeakDensity:      perc.PeakDensity,
-		AvoidSide:        a.Avoid.Side,
-		TargetGap:        a.Route.TargetGap,
+		AvoidSide:    a.Avoid.Side,
+		NextWaypoint: nextAxisTarget(a),
+		WaypointsLeft: int8(len(a.Route.Waypoints)),
 	})
 }
 
@@ -1630,19 +1262,21 @@ func updateConfidence(a *world.Agent, perc Perception, dt float32) {
 	target := float32(1.0)
 
 	// Outlook 1: slope ahead vs current. Gentler ahead → confidence up.
-	// Only counts when the strategic scan actually populated lookahead
-	// data (LookaheadSlope > 0); otherwise the delta is meaningless.
-	if perc.LookaheadSlope > 0 {
-		slopeDelta := perc.SlopeAngle - perc.LookaheadSlope
+	// Uses the local 10m forward probe (perc.SlopeAhead). The previous
+	// 300m strategic scan was dropped along with the rest of the
+	// strategic-layer state; the local probe keeps the "tuck through the
+	// runout" anticipation working at shorter range.
+	if perc.SlopeAhead > 0 {
+		slopeDelta := perc.SlopeAngle - perc.SlopeAhead
 		target += confSlopeGain * slopeDelta
 	}
 
-	// Outlook 2: hazards ahead → confidence down. We use peak density
-	// (worst single sample on the centre line), not mean — a skier with
-	// any tree patch on their direct path should be cautious even if
-	// most of the lookahead is clear. Mean density would smear the
-	// signal across the whole scan and let "feel good" growth dominate.
-	target -= confHazardGain * perc.PeakDensity
+	// Outlook 2: hazards ahead → confidence down. Uses the centre-probe
+	// density (perc.TreeCenter) since the long-range PeakDensity was
+	// dropped with the strategic scan. The signal is shorter-range now
+	// (12-40m forward instead of 300m) but still drains confidence when
+	// the immediate path has trees.
+	target -= confHazardGain * perc.TreeCenter
 
 	// Current state: low balance erodes confidence.
 	if a.Balance < confBalanceShelf {
@@ -1651,14 +1285,13 @@ func updateConfidence(a *world.Agent, perc Perception, dt float32) {
 
 	// Warming up: high balance feeds confidence growth, gated by clear
 	// outlook. "I feel good" requires both a healthy run-so-far AND a
-	// benign-looking run ahead — peak density is the right gate, same
-	// reasoning as the hazard penalty.
+	// benign-looking immediate path.
 	if a.Balance > confBalanceCeiling {
 		t := (a.Balance - confBalanceCeiling) / (1.0 - confBalanceCeiling)
 		if t > 1 {
 			t = 1
 		}
-		clearFactor := 1.0 - perc.PeakDensity
+		clearFactor := 1.0 - perc.TreeCenter
 		if clearFactor < 0 {
 			clearFactor = 0
 		}
@@ -1711,11 +1344,9 @@ func senseFrom(a *world.Agent, perc Perception, intent Intent, cmd MotorCmd) ai.
 		AxisHeading:    intent.AxisHeading,
 		DesiredHeading: cmd.Heading,
 		TargetSpeed:    intent.Speed,
-		InTrees:        perc.InTrees,
-		AtCellDensity:  perc.AtCellDensity,
-		ClearDir:       perc.ClearDir,
-		StrategicBias:  perc.StrategicBias,
-		Confidence:     a.Confidence,
+		InTrees:       perc.InTrees,
+		AtCellDensity: perc.AtCellDensity,
+		Confidence:    a.Confidence,
 	}
 }
 

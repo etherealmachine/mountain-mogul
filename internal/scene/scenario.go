@@ -722,9 +722,9 @@ func (s *Scenario) Render(r *render.Renderer) {
 	if s.activeTool == toolLiftTop {
 		drawables = append(drawables, &hintLabel{text: "Click to set lift top"})
 	}
-	for i, a := range s.world.Agents {
+	for _, a := range s.world.Agents {
 		if a.ID == s.followAgentID {
-			drawables = append(drawables, &followLabel{world: s.world, agent: a, idx: i})
+			drawables = append(drawables, &followLabel{world: s.world, agent: a})
 			break
 		}
 	}
@@ -993,7 +993,6 @@ func (s *Scenario) applyPerceptionCone(r *render.Renderer) {
 type followLabel struct {
 	world *world.World
 	agent *world.Agent
-	idx   int
 }
 
 func (f *followLabel) Draw(r *render.Renderer) {
@@ -1004,7 +1003,7 @@ func (f *followLabel) Draw(r *render.Renderer) {
 		row2 += fmt.Sprintf("    conf %.2f", f.agent.Confidence)
 	}
 	rows := []string{
-		fmt.Sprintf("Skier #%d  |  %s  |  %s", f.idx+1, activity, f.agent.Motor.Active.String()),
+		fmt.Sprintf("Skier #%d  |  %s  |  %s", f.agent.ID, activity, f.agent.Motor.Active.String()),
 		row2,
 	}
 	// Perception/intent rows are stale unless the agent is actively skiing.
@@ -1016,14 +1015,8 @@ func (f *followLabel) Draw(r *render.Renderer) {
 		if s.InTrees {
 			row4 += fmt.Sprintf("   IN TREES (%.2f)", s.AtCellDensity)
 		}
-		if abs := s.StrategicBias; abs > 0.05 || abs < -0.05 {
-			glyph := "->"
-			mag := s.StrategicBias
-			if s.StrategicBias < 0 {
-				glyph = "<-"
-				mag = -mag
-			}
-			row4 += fmt.Sprintf("   strat %s %.2f", glyph, mag)
+		if n := len(f.agent.Route.Waypoints); n > 0 {
+			row4 += fmt.Sprintf("   wp+%d", n)
 		}
 		rows = append(rows,
 			fmt.Sprintf("probes  C %.2f   R %.2f / L %.2f    look %.0fm",
