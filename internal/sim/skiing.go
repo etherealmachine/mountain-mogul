@@ -285,13 +285,18 @@ func (s *Simulation) tickSkier(a *world.Agent, target mgl32.Vec3, dt float64) bo
 		return true
 	}
 
-	// Stuck-in-trees detection. Accumulates while the agent is classified
-	// in-trees; if Phase 1's slow-and-steer-out hasn't gotten them clear
-	// after stuckTriggerS sim-seconds, we fall back to walking. We read
-	// a.Sense.InTrees from the *previous* tick because Perception isn't
-	// computed yet — that's fine, the timer only needs to be approximately
-	// correct over many ticks.
-	if a.Sense.InTrees {
+	// Stuck detection. Accumulates while the skier is making no real
+	// progress: either classified in-trees (cell density underfoot above
+	// the threshold) OR pinned at the skiWalkSpeed floor (which means
+	// speed got driven down to the minimum and can't recover). The
+	// floor-speed branch catches the "tree-boundary tactical loop" case:
+	// the cell underfoot is clear so InTrees is false, but the forward
+	// probes keep hitting nearby trees, the avoid layer bends the axis
+	// every tick, and the skier oscillates at 2 m/s without making net
+	// progress toward the goal. We read a.Sense.InTrees and a.Speed from
+	// the *previous* tick because Perception isn't computed yet — fine
+	// since the timer only needs to be approximately correct.
+	if a.Sense.InTrees || a.Speed <= skiWalkSpeed+0.1 {
 		a.StuckTimer += float32(dt)
 	} else {
 		a.StuckTimer = 0

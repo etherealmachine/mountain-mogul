@@ -206,8 +206,8 @@ func rollSkillLevel(rng *rand.Rand) ai.SkillLevel {
 func (s *Simulation) tickPath(agent *world.Agent, dt float64) {
 	w := s.World
 	target := agent.Path[agent.PathIdx]
-	tx := float32(target[0]) * CellSize
-	tz := float32(target[1]) * CellSize
+	tx := (float32(target[0]) + 0.5) * CellSize
+	tz := (float32(target[1]) + 0.5) * CellSize
 	ty := w.Terrain.ElevationAt(target[0], target[1])
 	targetPos := mgl32.Vec3{tx, ty, tz}
 
