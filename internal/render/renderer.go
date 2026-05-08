@@ -63,6 +63,10 @@ type Renderer struct {
 	HighlightAgentID   uint64
 	TerrainOverlayMode int // 0 = normal, 1 = slope + contour
 
+	// icons holds GL texture IDs for the UI icon set under assets/icons/.
+	// Populated by LoadIcons() at renderer construction.
+	icons map[IconName]uint32
+
 	// logicalW/H are the window size in logical (point) pixels — these match
 	// GLFW mouse coordinates and are used for UI ortho projection and camera
 	// ray-casting. frameW/H are the actual OpenGL framebuffer dimensions and
@@ -147,6 +151,10 @@ func NewRenderer(w, h int, assetDir string) (*Renderer, error) {
 
 	// Load all mesh types
 	r.initStaticMeshes()
+
+	// Load UI icons from assets/icons/ — best-effort, missing files fall
+	// back to a 1×1 white texture so the UI still renders.
+	r.LoadIcons()
 
 	gl.Enable(gl.DEPTH_TEST)
 	gl.ClearColor(0.635, 0.682, 0.918, 1.0)

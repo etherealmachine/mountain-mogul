@@ -6,11 +6,19 @@ import (
 	"mountain-mogul/internal/render"
 )
 
-// MenuBar is a horizontal toolbar across the top of the screen.
+// MenuBar is a horizontal toolbar. It can sit at the top or bottom — the
+// caller sets `Y` directly and the bar re-lays its buttons every frame so
+// changes to Y or screen size apply immediately. Buttons can be packed
+// left-aligned (default) or centred with even space-around distribution.
 type MenuBar struct {
 	Y, H         float32
-	Buttons      []*Button // left-aligned, packed left-to-right
-	RightButtons []*Button // right-aligned, packed right-to-left from screen edge
+	Buttons      []*Button // tool palette
+	RightButtons []*Button // right-aligned cluster (e.g. speed controls)
+
+	// Centered switches the layout for `Buttons` from left-packed to a
+	// horizontally-centred group with a fixed inter-button gap. The cluster
+	// reads as a single palette regardless of screen width.
+	Centered bool
 
 	bgColor mgl32.Vec4
 }
@@ -24,45 +32,93 @@ func NewMenuBar(y, h float32) *MenuBar {
 	}
 }
 
-// AddButton appends a left-aligned button to the menu bar.
+// AddButton appends a button to the menu bar. Width is sized to fit the
+// label; X/Y are recomputed each frame, so the value passed to NewButton
+// here only matters for the initial construction.
 func (m *MenuBar) AddButton(label string, onClick func()) *Button {
-	const padding = float32(6)
-	x := float32(0)
-	for _, b := range m.Buttons {
-		x = b.X + b.W + padding
-	}
 	w := float32(len(label)*render.GlyphAdvance) + 20
-	btn := NewButton(x, m.Y+padding, w, m.H-padding*2, label, onClick)
+	btn := NewButton(0, 0, w, 0, label, onClick)
 	m.Buttons = append(m.Buttons, btn)
 	return btn
 }
 
-// AddRightButton appends a right-aligned button. Position is recomputed each
-// frame from the current screen width so resize works automatically.
+// AddIconButton appends an icon-and-label button using a fixed tile width.
+// Position and inner height are set during the per-frame layout.
+func (m *MenuBar) AddIconButton(icon render.IconName, label string, onClick func()) *Button {
+	const tileW = float32(76)
+	btn := NewButton(0, 0, tileW, 0, label, onClick)
+	btn.Icon = icon
+	m.Buttons = append(m.Buttons, btn)
+	return btn
+}
+
+// AddRightButton appends a button to the right-aligned cluster. X is
+// recomputed each frame from the current screen width.
 func (m *MenuBar) AddRightButton(label string, onClick func()) *Button {
-	const padding = float32(6)
 	w := float32(len(label)*render.GlyphAdvance) + 20
-	btn := NewButton(0, m.Y+padding, w, m.H-padding*2, label, onClick)
+	btn := NewButton(0, 0, w, 0, label, onClick)
 	m.RightButtons = append(m.RightButtons, btn)
 	return btn
 }
 
-// layoutRight anchors all RightButtons to the right edge of the screen, packed
-// left-to-right in insertion order with `padding` between them.
-func (m *MenuBar) layoutRight(screenW float32) {
+// layout re-positions every button against the current Y/H and screen
+// width. Called from both HandleInput and Draw so hit-tests and rendering
+// agree on the same geometry, even after the caller moves the bar.
+func (m *MenuBar) layout(screenW float32) {
 	const padding = float32(6)
+	innerY := m.Y + padding
+	innerH := m.H - padding*2
+
+	// Left/centre cluster.
+	if m.Centered && len(m.Buttons) > 0 {
+		// Pack the buttons next to each other with a fixed 8 px gap, then
+		// centre the whole cluster horizontally.
+		const gap = float32(8)
+		var totalW float32
+		for i, b := range m.Buttons {
+			if i > 0 {
+				totalW += gap
+			}
+			totalW += b.W
+		}
+		x := (screenW - totalW) / 2
+		for i, b := range m.Buttons {
+			if i > 0 {
+				x += gap
+			}
+			b.X = x
+			b.Y = innerY
+			b.H = innerH
+			x += b.W
+		}
+	} else {
+		x := float32(0)
+		for i, b := range m.Buttons {
+			if i > 0 {
+				x += padding
+			}
+			b.X = x
+			b.Y = innerY
+			b.H = innerH
+			x += b.W
+		}
+	}
+
+	// Right cluster — packed right-to-left from the screen edge.
 	x := screenW - padding
 	for i := len(m.RightButtons) - 1; i >= 0; i-- {
 		btn := m.RightButtons[i]
 		x -= btn.W
 		btn.X = x
+		btn.Y = innerY
+		btn.H = innerH
 		x -= padding
 	}
 }
 
 // HandleInput processes mouse input for the menu bar.
 func (m *MenuBar) HandleInput(input *engine.Input, screenW, screenH float32) {
-	m.layoutRight(screenW)
+	m.layout(screenW)
 	mx := input.MousePos[0]
 	my := input.MousePos[1]
 	for _, btn := range m.Buttons {
@@ -82,7 +138,7 @@ func (m *MenuBar) HandleInput(input *engine.Input, screenW, screenH float32) {
 // Draw renders the menu bar background and all buttons.
 func (m *MenuBar) Draw(r *render.Renderer) {
 	screenW := float32(r.ScreenWidth())
-	m.layoutRight(screenW)
+	m.layout(screenW)
 	r.DrawColorRect(0, m.Y, screenW, m.H, m.bgColor)
 	for _, btn := range m.Buttons {
 		btn.Draw(r)

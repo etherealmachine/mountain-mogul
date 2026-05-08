@@ -268,6 +268,7 @@ func (b *builder) skierAt(gx, gz int, skill ai.SkillLevel) *builder {
 		Traits:     ai.TraitsFor(skill),
 		Balance:    1.0,
 		Confidence: spawnConfidence,
+		Energy:     1.0,
 	}
 	b.w.Agents = append(b.w.Agents, a)
 	return b

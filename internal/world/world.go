@@ -14,6 +14,11 @@ type World struct {
 	Lifts     []*Lift
 	Agents    []*Agent
 	nextID    uint64
+
+	// Cash is the resort's bank balance in dollars. Decoration today: nothing
+	// in the simulation reads or writes it. Wired into the top-bar HUD so the
+	// economy work has a home to grow into.
+	Cash int
 }
 
 // NewWorld creates a World with the given terrain.
@@ -21,6 +26,7 @@ func NewWorld(terrain *Terrain) *World {
 	return &World{
 		Terrain: terrain,
 		nextID:  1,
+		Cash:    50000,
 	}
 }
 

@@ -158,6 +158,21 @@ const (
 
 	// Route freshness
 	routePlanInterval = 2.0 // sim-seconds between route refreshes
+
+	// Energy budget. The fresh value (Energy=1.0) drains over this many
+	// sim-seconds of *active skiing* (lift rides and walks don't count).
+	// Calibrated so a typical agent gets ~20 descents at ~40 s of ski-time
+	// each before depleting and routing home. Tune downward if scenarios
+	// have shorter descents.
+	energyBudgetSec = 800.0
+
+	// energyLowThreshold gates the "head home" decision at lift-top
+	// selection and lift-base arrival. Below this fraction the agent
+	// picks a lodge instead of another lift — they don't have a confident
+	// descent left in them. Roughly one descent's drain (~40 s ÷
+	// energyBudgetSec ≈ 0.05). Strict ≤0 would let a skier commit to a
+	// final ride they can't physically afford; this gives a soft margin.
+	energyLowThreshold = 0.05
 )
 
 // =============================================================================
@@ -297,6 +312,18 @@ func (s *Simulation) tickSkier(a *world.Agent, target mgl32.Vec3, dt float64) bo
 	// Snapshot perception/intent for the follow HUD and perception-cone
 	// shader. Stale outside skiing — readers gate on Activity.
 	a.Sense = senseFrom(a, perc, intent, cmd)
+
+	// Energy drain — only ticks during active skiing, since this is the
+	// only path that calls tickSkier. Reroute to a lodge at the next
+	// decision boundary is handled in the dispatcher (pickTopTarget /
+	// onArrive), not here, so a depleting skier finishes their current
+	// descent cleanly.
+	if a.Energy > 0 {
+		a.Energy -= float32(dt / energyBudgetSec)
+		if a.Energy < 0 {
+			a.Energy = 0
+		}
+	}
 
 	// Balance drain & fall trigger.
 	a.Balance += stressDelta(a.Traits, perc, intent, cmd) * float32(dt)

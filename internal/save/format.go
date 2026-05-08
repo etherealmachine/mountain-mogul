@@ -10,6 +10,7 @@ type ScenarioData struct {
 	Buildings []BuildingData `json:"buildings"`
 	Lifts     []LiftData     `json:"lifts"`
 	Agents    []AgentData    `json:"agents"`
+	Cash      int            `json:"cash,omitempty"`
 }
 
 // CellData is the serialisable representation of a terrain cell.
@@ -72,4 +73,5 @@ type AgentData struct {
 	TargetID uint64     `json:"target_id,omitempty"`
 	OnLiftID uint64     `json:"on_lift_id,omitempty"`
 	Queued   bool       `json:"queued,omitempty"`
+	Energy   float32    `json:"energy,omitempty"` // 0 on load (incl. saves predating this field) → defaulted to 1.0
 }

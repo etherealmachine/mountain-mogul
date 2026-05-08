@@ -5,10 +5,13 @@ import (
 	"mountain-mogul/internal/render"
 )
 
-// Button is a clickable rectangular UI element.
+// Button is a clickable rectangular UI element. Icon is optional — when
+// non-empty the icon is drawn above the label; otherwise the label sits
+// vertically centred and left-padded as before.
 type Button struct {
 	X, Y, W, H  float32
 	Label        string
+	Icon         render.IconName // optional; empty means text-only
 	Color        mgl32.Vec4
 	HoverColor   mgl32.Vec4
 	ActiveColor  mgl32.Vec4
@@ -63,9 +66,33 @@ func (b *Button) Draw(r *render.Renderer) {
 	}
 	r.DrawColorRect(b.X, b.Y, b.W, b.H, color)
 
+	white := mgl32.Vec4{1, 1, 1, 1}
+	if b.Icon != "" {
+		// Icon button — icon centred horizontally, label centred under it.
+		// Sized so we get a comfortable 24-px icon with a 4-px gap to the
+		// text below in the typical 60-px tall menu bar.
+		iconSize := float32(24)
+		if b.H < iconSize+float32(render.GlyphH)+8 {
+			iconSize = b.H - float32(render.GlyphH) - 8
+			if iconSize < 12 {
+				iconSize = 12
+			}
+		}
+		iconX := b.X + (b.W-iconSize)/2
+		iconY := b.Y + 4
+		r.DrawIcon(b.Icon, iconX, iconY, iconSize, white)
+		if r.Font != nil && b.Label != "" {
+			labelW := float32(len(b.Label) * render.GlyphAdvance)
+			labelX := b.X + (b.W-labelW)/2
+			labelY := iconY + iconSize + 4
+			r.Font.DrawText(r, b.Label, labelX, labelY, white)
+		}
+		return
+	}
+
 	if r.Font != nil {
 		textX := b.X + 6
 		textY := b.Y + (b.H-float32(render.GlyphH))/2
-		r.Font.DrawText(r, b.Label, textX, textY, mgl32.Vec4{1, 1, 1, 1})
+		r.Font.DrawText(r, b.Label, textX, textY, white)
 	}
 }

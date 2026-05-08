@@ -57,20 +57,23 @@ func (e *Editor) Init(app *engine.App) error {
 	r.Camera.OrthoScale = 700
 	r.Camera.Recalculate()
 
+	// Editor tool bar — same shape as the scenario's: centred icon buttons,
+	// anchored to the bottom of the screen each frame in Update().
 	e.toolButtons = make(map[toolMode]*ui.Button)
-	e.menuBar = ui.NewMenuBar(0, render.GlyphH+10)
-	e.toolButtons[toolPlantTrees] = e.menuBar.AddButton("Plant Trees", func() { e.setTool(toolPlantTrees) })
-	e.toolButtons[toolGlade] = e.menuBar.AddButton("Glade", func() { e.setTool(toolGlade) })
-	e.toolButtons[toolEditorRaise] = e.menuBar.AddButton("Raise", func() { e.setTool(toolEditorRaise) })
-	e.toolButtons[toolEditorLower] = e.menuBar.AddButton("Lower", func() { e.setTool(toolEditorLower) })
-	e.menuBar.AddButton("Import Terrain", func() {
+	e.menuBar = ui.NewMenuBar(0, 60)
+	e.menuBar.Centered = true
+	e.toolButtons[toolPlantTrees] = e.menuBar.AddIconButton(render.IconTreeEvergreen, "Plant", func() { e.setTool(toolPlantTrees) })
+	e.toolButtons[toolGlade] = e.menuBar.AddIconButton(render.IconAxe, "Glade", func() { e.setTool(toolGlade) })
+	e.toolButtons[toolEditorRaise] = e.menuBar.AddIconButton(render.IconArrowFatUp, "Raise", func() { e.setTool(toolEditorRaise) })
+	e.toolButtons[toolEditorLower] = e.menuBar.AddIconButton(render.IconArrowFatDown, "Lower", func() { e.setTool(toolEditorLower) })
+	e.menuBar.AddIconButton(render.IconGlobe, "Import", func() {
 		app.PushScene(NewTerrainImport(
 			e.world.Terrain.Width,
 			e.world.Terrain.Height,
 			func(elevs [][]float32) { e.applyImportedTerrain(elevs, e.app.Renderer) },
 		))
 	})
-	e.menuBar.AddButton("Save", func() {
+	e.menuBar.AddIconButton(render.IconFloppyDisk, "Save", func() {
 		if err := save.SaveScenario(e.scenarioPath, e.world); err != nil {
 			fmt.Println("Save error:", err)
 		} else {
@@ -139,6 +142,9 @@ func (e *Editor) Update(dt float64) {
 		r.Camera.Recalculate()
 	}
 
+	// Anchor to the bottom edge against the live screen height before
+	// hit-testing — otherwise the buttons would float at the top.
+	e.menuBar.Y = float32(r.ScreenHeight()) - e.menuBar.H
 	e.menuBar.HandleInput(inp, float32(r.ScreenWidth()), float32(r.ScreenHeight()))
 
 	// Camera pan — right-drag or arrow keys
@@ -312,6 +318,8 @@ func (e *Editor) Render(r *render.Renderer) {
 	r.DrawWorld(e.world, 0)
 	r.ClearBrush()
 
+	// Re-anchor before draw so menuBar.Y matches the live screen height.
+	e.menuBar.Y = float32(r.ScreenHeight()) - e.menuBar.H
 	edDrawables := []render.UIDrawable{e.menuBar}
 	if e.toolUsesRadiusSlider() {
 		e.layoutRadiusSlider(r)

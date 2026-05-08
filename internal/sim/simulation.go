@@ -13,8 +13,6 @@ import (
 const (
 	WalkSpeed = 2.0  // m/s
 	CellSize  = 10.0 // metres per grid cell
-
-	lodgeReturnProb = 0.25 // probability a skier targets a lodge from the lift top instead of skiing back to base
 )
 
 // Simulation drives all agent and building behaviour.
@@ -74,6 +72,7 @@ func (s *Simulation) tickBuildings(dt float64) {
 			agent.Traits = ai.TraitsFor(rollSkillLevel(s.Rng))
 			agent.Balance = 1.0
 			agent.Confidence = spawnConfidence
+			agent.Energy = 1.0
 			path := s.Pathfinder.FindPath(b.Pos, nearest.Base)
 			if path != nil {
 				agent.Path = path
@@ -123,7 +122,7 @@ func (s *Simulation) tickLifts(dt float64) {
 					// Heading must be reset: while riding, Heading points up the lift
 					// cable, which would make the new tickSkier physics treat gravity
 					// as decelerating (cos θ_off < 0) and the skier would never start.
-					targetID, targetPos := pickTopTarget(w, lift, s.Rng)
+					targetID, targetPos := pickTopTarget(w, agent, s.Rng)
 					agent.TargetID = targetID
 					dx := targetPos[0] - agent.Pos[0]
 					dz := targetPos[2] - agent.Pos[2]
@@ -146,11 +145,14 @@ func (s *Simulation) tickLifts(dt float64) {
 	}
 }
 
-// pickTopTarget chooses where a skier goes after unloading at the lift top:
-// either a randomly-picked lodge (lodgeReturnProb) or the lift's own base.
-// Returns the entity ID and its world-space position.
-func pickTopTarget(w *world.World, lift *world.Lift, rng *rand.Rand) (uint64, mgl32.Vec3) {
-	if rng.Float64() < lodgeReturnProb && len(w.Buildings) > 0 {
+// pickTopTarget chooses where a skier goes after unloading at a lift top.
+// Low-energy skiers head to a randomly-chosen lodge to despawn; otherwise
+// they pick a uniform-random lift across the whole resort and ski to its
+// base — the resort-spanning "I'll do whichever lift next" behaviour. With
+// a single-lift scenario this just keeps picking the same lift, matching
+// prior behaviour. Returns the entity ID and its world-space position.
+func pickTopTarget(w *world.World, agent *world.Agent, rng *rand.Rand) (uint64, mgl32.Vec3) {
+	if agent != nil && agent.Energy <= energyLowThreshold && len(w.Buildings) > 0 {
 		lodge := w.Buildings[rng.Intn(len(w.Buildings))]
 		return lodge.ID, mgl32.Vec3{
 			(float32(lodge.Pos[0]) + 0.5) * CellSize,
@@ -158,10 +160,11 @@ func pickTopTarget(w *world.World, lift *world.Lift, rng *rand.Rand) (uint64, mg
 			(float32(lodge.Pos[1]) + 0.5) * CellSize,
 		}
 	}
-	return lift.ID, mgl32.Vec3{
-		(float32(lift.Base[0]) + 0.5) * CellSize,
-		w.Terrain.ElevationAt(lift.Base[0], lift.Base[1]),
-		(float32(lift.Base[1]) + 0.5) * CellSize,
+	next := w.Lifts[rng.Intn(len(w.Lifts))]
+	return next.ID, mgl32.Vec3{
+		(float32(next.Base[0]) + 0.5) * CellSize,
+		w.Terrain.ElevationAt(next.Base[0], next.Base[1]),
+		(float32(next.Base[1]) + 0.5) * CellSize,
 	}
 }
 
@@ -338,10 +341,15 @@ func (s *Simulation) tickWalkToward(agent *world.Agent, target mgl32.Vec3, dt fl
 }
 
 // onArrive handles arrival at the agent's TargetID. For lift targets the
-// agent queues up; for building (lodge) targets the agent is absorbed.
+// agent queues up — unless their Energy is depleted, in which case they're
+// rerouted to a lodge to despawn. For building (lodge) targets the agent
+// is absorbed.
 func (s *Simulation) onArrive(agent *world.Agent, kind targetKind) {
 	switch kind {
 	case targetLift:
+		if agent.Energy <= energyLowThreshold && s.routeHome(agent) {
+			return
+		}
 		for _, lift := range s.World.Lifts {
 			if lift.ID == agent.TargetID {
 				lift.Queue = append(lift.Queue, agent)
@@ -358,6 +366,28 @@ func (s *Simulation) onArrive(agent *world.Agent, kind targetKind) {
 			}
 		}
 	}
+}
+
+// routeHome retargets a depleted agent at a randomly-chosen lodge and lays
+// down a pathfinder route from the agent's current cell. Used when a skier
+// arrives at a lift base with no energy left: instead of queueing, they
+// walk home and despawn in onArrive(targetBuilding). Returns false (and
+// does nothing) if there are no lodges to route to — caller falls through
+// to the normal queueing behaviour. The path may be nil if the pathfinder
+// can't find a route; tickLocomote handles that with direct walk/ski.
+func (s *Simulation) routeHome(agent *world.Agent) bool {
+	w := s.World
+	if len(w.Buildings) == 0 {
+		return false
+	}
+	lodge := w.Buildings[s.Rng.Intn(len(w.Buildings))]
+	agent.TargetID = lodge.ID
+	startCell := [2]int{int(agent.Pos[0] / CellSize), int(agent.Pos[2] / CellSize)}
+	if path := s.Pathfinder.FindPath(startCell, lodge.Pos); path != nil {
+		agent.Path = path
+		agent.PathIdx = 0
+	}
+	return true
 }
 
 // targetKind discriminates an Agent.TargetID lookup result.

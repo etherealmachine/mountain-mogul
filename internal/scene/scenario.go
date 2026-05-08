@@ -96,7 +96,8 @@ type Scenario struct {
 	app             *engine.App
 	world           *world.World
 	sim             *sim.Simulation
-	menuBar         *ui.MenuBar
+	toolBar         *ui.MenuBar // bottom-of-screen tool palette
+	topBar          *ui.TopBar  // resort-management HUD strip
 	escapeMenu      *EscapeMenu
 	toolButtons     map[toolMode]*ui.Button
 	activeTool      toolMode
@@ -108,8 +109,6 @@ type Scenario struct {
 	followAgentID   uint64 // 0 = free camera; >0 = ID of followed skier
 	debugSteering   bool   // F3: render steering forces on the followed skier
 	paused          bool
-	pauseBtn        *ui.Button
-	speedBtns       []*ui.Button // index aligned with speedOptions
 	popup           *ui.Window
 	saveAllowed     bool   // false in testbed mode; gates the Save prompt
 	saveName        string // last name used for Save; pre-fills the prompt next time
@@ -136,8 +135,11 @@ const (
 	trackMaxPoints  = 6000 // hard cap; old points dropped when exceeded
 )
 
-// speedOptions lists the time-scale presets shown in the menu bar.
-var speedOptions = []float64{1, 5, 10}
+// speedOptions lists the time-scale presets shown in the top bar.
+// 1× is real-time, 2× and 4× are the two fast-forward steps. Pause is its
+// own button — not in this list.
+var speedOptions = []float64{1, 2, 4}
+
 
 // NewScenarioFromFile creates a Scenario that loads its initial world from
 // `path`. Used for both New Game (asset scenarios) and Load Game (named
@@ -208,40 +210,88 @@ func (s *Scenario) Init(app *engine.App) error {
 		s.escapeMenu = NewEscapeMenu(app, nil, nil)
 	}
 
-	// Build menu bar
+	// Bottom tool bar — palette of construction tools, centred along the
+	// bottom edge. Y is set each frame in Update() based on the current
+	// screen height. Tall enough to fit a 24-px icon plus a label row.
+	const toolBarH = float32(60)
 	s.toolButtons = make(map[toolMode]*ui.Button)
-	s.menuBar = ui.NewMenuBar(0, render.GlyphH+10)
-	s.toolButtons[toolBuilding] = s.menuBar.AddButton("Build Lodge", func() { s.setTool(toolBuilding) })
-	s.toolButtons[toolLiftBase] = s.menuBar.AddButton("Place Lift", func() { s.setTool(toolLiftBase) })
-	s.toolButtons[toolGlade] = s.menuBar.AddButton("Glade", func() { s.setTool(toolGlade) })
-	s.toolButtons[toolRemove] = s.menuBar.AddButton("Remove", func() { s.setTool(toolRemove) })
+	s.toolBar = ui.NewMenuBar(0, toolBarH)
+	s.toolBar.Centered = true
+	s.toolButtons[toolBuilding] = s.toolBar.AddIconButton(render.IconHouse, "Lodge", func() { s.setTool(toolBuilding) })
+	s.toolButtons[toolLiftBase] = s.toolBar.AddIconButton(render.IconCableCar, "Lift", func() { s.setTool(toolLiftBase) })
+	s.toolButtons[toolGlade] = s.toolBar.AddIconButton(render.IconAxe, "Glade", func() { s.setTool(toolGlade) })
+	s.toolButtons[toolRemove] = s.toolBar.AddIconButton(render.IconTrash, "Remove", func() { s.setTool(toolRemove) })
 	if s.rebuild != nil {
-		s.menuBar.AddButton("New Seed", func() {
+		s.toolBar.AddButton("New Seed", func() {
 			s.restartWithSeed(rand.Int63n(1_000_000))
 		})
 	}
 
-	// Speed / pause controls — right-aligned. The menu bar packs right-buttons
-	// right-to-left in insertion order, so insert Pause first to make it the
-	// leftmost of the cluster: [Pause] [1x] [5x] [10x] [right edge].
-	s.pauseBtn = s.menuBar.AddRightButton("Pause", func() {
-		s.paused = !s.paused
-		s.syncSpeedButtons()
-	})
-	s.speedBtns = make([]*ui.Button, len(speedOptions))
+	// Top resort-management bar — stats / date / weather / speed / settings.
+	// Three text rows on the left at 26 px glyph height + padding need ~90 px;
+	// the speed cluster wants icon + label which also lands in that range.
+	const topBarH = float32(96)
+	s.topBar = ui.NewTopBar(topBarH)
+	s.topBar.GetCash = func() int { return s.world.Cash }
+	s.topBar.GetGuests = func() int { return len(s.world.Agents) }
+	s.topBar.GetHappiness = func() float32 { return resortHappiness(s.world) }
+	s.topBar.GetDate = func() (int, string, int) {
+		d := sim.CalendarAt(s.sim.SimTime)
+		return d.Day, d.Month, d.Year
+	}
+	s.topBar.GetWeather = func() (ui.WeatherKind, ui.WeatherKind, int) {
+		ws := sim.WeatherAt(s.sim.SimTime)
+		return weatherToUI(ws.Now), weatherToUI(ws.Next), ws.TempF
+	}
+
+	onSpeed := make([]func(), len(speedOptions))
 	for i, mult := range speedOptions {
 		mult := mult
 		idx := i
-		label := fmt.Sprintf("%.0fx", mult)
-		s.speedBtns[idx] = s.menuBar.AddRightButton(label, func() {
+		onSpeed[idx] = func() {
 			s.sim.TimeScale = mult
 			s.paused = false
 			s.syncSpeedButtons()
-		})
+		}
 	}
+	s.topBar.SetSpeedControls(
+		func() {
+			s.paused = !s.paused
+			s.syncSpeedButtons()
+		},
+		onSpeed,
+		func() { s.escapeMenu.Toggle() },
+	)
 	s.syncSpeedButtons()
 
 	return nil
+}
+
+// weatherToUI maps the sim-side weather enum to the UI-side enum. The two
+// packages can't import each other so the scene does the translation.
+func weatherToUI(w sim.WeatherKind) ui.WeatherKind {
+	switch w {
+	case sim.WeatherSunny:
+		return ui.WKSunny
+	case sim.WeatherCloudy:
+		return ui.WKCloudy
+	case sim.WeatherSnowing:
+		return ui.WKSnow
+	case sim.WeatherStormy:
+		return ui.WKStorm
+	}
+	return ui.WKSunny
+}
+
+// resortHappiness is a placeholder readout for the top-bar happiness bar.
+// Stays at 0.80 today; the eventual model will derive this from per-agent
+// satisfaction (lift waits, terrain match, etc.). Wired up to a function
+// rather than a constant so swapping in the real signal is a one-line change.
+func resortHappiness(w *world.World) float32 {
+	if w == nil {
+		return 0.0
+	}
+	return 0.80
 }
 
 // installWorld swaps in a new world and rebuilds renderer state. Tears down
@@ -330,14 +380,23 @@ func (s *Scenario) restartWithSeed(seed int64) {
 	s.setToast(fmt.Sprintf("Restarted with seed=%d", seed))
 }
 
-// syncSpeedButtons highlights the active speed/pause button.
+// syncSpeedButtons highlights the active speed/pause button on the top bar.
 func (s *Scenario) syncSpeedButtons() {
-	for i, btn := range s.speedBtns {
-		btn.SetActive(!s.paused && s.sim.TimeScale == speedOptions[i])
+	if s.topBar == nil {
+		return
 	}
-	if s.pauseBtn != nil {
-		s.pauseBtn.SetActive(s.paused)
+	if s.paused {
+		s.topBar.SetPauseActive(true)
+		return
 	}
+	active := -1
+	for i, mult := range speedOptions {
+		if s.sim.TimeScale == mult {
+			active = i
+			break
+		}
+	}
+	s.topBar.SetSpeedActive(active)
 }
 
 func (s *Scenario) Update(dt float64) {
@@ -418,8 +477,11 @@ func (s *Scenario) Update(dt float64) {
 		r.Camera.Recalculate()
 	}
 
-	// Menu bar input
-	s.menuBar.HandleInput(inp, float32(r.ScreenWidth()), float32(r.ScreenHeight()))
+	// Position the bottom tool bar against the current screen height before
+	// it handles input — so its hit-tests use the live Y.
+	s.toolBar.Y = float32(r.ScreenHeight()) - s.toolBar.H
+	s.toolBar.HandleInput(inp, float32(r.ScreenWidth()), float32(r.ScreenHeight()))
+	s.topBar.HandleInput(inp, float32(r.ScreenWidth()))
 
 	// Camera pan with right-click drag
 	if inp.RightClick {
@@ -478,7 +540,7 @@ func (s *Scenario) Update(dt float64) {
 	}
 
 	// Track terrain cell under mouse for brush preview.
-	if !s.menuBar.ContainsY(inp.MousePos[1]) {
+	if !s.barsContain(inp.MousePos[1]) {
 		gx, gz := screenToCell(r.Camera, s.world.Terrain, inp.MousePos)
 		s.hoverCell = [2]int{gx, gz}
 	} else {
@@ -499,7 +561,7 @@ func (s *Scenario) Update(dt float64) {
 
 	// World click / drag — glade supports held-down; placement tools use click-only.
 	clickConsumed := popupConsumed
-	if !clickConsumed && inp.LeftClick && s.activeTool == toolNone && !s.menuBar.ContainsY(inp.MousePos[1]) {
+	if !clickConsumed && inp.LeftClick && s.activeTool == toolNone && !s.barsContain(inp.MousePos[1]) {
 		// Skier pick takes priority over popups when no tool is active.
 		if a := s.pickAgent(r.Camera, inp.MousePos); a != nil {
 			s.followAgentID = a.ID
@@ -511,7 +573,7 @@ func (s *Scenario) Update(dt float64) {
 	}
 	if !clickConsumed {
 		clickOrHeld := inp.LeftClick || (inp.LeftHeld && s.activeTool == toolGlade)
-		if clickOrHeld && !s.menuBar.ContainsY(inp.MousePos[1]) {
+		if clickOrHeld && !s.barsContain(inp.MousePos[1]) {
 			gx, gz := s.hoverCell[0], s.hoverCell[1]
 			if s.world.Terrain.InBounds(gx, gz) {
 				if s.activeTool == toolNone && inp.LeftClick {
@@ -715,7 +777,9 @@ func (s *Scenario) Render(r *render.Renderer) {
 	r.ClearBrush()
 	r.ClearPerceptionCone()
 
-	drawables := []render.UIDrawable{s.menuBar}
+	// Re-anchor the bottom tool bar to the live screen height before draw.
+	s.toolBar.Y = float32(r.ScreenHeight()) - s.toolBar.H
+	drawables := []render.UIDrawable{s.topBar, s.toolBar}
 	if s.simSeed != 0 {
 		drawables = append(drawables, &seedLabel{seed: s.simSeed})
 	}
@@ -847,6 +911,18 @@ func (s *Scenario) cancelTool() {
 	s.app.Renderer.ClearGhostCable()
 	s.activeTool = toolNone
 	s.syncToolButtons()
+}
+
+// barsContain reports whether a screen Y is inside either the top HUD bar
+// or the bottom tool bar — i.e. should be excluded from world hit-testing.
+func (s *Scenario) barsContain(y float32) bool {
+	if s.topBar != nil && s.topBar.ContainsY(y) {
+		return true
+	}
+	if s.toolBar != nil && s.toolBar.ContainsY(y) {
+		return true
+	}
+	return false
 }
 
 // syncToolButtons updates the active state of all tool buttons to match activeTool.
@@ -1037,7 +1113,7 @@ func (f *followLabel) Draw(r *render.Renderer) {
 	w := float32(maxLen*render.GlyphAdvance + 2*padX)
 	boxH := float32(render.GlyphH*len(rows)+lineGap*(len(rows)-1)) + float32(2*padY)
 	x := (float32(r.ScreenWidth()) - w) / 2
-	y := float32(40)
+	y := float32(106) // sits just below the 96-px top HUD bar
 	r.DrawColorRect(x, y, w, boxH, mgl32.Vec4{0, 0, 0, 0.6})
 	if r.Font != nil {
 		col := mgl32.Vec4{1, 0.95, 0.1, 1}
@@ -1089,7 +1165,7 @@ func (sl *seedLabel) Draw(r *render.Renderer) {
 	const boxH = float32(render.GlyphH + 8)
 	boxW := float32(len(text)*render.GlyphAdvance + 16)
 	x := float32(r.ScreenWidth()) - boxW - 4
-	y := float32(render.GlyphH + 14) // just below the menu bar
+	y := float32(102) // just below the 96-px top HUD bar
 	textY := y + (boxH-float32(render.GlyphH))/2
 	r.DrawColorRect(x, y, boxW, boxH, mgl32.Vec4{0, 0, 0, 0.6})
 	if r.Font != nil {
@@ -1104,8 +1180,9 @@ type hintLabel struct {
 
 func (h *hintLabel) Draw(r *render.Renderer) {
 	const boxH = float32(render.GlyphH + 8)
+	const toolBarReserve = float32(60) // matches Scenario.toolBar.H
 	boxW := float32(len(h.text)*render.GlyphAdvance + 16)
-	y := float32(r.ScreenHeight()) - boxH - 4
+	y := float32(r.ScreenHeight()) - boxH - toolBarReserve - 6
 	textY := y + (boxH-float32(render.GlyphH))/2
 	r.DrawColorRect(4, y, boxW, boxH, mgl32.Vec4{0, 0, 0, 0.7})
 	if r.Font != nil {
@@ -1121,9 +1198,10 @@ type toastLabel struct {
 
 func (t *toastLabel) Draw(r *render.Renderer) {
 	const boxH = float32(render.GlyphH + 8)
+	const toolBarReserve = float32(60) // matches Scenario.toolBar.H
 	boxW := float32(len(t.text)*render.GlyphAdvance + 20)
 	x := (float32(r.ScreenWidth()) - boxW) / 2
-	y := float32(r.ScreenHeight()) - boxH - 30
+	y := float32(r.ScreenHeight()) - boxH - toolBarReserve - 30
 	textY := y + (boxH-float32(render.GlyphH))/2
 	r.DrawColorRect(x, y, boxW, boxH, mgl32.Vec4{0, 0, 0, 0.75})
 	if r.Font != nil {

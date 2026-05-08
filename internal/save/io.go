@@ -205,6 +205,7 @@ func worldToData(w *world.World) ScenarioData {
 			TargetID: a.TargetID,
 			OnLiftID: a.OnLiftID,
 			Queued:   a.Queued,
+			Energy:   a.Energy,
 		}
 	}
 
@@ -217,6 +218,7 @@ func worldToData(w *world.World) ScenarioData {
 		Buildings: buildings,
 		Lifts:     lifts,
 		Agents:    agents,
+		Cash:      w.Cash,
 	}
 }
 
@@ -242,6 +244,9 @@ func dataToWorld(data ScenarioData) *world.World {
 	}
 
 	w := world.NewWorld(t)
+	if data.Cash != 0 {
+		w.Cash = data.Cash
+	}
 
 	// Restore objects (no cross-references, fresh IDs are fine).
 	for _, od := range data.Objects {
@@ -295,6 +300,14 @@ func dataToWorld(data ScenarioData) *world.World {
 		} else {
 			id = w.NextID()
 		}
+		// Old saves (pre-Energy field) decode as 0; treat that as fresh so
+		// loaded agents don't immediately route home. The marginal case of
+		// a save captured at exactly Energy=0 just gets a second wind —
+		// acceptable trade for not needing a pointer-typed JSON field.
+		energy := ad.Energy
+		if energy <= 0 {
+			energy = 1.0
+		}
 		agent := &world.Agent{
 			ID:         id,
 			Pos:        mgl32.Vec3{ad.Pos[0], ad.Pos[1], ad.Pos[2]},
@@ -306,6 +319,7 @@ func dataToWorld(data ScenarioData) *world.World {
 			OnLiftID:   ad.OnLiftID,
 			Queued:     ad.Queued,
 			Confidence: 1.0,
+			Energy:     energy,
 		}
 		w.Agents = append(w.Agents, agent)
 	}
