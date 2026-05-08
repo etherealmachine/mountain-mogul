@@ -90,6 +90,13 @@ type SkierTraits struct {
 	ComfortSlope float32 // radians; steeper than this is uncomfortable
 	Aggression   float32 // 0..1; scales target speed up
 	SightRange   float32 // metres; perception cone length
+
+	// MinGapWidth is the narrowest passage (in metres) the skier will
+	// consider when the strategy layer enumerates gaps through an obstacle.
+	// Beginners want wide highways; advanced skiers will commit to threading
+	// tighter lines. Used by strategicChoosePath to filter candidate gaps
+	// before the random pick.
+	MinGapWidth float32
 }
 
 // TraitsFor returns sensible defaults for a skill level. Callers can mutate
@@ -104,6 +111,7 @@ func TraitsFor(level SkillLevel) SkierTraits {
 			ComfortSlope: 10 * math.Pi / 180,
 			Aggression:   0.2,
 			SightRange:   15,
+			MinGapWidth:  60,
 		}
 	case SkillIntermediate:
 		return SkierTraits{
@@ -113,6 +121,7 @@ func TraitsFor(level SkillLevel) SkierTraits {
 			ComfortSlope: 20 * math.Pi / 180,
 			Aggression:   0.5,
 			SightRange:   25,
+			MinGapWidth:  35,
 		}
 	default:
 		return SkierTraits{
@@ -122,6 +131,7 @@ func TraitsFor(level SkillLevel) SkierTraits {
 			ComfortSlope: 30 * math.Pi / 180,
 			Aggression:   0.8,
 			SightRange:   35,
+			MinGapWidth:  20,
 		}
 	}
 }
@@ -164,6 +174,13 @@ type Route struct {
 	LookaheadSlope   float32
 	LookaheadDensity float32
 	PeakDensity      float32
+
+	// TargetGap is the world-space center of a gap the strategy layer
+	// chose to thread through. Zero vector = no gap target (clear path or
+	// no qualifying gap), in which case the skier seeks GoalPos directly.
+	// When set, the steering layer uses TargetGap as the axis target until
+	// the skier passes its z (downhill) — then steering reverts to GoalPos.
+	TargetGap mgl32.Vec3
 }
 
 // =============================================================================

@@ -135,8 +135,9 @@ func (r *traceRecorder) AgentID() uint64 { return r.id }
 func (r *traceRecorder) Close() error    { return nil }
 
 func (r *traceRecorder) writeHeader() {
-	fmt.Fprintf(r.out, "  %-7s %-12s %-22s %5s %9s %-8s %4s %5s %-14s %6s\n",
-		"t", "activity", "pos(x,y,z)", "spd", "head→axis", "tech", "bal", "slope", "probe C/R/L", "dist")
+	fmt.Fprintf(r.out, "  %-7s %-12s %-22s %5s %9s %-8s %4s %5s %-14s %6s  %-25s  %-13s\n",
+		"t", "activity", "pos(x,y,z)", "spd", "head→axis", "tech", "bal", "slope", "probe C/R/L", "dist",
+		"strat[bias dens pk avoid]", "gap(x,z)")
 }
 
 func (r *traceRecorder) Record(f RecorderFrame) {
@@ -177,7 +178,11 @@ func (r *traceRecorder) Record(f RecorderFrame) {
 	headDev := wrapAngle(f.Heading - f.AxisHeading)
 	slopeDeg := math.Acos(math.Min(1, math.Max(-1, float64(f.SlopeCos)))) * 180 / math.Pi
 
-	fmt.Fprintf(r.out, "  %6.2f  %-12s (%6.1f,%5.1f,%6.1f) %5.2f %+7.2f° %-8s %4.2f %4.1f° %4.2f/%4.2f/%4.2f %6.1f\n",
+	gapStr := "      —      "
+	if f.TargetGap[0] != 0 || f.TargetGap[2] != 0 {
+		gapStr = fmt.Sprintf("(%5.0f,%5.0f)", f.TargetGap[0], f.TargetGap[2])
+	}
+	fmt.Fprintf(r.out, "  %6.2f  %-12s (%6.1f,%5.1f,%6.1f) %5.2f %+7.2f° %-8s %4.2f %4.1f° %4.2f/%4.2f/%4.2f %6.1f  %+0.2f %4.2f %4.2f %+d        %s\n",
 		f.SimTime,
 		f.Activity,
 		f.Pos[0], f.Pos[1], f.Pos[2],
@@ -188,6 +193,8 @@ func (r *traceRecorder) Record(f RecorderFrame) {
 		slopeDeg,
 		f.ProbeC, f.ProbeR, f.ProbeL,
 		f.Dist,
+		f.StrategicBias, f.LookaheadDensity, f.PeakDensity, f.AvoidSide,
+		gapStr,
 	)
 }
 
