@@ -1,45 +1,61 @@
-// Lift station — base or top of a chairlift. Drawn in OpenSCAD-native
-// Z-up convention; the stl2obj converter rotates to the game's Y-up axis
-// at export time so this file reads naturally in the OpenSCAD preview.
-//
-// Origin is at the centre of the foundation, on the ground plane (z=0).
-// Bullwheel housing sits offset toward +Y so we can later orient the
-// model along the cable direction at placement time.
+// Lift station — simple surface-lift / fixed-grip bottom station.
+// Reference: ~/Downloads/lift.jpg (Norwegian T-bar bottom).
+// Conventions, units, and axis docs: see models-src/README.md.
 
-$fn = 16;  // segments per cylinder — keep low for game-suitable poly counts.
+$fn = 16;
+
+// ── Dimensions (metres) ────────────────────────────────────────────────
+column_w  = 0.30;  // 1 ft — narrow side, along cable axis (X)
+column_d  = 0.91;  // 3 ft — wide side, perpendicular to cable (Y)
+column_h  = 3.00;  // 10 ft — clears skiers underneath
+
+beam_thick = 0.30; // 1 ft thick (Z)
+beam_wide  = 0.91; // 3 ft wide (Y) — same profile as the column
+beam_len   = 3.50; // long enough to clear the bullwheel radius
+
+bw_dia    = 3.66;  // 12 ft — middle of the 10-15 ft real-world range
+bw_thick  = 0.30;  // 1 ft thick
+axle_len  = 0.20;  // short stub between beam underside and bullwheel top
+axle_r    = 0.18;
+
+// ── Geometry ───────────────────────────────────────────────────────────
+// Column: rises from origin in +Z. Origin is at the centre of its
+// ground footprint, on the Z=0 plane.
+module column() {
+    color("DimGray")
+        translate([0, 0, column_h / 2])
+            cube([column_w, column_d, column_h], center = true);
+}
+
+// Beam: extends from the top of the column toward the back (-X).
+// Bottom of the beam sits flush with the top of the column.
+module beam() {
+    color("LightSlateGray")
+        translate([-beam_len / 2, 0, column_h + beam_thick / 2])
+            cube([beam_len, beam_wide, beam_thick], center = true);
+}
+
+// Bullwheel: hangs from the underside of the beam at the -X end.
+// Axis along Z (vertical) → wheel is a horizontal disc.
+module bullwheel() {
+    bw_x = -beam_len + bw_dia / 2 - 0.10; // a touch inboard of the beam end
+    bw_z = column_h - axle_len - bw_thick / 2;
+
+    // Axle stub
+    color("DarkGray")
+        translate([bw_x, 0, column_h - axle_len / 2])
+            cylinder(h = axle_len, r = axle_r, center = true);
+
+    // Wheel
+    color("Goldenrod")
+        translate([bw_x, 0, bw_z])
+            cylinder(h = bw_thick, r = bw_dia / 2, center = true);
+}
 
 module lift_station() {
-    // Concrete pad
-    color("DimGray")
-        translate([0, 0, 0.6])
-            cube([6, 6, 1.2], center=true);
-
-    // Four corner support pillars
-    pillar_h = 4.0;
-    color("LightSlateGray")
-        for (sx = [-1, 1], sy = [-1, 1])
-            translate([sx * 2.2, sy * 2.2, 1.2 + pillar_h/2])
-                cube([0.6, 0.6, pillar_h], center=true);
-
-    // Roof slab (slightly oversized so it overhangs)
-    color("DarkSlateGray")
-        translate([0, 0, 1.2 + pillar_h + 0.25])
-            cube([6.2, 6.2, 0.5], center=true);
-
-    // Bullwheel housing — cylinder with axis along Y. Cable runs through it.
-    bw_z = 1.2 + pillar_h + 1.6;
-    bw_r = 1.4;
-    color("Goldenrod")
-        translate([0, 0, bw_z])
-            rotate([90, 0, 0])
-                cylinder(h=2.4, r=bw_r, center=true);
-
-    // Hub axle stubs poking out either side of the bullwheel
-    color("DarkGray")
-        for (sy = [-1, 1])
-            translate([0, sy * 1.4, bw_z])
-                rotate([90, 0, 0])
-                    cylinder(h=0.6, r=0.4, center=true);
+    column();
+    beam();
+    bullwheel();
 }
 
 lift_station();
