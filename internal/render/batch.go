@@ -32,15 +32,40 @@ const (
 )
 
 // Batch manages instanced rendering for a mesh type.
+//
+// Each Batch owns its own VAO so that two batches sharing the same Mesh
+// (e.g. a static batch and a ghost-preview batch of the same mesh ID) don't
+// fight over the mesh VAO's instance-attribute slots. The per-vertex attribs
+// are wired against mesh.VBO; the per-instance attribs against b.instanceVBO.
 type Batch struct {
 	mesh        *Mesh
 	textureID   uint32
+	vao         uint32
 	instanceVBO uint32
 	btype       batchType
 
 	staticInstances  []StaticInstance
 	dynamicInstances []DynamicInstance
 	dirty            bool
+}
+
+// bindVertexLayout wires the mesh's vertex attributes (locations 0..len(layout)-1)
+// onto the currently-bound VAO using mesh.VBO. The element buffer is also bound
+// so DrawElementsInstanced can index from it.
+func bindVertexLayout(mesh *Mesh) {
+	gl.BindBuffer(gl.ARRAY_BUFFER, mesh.VBO)
+	stride := 0
+	for _, s := range mesh.Layout {
+		stride += s
+	}
+	strideBytes := int32(stride * 4)
+	offset := 0
+	for i, size := range mesh.Layout {
+		gl.EnableVertexAttribArray(uint32(i))
+		gl.VertexAttribPointerWithOffset(uint32(i), int32(size), gl.FLOAT, false, strideBytes, uintptr(offset*4))
+		offset += size
+	}
+	gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, mesh.EBO)
 }
 
 // NewStaticBatch creates an instanced batch for static objects.
@@ -53,9 +78,11 @@ func NewStaticBatch(mesh *Mesh, texID uint32) *Batch {
 		dirty:     true,
 	}
 
+	gl.GenVertexArrays(1, &b.vao)
 	gl.GenBuffers(1, &b.instanceVBO)
 
-	gl.BindVertexArray(mesh.VAO)
+	gl.BindVertexArray(b.vao)
+	bindVertexLayout(mesh)
 	gl.BindBuffer(gl.ARRAY_BUFFER, b.instanceVBO)
 
 	stride := int32(unsafe.Sizeof(StaticInstance{}))
@@ -86,9 +113,11 @@ func NewDynamicBatch(mesh *Mesh, texID uint32) *Batch {
 		dirty:     true,
 	}
 
+	gl.GenVertexArrays(1, &b.vao)
 	gl.GenBuffers(1, &b.instanceVBO)
 
-	gl.BindVertexArray(mesh.VAO)
+	gl.BindVertexArray(b.vao)
+	bindVertexLayout(mesh)
 	gl.BindBuffer(gl.ARRAY_BUFFER, b.instanceVBO)
 
 	stride := int32(unsafe.Sizeof(DynamicInstance{}))
@@ -113,12 +142,16 @@ func NewDynamicBatch(mesh *Mesh, texID uint32) *Batch {
 	return b
 }
 
-// Delete releases the instance VBO. The mesh and texture are owned externally
-// and are not deleted here.
+// Delete releases the batch's VAO and instance VBO. The mesh and texture are
+// owned externally and are not deleted here.
 func (b *Batch) Delete() {
 	if b.instanceVBO != 0 {
 		gl.DeleteBuffers(1, &b.instanceVBO)
 		b.instanceVBO = 0
+	}
+	if b.vao != 0 {
+		gl.DeleteVertexArrays(1, &b.vao)
+		b.vao = 0
 	}
 }
 
@@ -173,7 +206,7 @@ func (b *Batch) Draw() {
 	}
 
 	gl.BindTexture(gl.TEXTURE_2D, b.textureID)
-	gl.BindVertexArray(b.mesh.VAO)
+	gl.BindVertexArray(b.vao)
 	gl.DrawElementsInstanced(gl.TRIANGLES, b.mesh.IndexCount, gl.UNSIGNED_INT, nil, count)
 	gl.BindVertexArray(0)
 }

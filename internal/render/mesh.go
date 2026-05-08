@@ -21,15 +21,21 @@ const (
 )
 
 // Mesh wraps a GPU vertex/index buffer.
+//
+// Layout is retained so instance Batches can build their own VAOs that bind
+// the same per-vertex attributes — without that, two Batches sharing this
+// Mesh would fight over its VAO's instance-attribute slots and corrupt each
+// other's draw state.
 type Mesh struct {
 	VAO, VBO, EBO uint32
 	IndexCount    int32
+	Layout        []int // per-vertex attribute sizes in floats
 }
 
 // NewMesh creates a GPU mesh from vertex and index data.
 // layout is the vertex attribute sizes in floats, e.g. [3,3,2] for pos/normal/uv.
 func NewMesh(vertices []float32, indices []uint32, layout []int) *Mesh {
-	m := &Mesh{IndexCount: int32(len(indices))}
+	m := &Mesh{IndexCount: int32(len(indices)), Layout: layout}
 
 	gl.GenVertexArrays(1, &m.VAO)
 	gl.GenBuffers(1, &m.VBO)
