@@ -120,6 +120,7 @@ const (
 	strategicGapLateralStep      = 5.0   // m; sample spacing across the lateral range
 	strategicGapDensityThreshold = 0.15  // cell density above which a sample is "blocked"
 	gapCommitLateralM            = 10.0  // m; once within this lateral distance of the chosen gap.x, switch axis from "head AT gap entry" to "head DOWN the gap line" — i.e. straighten out and descend through the gap rather than keep traversing across it. Smaller threshold = skier traverses harder to reach gap.x before straightening, so they pass closer to gap CENTER. Too small means heading rotation lag overshoots the gap.
+	gapClearBufferM              = 80.0  // m; how far past the gap.z the commit stays active. Patches extend in z (a circular grove is ~120 m tall on this scan); if we drop the gap override the moment skier_z passes gap.z, local probes catch the patch's southern half and re-engage avoid.Side, dragging the skier sideways into the corridor walls. Hold until clearly past.
 
 	// Confidence drift model. Confidence is a per-agent multiplier on
 	// target speed that varies with forward outlook + recent state; it
@@ -257,6 +258,14 @@ type MotorCmd struct {
 	// maxAngularSpeed default. Techniques use this to express that a carved
 	// arc shouldn't rotate as fast as an emergency hockey stop.
 	MaxTurnRate float32
+	// FlatSkis suppresses the muEdge perpendicular-friction term in the
+	// physics step. Edge-friction models the energy cost of gripping the
+	// slope during a carved turn — but a TechStraight glide rides the skis
+	// flat, with no carving and no edge engagement, so the only friction
+	// should be muBase + drag. Without this, a committed cross-slope
+	// traverse decelerates as if the skier were carving the whole way,
+	// losing speed they have no real-world reason to lose.
+	FlatSkis bool
 }
 
 // =============================================================================
@@ -309,14 +318,15 @@ func (s *Simulation) tickSkier(a *world.Agent, target mgl32.Vec3, dt float64) bo
 			axisDir = mgl32.Vec2{delta[0] / axisDist, delta[2] / axisDist}
 		}
 		outlook := strategicScan(s.World.Terrain, a.Pos, axisDir, axisDist, s.Rng)
-		// Re-pick a gap only when the existing one is consumed (skier has
-		// passed it in z) or absent. Holding the choice across refreshes is
-		// what makes the skier "commit" to a path — re-rolling every 2 s
-		// just averages the random pick out and the skier follows whichever
-		// happens to be closer most often.
+		// Re-pick a gap only when the existing one is consumed (skier is
+		// well past it — gap.z + gapClearBufferM) or absent. Holding the
+		// choice across refreshes is what makes the skier "commit" to a
+		// path; the buffer past gap.z keeps the commit alive while the
+		// skier is still in the patch's z range so local tree-avoid
+		// probes can't yank them sideways into the corridor walls.
 		gap := a.Route.TargetGap
 		gapSet := gap[0] != 0 || gap[2] != 0
-		if !gapSet || gap[2] <= a.Pos[2] {
+		if !gapSet || gap[2]+gapClearBufferM <= a.Pos[2] {
 			gap = strategicChoosePath(s.World.Terrain, a.Pos, axisDir, axisDist, a.Traits.MinGapWidth, s.Rng)
 		}
 		a.Route = ai.Route{
@@ -417,9 +427,7 @@ func perceive(t *world.Terrain, a *world.Agent) Perception {
 	slopeAhead := float32(math.Acos(math.Min(1, math.Max(-1, float64(nAhead[1])))))
 
 	// Pick the axis target: a chosen gap (if the strategy layer found one
-	// AND the skier hasn't passed its z yet) overrides the lodge/lift goal.
-	// Once past the gap (skier_z > gap_z under "downhill = +z" convention)
-	// the override drops and the skier resumes seeking the final goal.
+	// AND the skier hasn't cleared it yet) overrides the lodge/lift goal.
 	//
 	// Two phases while committed:
 	//   FAR (laterally distant from gap.x): aim AT the gap entry. Axis is
@@ -431,11 +439,17 @@ func perceive(t *world.Terrain, a *world.Agent) Perception {
 	// out and head downhill" — a single phase (axis = gap entry) leaves
 	// the skier perpendicular-ish to fall line right at the obstacle, where
 	// gravity stops contributing along velocity and they slow to a crawl.
+	//
+	// The commit holds until the skier is well past the gap (gap.z +
+	// gapClearBufferM) — patches extend in z, and dropping the override
+	// the moment skier_z crosses gap.z lets local tree-avoidance probes
+	// catch the patch's southern half and yank the axis sideways into
+	// the corridor walls.
 	axisTarget := a.Route.GoalPos
 	hasGap := false
 	gap := a.Route.TargetGap
 	if gap[0] != 0 || gap[2] != 0 {
-		if gap[2] > pos[2] {
+		if gap[2]+gapClearBufferM > pos[2] {
 			lateralErr := gap[0] - pos[0]
 			if lateralErr < 0 {
 				lateralErr = -lateralErr
@@ -856,29 +870,42 @@ func steer(traits ai.SkierTraits, avoid ai.AvoidState, perc Perception, dt float
 	// to lean on and the per-tick bend alternates with the carve cycle —
 	// netting zero. Real skiers pick a side at the patch boundary, commit,
 	// and ride it out. We approximate that with a tiny state machine.
-	maxSev := float32(0)
-	for _, h := range perc.Trees {
-		if h.Severity > maxSev {
-			maxSev = h.Severity
-		}
-	}
-	if maxSev > 0.3 {
+	// Tactical tree avoidance is suppressed while a strategic gap commit
+	// is active: the chosen gap IS the plan, and the local commit-a-side
+	// mechanism would (a) bend the axis off the gap line during the
+	// approach and (b) leave a stale avoid.Side after the skier passes
+	// the gap that pulls them sideways into the corridor walls. We also
+	// reset any pre-existing commit so it doesn't reactivate the moment
+	// HasGapTarget drops.
+	if perc.HasGapTarget {
+		avoid.Side = 0
 		avoid.Clear = 0
-		if avoid.Side == 0 {
-			hx := float32(math.Sin(float64(perc.Heading)))
-			hz := float32(math.Cos(float64(perc.Heading)))
-			avoid.Side = pickAvoidSide(perc.Trees, hx, hz, rng)
-		}
-		// Bend factor 1.0 means a fully-dense hazard rotates the axis ~57°
-		// off the fall line — strong enough to skirt a wide circular patch
-		// once committed early. Lower factors (0.35-0.6) failed to pull the
-		// skier clear of a 60 m-radius grove in headless tests.
-		bend := 1.0 * maxSev
-		axisHeading = wrapAngle(axisHeading + float32(avoid.Side)*bend)
 	} else {
-		avoid.Clear += dt
-		if avoid.Clear > 1.0 {
-			avoid.Side = 0
+		maxSev := float32(0)
+		for _, h := range perc.Trees {
+			if h.Severity > maxSev {
+				maxSev = h.Severity
+			}
+		}
+		if maxSev > 0.3 {
+			avoid.Clear = 0
+			if avoid.Side == 0 {
+				hx := float32(math.Sin(float64(perc.Heading)))
+				hz := float32(math.Cos(float64(perc.Heading)))
+				avoid.Side = pickAvoidSide(perc.Trees, hx, hz, rng)
+			}
+			// Bend factor 1.0 means a fully-dense hazard rotates the axis
+			// ~57° off the fall line — strong enough to skirt a wide
+			// circular patch once committed early. Lower factors (0.35-0.6)
+			// failed to pull the skier clear of a 60 m-radius grove in
+			// headless tests.
+			bend := 1.0 * maxSev
+			axisHeading = wrapAngle(axisHeading + float32(avoid.Side)*bend)
+		} else {
+			avoid.Clear += dt
+			if avoid.Clear > 1.0 {
+				avoid.Side = 0
+			}
 		}
 	}
 
@@ -1065,7 +1092,7 @@ func selectTechnique(traits ai.SkierTraits, prev ai.MotorState, intent Intent, p
 
 	switch tech {
 	case ai.TechStraight:
-		return MotorCmd{Heading: intent.AxisHeading, Scrub: 0, BalanceCost: 0}, next
+		return MotorCmd{Heading: intent.AxisHeading, Scrub: 0, BalanceCost: 0, FlatSkis: true}, next
 
 	case ai.TechPizza:
 		// Wedge: heading on axis, constant scrub. Higher balance cost than
@@ -1355,9 +1382,13 @@ func applyMotor(t *world.Terrain, a *world.Agent, cmd MotorCmd, perc Perception,
 	}
 
 	speed := float64(a.Speed)
+	edgeFriction := muEdge * gravity * cosTheta * sinOffAbs
+	if cmd.FlatSkis {
+		edgeFriction = 0
+	}
 	accel := gravity*sinTheta*cosOff -
 		muBase*gravity*cosTheta -
-		muEdge*gravity*cosTheta*sinOffAbs -
+		edgeFriction -
 		kDrag*speed*speed -
 		float64(cmd.Scrub)
 	a.Speed = float32(math.Max(0, speed+accel*dt))
