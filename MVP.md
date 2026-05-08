@@ -595,3 +595,134 @@ fields fall back to fresh IDs (legacy compatibility).
 ---
 
 ## Next Steps
+
+A laundry list, no particular priority order. Group headings are for
+readability; items inside a group are not necessarily related.
+
+### Art & 3D models
+- **Lift towers** — replace the procedural T-shape mesh in
+  `GenerateTowerMesh` with a real OBJ.
+- **Lift base + top stations** — `lift_station.obj` is a placeholder cube;
+  needs a proper bullwheel housing.
+- **Chair** — `NewChairMesh` is procedural (suspension bar + seat + bar
+  rest); load a real OBJ instead, with separate variants for fixed-grip
+  and detachable.
+- **Skier** — `agent.obj` is a primitive humanoid; needs a proper skier
+  with skis, poles, jacket.
+- **Lodge** — only `building.obj` exists today and it's generic.
+- **Environmental dressing** — downed trees, more tree variants
+  (deciduous, dead snags, saplings), plants/shrubs, rock variants. The
+  current set is three pine OBJs + one rock + one stump.
+
+### Animation pipeline
+- Decide how to bring animated models into our hand-rolled OpenGL engine.
+  Options to evaluate:
+  - **OBJ + procedural animation** (current approach for skier limbs in
+    `dynamic.vert`) — cheap, but every motion has to be hand-coded as a
+    vertex-shader expression.
+  - **glTF skinned meshes** with a pure-Go loader — supports baked
+    animation clips, but needs joint matrices uploaded as a uniform array
+    and a skinning vertex shader.
+  - **Vertex-baked keyframes** — export each frame as a separate mesh,
+    interpolate between in the vertex shader. Heavyweight per-vertex but
+    no skeleton math.
+  - **MD2-style frame-blend** — blend two pose meshes with a `t` uniform.
+    Simple, surprisingly serviceable for stylised low-poly.
+  Skiers, chairs (loading bounce), lift towers (idle wobble?), and
+  trees (wind sway?) all want different cost/quality tradeoffs.
+
+### Placement UX
+- **Generic ghost preview** — every placement tool needs a translucent
+  preview at the hover cell. The lift tool already has one; lodge,
+  environmental objects, and future buildings need the same. Lift in
+  `scenario.go updateLiftGhost` over a generic `ghostPlacement` system.
+- **Lodge ghost preview** — currently the lodge tool just plops on click
+  with no preview at all.
+
+### Lifts
+- **Multiple lift types** — open the place-lift tool into a pop-up that
+  offers variants. Start with two:
+  - Fixed-grip 2-person (current behaviour)
+  - Detachable high-speed 4-person (faster, higher capacity, more
+    expensive, larger chair model)
+- **Surface lifts** (magic carpet, T-bar, rope tow) for beginner terrain
+  — DESIGN.md calls these out explicitly.
+- **Specialty transport** (CAT skiing, helipads) — DESIGN.md item, way out.
+
+### Economy
+- **Building costs** — every placement costs cash. Lifts price by length
+  (base fee + per-tower cost); lodges flat-rate; future detachable lifts
+  scale higher. Block placement when `Cash < cost`.
+- **Lift-ticket revenue** — skiers pay to board a lift. Per-lift price
+  configurable; agents track a pocket-money budget that drains per
+  boarding.
+- **Skier despawn on broke OR exhausted** — current despawn is energy-
+  only. Add money-based despawn so a guest who ran out of cash heads
+  home. (Visual: skier walks toward the lodge and removes from world,
+  same as the existing low-energy path.)
+
+### Skier AI
+- **Tree avoidance still leaks** — skiers ski through tree cells more than
+  they should. The waypoint planner picks clear runs but tactical
+  overrides still drag them into trees on tight gaps.
+- **Skier-vs-skier avoidance** — agents currently ignore each other.
+  Need a soft repulsion force in the steering layer so they don't
+  occupy the same point.
+- **Falling** — verify the existing fall mechanic actually fires in
+  gameplay (`Balance` → `Fallen` → 4 s timeout). May need to be tuned up
+  so falls are visible. Skill-tier should affect fall probability.
+- **Skier-goal diversity** — DESIGN.md lists "hunt powder, shortest line,
+  après-ski, stay near lodge". Today every skier just loops lifts. Goal
+  variety needs a per-agent target picker driven by traits.
+
+### Following-skier UI
+The current follow HUD is debug-tier (perception probes, urgency,
+balance, route waypoint count). For gameplay it needs:
+- **Energy bar** + **money** prominently displayed.
+- **Current goal** ("riding lift A", "skiing run B", "going home").
+- **Trip history** — ribbon of past runs taken, total vertical, time
+  on mountain. Makes the skier feel like a real guest.
+- Move the diagnostic readouts behind an F-key debug toggle so they're
+  available but not always on.
+
+### Terrain visuals
+- The terrain shader works but feels flat. Things to try:
+  - Snow micro-variation noise (sparkle, subtle blue-shift in shadow)
+  - Wind-blown drift accumulation on lee slopes
+  - Better groomed-vs-wild contrast (corduroy texture? subtle stripes)
+  - Slope-based tinting beyond the existing overlay-mode toggle
+- Open question: how much of this should live in the heightmap mesh
+  vs. a separate decal/projector pass.
+
+### From DESIGN.md not yet captured above
+DESIGN.md scopes Mountain Mogul beyond the in-resort simulation.
+The next layer of features after the items above:
+
+- **Biomes affecting cost & difficulty** — Forested / Sub-Alpine / Alpine.
+  Today every cell is uniform snow; biome should drive construction cost
+  multiplier, max grooming quality, and skier injury-risk modifiers.
+- **Grooming & snowcats** — deploy a snowcat fleet to maintain corduroy.
+  Cells lose `Groomed` over time as skiers pass; ungroomed cells degrade
+  into moguls (slope/balance penalty). `muBase` should respond to grooming
+  state.
+- **Ski Patrol & injury events** — when an agent's fatigue crosses an
+  injury threshold the next tick has a roll for an injury, removing the
+  agent and dispatching a patrol unit. Slow patrol response → reputation
+  hit.
+- **Lift maintenance** — lifts have a wear value that drains under use.
+  Below threshold, breakdown probability per tick. A breakdown freezes
+  the lift until a maintenance crew arrives; reputation tanks during
+  outages.
+- **Real-estate economy** — land acquisition (high-interest loans),
+  zoning (parking/hotels/condos/retail), off-mountain revenue
+  (restaurants, bars). The "vertical integration" pillar.
+- **Resort reputation / star rating** — composite of lift waits, terrain
+  match, grooming, injury response. Drives visitor inflow rate at
+  lodges.
+- **Per-skier goals** ("hunt powder", "shortest line", "après", "stay
+  near lodge") that bias their target picker — already mentioned under
+  Skier AI but it's a DESIGN-level feature, not a tweak.
+- **Performance target: 5,000+ agents** — listed in DESIGN.md's visual
+  style section. Today the dynamic batch re-uploads every frame; at 5 K
+  agents we may need persistent-mapped buffers, frustum culling on the
+  agent batch, or LOD'd skier meshes.
