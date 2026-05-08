@@ -119,6 +119,7 @@ const (
 	strategicGapLateralRange     = 150.0 // m; ±range scanned around the axis
 	strategicGapLateralStep      = 5.0   // m; sample spacing across the lateral range
 	strategicGapDensityThreshold = 0.15  // cell density above which a sample is "blocked"
+	gapCommitLateralM            = 10.0  // m; once within this lateral distance of the chosen gap.x, switch axis from "head AT gap entry" to "head DOWN the gap line" — i.e. straighten out and descend through the gap rather than keep traversing across it. Smaller threshold = skier traverses harder to reach gap.x before straightening, so they pass closer to gap CENTER. Too small means heading rotation lag overshoots the gap.
 
 	// Confidence drift model. Confidence is a per-agent multiplier on
 	// target speed that varies with forward outlook + recent state; it
@@ -419,14 +420,33 @@ func perceive(t *world.Terrain, a *world.Agent) Perception {
 	// AND the skier hasn't passed its z yet) overrides the lodge/lift goal.
 	// Once past the gap (skier_z > gap_z under "downhill = +z" convention)
 	// the override drops and the skier resumes seeking the final goal.
+	//
+	// Two phases while committed:
+	//   FAR (laterally distant from gap.x): aim AT the gap entry. Axis is
+	//     steep — skier traverses aggressively to reach the gap line.
+	//   NEAR (within gapCommitLateralM of gap.x): aim DOWN the gap line —
+	//     (gap.x, GoalPos.z). Axis is mostly south with a tiny lateral
+	//     correction. Skier straightens out and descends through the gap.
+	// This is what the user described as "traverse hard, then straighten
+	// out and head downhill" — a single phase (axis = gap entry) leaves
+	// the skier perpendicular-ish to fall line right at the obstacle, where
+	// gravity stops contributing along velocity and they slow to a crawl.
 	axisTarget := a.Route.GoalPos
 	hasGap := false
 	gap := a.Route.TargetGap
 	if gap[0] != 0 || gap[2] != 0 {
-		// "Downhill of gap" means the gap's z is greater than the skier's
-		// (we ski +z) — so we steer toward the gap until we clear it.
 		if gap[2] > pos[2] {
-			axisTarget = gap
+			lateralErr := gap[0] - pos[0]
+			if lateralErr < 0 {
+				lateralErr = -lateralErr
+			}
+			if lateralErr < gapCommitLateralM {
+				// NEAR: line through gap. Skier descends through gap.x.
+				axisTarget = mgl32.Vec3{gap[0], 0, a.Route.GoalPos[2]}
+			} else {
+				// FAR: head at gap entry to traverse fast.
+				axisTarget = gap
+			}
 			hasGap = true
 		}
 	}
@@ -1122,6 +1142,25 @@ func pickTechnique(traits ai.SkierTraits, prev ai.MotorState, intent Intent, per
 	// clearly speed-overloaded.
 	if perc.SlopeAngle > traits.ComfortSlope*1.4 && perc.Speed > intent.Speed*1.3 && t.Has(ai.TechSideslip) {
 		return ai.TechSideslip
+	}
+
+	// Gap commit: when the strategy layer has chosen a passage, drop the
+	// S-turn carving and head straight at the gap. Linked turns swing the
+	// heading ±50° around the axis, and on a steep traverse (axis already
+	// 30°+ off the fall line) the "anti-traverse" phase ends up almost
+	// perpendicular to fall line — gravity does no work along velocity,
+	// friction wins, the skier crawls into the obstacle. Straight-line
+	// keeps the heading on axis so gravity contributes to forward motion.
+	//
+	// Placed ABOVE the overspeed branch on purpose: a committed traverse
+	// is already at a reduced fall-line component (the angled axis), so
+	// gravity acceleration is naturally throttled. Letting overspeed grab
+	// parallel back here would just re-introduce the perpendicular-swing
+	// problem we're trying to escape. Once the skier passes the gap z and
+	// HasGapTarget drops, the regular overspeed handler resumes and will
+	// brake normally if speed has drifted high.
+	if perc.HasGapTarget {
+		return ai.TechStraight
 	}
 
 	// Speed control: prefer parallel turns when going too fast; fall back to
