@@ -73,6 +73,33 @@ var Testbeds = []Testbed{
 				treePatch(20, 30, 6, 0.8).build()
 		},
 	},
+	{
+		// Trail divergence: side walls channel the skier, a center patch
+		// blocks the straight line, and the skier spawns 1 cell east of
+		// the corridor centerline. This puts the skier next to a ~130 m
+		// "easy" gap on the right (5 m of drift to clear the patch's east
+		// edge) and a ~40 m "hard" gap on the left (~125 m of drift to
+		// reach). Used to test whether skiers DELIBERATELY choose paths or
+		// merely avoid the nearest hazard.
+		//
+		// Layout (40 cells wide × 50 tall):
+		//   walls at x=[3,4]   (world  30–50)
+		//   walls at x=[35,36] (world 350–370)
+		//   patch at (cx=15, cz=25, r=6) → x=[90,220), z=[190,320)
+		//   skier at (gx=21, gz=1) → world (215, 5), 1 cell east of axis
+		//   lodge at (gx=21, gz=48)
+		Name: "Trail diverge, offset skier east, intermediate",
+		Seed: 1,
+		Build: func(_ *rand.Rand) *world.World {
+			return scene(40, 50).slope(15).
+				lodgeAt(21, 48).
+				treeRect(3, 5, 4, 45, 0.8).    // left wall
+				treeRect(35, 5, 36, 45, 0.8).  // right wall
+				treePatch(15, 25, 6, 0.8).     // center obstacle (off-axis west)
+				skierAt(21, 1, ai.SkillIntermediate).
+				build()
+		},
+	},
 }
 
 // FindTestbed returns the testbed whose Name starts with `prefix`
@@ -259,6 +286,22 @@ func (b *builder) treePatch(cx, cz, radius int, density float32) *builder {
 			dx := x - cx
 			dz := z - cz
 			if dx*dx+dz*dz > radius*radius {
+				continue
+			}
+			t.Cells[x][z].TreeDensity = density
+		}
+	}
+	return b
+}
+
+// treeRect stamps a rectangular grove [x1, x2] × [z1, z2] (inclusive) at
+// the given density. Used for trail walls / corridors. Density is set
+// absolutely.
+func (b *builder) treeRect(x1, z1, x2, z2 int, density float32) *builder {
+	t := b.w.Terrain
+	for x := x1; x <= x2; x++ {
+		for z := z1; z <= z2; z++ {
+			if !t.InBounds(x, z) {
 				continue
 			}
 			t.Cells[x][z].TreeDensity = density
