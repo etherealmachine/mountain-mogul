@@ -641,18 +641,18 @@ func skierTarget(w *world.World, a *world.Agent) (mgl32.Vec3, bool) {
 	for _, lift := range w.Lifts {
 		if lift.ID == a.TargetID {
 			return mgl32.Vec3{
-				float32(lift.Base[0]) * cellSize,
+				(float32(lift.Base[0]) + 0.5) * cellSize,
 				w.Terrain.ElevationAt(lift.Base[0], lift.Base[1]),
-				float32(lift.Base[1]) * cellSize,
+				(float32(lift.Base[1]) + 0.5) * cellSize,
 			}, true
 		}
 	}
 	for _, b := range w.Buildings {
 		if b.ID == a.TargetID {
 			return mgl32.Vec3{
-				float32(b.Pos[0]) * cellSize,
+				(float32(b.Pos[0]) + 0.5) * cellSize,
 				w.Terrain.ElevationAt(b.Pos[0], b.Pos[1]),
-				float32(b.Pos[1]) * cellSize,
+				(float32(b.Pos[1]) + 0.5) * cellSize,
 			}, true
 		}
 	}

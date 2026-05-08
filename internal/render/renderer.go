@@ -585,8 +585,8 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 		if !ok {
 			continue
 		}
-		x := float32(obj.Pos[0]) * cellSize
-		z := float32(obj.Pos[1]) * cellSize
+		x := (float32(obj.Pos[0]) + 0.5) * cellSize
+		z := (float32(obj.Pos[1]) + 0.5) * cellSize
 		y := w.Terrain.ElevationAt(obj.Pos[0], obj.Pos[1])
 		t := mgl32.Translate3D(x, y, z).Mul4(mgl32.HomogRotate3DY(obj.Rotation))
 		batch.AddStatic(t, mgl32.Vec3{1, 1, 1})
@@ -598,8 +598,8 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 		if !ok {
 			continue
 		}
-		x := float32(bldg.Pos[0]) * cellSize
-		z := float32(bldg.Pos[1]) * cellSize
+		x := (float32(bldg.Pos[0]) + 0.5) * cellSize
+		z := (float32(bldg.Pos[1]) + 0.5) * cellSize
 		y := w.Terrain.ElevationAt(bldg.Pos[0], bldg.Pos[1])
 		t := mgl32.Translate3D(x, y, z).Mul4(mgl32.HomogRotate3DY(bldg.Rotation))
 		batch.AddStatic(t, mgl32.Vec3{1, 1, 1})
@@ -609,8 +609,8 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 	if stationBatch, ok := r.staticBatches[MeshLiftStation]; ok {
 		for _, lift := range w.Lifts {
 			for _, cell := range [][2]int{lift.Base, lift.Top} {
-				x := float32(cell[0]) * cellSize
-				z := float32(cell[1]) * cellSize
+				x := (float32(cell[0]) + 0.5) * cellSize
+				z := (float32(cell[1]) + 0.5) * cellSize
 				y := w.Terrain.ElevationAt(cell[0], cell[1])
 				t := mgl32.Translate3D(x, y, z)
 				stationBatch.AddStatic(t, mgl32.Vec3{1, 1, 1})
@@ -671,10 +671,10 @@ func GenerateTowerMesh(lift *world.Lift, t *world.Terrain) *Mesh {
 	const barHalf = world.CrossbarHalf
 	const barThick = float32(0.3)
 
-	bx := float32(lift.Base[0]) * cellSize
-	bz := float32(lift.Base[1]) * cellSize
-	tx := float32(lift.Top[0]) * cellSize
-	tz := float32(lift.Top[1]) * cellSize
+	bx := (float32(lift.Base[0]) + 0.5) * cellSize
+	bz := (float32(lift.Base[1]) + 0.5) * cellSize
+	tx := (float32(lift.Top[0]) + 0.5) * cellSize
+	tz := (float32(lift.Top[1]) + 0.5) * cellSize
 	dx := tx - bx
 	dz := tz - bz
 	length := float32(math.Sqrt(float64(dx*dx + dz*dz)))
@@ -759,10 +759,10 @@ func generateCableMesh(lift *world.Lift, t *world.Terrain, perpOff float32) *Mes
 	const cableWidth = float32(0.15)
 	const steps = 30
 
-	bx := float32(lift.Base[0]) * cellSize
-	bz := float32(lift.Base[1]) * cellSize
-	tx := float32(lift.Top[0]) * cellSize
-	tz := float32(lift.Top[1]) * cellSize
+	bx := (float32(lift.Base[0]) + 0.5) * cellSize
+	bz := (float32(lift.Base[1]) + 0.5) * cellSize
+	tx := (float32(lift.Top[0]) + 0.5) * cellSize
+	tz := (float32(lift.Top[1]) + 0.5) * cellSize
 	dx := tx - bx
 	dz := tz - bz
 	length := float32(math.Sqrt(float64(dx*dx + dz*dz)))

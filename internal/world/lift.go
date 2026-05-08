@@ -23,12 +23,20 @@ type Chair struct {
 
 // ChairPos returns the world-space position and heading for a chair at the given
 // progress value on the given lift. Used by both simulation and renderer.
+//
+// Base/Top are cell indices and resolve to cell-CENTER world positions,
+// matching the convention used by the agent target-resolution code
+// (resolveTarget, pickTopTarget). Cell-edge positioning here used to
+// place the chair line 5 m offset from where the agent walked to queue,
+// producing a "loop near the lift, never board" behaviour as the agent
+// hovered around the queue point but the boarding handoff happened at
+// the chair's actual position.
 func (l *Lift) ChairPos(progress float32, t *Terrain) (mgl32.Vec3, float32) {
 	const cellSize = float32(10.0)
-	bx := float32(l.Base[0]) * cellSize
-	bz := float32(l.Base[1]) * cellSize
-	tx := float32(l.Top[0]) * cellSize
-	tz := float32(l.Top[1]) * cellSize
+	bx := (float32(l.Base[0]) + 0.5) * cellSize
+	bz := (float32(l.Base[1]) + 0.5) * cellSize
+	tx := (float32(l.Top[0]) + 0.5) * cellSize
+	tz := (float32(l.Top[1]) + 0.5) * cellSize
 	dx := tx - bx
 	dz := tz - bz
 	length := float32(math.Sqrt(float64(dx*dx + dz*dz)))

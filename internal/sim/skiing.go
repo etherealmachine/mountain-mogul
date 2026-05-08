@@ -507,36 +507,59 @@ func perceive(t *world.Terrain, a *world.Agent) Perception {
 }
 
 // findClearCell spiral-searches outward from the agent's current cell for
-// the nearest grid cell with TreeDensity below clearCellDensity. Returns the
-// cell coordinate and true on success; false if nothing within
-// clearSearchRadius qualifies. Used by the walking-escape branch in
-// tickSkier when the skier has been stuck in trees too long.
+// a clear grid cell (TreeDensity < clearCellDensity), preferring cells
+// that are DOWNHILL of the agent's current position. Returns the cell
+// coordinate and true on success; false if nothing within
+// clearSearchRadius qualifies.
 //
-// Search pattern: rings of increasing Chebyshev distance from the centre.
-// Within each ring, prefer cells closer to the fall-line (lower Y) — but
-// since the testbed-scale slope is uniform downhill, this falls out
-// naturally from the iteration order (we visit -dz before +dz at small dz,
-// which on a "south is downhill" slope tends downhill first; close enough
-// for an escape heuristic).
+// Search pattern: expand rings of Chebyshev distance until we find at
+// least one clear cell strictly below the agent's current elevation,
+// then return the LOWEST clear cell seen so far. If no downhill clear
+// cell exists anywhere within radius, fall back to the lowest clear
+// cell of any elevation. The earlier "first hit wins" iteration order
+// systematically picked uphill+west cells (the (-dx, -dz) corner of
+// the ring) and produced the "ski toward trees, walk uphill, repeat"
+// loop the user reported.
 func findClearCell(t *world.Terrain, pos mgl32.Vec3) ([2]int, bool) {
 	cx := int(pos[0] / CellSize)
 	cz := int(pos[2] / CellSize)
+	if !t.InBounds(cx, cz) {
+		return [2]int{}, false
+	}
+	hereY := t.Cells[cx][cz].Elevation
+
+	bestX, bestZ := 0, 0
+	bestY := float32(math.Inf(1))
+	found := false
 	for r := 1; r <= clearSearchRadius; r++ {
-		// Iterate the ring of Chebyshev-distance r around (cx, cz).
 		for dx := -r; dx <= r; dx++ {
 			for dz := -r; dz <= r; dz++ {
 				if dx != -r && dx != r && dz != -r && dz != r {
-					continue // interior — already visited at smaller r
+					continue
 				}
 				x, z := cx+dx, cz+dz
 				if !t.InBounds(x, z) {
 					continue
 				}
-				if t.Cells[x][z].TreeDensity < clearCellDensity {
-					return [2]int{x, z}, true
+				if t.Cells[x][z].TreeDensity >= clearCellDensity {
+					continue
+				}
+				y := t.Cells[x][z].Elevation
+				if !found || y < bestY {
+					bestX, bestZ = x, z
+					bestY = y
+					found = true
 				}
 			}
 		}
+		// As soon as we have a clear cell that's actually downhill,
+		// commit. Otherwise keep widening the search.
+		if found && bestY < hereY {
+			return [2]int{bestX, bestZ}, true
+		}
+	}
+	if found {
+		return [2]int{bestX, bestZ}, true
 	}
 	return [2]int{}, false
 }
