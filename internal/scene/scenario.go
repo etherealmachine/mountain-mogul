@@ -498,11 +498,11 @@ func (s *Scenario) Init(app *engine.App) error {
 	}
 
 	// Glade-tool sliders. Default radius matches the previous fixed
-	// gladeRadius; thin caps at 10 % per click — beyond that the brush
-	// snowballs visibly while drag-painting and the player loses fine
-	// control over thinning.
+	// gladeRadius; Thin range 1–5 % per application keeps drag-painting
+	// gradual at the high end (~20 cells across a stand to fully clear)
+	// and lets the player do fine selective work at the low end.
 	s.gladeRadiusSlider = ui.NewVSlider(0, 0, 18, 200, 1, 30, float32(gladeRadius), "Radius")
-	s.gladeThinSlider = ui.NewVSlider(0, 0, 18, 200, 0, 10, 4, "Thin")
+	s.gladeThinSlider = ui.NewVSlider(0, 0, 18, 200, 1, 5, 2, "Thin")
 	s.lastGladeCell = [2]int{-1, -1}
 
 	onSpeed := make([]func(), len(speedOptions))
