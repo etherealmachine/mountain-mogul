@@ -13,6 +13,8 @@ type SceneResources struct {
 	terrainVBO    uint32
 	terrainWidth  int
 	terrainHeight int
+	terrainMinY   float32 // surface min/max Y (skirts excluded), drives topo shader
+	terrainMaxY   float32
 
 	liftUpCables   map[uint64]*Mesh
 	liftDownCables map[uint64]*Mesh

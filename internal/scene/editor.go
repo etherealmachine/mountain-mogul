@@ -126,13 +126,9 @@ func (e *Editor) Update(dt float64) {
 		return
 	}
 
-	// C: toggle slope + contour overlay.
+	// C: cycle terrain overlay (off → contour → slope debug → off).
 	if inp.Pressed[glfw.KeyC] {
-		if r.TerrainOverlayMode == 0 {
-			r.TerrainOverlayMode = 1
-		} else {
-			r.TerrainOverlayMode = 0
-		}
+		r.TerrainOverlayMode = (r.TerrainOverlayMode + 1) % 3
 	}
 
 	// Q/E: rotate camera.

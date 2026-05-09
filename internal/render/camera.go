@@ -83,26 +83,22 @@ func (c *Camera) ViewProj() mgl32.Mat4 {
 	return c.Proj.Mul4(c.View)
 }
 
-// EyeDirection returns the unit vector pointing from the scene toward
-// the camera — the "view direction" used for specular shading. In ortho
-// mode this is constant across the scene; in perspective mode the
-// shader gets the look-axis approximation (eye→lookAt reversed), which
-// keeps specular plausible without per-fragment recomputation.
-func (c *Camera) EyeDirection() mgl32.Vec3 {
+// WorldPos returns the camera's world-space position. In perspective mode
+// that's EyePos directly; in ortho mode it's reconstructed from yaw/pitch
+// and OrthoScale (mirroring Recalculate's eye math). Used by shaders that
+// need a true view direction per fragment, e.g. snow sparkle.
+func (c *Camera) WorldPos() mgl32.Vec3 {
 	if c.Perspective {
-		d := c.EyePos.Sub(c.LookAt)
-		if l := d.Len(); l > 0 {
-			return d.Mul(1 / l)
-		}
-		return mgl32.Vec3{0, 1, 0}
+		return c.EyePos
 	}
 	pitchRad := float64(c.Pitch) * math.Pi / 180.0
 	yawRad := float64(c.Yaw) * math.Pi / 180.0
-	return mgl32.Vec3{
-		float32(math.Cos(pitchRad) * math.Sin(yawRad)),
-		float32(math.Sin(pitchRad)),
-		float32(math.Cos(pitchRad) * math.Cos(yawRad)),
-	}
+	d := float64(c.OrthoScale)
+	return c.Target.Add(mgl32.Vec3{
+		float32(d * math.Cos(pitchRad) * math.Sin(yawRad)),
+		float32(d * math.Sin(pitchRad)),
+		float32(d * math.Cos(pitchRad) * math.Cos(yawRad)),
+	})
 }
 
 // PanDelta converts a 2D screen-space drag (pixels) to a world-space XZ

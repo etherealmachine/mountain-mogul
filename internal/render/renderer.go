@@ -45,13 +45,6 @@ type Renderer struct {
 	uiVAO, uiVBO uint32
 	whiteTexID   uint32 // 1×1 white texture; always bound to unit 0 during UI pass
 
-	// Terrain triplanar samplers — snow projected onto the top (Y) plane,
-	// rock onto the side (X, Z) planes. Each material has diffuse, normal
-	// (OpenGL convention), and roughness maps. Loaded once at construction;
-	// the terrain shader binds them on every terrain draw.
-	snowDiffID, snowNormID, snowRoughID uint32
-	rockDiffID, rockNormID, rockRoughID uint32
-
 	debugVAO, debugVBO uint32
 	debugVertCount     int32 // number of debug vertices currently in the VBO
 
@@ -71,7 +64,7 @@ type Renderer struct {
 	HiddenAgentID      uint64     // skip this agent in the dynamic pass (used by first-person camera)
 	HiddenAgentPos     mgl32.Vec3 // anchor for HiddenRadius proximity culling
 	HiddenRadius       float32    // when >0, also skip agents within this XZ radius of HiddenAgentPos
-	TerrainOverlayMode int        // 0 = normal, 1 = slope + contour
+	TerrainOverlayMode int        // 0 = off, 1 = contour lines, 2 = slope debug
 
 	// icons holds GL texture IDs for the UI icon set under assets/icons/.
 	// Populated by LoadIcons() at renderer construction.
@@ -132,16 +125,6 @@ func NewRenderer(w, h int, assetDir string) (*Renderer, error) {
 
 	// White fallback texture — always bound to unit 0 in the UI pass.
 	r.whiteTexID = whiteTexture()
-
-	// Terrain triplanar textures (Poly Haven, CC0). Failures fall back
-	// to a 1×1 white texture so terrain still renders.
-	texDir := assetDir + "/textures/"
-	r.snowDiffID, _ = LoadTexture(texDir + "snow_02_diff_2k.jpg")
-	r.snowNormID, _ = LoadTexture(texDir + "snow_02_nor_gl_2k.jpg")
-	r.snowRoughID, _ = LoadTexture(texDir + "snow_02_rough_2k.jpg")
-	r.rockDiffID, _ = LoadTexture(texDir + "rock_face_03_diff_2k.jpg")
-	r.rockNormID, _ = LoadTexture(texDir + "rock_face_03_nor_gl_2k.jpg")
-	r.rockRoughID, _ = LoadTexture(texDir + "rock_face_03_rough_2k.jpg")
 
 	// Font atlas generated from basicfont.Face7x13.
 	r.Font = NewFont()
@@ -231,22 +214,29 @@ func (r *Renderer) SetLogicalSize(w, h int) {
 }
 
 // buildTerrainVerts generates vertex and index data for the terrain mesh.
-// Vertex layout per vertex: pos(3) + flatNormal(3) + smoothNormal(3) + color(3) + smoothY(1) = 13 floats.
-// flatNormal is the per-triangle face normal (used for flat shading).
-// smoothNormal is the averaged normal across neighbouring faces (used for slope viz).
-// smoothY is a low-pass-filtered elevation used by the contour overlay so its lines
-// don't zig-zag along the triangle grid (the actual mesh keeps its full detail).
-// Diagonals alternate in a checkerboard pattern; each corner gets a small deterministic Y jitter.
-// Also emits 4 side walls and a bottom face to form a diorama-style block.
-func buildTerrainVerts(t *world.Terrain) ([]float32, []uint32) {
+// Vertex layout per vertex: pos(3) + flatNormal(3) + smoothY(1) + ao(1) = 8 floats.
+// flatNormal is the per-triangle face normal (vertices duplicated per-tri so
+// flat shading falls out naturally). smoothY is a low-pass-filtered elevation
+// driving the contour overlay (so its lines don't zig-zag along the triangle
+// grid). ao is a baked horizon-based occlusion factor in [0, 1] — darker in
+// valleys and at cliff bases. Diagonals alternate in a checkerboard pattern;
+// each corner gets a small deterministic Y jitter. Also emits 4 side walls
+// and a bottom face to form a diorama-style block.
+//
+// Returns the verts/indices plus the surface min/max Y (excluding skirts) so
+// the topographic shader can normalise height across whatever range the
+// current map happens to span.
+func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, minY, maxY float32) {
 	const cellSize = float32(5.0)
 	const skirtBaseY = float32(-50.0)
-	const floatsPerVert = 13
+	const floatsPerVert = 8
 
 	numSurface := (t.Width - 1) * (t.Height - 1)
 	numSkirt := 2*(t.Width-1) + 2*(t.Height-1) + 1
-	verts := make([]float32, 0, (numSurface+numSkirt)*6*floatsPerVert)
-	indices := make([]uint32, 0, (numSurface+numSkirt)*6)
+	verts = make([]float32, 0, (numSurface+numSkirt)*6*floatsPerVert)
+	indices = make([]uint32, 0, (numSurface+numSkirt)*6)
+	minY = float32(math.Inf(1))
+	maxY = float32(math.Inf(-1))
 
 	idx := uint32(0)
 
@@ -315,58 +305,91 @@ func buildTerrainVerts(t *world.Terrain) ([]float32, []uint32) {
 	}
 	smoothYAt := func(x, z int) float32 { return smoothY[x*t.Height+z] }
 
-	// ── Smooth normal accumulation ─────────────────────────────────────────────
-	// For each grid point, sum the face normals of every triangle that touches it,
-	// then normalise. This gives a per-vertex normal that represents the average
-	// surface direction across neighbouring triangles.
-	smoothAcc := make([][3]float32, t.Width*t.Height)
-	addAcc := func(x, z int, n [3]float32) {
-		if x >= 0 && x < t.Width && z >= 0 && z < t.Height {
-			i := x*t.Height + z
-			smoothAcc[i][0] += n[0]
-			smoothAcc[i][1] += n[1]
-			smoothAcc[i][2] += n[2]
+	// ── Per-vertex AO (heightfield horizon sampling) ──────────────────────────
+	// For each grid point, march 8 azimuthal rays at 3 increasing radii and
+	// estimate the elevation angle to the highest blocker. Sum the saturating
+	// occlusion contributions; the result deepens valleys and the bases of
+	// cliffs without any additional GPU work. Reuses jit[] so AO sees the
+	// exact mesh surface, jitter included.
+	const aoRadiusMax = float32(30.0)
+	const aoRings = 3
+	const aoDirs = 8
+	const aoEpsilon = float32(0.5)
+	ao := make([]float32, t.Width*t.Height)
+	{
+		var sinTab, cosTab [aoDirs]float32
+		for d := 0; d < aoDirs; d++ {
+			theta := float64(d) * 2 * math.Pi / float64(aoDirs)
+			sinTab[d] = float32(math.Sin(theta))
+			cosTab[d] = float32(math.Cos(theta))
 		}
-	}
-	for z := 0; z < t.Height-1; z++ {
-		for x := 0; x < t.Width-1; x++ {
-			p00 := [3]float32{float32(x) * cellSize, jitAt(x, z), float32(z) * cellSize}
-			p10 := [3]float32{float32(x+1) * cellSize, jitAt(x+1, z), float32(z) * cellSize}
-			p01 := [3]float32{float32(x) * cellSize, jitAt(x, z+1), float32(z+1) * cellSize}
-			p11 := [3]float32{float32(x+1) * cellSize, jitAt(x+1, z+1), float32(z+1) * cellSize}
-			if (x+z)%2 == 0 {
-				n1 := upwardNormal(p00, p10, p11)
-				n2 := upwardNormal(p00, p11, p01)
-				addAcc(x, z, n1); addAcc(x+1, z, n1); addAcc(x+1, z+1, n1)
-				addAcc(x, z, n2); addAcc(x+1, z+1, n2); addAcc(x, z+1, n2)
-			} else {
-				n1 := upwardNormal(p00, p10, p01)
-				n2 := upwardNormal(p10, p11, p01)
-				addAcc(x, z, n1); addAcc(x+1, z, n1); addAcc(x, z+1, n1)
-				addAcc(x+1, z, n2); addAcc(x+1, z+1, n2); addAcc(x, z+1, n2)
+		bilinearJit := func(fx, fz float32) float32 {
+			if fx < 0 {
+				fx = 0
+			} else if fx > float32(t.Width-1) {
+				fx = float32(t.Width - 1)
+			}
+			if fz < 0 {
+				fz = 0
+			} else if fz > float32(t.Height-1) {
+				fz = float32(t.Height - 1)
+			}
+			x0 := int(fx)
+			z0 := int(fz)
+			x1 := x0 + 1
+			if x1 >= t.Width {
+				x1 = t.Width - 1
+			}
+			z1 := z0 + 1
+			if z1 >= t.Height {
+				z1 = t.Height - 1
+			}
+			tx := fx - float32(x0)
+			tz := fz - float32(z0)
+			a := jit[x0*t.Height+z0]*(1-tx) + jit[x1*t.Height+z0]*tx
+			b := jit[x0*t.Height+z1]*(1-tx) + jit[x1*t.Height+z1]*tx
+			return a*(1-tz) + b*tz
+		}
+		for x := 0; x < t.Width; x++ {
+			for z := 0; z < t.Height; z++ {
+				p := jit[x*t.Height+z]
+				occ := float32(0)
+				for ring := 1; ring <= aoRings; ring++ {
+					rWorld := aoRadiusMax * float32(ring) / float32(aoRings)
+					rCells := rWorld / cellSize
+					for d := 0; d < aoDirs; d++ {
+						sx := float32(x) + rCells*cosTab[d]
+						sz := float32(z) + rCells*sinTab[d]
+						sy := bilinearJit(sx, sz)
+						tan := (sy - p - aoEpsilon) / rWorld
+						if tan <= 0 {
+							continue
+						}
+						occ += tan / (tan + 1.0)
+					}
+				}
+				v := 1.0 - occ/float32(aoRings*aoDirs)*1.4
+				if v < 0.15 {
+					v = 0.15
+				} else if v > 1.0 {
+					v = 1.0
+				}
+				ao[x*t.Height+z] = v
 			}
 		}
 	}
-	smoothAt := func(x, z int) [3]float32 {
-		n := smoothAcc[x*t.Height+z]
-		l := float32(math.Sqrt(float64(n[0]*n[0] + n[1]*n[1] + n[2]*n[2])))
-		if l < 1e-6 {
-			return [3]float32{0, 1, 0}
-		}
-		return [3]float32{n[0] / l, n[1] / l, n[2] / l}
-	}
+	aoAt := func(x, z int) float32 { return ao[x*t.Height+z] }
 
 	// ── Surface ───────────────────────────────────────────────────────────────
 	for z := 0; z < t.Height-1; z++ {
 		for x := 0; x < t.Width-1; x++ {
-			color := terrainColor(t.Cells[x][z])
-
 			p00 := [3]float32{float32(x) * cellSize, jitAt(x, z), float32(z) * cellSize}
 			p10 := [3]float32{float32(x+1) * cellSize, jitAt(x+1, z), float32(z) * cellSize}
 			p01 := [3]float32{float32(x) * cellSize, jitAt(x, z+1), float32(z+1) * cellSize}
 			p11 := [3]float32{float32(x+1) * cellSize, jitAt(x+1, z+1), float32(z+1) * cellSize}
 
-			// Track which grid point each triangle corner maps to for smooth normal lookup.
+			// Track which grid point each triangle corner maps to for per-vertex
+			// AO and smooth-Y lookup.
 			var tris [2][3][3]float32
 			var corners [2][3][2]int
 			if (x+z)%2 == 0 {
@@ -385,14 +408,18 @@ func buildTerrainVerts(t *world.Terrain) ([]float32, []uint32) {
 				n := upwardNormal(tri[0], tri[1], tri[2])
 				for vi, p := range tri {
 					cx, cz := corners[ti][vi][0], corners[ti][vi][1]
-					sn := smoothAt(cx, cz)
 					verts = append(verts,
 						p[0], p[1], p[2],
 						n[0], n[1], n[2],
-						sn[0], sn[1], sn[2],
-						color[0], color[1], color[2],
 						smoothYAt(cx, cz),
+						aoAt(cx, cz),
 					)
+					if p[1] < minY {
+						minY = p[1]
+					}
+					if p[1] > maxY {
+						maxY = p[1]
+					}
 				}
 				indices = append(indices, idx, idx+1, idx+2)
 				idx += 3
@@ -400,26 +427,31 @@ func buildTerrainVerts(t *world.Terrain) ([]float32, []uint32) {
 		}
 	}
 
-	// ── Skirt (walls + bottom) ────────────────────────────────────────────────
-	wallColor := [3]float32{0.50, 0.40, 0.30}
-	upNorm := [3]float32{0, 1, 0} // smooth normal placeholder for skirt faces
+	// Skirts excluded from min/max so cliffs don't compress the topo gradient.
+	if !(minY < maxY) {
+		// Empty or flat terrain — fall back to a unit range.
+		minY, maxY = 0, 1
+	}
 
-	emitTri := func(a, b, c, n, color [3]float32) {
+	// ── Skirt (walls + bottom) ────────────────────────────────────────────────
+	const wallAO = float32(0.40)
+	const floorAO = float32(0.20)
+
+	emitTri := func(a, b, c, n [3]float32, ao float32) {
 		for _, p := range [][3]float32{a, b, c} {
 			verts = append(verts,
 				p[0], p[1], p[2],
 				n[0], n[1], n[2],
-				upNorm[0], upNorm[1], upNorm[2],
-				color[0], color[1], color[2],
 				p[1], // smoothY = vertex y so contour bands stay horizontal on walls
+				ao,
 			)
 		}
 		indices = append(indices, idx, idx+1, idx+2)
 		idx += 3
 	}
-	emitQuad := func(tl, tr, br, bl, n [3]float32, color [3]float32) {
-		emitTri(tl, tr, br, n, color)
-		emitTri(tl, br, bl, n, color)
+	emitQuad := func(tl, tr, br, bl, n [3]float32, ao float32) {
+		emitTri(tl, tr, br, n, ao)
+		emitTri(tl, br, bl, n, ao)
 	}
 
 	maxX := float32(t.Width-1) * cellSize
@@ -433,7 +465,7 @@ func buildTerrainVerts(t *world.Terrain) ([]float32, []uint32) {
 		emitQuad(
 			[3]float32{xL, yL, 0}, [3]float32{xR, yR, 0},
 			[3]float32{xR, skirtBaseY, 0}, [3]float32{xL, skirtBaseY, 0},
-			[3]float32{0, 0, -1}, wallColor,
+			[3]float32{0, 0, -1}, wallAO,
 		)
 	}
 
@@ -445,7 +477,7 @@ func buildTerrainVerts(t *world.Terrain) ([]float32, []uint32) {
 		emitQuad(
 			[3]float32{xR, yR, maxZ}, [3]float32{xL, yL, maxZ},
 			[3]float32{xL, skirtBaseY, maxZ}, [3]float32{xR, skirtBaseY, maxZ},
-			[3]float32{0, 0, 1}, wallColor,
+			[3]float32{0, 0, 1}, wallAO,
 		)
 	}
 
@@ -457,7 +489,7 @@ func buildTerrainVerts(t *world.Terrain) ([]float32, []uint32) {
 		emitQuad(
 			[3]float32{0, yS, zS}, [3]float32{0, yN, zN},
 			[3]float32{0, skirtBaseY, zN}, [3]float32{0, skirtBaseY, zS},
-			[3]float32{-1, 0, 0}, wallColor,
+			[3]float32{-1, 0, 0}, wallAO,
 		)
 	}
 
@@ -469,7 +501,7 @@ func buildTerrainVerts(t *world.Terrain) ([]float32, []uint32) {
 		emitQuad(
 			[3]float32{maxX, yN, zN}, [3]float32{maxX, yS, zS},
 			[3]float32{maxX, skirtBaseY, zS}, [3]float32{maxX, skirtBaseY, zN},
-			[3]float32{1, 0, 0}, wallColor,
+			[3]float32{1, 0, 0}, wallAO,
 		)
 	}
 
@@ -477,10 +509,10 @@ func buildTerrainVerts(t *world.Terrain) ([]float32, []uint32) {
 	emitQuad(
 		[3]float32{0, skirtBaseY, 0}, [3]float32{maxX, skirtBaseY, 0},
 		[3]float32{maxX, skirtBaseY, maxZ}, [3]float32{0, skirtBaseY, maxZ},
-		[3]float32{0, -1, 0}, wallColor,
+		[3]float32{0, -1, 0}, floorAO,
 	)
 
-	return verts, indices
+	return verts, indices, minY, maxY
 }
 
 // terrainJitter returns a small deterministic elevation offset for a grid corner.
@@ -561,12 +593,14 @@ func upwardNormal(a, b, c [3]float32) [3]float32 {
 }
 
 // BuildTerrainMesh creates the terrain mesh from the given Terrain.
-// Vertex layout: pos(3) + flatNormal(3) + smoothNormal(3) + color(3) + smoothY(1) = 13 floats per vertex.
+// Vertex layout: pos(3) + flatNormal(3) + smoothY(1) + ao(1) = 8 floats per vertex.
 func (r *Renderer) BuildTerrainMesh(t *world.Terrain) {
 	r.scene.terrainWidth = t.Width
 	r.scene.terrainHeight = t.Height
 
-	verts, indices := buildTerrainVerts(t)
+	verts, indices, minY, maxY := buildTerrainVerts(t)
+	r.scene.terrainMinY = minY
+	r.scene.terrainMaxY = maxY
 
 	if r.scene.terrainMesh != nil {
 		r.scene.terrainMesh.Delete()
@@ -583,17 +617,18 @@ func (r *Renderer) BuildTerrainMesh(t *world.Terrain) {
 	gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo)
 	gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(indices)*4, gl.Ptr(indices), gl.STATIC_DRAW)
 
-	stride := int32(13 * 4)
+	stride := int32(8 * 4)
 	gl.EnableVertexAttribArray(0)
 	gl.VertexAttribPointerWithOffset(0, 3, gl.FLOAT, false, stride, 0)  // aPos
 	gl.EnableVertexAttribArray(1)
 	gl.VertexAttribPointerWithOffset(1, 3, gl.FLOAT, false, stride, 12) // aNormal (flat)
 	gl.EnableVertexAttribArray(2)
-	gl.VertexAttribPointerWithOffset(2, 3, gl.FLOAT, false, stride, 24) // aSmoothNormal
+	gl.VertexAttribPointerWithOffset(2, 1, gl.FLOAT, false, stride, 24) // aSmoothY
 	gl.EnableVertexAttribArray(3)
-	gl.VertexAttribPointerWithOffset(3, 3, gl.FLOAT, false, stride, 36) // aColor
-	gl.EnableVertexAttribArray(4)
-	gl.VertexAttribPointerWithOffset(4, 1, gl.FLOAT, false, stride, 48) // aSmoothY
+	gl.VertexAttribPointerWithOffset(3, 1, gl.FLOAT, false, stride, 28) // aAO
+	// Belt-and-braces: layout used to bind attribute 4. Disable it explicitly
+	// so a stale attribute pointer can't pull garbage on this VAO.
+	gl.DisableVertexAttribArray(4)
 	gl.BindVertexArray(0)
 
 	r.scene.terrainVBO = vbo
@@ -612,20 +647,12 @@ func (r *Renderer) FlushTerrainVerts(t *world.Terrain) {
 	if r.scene.terrainMesh == nil {
 		return
 	}
-	verts, _ := buildTerrainVerts(t)
+	verts, _, minY, maxY := buildTerrainVerts(t)
+	r.scene.terrainMinY = minY
+	r.scene.terrainMaxY = maxY
 	gl.BindBuffer(gl.ARRAY_BUFFER, r.scene.terrainVBO)
 	gl.BufferData(gl.ARRAY_BUFFER, len(verts)*4, gl.Ptr(verts), gl.DYNAMIC_DRAW)
 	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
-}
-
-func terrainColor(cell world.Cell) [3]float32 {
-	if cell.SnowDepth > 0.5 {
-		if cell.Groomed {
-			return [3]float32{0.85, 0.92, 0.98} // groomed: light blue-white
-		}
-		return [3]float32{0.95, 0.97, 1.0} // snow white
-	}
-	return [3]float32{0.4, 0.55, 0.3} // bare ground
 }
 
 // RebuildStaticBatch rebuilds all static instance buffers from world state.
@@ -864,27 +891,11 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		r.TerrainShader.SetVec2("uBrushCenter", r.brushCenter)
 		r.TerrainShader.SetFloat("uBrushRadius", r.brushRadius)
 		r.TerrainShader.SetInt("uOverlayMode", r.TerrainOverlayMode)
-		r.TerrainShader.SetVec3("uEyeDir", r.Camera.EyeDirection())
-		r.TerrainShader.SetInt("uSnowDiff", 0)
-		r.TerrainShader.SetInt("uSnowNorm", 1)
-		r.TerrainShader.SetInt("uSnowRough", 2)
-		r.TerrainShader.SetInt("uRockDiff", 3)
-		r.TerrainShader.SetInt("uRockNorm", 4)
-		r.TerrainShader.SetInt("uRockRough", 5)
-		gl.ActiveTexture(gl.TEXTURE0)
-		gl.BindTexture(gl.TEXTURE_2D, r.snowDiffID)
-		gl.ActiveTexture(gl.TEXTURE1)
-		gl.BindTexture(gl.TEXTURE_2D, r.snowNormID)
-		gl.ActiveTexture(gl.TEXTURE2)
-		gl.BindTexture(gl.TEXTURE_2D, r.snowRoughID)
-		gl.ActiveTexture(gl.TEXTURE3)
-		gl.BindTexture(gl.TEXTURE_2D, r.rockDiffID)
-		gl.ActiveTexture(gl.TEXTURE4)
-		gl.BindTexture(gl.TEXTURE_2D, r.rockNormID)
-		gl.ActiveTexture(gl.TEXTURE5)
-		gl.BindTexture(gl.TEXTURE_2D, r.rockRoughID)
+		r.TerrainShader.SetVec3("uCameraPos", r.Camera.WorldPos())
+		r.TerrainShader.SetFloat("uTime", time)
+		r.TerrainShader.SetFloat("uTerrainMinY", r.scene.terrainMinY)
+		r.TerrainShader.SetFloat("uTerrainMaxY", r.scene.terrainMaxY)
 		r.scene.terrainMesh.Draw()
-		gl.ActiveTexture(gl.TEXTURE0) // leave unit 0 active for downstream passes
 	}
 
 	// Static pass

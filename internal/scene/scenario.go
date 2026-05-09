@@ -231,6 +231,16 @@ func NewScenarioFromFile(path string) *Scenario {
 	return s
 }
 
+// TerrainSize returns the loaded world's terrain grid dimensions. Returns
+// (0, 0) before Init has run. Used by the -screenshot harness in main to
+// frame the camera around the whole map.
+func (s *Scenario) TerrainSize() (int, int) {
+	if s.world == nil || s.world.Terrain == nil {
+		return 0, 0
+	}
+	return s.world.Terrain.Width, s.world.Terrain.Height
+}
+
 // NewScenarioFromWorld creates a Scenario backed by a programmatically-built
 // world (e.g. a sim.Testbed). seed is forwarded to NewSimulationWithSeed for
 // reproducibility; pass 0 for wall-clock seeding. Save/Load are disabled in
@@ -505,13 +515,9 @@ func (s *Scenario) Update(dt float64) {
 		s.firstPerson = !s.firstPerson
 	}
 
-	// C: toggle slope + contour overlay.
+	// C: cycle terrain overlay (off → contour → slope debug → off).
 	if inp.Pressed[glfw.KeyC] {
-		if r.TerrainOverlayMode == 0 {
-			r.TerrainOverlayMode = 1
-		} else {
-			r.TerrainOverlayMode = 0
-		}
+		r.TerrainOverlayMode = (r.TerrainOverlayMode + 1) % 3
 	}
 
 	// F3: toggle steering debug overlay (visualises forces for followed skier).

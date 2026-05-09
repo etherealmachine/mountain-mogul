@@ -5,8 +5,14 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"time"
+
+	"github.com/go-gl/gl/v4.1-core/gl"
+	"github.com/go-gl/glfw/v3.3/glfw"
+	"github.com/go-gl/mathgl/mgl32"
 
 	"mountain-mogul/internal/engine"
+	"mountain-mogul/internal/save"
 	"mountain-mogul/internal/scene"
 	"mountain-mogul/internal/sim"
 )
@@ -19,6 +25,9 @@ func main() {
 	samplePeriod := flag.Float64("sample", 0.5, "sim seconds between trace rows in headless testbed runs")
 	seed := flag.Int64("seed", 0, "override testbed seed (0 = use the testbed's recommended seed)")
 	runs := flag.Int("runs", 1, "number of headless iterations; >1 switches to aggregate mode (silent per-run, summary at end). Per-run seed = base seed + iteration index.")
+	screenshot := flag.String("screenshot", "", "load a save, render a few frames, write a PNG to this path, then exit")
+	loadPath := flag.String("load", "", "save file path to use with -screenshot (default: most recent save)")
+	warmupFrames := flag.Int("warmup", 30, "frames to render before capturing -screenshot (so the world settles)")
 	flag.Parse()
 
 	if *testbed != "" {
@@ -30,11 +39,88 @@ func main() {
 		return
 	}
 
+	if *screenshot != "" {
+		runScreenshot(*loadPath, *screenshot, *warmupFrames)
+		return
+	}
+
 	app := engine.NewApp("Mountain Mogul", 1280, 720, "assets")
 	defer app.Destroy()
 
 	app.PushScene(scene.NewStartMenu())
 	app.Run()
+}
+
+// runScreenshot opens a window, loads the given save (or the most recent one
+// when path is empty), runs the scene loop for warmupFrames, captures the
+// back buffer to outPath, and exits. Used to inspect rendering changes from
+// CI / agents that can't drive the GUI.
+func runScreenshot(loadPath, outPath string, warmupFrames int) {
+	if loadPath == "" {
+		p, ok := save.MostRecentSave()
+		if !ok {
+			fmt.Fprintln(os.Stderr, "screenshot: no saves found, supply -load=<path>")
+			os.Exit(1)
+		}
+		loadPath = p
+	}
+	if warmupFrames < 1 {
+		warmupFrames = 1
+	}
+	fmt.Printf("screenshot: loading %s (warmup=%d frames) → %s\n",
+		loadPath, warmupFrames, outPath)
+
+	app := engine.NewApp("Mountain Mogul (screenshot)", 1280, 720, "assets")
+	defer app.Destroy()
+
+	sc := scene.NewScenarioFromFile(loadPath)
+	app.PushScene(sc)
+
+	// Centre the orthographic camera on the map and zoom out far enough to
+	// frame the whole thing. PushScene already ran Init → installWorld so
+	// the renderer knows the terrain dims; we read them back through the
+	// scenario's accessor.
+	w, h := sc.TerrainSize()
+	const cellSize = float32(5.0)
+	app.Renderer.Camera.Target = mgl32.Vec3{
+		float32(w) * cellSize * 0.5,
+		0,
+		float32(h) * cellSize * 0.5,
+	}
+	dim := float32(w)
+	if h > w {
+		dim = float32(h)
+	}
+	app.Renderer.Camera.OrthoScale = dim * cellSize * 0.55
+	app.Renderer.Camera.Recalculate()
+
+	// Run a manual scene loop. Mirrors engine.App.Run but exits after
+	// warmup, capturing the back buffer between Render and SwapBuffers so
+	// the PNG matches exactly what the user would see on screen.
+	prev := time.Now()
+	for frame := 0; frame < warmupFrames; frame++ {
+		now := time.Now()
+		dt := now.Sub(prev).Seconds()
+		prev = now
+
+		app.Input.BeginFrame()
+		glfw.PollEvents()
+
+		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+
+		sc.Update(dt)
+		sc.Render(app.Renderer)
+
+		if frame == warmupFrames-1 {
+			if err := app.Renderer.SaveScreenshot(outPath); err != nil {
+				fmt.Fprintln(os.Stderr, "screenshot: write failed:", err)
+				os.Exit(1)
+			}
+			fmt.Println("screenshot: wrote", outPath)
+		}
+
+		app.Window.SwapBuffers()
+	}
 }
 
 func runHeadless(name string, simSeconds, samplePeriod float64, seed int64) {
