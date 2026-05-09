@@ -221,9 +221,12 @@ func (b *builder) lodge() *builder {
 	return b.lodgeAt(t.Width/2, t.Height-2)
 }
 
-// lodgeAt is the explicit form of lodge — caller picks the cell.
+// lodgeAt is the explicit form of lodge — caller picks the cell. The
+// continuous Pos lands at the cell centre so the lodge sits in the
+// historical position from before continuous coords landed.
 func (b *builder) lodgeAt(gx, gz int) *builder {
-	lodge := b.w.PlaceBuilding(gx, gz)
+	const cellSize = 10.0
+	lodge := b.w.PlaceBuilding((float32(gx)+0.5)*cellSize, (float32(gz)+0.5)*cellSize)
 	lodge.SkierCount = 0
 	lodge.MeanSpawnRate = 0
 	b.lastLodge = lodge
@@ -254,10 +257,9 @@ func (b *builder) skierAt(gx, gz int, skill ai.SkillLevel) *builder {
 	elev := b.w.Terrain.ElevationAt(gx, gz)
 	pos := mgl32.Vec3{(float32(gx) + 0.5) * cellSize, elev, (float32(gz) + 0.5) * cellSize}
 
-	// Lodge target in the same convention so axis stays aligned through the
-	// patch center, not 5 m offset to one side.
-	lx := (float32(b.lastLodge.Pos[0]) + 0.5) * cellSize
-	lz := (float32(b.lastLodge.Pos[1]) + 0.5) * cellSize
+	// Lodge target — continuous Pos already in world metres.
+	lx := b.lastLodge.Pos[0]
+	lz := b.lastLodge.Pos[1]
 	heading := float32(math.Atan2(float64(lx-pos[0]), float64(lz-pos[2])))
 
 	a := &world.Agent{

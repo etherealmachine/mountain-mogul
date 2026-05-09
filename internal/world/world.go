@@ -68,27 +68,31 @@ func (w *World) RemoveObject(id uint64) {
 	}
 }
 
-// PlaceBuilding places a lodge and marks the cell as impassable.
-func (w *World) PlaceBuilding(x, z int) *Building {
+// PlaceBuilding places a lodge at world XZ position (x, z) and marks the
+// cell containing the anchor as impassable. Multi-cell footprints with
+// rotated AABB rasterisation are a future extension.
+func (w *World) PlaceBuilding(x, z float32) *Building {
 	b := &Building{
 		ID:            w.NextID(),
-		Pos:           [2]int{x, z},
+		Pos:           mgl32.Vec2{x, z},
 		MeanSpawnRate: 0.5, // mean: 1 skier per 2 seconds
 		SkierCount:    100,
 	}
 	w.Buildings = append(w.Buildings, b)
-	if w.Terrain.InBounds(x, z) {
-		w.Terrain.Cells[x][z].Passable = false
+	cell := b.DoorCell()
+	if w.Terrain.InBounds(cell[0], cell[1]) {
+		w.Terrain.Cells[cell[0]][cell[1]].Passable = false
 	}
 	return b
 }
 
-// RemoveBuilding removes a building and marks the cell as passable.
+// RemoveBuilding removes a building and restores cell passability.
 func (w *World) RemoveBuilding(id uint64) {
 	for i, b := range w.Buildings {
 		if b.ID == id {
-			if w.Terrain.InBounds(b.Pos[0], b.Pos[1]) {
-				w.Terrain.Cells[b.Pos[0]][b.Pos[1]].Passable = true
+			cell := b.DoorCell()
+			if w.Terrain.InBounds(cell[0], cell[1]) {
+				w.Terrain.Cells[cell[0]][cell[1]].Passable = true
 			}
 			w.Buildings = append(w.Buildings[:i], w.Buildings[i+1:]...)
 			return
@@ -96,19 +100,19 @@ func (w *World) RemoveBuilding(id uint64) {
 	}
 }
 
-// PlaceLift creates a lift and marks its endpoint cells as impassable.
-func (w *World) PlaceLift(bx, bz, tx, tz int) *Lift {
+// PlaceLift creates a lift between two world XZ positions and marks the
+// containing cells as impassable.
+func (w *World) PlaceLift(bx, bz, tx, tz float32) *Lift {
 	lift := &Lift{
 		ID:    w.NextID(),
-		Base:  [2]int{bx, bz},
-		Top:   [2]int{tx, tz},
+		Base:  mgl32.Vec2{bx, bz},
+		Top:   mgl32.Vec2{tx, tz},
 		Speed: 2.5, // m/s — realistic chairlift speed
 	}
 
 	// Initialise chairs evenly spaced around the loop.
-	const cellSize = 10.0
-	dx := float64(tx-bx) * cellSize
-	dz := float64(tz-bz) * cellSize
+	dx := float64(tx - bx)
+	dz := float64(tz - bz)
 	cableLen := math.Sqrt(dx*dx + dz*dz)
 	loopLen := cableLen * 2
 	numChairs := int(loopLen / ChairSpacingM)
@@ -121,24 +125,24 @@ func (w *World) PlaceLift(bx, bz, tx, tz int) *Lift {
 	}
 
 	w.Lifts = append(w.Lifts, lift)
-	if w.Terrain.InBounds(bx, bz) {
-		w.Terrain.Cells[bx][bz].Passable = false
+	if base := lift.QueueCell(); w.Terrain.InBounds(base[0], base[1]) {
+		w.Terrain.Cells[base[0]][base[1]].Passable = false
 	}
-	if w.Terrain.InBounds(tx, tz) {
-		w.Terrain.Cells[tx][tz].Passable = false
+	if top := lift.TopCell(); w.Terrain.InBounds(top[0], top[1]) {
+		w.Terrain.Cells[top[0]][top[1]].Passable = false
 	}
 	return lift
 }
 
-// RemoveLift removes a lift and restores passability.
+// RemoveLift removes a lift and restores passability on both endpoint cells.
 func (w *World) RemoveLift(id uint64) {
 	for i, lift := range w.Lifts {
 		if lift.ID == id {
-			if w.Terrain.InBounds(lift.Base[0], lift.Base[1]) {
-				w.Terrain.Cells[lift.Base[0]][lift.Base[1]].Passable = true
+			if base := lift.QueueCell(); w.Terrain.InBounds(base[0], base[1]) {
+				w.Terrain.Cells[base[0]][base[1]].Passable = true
 			}
-			if w.Terrain.InBounds(lift.Top[0], lift.Top[1]) {
-				w.Terrain.Cells[lift.Top[0]][lift.Top[1]].Passable = true
+			if top := lift.TopCell(); w.Terrain.InBounds(top[0], top[1]) {
+				w.Terrain.Cells[top[0]][top[1]].Passable = true
 			}
 			w.Lifts = append(w.Lifts[:i], w.Lifts[i+1:]...)
 			return
@@ -146,15 +150,18 @@ func (w *World) RemoveLift(id uint64) {
 	}
 }
 
-// SpawnAgent creates a new agent at the given building's position.
+// SpawnAgent creates a new agent at the building's anchor position.
+//
+// Y is taken from the terrain mesh under the lodge cell. Pre-migration
+// this used the cell *corner* as the spawn XZ, producing a half-cell
+// offset from where the lodge actually sat — fixed alongside the move
+// to continuous Pos so agents now spawn exactly under the lodge anchor.
 func (w *World) SpawnAgent(b *Building) *Agent {
-	const cellSize = 10.0
-	x := b.Pos[0]
-	z := b.Pos[1]
-	elev := w.Terrain.ElevationAt(x, z)
+	cell := b.DoorCell()
+	elev := w.Terrain.ElevationAt(cell[0], cell[1])
 	agent := &Agent{
 		ID:  w.NextID(),
-		Pos: mgl32.Vec3{float32(x) * cellSize, elev, float32(z) * cellSize},
+		Pos: mgl32.Vec3{b.Pos[0], elev, b.Pos[1]},
 	}
 	w.Agents = append(w.Agents, agent)
 	return agent
@@ -170,8 +177,9 @@ func (w *World) RemoveAgent(id uint64) {
 	}
 }
 
-// NearestLift returns the nearest lift to the given grid position, or nil.
-func (w *World) NearestLift(pos [2]int) *Lift {
+// NearestLift returns the nearest lift to the given world XZ position,
+// or nil. Distance is measured in world metres against each lift base.
+func (w *World) NearestLift(pos mgl32.Vec2) *Lift {
 	var nearest *Lift
 	bestDist := math.MaxFloat64
 	for _, lift := range w.Lifts {

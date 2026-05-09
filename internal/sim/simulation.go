@@ -73,7 +73,12 @@ func (s *Simulation) tickBuildings(dt float64) {
 			agent.Balance = 1.0
 			agent.Confidence = spawnConfidence
 			agent.Energy = 1.0
-			path := s.Pathfinder.FindPath(b.Pos, nearest.Base)
+			// Pathfinder routes from the lodge's door cell to the lift's
+			// queue cell. Walking the path drops the agent at the queue
+			// cell's centre; tickWalkToward / tickLocomote close the last
+			// few metres to the lodge or lift base anchor under
+			// ArrivalThreshold.
+			path := s.Pathfinder.FindPath(b.DoorCell(), nearest.QueueCell())
 			if path != nil {
 				agent.Path = path
 				agent.PathIdx = 0
@@ -113,10 +118,9 @@ func (s *Simulation) tickLifts(dt float64) {
 					if agent.Balance < 0.5 {
 						agent.Balance = 1.0 // ride up restored balance
 					}
-					tx := float32(lift.Top[0]) * CellSize
-					tz := float32(lift.Top[1]) * CellSize
-					ty := w.Terrain.ElevationAt(lift.Top[0], lift.Top[1])
-					agent.Pos = mgl32.Vec3{tx, ty, tz}
+					topCell := lift.TopCell()
+					ty := w.Terrain.ElevationAt(topCell[0], topCell[1])
+					agent.Pos = mgl32.Vec3{lift.Top[0], ty, lift.Top[1]}
 
 					// Pick a fresh target so we can orient the skier downhill.
 					// Heading must be reset: while riding, Heading points up the lift
@@ -154,18 +158,24 @@ func (s *Simulation) tickLifts(dt float64) {
 func pickTopTarget(w *world.World, agent *world.Agent, rng *rand.Rand) (uint64, mgl32.Vec3) {
 	if agent != nil && agent.Energy <= energyLowThreshold && len(w.Buildings) > 0 {
 		lodge := w.Buildings[rng.Intn(len(w.Buildings))]
-		return lodge.ID, mgl32.Vec3{
-			(float32(lodge.Pos[0]) + 0.5) * CellSize,
-			w.Terrain.ElevationAt(lodge.Pos[0], lodge.Pos[1]),
-			(float32(lodge.Pos[1]) + 0.5) * CellSize,
-		}
+		return lodge.ID, lodgeWorldPos(w, lodge)
 	}
 	next := w.Lifts[rng.Intn(len(w.Lifts))]
-	return next.ID, mgl32.Vec3{
-		(float32(next.Base[0]) + 0.5) * CellSize,
-		w.Terrain.ElevationAt(next.Base[0], next.Base[1]),
-		(float32(next.Base[1]) + 0.5) * CellSize,
-	}
+	return next.ID, liftBaseWorldPos(w, next)
+}
+
+// lodgeWorldPos returns the lodge's anchor as a world-space Vec3, with Y
+// from the terrain mesh under the lodge's door cell. Centralised so the
+// "ID → world pos" lookup pattern lives in one place.
+func lodgeWorldPos(w *world.World, b *world.Building) mgl32.Vec3 {
+	cell := b.DoorCell()
+	return mgl32.Vec3{b.Pos[0], w.Terrain.ElevationAt(cell[0], cell[1]), b.Pos[1]}
+}
+
+// liftBaseWorldPos returns the lift base anchor as a world-space Vec3.
+func liftBaseWorldPos(w *world.World, l *world.Lift) mgl32.Vec3 {
+	cell := l.QueueCell()
+	return mgl32.Vec3{l.Base[0], w.Terrain.ElevationAt(cell[0], cell[1]), l.Base[1]}
 }
 
 // tickAgents dispatches each agent to the appropriate handler based on its
@@ -382,8 +392,11 @@ func (s *Simulation) routeHome(agent *world.Agent) bool {
 	}
 	lodge := w.Buildings[s.Rng.Intn(len(w.Buildings))]
 	agent.TargetID = lodge.ID
-	startCell := [2]int{int(agent.Pos[0] / CellSize), int(agent.Pos[2] / CellSize)}
-	if path := s.Pathfinder.FindPath(startCell, lodge.Pos); path != nil {
+	startCell := [2]int{
+		int(math.Floor(float64(agent.Pos[0] / CellSize))),
+		int(math.Floor(float64(agent.Pos[2] / CellSize))),
+	}
+	if path := s.Pathfinder.FindPath(startCell, lodge.DoorCell()); path != nil {
 		agent.Path = path
 		agent.PathIdx = 0
 	}
@@ -400,32 +413,18 @@ const (
 )
 
 // resolveTarget looks up an agent's TargetID against the world's lifts and
-// buildings, returning the target's world-space position and which kind it
-// was. ok=false when the ID matches nothing (e.g. the entity was removed).
-//
-// Uses CELL-CENTER world coordinates ((gx+0.5)*cs) so the seeking axis from
-// any cell-center spawned agent runs through cell centers — important for
-// the strategic L/R probes, whose ±50 m lateral offsets land at cell-edge
-// world positions and otherwise pick up quantization asymmetry from probes
-// that fall in different patch-radius cells depending on the agent's
-// fractional cell position.
+// buildings, returning the target's world-space position and which kind
+// it was. ok=false when the ID matches nothing (e.g. the entity was
+// removed). Y is taken from the terrain mesh under the entity's cell.
 func resolveTarget(w *world.World, id uint64) (mgl32.Vec3, targetKind, bool) {
 	for _, l := range w.Lifts {
 		if l.ID == id {
-			return mgl32.Vec3{
-				(float32(l.Base[0]) + 0.5) * CellSize,
-				w.Terrain.ElevationAt(l.Base[0], l.Base[1]),
-				(float32(l.Base[1]) + 0.5) * CellSize,
-			}, targetLift, true
+			return liftBaseWorldPos(w, l), targetLift, true
 		}
 	}
 	for _, b := range w.Buildings {
 		if b.ID == id {
-			return mgl32.Vec3{
-				(float32(b.Pos[0]) + 0.5) * CellSize,
-				w.Terrain.ElevationAt(b.Pos[0], b.Pos[1]),
-				(float32(b.Pos[1]) + 0.5) * CellSize,
-			}, targetBuilding, true
+			return lodgeWorldPos(w, b), targetBuilding, true
 		}
 	}
 	return mgl32.Vec3{}, targetNone, false

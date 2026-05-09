@@ -45,6 +45,13 @@ type Renderer struct {
 	uiVAO, uiVBO uint32
 	whiteTexID   uint32 // 1×1 white texture; always bound to unit 0 during UI pass
 
+	// Terrain triplanar samplers — snow projected onto the top (Y) plane,
+	// rock onto the side (X, Z) planes. Each material has diffuse, normal
+	// (OpenGL convention), and roughness maps. Loaded once at construction;
+	// the terrain shader binds them on every terrain draw.
+	snowDiffID, snowNormID, snowRoughID uint32
+	rockDiffID, rockNormID, rockRoughID uint32
+
 	debugVAO, debugVBO uint32
 	debugVertCount     int32 // number of debug vertices currently in the VBO
 
@@ -123,6 +130,16 @@ func NewRenderer(w, h int, assetDir string) (*Renderer, error) {
 	// White fallback texture — always bound to unit 0 in the UI pass.
 	r.whiteTexID = whiteTexture()
 
+	// Terrain triplanar textures (Poly Haven, CC0). Failures fall back
+	// to a 1×1 white texture so terrain still renders.
+	texDir := assetDir + "/textures/"
+	r.snowDiffID, _ = LoadTexture(texDir + "snow_02_diff_2k.jpg")
+	r.snowNormID, _ = LoadTexture(texDir + "snow_02_nor_gl_2k.jpg")
+	r.snowRoughID, _ = LoadTexture(texDir + "snow_02_rough_2k.jpg")
+	r.rockDiffID, _ = LoadTexture(texDir + "rock_face_03_diff_2k.jpg")
+	r.rockNormID, _ = LoadTexture(texDir + "rock_face_03_nor_gl_2k.jpg")
+	r.rockRoughID, _ = LoadTexture(texDir + "rock_face_03_rough_2k.jpg")
+
 	// Font atlas generated from basicfont.Face7x13.
 	r.Font = NewFont()
 
@@ -175,6 +192,7 @@ func (r *Renderer) initStaticMeshes() {
 		{MeshStump, "stump"},
 		{MeshBuilding, "building"},
 		{MeshLiftStation, "lift_station"},
+		{MeshTower, "tower"},
 	}
 
 	for _, def := range meshDefs {
@@ -606,176 +624,133 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 		if !ok {
 			continue
 		}
-		x := (float32(bldg.Pos[0]) + 0.5) * cellSize
-		z := (float32(bldg.Pos[1]) + 0.5) * cellSize
-		y := w.Terrain.ElevationAt(bldg.Pos[0], bldg.Pos[1])
-		t := mgl32.Translate3D(x, y, z).Mul4(mgl32.HomogRotate3DY(bldg.Rotation))
+		cell := bldg.DoorCell()
+		y := w.Terrain.ElevationAt(cell[0], cell[1])
+		t := mgl32.Translate3D(bldg.Pos[0], y, bldg.Pos[1]).Mul4(mgl32.HomogRotate3DY(bldg.Rotation))
 		batch.AddStatic(t, mgl32.Vec3{1, 1, 1})
 	}
 
-	// Lift stations (base and top of each lift)
+	// Lift stations — both ends of each lift, oriented so the model's +X
+	// axis (cable-exit side) points toward the other end. Bullwheel ends
+	// up on the outboard side at both base and top.
 	if stationBatch, ok := r.staticBatches[MeshLiftStation]; ok {
 		for _, lift := range w.Lifts {
-			for _, cell := range [][2]int{lift.Base, lift.Top} {
-				x := (float32(cell[0]) + 0.5) * cellSize
-				z := (float32(cell[1]) + 0.5) * cellSize
-				y := w.Terrain.ElevationAt(cell[0], cell[1])
-				t := mgl32.Translate3D(x, y, z)
-				stationBatch.AddStatic(t, mgl32.Vec3{1, 1, 1})
+			stationBatch.AddStatic(LiftStationTransform(lift.Base, lift.Top, w.Terrain), mgl32.Vec3{1, 1, 1})
+			stationBatch.AddStatic(LiftStationTransform(lift.Top, lift.Base, w.Terrain), mgl32.Vec3{1, 1, 1})
+		}
+	}
+
+	// Towers — between (not at) the stations. Endpoints are skipped so
+	// they don't sit atop the bullwheel beams.
+	if towerBatch, ok := r.staticBatches[MeshTower]; ok {
+		for _, lift := range w.Lifts {
+			for _, m := range TowerInstancesForLift(lift.Base, lift.Top, w.Terrain) {
+				towerBatch.AddStatic(m, mgl32.Vec3{1, 1, 1})
 			}
 		}
 	}
 }
 
-// ComputeLiftTowerInstances returns StaticInstances for towers evenly spaced
-// along the path from base to top at terrain elevation.
-// Retained for ghost preview during lift placement.
-func ComputeLiftTowerInstances(base, top [2]int, t *world.Terrain) []StaticInstance {
+// LiftStationTransform builds the world-space transform for a lift station
+// at `pos`, rotated so the model's +X axis points toward `otherEnd` (the
+// far end of the cable). Pass `otherEnd == pos` when the other end is
+// not yet known (e.g. the place-base ghost preview); the station then
+// renders with no rotation applied.
+//
+// The convention matches the SCAD model in models-src/lift_station.scad:
+// +X = cable-exit side, -X = bullwheel side. So at the base station +X
+// points up the lift line, and at the top station +X points back down.
+func LiftStationTransform(pos, otherEnd mgl32.Vec2, terrain *world.Terrain) mgl32.Mat4 {
+	const cellSize = float32(10.0)
+	cellX := int(math.Floor(float64(pos[0] / cellSize)))
+	cellZ := int(math.Floor(float64(pos[1] / cellSize)))
+	y := terrain.ElevationAt(cellX, cellZ)
+
+	var rot float32
+	if otherEnd != pos {
+		dx := otherEnd[0] - pos[0]
+		dz := otherEnd[1] - pos[1]
+		// HomogRotate3DY(θ) takes (1,0,0) → (cos θ, 0, -sin θ); we want
+		// that result to be the unit cable direction (dx, dz)/len. So
+		// θ = atan2(-dz, dx). Length normalisation falls out of atan2.
+		rot = float32(math.Atan2(-float64(dz), float64(dx)))
+	}
+
+	return mgl32.Translate3D(pos[0], y, pos[1]).Mul4(mgl32.HomogRotate3DY(rot))
+}
+
+// TowerInstancesForLift returns world transforms for the lift's tower
+// instances. Endpoints (where the stations sit) are skipped — towers
+// start world.StationOffset metres inboard from each station, then
+// space at roughly towerSpacing along the cable. Returns nil when the
+// lift is shorter than 2× StationOffset (no room for towers between
+// stations); the cable then stays at BullwheelHeight throughout.
+//
+// Each transform rotates the tower so its model-space +X (the cable
+// axis convention from models-src/tower.scad) aligns with the cable
+// direction in world space.
+func TowerInstancesForLift(base, top mgl32.Vec2, t *world.Terrain) []mgl32.Mat4 {
 	const cellSize = float32(10.0)
 	const towerSpacing = float32(50.0)
+	stationOffset := float32(world.StationOffset)
 
-	bx := float32(base[0]) * cellSize
-	bz := float32(base[1]) * cellSize
-	tx := float32(top[0]) * cellSize
-	tz := float32(top[1]) * cellSize
-
+	bx, bz := base[0], base[1]
+	tx, tz := top[0], top[1]
 	dx := tx - bx
 	dz := tz - bz
 	length := float32(math.Sqrt(float64(dx*dx + dz*dz)))
-	if length < 1 {
+	if length <= 2*stationOffset {
 		return nil
 	}
 
-	steps := int(length / towerSpacing)
-	if steps < 1 {
-		steps = 1
+	innerLen := length - 2*stationOffset
+	intervals := int(innerLen / towerSpacing)
+	if intervals < 1 {
+		intervals = 1
 	}
+	spacing := innerLen / float32(intervals)
 
-	instances := make([]StaticInstance, 0, steps+1)
-	for i := 0; i <= steps; i++ {
-		frac := float32(i) / float32(steps)
-		wx := bx + dx*frac
-		wz := bz + dz*frac
-		gx := int(wx / cellSize)
-		gz := int(wz / cellSize)
-		wy := t.ElevationAt(gx, gz)
-
-		m := mgl32.Translate3D(wx, wy, wz)
-		inst := StaticInstance{ColorTint: [3]float32{0.7, 0.7, 0.7}}
-		copy(inst.Transform[:], m[:])
-		instances = append(instances, inst)
-	}
-	return instances
-}
-
-// GenerateTowerMesh creates a world-space mesh of T-shaped towers for a lift.
-// Vertex layout: pos(3) + normal(3) + uv(2) — drawn with the static shader via
-// identity instance transform (setCableTransformAttribs).
-func GenerateTowerMesh(lift *world.Lift, t *world.Terrain) *Mesh {
-	const cellSize = float32(10.0)
-	const towerSpacing = float32(50.0)
-	const poleHalf = float32(0.35)
-	const towerH = world.TowerHeight
-	const barHalf = world.CrossbarHalf
-	const barThick = float32(0.3)
-
-	bx := (float32(lift.Base[0]) + 0.5) * cellSize
-	bz := (float32(lift.Base[1]) + 0.5) * cellSize
-	tx := (float32(lift.Top[0]) + 0.5) * cellSize
-	tz := (float32(lift.Top[1]) + 0.5) * cellSize
-	dx := tx - bx
-	dz := tz - bz
-	length := float32(math.Sqrt(float64(dx*dx + dz*dz)))
-	if length < 1 {
-		length = 1
-	}
 	dirX := dx / length
 	dirZ := dz / length
-	perpX := -dirZ
-	perpZ := dirX
+	// HomogRotate3DY(θ) takes (1,0,0) → (cos θ, 0, -sin θ); we want that
+	// to equal the cable direction (dirX, 0, dirZ), so θ = atan2(-dz, dx).
+	rot := float32(math.Atan2(-float64(dirZ), float64(dirX)))
 
-	steps := int(length / towerSpacing)
-	if steps < 1 {
-		steps = 1
-	}
-
-	var verts []float32
-	var indices []uint32
-
-	emitBox := func(cx, cy, cz, halfFwd, halfH, halfPerp float32) {
-		// fwd axis = cable direction (dirX, dirZ), perp = (perpX, perpZ)
-		// Emit 6 faces of an oriented box centered at (cx, cy+halfH, cz).
-		type faceData struct {
-			corners [4][3]float32
-			normal  [3]float32
-		}
-
-		hw := halfFwd
-		hh := halfH
-		hp := halfPerp
-
-		// World-space corners relative to center base (cx, cy, cz):
-		// fwd axis: (dirX, 0, dirZ), up: (0,1,0), perp: (perpX, 0, perpZ)
-		c000 := [3]float32{cx - hw*dirX - hp*perpX, cy, cz - hw*dirZ - hp*perpZ}
-		c100 := [3]float32{cx + hw*dirX - hp*perpX, cy, cz + hw*dirZ - hp*perpZ}
-		c010 := [3]float32{cx - hw*dirX - hp*perpX, cy + 2*hh, cz - hw*dirZ - hp*perpZ}
-		c110 := [3]float32{cx + hw*dirX - hp*perpX, cy + 2*hh, cz + hw*dirZ - hp*perpZ}
-		c001 := [3]float32{cx - hw*dirX + hp*perpX, cy, cz - hw*dirZ + hp*perpZ}
-		c101 := [3]float32{cx + hw*dirX + hp*perpX, cy, cz + hw*dirZ + hp*perpZ}
-		c011 := [3]float32{cx - hw*dirX + hp*perpX, cy + 2*hh, cz - hw*dirZ + hp*perpZ}
-		c111 := [3]float32{cx + hw*dirX + hp*perpX, cy + 2*hh, cz + hw*dirZ + hp*perpZ}
-
-		faces := []faceData{
-			{[4][3]float32{c000, c100, c110, c010}, [3]float32{-perpX, 0, -perpZ}}, // -perp face
-			{[4][3]float32{c101, c001, c011, c111}, [3]float32{perpX, 0, perpZ}},   // +perp face
-			{[4][3]float32{c001, c000, c010, c011}, [3]float32{-dirX, 0, -dirZ}},   // -fwd face
-			{[4][3]float32{c100, c101, c111, c110}, [3]float32{dirX, 0, dirZ}},     // +fwd face
-			{[4][3]float32{c010, c110, c111, c011}, [3]float32{0, 1, 0}},           // top
-			{[4][3]float32{c001, c101, c100, c000}, [3]float32{0, -1, 0}},          // bottom
-		}
-		for _, f := range faces {
-			base := uint32(len(verts) / 8)
-			for _, p := range f.corners {
-				verts = append(verts, p[0], p[1], p[2], f.normal[0], f.normal[1], f.normal[2], 0, 0)
-			}
-			indices = append(indices, base, base+1, base+2, base, base+2, base+3)
-		}
-	}
-
-	for i := 0; i <= steps; i++ {
-		frac := float32(i) / float32(steps)
-		wx := bx + dx*frac
-		wz := bz + dz*frac
-		gx := int(wx / cellSize)
-		gz := int(wz / cellSize)
+	out := make([]mgl32.Mat4, 0, intervals+1)
+	for i := 0; i <= intervals; i++ {
+		d := stationOffset + float32(i)*spacing
+		wx := bx + dirX*d
+		wz := bz + dirZ*d
+		gx := int(math.Floor(float64(wx / cellSize)))
+		gz := int(math.Floor(float64(wz / cellSize)))
 		wy := t.ElevationAt(gx, gz)
 
-		// Vertical pole centered on the cable line at this point.
-		emitBox(wx, wy, wz, poleHalf, towerH/2, poleHalf)
-		// Horizontal T crossbar at the top of the pole, perpendicular to cable.
-		crossY := wy + towerH - barThick
-		emitBox(wx, crossY, wz, barThick/2, barThick/2, barHalf)
+		m := mgl32.Translate3D(wx, wy, wz).Mul4(mgl32.HomogRotate3DY(rot))
+		out = append(out, m)
 	}
-
-	return NewMesh(verts, indices, []int{3, 3, 2})
+	return out
 }
 
 // generateCableMesh creates a quad strip for one cable at the given lateral offset.
 // perpOff > 0 = up cable side, perpOff < 0 = down cable side.
 func generateCableMesh(lift *world.Lift, t *world.Terrain, perpOff float32) *Mesh {
-	const cellSize = float32(10.0)
 	const cableWidth = float32(0.15)
-	const steps = 30
+	// Step count scales with length (one segment per ~5 m) so the ramps
+	// at each station get enough vertices to read as a smooth slope on
+	// long lifts. Floor of 30 keeps short lifts from looking polygonal.
+	const minSteps = 30
 
-	bx := (float32(lift.Base[0]) + 0.5) * cellSize
-	bz := (float32(lift.Base[1]) + 0.5) * cellSize
-	tx := (float32(lift.Top[0]) + 0.5) * cellSize
-	tz := (float32(lift.Top[1]) + 0.5) * cellSize
+	bx, bz := lift.Base[0], lift.Base[1]
+	tx, tz := lift.Top[0], lift.Top[1]
 	dx := tx - bx
 	dz := tz - bz
 	length := float32(math.Sqrt(float64(dx*dx + dz*dz)))
 	if length < 1 {
 		length = 1
+	}
+	steps := int(length / 5)
+	if steps < minSteps {
+		steps = minSteps
 	}
 	perpX := -dz / length
 	perpZ := dx / length
@@ -787,7 +762,7 @@ func generateCableMesh(lift *world.Lift, t *world.Terrain, perpOff float32) *Mes
 		frac := float32(i) / float32(steps)
 		cx := bx + dx*frac + perpX*perpOff
 		cz := bz + dz*frac + perpZ*perpOff
-		cy := t.InterpolatedElevationAt(cx, cz) + world.CableHeight
+		cy := t.InterpolatedElevationAt(cx, cz) + world.CableHeightAt(frac, length)
 
 		for side := -1; side <= 1; side += 2 {
 			s := float32(side) * cableWidth * 0.5
@@ -819,7 +794,27 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		r.TerrainShader.SetVec2("uBrushCenter", r.brushCenter)
 		r.TerrainShader.SetFloat("uBrushRadius", r.brushRadius)
 		r.TerrainShader.SetInt("uOverlayMode", r.TerrainOverlayMode)
+		r.TerrainShader.SetVec3("uEyeDir", r.Camera.EyeDirection())
+		r.TerrainShader.SetInt("uSnowDiff", 0)
+		r.TerrainShader.SetInt("uSnowNorm", 1)
+		r.TerrainShader.SetInt("uSnowRough", 2)
+		r.TerrainShader.SetInt("uRockDiff", 3)
+		r.TerrainShader.SetInt("uRockNorm", 4)
+		r.TerrainShader.SetInt("uRockRough", 5)
+		gl.ActiveTexture(gl.TEXTURE0)
+		gl.BindTexture(gl.TEXTURE_2D, r.snowDiffID)
+		gl.ActiveTexture(gl.TEXTURE1)
+		gl.BindTexture(gl.TEXTURE_2D, r.snowNormID)
+		gl.ActiveTexture(gl.TEXTURE2)
+		gl.BindTexture(gl.TEXTURE_2D, r.snowRoughID)
+		gl.ActiveTexture(gl.TEXTURE3)
+		gl.BindTexture(gl.TEXTURE_2D, r.rockDiffID)
+		gl.ActiveTexture(gl.TEXTURE4)
+		gl.BindTexture(gl.TEXTURE_2D, r.rockNormID)
+		gl.ActiveTexture(gl.TEXTURE5)
+		gl.BindTexture(gl.TEXTURE_2D, r.rockRoughID)
 		r.scene.terrainMesh.Draw()
+		gl.ActiveTexture(gl.TEXTURE0) // leave unit 0 active for downstream passes
 	}
 
 	// Static pass
@@ -836,12 +831,10 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		batch.Draw()
 	}
 
-	// Tower + cable pass — world-space meshes, drawn with identity instance transform.
+	// Cable pass — world-space meshes, drawn with identity instance
+	// transform. Towers are instanced through the static batch above.
 	gl.BindTexture(gl.TEXTURE_2D, r.whiteTexID)
 	setCableTransformAttribs()
-	for _, m := range r.scene.liftTowers {
-		m.Draw()
-	}
 	for _, m := range r.scene.liftUpCables {
 		m.Draw()
 	}
@@ -859,9 +852,6 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	}
 	gl.BindTexture(gl.TEXTURE_2D, r.whiteTexID)
 	setCableTransformAttribs()
-	if r.scene.ghostTower != nil {
-		r.scene.ghostTower.Draw()
-	}
 	if r.scene.ghostUpCable != nil {
 		r.scene.ghostUpCable.Draw()
 	}
@@ -1098,11 +1088,10 @@ func (r *Renderer) ClearAllGhosts() {
 	}
 }
 
-// SetGhostCable regenerates the ghost tower + cable meshes from base to top.
-func (r *Renderer) SetGhostCable(base, top [2]int, t *world.Terrain) {
-	if r.scene.ghostTower != nil {
-		r.scene.ghostTower.Delete()
-	}
+// SetGhostCable regenerates the ghost cable meshes and tower-instance
+// previews from base to top. The tower ghosts go through the standard
+// ghost-batch path so they share geometry with the live towers.
+func (r *Renderer) SetGhostCable(base, top mgl32.Vec2, t *world.Terrain) {
 	if r.scene.ghostUpCable != nil {
 		r.scene.ghostUpCable.Delete()
 	}
@@ -1110,17 +1099,20 @@ func (r *Renderer) SetGhostCable(base, top [2]int, t *world.Terrain) {
 		r.scene.ghostDownCable.Delete()
 	}
 	tempLift := &world.Lift{Base: base, Top: top}
-	r.scene.ghostTower = GenerateTowerMesh(tempLift, t)
 	r.scene.ghostUpCable = generateCableMesh(tempLift, t, world.CableGap)
 	r.scene.ghostDownCable = generateCableMesh(tempLift, t, -world.CableGap)
+
+	mats := TowerInstancesForLift(base, top, t)
+	ghosts := make([]StaticInstance, len(mats))
+	for i, m := range mats {
+		ghosts[i].ColorTint = [3]float32{1, 1, 1}
+		copy(ghosts[i].Transform[:], m[:])
+	}
+	r.SetGhosts(MeshTower, ghosts)
 }
 
-// ClearGhostCable removes the ghost tower + cable meshes.
+// ClearGhostCable removes the ghost cable meshes and tower previews.
 func (r *Renderer) ClearGhostCable() {
-	if r.scene.ghostTower != nil {
-		r.scene.ghostTower.Delete()
-		r.scene.ghostTower = nil
-	}
 	if r.scene.ghostUpCable != nil {
 		r.scene.ghostUpCable.Delete()
 		r.scene.ghostUpCable = nil
@@ -1129,21 +1121,18 @@ func (r *Renderer) ClearGhostCable() {
 		r.scene.ghostDownCable.Delete()
 		r.scene.ghostDownCable = nil
 	}
+	r.SetGhosts(MeshTower, nil)
 }
 
-// AddLiftMeshes generates and stores tower + cable meshes for a lift.
+// AddLiftMeshes generates and stores cable meshes for a lift. Towers are
+// added to the static batch by RebuildStaticBatch.
 func (r *Renderer) AddLiftMeshes(lift *world.Lift, t *world.Terrain) {
-	r.scene.liftTowers[lift.ID] = GenerateTowerMesh(lift, t)
 	r.scene.liftUpCables[lift.ID] = generateCableMesh(lift, t, world.CableGap)
 	r.scene.liftDownCables[lift.ID] = generateCableMesh(lift, t, -world.CableGap)
 }
 
-// RemoveLiftMeshes removes all procedural meshes for a lift.
+// RemoveLiftMeshes removes the cable meshes for a lift.
 func (r *Renderer) RemoveLiftMeshes(liftID uint64) {
-	if m, ok := r.scene.liftTowers[liftID]; ok {
-		m.Delete()
-		delete(r.scene.liftTowers, liftID)
-	}
 	if m, ok := r.scene.liftUpCables[liftID]; ok {
 		m.Delete()
 		delete(r.scene.liftUpCables, liftID)

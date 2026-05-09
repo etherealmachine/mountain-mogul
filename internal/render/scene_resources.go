@@ -14,19 +14,16 @@ type SceneResources struct {
 	terrainWidth  int
 	terrainHeight int
 
-	liftTowers     map[uint64]*Mesh
 	liftUpCables   map[uint64]*Mesh
 	liftDownCables map[uint64]*Mesh
 
 	ghostBatches   map[uint32]*Batch
-	ghostTower     *Mesh
 	ghostUpCable   *Mesh
 	ghostDownCable *Mesh
 }
 
 func newSceneResources() *SceneResources {
 	return &SceneResources{
-		liftTowers:     make(map[uint64]*Mesh),
 		liftUpCables:   make(map[uint64]*Mesh),
 		liftDownCables: make(map[uint64]*Mesh),
 		ghostBatches:   make(map[uint32]*Batch),
@@ -39,10 +36,6 @@ func (s *SceneResources) Delete() {
 		s.terrainMesh.Delete()
 		s.terrainMesh = nil
 	}
-	for id, m := range s.liftTowers {
-		m.Delete()
-		delete(s.liftTowers, id)
-	}
 	for id, m := range s.liftUpCables {
 		m.Delete()
 		delete(s.liftUpCables, id)
@@ -54,10 +47,6 @@ func (s *SceneResources) Delete() {
 	for id, b := range s.ghostBatches {
 		b.Delete()
 		delete(s.ghostBatches, id)
-	}
-	if s.ghostTower != nil {
-		s.ghostTower.Delete()
-		s.ghostTower = nil
 	}
 	if s.ghostUpCable != nil {
 		s.ghostUpCable.Delete()

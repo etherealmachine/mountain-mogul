@@ -252,18 +252,19 @@ func skillName(s ai.SkillLevel) string {
 // header can print a useful target. Returns the agent's own position if the
 // TargetID resolves to nothing.
 func targetPos(w *world.World, a *world.Agent) [3]float32 {
-	const cellSize = 10.0
 	if a.TargetID == 0 {
 		return [3]float32{a.Pos[0], a.Pos[1], a.Pos[2]}
 	}
 	for _, b := range w.Buildings {
 		if b.ID == a.TargetID {
-			return [3]float32{(float32(b.Pos[0]) + 0.5) * cellSize, w.Terrain.ElevationAt(b.Pos[0], b.Pos[1]), (float32(b.Pos[1]) + 0.5) * cellSize}
+			p := lodgeWorldPos(w, b)
+			return [3]float32{p[0], p[1], p[2]}
 		}
 	}
 	for _, l := range w.Lifts {
 		if l.ID == a.TargetID {
-			return [3]float32{(float32(l.Base[0]) + 0.5) * cellSize, w.Terrain.ElevationAt(l.Base[0], l.Base[1]), (float32(l.Base[1]) + 0.5) * cellSize}
+			p := liftBaseWorldPos(w, l)
+			return [3]float32{p[0], p[1], p[2]}
 		}
 	}
 	return [3]float32{a.Pos[0], a.Pos[1], a.Pos[2]}

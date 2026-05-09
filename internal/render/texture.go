@@ -2,14 +2,15 @@ package render
 
 import (
 	"image"
+	_ "image/jpeg" // register JPEG decoder for image.Decode
 	"image/png"
 	"os"
 
 	"github.com/go-gl/gl/v4.1-core/gl"
 )
 
-// LoadTexture loads a PNG file and uploads it to OpenGL as an RGBA8 texture.
-// Returns a 1x1 white texture on error.
+// LoadTexture loads a PNG or JPEG file and uploads it to OpenGL as an
+// RGBA8 texture. Returns a 1×1 white texture on error.
 func LoadTexture(path string) (uint32, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -17,7 +18,7 @@ func LoadTexture(path string) (uint32, error) {
 	}
 	defer f.Close()
 
-	img, err := png.Decode(f)
+	img, _, err := image.Decode(f)
 	if err != nil {
 		return whiteTexture(), err
 	}

@@ -3,17 +3,33 @@ package world
 import (
 	"math"
 	"math/rand"
+
+	"github.com/go-gl/mathgl/mgl32"
 )
 
 // Building represents a lodge that holds skiers and spawns them into the world.
+//
+// Pos is the building's anchor in continuous world XZ coordinates (metres).
+// Y is derived from terrain elevation at use time. Footprints are still
+// effectively a single cell for passability rasterisation; oriented-AABB
+// footprints are a future extension.
 type Building struct {
 	ID            uint64
-	Pos           [2]int
+	Pos           mgl32.Vec2
 	Rotation      float32
 	MeanSpawnRate float64 // mean spawns per second (Poisson process)
 	SkierCount    int     // skiers currently in the lodge pool
 	spawnTimer    float64
 	nextSpawnIn   float64 // random interval until next spawn (exponential)
+}
+
+// DoorCell returns the grid cell containing the building's anchor — the
+// pathfinder destination for skiers walking to this lodge. Floor (not
+// round) so a Pos exactly on a cell boundary lands in the cell whose
+// indices match its floor coordinates, consistent with how skiers map
+// their own continuous Pos to a cell elsewhere in the sim.
+func (b *Building) DoorCell() [2]int {
+	return cellOf(b.Pos)
 }
 
 // SpawnTimer returns the current spawn timer value.

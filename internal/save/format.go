@@ -30,11 +30,12 @@ type ObjectData struct {
 }
 
 // BuildingData is a placed lodge. ID is preserved across save/load so that
-// agent.TargetID references stay valid.
+// agent.TargetID references stay valid. X/Z are continuous world XZ
+// (metres); Y is reconstructed from terrain at load time.
 type BuildingData struct {
 	ID            uint64  `json:"id,omitempty"`
-	X             int     `json:"x"`
-	Z             int     `json:"z"`
+	X             float32 `json:"x"`
+	Z             float32 `json:"z"`
 	Rotation      float32 `json:"r,omitempty"`
 	MeanSpawnRate float64 `json:"mean_spawn_rate"`
 	SkierCount    int     `json:"skier_count,omitempty"`
@@ -49,13 +50,14 @@ type ChairData struct {
 
 // LiftData is a placed lift, including its full runtime state (chair
 // positions and passenger references, queue order) so a save round-trips
-// without freezing skiers in mid-air.
+// without freezing skiers in mid-air. Base/Top are continuous world XZ
+// (metres).
 type LiftData struct {
 	ID       uint64      `json:"id,omitempty"`
-	BaseX    int         `json:"bx"`
-	BaseZ    int         `json:"bz"`
-	TopX     int         `json:"tx"`
-	TopZ     int         `json:"tz"`
+	BaseX    float32     `json:"bx"`
+	BaseZ    float32     `json:"bz"`
+	TopX     float32     `json:"tx"`
+	TopZ     float32     `json:"tz"`
 	Speed    float32     `json:"speed,omitempty"`
 	Chairs   []ChairData `json:"chairs,omitempty"`
 	QueueIDs []uint64    `json:"queue,omitempty"`

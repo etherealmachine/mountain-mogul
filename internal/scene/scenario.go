@@ -22,36 +22,69 @@ import (
 
 // screenToCell projects a screen position to a terrain grid cell using DDA
 // ray-marching. Steps half a cell at a time from above max terrain until the
-// ray drops below the terrain surface.
+// ray drops below the terrain surface. Used for the editor's terrain
+// brushes (Plant, Glade, Raise, Lower) which are inherently per-cell.
 func screenToCell(cam *render.Camera, terrain *world.Terrain, mousePos mgl32.Vec2) (gx, gz int) {
+	const cellSize = float32(10.0)
+	pos, ok := screenToWorld(cam, terrain, mousePos)
+	if !ok {
+		return -1, -1
+	}
+	return int(pos[0] / cellSize), int(pos[2] / cellSize)
+}
+
+// screenToWorld projects a screen position to a continuous point on the
+// terrain mesh. Returns the refined intersection plus ok=true on success.
+//
+// The DDA marches in half-cell steps to find the *cell* where the ray
+// drops below terrain (~5 m quantisation). For freeform placement that
+// quantisation is visible — so we follow up with a few iterations of
+// bisection between the last "above terrain" and first "below terrain"
+// sample, refining against `InterpolatedElevationAt` to get a sub-metre
+// hit suitable for placing buildings or lift endpoints anywhere.
+func screenToWorld(cam *render.Camera, terrain *world.Terrain, mousePos mgl32.Vec2) (mgl32.Vec3, bool) {
 	const cellSize = float32(10.0)
 	const maxElev = float32(1500.0)
 
 	origin, dir := cam.ScreenToWorldRay(mousePos)
 	if dir[1] >= 0 {
-		return -1, -1
+		return mgl32.Vec3{}, false
 	}
 
-	// Start t so that the ray is above the maximum terrain elevation.
+	// Start t so the ray is above the maximum terrain elevation.
 	tCur := (maxElev - origin[1]) / dir[1]
-
-	// Step size: half a cell width in XZ.
 	xzLen := float32(math.Sqrt(float64(dir[0]*dir[0] + dir[2]*dir[2])))
 	if xzLen < 1e-6 {
-		return -1, -1
+		return mgl32.Vec3{}, false
 	}
 	dt := (cellSize * 0.5) / xzLen
 
+	tPrev := tCur
 	for i := 0; i < 400; i++ {
 		pos := origin.Add(dir.Mul(tCur))
 		cx := int(pos[0] / cellSize)
 		cz := int(pos[2] / cellSize)
 		if terrain.InBounds(cx, cz) && pos[1] <= terrain.ElevationAt(cx, cz) {
-			return cx, cz
+			// Bisect between tPrev (above terrain) and tCur (below terrain)
+			// using the smooth surface elevation so the returned point
+			// sits within ~cm of the actual terrain mesh — small enough to
+			// be invisible at game scale.
+			lo, hi := tPrev, tCur
+			for k := 0; k < 6; k++ {
+				mid := (lo + hi) * 0.5
+				p := origin.Add(dir.Mul(mid))
+				if p[1] > terrain.InterpolatedElevationAt(p[0], p[2]) {
+					lo = mid
+				} else {
+					hi = mid
+				}
+			}
+			return origin.Add(dir.Mul(hi)), true
 		}
+		tPrev = tCur
 		tCur += dt
 	}
-	return -1, -1
+	return mgl32.Vec3{}, false
 }
 
 // applyDensityBrush modifies TreeDensity within `radius` cells of (cx, cz) by `delta`.
@@ -101,11 +134,13 @@ type Scenario struct {
 	escapeMenu      *EscapeMenu
 	toolButtons     map[toolMode]*ui.Button
 	activeTool      toolMode
-	liftBase        [2]int // first click for lift placement
+	liftBase        mgl32.Vec2 // first click world position for lift placement
 	scenarioPath    string
 	time            float32
 	rightDragging   bool
-	hoverCell       [2]int // terrain cell currently under the mouse
+	hoverCell       [2]int     // terrain cell under the mouse — for cell-based tools
+	hoverWorld      mgl32.Vec3 // continuous terrain hit under the mouse — for placement
+	hoverValid      bool       // false when the mouse is off-terrain or over the menu bars
 	followAgentID   uint64 // 0 = free camera; >0 = ID of followed skier
 	debugSteering   bool   // F3: render steering forces on the followed skier
 	paused          bool
@@ -539,11 +574,20 @@ func (s *Scenario) Update(dt float64) {
 		r.Camera.Recalculate()
 	}
 
-	// Track terrain cell under mouse for brush preview.
+	// Track terrain hit under mouse — both as a continuous Vec3 for
+	// placement and as a grid cell for the cell-based tools (glade brush,
+	// remove). hoverValid gates both.
 	if !s.barsContain(inp.MousePos[1]) {
-		gx, gz := screenToCell(r.Camera, s.world.Terrain, inp.MousePos)
-		s.hoverCell = [2]int{gx, gz}
+		if pos, ok := screenToWorld(r.Camera, s.world.Terrain, inp.MousePos); ok {
+			s.hoverWorld = pos
+			s.hoverValid = true
+			s.hoverCell = [2]int{int(pos[0] / 10.0), int(pos[2] / 10.0)}
+		} else {
+			s.hoverValid = false
+			s.hoverCell = [2]int{-1, -1}
+		}
 	} else {
+		s.hoverValid = false
 		s.hoverCell = [2]int{-1, -1}
 	}
 
@@ -573,13 +617,13 @@ func (s *Scenario) Update(dt float64) {
 	}
 	if !clickConsumed {
 		clickOrHeld := inp.LeftClick || (inp.LeftHeld && s.activeTool == toolGlade)
-		if clickOrHeld && !s.barsContain(inp.MousePos[1]) {
+		if clickOrHeld && !s.barsContain(inp.MousePos[1]) && s.hoverValid {
 			gx, gz := s.hoverCell[0], s.hoverCell[1]
 			if s.world.Terrain.InBounds(gx, gz) {
 				if s.activeTool == toolNone && inp.LeftClick {
-					s.tryOpenPopup(gx, gz, r.ScreenWidth(), r.ScreenHeight())
+					s.tryOpenPopup(s.hoverWorld, r.ScreenWidth(), r.ScreenHeight())
 				} else {
-					s.applyTool(gx, gz, r)
+					s.applyTool(r)
 				}
 			}
 		}
@@ -696,63 +740,70 @@ func steeringLines(w *world.World, a *world.Agent, target mgl32.Vec3) []render.D
 // steering toward, resolved from the agent's TargetID against either the
 // world's lifts or buildings.
 func skierTarget(w *world.World, a *world.Agent) (mgl32.Vec3, bool) {
-	const cellSize = float32(10.0)
 	if a.TargetID == 0 {
 		return mgl32.Vec3{}, false
 	}
 	for _, lift := range w.Lifts {
 		if lift.ID == a.TargetID {
-			return mgl32.Vec3{
-				(float32(lift.Base[0]) + 0.5) * cellSize,
-				w.Terrain.ElevationAt(lift.Base[0], lift.Base[1]),
-				(float32(lift.Base[1]) + 0.5) * cellSize,
-			}, true
+			cell := lift.QueueCell()
+			return mgl32.Vec3{lift.Base[0], w.Terrain.ElevationAt(cell[0], cell[1]), lift.Base[1]}, true
 		}
 	}
 	for _, b := range w.Buildings {
 		if b.ID == a.TargetID {
-			return mgl32.Vec3{
-				(float32(b.Pos[0]) + 0.5) * cellSize,
-				w.Terrain.ElevationAt(b.Pos[0], b.Pos[1]),
-				(float32(b.Pos[1]) + 0.5) * cellSize,
-			}, true
+			cell := b.DoorCell()
+			return mgl32.Vec3{b.Pos[0], w.Terrain.ElevationAt(cell[0], cell[1]), b.Pos[1]}, true
 		}
 	}
 	return mgl32.Vec3{}, false
 }
 
-const gladeRadius = 2 // cells
+const (
+	gladeRadius        = 2     // cells
+	buildingPickRadius = 7.0   // metres — ~one cell width, matches default lodge footprint
+	liftPickRadius     = 5.0   // metres — clicks within this of the base register as a hit
+)
 
-func (s *Scenario) applyTool(gx, gz int, r *render.Renderer) {
+// applyTool dispatches the active placement / editing tool. Building and
+// lift placement read the continuous hover position; brush tools read the
+// cell version. Caller guarantees s.hoverValid before invoking.
+func (s *Scenario) applyTool(r *render.Renderer) {
 	defer s.syncToolButtons()
 	w := s.world
+	gx, gz := s.hoverCell[0], s.hoverCell[1]
+	wx, wz := s.hoverWorld[0], s.hoverWorld[2]
 	switch s.activeTool {
 	case toolBuilding:
-		w.PlaceBuilding(gx, gz)
+		w.PlaceBuilding(wx, wz)
 		r.RebuildStaticBatch(w)
 	case toolGlade:
 		applyDensityBrush(w.Terrain, gx, gz, gladeRadius, -0.4)
 		r.RebuildStaticBatch(w)
 	case toolLiftBase:
-		s.liftBase = [2]int{gx, gz}
+		s.liftBase = mgl32.Vec2{wx, wz}
 		s.activeTool = toolLiftTop
-		fmt.Printf("Lift base set at (%d,%d) — now click top\n", gx, gz)
+		fmt.Printf("Lift base set at (%.1f, %.1f) — now click top\n", wx, wz)
 	case toolLiftTop:
-		lift := w.PlaceLift(s.liftBase[0], s.liftBase[1], gx, gz)
+		lift := w.PlaceLift(s.liftBase[0], s.liftBase[1], wx, wz)
 		r.AddLiftCable(lift, w.Terrain)
 		r.RebuildStaticBatch(w)
 		r.ClearAllGhosts()
 		r.ClearGhostCable()
 		s.activeTool = toolNone
 	case toolRemove:
-		s.removeAt(gx, gz, r)
+		s.removeAt(s.hoverWorld, r)
 	}
 }
 
-func (s *Scenario) removeAt(gx, gz int, r *render.Renderer) {
+// removeAt removes the building or lift closest to clickPos within the
+// pick radius. Lift removal isn't wired here yet — the existing tool
+// only deletes buildings. Once `world.RemoveLift` is plumbed through the
+// renderer it should fall under the same proximity test.
+func (s *Scenario) removeAt(clickPos mgl32.Vec3, r *render.Renderer) {
 	w := s.world
+	pick := mgl32.Vec2{clickPos[0], clickPos[2]}
 	for _, b := range w.Buildings {
-		if b.Pos[0] == gx && b.Pos[1] == gz {
+		if b.Pos.Sub(pick).Len() <= buildingPickRadius {
 			w.RemoveBuilding(b.ID)
 			r.RebuildStaticBatch(w)
 			return
@@ -826,25 +877,24 @@ func (s *Scenario) Destroy() {
 	}
 }
 
-// tryOpenPopup opens a popup window if a building or lift is at the clicked cell.
-func (s *Scenario) tryOpenPopup(gx, gz, screenW, screenH int) {
-	// Check buildings first.
+// tryOpenPopup opens a popup window if the click is within the pick
+// radius of a building or lift base. Buildings have priority — clicks
+// inside a building's footprint open the lodge panel even if a lift
+// happens to be near.
+func (s *Scenario) tryOpenPopup(clickPos mgl32.Vec3, screenW, screenH int) {
+	pick := mgl32.Vec2{clickPos[0], clickPos[2]}
 	for _, b := range s.world.Buildings {
-		if b.Pos[0] == gx && b.Pos[1] == gz {
+		if b.Pos.Sub(pick).Len() <= buildingPickRadius {
 			s.openBuildingPopup(b, screenW, screenH)
 			return
 		}
 	}
-	// Check lift bases (within 1 cell).
 	for _, lift := range s.world.Lifts {
-		dx := lift.Base[0] - gx
-		dz := lift.Base[1] - gz
-		if dx*dx+dz*dz <= 1 {
+		if lift.Base.Sub(pick).Len() <= liftPickRadius {
 			s.openLiftPopup(lift, screenW, screenH)
 			return
 		}
 	}
-	// Nothing hit — close any open popup.
 	if s.popup != nil {
 		s.popup.Visible = false
 	}
@@ -934,28 +984,34 @@ func (s *Scenario) syncToolButtons() {
 }
 
 // updateLiftGhost drives the ghost preview during lift placement.
+// Reads the continuous hoverWorld so the ghost tracks the cursor at
+// freeform precision, not snapped to a cell.
 func (s *Scenario) updateLiftGhost(r *render.Renderer) {
-	gx, gz := s.hoverCell[0], s.hoverCell[1]
 	t := s.world.Terrain
 
 	switch s.activeTool {
 	case toolLiftBase:
 		r.ClearGhostCable()
-		if t.InBounds(gx, gz) {
+		if s.hoverValid {
+			pos := mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]}
+			// No top yet — render at default orientation by passing
+			// otherEnd == pos. Rotation kicks in in toolLiftTop below.
 			r.SetGhosts(render.MeshLiftStation, []render.StaticInstance{
-				stationInstanceAt([2]int{gx, gz}, t),
+				stationInstance(pos, pos, t),
 			})
 		} else {
 			r.SetGhosts(render.MeshLiftStation, nil)
 		}
 
 	case toolLiftTop:
-		if t.InBounds(gx, gz) {
+		if s.hoverValid {
+			base := s.liftBase
+			top := mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]}
 			r.SetGhosts(render.MeshLiftStation, []render.StaticInstance{
-				stationInstanceAt(s.liftBase, t),
-				stationInstanceAt([2]int{gx, gz}, t),
+				stationInstance(base, top, t), // base faces top
+				stationInstance(top, base, t), // top faces base
 			})
-			r.SetGhostCable(s.liftBase, [2]int{gx, gz}, t)
+			r.SetGhostCable(base, top, t)
 		} else {
 			r.ClearGhostCable()
 		}
@@ -966,13 +1022,11 @@ func (s *Scenario) updateLiftGhost(r *render.Renderer) {
 	}
 }
 
-// stationInstanceAt builds a StaticInstance for a lift station at the given terrain cell.
-func stationInstanceAt(cell [2]int, t *world.Terrain) render.StaticInstance {
-	const cellSize = float32(10.0)
-	x := float32(cell[0]) * cellSize
-	z := float32(cell[1]) * cellSize
-	y := t.ElevationAt(cell[0], cell[1])
-	m := mgl32.Translate3D(x, y, z)
+// stationInstance wraps render.LiftStationTransform into a StaticInstance
+// for the ghost-preview path. Live placements bypass this and call the
+// transform helper directly inside RebuildStaticBatch.
+func stationInstance(pos, otherEnd mgl32.Vec2, t *world.Terrain) render.StaticInstance {
+	m := render.LiftStationTransform(pos, otherEnd, t)
 	inst := render.StaticInstance{ColorTint: [3]float32{1, 1, 1}}
 	copy(inst.Transform[:], m[:])
 	return inst

@@ -62,6 +62,20 @@ func (c *Camera) ViewProj() mgl32.Mat4 {
 	return c.Proj.Mul4(c.View)
 }
 
+// EyeDirection returns the unit vector pointing from the scene toward
+// the camera — the "view direction" used for specular shading. The
+// camera is orthographic, so all rays are parallel and this value is
+// independent of surface position.
+func (c *Camera) EyeDirection() mgl32.Vec3 {
+	pitchRad := float64(c.Pitch) * math.Pi / 180.0
+	yawRad := float64(c.Yaw) * math.Pi / 180.0
+	return mgl32.Vec3{
+		float32(math.Cos(pitchRad) * math.Sin(yawRad)),
+		float32(math.Sin(pitchRad)),
+		float32(math.Cos(pitchRad) * math.Cos(yawRad)),
+	}
+}
+
 // PanDelta converts a 2D screen-space drag (pixels) to a world-space XZ
 // translation for the camera target. Accounts for camera yaw so screen-right
 // always corresponds to the camera's right direction regardless of orientation.
