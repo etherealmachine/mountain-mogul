@@ -58,11 +58,31 @@ func GenerateTreeCover(t *world.Terrain, patchScale, coverage float32, seed int6
 	const flowHigh = float32(0.85)
 	const flowBoost = float32(0.55) // max additive density along main channels
 
+	// Concavity signal: discrete Laplacian of elevation (bowl-positive). Boosts
+	// density in hollows where soil and moisture collect; subtracts on convex
+	// ridges that get wind-blasted and shed soil. Normalised against the map's
+	// own curvature distribution so the effect is comparable across terrains
+	// with different relief.
+	curv := curvature(t)
+	const concavityBoost = float32(0.35)
+	const ridgePenalty = float32(0.25)
+
+	// Domain-warp seeds: distinct integer offsets so the X and Z warps decorrelate.
+	warpSeedX := hashSeed + 0x1A4F
+	warpSeedZ := hashSeed + 0x73C1
+	const warpAmount = float32(1.2) // in patch widths — bigger = more swirly stand shapes
+
 	for x := 0; x < t.Width; x++ {
 		for z := 0; z < t.Height; z++ {
 			fx := float32(x) / patchScale
 			fz := float32(z) / patchScale
-			n := fbm2D(fx, fz, 4, hashSeed)
+
+			// Domain warp: displace the noise sample point with a low-frequency
+			// noise field. Turns the round FBM blobs into elongated, swirling
+			// stand shapes that look organic instead of cellular.
+			wx := fbm2D(fx*0.5, fz*0.5, 2, warpSeedX) - 0.5
+			wz := fbm2D(fx*0.5, fz*0.5, 2, warpSeedZ) - 0.5
+			n := fbm2D(fx+wx*warpAmount, fz+wz*warpAmount, 4, hashSeed)
 
 			// Re-map noise so the bottom (1 - coverage) of the range clamps to
 			// 0 (open meadow). The remainder ramps toward 1.
@@ -76,6 +96,14 @@ func GenerateTreeCover(t *world.Terrain, patchScale, coverage float32, seed int6
 			fl := flow[x*t.Height+z]
 			fb := smoothstep32(flowLow, flowHigh, fl) * flowBoost
 			d += fb
+
+			// Concavity bias: positive curvature in hollows, negative on ridges.
+			c := curv[x*t.Height+z]
+			if c > 0 {
+				d += smoothstep32(0.15, 0.85, c) * concavityBoost
+			} else if c < 0 {
+				d -= smoothstep32(0.15, 0.85, -c) * ridgePenalty
+			}
 
 			elev := t.Cells[x][z].Elevation
 			if elev >= treelineMax {
@@ -191,6 +219,61 @@ func flowAccumulation(t *world.Terrain) []float32 {
 		inv := 1 / maxLog
 		for i := range out {
 			out[i] *= inv
+		}
+	}
+	return out
+}
+
+// curvature returns the per-cell discrete Laplacian of elevation, normalised
+// to roughly [-1, 1] against the map's own curvature distribution. Positive
+// values mean concave (bowl-like, hollow) cells; negative values mean convex
+// (ridge-like) cells. The Laplacian's raw magnitude depends on absolute
+// elevation differences which scale with terrain ruggedness, so we divide
+// each side by the strongest signed extreme — that way a gently rolling
+// landscape and a dramatic alpine ridge both produce comparable values.
+func curvature(t *world.Terrain) []float32 {
+	n := t.Width * t.Height
+	out := make([]float32, n)
+	maxPos := float32(0)
+	maxNeg := float32(0)
+	for x := 0; x < t.Width; x++ {
+		for z := 0; z < t.Height; z++ {
+			c := t.Cells[x][z].Elevation
+			// 4-neighbour Laplacian with edge clamping. (e_left + e_right +
+			// e_up + e_down) - 4·e_center; positive when neighbours are
+			// higher than centre (a hollow), negative on a peak.
+			xl := x - 1
+			if xl < 0 {
+				xl = 0
+			}
+			xr := x + 1
+			if xr >= t.Width {
+				xr = t.Width - 1
+			}
+			zu := z - 1
+			if zu < 0 {
+				zu = 0
+			}
+			zd := z + 1
+			if zd >= t.Height {
+				zd = t.Height - 1
+			}
+			lap := t.Cells[xl][z].Elevation + t.Cells[xr][z].Elevation +
+				t.Cells[x][zu].Elevation + t.Cells[x][zd].Elevation -
+				4*c
+			out[x*t.Height+z] = lap
+			if lap > maxPos {
+				maxPos = lap
+			} else if -lap > maxNeg {
+				maxNeg = -lap
+			}
+		}
+	}
+	for i, v := range out {
+		if v > 0 && maxPos > 0 {
+			out[i] = v / maxPos
+		} else if v < 0 && maxNeg > 0 {
+			out[i] = v / maxNeg // result still negative, magnitude in [0, 1]
 		}
 	}
 	return out
