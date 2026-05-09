@@ -132,12 +132,15 @@ func GenerateTreeCover(t *world.Terrain, patchScale, coverage float32, seed int6
 	}
 }
 
-// flowAccumulation runs D8 single-flow-direction accumulation over the
-// terrain's elevation grid. Each cell's value is the count of upstream cells
-// (including itself) that drain into it via the steepest-descent neighbour
-// graph. Counts are then log-normalised to [0, 1] because raw accumulation
-// spans several orders of magnitude on real-shaped terrain (peaks ~1, main
-// valley ~thousands) — log makes the dynamic range usable for blending.
+// flowAccumulation runs MFD (multiple-flow-direction) accumulation over the
+// terrain's elevation grid. Each cell distributes its upstream area to ALL
+// downhill neighbours weighted by slope^p (Quinn et al. 1991, p≈1.1) — so a
+// cell with two equally-steep downhill drops splits 50/50 and a cell with a
+// clear winner mostly behaves like D8. This eliminates the 0°/45° grid-axis
+// channels that single-flow D8 produces, giving feathered, organic-looking
+// drainage patterns. The accumulated counts are then log-normalised to
+// [0, 1] (raw counts span orders of magnitude) and gently blurred to soften
+// any residual stair-stepping along the grid.
 //
 // Pits (cells with no downhill neighbour) collect flow but don't propagate
 // it. We don't pit-fill: procedural heightfields rarely have large basins,
@@ -176,14 +179,14 @@ func flowAccumulation(t *world.Terrain) []float32 {
 		{-1, 1, invDiag}, {0, 1, 1}, {1, 1, invDiag},
 	}
 
+	const mfdExponent = 1.1
 	for _, idx := range order {
 		x := idx / t.Height
 		z := idx % t.Height
 		e := t.Cells[x][z].Elevation
-		bestSlope := float32(0)
-		bestDX, bestDZ := 0, 0
-		hasReceiver := false
-		for _, d := range dirs {
+		var weights [8]float32
+		totalWeight := float32(0)
+		for i, d := range dirs {
 			nx, nz := x+d.dx, z+d.dz
 			if nx < 0 || nx >= t.Width || nz < 0 || nz >= t.Height {
 				continue
@@ -192,16 +195,23 @@ func flowAccumulation(t *world.Terrain) []float32 {
 			if drop <= 0 {
 				continue
 			}
-			s := drop * d.invDist
-			if s > bestSlope {
-				bestSlope = s
-				bestDX, bestDZ = d.dx, d.dz
-				hasReceiver = true
-			}
+			slope := drop * d.invDist
+			w := float32(math.Pow(float64(slope), mfdExponent))
+			weights[i] = w
+			totalWeight += w
 		}
-		if hasReceiver {
-			ni := (x+bestDX)*t.Height + (z + bestDZ)
-			acc[ni] += acc[idx]
+		if totalWeight <= 0 {
+			continue // pit — flow stops here
+		}
+		inv := 1 / totalWeight
+		self := acc[idx]
+		for i, w := range weights {
+			if w == 0 {
+				continue
+			}
+			d := dirs[i]
+			ni := (x+d.dx)*t.Height + (z + d.dz)
+			acc[ni] += self * w * inv
 		}
 	}
 
@@ -219,6 +229,47 @@ func flowAccumulation(t *world.Terrain) []float32 {
 		inv := 1 / maxLog
 		for i := range out {
 			out[i] *= inv
+		}
+	}
+
+	// Gentle [1, 2, 1] separable blur to soften any remaining grid alignment.
+	// Pits and tight channels can still leave near-axis ribbons even with MFD;
+	// one pass is enough to break them up without erasing the broad signal.
+	out = blur121(t, out)
+	return out
+}
+
+// blur121 applies a single-pass separable [1, 2, 1] / 4 blur with edge-clamped
+// boundaries. Cheap and just enough to take the curse off grid-aligned
+// stair-stepping in the flow field.
+func blur121(t *world.Terrain, in []float32) []float32 {
+	n := t.Width * t.Height
+	horiz := make([]float32, n)
+	for x := 0; x < t.Width; x++ {
+		xl := x - 1
+		if xl < 0 {
+			xl = 0
+		}
+		xr := x + 1
+		if xr >= t.Width {
+			xr = t.Width - 1
+		}
+		for z := 0; z < t.Height; z++ {
+			horiz[x*t.Height+z] = (in[xl*t.Height+z] + 2*in[x*t.Height+z] + in[xr*t.Height+z]) * 0.25
+		}
+	}
+	out := make([]float32, n)
+	for x := 0; x < t.Width; x++ {
+		for z := 0; z < t.Height; z++ {
+			zu := z - 1
+			if zu < 0 {
+				zu = 0
+			}
+			zd := z + 1
+			if zd >= t.Height {
+				zd = t.Height - 1
+			}
+			out[x*t.Height+z] = (horiz[x*t.Height+zu] + 2*horiz[x*t.Height+z] + horiz[x*t.Height+zd]) * 0.25
 		}
 	}
 	return out
