@@ -241,6 +241,20 @@ func (s *Scenario) TerrainSize() (int, int) {
 	return s.world.Terrain.Width, s.world.Terrain.Height
 }
 
+// RegenForest re-runs the auto-forest generator on the loaded terrain and
+// rebuilds the static batch so the new tree placement renders. Exposed
+// mainly for the -screenshot harness; in normal use the editor's
+// Auto-forest button drives this.
+func (s *Scenario) RegenForest(seed int64) {
+	if s.world == nil || s.world.Terrain == nil {
+		return
+	}
+	GenerateTreeCover(s.world.Terrain, 24, 0.55, seed)
+	if s.app != nil && s.app.Renderer != nil {
+		s.app.Renderer.RebuildStaticBatch(s.world)
+	}
+}
+
 // NewScenarioFromWorld creates a Scenario backed by a programmatically-built
 // world (e.g. a sim.Testbed). seed is forwarded to NewSimulationWithSeed for
 // reproducibility; pass 0 for wall-clock seeding. Save/Load are disabled in

@@ -1327,24 +1327,28 @@ func setCableTransformAttribs() {
 }
 
 // treeCountFromDensity maps a cell's TreeDensity to a per-cell tree count
-// (currently 0 or 1). Density is interpreted as the probability that a cell
-// has its single tree, using `cellHash` for determinism — so the slider maps
-// smoothly to canopy coverage, with no dead zone at low values and no abrupt
-// jumps. Cap is 1 tree per 25 m² cell (≈ 400 trees/ha at density 1.0), which
-// matches a mature subalpine ski-area stand; tighter than that reads as
-// "trees growing on top of each other" given our 4–6 m canopies.
+// in [0, maxTreesPerCell]. Density × max gives the expected count; we emit
+// the whole part deterministically and roll the fractional part against
+// cellHash so the slider scales smoothly through every count without dead
+// zones. Cap of 3 per 25 m² cell ≈ 1200 trees/ha at d=1.0, matching dense
+// subalpine canopy without trees overlapping on top of each other given
+// our 3–5 m crown widths.
 func treeCountFromDensity(density float32, cellHash uint64) int {
+	const maxTreesPerCell = 3
 	if density <= 0 {
 		return 0
 	}
 	if density >= 1 {
-		return 1
+		return maxTreesPerCell
 	}
+	target := density * maxTreesPerCell
+	whole := int(target)
+	frac := target - float32(whole)
 	p := float32(cellHash&0xFFFF) / 65535.0
-	if p < density {
-		return 1
+	if p < frac {
+		whole++
 	}
-	return 0
+	return whole
 }
 
 // treeInstanceHash returns a stable 64-bit hash for deriving per-tree visual properties.

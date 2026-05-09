@@ -67,7 +67,7 @@ func (e *Editor) Init(app *engine.App) error {
 	e.menuBar.Centered = true
 	e.toolButtons[toolPlantTrees] = e.menuBar.AddIconButton(render.IconTreeEvergreen, "Plant", func() { e.setTool(toolPlantTrees) })
 	e.menuBar.AddIconButton(render.IconTreeEvergreen, "Auto-forest", func() {
-		generateTreeCover(e.world.Terrain, 24, 0.55, time.Now().UnixNano())
+		GenerateTreeCover(e.world.Terrain, 24, 0.55, time.Now().UnixNano())
 		e.app.Renderer.RebuildStaticBatch(e.world)
 	})
 	e.toolButtons[toolGlade] = e.menuBar.AddIconButton(render.IconAxe, "Glade", func() { e.setTool(toolGlade) })

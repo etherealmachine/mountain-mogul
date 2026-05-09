@@ -3,19 +3,21 @@ package scene
 import (
 	"math"
 	"math/rand"
+	"sort"
 
 	"mountain-mogul/internal/world"
 )
 
-// generateTreeCover overwrites Terrain.TreeDensity with patches produced by
-// multi-octave value noise, modulated so trees thin out above the treeline
-// and on cliff-steep slopes. Existing density is replaced — pair this with
-// a "fresh" map; the per-cell brushes remain the way to refine afterwards.
+// GenerateTreeCover overwrites Terrain.TreeDensity with patches produced by
+// multi-octave value noise plus a drainage boost from D8 flow accumulation,
+// then modulated so trees thin out above the treeline and on cliff-steep
+// slopes. Existing density is replaced — pair this with a "fresh" map; the
+// per-cell brushes remain the way to refine afterwards.
 //
 // patchScale is roughly "cells per patch" of the largest octave (24 ≈ 120 m
 // patches at 5 m cells). coverage in [0, 1] sets how much of the map is
 // forested before treeline/slope masking — 0.5 leaves about half open.
-func generateTreeCover(t *world.Terrain, patchScale, coverage float32, seed int64) {
+func GenerateTreeCover(t *world.Terrain, patchScale, coverage float32, seed int64) {
 	if patchScale <= 0 {
 		patchScale = 24
 	}
@@ -46,6 +48,16 @@ func generateTreeCover(t *world.Terrain, patchScale, coverage float32, seed int6
 	treeStart := minE + 0.65*span
 	treelineMax := minE + 0.85*span
 
+	// Drainage signal: D8 flow accumulation, log-normalised. Cells with high
+	// upstream contributing area (valleys, gullies, the floor of bowls) get a
+	// density boost so trees follow the watercourses instead of the patch
+	// noise alone. Applied before treeline/slope masks so alpine streams and
+	// near-vertical canyon walls still bare out correctly.
+	flow := flowAccumulation(t)
+	const flowLow = float32(0.45)
+	const flowHigh = float32(0.85)
+	const flowBoost = float32(0.55) // max additive density along main channels
+
 	for x := 0; x < t.Width; x++ {
 		for z := 0; z < t.Height; z++ {
 			fx := float32(x) / patchScale
@@ -59,6 +71,11 @@ func generateTreeCover(t *world.Terrain, patchScale, coverage float32, seed int6
 			if coverage > 0 && n > floor {
 				d = (n - floor) / coverage
 			}
+
+			// Drainage boost: smoothstep ramp on log-normalised flow, weighted.
+			fl := flow[x*t.Height+z]
+			fb := smoothstep32(flowLow, flowHigh, fl) * flowBoost
+			d += fb
 
 			elev := t.Cells[x][z].Elevation
 			if elev >= treelineMax {
@@ -85,6 +102,117 @@ func generateTreeCover(t *world.Terrain, patchScale, coverage float32, seed int6
 			t.Cells[x][z].TreeDensity = d
 		}
 	}
+}
+
+// flowAccumulation runs D8 single-flow-direction accumulation over the
+// terrain's elevation grid. Each cell's value is the count of upstream cells
+// (including itself) that drain into it via the steepest-descent neighbour
+// graph. Counts are then log-normalised to [0, 1] because raw accumulation
+// spans several orders of magnitude on real-shaped terrain (peaks ~1, main
+// valley ~thousands) — log makes the dynamic range usable for blending.
+//
+// Pits (cells with no downhill neighbour) collect flow but don't propagate
+// it. We don't pit-fill: procedural heightfields rarely have large basins,
+// and the boost behaviour at a true pit (a high-density bowl) is the right
+// answer for forests anyway.
+func flowAccumulation(t *world.Terrain) []float32 {
+	n := t.Width * t.Height
+	acc := make([]float32, n)
+	for i := range acc {
+		acc[i] = 1
+	}
+
+	// Index → cell. Sorted descending by elevation so the propagation walks
+	// peaks-first and every receiver has its own contributions ready when
+	// its turn comes.
+	order := make([]int, n)
+	for i := range order {
+		order[i] = i
+	}
+	sort.Slice(order, func(a, b int) bool {
+		ax, az := order[a]/t.Height, order[a]%t.Height
+		bx, bz := order[b]/t.Height, order[b]%t.Height
+		return t.Cells[ax][az].Elevation > t.Cells[bx][bz].Elevation
+	})
+
+	// 8 neighbour offsets with inverse Euclidean distance — diagonals get
+	// down-weighted in the steepest-descent search, matching the geometry.
+	type dir struct {
+		dx, dz  int
+		invDist float32
+	}
+	const invDiag = float32(1.0 / math.Sqrt2)
+	dirs := [8]dir{
+		{-1, -1, invDiag}, {0, -1, 1}, {1, -1, invDiag},
+		{-1, 0, 1}, {1, 0, 1},
+		{-1, 1, invDiag}, {0, 1, 1}, {1, 1, invDiag},
+	}
+
+	for _, idx := range order {
+		x := idx / t.Height
+		z := idx % t.Height
+		e := t.Cells[x][z].Elevation
+		bestSlope := float32(0)
+		bestDX, bestDZ := 0, 0
+		hasReceiver := false
+		for _, d := range dirs {
+			nx, nz := x+d.dx, z+d.dz
+			if nx < 0 || nx >= t.Width || nz < 0 || nz >= t.Height {
+				continue
+			}
+			drop := e - t.Cells[nx][nz].Elevation
+			if drop <= 0 {
+				continue
+			}
+			s := drop * d.invDist
+			if s > bestSlope {
+				bestSlope = s
+				bestDX, bestDZ = d.dx, d.dz
+				hasReceiver = true
+			}
+		}
+		if hasReceiver {
+			ni := (x+bestDX)*t.Height + (z + bestDZ)
+			acc[ni] += acc[idx]
+		}
+	}
+
+	// Log-normalise to [0, 1].
+	out := make([]float32, n)
+	maxLog := float32(0)
+	for i, a := range acc {
+		v := float32(math.Log1p(float64(a)))
+		out[i] = v
+		if v > maxLog {
+			maxLog = v
+		}
+	}
+	if maxLog > 0 {
+		inv := 1 / maxLog
+		for i := range out {
+			out[i] *= inv
+		}
+	}
+	return out
+}
+
+// smoothstep32 is the standard Hermite ramp from 0 to 1 between edge0 and
+// edge1. Inlined elsewhere in the codebase as raw arithmetic; named here
+// for readability since we use it multiple ways.
+func smoothstep32(edge0, edge1, x float32) float32 {
+	if edge1 <= edge0 {
+		if x < edge0 {
+			return 0
+		}
+		return 1
+	}
+	t := (x - edge0) / (edge1 - edge0)
+	if t < 0 {
+		t = 0
+	} else if t > 1 {
+		t = 1
+	}
+	return t * t * (3 - 2*t)
 }
 
 // slopeAt returns the magnitude of the elevation gradient at cell (x, z),

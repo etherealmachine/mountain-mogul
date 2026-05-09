@@ -28,6 +28,8 @@ func main() {
 	screenshot := flag.String("screenshot", "", "load a save, render a few frames, write a PNG to this path, then exit")
 	loadPath := flag.String("load", "", "save file path to use with -screenshot (default: most recent save)")
 	warmupFrames := flag.Int("warmup", 30, "frames to render before capturing -screenshot (so the world settles)")
+	regenForest := flag.Bool("regen-forest", false, "with -screenshot: regenerate auto-forest on the loaded terrain before capture")
+	forestSeed := flag.Int64("forest-seed", 0, "with -regen-forest: seed for the regen (0 = wall-clock)")
 	flag.Parse()
 
 	if *testbed != "" {
@@ -40,7 +42,7 @@ func main() {
 	}
 
 	if *screenshot != "" {
-		runScreenshot(*loadPath, *screenshot, *warmupFrames)
+		runScreenshot(*loadPath, *screenshot, *warmupFrames, *regenForest, *forestSeed)
 		return
 	}
 
@@ -52,10 +54,11 @@ func main() {
 }
 
 // runScreenshot opens a window, loads the given save (or the most recent one
-// when path is empty), runs the scene loop for warmupFrames, captures the
-// back buffer to outPath, and exits. Used to inspect rendering changes from
+// when path is empty), optionally re-runs the auto-forest generator on its
+// terrain, runs the scene loop for warmupFrames, captures the back buffer
+// to outPath, and exits. Used to inspect rendering and procgen changes from
 // CI / agents that can't drive the GUI.
-func runScreenshot(loadPath, outPath string, warmupFrames int) {
+func runScreenshot(loadPath, outPath string, warmupFrames int, regenForest bool, forestSeed int64) {
 	if loadPath == "" {
 		p, ok := save.MostRecentSave()
 		if !ok {
@@ -75,6 +78,15 @@ func runScreenshot(loadPath, outPath string, warmupFrames int) {
 
 	sc := scene.NewScenarioFromFile(loadPath)
 	app.PushScene(sc)
+
+	if regenForest {
+		seed := forestSeed
+		if seed == 0 {
+			seed = time.Now().UnixNano()
+		}
+		fmt.Printf("screenshot: regenerating auto-forest (seed=%d)\n", seed)
+		sc.RegenForest(seed)
+	}
 
 	// Centre the orthographic camera on the map and zoom out far enough to
 	// frame the whole thing. PushScene already ran Init → installWorld so
