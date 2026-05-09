@@ -48,15 +48,23 @@ func GenerateTreeCover(t *world.Terrain, patchScale, coverage float32, seed int6
 	treeStart := minE + 0.65*span
 	treelineMax := minE + 0.85*span
 
-	// Drainage signal: D8 flow accumulation, log-normalised. Cells with high
+	// Drainage signal: MFD flow accumulation, log-normalised. Cells with high
 	// upstream contributing area (valleys, gullies, the floor of bowls) get a
 	// density boost so trees follow the watercourses instead of the patch
 	// noise alone. Applied before treeline/slope masks so alpine streams and
 	// near-vertical canyon walls still bare out correctly.
+	//
+	// Channel width tapers with elevation and slope: at low elevation / gentle
+	// terrain the smoothstep range opens up so even modest flow values pick up
+	// a boost (wide alluvial-fan corridors), while up at the headwaters the
+	// thresholds tighten so only the strongest stems carry forest. Mirrors how
+	// real drainages widen as they collect water, soil, and sediment downhill.
 	flow := flowAccumulation(t)
-	const flowLow = float32(0.45)
-	const flowHigh = float32(0.85)
 	const flowBoost = float32(0.55) // max additive density along main channels
+	const flowLowHead = float32(0.60)
+	const flowHighHead = float32(0.92)
+	const flowLowBase = float32(0.20)
+	const flowHighBase = float32(0.65)
 
 	// Concavity signal: discrete Laplacian of elevation (bowl-positive). Boosts
 	// density in hollows where soil and moisture collect; subtracts on convex
@@ -93,8 +101,28 @@ func GenerateTreeCover(t *world.Terrain, patchScale, coverage float32, seed int6
 			}
 
 			// Drainage boost: smoothstep ramp on log-normalised flow, weighted.
+			// Width factor in [0, 1]: 0 at headwaters (high + steep), 1 in the
+			// alluvial base (low + flat). Combines elevation and local slope so
+			// gentle high benches still get some widening and steep low gullies
+			// stay narrow.
+			elev := t.Cells[x][z].Elevation
+			slope := slopeAt(t, x, z)
+			elevFrac := float32(0)
+			if span > 0 {
+				elevFrac = (elev - minE) / span
+				if elevFrac < 0 {
+					elevFrac = 0
+				} else if elevFrac > 1 {
+					elevFrac = 1
+				}
+			}
+			baseness := 1 - elevFrac
+			flatness := 1 - smoothstep32(0.05, 0.4, slope)
+			width := 0.5*baseness + 0.5*flatness
+			flowLowVar := flowLowHead + (flowLowBase-flowLowHead)*width
+			flowHighVar := flowHighHead + (flowHighBase-flowHighHead)*width
 			fl := flow[x*t.Height+z]
-			fb := smoothstep32(flowLow, flowHigh, fl) * flowBoost
+			fb := smoothstep32(flowLowVar, flowHighVar, fl) * flowBoost
 			d += fb
 
 			// Concavity bias: positive curvature in hollows, negative on ridges.
@@ -105,15 +133,13 @@ func GenerateTreeCover(t *world.Terrain, patchScale, coverage float32, seed int6
 				d -= smoothstep32(0.15, 0.85, -c) * ridgePenalty
 			}
 
-			elev := t.Cells[x][z].Elevation
 			if elev >= treelineMax {
 				d = 0
 			} else if elev > treeStart && treelineMax > treeStart {
 				d *= 1 - (elev-treeStart)/(treelineMax-treeStart)
 			}
 
-			// Slope (rise/run, dimensionless). 0.7 ≈ 35°, 1.2 ≈ 50°.
-			slope := slopeAt(t, x, z)
+			// Slope mask (rise/run, dimensionless). 0.7 ≈ 35°, 1.2 ≈ 50°.
 			const slopeStart = float32(0.7)
 			const slopeEnd = float32(1.2)
 			if slope >= slopeEnd {
