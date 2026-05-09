@@ -46,11 +46,7 @@ mountain-mogul/
 │   │   ├── static.vert  / static.frag      # instanced OBJ models, placement-time buffer
 │   │   ├── dynamic.vert / dynamic.frag     # instanced OBJ models, per-frame buffer + animation
 │   │   └── ui.vert      / ui.frag          # screen-space UI quads
-│   ├── models/                             # OBJ + texture pairs
-│   │   ├── tree.obj  / tree2.obj / tree3.obj
-│   │   ├── EvergreenTexture.png
-│   │   ├── PineTexture.png
-│   │   └── PineTree1Snowy.mtl / PineTree2Snowy.mtl / PineTree3Snowy.mtl
+│   ├── models/                             # OBJ + texture pairs (trees are procedural — see render/mesh.go)
 │   └── scenarios/
 │       └── tutorial.json                   # Boreal tutorial resort
 │

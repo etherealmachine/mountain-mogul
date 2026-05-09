@@ -171,9 +171,6 @@ func (r *Renderer) initStaticMeshes() {
 		id   uint32
 		name string
 	}{
-		{MeshTree, "tree"},
-		{MeshTree2, "tree2"},
-		{MeshTree3, "tree3"},
 		{MeshRock, "rock"},
 		{MeshStump, "stump"},
 		{MeshBuilding, "building"},
@@ -185,6 +182,15 @@ func (r *Renderer) initStaticMeshes() {
 		objPath := modelDir + def.name + ".obj"
 		mesh, texID := LoadOBJ(objPath, def.id)
 		r.staticBatches[def.id] = NewStaticBatch(mesh, texID)
+	}
+
+	// Tree variants are procedural low-poly cones — bound to the white
+	// fallback texture and coloured per-instance via the ColorTint
+	// attribute. Replaces 600–1000 face OBJ trees that were too heavy
+	// for the dense forests auto-forest produces.
+	for variant := 0; variant < 3; variant++ {
+		treeMesh := NewLowPolyTreeMesh(variant)
+		r.staticBatches[MeshTree+uint32(variant)] = NewStaticBatch(treeMesh, r.whiteTexID)
 	}
 
 	// Agent — dynamic batch.
@@ -697,7 +703,7 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 					Mul4(mgl32.Scale3D(scale, scale, scale))
 
 				if batch, ok := r.staticBatches[variant]; ok {
-					batch.AddStatic(transform, mgl32.Vec3{1, 1, 1})
+					batch.AddStatic(transform, treeTintForVariant(variant))
 				}
 			}
 		}
@@ -717,7 +723,11 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 		z := (float32(obj.Pos[1]) + 0.5) * cellSize
 		y := w.Terrain.ElevationAt(obj.Pos[0], obj.Pos[1])
 		t := mgl32.Translate3D(x, y, z).Mul4(mgl32.HomogRotate3DY(obj.Rotation))
-		batch.AddStatic(t, mgl32.Vec3{1, 1, 1})
+		tint := mgl32.Vec3{1, 1, 1}
+		if obj.Type == world.ObjTree {
+			tint = treeTintForVariant(batchID)
+		}
+		batch.AddStatic(t, tint)
 	}
 
 	// Buildings
@@ -1332,11 +1342,12 @@ func setCableTransformAttribs() {
 // in [0, maxTreesPerCell]. Density × max gives the expected count; we emit
 // the whole part deterministically and roll the fractional part against
 // cellHash so the slider scales smoothly through every count without dead
-// zones. Cap of 3 per 25 m² cell ≈ 1200 trees/ha at d=1.0, matching dense
-// subalpine canopy without trees overlapping on top of each other given
-// our 3–5 m crown widths.
+// zones. Cap of 2 per 25 m² cell ≈ 800 trees/ha at d=1.0 — slightly under
+// the densest subalpine stands but a sensible ceiling given the player's
+// expected zoomed-out viewing distance and the GPU cost of every extra
+// tree at this density.
 func treeCountFromDensity(density float32, cellHash uint64) int {
-	const maxTreesPerCell = 3
+	const maxTreesPerCell = 2
 	if density <= 0 {
 		return 0
 	}
@@ -1351,6 +1362,24 @@ func treeCountFromDensity(density float32, cellHash uint64) int {
 		whole++
 	}
 	return whole
+}
+
+// treeTintForVariant returns the foliage colour for a given tree-mesh variant
+// (procedural meshes are bound to the white texture, so the static shader's
+// final colour comes from this per-instance tint × the lighting model).
+// Three slightly different greens give the forest visible variation without
+// individual trees needing per-instance colouring.
+func treeTintForVariant(variant uint32) mgl32.Vec3 {
+	switch variant {
+	case MeshTree:
+		return mgl32.Vec3{0.32, 0.50, 0.28} // medium pine green
+	case MeshTree + 1:
+		return mgl32.Vec3{0.22, 0.40, 0.22} // dark spruce green
+	case MeshTree + 2:
+		return mgl32.Vec3{0.30, 0.48, 0.36} // blue-green fir
+	default:
+		return mgl32.Vec3{1, 1, 1}
+	}
 }
 
 // treeInstanceHash returns a stable 64-bit hash for deriving per-tree visual properties.

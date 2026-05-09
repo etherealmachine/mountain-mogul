@@ -108,12 +108,20 @@ func runScreenshot(loadPath, outPath string, warmupFrames int, regenForest bool,
 
 	// Run a manual scene loop. Mirrors engine.App.Run but exits after
 	// warmup, capturing the back buffer between Render and SwapBuffers so
-	// the PNG matches exactly what the user would see on screen.
+	// the PNG matches exactly what the user would see on screen. Timing
+	// the steady-state portion (after a few warmup frames the GPU pipeline
+	// fills) gives a rough FPS reading we can report.
+	const benchSkip = 3
 	prev := time.Now()
+	var benchStart time.Time
 	for frame := 0; frame < warmupFrames; frame++ {
 		now := time.Now()
 		dt := now.Sub(prev).Seconds()
 		prev = now
+
+		if frame == benchSkip {
+			benchStart = now
+		}
 
 		app.Input.BeginFrame()
 		glfw.PollEvents()
@@ -132,6 +140,13 @@ func runScreenshot(loadPath, outPath string, warmupFrames int, regenForest bool,
 		}
 
 		app.Window.SwapBuffers()
+	}
+	if warmupFrames > benchSkip {
+		elapsed := time.Since(benchStart).Seconds()
+		measured := warmupFrames - benchSkip
+		fps := float64(measured) / elapsed
+		fmt.Printf("screenshot: %d frames in %.3fs = %.1f fps (%.2f ms/frame)\n",
+			measured, elapsed, fps, 1000.0/fps)
 	}
 }
 
