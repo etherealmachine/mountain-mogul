@@ -2,6 +2,7 @@ package scene
 
 import (
 	"fmt"
+	"path/filepath"
 	"time"
 
 	"github.com/go-gl/glfw/v3.3/glfw"
@@ -15,16 +16,17 @@ import (
 
 // Editor is the scenario editor scene (no simulation).
 type Editor struct {
-	app           *engine.App
-	world         *world.World
-	menuBar       *ui.MenuBar
-	escapeMenu    *EscapeMenu
-	toolButtons   map[toolMode]*ui.Button
-	activeTool    toolMode
-	scenarioPath  string
-	hoverCell     [2]int      // terrain cell currently under the mouse
-	radiusSlider  *ui.VSlider // shown for any brush tool
-	densitySlider *ui.VSlider // shown only for the plant tool — caps brush target density
+	app               *engine.App
+	world             *world.World
+	menuBar           *ui.MenuBar
+	escapeMenu        *EscapeMenu
+	toolButtons       map[toolMode]*ui.Button
+	activeTool        toolMode
+	scenarioPath      string
+	hoverCell         [2]int      // terrain cell currently under the mouse
+	radiusSlider      *ui.VSlider // shown for any brush tool
+	densitySlider     *ui.VSlider // shown only for the plant tool — caps brush target density
+	pendingScreenshot bool        // captured at end of Render so the PNG matches what's on screen
 }
 
 // NewEditor creates an Editor scene loading from the given path.
@@ -129,6 +131,12 @@ func (e *Editor) Update(dt float64) {
 	// C: cycle terrain overlay (off → contour → slope debug → off).
 	if inp.Pressed[glfw.KeyC] {
 		r.TerrainOverlayMode = (r.TerrainOverlayMode + 1) % 3
+	}
+
+	// F12: queue a screenshot — captured at the end of Render so the PNG
+	// matches exactly what's on screen, including the menu bar and brush.
+	if inp.Pressed[glfw.KeyF12] {
+		e.pendingScreenshot = true
 	}
 
 	// Q/E: rotate camera.
@@ -357,6 +365,16 @@ func (e *Editor) Render(r *render.Renderer) {
 		edDrawables = append(edDrawables, e.escapeMenu)
 	}
 	r.DrawUI(edDrawables)
+
+	if e.pendingScreenshot {
+		e.pendingScreenshot = false
+		path := filepath.Join("debug", "screens", time.Now().Format("20060102-150405")+".png")
+		if err := r.SaveScreenshot(path); err != nil {
+			fmt.Println("Screenshot failed:", err)
+		} else {
+			fmt.Println("Screenshot saved →", path)
+		}
+	}
 }
 
 // layoutBrushSliders positions the brush sliders on the left edge, vertically
