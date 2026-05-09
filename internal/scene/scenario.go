@@ -592,7 +592,7 @@ func (s *Scenario) Update(dt float64) {
 	}
 
 	// Ghost preview for lift placement.
-	s.updateLiftGhost(r)
+	s.updatePlacementGhost(r)
 
 	// Popup window input — handle before world clicks so buttons consume the event.
 	popupConsumed := false
@@ -774,16 +774,38 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 	wx, wz := s.hoverWorld[0], s.hoverWorld[2]
 	switch s.activeTool {
 	case toolBuilding:
+		if w.Cash < world.LodgeCost {
+			s.setToast(fmt.Sprintf("Need $%d for a lodge — short by $%d",
+				world.LodgeCost, world.LodgeCost-w.Cash))
+			return
+		}
+		w.Cash -= world.LodgeCost
 		w.PlaceBuilding(wx, wz)
 		r.RebuildStaticBatch(w)
 	case toolGlade:
 		applyDensityBrush(w.Terrain, gx, gz, gladeRadius, -0.4)
 		r.RebuildStaticBatch(w)
 	case toolLiftBase:
+		// Cheapest a lift can be is the station-pair fee — gate
+		// entry to the two-click flow so the player can't waste a
+		// click setting a base they could never afford a top from.
+		if w.Cash < world.LiftStationCost {
+			s.setToast(fmt.Sprintf("Need $%d for a lift — short by $%d",
+				world.LiftStationCost, world.LiftStationCost-w.Cash))
+			return
+		}
 		s.liftBase = mgl32.Vec2{wx, wz}
 		s.activeTool = toolLiftTop
 		fmt.Printf("Lift base set at (%.1f, %.1f) — now click top\n", wx, wz)
 	case toolLiftTop:
+		top := mgl32.Vec2{wx, wz}
+		cost := world.LiftCost(s.liftBase, top)
+		if w.Cash < cost {
+			s.setToast(fmt.Sprintf("Need $%d for this lift — short by $%d",
+				cost, cost-w.Cash))
+			return
+		}
+		w.Cash -= cost
 		lift := w.PlaceLift(s.liftBase[0], s.liftBase[1], wx, wz)
 		r.AddLiftCable(lift, w.Terrain)
 		r.RebuildStaticBatch(w)
@@ -836,6 +858,9 @@ func (s *Scenario) Render(r *render.Renderer) {
 	}
 	if s.activeTool == toolLiftTop {
 		drawables = append(drawables, &hintLabel{text: "Click to set lift top"})
+	}
+	if cost, affordable, valid := s.placementCost(); valid {
+		drawables = append(drawables, &costLabel{cost: cost, affordable: affordable})
 	}
 	for _, a := range s.world.Agents {
 		if a.ID == s.followAgentID {
@@ -983,51 +1008,103 @@ func (s *Scenario) syncToolButtons() {
 	}
 }
 
-// updateLiftGhost drives the ghost preview during lift placement.
-// Reads the continuous hoverWorld so the ghost tracks the cursor at
+// updatePlacementGhost drives the translucent preview that follows the
+// cursor while a placement tool is active. Resets every ghost up-front
+// each frame, then opts the active tool's geometry back in — keeps the
+// state of the ghost world in lockstep with the active tool without
+// per-tool teardown logic. The ghost tints red when the player can't
+// afford the placement.
+//
+// Reads the continuous hoverWorld so previews track the cursor at
 // freeform precision, not snapped to a cell.
-func (s *Scenario) updateLiftGhost(r *render.Renderer) {
+func (s *Scenario) updatePlacementGhost(r *render.Renderer) {
 	t := s.world.Terrain
 
+	r.ClearAllGhosts()
+	r.ClearGhostCable()
+
+	if !s.hoverValid {
+		return
+	}
+	pos := mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]}
+	tint := ghostTint(s.placementAffordable())
+
 	switch s.activeTool {
+	case toolBuilding:
+		r.SetGhosts(render.MeshBuilding, []render.StaticInstance{
+			buildingInstance(pos, t, tint),
+		})
+
 	case toolLiftBase:
-		r.ClearGhostCable()
-		if s.hoverValid {
-			pos := mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]}
-			// No top yet — render at default orientation by passing
-			// otherEnd == pos. Rotation kicks in in toolLiftTop below.
-			r.SetGhosts(render.MeshLiftStation, []render.StaticInstance{
-				stationInstance(pos, pos, t),
-			})
-		} else {
-			r.SetGhosts(render.MeshLiftStation, nil)
-		}
+		// No top yet — render at default orientation by passing
+		// otherEnd == pos. Rotation kicks in in toolLiftTop below.
+		r.SetGhosts(render.MeshLiftStation, []render.StaticInstance{
+			stationInstance(pos, pos, t, tint),
+		})
 
 	case toolLiftTop:
-		if s.hoverValid {
-			base := s.liftBase
-			top := mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]}
-			r.SetGhosts(render.MeshLiftStation, []render.StaticInstance{
-				stationInstance(base, top, t), // base faces top
-				stationInstance(top, base, t), // top faces base
-			})
-			r.SetGhostCable(base, top, t)
-		} else {
-			r.ClearGhostCable()
-		}
-
-	default:
-		r.ClearAllGhosts()
-		r.ClearGhostCable()
+		base := s.liftBase
+		top := pos
+		r.SetGhosts(render.MeshLiftStation, []render.StaticInstance{
+			stationInstance(base, top, t, tint), // base faces top
+			stationInstance(top, base, t, tint), // top faces base
+		})
+		r.SetGhostCable(base, top, t)
 	}
+}
+
+// placementCost returns the cost of placing whatever the active tool
+// will create at the current hover position, plus a flag indicating
+// whether the player can afford it. Returns (0, false, false) if no
+// cost-bearing tool is active or the hover is off-terrain.
+func (s *Scenario) placementCost() (cost int, affordable bool, valid bool) {
+	if !s.hoverValid {
+		return 0, false, false
+	}
+	pos := mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]}
+	switch s.activeTool {
+	case toolBuilding:
+		cost = world.LodgeCost
+	case toolLiftBase:
+		cost = world.LiftStationCost
+	case toolLiftTop:
+		cost = world.LiftCost(s.liftBase, pos)
+	default:
+		return 0, false, false
+	}
+	return cost, s.world.Cash >= cost, true
+}
+
+func (s *Scenario) placementAffordable() bool {
+	_, ok, valid := s.placementCost()
+	return !valid || ok // no active placement → don't tint anything
+}
+
+// ghostTint returns the per-instance ColorTint for ghost previews:
+// white when affordable, warm red when not.
+func ghostTint(affordable bool) [3]float32 {
+	if affordable {
+		return [3]float32{1, 1, 1}
+	}
+	return [3]float32{1.0, 0.45, 0.45}
 }
 
 // stationInstance wraps render.LiftStationTransform into a StaticInstance
 // for the ghost-preview path. Live placements bypass this and call the
 // transform helper directly inside RebuildStaticBatch.
-func stationInstance(pos, otherEnd mgl32.Vec2, t *world.Terrain) render.StaticInstance {
+func stationInstance(pos, otherEnd mgl32.Vec2, t *world.Terrain, tint [3]float32) render.StaticInstance {
 	m := render.LiftStationTransform(pos, otherEnd, t)
-	inst := render.StaticInstance{ColorTint: [3]float32{1, 1, 1}}
+	inst := render.StaticInstance{ColorTint: tint}
+	copy(inst.Transform[:], m[:])
+	return inst
+}
+
+// buildingInstance wraps render.BuildingTransform into a StaticInstance
+// for the ghost-preview path. New buildings have rotation 0 by default;
+// once a placement-rotation control exists, route it through here.
+func buildingInstance(pos mgl32.Vec2, t *world.Terrain, tint [3]float32) render.StaticInstance {
+	m := render.BuildingTransform(pos, 0, t)
+	inst := render.StaticInstance{ColorTint: tint}
 	copy(inst.Transform[:], m[:])
 	return inst
 }
@@ -1224,6 +1301,31 @@ func (sl *seedLabel) Draw(r *render.Renderer) {
 	r.DrawColorRect(x, y, boxW, boxH, mgl32.Vec4{0, 0, 0, 0.6})
 	if r.Font != nil {
 		r.Font.DrawText(r, text, x+8, textY, mgl32.Vec4{0.85, 0.85, 0.85, 1})
+	}
+}
+
+// costLabel draws a price tag near the top-left, just below the HUD,
+// while a placement tool is active. Green when the player can cover
+// the cost, red when they can't.
+type costLabel struct {
+	cost       int
+	affordable bool
+}
+
+func (c *costLabel) Draw(r *render.Renderer) {
+	text := fmt.Sprintf("$%d", c.cost)
+	const boxH = float32(render.GlyphH + 8)
+	boxW := float32(len(text)*render.GlyphAdvance + 16)
+	x := float32(4)
+	y := float32(102) // just below the 96-px top HUD bar
+	textY := y + (boxH-float32(render.GlyphH))/2
+	r.DrawColorRect(x, y, boxW, boxH, mgl32.Vec4{0, 0, 0, 0.7})
+	colour := mgl32.Vec4{0.6, 0.95, 0.55, 1}
+	if !c.affordable {
+		colour = mgl32.Vec4{0.95, 0.45, 0.45, 1}
+	}
+	if r.Font != nil {
+		r.Font.DrawText(r, text, x+8, textY, colour)
 	}
 }
 

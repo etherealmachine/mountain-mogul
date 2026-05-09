@@ -6,6 +6,16 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 )
 
+// Cost constants. Tuned so a starting balance of StartingCash buys a
+// lodge plus two ~600 m lifts with no padding — players hit the wall
+// quickly and have to think about layout.
+const (
+	LodgeCost       = 50000  // single fixed cost per lodge
+	LiftStationCost = 50000  // fixed cost for both stations of a lift (you always need two)
+	LiftPerMeter    = 100    // cost per metre of cable run, covers towers + cable
+	StartingCash    = 250000 // 1× lodge + 2× ~600 m lifts (50K + 2 × (50K + 60K) = 270K) — slight stretch on lift length
+)
+
 // World owns all simulation state.
 type World struct {
 	Terrain   *Terrain
@@ -15,19 +25,27 @@ type World struct {
 	Agents    []*Agent
 	nextID    uint64
 
-	// Cash is the resort's bank balance in dollars. Decoration today: nothing
-	// in the simulation reads or writes it. Wired into the top-bar HUD so the
-	// economy work has a home to grow into.
+	// Cash is the resort's bank balance in dollars. PlaceBuilding /
+	// PlaceLift deduct from this and refuse the placement when the
+	// balance can't cover the cost.
 	Cash int
 }
 
-// NewWorld creates a World with the given terrain.
+// NewWorld creates a World with the given terrain and the default
+// starting balance.
 func NewWorld(terrain *Terrain) *World {
 	return &World{
 		Terrain: terrain,
 		nextID:  1,
-		Cash:    50000,
+		Cash:    StartingCash,
 	}
+}
+
+// LiftCost returns what it costs to build a lift between two world XZ
+// positions: a fixed station-pair fee plus per-metre run cost.
+func LiftCost(base, top mgl32.Vec2) int {
+	length := base.Sub(top).Len()
+	return LiftStationCost + int(length*LiftPerMeter)
 }
 
 // NextID returns the next unique entity ID.
@@ -68,9 +86,14 @@ func (w *World) RemoveObject(id uint64) {
 	}
 }
 
-// PlaceBuilding places a lodge at world XZ position (x, z) and marks the
-// cell containing the anchor as impassable. Multi-cell footprints with
-// rotated AABB rasterisation are a future extension.
+// PlaceBuilding places a lodge at world XZ position (x, z) and marks
+// the cell containing the anchor as impassable. Cost / affordability
+// gating lives in the caller (the placement tool path) so save load
+// and testbed setup can construct entities without re-deducting from
+// the player's balance.
+//
+// Multi-cell footprints with rotated AABB rasterisation are a future
+// extension.
 func (w *World) PlaceBuilding(x, z float32) *Building {
 	b := &Building{
 		ID:            w.NextID(),
@@ -100,8 +123,11 @@ func (w *World) RemoveBuilding(id uint64) {
 	}
 }
 
-// PlaceLift creates a lift between two world XZ positions and marks the
-// containing cells as impassable.
+// PlaceLift creates a lift between two world XZ positions and marks
+// the containing cells as impassable. Cost / affordability gating
+// lives in the caller (the placement tool path) so save load and
+// testbed setup can construct entities without re-deducting from the
+// player's balance.
 func (w *World) PlaceLift(bx, bz, tx, tz float32) *Lift {
 	lift := &Lift{
 		ID:    w.NextID(),

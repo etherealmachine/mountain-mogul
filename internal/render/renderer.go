@@ -428,11 +428,11 @@ func terrainJitter(gx, gz int, cellSize float32) float32 {
 	return (float32(h)/float32(^uint32(0)) - 0.5) * 0.2 * cellSize
 }
 
-// visualElevationAt returns the exact terrain mesh surface height at world
+// VisualElevationAt returns the exact terrain mesh surface height at world
 // position (wx, wz). It replicates the same triangle selection and barycentric
 // interpolation used in buildTerrainVerts — including per-vertex jitter and the
 // checkerboard diagonal pattern — so agents always sit on (never below) the mesh.
-func visualElevationAt(t *world.Terrain, wx, wz float32) float32 {
+func VisualElevationAt(t *world.Terrain, wx, wz float32) float32 {
 	const cellSize = float32(10.0)
 	xi := int(wx / cellSize)
 	zi := int(wz / cellSize)
@@ -619,15 +619,10 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 	}
 
 	// Buildings
-	for _, bldg := range w.Buildings {
-		batch, ok := r.staticBatches[MeshBuilding]
-		if !ok {
-			continue
+	if buildingBatch, ok := r.staticBatches[MeshBuilding]; ok {
+		for _, bldg := range w.Buildings {
+			buildingBatch.AddStatic(BuildingTransform(bldg.Pos, bldg.Rotation, w.Terrain), mgl32.Vec3{1, 1, 1})
 		}
-		cell := bldg.DoorCell()
-		y := w.Terrain.ElevationAt(cell[0], cell[1])
-		t := mgl32.Translate3D(bldg.Pos[0], y, bldg.Pos[1]).Mul4(mgl32.HomogRotate3DY(bldg.Rotation))
-		batch.AddStatic(t, mgl32.Vec3{1, 1, 1})
 	}
 
 	// Lift stations — both ends of each lift, oriented so the model's +X
@@ -651,6 +646,14 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 	}
 }
 
+// BuildingTransform builds the world-space transform for a building
+// placed at world XZ pos with the given Y rotation. Used by both live
+// placement (RebuildStaticBatch) and ghost preview.
+func BuildingTransform(pos mgl32.Vec2, rotation float32, terrain *world.Terrain) mgl32.Mat4 {
+	y := VisualElevationAt(terrain, pos[0], pos[1])
+	return mgl32.Translate3D(pos[0], y, pos[1]).Mul4(mgl32.HomogRotate3DY(rotation))
+}
+
 // LiftStationTransform builds the world-space transform for a lift station
 // at `pos`, rotated so the model's +X axis points toward `otherEnd` (the
 // far end of the cable). Pass `otherEnd == pos` when the other end is
@@ -661,10 +664,7 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 // +X = cable-exit side, -X = bullwheel side. So at the base station +X
 // points up the lift line, and at the top station +X points back down.
 func LiftStationTransform(pos, otherEnd mgl32.Vec2, terrain *world.Terrain) mgl32.Mat4 {
-	const cellSize = float32(10.0)
-	cellX := int(math.Floor(float64(pos[0] / cellSize)))
-	cellZ := int(math.Floor(float64(pos[1] / cellSize)))
-	y := terrain.ElevationAt(cellX, cellZ)
+	y := VisualElevationAt(terrain, pos[0], pos[1])
 
 	var rot float32
 	if otherEnd != pos {
@@ -690,7 +690,6 @@ func LiftStationTransform(pos, otherEnd mgl32.Vec2, terrain *world.Terrain) mgl3
 // axis convention from models-src/tower.scad) aligns with the cable
 // direction in world space.
 func TowerInstancesForLift(base, top mgl32.Vec2, t *world.Terrain) []mgl32.Mat4 {
-	const cellSize = float32(10.0)
 	const towerSpacing = float32(50.0)
 	stationOffset := float32(world.StationOffset)
 
@@ -721,9 +720,7 @@ func TowerInstancesForLift(base, top mgl32.Vec2, t *world.Terrain) []mgl32.Mat4 
 		d := stationOffset + float32(i)*spacing
 		wx := bx + dirX*d
 		wz := bz + dirZ*d
-		gx := int(math.Floor(float64(wx / cellSize)))
-		gz := int(math.Floor(float64(wz / cellSize)))
-		wy := t.ElevationAt(gx, gz)
+		wy := VisualElevationAt(t, wx, wz)
 
 		m := mgl32.Translate3D(wx, wy, wz).Mul4(mgl32.HomogRotate3DY(rot))
 		out = append(out, m)
@@ -872,7 +869,7 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		for _, agent := range w.Agents {
 			posY := agent.Pos[1]
 			if agent.OnLiftID == 0 {
-				posY = visualElevationAt(w.Terrain, agent.Pos[0], agent.Pos[2])
+				posY = VisualElevationAt(w.Terrain, agent.Pos[0], agent.Pos[2])
 			}
 			color := agentColor(w, agent)
 			if r.HighlightAgentID != 0 && agent.ID == r.HighlightAgentID {
