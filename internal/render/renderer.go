@@ -677,14 +677,16 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 			elev := w.Terrain.ElevationAt(x, z)
 			for i := 0; i < count; i++ {
 				h := treeInstanceHash(x, z, i)
-				// Offset spans the cell with a small buffer so trees from
-				// adjacent cells don't merge across boundaries.
-				offsetX := (float32(h&0xFF)/127.5 - 1.0) * 2.0
-				offsetZ := (float32((h>>8)&0xFF)/127.5 - 1.0) * 2.0
+				// Offset stays well inside the cell so the auto-forest's
+				// cell-level pattern (drainage corridors, ridge bare-outs)
+				// reads cleanly instead of being smeared by per-tree jitter.
+				offsetX := (float32(h&0xFF)/127.5 - 1.0) * 1.2
+				offsetZ := (float32((h>>8)&0xFF)/127.5 - 1.0) * 1.2
 				rotation := float32((h>>16)&0xFFFF) / 65535.0 * 2 * math.Pi
-				// Mesh trees are ~7 m tall in model units; scale to ~10–15 m
-				// world-tall, in the range of subalpine conifers at ski areas.
-				scale := 1.4 + float32((h>>32)&0xFF)/255.0*0.7
+				// Mesh trees are ~7 m tall in model units; scale to ~11–14 m
+				// world-tall — a tighter range than before (was 10–15 m) so
+				// stands look like a coherent species mix, not a random pile.
+				scale := 1.55 + float32((h>>32)&0xFF)/255.0*0.4
 				variant := MeshTree + uint32((h>>40)%3)
 
 				// Place tree relative to cell center, not corner.

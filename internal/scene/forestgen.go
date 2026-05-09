@@ -60,11 +60,19 @@ func GenerateTreeCover(t *world.Terrain, patchScale, coverage float32, seed int6
 	// thresholds tighten so only the strongest stems carry forest. Mirrors how
 	// real drainages widen as they collect water, soil, and sediment downhill.
 	flow := flowAccumulation(t)
-	const flowBoost = float32(0.55) // max additive density along main channels
-	const flowLowHead = float32(0.60)
-	const flowHighHead = float32(0.92)
-	const flowLowBase = float32(0.20)
-	const flowHighBase = float32(0.65)
+	const flowBoost = float32(0.60) // max additive density along main channels
+	// Headwater thresholds — tight, so only the strongest stems survive at altitude.
+	const flowLowHead = float32(0.70)
+	const flowHighHead = float32(0.95)
+	// Alluvial-base thresholds — broad, so even modest flow paints a corridor.
+	const flowLowBase = float32(0.08)
+	const flowHighBase = float32(0.55)
+	// Per-cell perturbation amplitude on the width factor — breaks up the
+	// strict "elevation determines width" function so adjacent slopes can
+	// differ in band thickness.
+	const widthJitter = float32(0.35)
+	widthSeedA := hashSeed + 0x55B7
+	widthSeedB := hashSeed + 0xC09F
 
 	// Concavity signal: discrete Laplacian of elevation (bowl-positive). Boosts
 	// density in hollows where soil and moisture collect; subtracts on convex
@@ -104,7 +112,10 @@ func GenerateTreeCover(t *world.Terrain, patchScale, coverage float32, seed int6
 			// Width factor in [0, 1]: 0 at headwaters (high + steep), 1 in the
 			// alluvial base (low + flat). Combines elevation and local slope so
 			// gentle high benches still get some widening and steep low gullies
-			// stay narrow.
+			// stay narrow. Two low-freq noise samples nudge the factor by
+			// ±widthJitter so the taper isn't a perfect function of elevation —
+			// real watersheds have wide reaches at altitude and tight choke
+			// points downstream too.
 			elev := t.Cells[x][z].Elevation
 			slope := slopeAt(t, x, z)
 			elevFrac := float32(0)
@@ -119,6 +130,16 @@ func GenerateTreeCover(t *world.Terrain, patchScale, coverage float32, seed int6
 			baseness := 1 - elevFrac
 			flatness := 1 - smoothstep32(0.05, 0.4, slope)
 			width := 0.5*baseness + 0.5*flatness
+			// Combine two low-freq noise samples (different seeds, scales) for
+			// a richer perturbation than a single octave would give.
+			wn := (valueNoise2D(fx*0.4, fz*0.4, widthSeedA)*0.65 +
+				valueNoise2D(fx*1.1, fz*1.1, widthSeedB)*0.35) - 0.5
+			width += wn * 2 * widthJitter // *2 because (noise-0.5) ranges ±0.5
+			if width < 0 {
+				width = 0
+			} else if width > 1 {
+				width = 1
+			}
 			flowLowVar := flowLowHead + (flowLowBase-flowLowHead)*width
 			flowHighVar := flowHighHead + (flowHighBase-flowHighHead)*width
 			fl := flow[x*t.Height+z]
