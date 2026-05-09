@@ -335,14 +335,16 @@ type Scenario struct {
 	simSeed         int64                          // 0 = wall-clock; nonzero forces deterministic RNG
 	rebuild         func(seed int64) *world.World // non-nil ⇒ "New Seed" button shown
 
-	// Glade-tool sliders (radius in cells, thin = % of remaining density
-	// removed per application; slider 1–100 maps directly to 0.01–1.00
-	// density delta). Visible only while toolGlade is active; mirrors the
-	// editor's two-slider layout. lastGladeTime gates the held-mouse
-	// continuous apply so frame rate doesn't multiply the slider value.
+	// Glade-tool sliders (radius in cells, thin = % density removed per
+	// application; slider 0–10 → 0.00–0.10 density delta). Visible only
+	// while toolGlade is active; mirrors the editor's two-slider layout.
+	// lastGladeCell is the cell most recently glade-applied this stroke;
+	// drag-paint fires only when the cursor crosses into a new cell so
+	// stationary holding doesn't pulse and a slow careful click doesn't
+	// double-apply.
 	gladeRadiusSlider *ui.VSlider
 	gladeThinSlider   *ui.VSlider
-	lastGladeTime     float32
+	lastGladeCell     [2]int
 
 	// Debug instrumentation (see plan: orbiting-skier debug aids).
 	csvRecorder       *sim.CSVRecorder
@@ -496,10 +498,12 @@ func (s *Scenario) Init(app *engine.App) error {
 	}
 
 	// Glade-tool sliders. Default radius matches the previous fixed
-	// gladeRadius; default thin = 50 → −0.4 density delta per click,
-	// preserving the old behaviour for unmodified slider positions.
+	// gladeRadius; thin caps at 10 % per click — beyond that the brush
+	// snowballs visibly while drag-painting and the player loses fine
+	// control over thinning.
 	s.gladeRadiusSlider = ui.NewVSlider(0, 0, 18, 200, 1, 30, float32(gladeRadius), "Radius")
-	s.gladeThinSlider = ui.NewVSlider(0, 0, 18, 200, 0, 100, 50, "Thin")
+	s.gladeThinSlider = ui.NewVSlider(0, 0, 18, 200, 0, 10, 4, "Thin")
+	s.lastGladeCell = [2]int{-1, -1}
 
 	onSpeed := make([]func(), len(speedOptions))
 	for i, mult := range speedOptions {
@@ -854,16 +858,23 @@ func (s *Scenario) Update(dt float64) {
 		}
 	}
 
+	// End-of-stroke reset for glade drag-paint. As soon as the mouse is
+	// up, forget the last cell we applied to so the next click starts a
+	// fresh stroke (and won't drag-apply on its own initial frame).
+	if !inp.LeftHeld {
+		s.lastGladeCell = [2]int{-1, -1}
+	}
+
 	if !clickConsumed && !sliderActive {
-		// Glade gets a rate-limited held-mouse apply (4 Hz) so the slider
-		// value behaves like "% removed per click" — without this gate
-		// holding fires once per frame and a slider=1 setting still nukes
-		// the brush after a half-second of holding.
-		const gladeHoldHz = float32(4)
-		gladeTickReady := s.activeTool == toolGlade && inp.LeftHeld &&
-			s.time-s.lastGladeTime >= 1.0/gladeHoldHz
-		clickOrHeld := inp.LeftClick || gladeTickReady
-		if clickOrHeld && !s.barsContain(inp.MousePos[1]) && s.hoverValid {
+		// Glade drag-painting: apply once when the cursor moves into a
+		// new cell while held. Requires a prior valid lastGladeCell — so
+		// holding LMB from a toolbar click doesn't auto-apply on entering
+		// terrain, only a real click on terrain starts a stroke.
+		gladeDragged := s.activeTool == toolGlade && inp.LeftHeld &&
+			s.lastGladeCell != [2]int{-1, -1} &&
+			s.hoverCell != s.lastGladeCell
+		clickOrDrag := inp.LeftClick || gladeDragged
+		if clickOrDrag && !s.barsContain(inp.MousePos[1]) && s.hoverValid {
 			overSlider := s.activeTool == toolGlade &&
 				(s.gladeRadiusSlider.Contains(inp.MousePos[0], inp.MousePos[1]) ||
 					s.gladeThinSlider.Contains(inp.MousePos[0], inp.MousePos[1]))
@@ -873,7 +884,7 @@ func (s *Scenario) Update(dt float64) {
 					s.tryOpenPopup(s.hoverWorld, r.ScreenWidth(), r.ScreenHeight())
 				} else {
 					if s.activeTool == toolGlade {
-						s.lastGladeTime = s.time
+						s.lastGladeCell = s.hoverCell
 					}
 					s.applyTool(r)
 				}
@@ -1061,10 +1072,9 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		w.PlaceBuilding(wx, wz)
 		r.RebuildStaticBatch(w)
 	case toolGlade:
-		// Slider value 1–100 = % density delta per application. Slider 1
-		// → -0.01, slider 10 → -0.10, slider 100 → -1.00 (full clear).
-		// Held-mouse apply is rate-limited to 4 Hz in Update so holding
-		// at slider=1 thins ~4 % per second of hold rather than 60 %.
+		// Slider value 0–10 = % density delta per application. Each click
+		// or drag-into-new-cell event fires one application; stationary
+		// holding does nothing further (see lastGladeCell gate in Update).
 		strength := s.gladeThinSlider.Value / 100
 		applyDensityBrush(w.Terrain, gx, gz, s.gladeBrushRadius(), -strength)
 		r.RebuildStaticBatch(w)
