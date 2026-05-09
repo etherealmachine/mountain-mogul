@@ -125,7 +125,8 @@ func applyDensityBrush(t *world.Terrain, cx, cz, radius int, delta float32) {
 // the player may have intentionally edited.
 func applyLiftPlacementEffects(t *world.Terrain, lift *world.Lift) {
 	const corridorHalfWidth = float32(8.0)
-	const apronRadius = float32(12.0)
+	const apronHalfWidth = float32(12.0) // → 24 m total width along the cross-axis
+	const apronDepth = float32(12.0)     // distance from station's back edge outward
 	clearLiftCorridor(t, lift.Base, lift.Top, corridorHalfWidth)
 	axis := mgl32.Vec2{
 		lift.Top[0] - lift.Base[0],
@@ -134,11 +135,12 @@ func applyLiftPlacementEffects(t *world.Terrain, lift *world.Lift) {
 	if l := axis.Len(); l > 0 {
 		axis = axis.Mul(1 / l)
 	}
-	// Top station: flatten the uphill side (skiers exit forward off the
-	// chair). Base station: flatten the downhill side (skiers approach
-	// from below to board the empty incoming chair).
-	flattenStationApron(t, lift.Top, axis, +1, apronRadius)
-	flattenStationApron(t, lift.Base, axis, -1, apronRadius)
+	// Top station: rectangle extends forward (along axis) past the top —
+	// skiers exit forward off the chair and disperse to either side.
+	// Base station: rectangle extends backward (against axis) — skiers
+	// approach from below to board the empty incoming chair.
+	flattenStationApron(t, lift.Top, axis, +1, apronHalfWidth, apronDepth)
+	flattenStationApron(t, lift.Base, axis, -1, apronHalfWidth, apronDepth)
 }
 
 // clearLiftCorridor zeros TreeDensity in cells within `halfWidth` metres of
@@ -170,18 +172,21 @@ func clearLiftCorridor(t *world.Terrain, base, top mgl32.Vec2, halfWidth float32
 	}
 }
 
-// flattenStationApron flattens terrain in a half-disc of `radius` metres
-// around `station`, on the side selected by `side` along `axis` (axis is
-// the cable direction unit vector). At the top station `side = +1` puts
-// the flat apron uphill of the station — where skiers exit the chair —
-// while leaving the downhill side (where the cable enters) at its natural
-// slope. At the base station `side = -1` does the mirror: a downhill flat
-// pad for skiers approaching to board, no change to the uphill side.
+// flattenStationApron flattens terrain in a rectangular pad whose back edge
+// sits flush against `station`, extending `depth` metres along `axis * side`
+// (the apron-forward direction) and ±`halfWidth` metres along the perpendicular.
+// Falloff is applied at the front edge and the two side edges — where skiers
+// exit off the chair, in any of the forward / left / right directions — but
+// NOT at the back edge against the lift. Real lift stations cut hard into the
+// uphill terrain; we mirror that by leaving a sharp transition at the back
+// rather than smoothing it, since smoothing it would either bury the lift on
+// uphill placements or pull a hill into thin air on downhill placements.
 //
-// Falloff is smoothstepped on both distance from station and projection
-// angle onto the axis so we don't get a hard step where the half-disc
-// meets the unmodified other half.
-func flattenStationApron(t *world.Terrain, station, axis mgl32.Vec2, side, radius float32) {
+// `axis` is a unit vector along the cable (base → top). `side = +1` flips
+// the apron to extend in the +axis direction (top station: forward toward
+// the front of the platform), `side = -1` extends the apron in the -axis
+// direction (base station: back toward the boarding queue).
+func flattenStationApron(t *world.Terrain, station, axis mgl32.Vec2, side, halfWidth, depth float32) {
 	const cellSize = float32(5.0)
 	stationCell := [2]int{
 		int(station[0] / cellSize),
@@ -191,11 +196,14 @@ func flattenStationApron(t *world.Terrain, station, axis mgl32.Vec2, side, radiu
 		return
 	}
 	stationElev := t.Cells[stationCell[0]][stationCell[1]].Elevation
-	r2 := radius * radius
-	x0 := int((station[0] - radius) / cellSize)
-	x1 := int((station[0]+radius)/cellSize) + 1
-	z0 := int((station[1] - radius) / cellSize)
-	z1 := int((station[1]+radius)/cellSize) + 1
+	bound := halfWidth
+	if depth > bound {
+		bound = depth
+	}
+	x0 := int((station[0] - bound) / cellSize)
+	x1 := int((station[0]+bound)/cellSize) + 1
+	z0 := int((station[1] - bound) / cellSize)
+	z1 := int((station[1]+bound)/cellSize) + 1
 	for x := x0; x <= x1; x++ {
 		for z := z0; z <= z1; z++ {
 			if !t.InBounds(x, z) {
@@ -205,25 +213,29 @@ func flattenStationApron(t *world.Terrain, station, axis mgl32.Vec2, side, radiu
 			cz := (float32(z) + 0.5) * cellSize
 			dx := cx - station[0]
 			dz := cz - station[1]
-			d2 := dx*dx + dz*dz
-			if d2 > r2 {
+			// Decompose into along-axis and perpendicular components.
+			alongRaw := dx*axis[0] + dz*axis[1]
+			signedAlong := alongRaw * side
+			if signedAlong < 0 || signedAlong > depth {
 				continue
 			}
-			d := float32(math.Sqrt(float64(d2)))
-			// Distance falloff — flat through the inner 50%, smoothstepped
-			// to zero at the boundary. Keeps the apron usefully flat in the
-			// middle while blending out into the natural terrain.
-			distNorm := d / radius
-			distWeight := 1 - smoothstep32(0.5, 1, distNorm)
-			// Directional falloff — fully on the desired side, fading to
-			// zero across the diameter so there's no step where flat meets
-			// natural on the far half.
-			cosAngle := float32(0)
-			if d > 1e-6 {
-				cosAngle = (dx*axis[0] + dz*axis[1]) / d * side
+			perpX := dx - alongRaw*axis[0]
+			perpZ := dz - alongRaw*axis[1]
+			perpDist := float32(math.Sqrt(float64(perpX*perpX + perpZ*perpZ)))
+			if perpDist > halfWidth {
+				continue
 			}
-			sideWeight := smoothstep32(-0.05, 0.30, cosAngle)
-			w := distWeight * sideWeight
+			// Forward falloff at the far edge — full weight through the
+			// inner 70 %, smoothstepped to zero at depth so the apron
+			// blends into natural terrain ahead. NO falloff at the back
+			// edge (signedAlong = 0) — sharp cut into the hillside if
+			// needed.
+			forwardWeight := 1 - smoothstep32(0.7, 1.0, signedAlong/depth)
+			// Side falloff — same logic on the cross-axis: full through
+			// the inner 70 %, fading to zero at halfWidth so skiers can
+			// peel off either side without hitting a step.
+			sideWeight := 1 - smoothstep32(0.7, 1.0, perpDist/halfWidth)
+			w := forwardWeight * sideWeight
 			if w <= 0 {
 				continue
 			}
