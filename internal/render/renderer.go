@@ -171,6 +171,9 @@ func (r *Renderer) initStaticMeshes() {
 		id   uint32
 		name string
 	}{
+		{MeshTree, "tree"},
+		{MeshTree2, "tree2"},
+		{MeshTree3, "tree3"},
 		{MeshRock, "rock"},
 		{MeshStump, "stump"},
 		{MeshBuilding, "building"},
@@ -182,15 +185,6 @@ func (r *Renderer) initStaticMeshes() {
 		objPath := modelDir + def.name + ".obj"
 		mesh, texID := LoadOBJ(objPath, def.id)
 		r.staticBatches[def.id] = NewStaticBatch(mesh, texID)
-	}
-
-	// Tree variants are procedural low-poly cones — bound to the white
-	// fallback texture and coloured per-instance via the ColorTint
-	// attribute. Replaces 600–1000 face OBJ trees that were too heavy
-	// for the dense forests auto-forest produces.
-	for variant := 0; variant < 3; variant++ {
-		treeMesh := NewLowPolyTreeMesh(variant)
-		r.staticBatches[MeshTree+uint32(variant)] = NewStaticBatch(treeMesh, r.whiteTexID)
 	}
 
 	// Agent — dynamic batch.

@@ -1,7 +1,6 @@
 package render
 
 import (
-	"math"
 	"unsafe"
 
 	"github.com/go-gl/gl/v4.1-core/gl"
@@ -125,113 +124,6 @@ func NewChairMesh() *Mesh {
 	addBox(&verts, &indices, -0.75, 0.75, -1.85, -1.8, -0.05, 0.05)
 
 	return NewMesh(verts, indices, []int{3, 3})
-}
-
-// NewLowPolyTreeMesh builds a stylized conifer — a hexagonal-pyramid cone
-// (or two stacked cones) on a short trunk. Origin at base, +Y up. Mesh
-// units roughly match the previous OBJ trees (~5–7 m tall) so the
-// existing instance-scale range continues to land at 11–14 m world height.
-//
-// Variant in [0, 3) picks different proportions; each variant lives in
-// its own static batch, so distinct shapes show up across the forest
-// without the variant logic in RebuildStaticBatch needing to change.
-//
-// Compared with the OBJ trees this replaces (612–1010 faces each) the
-// new meshes are 12–22 faces — a 50× reduction. Combined with cutting
-// the per-cell tree cap from 3 to 2, it should keep dense forests well
-// inside GPU budget at zoomed-out camera distances.
-func NewLowPolyTreeMesh(variant int) *Mesh {
-	type preset struct {
-		trunkR, trunkH       float32
-		baseR                float32 // lower-cone base radius
-		stack                bool    // if true, two stacked cones
-		stackTopR, stackTopH float32 // when stack: lower cone is truncated to this radius/height
-		apexH                float32 // total height from trunk top to apex
-	}
-	presets := [3]preset{
-		// Variant 0 — small bushy: short trunk, fat single cone.
-		{trunkR: 0.18, trunkH: 0.5, baseR: 1.6, stack: false, apexH: 4.5},
-		// Variant 1 — tall slender: thinner cone, taller proportions.
-		{trunkR: 0.15, trunkH: 0.7, baseR: 1.3, stack: false, apexH: 6.0},
-		// Variant 2 — christmas-tree double cone (lower frustum + upper apex).
-		{trunkR: 0.18, trunkH: 0.55, baseR: 1.7, stack: true, stackTopR: 0.9, stackTopH: 2.4, apexH: 5.2},
-	}
-	p := presets[((variant%3)+3)%3]
-
-	var verts []float32
-	var indices []uint32
-
-	// emitTri appends one flat-shaded triangle (per-vertex normals all equal
-	// to the face normal so each tri can be lit independently — matches the
-	// terrain's low-poly look).
-	emitTri := func(a, b, c [3]float32) {
-		ux := b[0] - a[0]
-		uy := b[1] - a[1]
-		uz := b[2] - a[2]
-		vx := c[0] - a[0]
-		vy := c[1] - a[1]
-		vz := c[2] - a[2]
-		nx := uy*vz - uz*vy
-		ny := uz*vx - ux*vz
-		nz := ux*vy - uy*vx
-		l := float32(math.Sqrt(float64(nx*nx + ny*ny + nz*nz)))
-		if l > 0 {
-			nx, ny, nz = nx/l, ny/l, nz/l
-		}
-		base := uint32(len(verts) / 8)
-		for _, q := range [][3]float32{a, b, c} {
-			verts = append(verts, q[0], q[1], q[2], nx, ny, nz, 0.5, 0.5)
-		}
-		indices = append(indices, base, base+1, base+2)
-	}
-
-	// Hex ring helpers — return 6 points around (0, y) at given radius.
-	const sides = 6
-	hexRing := func(y, r float32) [sides][3]float32 {
-		var ring [sides][3]float32
-		for i := 0; i < sides; i++ {
-			theta := float64(i) * 2 * math.Pi / float64(sides)
-			ring[i] = [3]float32{r * float32(math.Cos(theta)), y, r * float32(math.Sin(theta))}
-		}
-		return ring
-	}
-
-	// --- Trunk: hex prism, sides only (the bottom is on the ground and never seen).
-	trunkBase := hexRing(0, p.trunkR)
-	trunkTop := hexRing(p.trunkH, p.trunkR)
-	for i := 0; i < sides; i++ {
-		j := (i + 1) % sides
-		emitTri(trunkBase[i], trunkBase[j], trunkTop[j])
-		emitTri(trunkBase[i], trunkTop[j], trunkTop[i])
-	}
-
-	// --- Foliage cones, anchored on top of the trunk.
-	if p.stack {
-		// Lower frustum: ring at trunk top → ring at stackTopH/stackTopR.
-		fbottom := hexRing(p.trunkH, p.baseR)
-		fmid := hexRing(p.trunkH+p.stackTopH, p.stackTopR)
-		for i := 0; i < sides; i++ {
-			j := (i + 1) % sides
-			emitTri(fbottom[i], fbottom[j], fmid[j])
-			emitTri(fbottom[i], fmid[j], fmid[i])
-		}
-		// Upper cone: ring at fmid → apex.
-		apex := [3]float32{0, p.trunkH + p.apexH, 0}
-		for i := 0; i < sides; i++ {
-			j := (i + 1) % sides
-			emitTri(fmid[i], fmid[j], apex)
-		}
-	} else {
-		// Single cone: ring at trunk top → apex.
-		ring := hexRing(p.trunkH, p.baseR)
-		apex := [3]float32{0, p.trunkH + p.apexH, 0}
-		for i := 0; i < sides; i++ {
-			j := (i + 1) % sides
-			emitTri(ring[i], ring[j], apex)
-		}
-	}
-
-	return NewMesh(verts, indices, []int{3, 3, 2})
 }
 
 // NewBoxMesh creates a simple box mesh with the given dimensions and color.
