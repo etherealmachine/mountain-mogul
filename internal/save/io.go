@@ -182,14 +182,15 @@ func worldToData(w *world.World) ScenarioData {
 			}
 		}
 		lifts[i] = LiftData{
-			ID:       l.ID,
-			BaseX:    l.Base[0],
-			BaseZ:    l.Base[1],
-			TopX:     l.Top[0],
-			TopZ:     l.Top[1],
-			Speed:    l.Speed,
-			Chairs:   chairs,
-			QueueIDs: queueIDs,
+			ID:          l.ID,
+			BaseX:       l.Base[0],
+			BaseZ:       l.Base[1],
+			TopX:        l.Top[0],
+			TopZ:        l.Top[1],
+			Speed:       l.Speed,
+			TicketPrice: l.TicketPrice,
+			Chairs:      chairs,
+			QueueIDs:    queueIDs,
 		}
 	}
 
@@ -281,6 +282,9 @@ func dataToWorld(data ScenarioData) *world.World {
 		}
 		if ld.Speed >= 0.1 {
 			lift.Speed = ld.Speed
+		}
+		if ld.TicketPrice > 0 {
+			lift.TicketPrice = ld.TicketPrice
 		}
 		// Restore chair Progress where the saved length matches; if the
 		// chair count differs (e.g. a code change), keep the freshly

@@ -20,8 +20,9 @@ const (
 type rowKind int
 
 const (
-	rowLabel   rowKind = iota // read-only label + value
-	rowStepper                // label + [−] value [+] buttons
+	rowLabel      rowKind = iota // read-only label + value
+	rowStepper                   // label + [−] value [+] buttons (float)
+	rowIntStepper                // same controls, int-backed value
 )
 
 type windowRow struct {
@@ -32,6 +33,10 @@ type windowRow struct {
 	step     float32
 	minVal   float32
 	maxVal   float32
+	intVal   *int
+	intStep  int
+	intMin   int
+	intMax   int
 	minusBtn *Button
 	plusBtn  *Button
 }
@@ -92,6 +97,37 @@ func (w *Window) AddStepper(label string, val *float32, step, minVal, maxVal flo
 	w.rebuildLayout()
 }
 
+// AddIntStepper adds a row with [−] value [+] controls for an int value.
+// Same look and behaviour as AddStepper but the value displays as a bare
+// integer (no decimals) and clamps in int space.
+func (w *Window) AddIntStepper(label string, val *int, step, minVal, maxVal int) {
+	row := &windowRow{
+		kind:    rowIntStepper,
+		label:   label,
+		intVal:  val,
+		intStep: step,
+		intMin:  minVal,
+		intMax:  maxVal,
+	}
+	captured := row
+	row.minusBtn = NewButton(0, 0, winBtnW, winRowH-4, "-", func() {
+		v := *captured.intVal - captured.intStep
+		if v < captured.intMin {
+			v = captured.intMin
+		}
+		*captured.intVal = v
+	})
+	row.plusBtn = NewButton(0, 0, winBtnW, winRowH-4, "+", func() {
+		v := *captured.intVal + captured.intStep
+		if v > captured.intMax {
+			v = captured.intMax
+		}
+		*captured.intVal = v
+	})
+	w.rows = append(w.rows, row)
+	w.rebuildLayout()
+}
+
 func (w *Window) rebuildLayout() {
 	// Width: derive from widest label + fixed value area, floored by title width.
 	maxLabelPx := float32(0)
@@ -113,7 +149,7 @@ func (w *Window) rebuildLayout() {
 	h := winTitleH + winPadding/2
 	for _, row := range w.rows {
 		rowY := w.Y + h
-		if row.kind == rowStepper {
+		if row.kind == rowStepper || row.kind == rowIntStepper {
 			btnH := winRowH - 4
 			row.plusBtn.X = w.X + w.width - winBtnW - winPadding
 			row.plusBtn.Y = rowY + (winRowH-btnH)/2
@@ -153,7 +189,7 @@ func (w *Window) HandleInput(inp *engine.Input) {
 	mx, my := inp.MousePos[0], inp.MousePos[1]
 	w.closeBtn.SetHovered(w.closeBtn.Contains(mx, my))
 	for _, row := range w.rows {
-		if row.kind == rowStepper {
+		if row.kind == rowStepper || row.kind == rowIntStepper {
 			row.minusBtn.SetHovered(row.minusBtn.Contains(mx, my))
 			row.plusBtn.SetHovered(row.plusBtn.Contains(mx, my))
 		}
@@ -166,7 +202,7 @@ func (w *Window) HandleInput(inp *engine.Input) {
 		return
 	}
 	for _, row := range w.rows {
-		if row.kind == rowStepper {
+		if row.kind == rowStepper || row.kind == rowIntStepper {
 			if row.minusBtn.Contains(mx, my) {
 				row.minusBtn.Click()
 				return
@@ -221,6 +257,13 @@ func (w *Window) Draw(r *render.Renderer) {
 			}
 		case rowStepper:
 			val := fmt.Sprintf("%.2f", *row.val)
+			if r.Font != nil {
+				r.Font.DrawText(r, val, w.X+w.labelW, y+textOffY, textColor)
+			}
+			row.minusBtn.Draw(r)
+			row.plusBtn.Draw(r)
+		case rowIntStepper:
+			val := fmt.Sprintf("%d", *row.intVal)
 			if r.Font != nil {
 				r.Font.DrawText(r, val, w.X+w.labelW, y+textOffY, textColor)
 			}

@@ -68,7 +68,10 @@ type Renderer struct {
 	perceptionRadius       float32 // 0 disables
 
 	HighlightAgentID   uint64
-	TerrainOverlayMode int // 0 = normal, 1 = slope + contour
+	HiddenAgentID      uint64     // skip this agent in the dynamic pass (used by first-person camera)
+	HiddenAgentPos     mgl32.Vec3 // anchor for HiddenRadius proximity culling
+	HiddenRadius       float32    // when >0, also skip agents within this XZ radius of HiddenAgentPos
+	TerrainOverlayMode int        // 0 = normal, 1 = slope + contour
 
 	// icons holds GL texture IDs for the UI icon set under assets/icons/.
 	// Populated by LoadIcons() at renderer construction.
@@ -234,7 +237,7 @@ func (r *Renderer) SetLogicalSize(w, h int) {
 // Diagonals alternate in a checkerboard pattern; each corner gets a small deterministic Y jitter.
 // Also emits 4 side walls and a bottom face to form a diorama-style block.
 func buildTerrainVerts(t *world.Terrain) ([]float32, []uint32) {
-	const cellSize = float32(10.0)
+	const cellSize = float32(5.0)
 	const skirtBaseY = float32(-50.0)
 
 	numSurface := (t.Width - 1) * (t.Height - 1)
@@ -433,7 +436,7 @@ func terrainJitter(gx, gz int, cellSize float32) float32 {
 // interpolation used in buildTerrainVerts — including per-vertex jitter and the
 // checkerboard diagonal pattern — so agents always sit on (never below) the mesh.
 func VisualElevationAt(t *world.Terrain, wx, wz float32) float32 {
-	const cellSize = float32(10.0)
+	const cellSize = float32(5.0)
 	xi := int(wx / cellSize)
 	zi := int(wz / cellSize)
 	if xi < 0 {
@@ -569,7 +572,7 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 		b.ClearStatic()
 	}
 
-	const cellSize = float32(10.0)
+	const cellSize = float32(5.0)
 
 	// Forest layer — derive tree instances from terrain cell TreeDensity.
 	for z := 0; z < w.Terrain.Height; z++ {
@@ -582,8 +585,8 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 			elev := w.Terrain.ElevationAt(x, z)
 			for i := 0; i < count; i++ {
 				h := treeInstanceHash(x, z, i)
-				offsetX := (float32(h&0xFF)/127.5 - 1.0) * 3.5
-				offsetZ := (float32((h>>8)&0xFF)/127.5 - 1.0) * 3.5
+				offsetX := (float32(h&0xFF)/127.5 - 1.0) * 2.0
+				offsetZ := (float32((h>>8)&0xFF)/127.5 - 1.0) * 2.0
 				rotation := float32((h>>16)&0xFFFF) / 65535.0 * 2 * math.Pi
 				scale := 0.85 + float32((h>>32)&0xFF)/255.0*0.30
 				variant := MeshTree + uint32((h>>40)%3)
@@ -866,7 +869,18 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 
 	if r.dynamicBatch != nil {
 		instances := make([]DynamicInstance, 0, len(w.Agents))
+		hr2 := r.HiddenRadius * r.HiddenRadius
 		for _, agent := range w.Agents {
+			if r.HiddenAgentID != 0 && agent.ID == r.HiddenAgentID {
+				continue
+			}
+			if hr2 > 0 {
+				dx := agent.Pos[0] - r.HiddenAgentPos[0]
+				dz := agent.Pos[2] - r.HiddenAgentPos[2]
+				if dx*dx+dz*dz < hr2 {
+					continue
+				}
+			}
 			posY := agent.Pos[1]
 			if agent.OnLiftID == 0 {
 				posY = VisualElevationAt(w.Terrain, agent.Pos[0], agent.Pos[2])

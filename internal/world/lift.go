@@ -98,6 +98,10 @@ type Lift struct {
 	Top   mgl32.Vec2
 	Speed float32 // cable speed in m/s (typical real lift: 2–3 m/s)
 
+	// TicketPrice is the per-ride fare credited to World.Cash when a
+	// skier boards a chair. Set per-lift via the lift popup.
+	TicketPrice int
+
 	Queue  []*Agent
 	Chairs []Chair
 }
@@ -123,7 +127,7 @@ func (l *Lift) TopCell() [2]int {
 }
 
 func cellOf(p mgl32.Vec2) [2]int {
-	const cellSize = float32(10.0)
+	const cellSize = float32(5.0)
 	return [2]int{
 		int(math.Floor(float64(p[0] / cellSize))),
 		int(math.Floor(float64(p[1] / cellSize))),

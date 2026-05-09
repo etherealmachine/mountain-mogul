@@ -49,10 +49,11 @@ func (e *Editor) Init(app *engine.App) error {
 		r.AddLiftCable(lift, w.Terrain)
 	}
 
+	const cellSize = float32(5.0)
 	r.Camera.Target = mgl32.Vec3{
-		float32(w.Terrain.Width) * 5,
+		float32(w.Terrain.Width) * cellSize / 2,
 		0,
-		float32(w.Terrain.Height) * 5,
+		float32(w.Terrain.Height) * cellSize / 2,
 	}
 	r.Camera.OrthoScale = 700
 	r.Camera.Recalculate()
@@ -69,7 +70,6 @@ func (e *Editor) Init(app *engine.App) error {
 	e.menuBar.AddIconButton(render.IconGlobe, "Import", func() {
 		app.PushScene(NewTerrainImport(
 			e.world.Terrain.Width,
-			e.world.Terrain.Height,
 			func(elevs [][]float32) { e.applyImportedTerrain(elevs, e.app.Renderer) },
 		))
 	})
@@ -286,8 +286,15 @@ func (e *Editor) applyEditorTool(gx, gz int, r *render.Renderer, dt float32) {
 // layout would leave lifts dangling in mid-air and trees floating above
 // new mountains. Cell defaults (snow depth, passability) match NewTerrain.
 func (e *Editor) applyImportedTerrain(elevs [][]float32, r *render.Renderer) {
-	prev := e.world.Terrain
-	t := world.NewTerrain(prev.Width, prev.Height)
+	rows := len(elevs)
+	cols := 0
+	if rows > 0 {
+		cols = len(elevs[0])
+	}
+	if rows == 0 || cols == 0 {
+		return
+	}
+	t := world.NewTerrain(cols, rows)
 	for row := 0; row < t.Height; row++ {
 		for col := 0; col < t.Width; col++ {
 			if row < len(elevs) && col < len(elevs[row]) {
@@ -305,7 +312,7 @@ func (e *Editor) applyImportedTerrain(elevs [][]float32, r *render.Renderer) {
 }
 
 func (e *Editor) Render(r *render.Renderer) {
-	const cellSize = float32(10.0)
+	const cellSize = float32(5.0)
 	t := e.world.Terrain
 	if e.toolUsesRadiusSlider() && t.InBounds(e.hoverCell[0], e.hoverCell[1]) {
 		gx, gz := e.hoverCell[0], e.hoverCell[1]
@@ -358,13 +365,6 @@ func clampF(v, lo, hi float32) float32 {
 		return hi
 	}
 	return v
-}
-
-func minF(a, b float32) float32 {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 func maxF(a, b float32) float32 {

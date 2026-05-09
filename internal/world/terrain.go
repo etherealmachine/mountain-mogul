@@ -62,7 +62,7 @@ func (t *Terrain) ElevationAt(x, z int) float32 {
 // InterpolatedElevationAt returns the bilinearly-interpolated terrain elevation
 // at a world-space position. Smoother than ElevationAt for continuous motion.
 func (t *Terrain) InterpolatedElevationAt(wx, wz float32) float32 {
-	const cellSize = float32(10.0)
+	const cellSize = float32(5.0)
 	xi := int(wx / cellSize)
 	zi := int(wz / cellSize)
 	if xi < 0 {
@@ -101,7 +101,7 @@ func (t *Terrain) InterpolatedElevationAt(wx, wz float32) float32 {
 // TreeDensityAt returns the tree density at the given world-space XZ point
 // using nearest-cell sampling. Out-of-bounds returns 0 (clear).
 func (t *Terrain) TreeDensityAt(wx, wz float32) float32 {
-	const cellSize = float32(10.0)
+	const cellSize = float32(5.0)
 	xi := int(wx / cellSize)
 	zi := int(wz / cellSize)
 	if !t.InBounds(xi, zi) {

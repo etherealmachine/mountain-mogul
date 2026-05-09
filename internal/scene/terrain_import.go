@@ -26,6 +26,15 @@ const (
 	tisFetching
 )
 
+// importMetersPerCell mirrors the engine-wide cell size. The selection
+// square's pixel extent is derived from this so the imported region
+// always satisfies cell == 5 m on the ground regardless of preview zoom.
+const importMetersPerCell = 5.0
+
+// gridSizeOptions are the small/medium/large grid choices offered to
+// the player. Each maps directly to terrain.Width = terrain.Height.
+var gridSizeOptions = []int{256, 512, 1280}
+
 // tiJob handles any single background network operation for the terrain import scene.
 type tiJob struct {
 	mu            sync.Mutex
@@ -56,10 +65,13 @@ func (j *tiJob) snapshot() (progress float32, sr []geo.SearchResult, mr *geo.Pre
 // TerrainImport is a full-screen scene for searching, previewing, and importing
 // real-world elevation data into the scenario editor terrain.
 type TerrainImport struct {
-	app         *engine.App
-	onImport    func([][]float32)
-	terrainCols int
-	terrainRows int
+	app      *engine.App
+	onImport func([][]float32)
+
+	// gridSize is the destination grid's side length. The selection
+	// square covers gridSize × importMetersPerCell metres of ground;
+	// the elevation fetch resamples to gridSize × gridSize.
+	gridSize int
 
 	state     tisState
 	searchBuf string
@@ -88,16 +100,20 @@ type TerrainImport struct {
 }
 
 // NewTerrainImport creates the scene.
-// terrainCols/Rows are the destination grid size for the elevation fetch.
+// initialGridSize is the starting destination grid side length; the
+// player can switch between gridSizeOptions in the map UI.
 // onImport is called with the resampled elevation grid on success.
-func NewTerrainImport(terrainCols, terrainRows int, onImport func([][]float32)) *TerrainImport {
+func NewTerrainImport(initialGridSize int, onImport func([][]float32)) *TerrainImport {
+	g := initialGridSize
+	if g <= 0 {
+		g = gridSizeOptions[1]
+	}
 	return &TerrainImport{
-		onImport:    onImport,
-		terrainCols: terrainCols,
-		terrainRows: terrainRows,
-		state:       tisSearch,
-		mapZoom:     12,
-		mapScale:    1.0,
+		onImport: onImport,
+		gridSize: g,
+		state:    tisSearch,
+		mapZoom:  12,
+		mapScale: 1.0,
 	}
 }
 
@@ -254,6 +270,17 @@ func (t *TerrainImport) updateMap(inp *engine.Input, r *render.Renderer) {
 		}
 	}
 
+	// ── Grid-size selector buttons ───────────────────────────────────────────
+	if t.mapTexID != 0 && inp.LeftClick && t.state == tisMap {
+		for i, opt := range gridSizeOptions {
+			bx, by, bw, bh := gridSizeButtonRect(sw, i)
+			if mx >= bx && mx <= bx+bw && my >= by && my <= by+bh {
+				t.gridSize = opt
+				return
+			}
+		}
+	}
+
 	// ── Import button ────────────────────────────────────────────────────────
 	if t.mapTexID != 0 && inp.LeftClick {
 		btnX := sw - 140
@@ -367,11 +394,11 @@ func (t *TerrainImport) startFetch() {
 	t.state = tisFetching
 	t.errMsg = ""
 
-	// Convert the fixed selection square to lat/lon bounds.
-	// panOffset is 0 here — pan is committed before Import can be clicked.
+	// Convert the selection square to lat/lon bounds. Pan is committed
+	// before Import can be clicked.
 	sw := float32(t.app.Renderer.ScreenWidth())
 	sh := float32(t.app.Renderer.ScreenHeight())
-	sx0, sy0, sx1, sy1 := selectionSquare(sw, sh)
+	sx0, sy0, sx1, sy1 := t.selectionSquare(sw, sh)
 
 	// Match the exact draw position used in Render.
 	drawW := t.mapTexW * t.mapScale
@@ -393,7 +420,7 @@ func (t *TerrainImport) startFetch() {
 	fetchMaxLon := t.mapBounds[2] + fx1*lonSpan
 
 	// cols/rows are ignored by the tile fetcher but kept for the function signature.
-	cols, rows := t.terrainCols, t.terrainRows
+	cols, rows := t.gridSize, t.gridSize
 
 	ctx, cancel := context.WithCancel(context.Background())
 	j := &tiJob{cancel: cancel}
@@ -408,7 +435,7 @@ func (t *TerrainImport) startFetch() {
 			j.finish(err)
 			return
 		}
-		resampled := geo.ResampleToGrid(grid, t.terrainCols, t.terrainRows)
+		resampled := geo.ResampleToGrid(grid, t.gridSize, t.gridSize)
 		j.mu.Lock()
 		j.elevResult = resampled
 		j.mu.Unlock()
@@ -542,19 +569,37 @@ func (d *tiMapDrawable) Draw(r *render.Renderer) {
 		r.Font.DrawText(r, "Loading map...", sw/2-60, sh/2, grey)
 	}
 
-	// Fixed selection square — always centered on the map area.
+	// Selection square — always centred on the map area, sized so its
+	// extent in metres equals gridSize × importMetersPerCell.
 	if t.mapTexID != 0 {
-		qx0, qy0, qx1, qy1 := selectionSquare(sw, sh)
+		qx0, qy0, qx1, qy1 := t.selectionSquare(sw, sh)
 		thick := float32(2)
 		r.DrawColorRect(qx0, qy0, qx1-qx0, thick, yellow)
 		r.DrawColorRect(qx0, qy1-thick, qx1-qx0, thick, yellow)
 		r.DrawColorRect(qx0, qy0, thick, qy1-qy0, yellow)
 		r.DrawColorRect(qx1-thick, qy0, thick, qy1-qy0, yellow)
+
+		// Caption beneath the square: cells × cells (km × km).
+		km := float64(t.gridSize) * importMetersPerCell / 1000.0
+		caption := fmt.Sprintf("%d × %d cells   (%.2f km × %.2f km)",
+			t.gridSize, t.gridSize, km, km)
+		captionW := float32(len(caption) * render.GlyphAdvance)
+		captionX := (qx0+qx1)/2 - captionW/2
+		captionY := qy1 + 6
+		if captionY > sh-44 {
+			captionY = qy0 - float32(render.GlyphH) - 6
+		}
+		r.Font.DrawText(r, caption, captionX, captionY, yellow)
+	}
+
+	// Grid-size selector (small / medium / large).
+	if t.mapTexID != 0 && t.state == tisMap {
+		t.drawGridSizeButtons(r, sw, sh)
 	}
 
 	// Hint
 	if t.mapTexID != 0 && t.state != tisFetching {
-		r.Font.DrawText(r, "Left-drag: pan   Scroll: zoom   Center the square on your target area", 10, sh-22, grey)
+		r.Font.DrawText(r, "Left-drag: pan   Scroll: zoom   Pick size at top-right; centre square on target", 10, sh-22, grey)
 	}
 
 	if t.errMsg != "" {
@@ -580,6 +625,51 @@ func (d *tiMapDrawable) Draw(r *render.Renderer) {
 	}
 }
 
+// gridSizeButtonRect returns the screen-space rectangle for the i-th
+// grid-size option button, anchored to the top-right corner just below
+// the menu bar.
+func gridSizeButtonRect(sw float32, i int) (x, y, w, h float32) {
+	const btnW = float32(110)
+	const btnH = float32(28)
+	const gap = float32(4)
+	totalW := float32(len(gridSizeOptions))*btnW + float32(len(gridSizeOptions)-1)*gap
+	x = sw - totalW - 10 + float32(i)*(btnW+gap)
+	y = 38
+	w = btnW
+	h = btnH
+	return
+}
+
+// drawGridSizeButtons renders the small/medium/large selector. The
+// active option is highlighted; each button shows its grid side length
+// and equivalent ground extent in km so the player can pick by either.
+func (t *TerrainImport) drawGridSizeButtons(r *render.Renderer, sw, sh float32) {
+	labels := []string{"Small", "Medium", "Large"}
+	white := mgl32.Vec4{1, 1, 1, 1}
+	dim := mgl32.Vec4{0.7, 0.75, 0.85, 1}
+	bgIdle := mgl32.Vec4{0.15, 0.18, 0.28, 0.95}
+	bgActive := mgl32.Vec4{0.25, 0.5, 0.85, 0.95}
+
+	for i, opt := range gridSizeOptions {
+		bx, by, bw, bh := gridSizeButtonRect(sw, i)
+		bg := bgIdle
+		if opt == t.gridSize {
+			bg = bgActive
+		}
+		r.DrawColorRect(bx, by, bw, bh, bg)
+		km := float64(opt) * importMetersPerCell / 1000.0
+		label := fmt.Sprintf("%s  %.1fkm", labels[i], km)
+		labelW := float32(len(label) * render.GlyphAdvance)
+		labelX := bx + (bw-labelW)/2
+		labelY := by + (bh-float32(render.GlyphH))/2
+		col := dim
+		if opt == t.gridSize {
+			col = white
+		}
+		r.Font.DrawText(r, label, labelX, labelY, col)
+	}
+}
+
 func tiTruncate(s string, n int) string {
 	if len(s) <= n {
 		return s
@@ -587,11 +677,34 @@ func tiTruncate(s string, n int) string {
 	return s[:n-3] + "..."
 }
 
-// selectionSquare returns the screen corners of the fixed import-area square,
-// centered in the map area below the menu bar.
-func selectionSquare(sw, sh float32) (x0, y0, x1, y1 float32) {
-	half := minF(sw, sh-32) * 0.65 / 2
+// selectionSquare returns the screen corners of the import-area square,
+// centred in the map area below the menu bar. The pixel extent is
+// derived from the current preview zoom + map centre latitude so the
+// square always covers gridSize × importMetersPerCell metres of
+// ground — i.e., zooming the preview never lies about the imported
+// scale.
+//
+// Web Mercator metres-per-pixel: 156543.0339 · cos(lat) / 2^zoom,
+// then divided by mapScale (sub-zoom interpolation between tile reloads).
+func (t *TerrainImport) selectionSquare(sw, sh float32) (x0, y0, x1, y1 float32) {
 	cx := sw / 2
 	cy := 32 + (sh-32)/2
+	half := t.selectionHalfPx()
 	return cx - half, cy - half, cx + half, cy + half
+}
+
+// selectionHalfPx returns half the side length of the selection square
+// in screen pixels for the current grid size + preview zoom.
+func (t *TerrainImport) selectionHalfPx() float32 {
+	cosLat := math.Cos(t.mapCenter[0] * math.Pi / 180)
+	if cosLat < 0.05 {
+		cosLat = 0.05 // clamp near poles so we don't blow up
+	}
+	mppNative := 156543.0339 * cosLat / math.Pow(2, float64(t.mapZoom))
+	mpp := mppNative / float64(t.mapScale)
+	if mpp <= 0 {
+		mpp = 1
+	}
+	groundMetres := float64(t.gridSize) * importMetersPerCell
+	return float32(groundMetres / mpp / 2)
 }

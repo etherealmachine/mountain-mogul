@@ -12,7 +12,7 @@ import (
 
 const (
 	WalkSpeed = 2.0  // m/s
-	CellSize  = 10.0 // metres per grid cell
+	CellSize  = 5.0 // metres per grid cell
 )
 
 // Simulation drives all agent and building behaviour.
@@ -135,6 +135,7 @@ func (s *Simulation) tickLifts(dt float64) {
 			}
 
 			// At base (progress wraps past 1.0): load up to 2 skiers from queue.
+			// Each boarder pays TicketPrice into the resort's bank.
 			if chair.Progress >= 1.0 {
 				chair.Progress -= 1.0
 				for j := 0; j < 2 && len(lift.Queue) > 0; j++ {
@@ -143,6 +144,7 @@ func (s *Simulation) tickLifts(dt float64) {
 					chair.Passengers[j] = agent
 					agent.OnLiftID = lift.ID
 					agent.Queued = false
+					w.Cash += lift.TicketPrice
 				}
 			}
 		}

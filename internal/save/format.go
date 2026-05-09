@@ -53,14 +53,15 @@ type ChairData struct {
 // without freezing skiers in mid-air. Base/Top are continuous world XZ
 // (metres).
 type LiftData struct {
-	ID       uint64      `json:"id,omitempty"`
-	BaseX    float32     `json:"bx"`
-	BaseZ    float32     `json:"bz"`
-	TopX     float32     `json:"tx"`
-	TopZ     float32     `json:"tz"`
-	Speed    float32     `json:"speed,omitempty"`
-	Chairs   []ChairData `json:"chairs,omitempty"`
-	QueueIDs []uint64    `json:"queue,omitempty"`
+	ID          uint64      `json:"id,omitempty"`
+	BaseX       float32     `json:"bx"`
+	BaseZ       float32     `json:"bz"`
+	TopX        float32     `json:"tx"`
+	TopZ        float32     `json:"tz"`
+	Speed       float32     `json:"speed,omitempty"`
+	TicketPrice int         `json:"ticket,omitempty"`
+	Chairs      []ChairData `json:"chairs,omitempty"`
+	QueueIDs    []uint64    `json:"queue,omitempty"`
 }
 
 // AgentData is a saved agent state. ID is preserved so that lift chair /

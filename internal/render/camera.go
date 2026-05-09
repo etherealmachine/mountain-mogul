@@ -6,12 +6,22 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 )
 
-// Camera is a fixed-angle orthographic camera.
+// Camera is a fixed-angle orthographic camera with an opt-in
+// first-person perspective mode for follow-skier views. When
+// Perspective is true, EyePos / LookAt / FOVDeg drive the view and the
+// existing ortho fields (Target, Pitch, Yaw, OrthoScale) are ignored.
 type Camera struct {
 	Target     mgl32.Vec3
 	Pitch      float32 // fixed: 45.0
 	Yaw        float32 // fixed: 225.0
 	OrthoScale float32 // world units per half-viewport-height; start at 150.0
+
+	// Perspective mode (first-person follow).
+	Perspective bool
+	EyePos      mgl32.Vec3
+	LookAt      mgl32.Vec3
+	FOVDeg      float32 // vertical FOV in degrees; defaults to 70 if 0
+
 	viewport   mgl32.Vec2
 	View, Proj mgl32.Mat4
 }
@@ -37,6 +47,19 @@ func (c *Camera) SetViewport(w, h int) {
 
 // Recalculate recomputes View and Proj matrices from current state.
 func (c *Camera) Recalculate() {
+	up := mgl32.Vec3{0, 1, 0}
+	aspect := c.viewport[0] / c.viewport[1]
+
+	if c.Perspective {
+		fov := c.FOVDeg
+		if fov <= 0 {
+			fov = 70
+		}
+		c.View = mgl32.LookAtV(c.EyePos, c.LookAt, up)
+		c.Proj = mgl32.Perspective(mgl32.DegToRad(fov), aspect, 0.1, 5000)
+		return
+	}
+
 	pitchRad := float64(c.Pitch) * math.Pi / 180.0
 	yawRad := float64(c.Yaw) * math.Pi / 180.0
 
@@ -48,11 +71,9 @@ func (c *Camera) Recalculate() {
 	eyeZ := float32(distance * math.Cos(pitchRad) * math.Cos(yawRad))
 
 	eye := c.Target.Add(mgl32.Vec3{eyeX, eyeY, eyeZ})
-	up := mgl32.Vec3{0, 1, 0}
 
 	c.View = mgl32.LookAtV(eye, c.Target, up)
 
-	aspect := c.viewport[0] / c.viewport[1]
 	s := c.OrthoScale
 	c.Proj = mgl32.Ortho(-aspect*s, aspect*s, -s, s, -10000, 10000)
 }
@@ -63,10 +84,18 @@ func (c *Camera) ViewProj() mgl32.Mat4 {
 }
 
 // EyeDirection returns the unit vector pointing from the scene toward
-// the camera — the "view direction" used for specular shading. The
-// camera is orthographic, so all rays are parallel and this value is
-// independent of surface position.
+// the camera — the "view direction" used for specular shading. In ortho
+// mode this is constant across the scene; in perspective mode the
+// shader gets the look-axis approximation (eye→lookAt reversed), which
+// keeps specular plausible without per-fragment recomputation.
 func (c *Camera) EyeDirection() mgl32.Vec3 {
+	if c.Perspective {
+		d := c.EyePos.Sub(c.LookAt)
+		if l := d.Len(); l > 0 {
+			return d.Mul(1 / l)
+		}
+		return mgl32.Vec3{0, 1, 0}
+	}
 	pitchRad := float64(c.Pitch) * math.Pi / 180.0
 	yawRad := float64(c.Yaw) * math.Pi / 180.0
 	return mgl32.Vec3{

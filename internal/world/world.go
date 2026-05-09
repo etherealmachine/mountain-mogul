@@ -14,6 +14,8 @@ const (
 	LiftStationCost = 50000  // fixed cost for both stations of a lift (you always need two)
 	LiftPerMeter    = 100    // cost per metre of cable run, covers towers + cable
 	StartingCash    = 250000 // 1× lodge + 2× ~600 m lifts (50K + 2 × (50K + 60K) = 270K) — slight stretch on lift length
+
+	DefaultTicketPrice = 10 // dollars per lift ride; player adjusts via the lift popup
 )
 
 // World owns all simulation state.
@@ -130,10 +132,11 @@ func (w *World) RemoveBuilding(id uint64) {
 // player's balance.
 func (w *World) PlaceLift(bx, bz, tx, tz float32) *Lift {
 	lift := &Lift{
-		ID:    w.NextID(),
-		Base:  mgl32.Vec2{bx, bz},
-		Top:   mgl32.Vec2{tx, tz},
-		Speed: 2.5, // m/s — realistic chairlift speed
+		ID:          w.NextID(),
+		Base:        mgl32.Vec2{bx, bz},
+		Top:         mgl32.Vec2{tx, tz},
+		Speed:       2.5, // m/s — realistic chairlift speed
+		TicketPrice: DefaultTicketPrice,
 	}
 
 	// Initialise chairs evenly spaced around the loop.

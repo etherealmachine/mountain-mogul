@@ -225,7 +225,7 @@ func (b *builder) lodge() *builder {
 // continuous Pos lands at the cell centre so the lodge sits in the
 // historical position from before continuous coords landed.
 func (b *builder) lodgeAt(gx, gz int) *builder {
-	const cellSize = 10.0
+	const cellSize = 5.0
 	lodge := b.w.PlaceBuilding((float32(gx)+0.5)*cellSize, (float32(gz)+0.5)*cellSize)
 	lodge.SkierCount = 0
 	lodge.MeanSpawnRate = 0
@@ -253,7 +253,7 @@ func (b *builder) skierAt(gx, gz int, skill ai.SkillLevel) *builder {
 	if b.lastLodge == nil {
 		panic("skierAt: no lodge placed; call lodge() or lodgeAt() first")
 	}
-	const cellSize = 10.0
+	const cellSize = 5.0
 	elev := b.w.Terrain.ElevationAt(gx, gz)
 	pos := mgl32.Vec3{(float32(gx) + 0.5) * cellSize, elev, (float32(gz) + 0.5) * cellSize}
 

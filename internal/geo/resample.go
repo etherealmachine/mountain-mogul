@@ -33,10 +33,11 @@ func ResampleToGrid(src [][]float32, destCols, destRows int) [][]float32 {
 		}
 	}
 
-	// Zero-base and apply 2× vertical exaggeration for gameplay.
+	// Zero-base elevations. Now that horizontal scale is honest (5 m/cell)
+	// real DEM relief reads correctly without exaggeration.
 	for row := range out {
 		for col := range out[row] {
-			out[row][col] = (out[row][col] - minE) * 2.0
+			out[row][col] = out[row][col] - minE
 		}
 	}
 	return out

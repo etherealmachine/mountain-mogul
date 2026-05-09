@@ -25,7 +25,7 @@ import (
 // ray drops below the terrain surface. Used for the editor's terrain
 // brushes (Plant, Glade, Raise, Lower) which are inherently per-cell.
 func screenToCell(cam *render.Camera, terrain *world.Terrain, mousePos mgl32.Vec2) (gx, gz int) {
-	const cellSize = float32(10.0)
+	const cellSize = float32(5.0)
 	pos, ok := screenToWorld(cam, terrain, mousePos)
 	if !ok {
 		return -1, -1
@@ -43,7 +43,7 @@ func screenToCell(cam *render.Camera, terrain *world.Terrain, mousePos mgl32.Vec
 // sample, refining against `InterpolatedElevationAt` to get a sub-metre
 // hit suitable for placing buildings or lift endpoints anywhere.
 func screenToWorld(cam *render.Camera, terrain *world.Terrain, mousePos mgl32.Vec2) (mgl32.Vec3, bool) {
-	const cellSize = float32(10.0)
+	const cellSize = float32(5.0)
 	const maxElev = float32(1500.0)
 
 	origin, dir := cam.ScreenToWorldRay(mousePos)
@@ -59,8 +59,13 @@ func screenToWorld(cam *render.Camera, terrain *world.Terrain, mousePos mgl32.Ve
 	}
 	dt := (cellSize * 0.5) / xzLen
 
+	// Iteration cap is sized so we can descend the full maxElev range
+	// at half-cell steps (with safety margin). Tied to cellSize so
+	// changing cell resolution doesn't break the picker.
+	maxSteps := int(maxElev/(cellSize*0.5)) + 200
+
 	tPrev := tCur
-	for i := 0; i < 400; i++ {
+	for i := 0; i < maxSteps; i++ {
 		pos := origin.Add(dir.Mul(tCur))
 		cx := int(pos[0] / cellSize)
 		cz := int(pos[2] / cellSize)
@@ -142,6 +147,7 @@ type Scenario struct {
 	hoverWorld      mgl32.Vec3 // continuous terrain hit under the mouse — for placement
 	hoverValid      bool       // false when the mouse is off-terrain or over the menu bars
 	followAgentID   uint64 // 0 = free camera; >0 = ID of followed skier
+	firstPerson     bool   // V: first-person camera at the followed skier's head
 	debugSteering   bool   // F3: render steering forces on the followed skier
 	paused          bool
 	popup           *ui.Window
@@ -463,6 +469,13 @@ func (s *Scenario) Update(dt float64) {
 		s.cycleFollow()
 	}
 
+	// V: toggle first-person camera at the followed skier's head. No-op
+	// when nobody is followed — FPV without a target would have no
+	// anchor.
+	if inp.Pressed[glfw.KeyV] && s.followAgentID != 0 {
+		s.firstPerson = !s.firstPerson
+	}
+
 	// C: toggle slope + contour overlay.
 	if inp.Pressed[glfw.KeyC] {
 		if r.TerrainOverlayMode == 0 {
@@ -635,13 +648,39 @@ func (s *Scenario) Update(dt float64) {
 	}
 
 	// Camera follow: track the selected agent using the freshest positions.
+	// In first-person mode, drive the perspective camera to the skier's
+	// head and hide their mesh so the camera isn't sitting inside the
+	// torso; otherwise stay in the default isometric ortho follow.
+	r.HiddenAgentID = 0
+	r.HiddenRadius = 0
 	if s.followAgentID != 0 {
 		if agent := s.findFollowedAgent(); agent != nil {
-			r.Camera.Target = agent.Pos
-			r.Camera.Recalculate()
+			if s.firstPerson {
+				applyFirstPersonCamera(r.Camera, agent)
+				r.HiddenAgentID = agent.ID
+				// Lift queues stack all queuers at the same cell, so a
+				// queued skier's neighbours sit right in the camera.
+				// Hide anyone within ~1.5 m of the followed skier so
+				// the FPV doesn't get a green box stuck to its face.
+				r.HiddenAgentPos = agent.Pos
+				r.HiddenRadius = 1.5
+			} else {
+				if r.Camera.Perspective {
+					r.Camera.Perspective = false
+				}
+				r.Camera.Target = agent.Pos
+				r.Camera.Recalculate()
+			}
 		} else {
 			s.followAgentID = 0
 		}
+	}
+	// Follow dropped (despawn / right-drag pan / etc.) — exit FPV so
+	// the free camera comes back in ortho.
+	if s.followAgentID == 0 && (s.firstPerson || r.Camera.Perspective) {
+		s.firstPerson = false
+		r.Camera.Perspective = false
+		r.Camera.Recalculate()
 	}
 
 	// Track + optional steering overlay for the followed skier.
@@ -834,7 +873,7 @@ func (s *Scenario) removeAt(clickPos mgl32.Vec3, r *render.Renderer) {
 }
 
 func (s *Scenario) Render(r *render.Renderer) {
-	const cellSize = float32(10.0)
+	const cellSize = float32(5.0)
 	t := s.world.Terrain
 	if s.activeTool == toolGlade && t.InBounds(s.hoverCell[0], s.hoverCell[1]) {
 		gx, gz := s.hoverCell[0], s.hoverCell[1]
@@ -961,6 +1000,7 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 		return fmt.Sprintf("%d", len(l.Chairs))
 	})
 	w.AddStepper("Speed (m/s)", &l.Speed, 0.5, 0.5, 8.0)
+	w.AddIntStepper("Ticket ($)", &l.TicketPrice, 5, 0, 200)
 	w.Visible = true
 	w.Center(screenW, screenH)
 	s.popup = w
@@ -1154,6 +1194,35 @@ func (s *Scenario) pickAgent(cam *render.Camera, mousePos mgl32.Vec2) *world.Age
 	return best
 }
 
+// applyFirstPersonCamera puts the camera at the followed skier's head,
+// looking forward along Heading with a slight downward tilt so the
+// slope ahead fills more of the frame. Heading uses the
+// atan2(dx, dz) convention shared with the motor / sense code.
+func applyFirstPersonCamera(cam *render.Camera, a *world.Agent) {
+	const (
+		headHeight = 1.6  // metres above the agent's foot position
+		lookDist   = 10.0 // metres ahead of the eye
+		pitchDown  = 5.0  // degrees below horizontal
+	)
+	eye := a.Pos
+	eye[1] += headHeight
+
+	h := float64(a.Heading)
+	p := pitchDown * math.Pi / 180
+	cosP := math.Cos(p)
+	fwd := mgl32.Vec3{
+		float32(math.Sin(h) * cosP),
+		float32(-math.Sin(p)),
+		float32(math.Cos(h) * cosP),
+	}
+
+	cam.Perspective = true
+	cam.FOVDeg = 70
+	cam.EyePos = eye
+	cam.LookAt = eye.Add(fwd.Mul(lookDist))
+	cam.Recalculate()
+}
+
 // findFollowedAgent returns the agent being followed, or nil if it no longer exists.
 func (s *Scenario) findFollowedAgent() *world.Agent {
 	for _, a := range s.world.Agents {
@@ -1204,32 +1273,10 @@ type followLabel struct {
 
 func (f *followLabel) Draw(r *render.Renderer) {
 	activity := world.Activity(f.world, f.agent)
-
-	row2 := fmt.Sprintf("%.1f m/s    bal %.2f", f.agent.Speed, f.agent.Balance)
-	if isSkiingActivity(activity) && f.agent.Confidence > 0 {
-		row2 += fmt.Sprintf("    conf %.2f", f.agent.Confidence)
-	}
+	energyPct := int(f.agent.Energy*100 + 0.5)
 	rows := []string{
 		fmt.Sprintf("Skier #%d  |  %s  |  %s", f.agent.ID, activity, f.agent.Motor.Active.String()),
-		row2,
-	}
-	// Perception/intent rows are stale unless the agent is actively skiing.
-	if isSkiingActivity(activity) {
-		s := f.agent.Sense
-		row4 := fmt.Sprintf("avoid %s   urg %.2f   worst %.2f @ %.0fm",
-			avoidGlyph(f.agent.Avoid.Side, f.agent.Avoid.Clear),
-			s.Urgency, s.WorstSeverity, s.WorstDist)
-		if s.InTrees {
-			row4 += fmt.Sprintf("   IN TREES (%.2f)", s.AtCellDensity)
-		}
-		if n := len(f.agent.Route.Waypoints); n > 0 {
-			row4 += fmt.Sprintf("   wp+%d", n)
-		}
-		rows = append(rows,
-			fmt.Sprintf("probes  C %.2f   R %.2f / L %.2f    look %.0fm",
-				s.ProbeC, s.ProbeR, s.ProbeL, s.ProbeDist),
-			row4,
-		)
+		fmt.Sprintf("%.1f m/s    energy %d%%", f.agent.Speed, energyPct),
 	}
 
 	const padX = 10
@@ -1253,34 +1300,6 @@ func (f *followLabel) Draw(r *render.Renderer) {
 			rowY := y + float32(padY) + float32(i*(render.GlyphH+lineGap))
 			r.Font.DrawText(r, row, rowX, rowY, col)
 		}
-	}
-}
-
-// isSkiingActivity reports whether the agent's current activity carries fresh
-// Sense data (i.e. the skiing pipeline ran this tick). Walking / queuing /
-// on-lift / fallen leave Sense stale.
-func isSkiingActivity(activity string) bool {
-	switch activity {
-	case "To Lodge", "To Lift", "Traveling":
-		return true
-	}
-	return false
-}
-
-// avoidGlyph renders the steering layer's tree-avoidance commit as a short,
-// fixed-width token for the HUD. Side reports the chosen side (-1 left, +1
-// right, 0 none); Clear is seconds since the last hazard tick.
-func avoidGlyph(side int8, clear float32) string {
-	switch side {
-	case -1:
-		return "<- L"
-	case +1:
-		return "-> R"
-	default:
-		if clear > 0 {
-			return fmt.Sprintf("--   (clear %.1fs)", clear)
-		}
-		return "--"
 	}
 }
 

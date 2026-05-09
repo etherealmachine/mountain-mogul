@@ -210,7 +210,7 @@ func runOnceForAggregate(tb *Testbed, seed int64, simSeconds float64, cx, cz flo
 // or composite) since it averages all tree cells equally. ok=false when
 // the testbed has no trees.
 func treePatchCenter(w *world.World) (cx, cz float32, ok bool) {
-	const cellSize = 10.0
+	const cellSize = 5.0
 	t := w.Terrain
 	var sumX, sumZ, count int
 	for x := 0; x < t.Width; x++ {
