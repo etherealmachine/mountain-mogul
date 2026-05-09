@@ -231,18 +231,21 @@ func (r *Renderer) SetLogicalSize(w, h int) {
 }
 
 // buildTerrainVerts generates vertex and index data for the terrain mesh.
-// Vertex layout per vertex: pos(3) + flatNormal(3) + smoothNormal(3) + color(3) = 12 floats.
+// Vertex layout per vertex: pos(3) + flatNormal(3) + smoothNormal(3) + color(3) + smoothY(1) = 13 floats.
 // flatNormal is the per-triangle face normal (used for flat shading).
 // smoothNormal is the averaged normal across neighbouring faces (used for slope viz).
+// smoothY is a low-pass-filtered elevation used by the contour overlay so its lines
+// don't zig-zag along the triangle grid (the actual mesh keeps its full detail).
 // Diagonals alternate in a checkerboard pattern; each corner gets a small deterministic Y jitter.
 // Also emits 4 side walls and a bottom face to form a diorama-style block.
 func buildTerrainVerts(t *world.Terrain) ([]float32, []uint32) {
 	const cellSize = float32(5.0)
 	const skirtBaseY = float32(-50.0)
+	const floatsPerVert = 13
 
 	numSurface := (t.Width - 1) * (t.Height - 1)
 	numSkirt := 2*(t.Width-1) + 2*(t.Height-1) + 1
-	verts := make([]float32, 0, (numSurface+numSkirt)*6*12)
+	verts := make([]float32, 0, (numSurface+numSkirt)*6*floatsPerVert)
 	indices := make([]uint32, 0, (numSurface+numSkirt)*6)
 
 	idx := uint32(0)
@@ -255,6 +258,62 @@ func buildTerrainVerts(t *world.Terrain) ([]float32, []uint32) {
 		}
 	}
 	jitAt := func(x, z int) float32 { return jit[x*t.Height+z] }
+
+	// ── Smoothed elevation for contour overlay ────────────────────────────────
+	// Separable 5-tap binomial filter (1,4,6,4,1)/16 applied to the un-jittered
+	// elevation grid. Radius 2 cells = 10 m of smoothing — enough to remove
+	// per-vertex jitter and the cell-grid stepping that otherwise makes the
+	// fragment-shader contour lines bend at every triangle edge, but small
+	// relative to the 50 m contour interval so peak/valley positions stay put.
+	smoothY := make([]float32, t.Width*t.Height)
+	{
+		base := make([]float32, t.Width*t.Height)
+		for z := 0; z < t.Height; z++ {
+			for x := 0; x < t.Width; x++ {
+				base[x*t.Height+z] = t.ElevationAt(x, z)
+			}
+		}
+		clampX := func(x int) int {
+			if x < 0 {
+				return 0
+			}
+			if x >= t.Width {
+				return t.Width - 1
+			}
+			return x
+		}
+		clampZ := func(z int) int {
+			if z < 0 {
+				return 0
+			}
+			if z >= t.Height {
+				return t.Height - 1
+			}
+			return z
+		}
+		kernel := [5]float32{1, 4, 6, 4, 1}
+		const kSum = float32(16)
+		horiz := make([]float32, t.Width*t.Height)
+		for z := 0; z < t.Height; z++ {
+			for x := 0; x < t.Width; x++ {
+				var sum float32
+				for k := -2; k <= 2; k++ {
+					sum += kernel[k+2] * base[clampX(x+k)*t.Height+z]
+				}
+				horiz[x*t.Height+z] = sum / kSum
+			}
+		}
+		for z := 0; z < t.Height; z++ {
+			for x := 0; x < t.Width; x++ {
+				var sum float32
+				for k := -2; k <= 2; k++ {
+					sum += kernel[k+2] * horiz[x*t.Height+clampZ(z+k)]
+				}
+				smoothY[x*t.Height+z] = sum / kSum
+			}
+		}
+	}
+	smoothYAt := func(x, z int) float32 { return smoothY[x*t.Height+z] }
 
 	// ── Smooth normal accumulation ─────────────────────────────────────────────
 	// For each grid point, sum the face normals of every triangle that touches it,
@@ -332,6 +391,7 @@ func buildTerrainVerts(t *world.Terrain) ([]float32, []uint32) {
 						n[0], n[1], n[2],
 						sn[0], sn[1], sn[2],
 						color[0], color[1], color[2],
+						smoothYAt(cx, cz),
 					)
 				}
 				indices = append(indices, idx, idx+1, idx+2)
@@ -351,6 +411,7 @@ func buildTerrainVerts(t *world.Terrain) ([]float32, []uint32) {
 				n[0], n[1], n[2],
 				upNorm[0], upNorm[1], upNorm[2],
 				color[0], color[1], color[2],
+				p[1], // smoothY = vertex y so contour bands stay horizontal on walls
 			)
 		}
 		indices = append(indices, idx, idx+1, idx+2)
@@ -500,7 +561,7 @@ func upwardNormal(a, b, c [3]float32) [3]float32 {
 }
 
 // BuildTerrainMesh creates the terrain mesh from the given Terrain.
-// Vertex layout: pos(3) + flatNormal(3) + smoothNormal(3) + color(3) = 12 floats per vertex.
+// Vertex layout: pos(3) + flatNormal(3) + smoothNormal(3) + color(3) + smoothY(1) = 13 floats per vertex.
 func (r *Renderer) BuildTerrainMesh(t *world.Terrain) {
 	r.scene.terrainWidth = t.Width
 	r.scene.terrainHeight = t.Height
@@ -522,7 +583,7 @@ func (r *Renderer) BuildTerrainMesh(t *world.Terrain) {
 	gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo)
 	gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(indices)*4, gl.Ptr(indices), gl.STATIC_DRAW)
 
-	stride := int32(12 * 4)
+	stride := int32(13 * 4)
 	gl.EnableVertexAttribArray(0)
 	gl.VertexAttribPointerWithOffset(0, 3, gl.FLOAT, false, stride, 0)  // aPos
 	gl.EnableVertexAttribArray(1)
@@ -531,6 +592,8 @@ func (r *Renderer) BuildTerrainMesh(t *world.Terrain) {
 	gl.VertexAttribPointerWithOffset(2, 3, gl.FLOAT, false, stride, 24) // aSmoothNormal
 	gl.EnableVertexAttribArray(3)
 	gl.VertexAttribPointerWithOffset(3, 3, gl.FLOAT, false, stride, 36) // aColor
+	gl.EnableVertexAttribArray(4)
+	gl.VertexAttribPointerWithOffset(4, 1, gl.FLOAT, false, stride, 48) // aSmoothY
 	gl.BindVertexArray(0)
 
 	r.scene.terrainVBO = vbo

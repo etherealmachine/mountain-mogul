@@ -4,6 +4,7 @@ in vec3 vColor;
 flat in vec3 vNormal;
 in vec3 vSmoothNormal;
 in vec3 vWorldPos;
+in float vSmoothY;
 
 uniform vec2  uBrushCenter;
 uniform float uBrushRadius;
@@ -164,9 +165,12 @@ void main() {
                               smoothstep(0.940, 0.975, n));
         fragColor.rgb = mix(fragColor.rgb, slopeColor, 0.72);
 
-        // Contour lines every 50 m; fwidth keeps line width constant on screen
-        float elevMod = mod(vWorldPos.y, 50.0);
-        float fw      = fwidth(vWorldPos.y);
+        // Contour lines every 50 m; fwidth keeps line width constant on screen.
+        // vSmoothY is a low-pass-filtered elevation (built CPU-side) — using it
+        // here instead of vWorldPos.y removes the per-vertex jitter and the
+        // triangle-grid stepping that otherwise zig-zag the contour lines.
+        float elevMod = mod(vSmoothY, 50.0);
+        float fw      = fwidth(vSmoothY);
         float line    = 1.0 - smoothstep(fw, fw * 3.0,
                                          min(elevMod, 50.0 - elevMod));
         fragColor.rgb = mix(fragColor.rgb, vec3(0.05, 0.05, 0.10), line * 0.88);
