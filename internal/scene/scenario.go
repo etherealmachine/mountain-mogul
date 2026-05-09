@@ -116,6 +116,154 @@ func applyDensityBrush(t *world.Terrain, cx, cz, radius int, delta float32) {
 	}
 }
 
+// applyLiftPlacementEffects applies the ground-side consequences of putting
+// down a lift: a tree-free maintenance corridor under the cable line and
+// flattened boarding/exit aprons at the base and top stations.
+//
+// Lives in scenario.go (not world.PlaceLift) so save loading and testbed
+// setup can reconstruct lifts without re-flattening or re-clearing terrain
+// the player may have intentionally edited.
+func applyLiftPlacementEffects(t *world.Terrain, lift *world.Lift) {
+	const corridorHalfWidth = float32(8.0)
+	const apronRadius = float32(12.0)
+	clearLiftCorridor(t, lift.Base, lift.Top, corridorHalfWidth)
+	axis := mgl32.Vec2{
+		lift.Top[0] - lift.Base[0],
+		lift.Top[1] - lift.Base[1],
+	}
+	if l := axis.Len(); l > 0 {
+		axis = axis.Mul(1 / l)
+	}
+	// Top station: flatten the uphill side (skiers exit forward off the
+	// chair). Base station: flatten the downhill side (skiers approach
+	// from below to board the empty incoming chair).
+	flattenStationApron(t, lift.Top, axis, +1, apronRadius)
+	flattenStationApron(t, lift.Base, axis, -1, apronRadius)
+}
+
+// clearLiftCorridor zeros TreeDensity in cells within `halfWidth` metres of
+// the line segment between two world XZ points. Models the standard
+// chairlift maintenance lane — trees would otherwise foul cables, towers,
+// and the over-snow grooming machines that service the line.
+func clearLiftCorridor(t *world.Terrain, base, top mgl32.Vec2, halfWidth float32) {
+	const cellSize = float32(5.0)
+	minX := minF(base[0], top[0]) - halfWidth
+	maxX := maxF(base[0], top[0]) + halfWidth
+	minZ := minF(base[1], top[1]) - halfWidth
+	maxZ := maxF(base[1], top[1]) + halfWidth
+	x0 := int(minX / cellSize)
+	x1 := int(maxX/cellSize) + 1
+	z0 := int(minZ / cellSize)
+	z1 := int(maxZ/cellSize) + 1
+	hw2 := halfWidth * halfWidth
+	for x := x0; x <= x1; x++ {
+		for z := z0; z <= z1; z++ {
+			if !t.InBounds(x, z) {
+				continue
+			}
+			cx := (float32(x) + 0.5) * cellSize
+			cz := (float32(z) + 0.5) * cellSize
+			if pointSegmentDistSq(mgl32.Vec2{cx, cz}, base, top) <= hw2 {
+				t.Cells[x][z].TreeDensity = 0
+			}
+		}
+	}
+}
+
+// flattenStationApron flattens terrain in a half-disc of `radius` metres
+// around `station`, on the side selected by `side` along `axis` (axis is
+// the cable direction unit vector). At the top station `side = +1` puts
+// the flat apron uphill of the station — where skiers exit the chair —
+// while leaving the downhill side (where the cable enters) at its natural
+// slope. At the base station `side = -1` does the mirror: a downhill flat
+// pad for skiers approaching to board, no change to the uphill side.
+//
+// Falloff is smoothstepped on both distance from station and projection
+// angle onto the axis so we don't get a hard step where the half-disc
+// meets the unmodified other half.
+func flattenStationApron(t *world.Terrain, station, axis mgl32.Vec2, side, radius float32) {
+	const cellSize = float32(5.0)
+	stationCell := [2]int{
+		int(station[0] / cellSize),
+		int(station[1] / cellSize),
+	}
+	if !t.InBounds(stationCell[0], stationCell[1]) {
+		return
+	}
+	stationElev := t.Cells[stationCell[0]][stationCell[1]].Elevation
+	r2 := radius * radius
+	x0 := int((station[0] - radius) / cellSize)
+	x1 := int((station[0]+radius)/cellSize) + 1
+	z0 := int((station[1] - radius) / cellSize)
+	z1 := int((station[1]+radius)/cellSize) + 1
+	for x := x0; x <= x1; x++ {
+		for z := z0; z <= z1; z++ {
+			if !t.InBounds(x, z) {
+				continue
+			}
+			cx := (float32(x) + 0.5) * cellSize
+			cz := (float32(z) + 0.5) * cellSize
+			dx := cx - station[0]
+			dz := cz - station[1]
+			d2 := dx*dx + dz*dz
+			if d2 > r2 {
+				continue
+			}
+			d := float32(math.Sqrt(float64(d2)))
+			// Distance falloff — flat through the inner 50%, smoothstepped
+			// to zero at the boundary. Keeps the apron usefully flat in the
+			// middle while blending out into the natural terrain.
+			distNorm := d / radius
+			distWeight := 1 - smoothstep32(0.5, 1, distNorm)
+			// Directional falloff — fully on the desired side, fading to
+			// zero across the diameter so there's no step where flat meets
+			// natural on the far half.
+			cosAngle := float32(0)
+			if d > 1e-6 {
+				cosAngle = (dx*axis[0] + dz*axis[1]) / d * side
+			}
+			sideWeight := smoothstep32(-0.05, 0.30, cosAngle)
+			w := distWeight * sideWeight
+			if w <= 0 {
+				continue
+			}
+			cur := t.Cells[x][z].Elevation
+			t.Cells[x][z].Elevation = cur + (stationElev-cur)*w
+		}
+	}
+}
+
+// pointSegmentDistSq returns the squared distance from p to the line
+// segment ab. Cheap helper for clearLiftCorridor.
+func pointSegmentDistSq(p, a, b mgl32.Vec2) float32 {
+	abx := b[0] - a[0]
+	abz := b[1] - a[1]
+	abLen2 := abx*abx + abz*abz
+	if abLen2 < 1e-6 {
+		dx := p[0] - a[0]
+		dz := p[1] - a[1]
+		return dx*dx + dz*dz
+	}
+	t := ((p[0]-a[0])*abx + (p[1]-a[1])*abz) / abLen2
+	if t < 0 {
+		t = 0
+	} else if t > 1 {
+		t = 1
+	}
+	cx := a[0] + abx*t
+	cz := a[1] + abz*t
+	dx := p[0] - cx
+	dz := p[1] - cz
+	return dx*dx + dz*dz
+}
+
+func minF(a, b float32) float32 {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // applyDensityBrushUpTo ramps TreeDensity within `radius` cells of (cx, cz)
 // upward by `step`, but caps each cell at `target` (so the slider acts as a
 // ceiling). Cells already at or above target are left alone, so reducing the
@@ -186,6 +334,12 @@ type Scenario struct {
 	prebuiltWorld   *world.World
 	simSeed         int64                          // 0 = wall-clock; nonzero forces deterministic RNG
 	rebuild         func(seed int64) *world.World // non-nil ⇒ "New Seed" button shown
+
+	// Glade-tool sliders (radius in cells, thin amount in 0–100 → 0–0.8
+	// density delta per click). Visible only while toolGlade is active;
+	// mirrors the editor's two-slider layout.
+	gladeRadiusSlider *ui.VSlider
+	gladeThinSlider   *ui.VSlider
 
 	// Debug instrumentation (see plan: orbiting-skier debug aids).
 	csvRecorder       *sim.CSVRecorder
@@ -337,6 +491,12 @@ func (s *Scenario) Init(app *engine.App) error {
 		ws := sim.WeatherAt(s.sim.SimTime)
 		return weatherToUI(ws.Now), weatherToUI(ws.Next), ws.TempF
 	}
+
+	// Glade-tool sliders. Default radius matches the previous fixed
+	// gladeRadius; default thin = 50 → −0.4 density delta per click,
+	// preserving the old behaviour for unmodified slider positions.
+	s.gladeRadiusSlider = ui.NewVSlider(0, 0, 18, 200, 1, 30, float32(gladeRadius), "Radius")
+	s.gladeThinSlider = ui.NewVSlider(0, 0, 18, 200, 0, 100, 50, "Thin")
 
 	onSpeed := make([]func(), len(speedOptions))
 	for i, mult := range speedOptions {
@@ -643,7 +803,8 @@ func (s *Scenario) Update(dt float64) {
 		if pos, ok := screenToWorld(r.Camera, s.world.Terrain, inp.MousePos); ok {
 			s.hoverWorld = pos
 			s.hoverValid = true
-			s.hoverCell = [2]int{int(pos[0] / 10.0), int(pos[2] / 10.0)}
+			const cellSize = float32(5.0)
+			s.hoverCell = [2]int{int(pos[0] / cellSize), int(pos[2] / cellSize)}
 		} else {
 			s.hoverValid = false
 			s.hoverCell = [2]int{-1, -1}
@@ -677,11 +838,27 @@ func (s *Scenario) Update(dt float64) {
 			clickConsumed = true
 		}
 	}
-	if !clickConsumed {
+	// Glade sliders take input before the brush so dragging the thumb
+	// doesn't also paint underneath it.
+	sliderActive := false
+	if s.activeTool == toolGlade {
+		s.layoutGladeSliders(r)
+		if s.gladeRadiusSlider.HandleInput(inp.MousePos[0], inp.MousePos[1], inp.LeftClick, inp.LeftHeld) {
+			sliderActive = true
+		}
+		if s.gladeThinSlider.HandleInput(inp.MousePos[0], inp.MousePos[1], inp.LeftClick, inp.LeftHeld) {
+			sliderActive = true
+		}
+	}
+
+	if !clickConsumed && !sliderActive {
 		clickOrHeld := inp.LeftClick || (inp.LeftHeld && s.activeTool == toolGlade)
 		if clickOrHeld && !s.barsContain(inp.MousePos[1]) && s.hoverValid {
+			overSlider := s.activeTool == toolGlade &&
+				(s.gladeRadiusSlider.Contains(inp.MousePos[0], inp.MousePos[1]) ||
+					s.gladeThinSlider.Contains(inp.MousePos[0], inp.MousePos[1]))
 			gx, gz := s.hoverCell[0], s.hoverCell[1]
-			if s.world.Terrain.InBounds(gx, gz) {
+			if !overSlider && s.world.Terrain.InBounds(gx, gz) {
 				if s.activeTool == toolNone && inp.LeftClick {
 					s.tryOpenPopup(s.hoverWorld, r.ScreenWidth(), r.ScreenHeight())
 				} else {
@@ -871,7 +1048,10 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		w.PlaceBuilding(wx, wz)
 		r.RebuildStaticBatch(w)
 	case toolGlade:
-		applyDensityBrush(w.Terrain, gx, gz, gladeRadius, -0.4)
+		// Slider value 0–100 maps linearly to a 0–0.8 density delta per
+		// click; the legacy default 50 reproduces the old −0.4 step.
+		strength := s.gladeThinSlider.Value / 100 * 0.8
+		applyDensityBrush(w.Terrain, gx, gz, s.gladeBrushRadius(), -strength)
 		r.RebuildStaticBatch(w)
 	case toolLiftBase:
 		// Cheapest a lift can be is the station-pair fee — gate
@@ -895,6 +1075,8 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		}
 		w.Cash -= cost
 		lift := w.PlaceLift(s.liftBase[0], s.liftBase[1], wx, wz)
+		applyLiftPlacementEffects(w.Terrain, lift)
+		r.FlushTerrainVerts(w.Terrain)
 		r.AddLiftCable(lift, w.Terrain)
 		r.RebuildStaticBatch(w)
 		r.ClearAllGhosts()
@@ -903,6 +1085,36 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 	case toolRemove:
 		s.removeAt(s.hoverWorld, r)
 	}
+}
+
+// gladeBrushRadius reads the glade radius slider, clamped to a sane min.
+func (s *Scenario) gladeBrushRadius() int {
+	if s.gladeRadiusSlider == nil {
+		return gladeRadius
+	}
+	v := int(s.gladeRadiusSlider.Value + 0.5)
+	if v < 1 {
+		v = 1
+	}
+	return v
+}
+
+// layoutGladeSliders positions the glade-tool sliders on the left edge,
+// vertically centred below the top bar. Recomputed each frame so they
+// track window resizes. Mirrors the editor's layoutBrushSliders.
+func (s *Scenario) layoutGladeSliders(r *render.Renderer) {
+	const trackW = float32(18)
+	const trackH = float32(200)
+	sh := float32(r.ScreenHeight())
+	y := (sh-trackH)/2 + 20
+	s.gladeRadiusSlider.X = 28
+	s.gladeRadiusSlider.Y = y
+	s.gladeRadiusSlider.W = trackW
+	s.gladeRadiusSlider.H = trackH
+	s.gladeThinSlider.X = 80
+	s.gladeThinSlider.Y = y
+	s.gladeThinSlider.W = trackW
+	s.gladeThinSlider.H = trackH
 }
 
 // removeAt removes the building or lift closest to clickPos within the
@@ -927,7 +1139,7 @@ func (s *Scenario) Render(r *render.Renderer) {
 	if s.activeTool == toolGlade && t.InBounds(s.hoverCell[0], s.hoverCell[1]) {
 		gx, gz := s.hoverCell[0], s.hoverCell[1]
 		center := mgl32.Vec2{float32(gx)*cellSize + cellSize/2, float32(gz)*cellSize + cellSize/2}
-		r.SetBrush(center, (float32(gladeRadius)+0.5)*cellSize)
+		r.SetBrush(center, (float32(s.gladeBrushRadius())+0.5)*cellSize)
 	} else {
 		r.ClearBrush()
 	}
@@ -943,6 +1155,10 @@ func (s *Scenario) Render(r *render.Renderer) {
 	drawables := []render.UIDrawable{s.topBar, s.toolBar}
 	if s.simSeed != 0 {
 		drawables = append(drawables, &seedLabel{seed: s.simSeed})
+	}
+	if s.activeTool == toolGlade {
+		s.layoutGladeSliders(r)
+		drawables = append(drawables, s.gladeRadiusSlider, s.gladeThinSlider)
 	}
 	if s.activeTool == toolLiftTop {
 		drawables = append(drawables, &hintLabel{text: "Click to set lift top"})
