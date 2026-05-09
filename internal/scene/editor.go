@@ -2,6 +2,7 @@ package scene
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/go-gl/glfw/v3.3/glfw"
 	"github.com/go-gl/mathgl/mgl32"
@@ -14,15 +15,16 @@ import (
 
 // Editor is the scenario editor scene (no simulation).
 type Editor struct {
-	app          *engine.App
-	world        *world.World
-	menuBar      *ui.MenuBar
-	escapeMenu   *EscapeMenu
-	toolButtons  map[toolMode]*ui.Button
-	activeTool   toolMode
-	scenarioPath string
-	hoverCell    [2]int // terrain cell currently under the mouse
-	radiusSlider *ui.VSlider // shown only when the active tool uses a brush
+	app           *engine.App
+	world         *world.World
+	menuBar       *ui.MenuBar
+	escapeMenu    *EscapeMenu
+	toolButtons   map[toolMode]*ui.Button
+	activeTool    toolMode
+	scenarioPath  string
+	hoverCell     [2]int      // terrain cell currently under the mouse
+	radiusSlider  *ui.VSlider // shown for any brush tool
+	densitySlider *ui.VSlider // shown only for the plant tool — caps brush target density
 }
 
 // NewEditor creates an Editor scene loading from the given path.
@@ -64,6 +66,10 @@ func (e *Editor) Init(app *engine.App) error {
 	e.menuBar = ui.NewMenuBar(0, 60)
 	e.menuBar.Centered = true
 	e.toolButtons[toolPlantTrees] = e.menuBar.AddIconButton(render.IconTreeEvergreen, "Plant", func() { e.setTool(toolPlantTrees) })
+	e.menuBar.AddIconButton(render.IconTreeEvergreen, "Auto-forest", func() {
+		generateTreeCover(e.world.Terrain, 24, 0.55, time.Now().UnixNano())
+		e.app.Renderer.RebuildStaticBatch(e.world)
+	})
 	e.toolButtons[toolGlade] = e.menuBar.AddIconButton(render.IconAxe, "Glade", func() { e.setTool(toolGlade) })
 	e.toolButtons[toolEditorRaise] = e.menuBar.AddIconButton(render.IconArrowFatUp, "Raise", func() { e.setTool(toolEditorRaise) })
 	e.toolButtons[toolEditorLower] = e.menuBar.AddIconButton(render.IconArrowFatDown, "Lower", func() { e.setTool(toolEditorLower) })
@@ -89,10 +95,11 @@ func (e *Editor) Init(app *engine.App) error {
 		}
 	}, nil)
 
-	// Brush-radius slider — repositioned each Render relative to screen size.
-	// Only shown while a brush-using tool is active. Range matches what the
-	// renderer can sensibly draw without hitting batch limits.
-	e.radiusSlider = ui.NewVSlider(0, 0, 18, 200, 1, 12, float32(defaultBrushRadius), "Radius")
+	// Brush sliders — repositioned each Render relative to screen size.
+	// Radius shows for any brush tool; density only for plant. Range max is
+	// generous on radius so users can paint a whole forest in one stroke.
+	e.radiusSlider = ui.NewVSlider(0, 0, 18, 200, 1, 30, float32(defaultBrushRadius), "Radius")
+	e.densitySlider = ui.NewVSlider(0, 0, 18, 200, 0, 100, 100, "Density")
 
 	return nil
 }
@@ -190,12 +197,19 @@ func (e *Editor) Update(dt float64) {
 		r.Camera.Recalculate()
 	}
 
-	// Brush-radius slider takes input before brush placement so dragging
-	// the thumb doesn't also paint trees underneath it.
+	// Brush sliders take input before brush placement so dragging a thumb
+	// doesn't also paint trees underneath it.
 	sliderActive := false
 	if e.toolUsesRadiusSlider() {
-		e.layoutRadiusSlider(r)
-		sliderActive = e.radiusSlider.HandleInput(inp.MousePos[0], inp.MousePos[1], inp.LeftClick, inp.LeftHeld)
+		e.layoutBrushSliders(r)
+		if e.radiusSlider.HandleInput(inp.MousePos[0], inp.MousePos[1], inp.LeftClick, inp.LeftHeld) {
+			sliderActive = true
+		}
+		if e.toolUsesDensitySlider() {
+			if e.densitySlider.HandleInput(inp.MousePos[0], inp.MousePos[1], inp.LeftClick, inp.LeftHeld) {
+				sliderActive = true
+			}
+		}
 	}
 
 	// Track terrain cell under mouse for brush preview.
@@ -206,12 +220,12 @@ func (e *Editor) Update(dt float64) {
 		e.hoverCell = [2]int{-1, -1}
 	}
 
-	// Tool application — suppressed when the slider is grabbing input or
+	// Tool application — suppressed when a slider is grabbing input or
 	// the cursor is over slider/menu chrome.
 	if !sliderActive && (inp.LeftClick || inp.LeftHeld) && !e.menuBar.ContainsY(inp.MousePos[1]) {
-		if e.toolUsesRadiusSlider() && e.radiusSlider.Contains(inp.MousePos[0], inp.MousePos[1]) {
-			// click began on the slider chrome
-		} else {
+		overSlider := e.toolUsesRadiusSlider() && e.radiusSlider.Contains(inp.MousePos[0], inp.MousePos[1])
+		overSlider = overSlider || (e.toolUsesDensitySlider() && e.densitySlider.Contains(inp.MousePos[0], inp.MousePos[1]))
+		if !overSlider {
 			gx, gz := e.hoverCell[0], e.hoverCell[1]
 			if e.world.Terrain.InBounds(gx, gz) {
 				e.applyEditorTool(gx, gz, r, float32(dt))
@@ -259,11 +273,19 @@ func (e *Editor) toolUsesRadiusSlider() bool {
 	return e.activeTool == toolPlantTrees || e.activeTool == toolGlade
 }
 
+// toolUsesDensitySlider reports whether the density slider is relevant for
+// the active tool. Glade always drives density toward zero, so it doesn't
+// need a target.
+func (e *Editor) toolUsesDensitySlider() bool {
+	return e.activeTool == toolPlantTrees
+}
+
 func (e *Editor) applyEditorTool(gx, gz int, r *render.Renderer, dt float32) {
 	w := e.world
 	switch e.activeTool {
 	case toolPlantTrees:
-		applyDensityBrush(w.Terrain, gx, gz, e.brushRadius(), 0.3)
+		target := e.densitySlider.Value / 100
+		applyDensityBrushUpTo(w.Terrain, gx, gz, e.brushRadius(), 0.3, target)
 		r.RebuildStaticBatch(w)
 	case toolGlade:
 		applyDensityBrush(w.Terrain, gx, gz, e.brushRadius(), -0.4)
@@ -329,8 +351,11 @@ func (e *Editor) Render(r *render.Renderer) {
 	e.menuBar.Y = float32(r.ScreenHeight()) - e.menuBar.H
 	edDrawables := []render.UIDrawable{e.menuBar}
 	if e.toolUsesRadiusSlider() {
-		e.layoutRadiusSlider(r)
+		e.layoutBrushSliders(r)
 		edDrawables = append(edDrawables, e.radiusSlider)
+		if e.toolUsesDensitySlider() {
+			edDrawables = append(edDrawables, e.densitySlider)
+		}
 	}
 	if e.escapeMenu.Visible() {
 		edDrawables = append(edDrawables, e.escapeMenu)
@@ -338,17 +363,22 @@ func (e *Editor) Render(r *render.Renderer) {
 	r.DrawUI(edDrawables)
 }
 
-// layoutRadiusSlider positions the slider on the left edge, vertically
-// centred below the menu bar. Recomputed each frame so it tracks window
-// resizes.
-func (e *Editor) layoutRadiusSlider(r *render.Renderer) {
+// layoutBrushSliders positions the brush sliders on the left edge, vertically
+// centred below the menu bar. Density sits to the right of radius so both
+// labels fit. Recomputed each frame so it tracks window resizes.
+func (e *Editor) layoutBrushSliders(r *render.Renderer) {
 	const trackW = float32(18)
 	const trackH = float32(200)
 	sh := float32(r.ScreenHeight())
+	y := (sh-trackH)/2 + 20
 	e.radiusSlider.X = 28
-	e.radiusSlider.Y = (sh-trackH)/2 + 20
+	e.radiusSlider.Y = y
 	e.radiusSlider.W = trackW
 	e.radiusSlider.H = trackH
+	e.densitySlider.X = 80
+	e.densitySlider.Y = y
+	e.densitySlider.W = trackW
+	e.densitySlider.H = trackH
 }
 
 func (e *Editor) Destroy() {

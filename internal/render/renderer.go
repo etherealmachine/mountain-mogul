@@ -638,24 +638,31 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 	const cellSize = float32(5.0)
 
 	// Forest layer — derive tree instances from terrain cell TreeDensity.
-	for z := 0; z < w.Terrain.Height; z++ {
-		for x := 0; x < w.Terrain.Width; x++ {
+	// Cells[Width-1][*] / Cells[*][Height-1] sit past the right/back mesh edge
+	// (the visible terrain is (W-1)×(H-1) quads), so we skip them here.
+	for z := 0; z < w.Terrain.Height-1; z++ {
+		for x := 0; x < w.Terrain.Width-1; x++ {
 			density := w.Terrain.Cells[x][z].TreeDensity
-			count := treeCountFromDensity(density)
+			count := treeCountFromDensity(density, treeInstanceHash(x, z, -1))
 			if count == 0 {
 				continue
 			}
 			elev := w.Terrain.ElevationAt(x, z)
 			for i := 0; i < count; i++ {
 				h := treeInstanceHash(x, z, i)
+				// Offset spans the cell with a small buffer so trees from
+				// adjacent cells don't merge across boundaries.
 				offsetX := (float32(h&0xFF)/127.5 - 1.0) * 2.0
 				offsetZ := (float32((h>>8)&0xFF)/127.5 - 1.0) * 2.0
 				rotation := float32((h>>16)&0xFFFF) / 65535.0 * 2 * math.Pi
-				scale := 0.85 + float32((h>>32)&0xFF)/255.0*0.30
+				// Mesh trees are ~7 m tall in model units; scale to ~10–15 m
+				// world-tall, in the range of subalpine conifers at ski areas.
+				scale := 1.4 + float32((h>>32)&0xFF)/255.0*0.7
 				variant := MeshTree + uint32((h>>40)%3)
 
-				wx := float32(x)*cellSize + offsetX
-				wz := float32(z)*cellSize + offsetZ
+				// Place tree relative to cell center, not corner.
+				wx := (float32(x)+0.5)*cellSize + offsetX
+				wz := (float32(z)+0.5)*cellSize + offsetZ
 				transform := mgl32.Translate3D(wx, elev, wz).
 					Mul4(mgl32.HomogRotate3DY(rotation)).
 					Mul4(mgl32.Scale3D(scale, scale, scale))
@@ -1308,18 +1315,25 @@ func setCableTransformAttribs() {
 	gl.VertexAttrib3f(7, 0.15, 0.15, 0.15) // dark charcoal tint
 }
 
-// treeCountFromDensity maps a cell's TreeDensity to the number of tree instances to place.
-func treeCountFromDensity(density float32) int {
-	switch {
-	case density < 0.2:
+// treeCountFromDensity maps a cell's TreeDensity to a per-cell tree count
+// (currently 0 or 1). Density is interpreted as the probability that a cell
+// has its single tree, using `cellHash` for determinism — so the slider maps
+// smoothly to canopy coverage, with no dead zone at low values and no abrupt
+// jumps. Cap is 1 tree per 25 m² cell (≈ 400 trees/ha at density 1.0), which
+// matches a mature subalpine ski-area stand; tighter than that reads as
+// "trees growing on top of each other" given our 4–6 m canopies.
+func treeCountFromDensity(density float32, cellHash uint64) int {
+	if density <= 0 {
 		return 0
-	case density < 0.5:
-		return 1
-	case density < 0.8:
-		return 2
-	default:
-		return 3
 	}
+	if density >= 1 {
+		return 1
+	}
+	p := float32(cellHash&0xFFFF) / 65535.0
+	if p < density {
+		return 1
+	}
+	return 0
 }
 
 // treeInstanceHash returns a stable 64-bit hash for deriving per-tree visual properties.

@@ -116,6 +116,35 @@ func applyDensityBrush(t *world.Terrain, cx, cz, radius int, delta float32) {
 	}
 }
 
+// applyDensityBrushUpTo ramps TreeDensity within `radius` cells of (cx, cz)
+// upward by `step`, but caps each cell at `target` (so the slider acts as a
+// ceiling). Cells already at or above target are left alone, so reducing the
+// slider after painting doesn't erase existing forest — use the glade tool
+// for that.
+func applyDensityBrushUpTo(t *world.Terrain, cx, cz, radius int, step, target float32) {
+	r2 := radius * radius
+	for dz := -radius; dz <= radius; dz++ {
+		for dx := -radius; dx <= radius; dx++ {
+			if dx*dx+dz*dz > r2 {
+				continue
+			}
+			x, z := cx+dx, cz+dz
+			if !t.InBounds(x, z) {
+				continue
+			}
+			cur := t.Cells[x][z].TreeDensity
+			if cur >= target {
+				continue
+			}
+			d := cur + step
+			if d > target {
+				d = target
+			}
+			t.Cells[x][z].TreeDensity = d
+		}
+	}
+}
+
 // toolMode represents the active placement tool.
 type toolMode int
 

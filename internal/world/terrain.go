@@ -113,6 +113,8 @@ func (t *Terrain) TreeDensityAt(wx, wz float32) float32 {
 // NormalAt returns the surface normal at the given (continuous) grid position
 // by bilinear-sampling the elevation of neighboring cells.
 func (t *Terrain) NormalAt(x, z float32) mgl32.Vec3 {
+	const cellSize = float32(5.0)
+
 	xi := int(x)
 	zi := int(z)
 
@@ -135,11 +137,11 @@ func (t *Terrain) NormalAt(x, z float32) mgl32.Vec3 {
 	e10 := t.ElevationAt(xi+1, zi)
 	e01 := t.ElevationAt(xi, zi+1)
 
-	// approximate normal using cross products of grid tangents
-	// tangent in X direction
-	tx := mgl32.Vec3{10.0, e10 - e00, 0.0}
-	// tangent in Z direction
-	tz := mgl32.Vec3{0.0, e01 - e00, 10.0}
+	// approximate normal using cross products of grid tangents.
+	// Horizontal step is one cell = cellSize world units; using anything else
+	// distorts the slope angle returned to skier physics.
+	tx := mgl32.Vec3{cellSize, e10 - e00, 0.0}
+	tz := mgl32.Vec3{0.0, e01 - e00, cellSize}
 
 	normal := tz.Cross(tx)
 	return normal.Normalize()
