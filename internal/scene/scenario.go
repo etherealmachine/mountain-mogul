@@ -1127,7 +1127,6 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		}
 		s.liftBase = mgl32.Vec2{wx, wz}
 		s.activeTool = toolLiftTop
-		fmt.Printf("Lift base set at (%.1f, %.1f) — now click top\n", wx, wz)
 	case toolLiftTop:
 		top := mgl32.Vec2{wx, wz}
 		cost := world.LiftCost(s.liftBase, top)
