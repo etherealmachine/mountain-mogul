@@ -315,17 +315,16 @@ func dataToWorld(data ScenarioData) *world.World {
 			energy = 1.0
 		}
 		agent := &world.Agent{
-			ID:         id,
-			Pos:        mgl32.Vec3{ad.Pos[0], ad.Pos[1], ad.Pos[2]},
-			Heading:    ad.Heading,
-			Path:       ad.Path,
-			PathIdx:    ad.PathIdx,
-			Speed:      ad.Speed,
-			TargetID:   ad.TargetID,
-			OnLiftID:   ad.OnLiftID,
-			Queued:     ad.Queued,
-			Confidence: 1.0,
-			Energy:     energy,
+			ID:       id,
+			Pos:      mgl32.Vec3{ad.Pos[0], ad.Pos[1], ad.Pos[2]},
+			Heading:  ad.Heading,
+			Path:     ad.Path,
+			PathIdx:  ad.PathIdx,
+			Speed:    ad.Speed,
+			TargetID: ad.TargetID,
+			OnLiftID: ad.OnLiftID,
+			Queued:   ad.Queued,
+			Energy:   energy,
 		}
 		w.Agents = append(w.Agents, agent)
 	}

@@ -1,8 +1,8 @@
-// Package ai holds the persistent skier-AI types — anything that must live on
-// world.Agent across ticks. Per-tick computation types (Perception, Intent,
-// MotorCmd) stay in internal/sim because they're transient inputs/outputs
-// of the steering pipeline. Keeping persistent types in this leaf package
-// breaks the import cycle between world and sim.
+// Package ai holds the persistent skier-AI types — anything that must live
+// on world.Agent across ticks. Per-tick computation types (Perception,
+// Decision) stay in internal/sim because they're transient inputs/outputs
+// of the controller. Keeping persistent types in this leaf package breaks
+// the import cycle between world and sim.
 package ai
 
 import (
@@ -12,11 +12,14 @@ import (
 )
 
 // =============================================================================
-// SKILL & TECHNIQUE
+// SKILL & TRAITS
 // =============================================================================
 
-// SkillLevel is the gross category of a skier's ability. It maps to a
-// TechniqueSet that bounds which motor commands the AI may issue.
+// SkillLevel is the gross category of a skier's ability. The Plan-A
+// controller is the same shape for every skier; skill differentiates only
+// through ComfortSpeed / ComfortSlope / Aggression. There is no per-skill
+// technique whitelist anymore — the same controller produces straight,
+// carved, and brake-heavy outputs as the situation demands.
 type SkillLevel int
 
 const (
@@ -25,77 +28,12 @@ const (
 	SkillAdvanced
 )
 
-// Technique enumerates discrete skiing motor patterns. Each is implemented in
-// the motor layer with a distinct heading-control / scrub-rate / balance-cost
-// profile.
-type Technique uint8
-
-const (
-	TechStraight  Technique = iota // schuss; no scrub, no oscillation
-	TechPizza                      // wedge / snowplow; constant scrub, no turn
-	TechWedgeTurn                  // pizza-based direction change
-	TechParallel                   // linked S-turns; arc width modulates speed
-	TechHockey                     // hard 90° edge-set; brief, expensive
-	TechSideslip                   // perpendicular descent; low speed, high control
-)
-
-// String returns a short label for diagnostics (HUD, headless trace, CSV).
-func (t Technique) String() string {
-	switch t {
-	case TechStraight:
-		return "straight"
-	case TechPizza:
-		return "pizza"
-	case TechWedgeTurn:
-		return "wedge"
-	case TechParallel:
-		return "parallel"
-	case TechHockey:
-		return "hockey"
-	case TechSideslip:
-		return "sideslp"
-	}
-	return "?"
-}
-
-// TechniqueSet is a bitmask of Techniques the skier is allowed to use.
-type TechniqueSet uint32
-
-// Has reports whether t is in the set.
-func (s TechniqueSet) Has(t Technique) bool {
-	return s&(1<<uint(t)) != 0
-}
-
-// KitFor returns the canonical TechniqueSet for a skill level. Beginners can
-// only pizza and straight-line; intermediate adds parallel turns and sideslip;
-// advanced adds the hockey stop.
-func KitFor(level SkillLevel) TechniqueSet {
-	base := TechniqueSet(1<<TechStraight | 1<<TechPizza | 1<<TechWedgeTurn)
-	if level == SkillBeginner {
-		return base
-	}
-	base |= TechniqueSet(1<<TechParallel | 1<<TechSideslip)
-	if level == SkillIntermediate {
-		return base
-	}
-	return base | TechniqueSet(1<<TechHockey)
-}
-
-// SkierTraits captures the per-skier inputs the AI reads. All transient AI
-// state (Route, MotorState, Balance) lives in separate fields on the Agent.
+// SkierTraits captures the per-skier inputs the controller reads.
 type SkierTraits struct {
 	Skill        SkillLevel
-	Techniques   TechniqueSet
-	ComfortSpeed float32 // m/s above which stress accumulates
+	ComfortSpeed float32 // m/s; above ~comfort the brake controller engages
 	ComfortSlope float32 // radians; steeper than this is uncomfortable
 	Aggression   float32 // 0..1; scales target speed up
-	SightRange   float32 // metres; perception cone length
-
-	// MinGapWidth is the narrowest passage (in metres) the skier will
-	// consider when the planner enumerates gaps through an obstacle.
-	// Beginners want wide highways; advanced skiers will commit to threading
-	// tighter lines. Filters candidate gaps before the random pick.
-	MinGapWidth float32
 }
 
 // TraitsFor returns sensible defaults for a skill level. Callers can mutate
@@ -105,41 +43,32 @@ func TraitsFor(level SkillLevel) SkierTraits {
 	case SkillBeginner:
 		return SkierTraits{
 			Skill:        SkillBeginner,
-			Techniques:   KitFor(SkillBeginner),
 			ComfortSpeed: 5,
 			ComfortSlope: 10 * math.Pi / 180,
 			Aggression:   0.2,
-			SightRange:   15,
-			MinGapWidth:  60,
 		}
 	case SkillIntermediate:
 		return SkierTraits{
 			Skill:        SkillIntermediate,
-			Techniques:   KitFor(SkillIntermediate),
 			ComfortSpeed: 10,
 			ComfortSlope: 20 * math.Pi / 180,
 			Aggression:   0.5,
-			SightRange:   25,
-			MinGapWidth:  35,
 		}
 	default:
 		return SkierTraits{
 			Skill:        SkillAdvanced,
-			Techniques:   KitFor(SkillAdvanced),
 			ComfortSpeed: 16,
 			ComfortSlope: 30 * math.Pi / 180,
 			Aggression:   0.8,
-			SightRange:   35,
-			MinGapWidth:  20,
 		}
 	}
 }
 
 // =============================================================================
-// ROUTE
+// PLAN
 // =============================================================================
 
-// GoalKind is the high-level intent of a Route.
+// GoalKind labels what kind of entity the Plan is heading at.
 type GoalKind int
 
 const (
@@ -148,88 +77,42 @@ const (
 	GoalLodge
 )
 
-// Route is the strategic plan: where the skier is heading. Updated at
-// routePlanInterval cadence. Waypoints are intermediate detour points the
-// skier should reach on the way to GoalPos — produced by the planner when
-// obstacles block the direct line. The skier always heads at the front
-// waypoint, falling back to GoalPos when the queue is empty.
-type Route struct {
-	Goal      GoalKind
-	GoalID    uint64       // entity id of the destination (lift or lodge)
-	GoalPos   mgl32.Vec3   // world-space target position
-	StaleAt   float64      // sim-time when this route should be replanned
-	Waypoints []mgl32.Vec3 // ordered intermediate detour points; final goal is GoalPos, not in this list. Each stores world-space (x, y, z); y is used by the descent-past invalidation rule.
+// Plan is the strategic layer's output: where the skier is heading and
+// what they care about. Refreshed on goal change (lift unload, arrival),
+// not per-tick. Prefs is reserved for future exploration / lift selection /
+// conditions logic.
+type Plan struct {
+	Goal   GoalKind
+	GoalID uint64
+	Target mgl32.Vec3
+	Prefs  Prefs
 }
 
-// =============================================================================
-// MOTOR
-// =============================================================================
-
-// MotorState is the persistent state of the technique dispatcher: which
-// technique is currently engaged and how far through its cycle we are.
-type MotorState struct {
-	Active    Technique
-	TurnPhase int8    // -1 / 0 / +1; current side of an oscillating turn
-	PhaseTime float32 // seconds elapsed since the last technique/phase change
-
-	// Per-phase random jitter in [-1, +1], drawn from sim Rng on each
-	// phase flip. Drives small randomization of arc width and dwell so
-	// successive S-turns aren't dimensionally identical — real skiers
-	// don't carve perfectly equal turns. Two slots so arc and dwell
-	// jitter independently.
-	ArcJitter   float32
-	DwellJitter float32
-}
-
-// =============================================================================
-// AVOIDANCE
-// =============================================================================
-
-// AvoidState persists the steering layer's commitment to dodging trees on a
-// chosen side. Without commit memory, the per-tick bend alternates with the
-// carve cycle and the skier ploughs straight through dense patches.
-//
-//   Side  : -1 = bending left, +1 = bending right, 0 = no active commit
-//   Clear : seconds since the last tick that perceived any tree hazard;
-//           commit decays back to 0 after the agent has been clear for a
-//           short interval.
-type AvoidState struct {
-	Side  int8
-	Clear float32
-}
+// Prefs is the slot for future strategic preferences (preferred steepness,
+// glade tolerance, exploration bias, conditions). Empty for now.
+type Prefs struct{}
 
 // =============================================================================
 // SENSE SNAPSHOT
 // =============================================================================
 
-// Sense is a small per-tick snapshot of the steering pipeline that the
-// renderer and follow HUD can read on their own cadence. It exists because
-// Perception / Intent / MotorCmd are sim-internal transients, but the
-// diagnostic overlay needs cross-frame access. Display-only — never read
-// back by the AI pipeline. Stale (last-skiing-tick) values are fine; the
-// HUD gates rendering on Activity, and ProbeDist == 0 disables the cone.
+// Sense is a per-tick snapshot of the controller used by the renderer and
+// follow HUD. Display-only; the AI never reads this back. Stale outside
+// active skiing — readers should gate on Activity.
 type Sense struct {
-	ProbeDist      float32 // metres; speed-scaled lookahead, clamped [12,40]
-	ProbeHalfAngle float32 // radians; outermost probe offset (cone visual half-angle)
-	ProbeC         float32 // density at centre probe
-	ProbeR         float32 // worst right-side probe density
-	ProbeL         float32 // worst left-side probe density
-	WorstSeverity  float32 // max hazard severity this tick
-	WorstDist      float32 // distance to that hazard (metres)
-	WorstSide      int8    // -1 left / +1 right / 0 centre
-	Urgency        float32 // intent.Urgency
-	AxisHeading    float32 // steering output heading (radians)
-	DesiredHeading float32 // motor output heading (radians)
-	TargetSpeed    float32 // intent.Speed (m/s)
+	ProbeDist      float32 // m; forward-sampling horizon at current speed
+	ProbeHalfAngle float32 // rad; outermost sampled offset
+	ProbeC         float32 // density along centre sample
+	ProbeR         float32 // density along right-most sample
+	ProbeL         float32 // density along left-most sample
 
-	// In-trees state (set when underfoot density > inTreesThreshold).
-	// Display-only — the steering pipeline treats trees as a soft cost
-	// and doesn't branch on this.
+	AxisHeading    float32 // composed axis (target+fall blend), radians
+	DesiredHeading float32 // controller output heading, radians
+	TargetSpeed    float32 // m/s; controller's desired speed
+	Brake          float32 // commanded brake angle (rad); >0 = carving to scrub
+	TurnSide       int8    // -1/0/+1; current carve-side commit
+	Mode           string  // human-readable: "straight"/"carve"/"brake"
+
 	InTrees       bool
-	AtCellDensity float32 // density at agent's cell
-
-	// Confidence multiplier on target speed (clamped [0.5, 1.5]). Drifts
-	// up when forward outlook is gentler/clearer, down when steeper or
-	// hazardous. Hard-reset to 0.5 on fall.
-	Confidence float32
+	AtCellDensity float32
 }

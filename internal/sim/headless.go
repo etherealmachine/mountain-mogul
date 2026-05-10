@@ -5,8 +5,6 @@ import (
 	"io"
 	"math"
 	"math/rand"
-	"sort"
-	"strings"
 
 	"mountain-mogul/internal/ai"
 	"mountain-mogul/internal/world"
@@ -25,8 +23,8 @@ type HeadlessOptions struct {
 // RunHeadless runs the named testbed without a GLFW window and writes a
 // human-readable trace + summary to `out`. Intended for `go run . -testbed
 // "<name prefix>"` so we can iterate on agent behaviour by reading what
-// the AI perceived and decided each tick, instead of asserting against
-// thresholds.
+// the controller perceived and decided each tick, instead of asserting
+// against thresholds.
 func RunHeadless(out io.Writer, name string, opts HeadlessOptions) error {
 	tb, err := FindTestbed(name)
 	if err != nil {
@@ -77,7 +75,6 @@ func RunHeadless(out io.Writer, name string, opts HeadlessOptions) error {
 			arrivedAt = sim.SimTime
 			break
 		}
-		// Track activity transitions for event lines (falls, mode changes).
 		cur := world.Activity(w, w.Agents[0])
 		if cur != prevActivity {
 			fmt.Fprintf(out, "  ! t=%6.2f  %s → %s\n", sim.SimTime, prevActivity, cur)
@@ -116,18 +113,18 @@ type traceRecorder struct {
 	fallEvents        int
 	fallLineCrossings int
 	prevSign          int8
-	techTicks         map[ai.Technique]int
 	totalTicks        int
+	carveTicks        int
+	brakeTicks        int
 	prevActivity      string
 	prevActivitySet   bool
 }
 
 func newTraceRecorder(id uint64, out io.Writer, period float64) *traceRecorder {
 	return &traceRecorder{
-		id:        id,
-		out:       out,
-		period:    period,
-		techTicks: make(map[ai.Technique]int),
+		id:     id,
+		out:    out,
+		period: period,
 	}
 }
 
@@ -135,9 +132,9 @@ func (r *traceRecorder) AgentID() uint64 { return r.id }
 func (r *traceRecorder) Close() error    { return nil }
 
 func (r *traceRecorder) writeHeader() {
-	fmt.Fprintf(r.out, "  %-7s %-12s %-22s %5s %9s %-8s %4s %5s %-14s %6s  %-7s  %-25s\n",
-		"t", "activity", "pos(x,y,z)", "spd", "head→axis", "tech", "bal", "slope", "probe C/R/L", "dist",
-		"avoid", "wp(x,y,z)+left")
+	fmt.Fprintf(r.out, "  %-7s %-12s %-22s %5s %9s %-8s %4s %5s %-14s %6s  %-5s\n",
+		"t", "activity", "pos(x,y,z)", "spd", "head→axis", "mode", "bal", "slope", "probe C/R/L", "dist",
+		"side")
 }
 
 func (r *traceRecorder) Record(f RecorderFrame) {
@@ -145,7 +142,12 @@ func (r *traceRecorder) Record(f RecorderFrame) {
 	if f.Speed > r.maxSpeed {
 		r.maxSpeed = f.Speed
 	}
-	r.techTicks[f.Technique]++
+	switch f.Mode {
+	case "carve":
+		r.carveTicks++
+	case "brake":
+		r.brakeTicks++
+	}
 
 	// Fall detection: rising edge into "Fallen" activity.
 	if r.prevActivitySet && f.Activity == "Fallen" && r.prevActivity != "Fallen" {
@@ -178,63 +180,35 @@ func (r *traceRecorder) Record(f RecorderFrame) {
 	headDev := wrapAngle(f.Heading - f.AxisHeading)
 	slopeDeg := math.Acos(math.Min(1, math.Max(-1, float64(f.SlopeCos)))) * 180 / math.Pi
 
-	wpStr := "         —          "
-	if f.WaypointsLeft > 0 {
-		wpStr = fmt.Sprintf("(%5.0f,%4.0f,%5.0f)+%d",
-			f.NextWaypoint[0], f.NextWaypoint[1], f.NextWaypoint[2], f.WaypointsLeft)
-	}
-	fmt.Fprintf(r.out, "  %6.2f  %-12s (%6.1f,%5.1f,%6.1f) %5.2f %+7.2f° %-8s %4.2f %4.1f° %4.2f/%4.2f/%4.2f %6.1f  %+d       %s\n",
+	fmt.Fprintf(r.out, "  %6.2f  %-12s (%6.1f,%5.1f,%6.1f) %5.2f %+7.2f° %-8s %4.2f %4.1f° %4.2f/%4.2f/%4.2f %6.1f  %+d\n",
 		f.SimTime,
 		f.Activity,
 		f.Pos[0], f.Pos[1], f.Pos[2],
 		f.Speed,
 		headDev*180/math.Pi,
-		techName(f.Technique),
+		f.Mode,
 		f.Balance,
 		slopeDeg,
 		f.ProbeC, f.ProbeR, f.ProbeL,
 		f.Dist,
-		f.AvoidSide,
-		wpStr,
+		f.TurnSide,
 	)
 }
 
 func (r *traceRecorder) writeSummary() {
-	parallelPct := 0.0
+	carvePct := 0.0
+	brakePct := 0.0
 	if r.totalTicks > 0 {
-		parallelPct = 100 * float64(r.techTicks[ai.TechParallel]) / float64(r.totalTicks)
+		carvePct = 100 * float64(r.carveTicks) / float64(r.totalTicks)
+		brakePct = 100 * float64(r.brakeTicks) / float64(r.totalTicks)
 	}
-	fmt.Fprintf(r.out, "summary: ticks=%d  maxSpeed=%.2fm/s  fallEvents=%d  fallLineCrossings=%d  parallel=%.0f%%\n",
-		r.totalTicks, r.maxSpeed, r.fallEvents, r.fallLineCrossings, parallelPct)
-
-	// Technique histogram, sorted by tick count desc.
-	type tt struct {
-		t Technique
-		n int
-	}
-	tt2 := []tt{}
-	for k, v := range r.techTicks {
-		tt2 = append(tt2, tt{k, v})
-	}
-	sort.Slice(tt2, func(i, j int) bool { return tt2[i].n > tt2[j].n })
-	parts := make([]string, 0, len(tt2))
-	for _, x := range tt2 {
-		parts = append(parts, fmt.Sprintf("%s=%d", techName(x.t), x.n))
-	}
-	if len(parts) > 0 {
-		fmt.Fprintf(r.out, "techniques: %s\n", strings.Join(parts, " "))
-	}
+	fmt.Fprintf(r.out, "summary: ticks=%d  maxSpeed=%.2fm/s  fallEvents=%d  fallLineCrossings=%d  carve=%.0f%%  brake=%.0f%%\n",
+		r.totalTicks, r.maxSpeed, r.fallEvents, r.fallLineCrossings, carvePct, brakePct)
 }
 
 // =============================================================================
 // helpers
 // =============================================================================
-
-// Technique aliasing — local copy of ai.Technique keeps the recorder free of
-// import-cycle worries when the file later grows.
-type Technique = ai.Technique
-
-func techName(t ai.Technique) string { return t.String() }
 
 func skillName(s ai.SkillLevel) string {
 	switch s {

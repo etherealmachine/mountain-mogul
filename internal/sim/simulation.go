@@ -71,8 +71,8 @@ func (s *Simulation) tickBuildings(dt float64) {
 			agent.TargetID = nearest.ID
 			agent.Traits = ai.TraitsFor(rollSkillLevel(s.Rng))
 			agent.Balance = 1.0
-			agent.Confidence = spawnConfidence
 			agent.Energy = 1.0
+			agent.TurnSide = 0
 			// Pathfinder routes from the lodge's door cell to the lift's
 			// queue cell. Walking the path drops the agent at the queue
 			// cell's centre; tickWalkToward / tickLocomote close the last
@@ -113,8 +113,8 @@ func (s *Simulation) tickLifts(dt float64) {
 					chair.Passengers[j] = nil
 					agent.OnLiftID = 0
 					agent.Speed = 0
-					agent.Motor = ai.MotorState{}
-					agent.Route = ai.Route{}
+					agent.TurnSide = 0
+					agent.Plan = ai.Plan{}
 					if agent.Balance < 0.5 {
 						agent.Balance = 1.0 // ride up restored balance
 					}

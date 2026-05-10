@@ -33,12 +33,12 @@ type Agent struct {
 
 	// AI state — populated by sim package. The persistent types live in
 	// internal/ai to avoid a sim ↔ world import cycle.
-	Traits     ai.SkierTraits
-	Route      ai.Route
-	Motor      ai.MotorState
-	Avoid      ai.AvoidState
-	Balance    float32 // 1.0 fresh; ≤0 triggers a fall
-	Confidence float32 // baseline 1.0; multiplier on target speed; clamped [0.5, 1.5]
+	Traits        ai.SkierTraits
+	Plan          ai.Plan
+	Balance       float32 // 1.0 fresh; ≤0 triggers a fall
+	TurnSide      int8    // -1/0/+1; current carve-side commit (S-turn state)
+	TurnDwell     float32 // seconds since the last TurnSide flip; the controller refuses to flip again until this exceeds turnDwellMin
+	LastTactical  float32 // rad; previous tick's tactical lateral offset, used as a side-commit bias by the forward sampler so the skier doesn't flip-flop when both sides are clear
 
 	// Energy is the session fatigue budget. 1.0 fresh; depletes only while
 	// skiing (drained per-tick in tickSkier). When it falls below

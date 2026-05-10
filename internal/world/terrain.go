@@ -57,6 +57,16 @@ func (t *Terrain) InBounds(x, z int) bool {
 	return x >= 0 && x < t.Width && z >= 0 && z < t.Height
 }
 
+// InBoundsWorld returns true if the given world-space XZ point falls within
+// the terrain grid. Used by the skier controller to apply a boundary penalty
+// to candidate trajectories that would leave the map.
+func (t *Terrain) InBoundsWorld(wx, wz float32) bool {
+	const cellSize = float32(5.0)
+	maxX := float32(t.Width) * cellSize
+	maxZ := float32(t.Height) * cellSize
+	return wx >= 0 && wx < maxX && wz >= 0 && wz < maxZ
+}
+
 // ElevationAt returns the elevation at the given grid cell.
 func (t *Terrain) ElevationAt(x, z int) float32 {
 	if !t.InBounds(x, z) {

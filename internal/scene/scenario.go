@@ -1606,8 +1606,12 @@ type followLabel struct {
 func (f *followLabel) Draw(r *render.Renderer) {
 	activity := world.Activity(f.world, f.agent)
 	energyPct := int(f.agent.Energy*100 + 0.5)
+	mode := f.agent.Sense.Mode
+	if mode == "" {
+		mode = "—"
+	}
 	rows := []string{
-		fmt.Sprintf("Skier #%d  |  %s  |  %s", f.agent.ID, activity, f.agent.Motor.Active.String()),
+		fmt.Sprintf("Skier #%d  |  %s  |  %s", f.agent.ID, activity, mode),
 		fmt.Sprintf("%.1f m/s    energy %d%%", f.agent.Speed, energyPct),
 	}
 

@@ -176,13 +176,14 @@ func (b *builder) flat(elev float32) *builder {
 }
 
 // slope tilts the terrain at slopeDeg degrees in +z (top of grid is high,
-// bottom of grid is low).
+// bottom of grid is low). Elevation steps by CellSize · tan(angle) per cell
+// so the produced surface really has the requested angle.
 func (b *builder) slope(slopeDeg float64) *builder {
 	t := b.w.Terrain
 	rate := float32(math.Tan(slopeDeg * math.Pi / 180))
 	for x := 0; x < t.Width; x++ {
 		for z := 0; z < t.Height; z++ {
-			t.Cells[x][z].Elevation = float32(t.Height-z) * 10.0 * rate
+			t.Cells[x][z].Elevation = float32(t.Height-z) * CellSize * rate
 			t.Cells[x][z].SnowDepth = 1.0
 			t.Cells[x][z].Passable = true
 		}
@@ -191,7 +192,8 @@ func (b *builder) slope(slopeDeg float64) *builder {
 }
 
 // runout shapes a steep upper section (z < upperEndZ) joining a gentler
-// runout below. Both angles in degrees.
+// runout below. Both angles in degrees. Elevation steps by CellSize ·
+// tan(angle) per cell so the produced surface really has the requested angle.
 func (b *builder) runout(upperEndZ int, upperDeg, runoutDeg float64) *builder {
 	t := b.w.Terrain
 	upperRate := float32(math.Tan(upperDeg * math.Pi / 180))
@@ -200,10 +202,10 @@ func (b *builder) runout(upperEndZ int, upperDeg, runoutDeg float64) *builder {
 	for z := t.Height - 1; z >= 0; z-- {
 		var elev float32
 		if z >= upperEndZ {
-			elev = float32(t.Height-z) * 10.0 * runoutRate
+			elev = float32(t.Height-z) * CellSize * runoutRate
 		} else {
-			joinElev := float32(t.Height-upperEndZ) * 10.0 * runoutRate
-			elev = joinElev + float32(upperEndZ-z)*10.0*upperRate
+			joinElev := float32(t.Height-upperEndZ) * CellSize * runoutRate
+			elev = joinElev + float32(upperEndZ-z)*CellSize*upperRate
 		}
 		for x := 0; x < t.Width; x++ {
 			t.Cells[x][z].Elevation = elev
@@ -263,14 +265,13 @@ func (b *builder) skierAt(gx, gz int, skill ai.SkillLevel) *builder {
 	heading := float32(math.Atan2(float64(lx-pos[0]), float64(lz-pos[2])))
 
 	a := &world.Agent{
-		ID:         b.w.NextID(),
-		Pos:        pos,
-		Heading:    heading,
-		TargetID:   b.lastLodge.ID,
-		Traits:     ai.TraitsFor(skill),
-		Balance:    1.0,
-		Confidence: spawnConfidence,
-		Energy:     1.0,
+		ID:       b.w.NextID(),
+		Pos:      pos,
+		Heading:  heading,
+		TargetID: b.lastLodge.ID,
+		Traits:   ai.TraitsFor(skill),
+		Balance:  1.0,
+		Energy:   1.0,
 	}
 	b.w.Agents = append(b.w.Agents, a)
 	return b
