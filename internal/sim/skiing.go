@@ -345,17 +345,22 @@ func decide(t *world.Terrain, a *world.Agent, perc Perception, dt float32, rng *
 	// Persistent turn-side commit. Below the commit threshold the skier
 	// runs straight; above it, they're carving on a committed side.
 	//
-	// While avoiding an obstacle (obstacleSeen) we suppress the brake
-	// oscillation entirely. The tactical offset already takes the heading
-	// off the fall line, so cross-fall friction still scrubs speed — and
-	// the oscillation would otherwise fight the lateral commitment by
-	// swinging heading back through axis every cycle. Real skiers don't
-	// S-turn through trees; they pick a line and hold it.
+	// We suppress the brake oscillation when the *tactical* offset has
+	// committed to a real avoidance (≥20°) — at that point the skier is
+	// holding a line, not S-turning through trees, and oscillation would
+	// fight the lateral commitment. With only mild residual tactical bias
+	// (skier past the obstacle but still seeing some peripheral density),
+	// oscillation re-engages on top of the bias so the caution-driven
+	// wide-then-narrowing arcs actually play out.
+	tacticalAbs := tactical
+	if tacticalAbs < 0 {
+		tacticalAbs = -tacticalAbs
+	}
 	side := a.TurnSide
 	deviation := wrapAngle(perc.Heading - axisHeading)
 	dwellSatisfied := a.TurnDwell >= float32(turnDwellMin)
 	switch {
-	case obstacleSeen:
+	case tacticalAbs > 20*math.Pi/180:
 		side = 0
 	case brakeAngle < float32(brakeMinForCommit):
 		side = 0
@@ -366,16 +371,23 @@ func decide(t *world.Terrain, a *world.Agent, perc Perception, dt float32, rng *
 	case side < 0 && deviation < -brakeAngle*0.85 && dwellSatisfied:
 		side = +1
 	}
+	_ = obstacleSeen // legacy signal — kept as a sampler return for the HUD; suppression is now tactical-driven
 
 	desired := wrapAngle(axisHeading + tactical + float32(side)*brakeAngle)
 
-	// Active scrub: only when way overspeed. Below 60% over comfort, edge
-	// friction alone handles the brake. Above, we add a wedge-style scrub.
+	// Active scrub: kicks in past a caution-modulated overspeed threshold.
+	// A relaxed skier only scrubs when hard overspeed (>60%); a cautious
+	// one starts scrubbing earlier (down to ~30% overspeed at full caution)
+	// and scrubs harder per unit overspeed. This is what gives the
+	// tree-entry "set the edge" look — a visible deceleration spike when
+	// caution rises and the skier suddenly finds themselves way over the
+	// new lower target.
 	var scrub float32
-	if overspeed > 0.6 {
-		scrub = 4.0 * (overspeed - 0.6)
-		if scrub > 6.0 {
-			scrub = 6.0
+	scrubThreshold := float32(0.6) - caution*0.3
+	if overspeed > scrubThreshold {
+		scrub = 4.0 * (overspeed - scrubThreshold) * (1 + caution*1.5)
+		if scrub > 8.0 {
+			scrub = 8.0
 		}
 	}
 
