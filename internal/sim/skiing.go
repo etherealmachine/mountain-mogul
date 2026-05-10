@@ -65,12 +65,22 @@ const (
 	// and a full S-cycle at ~2.4 s — cruising rhythm, not slalom.
 	turnDwellMin = 1.2 // sec
 
-	// Speed-control braking. brakeAngle = clamp(overspeed × gain, 0, max),
-	// where overspeed = (speed − target)/target. A skier at 33% above target
-	// reaches brakeAngleMax; above that, scrub kicks in too.
-	brakeAngleMax     = 40 * math.Pi / 180 // rad; max heading offset for braking
-	brakeAngleGain    = 1.5
-	brakeMinForCommit = 8 * math.Pi / 180 // below this, drop turn-side commit and let heading relax to axis
+	// Speed-control braking. brakeAngle = clamp(overspeed × gain + caution
+	// × cautionAngleBonus, 0, max). The caution term is an additive bonus
+	// on top of overspeed, so a wary skier carves wide arcs even when
+	// they're at or below their nominal target — first turns out of the
+	// trees are sweeping, narrowing as caution decays.
+	brakeAngleMax      = 40 * math.Pi / 180 // rad; max heading offset for braking
+	brakeAngleGain     = 1.5
+	cautionAngleBonus  = 28 * math.Pi / 180 // rad; brake amplitude added at caution=1
+	brakeMinForCommit  = 8 * math.Pi / 180  // below this, drop turn-side commit and let heading relax to axis
+
+	// Caution dynamics — smoothed worst-probe density. Asymmetric: rises
+	// fast when trees enter the fan (skier reacts in ~1 s), decays slow
+	// on clear terrain (lingers ~5 s) so the cautious-S-turns phase is
+	// visible after passing an obstacle.
+	cautionRiseRate = 1.5 // /s
+	cautionFallRate = 0.2 // /s
 
 	// Forward sampling for trees + boundaries. Horizon is generous because
 	// real obstacles (a 60 m grove, a wall) are wider than the skier's
@@ -152,6 +162,7 @@ type Decision struct {
 	TacticalOffset float32
 	Brake          float32 // commanded brakeAngle (rad)
 	TurnSide       int8
+	Caution        float32 // smoothed worstProbe — written back to Agent.Caution
 	TargetSpeed    float32
 	Mode           string
 
@@ -192,6 +203,7 @@ func (s *Simulation) tickSkier(a *world.Agent, target mgl32.Vec3, dt float64) bo
 	}
 	a.TurnSide = dec.TurnSide
 	a.LastTactical = dec.TacticalOffset
+	a.Caution = dec.Caution
 	a.Sense = senseFrom(perc, dec)
 
 	// Energy drain (active skiing only).
@@ -299,12 +311,11 @@ func decide(t *world.Terrain, a *world.Agent, perc Perception, dt float32, rng *
 
 	tactical, obstacleSeen, probeC, probeR, probeL := sampleTactical(t, perc, axisHeading, a.LastTactical, rng)
 
-	// Speed control. Base target from skill/traits, then reduce when trees
-	// are visible in the forward fan — real skiers back off in glades to
-	// give themselves more reaction time. Worst-probe density saturates the
-	// reduction at 40% (target × 0.6) so even dense trees don't drop the
-	// skier below half their cruising speed.
-	targetSpeed := desiredSpeed(a.Traits, perc)
+	// Caution: smoothed worst-probe signal. Rises fast when trees enter
+	// the fan, decays slow on clear terrain. The asymmetry is what
+	// produces the desired post-avoidance feel: even a few seconds after
+	// passing trees, caution is still high and the skier carves wider
+	// "settling-in" turns; it then narrows as caution drains away.
 	worstProbe := probeC
 	if probeR > worstProbe {
 		worstProbe = probeR
@@ -312,12 +323,24 @@ func decide(t *world.Terrain, a *world.Agent, perc Perception, dt float32, rng *
 	if probeL > worstProbe {
 		worstProbe = probeL
 	}
-	targetSpeed *= 1.0 - 0.4*clamp32(worstProbe/0.4, 0, 1)
+	cautionTarget := clamp32(worstProbe/0.4, 0, 1)
+	rate := float32(cautionFallRate)
+	if cautionTarget > a.Caution {
+		rate = float32(cautionRiseRate)
+	}
+	caution := clamp32(a.Caution+(cautionTarget-a.Caution)*dt*rate, 0, 1)
+
+	// Speed control. Caution drops the target up to 40% — the skier wants
+	// more reaction room when trees are around or recently were.
+	targetSpeed := desiredSpeed(a.Traits, perc) * (1.0 - 0.4*caution)
 	overspeed := float32(0)
 	if perc.Speed > targetSpeed && targetSpeed > 0.01 {
 		overspeed = (perc.Speed - targetSpeed) / targetSpeed
 	}
-	brakeAngle := clamp32(overspeed*float32(brakeAngleGain), 0, float32(brakeAngleMax))
+	// Caution adds an additive bonus to brake amplitude so cautious-but-
+	// at-target skiers still carve wide. Combined with the lower target
+	// speed, post-trees turns are big sweeping arcs.
+	brakeAngle := clamp32(overspeed*float32(brakeAngleGain)+caution*float32(cautionAngleBonus), 0, float32(brakeAngleMax))
 
 	// Persistent turn-side commit. Below the commit threshold the skier
 	// runs straight; above it, they're carving on a committed side.
@@ -371,6 +394,7 @@ func decide(t *world.Terrain, a *world.Agent, perc Perception, dt float32, rng *
 		TacticalOffset: tactical,
 		Brake:          brakeAngle,
 		TurnSide:       side,
+		Caution:        caution,
 		TargetSpeed:    targetSpeed,
 		Mode:           mode,
 		ProbeC:         probeC,

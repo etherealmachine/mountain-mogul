@@ -39,6 +39,7 @@ type Agent struct {
 	TurnSide      int8    // -1/0/+1; current carve-side commit (S-turn state)
 	TurnDwell     float32 // seconds since the last TurnSide flip; the controller refuses to flip again until this exceeds turnDwellMin
 	LastTactical  float32 // rad; previous tick's tactical lateral offset, used as a side-commit bias by the forward sampler so the skier doesn't flip-flop when both sides are clear
+	Caution       float32 // 0..1; smoothed forward-tree visibility. Rises fast when probes see trees, decays slow on clear terrain. Modulates target speed (lower) and brake-arc amplitude (wider) so post-trees S-turns start wide and narrow as the skier "settles in"
 
 	// Energy is the session fatigue budget. 1.0 fresh; depletes only while
 	// skiing (drained per-tick in tickSkier). When it falls below
