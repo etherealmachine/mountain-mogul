@@ -83,7 +83,7 @@ func (l *Lift) ChairPos(progress float32, t *Terrain) (mgl32.Vec3, float32) {
 
 	cx := bx + dx*frac + perpX*CableGap*perpSign
 	cz := bz + dz*frac + perpZ*CableGap*perpSign
-	cy := t.InterpolatedElevationAt(cx, cz) + CableHeightAt(frac, length)
+	cy := t.InterpolatedSurfaceElevationAt(cx, cz) + CableHeightAt(frac, length)
 
 	return mgl32.Vec3{cx, cy, cz}, heading
 }

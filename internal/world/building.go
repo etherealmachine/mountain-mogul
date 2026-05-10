@@ -7,7 +7,20 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 )
 
-// Building represents a lodge that holds skiers and spawns them into the world.
+// BuildingType selects what a Building represents and which mesh
+// renders it. New types added here also need a fallback mesh in
+// render/obj.go, a per-type cost in world.go, and a toolbar button
+// in scene/scenario.go.
+type BuildingType uint8
+
+const (
+	BuildingLodge BuildingType = 0
+	BuildingShed  BuildingType = 1
+)
+
+// Building represents a structure placed on the terrain. Lodges hold and
+// spawn skiers; sheds garage snowcat / snowmobile equipment (and won't
+// spawn skiers — their Mean/Skier fields stay zero).
 //
 // Pos is the building's anchor in continuous world XZ coordinates (metres).
 // Y is derived from terrain elevation at use time. Footprints are still
@@ -15,12 +28,22 @@ import (
 // footprints are a future extension.
 type Building struct {
 	ID            uint64
+	Type          BuildingType
 	Pos           mgl32.Vec2
 	Rotation      float32
-	MeanSpawnRate float64 // mean spawns per second (Poisson process)
-	SkierCount    int     // skiers currently in the lodge pool
+	MeanSpawnRate float64 // mean spawns per second (Poisson process); Lodge only
+	SkierCount    int     // skiers currently in the lodge pool; Lodge only
 	spawnTimer    float64
 	nextSpawnIn   float64 // random interval until next spawn (exponential)
+
+	// Shed-only state. Cats is the number of grooming machines this
+	// shed dispatches (1..MaxCatsPerShed). RouteCells holds the cells
+	// the player painted as this shed's grooming route — cats pick the
+	// least-groomed cell in the list, drive to it, and corduroy it.
+	// The route is a *set* of cells (drag-painted), not an ordered
+	// path; the cat picks a next target each time it arrives.
+	Cats       int
+	RouteCells [][2]int
 }
 
 // DoorCell returns the grid cell containing the building's anchor — the

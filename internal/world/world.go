@@ -11,12 +11,23 @@ import (
 // quickly and have to think about layout.
 const (
 	LodgeCost       = 50000  // single fixed cost per lodge
+	ShedCost        = 30000  // grooming equipment storage; cheaper than a lodge — no plumbing, no kitchen, just bays
 	LiftStationCost = 50000  // fixed cost for both stations of a lift (you always need two)
 	LiftPerMeter    = 100    // cost per metre of cable run, covers towers + cable
 	StartingCash    = 250000 // 1× lodge + 2× ~600 m lifts (50K + 2 × (50K + 60K) = 270K) — slight stretch on lift length
 
 	DefaultTicketPrice = 10 // dollars per lift ride; player adjusts via the lift popup
 )
+
+// BuildingCost returns the up-front cost of placing a building of the
+// given type.
+func BuildingCost(t BuildingType) int {
+	switch t {
+	case BuildingShed:
+		return ShedCost
+	}
+	return LodgeCost
+}
 
 // World owns all simulation state.
 type World struct {
@@ -25,6 +36,7 @@ type World struct {
 	Buildings []*Building
 	Lifts     []*Lift
 	Agents    []*Agent
+	Snowcats  []*Snowcat
 	nextID    uint64
 
 	// Cash is the resort's bank balance in dollars. PlaceBuilding /
@@ -89,35 +101,63 @@ func (w *World) RemoveObject(id uint64) {
 }
 
 // PlaceBuilding places a lodge at world XZ position (x, z) and marks
-// the cell containing the anchor as impassable. Cost / affordability
-// gating lives in the caller (the placement tool path) so save load
-// and testbed setup can construct entities without re-deducting from
-// the player's balance.
+// the cell containing the anchor as impassable. Equivalent to
+// PlaceBuildingType(BuildingLodge, x, z).
+func (w *World) PlaceBuilding(x, z float32) *Building {
+	return w.PlaceBuildingType(BuildingLodge, x, z)
+}
+
+// PlaceBuildingType places a building of the given type. Cost /
+// affordability gating lives in the caller so save load and testbed
+// setup can construct entities without re-deducting from the player's
+// balance.
+//
+// Lodge defaults: spawn 1 skier every ~2 s from a pool of 100.
+// Shed defaults: no spawning — sheds are equipment storage and don't
+// hold a skier pool.
 //
 // Multi-cell footprints with rotated AABB rasterisation are a future
 // extension.
-func (w *World) PlaceBuilding(x, z float32) *Building {
+func (w *World) PlaceBuildingType(typ BuildingType, x, z float32) *Building {
 	b := &Building{
-		ID:            w.NextID(),
-		Pos:           mgl32.Vec2{x, z},
-		MeanSpawnRate: 0.5, // mean: 1 skier per 2 seconds
-		SkierCount:    100,
+		ID:   w.NextID(),
+		Type: typ,
+		Pos:  mgl32.Vec2{x, z},
+	}
+	switch typ {
+	case BuildingLodge:
+		b.MeanSpawnRate = 0.5 // mean: 1 skier per 2 seconds
+		b.SkierCount = 100
+	case BuildingShed:
+		// Sheds start with one cat included. Additional cats are
+		// purchased via the shed popup. SpawnSnowcat is called after
+		// the building is appended so the cat reads the shed's ID
+		// for ownership.
+		b.Cats = 1
 	}
 	w.Buildings = append(w.Buildings, b)
 	cell := b.DoorCell()
 	if w.Terrain.InBounds(cell[0], cell[1]) {
 		w.Terrain.Cells[cell[0]][cell[1]].Passable = false
 	}
+	if typ == BuildingShed {
+		w.SpawnSnowcat(b)
+	}
 	return b
 }
 
 // RemoveBuilding removes a building and restores cell passability.
+// Sheds also evict their snowcats — the cats have nowhere to go home
+// to once the shed is gone.
 func (w *World) RemoveBuilding(id uint64) {
 	for i, b := range w.Buildings {
 		if b.ID == id {
 			cell := b.DoorCell()
 			if w.Terrain.InBounds(cell[0], cell[1]) {
 				w.Terrain.Cells[cell[0]][cell[1]].Passable = true
+			}
+			if b.Type == BuildingShed {
+				w.RemoveSnowcatsOwnedBy(b.ID)
 			}
 			w.Buildings = append(w.Buildings[:i], w.Buildings[i+1:]...)
 			return
@@ -187,7 +227,7 @@ func (w *World) RemoveLift(id uint64) {
 // to continuous Pos so agents now spawn exactly under the lodge anchor.
 func (w *World) SpawnAgent(b *Building) *Agent {
 	cell := b.DoorCell()
-	elev := w.Terrain.ElevationAt(cell[0], cell[1])
+	elev := w.Terrain.SurfaceElevationAt(cell[0], cell[1])
 	agent := &Agent{
 		ID:  w.NextID(),
 		Pos: mgl32.Vec3{b.Pos[0], elev, b.Pos[1]},

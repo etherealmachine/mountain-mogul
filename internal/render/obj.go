@@ -43,6 +43,10 @@ func fallbackMesh(meshID uint32) (*Mesh, uint32) {
 		return NewBoxMesh(1, 2, 0.5, [3]float32{0.9, 0.2, 0.2}), texID
 	case MeshLiftStation:
 		return NewBoxMesh(8, 6, 8, [3]float32{0.5, 0.55, 0.6}), texID
+	case MeshShed:
+		return NewBoxMesh(16, 7, 12, [3]float32{0.65, 0.70, 0.78}), texID
+	case MeshSnowcat:
+		return NewBoxMesh(6, 3, 3, [3]float32{0.95, 0.45, 0.20}), texID
 	}
 	return NewBoxMesh(2, 2, 2, [3]float32{1, 1, 1}), texID
 }

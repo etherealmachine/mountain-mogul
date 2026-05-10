@@ -33,7 +33,7 @@ func GenerateTreeCover(t *world.Terrain, patchScale, coverage float32, seed int6
 	minE, maxE := float32(math.Inf(1)), float32(math.Inf(-1))
 	for x := 0; x < t.Width; x++ {
 		for z := 0; z < t.Height; z++ {
-			e := t.Cells[x][z].Elevation
+			e := t.Cells[x][z].GroundElevation
 			if e < minE {
 				minE = e
 			}
@@ -116,7 +116,7 @@ func GenerateTreeCover(t *world.Terrain, patchScale, coverage float32, seed int6
 			// ±widthJitter so the taper isn't a perfect function of elevation —
 			// real watersheds have wide reaches at altitude and tight choke
 			// points downstream too.
-			elev := t.Cells[x][z].Elevation
+			elev := t.Cells[x][z].GroundElevation
 			slope := slopeAt(t, x, z)
 			elevFrac := float32(0)
 			if span > 0 {
@@ -210,7 +210,7 @@ func flowAccumulation(t *world.Terrain) []float32 {
 	sort.Slice(order, func(a, b int) bool {
 		ax, az := order[a]/t.Height, order[a]%t.Height
 		bx, bz := order[b]/t.Height, order[b]%t.Height
-		return t.Cells[ax][az].Elevation > t.Cells[bx][bz].Elevation
+		return t.Cells[ax][az].GroundElevation > t.Cells[bx][bz].GroundElevation
 	})
 
 	// 8 neighbour offsets with inverse Euclidean distance — diagonals get
@@ -230,7 +230,7 @@ func flowAccumulation(t *world.Terrain) []float32 {
 	for _, idx := range order {
 		x := idx / t.Height
 		z := idx % t.Height
-		e := t.Cells[x][z].Elevation
+		e := t.Cells[x][z].GroundElevation
 		var weights [8]float32
 		totalWeight := float32(0)
 		for i, d := range dirs {
@@ -238,7 +238,7 @@ func flowAccumulation(t *world.Terrain) []float32 {
 			if nx < 0 || nx >= t.Width || nz < 0 || nz >= t.Height {
 				continue
 			}
-			drop := e - t.Cells[nx][nz].Elevation
+			drop := e - t.Cells[nx][nz].GroundElevation
 			if drop <= 0 {
 				continue
 			}
@@ -336,7 +336,7 @@ func curvature(t *world.Terrain) []float32 {
 	maxNeg := float32(0)
 	for x := 0; x < t.Width; x++ {
 		for z := 0; z < t.Height; z++ {
-			c := t.Cells[x][z].Elevation
+			c := t.Cells[x][z].GroundElevation
 			// 4-neighbour Laplacian with edge clamping. (e_left + e_right +
 			// e_up + e_down) - 4·e_center; positive when neighbours are
 			// higher than centre (a hollow), negative on a peak.
@@ -356,8 +356,8 @@ func curvature(t *world.Terrain) []float32 {
 			if zd >= t.Height {
 				zd = t.Height - 1
 			}
-			lap := t.Cells[xl][z].Elevation + t.Cells[xr][z].Elevation +
-				t.Cells[x][zu].Elevation + t.Cells[x][zd].Elevation -
+			lap := t.Cells[xl][z].GroundElevation + t.Cells[xr][z].GroundElevation +
+				t.Cells[x][zu].GroundElevation + t.Cells[x][zd].GroundElevation -
 				4*c
 			out[x*t.Height+z] = lap
 			if lap > maxPos {
@@ -419,11 +419,11 @@ func slopeAt(t *world.Terrain, x, z int) float32 {
 	dzRun := float32(z1-z0) * cellSize
 	dx := float32(0)
 	if dxRun > 0 {
-		dx = (t.Cells[x1][z].Elevation - t.Cells[x0][z].Elevation) / dxRun
+		dx = (t.Cells[x1][z].GroundElevation - t.Cells[x0][z].GroundElevation) / dxRun
 	}
 	dz := float32(0)
 	if dzRun > 0 {
-		dz = (t.Cells[x][z1].Elevation - t.Cells[x][z0].Elevation) / dzRun
+		dz = (t.Cells[x][z1].GroundElevation - t.Cells[x][z0].GroundElevation) / dzRun
 	}
 	return float32(math.Sqrt(float64(dx*dx + dz*dz)))
 }

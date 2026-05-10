@@ -29,9 +29,10 @@ type TopBar struct {
 	// Speed-control buttons — index-aligned with SpeedOptions in the
 	// scenario. The scenario sets active state through SetSpeedActive /
 	// SetPauseActive after each click.
-	pauseBtn  *iconButton
-	speedBtns []*iconButton
-	gearBtn   *iconButton
+	pauseBtn   *iconButton
+	speedBtns  []*iconButton
+	gearBtn    *iconButton
+	overlayBtn *iconButton // overlay-panel toggle; sits between speed and gear
 
 	bgColor mgl32.Vec4
 }
@@ -43,6 +44,21 @@ func NewTopBar(h float32) *TopBar {
 		Y:       0,
 		H:       h,
 		bgColor: mgl32.Vec4{0.06, 0.08, 0.12, 0.96},
+	}
+}
+
+// SetOverlayToggle installs the overlay-panel toggle button. The button
+// sits to the left of the gear button and tracks the panel's visible
+// state via SetOverlayActive.
+func (t *TopBar) SetOverlayToggle(onClick func()) {
+	t.overlayBtn = newIconButton("overlay", onClick)
+}
+
+// SetOverlayActive reflects the panel's current visibility back to the
+// top-bar icon so it reads as toggled-on while the panel is open.
+func (t *TopBar) SetOverlayActive(active bool) {
+	if t.overlayBtn != nil {
+		t.overlayBtn.active = active
 	}
 }
 
@@ -125,11 +141,14 @@ func (t *TopBar) Draw(r *render.Renderer) {
 
 // iconButtons returns every clickable icon for hover/click iteration.
 func (t *TopBar) iconButtons() []*iconButton {
-	out := make([]*iconButton, 0, len(t.speedBtns)+2)
+	out := make([]*iconButton, 0, len(t.speedBtns)+3)
 	if t.pauseBtn != nil {
 		out = append(out, t.pauseBtn)
 	}
 	out = append(out, t.speedBtns...)
+	if t.overlayBtn != nil {
+		out = append(out, t.overlayBtn)
+	}
 	if t.gearBtn != nil {
 		out = append(out, t.gearBtn)
 	}
@@ -149,6 +168,13 @@ func (t *TopBar) layout(screenW float32) {
 		t.gearBtn.y = t.Y
 		t.gearBtn.w = iconBoxW
 		t.gearBtn.h = t.H
+	}
+	if t.overlayBtn != nil {
+		x -= iconBoxW
+		t.overlayBtn.x = x
+		t.overlayBtn.y = t.Y
+		t.overlayBtn.w = iconBoxW
+		t.overlayBtn.h = t.H
 	}
 	for i := len(t.speedBtns) - 1; i >= 0; i-- {
 		x -= iconBoxW
@@ -317,6 +343,8 @@ func (t *TopBar) drawIconButton(r *render.Renderer, b *iconButton) {
 		IconFastForward(r, left+half+gap, cy, half, col)
 	case "gear":
 		IconGear(r, cx-iconSize/2, cy, iconSize, col)
+	case "overlay":
+		r.DrawIcon(render.IconStack, cx-iconSize/2, cy, iconSize, col)
 	}
 }
 

@@ -69,7 +69,7 @@ func screenToWorld(cam *render.Camera, terrain *world.Terrain, mousePos mgl32.Ve
 		pos := origin.Add(dir.Mul(tCur))
 		cx := int(pos[0] / cellSize)
 		cz := int(pos[2] / cellSize)
-		if terrain.InBounds(cx, cz) && pos[1] <= terrain.ElevationAt(cx, cz) {
+		if terrain.InBounds(cx, cz) && pos[1] <= terrain.SurfaceElevationAt(cx, cz) {
 			// Bisect between tPrev (above terrain) and tCur (below terrain)
 			// using the smooth surface elevation so the returned point
 			// sits within ~cm of the actual terrain mesh — small enough to
@@ -78,7 +78,7 @@ func screenToWorld(cam *render.Camera, terrain *world.Terrain, mousePos mgl32.Ve
 			for k := 0; k < 6; k++ {
 				mid := (lo + hi) * 0.5
 				p := origin.Add(dir.Mul(mid))
-				if p[1] > terrain.InterpolatedElevationAt(p[0], p[2]) {
+				if p[1] > terrain.InterpolatedSurfaceElevationAt(p[0], p[2]) {
 					lo = mid
 				} else {
 					hi = mid
@@ -151,6 +151,22 @@ func applyLiftPlacementEffects(t *world.Terrain, lift *world.Lift) {
 	buildStationApron(t, lift.Base, axis, -1, apronHalfWidth, apronDepth, apronBuildup)
 }
 
+// applyBuildingPlacementEffects grooms a small square apron around a
+// lodge so the lodge doesn't appear to be perched on a mogul field or
+// surrounded by ungroomed powder. Smaller than lift aprons (lodges have
+// less of a footprint) and unlike lifts it doesn't raise the ground —
+// lodges fit the natural slope. Same falloff math, axis-aligned, applied
+// once at placement (same contract as applyLiftPlacementEffects).
+func applyBuildingPlacementEffects(t *world.Terrain, b *world.Building) {
+	const apronHalfWidth = float32(12.0) // → 24 m square apron
+	const apronBuildup = float32(0.5)    // a small graded pad so doorsteps don't sink into the hill
+	// Two passes along orthogonal axes give a square apron with side
+	// falloff on all four edges (full weight in the inner core, smoothstep
+	// down to nothing at the edge).
+	buildStationApron(t, b.Pos, mgl32.Vec2{1, 0}, +1, apronHalfWidth, apronHalfWidth, apronBuildup)
+	buildStationApron(t, b.Pos, mgl32.Vec2{1, 0}, -1, apronHalfWidth, apronHalfWidth, apronBuildup)
+}
+
 // clearLiftCorridor zeros TreeDensity in cells within `halfWidth` metres of
 // the line segment between two world XZ points. Models the standard
 // chairlift maintenance lane — trees would otherwise foul cables, towers,
@@ -211,7 +227,7 @@ func buildStationApron(t *world.Terrain, station, axis mgl32.Vec2, side, halfWid
 	if !t.InBounds(stationCell[0], stationCell[1]) {
 		return
 	}
-	target := t.Cells[stationCell[0]][stationCell[1]].Elevation + buildup
+	target := t.Cells[stationCell[0]][stationCell[1]].GroundElevation + buildup
 	bound := halfWidth
 	if depth > bound {
 		bound = depth
@@ -255,7 +271,7 @@ func buildStationApron(t *world.Terrain, station, axis mgl32.Vec2, side, halfWid
 			if w <= 0 {
 				continue
 			}
-			cur := t.Cells[x][z].Elevation
+			cur := t.Cells[x][z].GroundElevation
 			if target <= cur {
 				// Raise-only: cells whose natural elevation is already
 				// at or above the target pad height keep what they have.
@@ -263,10 +279,28 @@ func buildStationApron(t *world.Terrain, station, axis mgl32.Vec2, side, halfWid
 				// notches carved into a hillside.
 				continue
 			}
-			t.Cells[x][z].Elevation = cur + (target-cur)*w
+			t.Cells[x][z].GroundElevation = cur + (target-cur)*w
 			if w > t.Cells[x][z].Flat {
 				t.Cells[x][z].Flat = w
 			}
+			// Apron snow: a thin packed layer. Building pads aren't
+			// corduroyed by snowcats — they're foot-tracked and
+			// machine-compacted, so they read as packed flat snow
+			// rather than tilled stripes. SnowDepth tapers along the
+			// falloff so apron edges blend into the surrounding
+			// snowpack. Grooming is explicitly NOT raised here; if
+			// the player grooms over the apron later, fine, but the
+			// default state of an apron is packed-not-groomed.
+			const apronSnow = float32(0.05)
+			deepSnow := t.Cells[x][z].SnowDepth
+			if deepSnow > apronSnow {
+				t.Cells[x][z].SnowDepth = apronSnow + (deepSnow-apronSnow)*(1-w)
+			}
+			if w > t.Cells[x][z].Packed {
+				t.Cells[x][z].Packed = w
+			}
+			t.Cells[x][z].MogulSize *= 1 - w
+			t.Cells[x][z].Ice *= 1 - w
 		}
 	}
 }
@@ -336,12 +370,14 @@ type toolMode int
 
 const (
 	toolNone        toolMode = iota
-	toolBuilding    toolMode = iota
+	toolBuilding    toolMode = iota // place a lodge
+	toolShed        toolMode = iota // place an equipment shed
 	toolLiftBase    toolMode = iota // waiting for first lift click
 	toolLiftTop     toolMode = iota // waiting for second lift click
 	toolGlade       toolMode = iota // reduce TreeDensity (brush)
 	toolPlantTrees  toolMode = iota // increase TreeDensity (brush, editor only)
 	toolRemove      toolMode = iota // remove building at clicked cell
+	toolRoute       toolMode = iota // paint snowcat route cells onto a selected shed
 )
 
 // Scenario is the main gameplay scene.
@@ -349,8 +385,9 @@ type Scenario struct {
 	app             *engine.App
 	world           *world.World
 	sim             *sim.Simulation
-	toolBar         *ui.MenuBar // bottom-of-screen tool palette
-	topBar          *ui.TopBar  // resort-management HUD strip
+	toolBar         *ui.MenuBar      // bottom-of-screen tool palette
+	topBar          *ui.TopBar       // resort-management HUD strip
+	overlayPanel    *ui.OverlayPanel // right-side terrain-overlay toggles
 	escapeMenu      *EscapeMenu
 	toolButtons     map[toolMode]*ui.Button
 	activeTool      toolMode
@@ -383,6 +420,12 @@ type Scenario struct {
 	gladeRadiusSlider *ui.VSlider
 	gladeThinSlider   *ui.VSlider
 	lastGladeCell     [2]int
+
+	// Route-paint mode: while toolRoute is active, the player drag-
+	// paints route cells onto the shed identified by routeShedID. 0 =
+	// no shed selected (the tool is a no-op).
+	routeShedID  uint64
+	lastRouteCell [2]int
 
 	// Debug instrumentation (see plan: orbiting-skier debug aids).
 	csvRecorder       *sim.CSVRecorder
@@ -509,6 +552,7 @@ func (s *Scenario) Init(app *engine.App) error {
 	s.toolBar = ui.NewMenuBar(0, toolBarH)
 	s.toolBar.Centered = true
 	s.toolButtons[toolBuilding] = s.toolBar.AddIconButton(render.IconHouse, "Lodge", func() { s.setTool(toolBuilding) })
+	s.toolButtons[toolShed] = s.toolBar.AddIconButton(render.IconGarage, "Shed", func() { s.setTool(toolShed) })
 	s.toolButtons[toolLiftBase] = s.toolBar.AddIconButton(render.IconCableCar, "Lift", func() { s.setTool(toolLiftBase) })
 	s.toolButtons[toolGlade] = s.toolBar.AddIconButton(render.IconAxe, "Glade", func() { s.setTool(toolGlade) })
 	s.toolButtons[toolRemove] = s.toolBar.AddIconButton(render.IconTrash, "Remove", func() { s.setTool(toolRemove) })
@@ -562,6 +606,17 @@ func (s *Scenario) Init(app *engine.App) error {
 		func() { s.escapeMenu.Toggle() },
 	)
 	s.syncSpeedButtons()
+
+	// Overlay panel — vertical strip on the right edge. Toggle button in
+	// the top bar drives visibility; the panel itself owns hit-testing
+	// for its rows.
+	s.overlayPanel = ui.NewOverlayPanel()
+	s.overlayPanel.Top = topBarH
+	s.overlayPanel.Bottom = float32(app.Renderer.ScreenHeight()) - toolBarH
+	s.topBar.SetOverlayToggle(func() {
+		visible := s.overlayPanel.Toggle()
+		s.topBar.SetOverlayActive(visible)
+	})
 
 	return nil
 }
@@ -734,9 +789,12 @@ func (s *Scenario) Update(dt float64) {
 		s.firstPerson = !s.firstPerson
 	}
 
-	// C: cycle terrain overlay (off → contour → slope debug → off).
+	// C: quick toggle for the contour overlay. The full overlay panel is
+	// behind the top-bar stack button; this hotkey is kept for muscle
+	// memory since contour was the most-used legacy overlay.
 	if inp.Pressed[glfw.KeyC] {
-		r.TerrainOverlayMode = (r.TerrainOverlayMode + 1) % 3
+		s.overlayPanel.ToggleBit(render.OverlayContour)
+		r.TerrainOverlayMode = s.overlayPanel.Mask()
 	}
 
 	// F3: toggle steering debug overlay (visualises forces for followed skier).
@@ -784,6 +842,14 @@ func (s *Scenario) Update(dt float64) {
 	s.toolBar.Y = float32(r.ScreenHeight()) - s.toolBar.H
 	s.toolBar.HandleInput(inp, float32(r.ScreenWidth()), float32(r.ScreenHeight()))
 	s.topBar.HandleInput(inp, float32(r.ScreenWidth()))
+
+	// Overlay panel — keep its Bottom in sync with the live screen height
+	// in case of resize, then route input. The panel owns the bitmask;
+	// we mirror it into the renderer each frame so the shader sees the
+	// current set.
+	s.overlayPanel.Bottom = float32(r.ScreenHeight()) - s.toolBar.H
+	s.overlayPanel.HandleInput(inp, float32(r.ScreenWidth()))
+	r.TerrainOverlayMode = s.overlayPanel.Mask()
 
 	// Camera pan with right-click drag
 	if inp.RightClick {
@@ -873,7 +939,8 @@ func (s *Scenario) Update(dt float64) {
 
 	// World click / drag — glade supports held-down; placement tools use click-only.
 	clickConsumed := popupConsumed
-	if !clickConsumed && inp.LeftClick && s.activeTool == toolNone && !s.barsContain(inp.MousePos[1]) {
+	screenW := float32(r.ScreenWidth())
+	if !clickConsumed && inp.LeftClick && s.activeTool == toolNone && !s.uiCovers(inp.MousePos[0], inp.MousePos[1], screenW) {
 		// Skier pick takes priority over popups when no tool is active.
 		if a := s.pickAgent(r.Camera, inp.MousePos); a != nil {
 			s.followAgentID = a.ID
@@ -896,23 +963,28 @@ func (s *Scenario) Update(dt float64) {
 		}
 	}
 
-	// End-of-stroke reset for glade drag-paint. As soon as the mouse is
-	// up, forget the last cell we applied to so the next click starts a
-	// fresh stroke (and won't drag-apply on its own initial frame).
+	// End-of-stroke reset for glade and route drag-paint. As soon as
+	// the mouse is up, forget the last cell we applied to so the next
+	// click starts a fresh stroke (and won't drag-apply on its own
+	// initial frame).
 	if !inp.LeftHeld {
 		s.lastGladeCell = [2]int{-1, -1}
+		s.lastRouteCell = [2]int{-1, -1}
 	}
 
 	if !clickConsumed && !sliderActive {
-		// Glade drag-painting: apply once when the cursor moves into a
-		// new cell while held. Requires a prior valid lastGladeCell — so
-		// holding LMB from a toolbar click doesn't auto-apply on entering
-		// terrain, only a real click on terrain starts a stroke.
+		// Glade and route drag-painting: apply once when the cursor moves
+		// into a new cell while held. Requires a prior valid last*Cell —
+		// so holding LMB from a toolbar click doesn't auto-apply on
+		// entering terrain, only a real click on terrain starts a stroke.
 		gladeDragged := s.activeTool == toolGlade && inp.LeftHeld &&
 			s.lastGladeCell != [2]int{-1, -1} &&
 			s.hoverCell != s.lastGladeCell
-		clickOrDrag := inp.LeftClick || gladeDragged
-		if clickOrDrag && !s.barsContain(inp.MousePos[1]) && s.hoverValid {
+		routeDragged := s.activeTool == toolRoute && inp.LeftHeld &&
+			s.lastRouteCell != [2]int{-1, -1} &&
+			s.hoverCell != s.lastRouteCell
+		clickOrDrag := inp.LeftClick || gladeDragged || routeDragged
+		if clickOrDrag && !s.uiCovers(inp.MousePos[0], inp.MousePos[1], screenW) && s.hoverValid {
 			overSlider := s.activeTool == toolGlade &&
 				(s.gladeRadiusSlider.Contains(inp.MousePos[0], inp.MousePos[1]) ||
 					s.gladeThinSlider.Contains(inp.MousePos[0], inp.MousePos[1]))
@@ -924,6 +996,9 @@ func (s *Scenario) Update(dt float64) {
 					if s.activeTool == toolGlade {
 						s.lastGladeCell = s.hoverCell
 					}
+					if s.activeTool == toolRoute {
+						s.lastRouteCell = s.hoverCell
+					}
 					s.applyTool(r)
 				}
 			}
@@ -933,6 +1008,20 @@ func (s *Scenario) Update(dt float64) {
 	// Tick simulation (skipped while paused).
 	if !s.paused {
 		s.sim.Tick(dt)
+	}
+
+	// If the sim mutated any cell's snow state (cats grooming, eventually
+	// snowfall/decay too), re-upload the terrain vertex buffer so the
+	// fragment shader sees the new values. Coalesced to one flush per
+	// frame regardless of how many cells changed.
+	//
+	// FlushSnowState only rewrites the snow-state floats per vertex on
+	// the cached vert array — much cheaper than FlushTerrainVerts,
+	// which recomputes AO and smoothY for the whole map and was
+	// stalling the frame budget every time a cat groomed.
+	if s.world.Terrain.SnowDirty {
+		r.FlushSnowState(s.world.Terrain)
+		s.world.Terrain.SnowDirty = false
 	}
 
 	// Camera follow: track the selected agent using the freshest positions.
@@ -979,6 +1068,12 @@ func (s *Scenario) Update(dt float64) {
 // steering-debug visualisation, then pushes both to the renderer in a single
 // SetDebugLines batch. The track resets whenever the followed skier changes
 // or follow is disabled.
+//
+// Also draws route cell outlines for any shed whose route should be
+// visible — every shed while toolRoute is active, and just the
+// selected shed while in route-paint mode. Route lines run alongside
+// the skier track in the same batch so we keep one buffer upload per
+// frame.
 func (s *Scenario) updateOverlay(r *render.Renderer) {
 	a := s.findFollowedAgent()
 
@@ -988,7 +1083,9 @@ func (s *Scenario) updateOverlay(r *render.Renderer) {
 		s.trackOwner = 0
 	}
 	if a == nil {
-		r.SetDebugLines(nil)
+		// No skier followed — but route cells may still need drawing
+		// during route paint, so push just those.
+		r.SetDebugLines(s.routeOverlayLines())
 		return
 	}
 	if s.trackOwner == 0 {
@@ -1034,7 +1131,68 @@ func (s *Scenario) updateOverlay(r *render.Renderer) {
 		}
 	}
 
+	lines = append(lines, s.routeOverlayLines()...)
 	r.SetDebugLines(lines)
+}
+
+// routeOverlayLines builds the cell-outline overlay for shed routes.
+// While the route-paint tool is active the selected shed's cells are
+// drawn in bright cyan; other sheds' routes are drawn in a dimmer
+// teal so the player can see how their resort's grooming coverage
+// distributes. Outside paint mode no route lines are drawn — the
+// terrain stays unobstructed for normal play.
+//
+// Each cell is drawn as a perimeter + diagonal cross so the marks read
+// as filled-ish cells rather than thin outlines that disappear against
+// busy terrain. The lines hover 2 m above the surface so vertex jitter
+// and snow piles don't clip them.
+func (s *Scenario) routeOverlayLines() []render.DebugLine {
+	if s.activeTool != toolRoute {
+		return nil
+	}
+	const hover = float32(2.0)
+	const cellSize = float32(5.0)
+	bright := [3]float32{0.40, 1.00, 1.00}
+	dim := [3]float32{0.18, 0.55, 0.65}
+
+	out := make([]render.DebugLine, 0, 64)
+	addCell := func(c [2]int, col [3]float32) {
+		x0 := float32(c[0]) * cellSize
+		x1 := x0 + cellSize
+		z0 := float32(c[1]) * cellSize
+		z1 := z0 + cellSize
+		y00 := s.world.Terrain.InterpolatedSurfaceElevationAt(x0, z0) + hover
+		y10 := s.world.Terrain.InterpolatedSurfaceElevationAt(x1, z0) + hover
+		y01 := s.world.Terrain.InterpolatedSurfaceElevationAt(x0, z1) + hover
+		y11 := s.world.Terrain.InterpolatedSurfaceElevationAt(x1, z1) + hover
+		p00 := mgl32.Vec3{x0, y00, z0}
+		p10 := mgl32.Vec3{x1, y10, z0}
+		p11 := mgl32.Vec3{x1, y11, z1}
+		p01 := mgl32.Vec3{x0, y01, z1}
+		out = append(out,
+			// perimeter
+			render.DebugLine{A: p00, B: p10, Color: col},
+			render.DebugLine{A: p10, B: p11, Color: col},
+			render.DebugLine{A: p11, B: p01, Color: col},
+			render.DebugLine{A: p01, B: p00, Color: col},
+			// diagonals — makes cells read as fills at a glance
+			render.DebugLine{A: p00, B: p11, Color: col},
+			render.DebugLine{A: p10, B: p01, Color: col},
+		)
+	}
+	for _, b := range s.world.Buildings {
+		if b.Type != world.BuildingShed {
+			continue
+		}
+		col := dim
+		if b.ID == s.routeShedID {
+			col = bright
+		}
+		for _, c := range b.RouteCells {
+			addCell(c, col)
+		}
+	}
+	return out
 }
 
 // steeringLines builds the F3 steering-debug visualisation for the agent.
@@ -1073,13 +1231,13 @@ func skierTarget(w *world.World, a *world.Agent) (mgl32.Vec3, bool) {
 	for _, lift := range w.Lifts {
 		if lift.ID == a.TargetID {
 			cell := lift.QueueCell()
-			return mgl32.Vec3{lift.Base[0], w.Terrain.ElevationAt(cell[0], cell[1]), lift.Base[1]}, true
+			return mgl32.Vec3{lift.Base[0], w.Terrain.SurfaceElevationAt(cell[0], cell[1]), lift.Base[1]}, true
 		}
 	}
 	for _, b := range w.Buildings {
 		if b.ID == a.TargetID {
 			cell := b.DoorCell()
-			return mgl32.Vec3{b.Pos[0], w.Terrain.ElevationAt(cell[0], cell[1]), b.Pos[1]}, true
+			return mgl32.Vec3{b.Pos[0], w.Terrain.SurfaceElevationAt(cell[0], cell[1]), b.Pos[1]}, true
 		}
 	}
 	return mgl32.Vec3{}, false
@@ -1107,7 +1265,20 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 			return
 		}
 		w.Cash -= world.LodgeCost
-		w.PlaceBuilding(wx, wz)
+		b := w.PlaceBuildingType(world.BuildingLodge, wx, wz)
+		applyBuildingPlacementEffects(w.Terrain, b)
+		r.FlushTerrainVerts(w.Terrain)
+		r.RebuildStaticBatch(w)
+	case toolShed:
+		if w.Cash < world.ShedCost {
+			s.setToast(fmt.Sprintf("Need $%d for a shed — short by $%d",
+				world.ShedCost, world.ShedCost-w.Cash))
+			return
+		}
+		w.Cash -= world.ShedCost
+		b := w.PlaceBuildingType(world.BuildingShed, wx, wz)
+		applyBuildingPlacementEffects(w.Terrain, b)
+		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 	case toolGlade:
 		// Slider value 0–10 = % density delta per application. Each click
@@ -1146,7 +1317,66 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		s.activeTool = toolNone
 	case toolRemove:
 		s.removeAt(s.hoverWorld, r)
+	case toolRoute:
+		s.applyRoutePaint(gx, gz)
 	}
+}
+
+// routeBrushRadius is the half-width of the route-paint brush in cells.
+// At radius 2 the brush is a 5×5-cell disc; the player drag-paints
+// roughly 5 m wide strips per stroke. Matches the cat's tiller width
+// (one cell) but lets a single stroke cover more ground.
+const routeBrushRadius = 2
+
+// applyRoutePaint adds every in-bounds cell within `routeBrushRadius`
+// of (gx, gz) to the route owned by s.routeShedID, up to the per-shed
+// cap. Idempotent on already-painted cells; stops mid-brush if the cap
+// is hit so the player gets a clear "ran out of capacity" toast.
+func (s *Scenario) applyRoutePaint(gx, gz int) {
+	if s.routeShedID == 0 {
+		return
+	}
+	shed := s.findBuilding(s.routeShedID)
+	if shed == nil || shed.Type != world.BuildingShed {
+		return
+	}
+	cap := world.MaxRouteCells(shed.Cats)
+	hit := make(map[[2]int]bool, len(shed.RouteCells))
+	for _, c := range shed.RouteCells {
+		hit[c] = true
+	}
+	r2 := routeBrushRadius * routeBrushRadius
+	for dz := -routeBrushRadius; dz <= routeBrushRadius; dz++ {
+		for dx := -routeBrushRadius; dx <= routeBrushRadius; dx++ {
+			if dx*dx+dz*dz > r2 {
+				continue
+			}
+			x, z := gx+dx, gz+dz
+			if !s.world.Terrain.InBounds(x, z) {
+				continue
+			}
+			cell := [2]int{x, z}
+			if hit[cell] {
+				continue
+			}
+			if len(shed.RouteCells) >= cap {
+				s.setToast(fmt.Sprintf("Route is full (%d cells). Add a cat to extend.", cap))
+				return
+			}
+			shed.RouteCells = append(shed.RouteCells, cell)
+			hit[cell] = true
+		}
+	}
+}
+
+// findBuilding returns the building with the given ID, or nil.
+func (s *Scenario) findBuilding(id uint64) *world.Building {
+	for _, b := range s.world.Buildings {
+		if b.ID == id {
+			return b
+		}
+	}
+	return nil
 }
 
 // gladeBrushRadius reads the glade radius slider, clamped to a sane min.
@@ -1198,11 +1428,16 @@ func (s *Scenario) removeAt(clickPos mgl32.Vec3, r *render.Renderer) {
 func (s *Scenario) Render(r *render.Renderer) {
 	const cellSize = float32(5.0)
 	t := s.world.Terrain
-	if s.activeTool == toolGlade && t.InBounds(s.hoverCell[0], s.hoverCell[1]) {
+	switch {
+	case s.activeTool == toolGlade && t.InBounds(s.hoverCell[0], s.hoverCell[1]):
 		gx, gz := s.hoverCell[0], s.hoverCell[1]
 		center := mgl32.Vec2{float32(gx)*cellSize + cellSize/2, float32(gz)*cellSize + cellSize/2}
 		r.SetBrush(center, (float32(s.gladeBrushRadius())+0.5)*cellSize)
-	} else {
+	case s.activeTool == toolRoute && t.InBounds(s.hoverCell[0], s.hoverCell[1]):
+		gx, gz := s.hoverCell[0], s.hoverCell[1]
+		center := mgl32.Vec2{float32(gx)*cellSize + cellSize/2, float32(gz)*cellSize + cellSize/2}
+		r.SetBrush(center, (float32(routeBrushRadius)+0.5)*cellSize)
+	default:
 		r.ClearBrush()
 	}
 
@@ -1214,7 +1449,10 @@ func (s *Scenario) Render(r *render.Renderer) {
 
 	// Re-anchor the bottom tool bar to the live screen height before draw.
 	s.toolBar.Y = float32(r.ScreenHeight()) - s.toolBar.H
-	drawables := []render.UIDrawable{s.topBar, s.toolBar}
+	if s.overlayPanel != nil {
+		s.overlayPanel.Bottom = float32(r.ScreenHeight()) - s.toolBar.H
+	}
+	drawables := []render.UIDrawable{s.topBar, s.toolBar, s.overlayPanel}
 	if s.simSeed != 0 {
 		drawables = append(drawables, &seedLabel{seed: s.simSeed})
 	}
@@ -1224,6 +1462,16 @@ func (s *Scenario) Render(r *render.Renderer) {
 	}
 	if s.activeTool == toolLiftTop {
 		drawables = append(drawables, &hintLabel{text: "Click to set lift top"})
+	}
+	if s.activeTool == toolRoute {
+		if shed := s.findBuilding(s.routeShedID); shed != nil {
+			cap := world.MaxRouteCells(shed.Cats)
+			used := len(shed.RouteCells)
+			drawables = append(drawables, &hintLabel{
+				text: fmt.Sprintf("Route: %d / %d cells (%d cats) — drag to paint, Esc to finish",
+					used, cap, shed.Cats),
+			})
+		}
 	}
 	if cost, affordable, valid := s.placementCost(); valid {
 		drawables = append(drawables, &costLabel{cost: cost, affordable: affordable})
@@ -1298,6 +1546,59 @@ func (s *Scenario) tryOpenPopup(clickPos mgl32.Vec3, screenW, screenH int) {
 
 func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 	bldg := b
+	switch bldg.Type {
+	case world.BuildingShed:
+		w := ui.NewWindow("Equipment Shed", 0, 0)
+		// Cat count with side-effect spawning/despawning. +/- both clamp
+		// (1..MaxCatsPerShed); buying a cat deducts CatCost and spawns
+		// one at the shed door.
+		w.AddIntStepperFn("Cats",
+			func() string { return fmt.Sprintf("%d/%d", bldg.Cats, world.MaxCatsPerShed) },
+			func() { // minus: sell a cat (refund half its cost)
+				if bldg.Cats <= 1 {
+					return // never empty the shed; first cat is included
+				}
+				cats := s.world.CatsOwnedBy(bldg.ID)
+				if len(cats) == 0 {
+					return
+				}
+				s.world.RemoveSnowcat(cats[len(cats)-1].ID)
+				bldg.Cats--
+				s.world.Cash += world.CatCost / 2
+			},
+			func() { // plus: buy a cat
+				if bldg.Cats >= world.MaxCatsPerShed {
+					return
+				}
+				if s.world.Cash < world.CatCost {
+					s.setToast(fmt.Sprintf("Need $%d for another cat", world.CatCost))
+					return
+				}
+				s.world.Cash -= world.CatCost
+				s.world.SpawnSnowcat(bldg)
+				bldg.Cats++
+			})
+		w.AddLabel("Route", func() string {
+			return fmt.Sprintf("%d / %d cells", len(bldg.RouteCells), world.MaxRouteCells(bldg.Cats))
+		})
+		w.AddActionButton("Paint Route", func() {
+			s.routeShedID = bldg.ID
+			s.lastRouteCell = [2]int{-1, -1}
+			s.activeTool = toolRoute
+			s.syncToolButtons()
+			if s.popup != nil {
+				s.popup.Visible = false
+			}
+			s.setToast("Drag to paint route. Press Esc to finish.")
+		})
+		w.AddActionButton("Clear Route", func() {
+			bldg.RouteCells = nil
+		})
+		w.Visible = true
+		w.Center(screenW, screenH)
+		s.popup = w
+		return
+	}
 	w := ui.NewWindow("Lodge", 0, 0)
 	w.AddLabel("Skiers inside", func() string {
 		return fmt.Sprintf("%d", bldg.SkierCount)
@@ -1356,6 +1657,10 @@ func (s *Scenario) setTool(t toolMode) {
 func (s *Scenario) cancelTool() {
 	s.app.Renderer.ClearAllGhosts()
 	s.app.Renderer.ClearGhostCable()
+	if s.activeTool == toolRoute {
+		s.routeShedID = 0
+		s.lastRouteCell = [2]int{-1, -1}
+	}
 	s.activeTool = toolNone
 	s.syncToolButtons()
 }
@@ -1367,6 +1672,20 @@ func (s *Scenario) barsContain(y float32) bool {
 		return true
 	}
 	if s.toolBar != nil && s.toolBar.ContainsY(y) {
+		return true
+	}
+	return false
+}
+
+// uiCovers reports whether a screen point is inside any HUD element
+// that should suppress world hit-testing. Extends barsContain to also
+// consider the right-side overlay panel (which is only present at
+// specific X coordinates, so the bar-style Y-only check isn't enough).
+func (s *Scenario) uiCovers(x, y float32, screenW float32) bool {
+	if s.barsContain(y) {
+		return true
+	}
+	if s.overlayPanel != nil && s.overlayPanel.ContainsXY(x, y, screenW) {
 		return true
 	}
 	return false
@@ -1407,6 +1726,11 @@ func (s *Scenario) updatePlacementGhost(r *render.Renderer) {
 			buildingInstance(pos, t, tint),
 		})
 
+	case toolShed:
+		r.SetGhosts(render.MeshShed, []render.StaticInstance{
+			buildingInstance(pos, t, tint),
+		})
+
 	case toolLiftBase:
 		// No top yet — render at default orientation by passing
 		// otherEnd == pos. Rotation kicks in in toolLiftTop below.
@@ -1437,6 +1761,8 @@ func (s *Scenario) placementCost() (cost int, affordable bool, valid bool) {
 	switch s.activeTool {
 	case toolBuilding:
 		cost = world.LodgeCost
+	case toolShed:
+		cost = world.ShedCost
 	case toolLiftBase:
 		cost = world.LiftStationCost
 	case toolLiftTop:

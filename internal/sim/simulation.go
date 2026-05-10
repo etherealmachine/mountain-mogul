@@ -53,6 +53,7 @@ func (s *Simulation) Tick(dt float64) {
 	s.tickBuildings(dt)
 	s.tickLifts(dt)
 	s.tickAgents(dt)
+	s.tickSnowcats(dt)
 }
 
 func (s *Simulation) tickBuildings(dt float64) {
@@ -119,7 +120,7 @@ func (s *Simulation) tickLifts(dt float64) {
 						agent.Balance = 1.0 // ride up restored balance
 					}
 					topCell := lift.TopCell()
-					ty := w.Terrain.ElevationAt(topCell[0], topCell[1])
+					ty := w.Terrain.SurfaceElevationAt(topCell[0], topCell[1])
 					agent.Pos = mgl32.Vec3{lift.Top[0], ty, lift.Top[1]}
 
 					// Pick a fresh target so we can orient the skier downhill.
@@ -152,15 +153,32 @@ func (s *Simulation) tickLifts(dt float64) {
 }
 
 // pickTopTarget chooses where a skier goes after unloading at a lift top.
+// pickRandomLodge returns a uniformly-chosen Lodge-type building, or
+// nil if the world has none. Sheds and other non-skier buildings are
+// skipped — only lodges hold the skier despawn pool.
+func pickRandomLodge(w *world.World, rng *rand.Rand) *world.Building {
+	lodges := w.Buildings[:0:0] // reuse-safe: don't write through to w.Buildings
+	for _, b := range w.Buildings {
+		if b.Type == world.BuildingLodge {
+			lodges = append(lodges, b)
+		}
+	}
+	if len(lodges) == 0 {
+		return nil
+	}
+	return lodges[rng.Intn(len(lodges))]
+}
+
 // Low-energy skiers head to a randomly-chosen lodge to despawn; otherwise
 // they pick a uniform-random lift across the whole resort and ski to its
 // base — the resort-spanning "I'll do whichever lift next" behaviour. With
 // a single-lift scenario this just keeps picking the same lift, matching
 // prior behaviour. Returns the entity ID and its world-space position.
 func pickTopTarget(w *world.World, agent *world.Agent, rng *rand.Rand) (uint64, mgl32.Vec3) {
-	if agent != nil && agent.Energy <= energyLowThreshold && len(w.Buildings) > 0 {
-		lodge := w.Buildings[rng.Intn(len(w.Buildings))]
-		return lodge.ID, lodgeWorldPos(w, lodge)
+	if agent != nil && agent.Energy <= energyLowThreshold {
+		if lodge := pickRandomLodge(w, rng); lodge != nil {
+			return lodge.ID, lodgeWorldPos(w, lodge)
+		}
 	}
 	next := w.Lifts[rng.Intn(len(w.Lifts))]
 	return next.ID, liftBaseWorldPos(w, next)
@@ -171,13 +189,13 @@ func pickTopTarget(w *world.World, agent *world.Agent, rng *rand.Rand) (uint64, 
 // "ID → world pos" lookup pattern lives in one place.
 func lodgeWorldPos(w *world.World, b *world.Building) mgl32.Vec3 {
 	cell := b.DoorCell()
-	return mgl32.Vec3{b.Pos[0], w.Terrain.ElevationAt(cell[0], cell[1]), b.Pos[1]}
+	return mgl32.Vec3{b.Pos[0], w.Terrain.SurfaceElevationAt(cell[0], cell[1]), b.Pos[1]}
 }
 
 // liftBaseWorldPos returns the lift base anchor as a world-space Vec3.
 func liftBaseWorldPos(w *world.World, l *world.Lift) mgl32.Vec3 {
 	cell := l.QueueCell()
-	return mgl32.Vec3{l.Base[0], w.Terrain.ElevationAt(cell[0], cell[1]), l.Base[1]}
+	return mgl32.Vec3{l.Base[0], w.Terrain.SurfaceElevationAt(cell[0], cell[1]), l.Base[1]}
 }
 
 // tickAgents dispatches each agent to the appropriate handler based on its
@@ -223,7 +241,7 @@ func (s *Simulation) tickPath(agent *world.Agent, dt float64) {
 	target := agent.Path[agent.PathIdx]
 	tx := (float32(target[0]) + 0.5) * CellSize
 	tz := (float32(target[1]) + 0.5) * CellSize
-	ty := w.Terrain.ElevationAt(target[0], target[1])
+	ty := w.Terrain.SurfaceElevationAt(target[0], target[1])
 	targetPos := mgl32.Vec3{tx, ty, tz}
 
 	dir := targetPos.Sub(agent.Pos)
@@ -346,7 +364,7 @@ func (s *Simulation) tickWalkToward(agent *world.Agent, target mgl32.Vec3, dt fl
 	}
 	agent.Pos[0] += dirNorm[0] * step
 	agent.Pos[2] += dirNorm[1] * step
-	agent.Pos[1] = s.World.Terrain.InterpolatedElevationAt(agent.Pos[0], agent.Pos[2])
+	agent.Pos[1] = s.World.Terrain.InterpolatedSurfaceElevationAt(agent.Pos[0], agent.Pos[2])
 	agent.Heading = float32(math.Atan2(float64(dirNorm[0]), float64(dirNorm[1])))
 	agent.Speed = WalkSpeed
 	return false
@@ -389,10 +407,10 @@ func (s *Simulation) onArrive(agent *world.Agent, kind targetKind) {
 // can't find a route; tickLocomote handles that with direct walk/ski.
 func (s *Simulation) routeHome(agent *world.Agent) bool {
 	w := s.World
-	if len(w.Buildings) == 0 {
+	lodge := pickRandomLodge(w, s.Rng)
+	if lodge == nil {
 		return false
 	}
-	lodge := w.Buildings[s.Rng.Intn(len(w.Buildings))]
 	agent.TargetID = lodge.ID
 	startCell := [2]int{
 		int(math.Floor(float64(agent.Pos[0] / CellSize))),

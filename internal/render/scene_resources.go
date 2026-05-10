@@ -16,6 +16,14 @@ type SceneResources struct {
 	terrainMinY   float32 // surface min/max Y (skirts excluded), drives topo shader
 	terrainMaxY   float32
 
+	// Cached CPU-side terrain vertex array. Held so the snow-state
+	// flush path can rewrite a few floats per vertex and re-upload
+	// without rerunning the expensive AO/smoothY/jitter precompute.
+	// Invalidated by anything that changes ground elevation (terrain
+	// raise/lower, full rebuild on scene load).
+	terrainVerts        []float32
+	terrainSurfaceVerts int // number of leading vertices that hold surface (snow-bearing) cells; the rest are skirt walls/floor
+
 	liftUpCables   map[uint64]*Mesh
 	liftDownCables map[uint64]*Mesh
 

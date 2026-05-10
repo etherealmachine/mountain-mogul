@@ -162,13 +162,15 @@ func scene(wCells, hCells int) *builder {
 	return &builder{w: world.NewWorld(t)}
 }
 
-// flat fills every cell to the given elevation, full snow, passable.
+// flat fills every cell to the given elevation, groomed corduroy, passable.
 func (b *builder) flat(elev float32) *builder {
 	t := b.w.Terrain
 	for x := 0; x < t.Width; x++ {
 		for z := 0; z < t.Height; z++ {
-			t.Cells[x][z].Elevation = elev
-			t.Cells[x][z].SnowDepth = 1.0
+			t.Cells[x][z].GroundElevation = elev
+			t.Cells[x][z].SnowDepth = world.DefaultSnowDepth
+			t.Cells[x][z].Grooming = 1.0
+			t.Cells[x][z].Packed = 0.7
 			t.Cells[x][z].Passable = true
 		}
 	}
@@ -183,8 +185,10 @@ func (b *builder) slope(slopeDeg float64) *builder {
 	rate := float32(math.Tan(slopeDeg * math.Pi / 180))
 	for x := 0; x < t.Width; x++ {
 		for z := 0; z < t.Height; z++ {
-			t.Cells[x][z].Elevation = float32(t.Height-z) * CellSize * rate
-			t.Cells[x][z].SnowDepth = 1.0
+			t.Cells[x][z].GroundElevation = float32(t.Height-z) * CellSize * rate
+			t.Cells[x][z].SnowDepth = world.DefaultSnowDepth
+			t.Cells[x][z].Grooming = 1.0
+			t.Cells[x][z].Packed = 0.7
 			t.Cells[x][z].Passable = true
 		}
 	}
@@ -208,8 +212,10 @@ func (b *builder) runout(upperEndZ int, upperDeg, runoutDeg float64) *builder {
 			elev = joinElev + float32(upperEndZ-z)*CellSize*upperRate
 		}
 		for x := 0; x < t.Width; x++ {
-			t.Cells[x][z].Elevation = elev
-			t.Cells[x][z].SnowDepth = 1.0
+			t.Cells[x][z].GroundElevation = elev
+			t.Cells[x][z].SnowDepth = world.DefaultSnowDepth
+			t.Cells[x][z].Grooming = 1.0
+			t.Cells[x][z].Packed = 0.7
 			t.Cells[x][z].Passable = true
 		}
 	}
@@ -256,7 +262,7 @@ func (b *builder) skierAt(gx, gz int, skill ai.SkillLevel) *builder {
 		panic("skierAt: no lodge placed; call lodge() or lodgeAt() first")
 	}
 	const cellSize = 5.0
-	elev := b.w.Terrain.ElevationAt(gx, gz)
+	elev := b.w.Terrain.SurfaceElevationAt(gx, gz)
 	pos := mgl32.Vec3{(float32(gx) + 0.5) * cellSize, elev, (float32(gz) + 0.5) * cellSize}
 
 	// Lodge target — continuous Pos already in world metres.

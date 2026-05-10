@@ -295,12 +295,12 @@ func (e *Editor) applyEditorTool(gx, gz int, r *render.Renderer, dt float32) {
 		applyDensityBrush(w.Terrain, gx, gz, e.brushRadius(), -0.4)
 		r.RebuildStaticBatch(w)
 	case toolEditorRaise:
-		w.Terrain.Cells[gx][gz].Elevation += 5.0 * dt
+		w.Terrain.Cells[gx][gz].GroundElevation += 5.0 * dt
 		r.FlushTerrainVerts(w.Terrain)
 	case toolEditorLower:
-		w.Terrain.Cells[gx][gz].Elevation -= 5.0 * dt
-		if w.Terrain.Cells[gx][gz].Elevation < 0 {
-			w.Terrain.Cells[gx][gz].Elevation = 0
+		w.Terrain.Cells[gx][gz].GroundElevation -= 5.0 * dt
+		if w.Terrain.Cells[gx][gz].GroundElevation < 0 {
+			w.Terrain.Cells[gx][gz].GroundElevation = 0
 		}
 		r.FlushTerrainVerts(w.Terrain)
 	}
@@ -324,7 +324,7 @@ func (e *Editor) applyImportedTerrain(elevs [][]float32, r *render.Renderer) {
 	for row := 0; row < t.Height; row++ {
 		for col := 0; col < t.Width; col++ {
 			if row < len(elevs) && col < len(elevs[row]) {
-				t.Cells[col][row].Elevation = elevs[row][col]
+				t.Cells[col][row].GroundElevation = elevs[row][col]
 			}
 		}
 	}

@@ -5,18 +5,47 @@ import (
 )
 
 // Cell represents a single grid cell in the terrain.
+//
+// The terrain is two layers stacked: ground (rock/dirt the player almost
+// never edits) and a snow layer on top whose depth and state evolve over
+// time and which the player manipulates via grooming, snowmaking, etc.
+//
+//	SurfaceElevation = GroundElevation + SnowDepth
+//
+// Things that root in the earth (trees, building foundations) sit at
+// GroundElevation. Skiers, the visible terrain mesh, lift cables, and
+// snow-cat traffic operate on the snow surface.
+//
+// Snow type is represented by independent scalars rather than a discrete
+// enum so transitions and gradients are continuous. "Type" labels (powder,
+// corduroy, moguls, ice) are emergent from these fields:
+//
+//   - Grooming high + Packed moderate + MogulSize low → corduroy
+//   - SnowDepth high + Packed low                       → powder
+//   - Grooming low + traffic over time                  → MogulSize grows
+//   - Ice high + SnowDepth low                          → boilerplate
 type Cell struct {
-	Elevation   float32
+	GroundElevation float32 // metres; the rock/dirt under the snow
+	SnowDepth       float32 // metres; snow on top of ground
+	Grooming        float32 // 0..1; 1 = freshly groomed corduroy
+	Packed          float32 // 0..1; density of the snow column (0 = fluffy powder, 1 = bulletproof packed)
+	Ice             float32 // 0..1; ice fraction at the surface
+	MogulSize       float32 // 0..1; mogul amplitude (visual + physics roughness)
+
 	Passable    bool    // hard structural block (buildings, lift endpoints)
-	Groomed     bool
-	SnowDepth   float32
 	TreeDensity float32 // 0.0 = clear, 1.0 = dense old-growth
+
 	// Flat is a render-side hint: 0 = natural terrain (full vertex jitter),
 	// 1 = intentionally flattened (skip jitter so the result actually reads
-	// flat). Lift station aprons set this to the same falloff weight they
-	// apply to elevation, so partial-falloff edges still scale jitter down
-	// proportionally.
+	// flat). Apron passes set this to the same falloff weight they apply to
+	// elevation, so partial-falloff edges still scale jitter down proportionally.
 	Flat float32
+}
+
+// SurfaceElevation returns the snow-surface elevation for this cell
+// (ground + snow).
+func (c Cell) SurfaceElevation() float32 {
+	return c.GroundElevation + c.SnowDepth
 }
 
 // Walkable returns true if an agent on foot can enter this cell.
@@ -30,18 +59,33 @@ func (c Cell) Walkable() bool {
 type Terrain struct {
 	Width, Height int
 	Cells         [][]Cell // [x][z]
+
+	// SnowDirty signals to the renderer that a cell's snow state
+	// (Grooming/Packed/Ice/MogulSize/SnowDepth) has changed and the
+	// terrain VBO needs a re-upload. The sim sets this; the scene
+	// flushes the mesh and clears the flag once per frame. We keep
+	// rebuilds to one per frame max even when many cells change in a
+	// single tick — the whole-mesh upload is the same cost.
+	SnowDirty bool
 }
 
-// NewTerrain creates a flat terrain with all cells passable and full snow depth.
+// DefaultSnowDepth is the baseline snow thickness applied to fresh
+// terrain (NewTerrain) and to old saves that didn't store snow depth.
+// Roughly mid-season packed depth at a typical resort.
+const DefaultSnowDepth = float32(2.0)
+
+// NewTerrain creates a flat terrain with all cells passable, default
+// snow depth, and moderately packed snow.
 func NewTerrain(w, h int) *Terrain {
 	cells := make([][]Cell, w)
 	for x := 0; x < w; x++ {
 		cells[x] = make([]Cell, h)
 		for z := 0; z < h; z++ {
 			cells[x][z] = Cell{
-				Elevation: 0,
-				Passable:  true,
-				SnowDepth: 1.0,
+				GroundElevation: 0,
+				SnowDepth:       DefaultSnowDepth,
+				Packed:          0.5,
+				Passable:        true,
 			}
 		}
 	}
@@ -67,20 +111,56 @@ func (t *Terrain) InBoundsWorld(wx, wz float32) bool {
 	return wx >= 0 && wx < maxX && wz >= 0 && wz < maxZ
 }
 
-// ElevationAt returns the elevation at the given grid cell.
-func (t *Terrain) ElevationAt(x, z int) float32 {
+// GroundElevationAt returns the ground elevation (no snow) at the given
+// grid cell. Use for tree rooting and building foundations.
+func (t *Terrain) GroundElevationAt(x, z int) float32 {
 	if !t.InBounds(x, z) {
 		return 0
 	}
-	return t.Cells[x][z].Elevation
+	return t.Cells[x][z].GroundElevation
 }
 
-// InterpolatedElevationAt returns the bilinearly-interpolated terrain elevation
-// at a world-space position. Smoother than ElevationAt for continuous motion.
-func (t *Terrain) InterpolatedElevationAt(wx, wz float32) float32 {
+// SurfaceElevationAt returns the snow-surface elevation (ground + snow)
+// at the given grid cell. Use for skiers, visible mesh, lift cable
+// endpoints, lift station meshes.
+func (t *Terrain) SurfaceElevationAt(x, z int) float32 {
+	if !t.InBounds(x, z) {
+		return 0
+	}
+	c := t.Cells[x][z]
+	return c.GroundElevation + c.SnowDepth
+}
+
+// InterpolatedSurfaceElevationAt returns the bilinearly-interpolated
+// snow-surface elevation at a world-space position. Smoother than the
+// per-cell lookup for continuous motion (skier physics).
+func (t *Terrain) InterpolatedSurfaceElevationAt(wx, wz float32) float32 {
 	const cellSize = float32(5.0)
-	xi := int(wx / cellSize)
-	zi := int(wz / cellSize)
+	xi, zi, fx, fz := t.bilinearIndices(wx, wz, cellSize)
+	e00 := t.SurfaceElevationAt(xi, zi)
+	e10 := t.SurfaceElevationAt(xi+1, zi)
+	e01 := t.SurfaceElevationAt(xi, zi+1)
+	e11 := t.SurfaceElevationAt(xi+1, zi+1)
+	return (1-fz)*((1-fx)*e00+fx*e10) + fz*((1-fx)*e01+fx*e11)
+}
+
+// InterpolatedGroundElevationAt returns the bilinearly-interpolated
+// ground elevation (no snow) at a world-space position. Currently only
+// used by lift cable layout if/when the cable should clear ground rather
+// than the snow surface; tree placement uses cell-aligned ground lookup.
+func (t *Terrain) InterpolatedGroundElevationAt(wx, wz float32) float32 {
+	const cellSize = float32(5.0)
+	xi, zi, fx, fz := t.bilinearIndices(wx, wz, cellSize)
+	e00 := t.GroundElevationAt(xi, zi)
+	e10 := t.GroundElevationAt(xi+1, zi)
+	e01 := t.GroundElevationAt(xi, zi+1)
+	e11 := t.GroundElevationAt(xi+1, zi+1)
+	return (1-fz)*((1-fx)*e00+fx*e10) + fz*((1-fx)*e01+fx*e11)
+}
+
+func (t *Terrain) bilinearIndices(wx, wz, cellSize float32) (xi, zi int, fx, fz float32) {
+	xi = int(wx / cellSize)
+	zi = int(wz / cellSize)
 	if xi < 0 {
 		xi = 0
 	}
@@ -93,8 +173,8 @@ func (t *Terrain) InterpolatedElevationAt(wx, wz float32) float32 {
 	if zi >= t.Height-1 {
 		zi = t.Height - 2
 	}
-	fx := wx/cellSize - float32(xi)
-	fz := wz/cellSize - float32(zi)
+	fx = wx/cellSize - float32(xi)
+	fz = wz/cellSize - float32(zi)
 	if fx < 0 {
 		fx = 0
 	}
@@ -107,11 +187,7 @@ func (t *Terrain) InterpolatedElevationAt(wx, wz float32) float32 {
 	if fz > 1 {
 		fz = 1
 	}
-	e00 := t.ElevationAt(xi, zi)
-	e10 := t.ElevationAt(xi+1, zi)
-	e01 := t.ElevationAt(xi, zi+1)
-	e11 := t.ElevationAt(xi+1, zi+1)
-	return (1-fz)*((1-fx)*e00+fx*e10) + fz*((1-fx)*e01+fx*e11)
+	return xi, zi, fx, fz
 }
 
 // TreeDensityAt returns the tree density at the given world-space XZ point
@@ -126,8 +202,24 @@ func (t *Terrain) TreeDensityAt(wx, wz float32) float32 {
 	return t.Cells[xi][zi].TreeDensity
 }
 
-// NormalAt returns the surface normal at the given (continuous) grid position
-// by bilinear-sampling the elevation of neighboring cells.
+// SnowAt returns the snow-state scalars at the given world-space XZ
+// point. Used by skier physics to derive effective friction. Out-of-bounds
+// returns groomed-corduroy defaults.
+func (t *Terrain) SnowAt(wx, wz float32) (depth, grooming, packed, ice, mogul float32) {
+	const cellSize = float32(5.0)
+	xi := int(wx / cellSize)
+	zi := int(wz / cellSize)
+	if !t.InBounds(xi, zi) {
+		return DefaultSnowDepth, 1, 0.5, 0, 0
+	}
+	c := t.Cells[xi][zi]
+	return c.SnowDepth, c.Grooming, c.Packed, c.Ice, c.MogulSize
+}
+
+// NormalAt returns the snow-surface normal at the given (continuous)
+// grid position by bilinear-sampling the surface elevation of neighbouring
+// cells. Skiers ski on the snow, so the surface normal — not the ground
+// normal — is what drives gravity-along-fall-line and the carving terms.
 func (t *Terrain) NormalAt(x, z float32) mgl32.Vec3 {
 	const cellSize = float32(5.0)
 
@@ -148,10 +240,10 @@ func (t *Terrain) NormalAt(x, z float32) mgl32.Vec3 {
 		zi = t.Height - 2
 	}
 
-	// sample elevations around the point
-	e00 := t.ElevationAt(xi, zi)
-	e10 := t.ElevationAt(xi+1, zi)
-	e01 := t.ElevationAt(xi, zi+1)
+	// sample surface elevations around the point
+	e00 := t.SurfaceElevationAt(xi, zi)
+	e10 := t.SurfaceElevationAt(xi+1, zi)
+	e01 := t.SurfaceElevationAt(xi, zi+1)
 
 	// approximate normal using cross products of grid tangents.
 	// Horizontal step is one cell = cellSize world units; using anything else

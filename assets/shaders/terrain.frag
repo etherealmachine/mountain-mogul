@@ -4,6 +4,8 @@ flat in vec3  vNormal;
 in vec3  vWorldPos;
 in float vSmoothY;
 in float vAO;
+in vec4  vSnow;        // (Grooming, Packed, Ice, MogulSize)
+in float vSnowDepth;   // SnowDepth in metres
 
 uniform vec2  uBrushCenter;
 uniform float uBrushRadius;
@@ -15,11 +17,26 @@ uniform float uTerrainMaxY;
 
 out vec4 fragColor;
 
-// Cell-hash for the sparkle pass — cheap integer mixing in float space.
+// Cell-hash for the sparkle and mogul passes — cheap integer mixing in float space.
 float hash3(vec3 p) {
     p = fract(p * vec3(443.897, 441.423, 437.195));
     p += dot(p, p.yzx + 19.19);
     return fract((p.x + p.y) * p.z);
+}
+
+// 2D value-noise built from hash3 — used to drive mogul roughness.
+// Named valueNoise (not noise2) so it doesn't collide with the GLSL
+// built-in `vec2 noise2(genType)`; on macOS the strict compiler rejects
+// the redeclaration with a different return type.
+float valueNoise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    float a = hash3(vec3(i.x,     i.y,     0.0));
+    float b = hash3(vec3(i.x + 1, i.y,     0.0));
+    float c = hash3(vec3(i.x,     i.y + 1, 0.0));
+    float d = hash3(vec3(i.x + 1, i.y + 1, 0.0));
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
 }
 
 void main() {
@@ -27,6 +44,11 @@ void main() {
     float slope = clamp(N.y, 0.0, 1.0);                  // 1 = flat, 0 = vertical
     float h     = clamp((vWorldPos.y - uTerrainMinY) /
                         max(uTerrainMaxY - uTerrainMinY, 1.0), 0.0, 1.0);
+
+    float grooming = clamp(vSnow.x, 0.0, 1.0);
+    float packed   = clamp(vSnow.y, 0.0, 1.0);
+    float ice      = clamp(vSnow.z, 0.0, 1.0);
+    float mogul    = clamp(vSnow.w, 0.0, 1.0);
 
     // Topographic palette — height-driven for flats, slope override for cliffs.
     vec3 rock      = vec3(0.34, 0.33, 0.32);
@@ -39,6 +61,24 @@ void main() {
     float rocky    = 1.0 - smoothstep(0.55, 0.78, slope);
     vec3  base     = mix(flatColor, rock, rocky);
     float snowness = 1.0 - rocky;
+
+    // Packed snow reads slightly bluer and ~5 % darker than fresh powder —
+    // wind-scoured slope rather than unconsolidated dump.
+    if (snowness > 0.0) {
+        vec3 packedTint = vec3(0.87, 0.91, 0.97);
+        base = mix(base, base * packedTint, packed * snowness * 0.4);
+    }
+
+    // Mogul roughness — multi-octave value-noise modulating brightness.
+    // Mogul wavelength ~3 m matches real spacing; an octave at half that
+    // adds the inter-trough detail. Result is gated by mogul weight and
+    // by snowness so cliff faces don't get fake bumps.
+    if (mogul > 0.0 && snowness > 0.0) {
+        vec2 mp = vWorldPos.xz / 3.0;
+        float n = valueNoise(mp) * 0.6 + valueNoise(mp * 2.1) * 0.4;
+        float shade = (n - 0.5) * 0.35 * mogul * snowness;
+        base += vec3(shade);
+    }
 
     // Wrap lighting — soft terminator that hints at sub-surface scatter on snow.
     vec3  L    = normalize(vec3(0.6, 1.0, 0.4));
@@ -55,35 +95,115 @@ void main() {
     // Ambient + diffuse, multiplied by baked AO to deepen valleys / cliff bases.
     vec3 lit = shaded * (0.25 + 0.85 * diff) * vAO;
 
+    // Corduroy stripes — periodic brightness modulation. Real
+    // groomers drive perpendicular to the fall line so the stripe
+    // direction would ideally follow contours, but the per-quad flat
+    // normals we compute today produce visibly different stripe angles
+    // between adjacent cells. A fixed world-space direction looks
+    // cleaner: stripes run along world X (perpendicular to world Z)
+    // everywhere there's grooming, reading as a uniform pattern.
+    // We can swap back to contour-aligned stripes once we have
+    // smoothed per-vertex surface gradients.
+    //
+    // Frequency: ~2 stripes/metre. Amplitude: ±12% brightness swing,
+    // strong enough to read as corduroy from gameplay zoom.
+    if (grooming > 0.01 && snowness > 0.1) {
+        float stripe = sin(vWorldPos.z * 12.5);
+        lit *= 1.0 + stripe * 0.12 * grooming;
+        // Subtle cool tint on groomed surfaces — corduroy reads slightly
+        // bluer than fresh snow because it's been packed and smoothed.
+        lit = mix(lit, lit * vec3(0.92, 0.96, 1.02), 0.15 * grooming);
+    }
+
     // Per-fragment sparkle: high-freq world-cell hash gated by tight specular
     // alignment, drifting in time so cells flicker on/off without the camera
-    // having to move. Snow-only.
+    // having to move. Snow-only. Ice boosts specular intensity dramatically.
     if (snowness > 0.0) {
         vec3  V    = normalize(uCameraPos - vWorldPos);
         vec3  H    = normalize(L + V);
         float spec = pow(max(dot(N, H), 0.0), 256.0);
         vec3  cell = floor(vWorldPos * 2.0 + uTime * 0.07); // ~50 cm cells
-        float gate = step(0.985, hash3(cell));               // ~1.5 % of cells lit
-        lit += gate * spec * snowness * vec3(1.4, 1.35, 1.2);
+        float gate = step(0.985 - ice * 0.05, hash3(cell));
+        lit += gate * spec * snowness * (1.0 + ice * 4.0) * vec3(1.4, 1.35, 1.2);
+
+        // Ice broad specular: a wider lobe than the sparkle, no per-cell gate.
+        // Reads as a sheen across icy slopes — distinct from the rough-snow
+        // sparkle.
+        if (ice > 0.0) {
+            float broadSpec = pow(max(dot(N, H), 0.0), 32.0);
+            lit += broadSpec * snowness * ice * 0.45 * vec3(0.92, 0.96, 1.10);
+        }
     }
 
     fragColor = vec4(lit, 1.0);
 
-    // Overlay mode 1: contour lines (kept from b57bd9e).
-    if (uOverlayMode == 1) {
+    // ── View overlays ────────────────────────────────────────────────────────
+    // uOverlayMode is a bitmask (see render.Overlay* constants). Each
+    // enabled overlay alpha-blends its colour over the base shading, in
+    // order, so several can stack — slope tint + corduroy lines + ice
+    // heatmap all read at once, for example. Snow-state overlays only
+    // fire on snowy surfaces (snowness > 0) so rocky cliffs stay
+    // unmarked.
+    //
+    // The contour overlay still uses a high-contrast dark line because
+    // mixing it with the heatmaps would wash it out — it's the one
+    // overlay that wants to draw on TOP of all the others, so it's
+    // applied last.
+
+    // Slope debug — paints the whole slope, so apply early (other
+    // overlays will mix over it).
+    if ((uOverlayMode & 2) != 0) {
+        vec3 slopeCol = mix(vec3(0.88, 0.15, 0.10),                                  // red, steep
+                            mix(vec3(0.93, 0.80, 0.08), vec3(0.15, 0.72, 0.20),      // yellow → green
+                                smoothstep(0.940, 0.975, slope)),
+                            smoothstep(0.883, 0.940, slope));
+        fragColor.rgb = mix(fragColor.rgb, slopeCol, 0.65);
+    }
+
+    // Snow depth heatmap — light cyan at 0, deep navy at saturated.
+    // Typical depths run 0–4 m; saturate at 5 m so the colour scale spans
+    // the meaningful range.
+    if ((uOverlayMode & 4) != 0 && snowness > 0.0) {
+        float d = clamp(vSnowDepth / 5.0, 0.0, 1.0);
+        vec3 col = mix(vec3(0.85, 0.94, 1.00), vec3(0.10, 0.18, 0.45), d);
+        fragColor.rgb = mix(fragColor.rgb, col, 0.55 * snowness);
+    }
+
+    // Grooming heatmap — bright green where corduroy lives. Heavy
+    // alpha so a single groomed cell stands out next to its neighbours
+    // when the player is scrubbing through the overlay set. Ungroomed
+    // cells stay a muted slate so the contrast with green is clean.
+    if ((uOverlayMode & 8) != 0 && snowness > 0.0) {
+        vec3 col = mix(vec3(0.18, 0.20, 0.24), vec3(0.20, 0.95, 0.45), grooming);
+        fragColor.rgb = mix(fragColor.rgb, col, 0.80 * snowness);
+    }
+
+    // Packed snow heatmap — cool-to-warm scale (loose powder → bulletproof).
+    if ((uOverlayMode & 16) != 0 && snowness > 0.0) {
+        vec3 col = mix(vec3(0.30, 0.50, 0.95), vec3(0.95, 0.55, 0.20), packed);
+        fragColor.rgb = mix(fragColor.rgb, col, 0.55 * snowness);
+    }
+
+    // Ice heatmap — neutral → bright cyan as ice rises.
+    if ((uOverlayMode & 32) != 0 && snowness > 0.0) {
+        vec3 col = mix(vec3(0.30, 0.30, 0.36), vec3(0.30, 0.95, 1.00), ice);
+        fragColor.rgb = mix(fragColor.rgb, col, 0.55 * snowness);
+    }
+
+    // Mogul heatmap — neutral → magenta as moguls rise.
+    if ((uOverlayMode & 64) != 0 && snowness > 0.0) {
+        vec3 col = mix(vec3(0.30, 0.30, 0.36), vec3(0.95, 0.30, 0.75), mogul);
+        fragColor.rgb = mix(fragColor.rgb, col, 0.55 * snowness);
+    }
+
+    // Contour lines drawn last so they remain readable through any
+    // heatmap underneath.
+    if ((uOverlayMode & 1) != 0) {
         float elevMod = mod(vSmoothY, 50.0);
         float fw      = fwidth(vSmoothY);
         float line    = 1.0 - smoothstep(fw, fw * 3.0,
                                          min(elevMod, 50.0 - elevMod));
         fragColor.rgb = mix(fragColor.rgb, vec3(0.05, 0.05, 0.10), line * 0.85);
-    }
-    // Overlay mode 2: slope debug colouring.
-    else if (uOverlayMode == 2) {
-        vec3 slopeCol = mix(vec3(0.88, 0.15, 0.10),                       // red, steep
-                            mix(vec3(0.93, 0.80, 0.08), vec3(0.15, 0.72, 0.20), // yellow → green
-                                smoothstep(0.940, 0.975, slope)),
-                            smoothstep(0.883, 0.940, slope));
-        fragColor.rgb = mix(fragColor.rgb, slopeCol, 0.65);
     }
 
     // Brush ring (unchanged behaviour).

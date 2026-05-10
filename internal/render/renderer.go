@@ -18,6 +18,19 @@ type UIDrawable interface {
 	Draw(r *Renderer)
 }
 
+// Terrain-overlay bits. Each bit toggles one overlay drawn on top of the
+// base terrain shading; bits are independent so any combination can stack.
+// Kept in sync with the bitand checks in assets/shaders/terrain.frag.
+const (
+	OverlayContour   = 1 << 0
+	OverlaySlope     = 1 << 1
+	OverlaySnowDepth = 1 << 2
+	OverlayGrooming  = 1 << 3
+	OverlayPacked    = 1 << 4
+	OverlayIce       = 1 << 5
+	OverlayMoguls    = 1 << 6
+)
+
 // DebugLine is a single world-space line segment for tuning overlays.
 type DebugLine struct {
 	A, B  mgl32.Vec3
@@ -41,6 +54,7 @@ type Renderer struct {
 	staticBatches map[uint32]*Batch
 	dynamicBatch  *Batch
 	chairBatch    *Batch
+	snowcatBatch  *Batch
 
 	uiVAO, uiVBO uint32
 	whiteTexID   uint32 // 1×1 white texture; always bound to unit 0 during UI pass
@@ -64,7 +78,21 @@ type Renderer struct {
 	HiddenAgentID      uint64     // skip this agent in the dynamic pass (used by first-person camera)
 	HiddenAgentPos     mgl32.Vec3 // anchor for HiddenRadius proximity culling
 	HiddenRadius       float32    // when >0, also skip agents within this XZ radius of HiddenAgentPos
-	TerrainOverlayMode int        // 0 = off, 1 = contour lines, 2 = slope debug
+	// TerrainOverlayMode is a bitmask of view overlays applied to the
+	// terrain mesh. Each enabled bit alpha-blends its overlay onto the
+	// base shading, so several can stack at once. Bits, in order:
+	//
+	//	0  contour lines
+	//	1  slope debug
+	//	2  snow depth heatmap
+	//	3  grooming heatmap
+	//	4  packed snow heatmap
+	//	5  ice heatmap
+	//	6  mogul size heatmap
+	//
+	// 0 means no overlays. The same int is uploaded to the terrain
+	// fragment shader as uOverlayMode and decoded with bitand there.
+	TerrainOverlayMode int
 
 	// icons holds GL texture IDs for the UI icon set under assets/icons/.
 	// Populated by LoadIcons() at renderer construction.
@@ -179,6 +207,7 @@ func (r *Renderer) initStaticMeshes() {
 		{MeshBuilding, "building"},
 		{MeshLiftStation, "lift_station"},
 		{MeshTower, "tower"},
+		{MeshShed, "shed"},
 	}
 
 	for _, def := range meshDefs {
@@ -194,6 +223,12 @@ func (r *Renderer) initStaticMeshes() {
 	// Chair — dynamic batch with procedural mesh.
 	chairMesh := NewChairMesh()
 	r.chairBatch = NewDynamicBatch(chairMesh, whiteTexture())
+
+	// Snowcat — dynamic batch. Snowcats drive over the terrain every
+	// tick so they share the agent-style instance path rather than
+	// sitting in the static batches.
+	snowcatMesh, snowcatTexID := LoadOBJ(modelDir+"snowcat.obj", MeshSnowcat)
+	r.snowcatBatch = NewDynamicBatch(snowcatMesh, snowcatTexID)
 }
 
 // SetViewport updates the OpenGL framebuffer viewport. Call this from the
@@ -214,7 +249,12 @@ func (r *Renderer) SetLogicalSize(w, h int) {
 }
 
 // buildTerrainVerts generates vertex and index data for the terrain mesh.
-// Vertex layout per vertex: pos(3) + flatNormal(3) + smoothY(1) + ao(1) = 8 floats.
+// Vertex layout per vertex: pos(3) + flatNormal(3) + smoothY(1) + ao(1) +
+// snow(4) + snowDepth(1) = 13 floats. snow = (Grooming, Packed, Ice,
+// MogulSize) sampled from the cell at the vertex's grid corner; the
+// fragment shader uses these to render corduroy, packed snow, ice sheen,
+// and mogul roughness. snowDepth is in metres at the same corner — used
+// by the depth-heatmap overlay.
 // flatNormal is the per-triangle face normal (vertices duplicated per-tri so
 // flat shading falls out naturally). smoothY is a low-pass-filtered elevation
 // driving the contour overlay (so its lines don't zig-zag along the triangle
@@ -225,11 +265,13 @@ func (r *Renderer) SetLogicalSize(w, h int) {
 //
 // Returns the verts/indices plus the surface min/max Y (excluding skirts) so
 // the topographic shader can normalise height across whatever range the
-// current map happens to span.
-func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, minY, maxY float32) {
+// current map happens to span. surfaceVerts is the count of leading
+// vertices that describe surface (snow-bearing) cells; everything after
+// is skirt and is excluded from the snow-only flush path.
+func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, minY, maxY float32, surfaceVerts int) {
 	const cellSize = float32(5.0)
 	const skirtBaseY = float32(-50.0)
-	const floatsPerVert = 8
+	const floatsPerVert = 13
 
 	numSurface := (t.Width - 1) * (t.Height - 1)
 	numSkirt := 2*(t.Width-1) + 2*(t.Height-1) + 1
@@ -275,7 +317,7 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 			scale := 1 - cornerFlat(x, z)
 			i := x*t.Height + z
 			jitX[i] = jx * scale
-			jit[i] = t.ElevationAt(x, z) + jy*scale
+			jit[i] = t.SurfaceElevationAt(x, z) + jy*scale
 			jitZ[i] = jz * scale
 		}
 	}
@@ -298,7 +340,7 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 		base := make([]float32, t.Width*t.Height)
 		for z := 0; z < t.Height; z++ {
 			for x := 0; x < t.Width; x++ {
-				base[x*t.Height+z] = t.ElevationAt(x, z)
+				base[x*t.Height+z] = t.SurfaceElevationAt(x, z)
 			}
 		}
 		clampX := func(x int) int {
@@ -418,6 +460,28 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 	}
 	aoAt := func(x, z int) float32 { return ao[x*t.Height+z] }
 
+	// Snow state per grid corner. Corner (x, z) samples the cell at the
+	// same indices, clamped to the in-bounds region — the visible mesh is
+	// only (W-1)×(H-1) cells so right/back-edge corners (x=W-1, z=H-1)
+	// borrow snow state from the last *interior* cell rather than from an
+	// unrendered phantom one.
+	snowAt := func(x, z int) (g, p, ice, mog, depth float32) {
+		if x >= t.Width-1 {
+			x = t.Width - 2
+		}
+		if z >= t.Height-1 {
+			z = t.Height - 2
+		}
+		if x < 0 {
+			x = 0
+		}
+		if z < 0 {
+			z = 0
+		}
+		c := t.Cells[x][z]
+		return c.Grooming, c.Packed, c.Ice, c.MogulSize, c.SnowDepth
+	}
+
 	// ── Surface ───────────────────────────────────────────────────────────────
 	for z := 0; z < t.Height-1; z++ {
 		for x := 0; x < t.Width-1; x++ {
@@ -442,6 +506,15 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 				corners[1] = [3][2]int{{x + 1, z}, {x + 1, z + 1}, {x, z + 1}}
 			}
 
+			// Snow state is sampled once per quad (cell (x, z)) and
+			// applied to all 6 vertices of the quad's two triangles, so
+			// snow-type visualisations are flat-shaded per cell. The
+			// alternative — per-corner sampling — bilinearly smears each
+			// cell's value across four neighbours, which made a single
+			// cat-groomed cell appear as a faint triangle of green
+			// rather than a crisp cell. Per-vertex AO and smoothY stay
+			// per-corner since those legitimately interpolate.
+			qg, qpk, qic, qmg, qdp := snowAt(x, z)
 			for ti, tri := range tris {
 				n := upwardNormal(tri[0], tri[1], tri[2])
 				for vi, p := range tri {
@@ -451,6 +524,8 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 						n[0], n[1], n[2],
 						smoothYAt(cx, cz),
 						aoAt(cx, cz),
+						qg, qpk, qic, qmg,
+						qdp,
 					)
 					if p[1] < minY {
 						minY = p[1]
@@ -471,6 +546,11 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 		minY, maxY = 0, 1
 	}
 
+	// Record where surface ends and skirts begin so the snow-state
+	// flush path can stop walking before it hits skirt vertices (which
+	// always carry zero snow state).
+	surfaceVerts = len(verts) / floatsPerVert
+
 	// ── Skirt (walls + bottom) ────────────────────────────────────────────────
 	const wallAO = float32(0.40)
 	const floorAO = float32(0.20)
@@ -482,6 +562,8 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 				n[0], n[1], n[2],
 				p[1], // smoothY = vertex y so contour bands stay horizontal on walls
 				ao,
+				0, 0, 0, 0, // skirts get no snow-state shading
+				0,          // and no snow depth
 			)
 		}
 		indices = append(indices, idx, idx+1, idx+2)
@@ -556,32 +638,28 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 		[3]float32{0, -1, 0}, floorAO,
 	)
 
-	return verts, indices, minY, maxY
+	return verts, indices, minY, maxY, surfaceVerts
 }
 
-// terrainJitter returns a small deterministic Y offset for a grid corner.
+// terrainJitter returns the Y offset for a grid corner. Currently zero —
+// vertical jitter was removed in favour of expressing height variation
+// through SnowDepth (powder dunes, mogul fields, etc.) once those
+// systems land. Kept as a function (not deleted) so VisualElevationAt
+// and the picker keep their flat structure; future variants of "natural
+// terrain unevenness" can plug in here.
 func terrainJitter(gx, gz int, cellSize float32) float32 {
-	h := uint32(gx)*2654435761 ^ uint32(gz)*2246822519
-	h ^= h >> 16
-	h *= 0x45d9f3b
-	h ^= h >> 16
-	return (float32(h)/float32(^uint32(0)) - 0.5) * 0.2 * cellSize
+	return 0
 }
 
-// terrainJitterXYZ returns deterministic per-corner offsets in X, Y, Z.
-// Y matches terrainJitter (kept separate so the existing slope/AO maths
-// don't shift); X and Z use independent hashes so the cell grid breaks
-// up visually when seen from above. Magnitudes: Y ±0.5 m, XZ ±1.0 m at
-// cellSize=5 m — enough to break the square pattern without making
-// adjacent triangles unreasonably skinny. Boundary corners zero their
-// perpendicular component so the skirt walls stay planar quads — a
-// corner on z=0 keeps z=0, a corner on x=0 keeps x=0, etc.
+// terrainJitterXYZ returns deterministic per-corner offsets in X, Z.
+// Y is zero: vertical variation now comes exclusively from
+// SurfaceElevation = ground + SnowDepth, so the mesh is "flat" between
+// neighbouring corners except for the per-cell snow column. X and Z
+// jitter remains so the cell grid still breaks up visually from above
+// — without it the terrain reads as a perfect square lattice.
+// Boundary corners zero their perpendicular component so the skirt
+// walls stay planar.
 func terrainJitterXYZ(gx, gz, width, height int, cellSize float32) (float32, float32, float32) {
-	hY := uint32(gx)*2654435761 ^ uint32(gz)*2246822519
-	hY ^= hY >> 16
-	hY *= 0x45d9f3b
-	hY ^= hY >> 16
-
 	hX := uint32(gx)*0x9E3779B1 ^ uint32(gz)*0x85EBCA77
 	hX ^= hX >> 16
 	hX *= 0xC2B2AE3D
@@ -593,7 +671,6 @@ func terrainJitterXYZ(gx, gz, width, height int, cellSize float32) (float32, flo
 	hZ ^= hZ >> 16
 
 	const inv = 1.0 / float32(^uint32(0))
-	fy := (float32(hY)*inv - 0.5) * 0.2 * cellSize
 	fx := (float32(hX)*inv - 0.5) * 0.4 * cellSize
 	fz := (float32(hZ)*inv - 0.5) * 0.4 * cellSize
 
@@ -603,7 +680,7 @@ func terrainJitterXYZ(gx, gz, width, height int, cellSize float32) (float32, flo
 	if gz == 0 || gz == height-1 {
 		fz = 0
 	}
-	return fx, fy, fz
+	return fx, 0, fz
 }
 
 // VisualElevationAt returns the exact terrain mesh surface height at world
@@ -641,10 +718,10 @@ func VisualElevationAt(t *world.Terrain, wx, wz float32) float32 {
 		fz = 1
 	}
 
-	e00 := t.ElevationAt(xi, zi) + terrainJitter(xi, zi, cellSize)
-	e10 := t.ElevationAt(xi+1, zi) + terrainJitter(xi+1, zi, cellSize)
-	e01 := t.ElevationAt(xi, zi+1) + terrainJitter(xi, zi+1, cellSize)
-	e11 := t.ElevationAt(xi+1, zi+1) + terrainJitter(xi+1, zi+1, cellSize)
+	e00 := t.SurfaceElevationAt(xi, zi) + terrainJitter(xi, zi, cellSize)
+	e10 := t.SurfaceElevationAt(xi+1, zi) + terrainJitter(xi+1, zi, cellSize)
+	e01 := t.SurfaceElevationAt(xi, zi+1) + terrainJitter(xi, zi+1, cellSize)
+	e11 := t.SurfaceElevationAt(xi+1, zi+1) + terrainJitter(xi+1, zi+1, cellSize)
 
 	// Mirror the checkerboard diagonal from buildTerrainVerts.
 	if (xi+zi)%2 == 0 {
@@ -675,14 +752,17 @@ func upwardNormal(a, b, c [3]float32) [3]float32 {
 }
 
 // BuildTerrainMesh creates the terrain mesh from the given Terrain.
-// Vertex layout: pos(3) + flatNormal(3) + smoothY(1) + ao(1) = 8 floats per vertex.
+// Vertex layout: pos(3) + flatNormal(3) + smoothY(1) + ao(1) +
+// snow(4) + snowDepth(1) = 13 floats per vertex.
 func (r *Renderer) BuildTerrainMesh(t *world.Terrain) {
 	r.scene.terrainWidth = t.Width
 	r.scene.terrainHeight = t.Height
 
-	verts, indices, minY, maxY := buildTerrainVerts(t)
+	verts, indices, minY, maxY, surfaceVerts := buildTerrainVerts(t)
 	r.scene.terrainMinY = minY
 	r.scene.terrainMaxY = maxY
+	r.scene.terrainVerts = verts
+	r.scene.terrainSurfaceVerts = surfaceVerts
 
 	if r.scene.terrainMesh != nil {
 		r.scene.terrainMesh.Delete()
@@ -699,7 +779,7 @@ func (r *Renderer) BuildTerrainMesh(t *world.Terrain) {
 	gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo)
 	gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(indices)*4, gl.Ptr(indices), gl.STATIC_DRAW)
 
-	stride := int32(8 * 4)
+	stride := int32(13 * 4)
 	gl.EnableVertexAttribArray(0)
 	gl.VertexAttribPointerWithOffset(0, 3, gl.FLOAT, false, stride, 0)  // aPos
 	gl.EnableVertexAttribArray(1)
@@ -708,9 +788,10 @@ func (r *Renderer) BuildTerrainMesh(t *world.Terrain) {
 	gl.VertexAttribPointerWithOffset(2, 1, gl.FLOAT, false, stride, 24) // aSmoothY
 	gl.EnableVertexAttribArray(3)
 	gl.VertexAttribPointerWithOffset(3, 1, gl.FLOAT, false, stride, 28) // aAO
-	// Belt-and-braces: layout used to bind attribute 4. Disable it explicitly
-	// so a stale attribute pointer can't pull garbage on this VAO.
-	gl.DisableVertexAttribArray(4)
+	gl.EnableVertexAttribArray(4)
+	gl.VertexAttribPointerWithOffset(4, 4, gl.FLOAT, false, stride, 32) // aSnow = (Grooming, Packed, Ice, MogulSize)
+	gl.EnableVertexAttribArray(5)
+	gl.VertexAttribPointerWithOffset(5, 1, gl.FLOAT, false, stride, 48) // aSnowDepth (metres)
 	gl.BindVertexArray(0)
 
 	r.scene.terrainVBO = vbo
@@ -722,16 +803,67 @@ func (r *Renderer) BuildTerrainMesh(t *world.Terrain) {
 	}
 }
 
-// FlushTerrainVerts regenerates vertex data from the terrain and uploads it to
-// the existing VBO. Use this after sculpting individual cells instead of
-// doing a full BuildTerrainMesh (which allocates new GL objects).
+// FlushTerrainVerts regenerates vertex data from the terrain and uploads
+// it to the existing VBO. Use this after editing terrain elevation —
+// AO, smoothY, and corner positions all need to recompute. For
+// snow-state-only changes (cat grooming, snowfall) call
+// FlushSnowState instead, which is dramatically cheaper.
 func (r *Renderer) FlushTerrainVerts(t *world.Terrain) {
 	if r.scene.terrainMesh == nil {
 		return
 	}
-	verts, _, minY, maxY := buildTerrainVerts(t)
+	verts, _, minY, maxY, surfaceVerts := buildTerrainVerts(t)
 	r.scene.terrainMinY = minY
 	r.scene.terrainMaxY = maxY
+	r.scene.terrainVerts = verts
+	r.scene.terrainSurfaceVerts = surfaceVerts
+	gl.BindBuffer(gl.ARRAY_BUFFER, r.scene.terrainVBO)
+	gl.BufferData(gl.ARRAY_BUFFER, len(verts)*4, gl.Ptr(verts), gl.DYNAMIC_DRAW)
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+}
+
+// FlushSnowState rewrites the per-cell snow-state attributes on the
+// cached terrain vertex array and uploads. AO, smoothY, jitter, and
+// corner positions are NOT recomputed — they don't depend on snow
+// state and recomputing them was the source of the per-frame stall
+// when cats were grooming. Skirt vertices are skipped (their snow
+// state is always zero).
+//
+// Vertex layout (13 floats): pos(3) | normal(3) | smoothY(1) | ao(1)
+// | snow(4: Grooming, Packed, Ice, MogulSize) | snowDepth(1).
+// We rewrite floats 8..12 per surface vertex.
+//
+// Surface vertex order matches buildTerrainVerts: row-major over
+// (x, z) ∈ [0, W-1)×[0, H-1), each quad emitting 6 vertices that all
+// flat-share the cell at (x, z).
+func (r *Renderer) FlushSnowState(t *world.Terrain) {
+	if r.scene.terrainMesh == nil || r.scene.terrainVerts == nil {
+		return
+	}
+	verts := r.scene.terrainVerts
+	surfaceVerts := r.scene.terrainSurfaceVerts
+	const stride = 13
+
+	const vertsPerQuad = 6
+	idx := 0
+	for z := 0; z < t.Height-1; z++ {
+		for x := 0; x < t.Width-1; x++ {
+			c := t.Cells[x][z]
+			for v := 0; v < vertsPerQuad; v++ {
+				vi := idx + v
+				if vi >= surfaceVerts {
+					break
+				}
+				base := vi * stride
+				verts[base+8] = c.Grooming
+				verts[base+9] = c.Packed
+				verts[base+10] = c.Ice
+				verts[base+11] = c.MogulSize
+				verts[base+12] = c.SnowDepth
+			}
+			idx += vertsPerQuad
+		}
+	}
 	gl.BindBuffer(gl.ARRAY_BUFFER, r.scene.terrainVBO)
 	gl.BufferData(gl.ARRAY_BUFFER, len(verts)*4, gl.Ptr(verts), gl.DYNAMIC_DRAW)
 	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
@@ -756,7 +888,20 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 			if count == 0 {
 				continue
 			}
-			elev := w.Terrain.ElevationAt(x, z)
+			// Trees root in the ground, then poke through the snow above.
+			// We anchor the rendered mesh just above ground (capped by
+			// SnowDepth so light snow lets the full trunk show; deeper snow
+			// raises the visible anchor and the lower trunk disappears
+			// below the surface mesh).
+			elev := w.Terrain.GroundElevationAt(x, z)
+			if snow := w.Terrain.Cells[x][z].SnowDepth; snow > 0 {
+				const maxBury = float32(1.5)
+				if snow < maxBury {
+					elev += snow
+				} else {
+					elev += maxBury
+				}
+			}
 			for i := 0; i < count; i++ {
 				h := treeInstanceHash(x, z, i)
 				// Offset stays well inside the cell so the auto-forest's
@@ -797,7 +942,19 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 		}
 		x := (float32(obj.Pos[0]) + 0.5) * cellSize
 		z := (float32(obj.Pos[1]) + 0.5) * cellSize
-		y := w.Terrain.ElevationAt(obj.Pos[0], obj.Pos[1])
+		// Decorative natural objects (lone trees, rocks, stumps) anchor at
+		// ground and let snow bury their base — same rule as forest cover.
+		y := w.Terrain.GroundElevationAt(obj.Pos[0], obj.Pos[1])
+		if w.Terrain.InBounds(obj.Pos[0], obj.Pos[1]) {
+			snow := w.Terrain.Cells[obj.Pos[0]][obj.Pos[1]].SnowDepth
+			const maxBury = float32(1.5)
+			if snow > maxBury {
+				snow = maxBury
+			}
+			if snow > 0 {
+				y += snow
+			}
+		}
 		t := mgl32.Translate3D(x, y, z).Mul4(mgl32.HomogRotate3DY(obj.Rotation))
 		tint := mgl32.Vec3{1, 1, 1}
 		if obj.Type == world.ObjTree {
@@ -806,10 +963,16 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 		batch.AddStatic(t, tint)
 	}
 
-	// Buildings
-	if buildingBatch, ok := r.staticBatches[MeshBuilding]; ok {
-		for _, bldg := range w.Buildings {
-			buildingBatch.AddStatic(BuildingTransform(bldg.Pos, bldg.Rotation, w.Terrain), mgl32.Vec3{1, 1, 1})
+	// Buildings — mesh varies by Type. Lodges use the building mesh;
+	// sheds use the dedicated shed mesh. New types add another case.
+	for _, bldg := range w.Buildings {
+		meshID := MeshBuilding
+		switch bldg.Type {
+		case world.BuildingShed:
+			meshID = MeshShed
+		}
+		if batch, ok := r.staticBatches[meshID]; ok {
+			batch.AddStatic(BuildingTransform(bldg.Pos, bldg.Rotation, w.Terrain), mgl32.Vec3{1, 1, 1})
 		}
 	}
 
@@ -947,7 +1110,7 @@ func generateCableMesh(lift *world.Lift, t *world.Terrain, perpOff float32) *Mes
 		frac := float32(i) / float32(steps)
 		cx := bx + dx*frac + perpX*perpOff
 		cz := bz + dz*frac + perpZ*perpOff
-		cy := t.InterpolatedElevationAt(cx, cz) + world.CableHeightAt(frac, length)
+		cy := t.InterpolatedSurfaceElevationAt(cx, cz) + world.CableHeightAt(frac, length)
 
 		for side := -1; side <= 1; side += 2 {
 			s := float32(side) * cableWidth * 0.5
@@ -1066,6 +1229,22 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		}
 		r.dynamicBatch.SetDynamic(instances)
 		r.dynamicBatch.Draw()
+	}
+
+	// Snowcats — same dynamic-instance path as agents. Driven by
+	// world.Snowcats; the sim updates Pos and Heading every tick.
+	if r.snowcatBatch != nil && len(w.Snowcats) > 0 {
+		catInstances := make([]DynamicInstance, 0, len(w.Snowcats))
+		for _, cat := range w.Snowcats {
+			y := VisualElevationAt(w.Terrain, cat.Pos[0], cat.Pos[2])
+			catInstances = append(catInstances, DynamicInstance{
+				Position: [3]float32{cat.Pos[0], y, cat.Pos[2]},
+				Heading:  cat.Heading,
+				Color:    [3]float32{1, 1, 1}, // model carries its own scad colours; tint stays neutral
+			})
+		}
+		r.snowcatBatch.SetDynamic(catInstances)
+		r.snowcatBatch.Draw()
 	}
 
 	// Debug-line pass (steering overlay etc.) — runs before chairs so chairs draw over.

@@ -551,6 +551,59 @@ func sampleTactical(t *world.Terrain, perc Perception, axisHeading, prevTactical
 // SECTION 6 — Apply (physics integration)
 // =============================================================================
 
+// effectiveFriction returns the (base, edge) kinetic friction coefficients
+// at world position (wx, wz), modulated by snow state. The defaults
+// (muBase, muEdge) describe groomed corduroy; each snow scalar shifts the
+// pair toward the real-world feel of that surface.
+//
+// Out-of-bounds positions return groomed defaults (the skier is treated
+// as if standing on corduroy off-map, which is a benign overestimate of
+// control compared with the alternative of zero friction).
+func effectiveFriction(t *world.Terrain, wx, wz float32) (base, edge float64) {
+	_, grooming, packed, ice, mogul := t.SnowAt(wx, wz)
+	base = muBase
+	edge = muEdge
+
+	// Grooming: lowers base (glide), raises edge (clean carve).
+	base *= 1 - 0.30*float64(grooming)
+	edge *= 1 + 0.20*float64(grooming)
+
+	// Packed snow: small base reduction, mild edge increase.
+	base *= 1 - 0.10*float64(packed)
+	edge *= 1 + 0.10*float64(packed)
+
+	// Powder (high snow + low packed) is captured via base bump driven by
+	// (1 - packed). True powder also has very low edge hold — you can't
+	// carve, you skid. Gate on having actual snow underfoot.
+	depth, _, pk, _, _ := t.SnowAt(wx, wz)
+	if depth > 0.5 {
+		powderiness := (1 - pk) * clamp32(depth/2.5, 0, 1)
+		base *= 1 + 0.80*float64(powderiness)
+		edge *= 1 - 0.50*float64(powderiness)
+	}
+
+	// Moguls: each bump impact bleeds energy. Modelled as added base
+	// friction (uniform decel) since geometric moguls aren't represented.
+	base *= 1 + 0.60*float64(mogul)
+	edge *= 1 + 0.10*float64(mogul)
+
+	// Ice: tank both — no grip at all. The low edge is what makes ice
+	// scary; the brake angle stops working, so the controller's speed
+	// regulation breaks down on a steep icy face.
+	base *= 1 - 0.50*float64(ice)
+	edge *= 1 - 0.85*float64(ice)
+
+	// Numerical floors so a chain of multiplicative reductions can't go
+	// negative on extreme inputs.
+	if base < 0.005 {
+		base = 0.005
+	}
+	if edge < 0.02 {
+		edge = 0.02
+	}
+	return base, edge
+}
+
 func apply(t *world.Terrain, a *world.Agent, dec Decision, perc Perception, dt float64) {
 	a.Heading = rotateToward(a.Heading, dec.DesiredHeading, float32(headingRateMax), dt)
 
@@ -567,10 +620,24 @@ func apply(t *world.Terrain, a *world.Agent, dec Decision, perc Perception, dt f
 		sinOffAbs = math.Abs(float64(hx*perc.FallDir[1] - hz*perc.FallDir[0]))
 	}
 
+	// Snow-state-modulated friction. Snow type at the agent's current
+	// position shifts both base (glide) and edge (carve) coefficients —
+	// real consequences:
+	//   - groomed corduroy: low base, high edge → fast and predictable carving
+	//   - hard ice:         very low base, very LOW edge → fast, no edge hold,
+	//                       so brake angle does little and skiers run away on
+	//                       steep ice; matches the "skating out" experience
+	//   - powder:           moderate-high base (sinking), low edge → slow,
+	//                       skidded turns rather than carves
+	//   - mogul field:      high base (banging into bumps), moderate edge →
+	//                       fast scrub on the troughs but speed bleed overall
+	//   - dense packed:     low-medium base, high edge → like groomed but
+	//                       slightly grippier
+	muB, muE := effectiveFriction(t, a.Pos[0], a.Pos[2])
 	speed := float64(a.Speed)
 	accel := gravity*sinTheta*cosOff -
-		muBase*gravity*cosTheta -
-		muEdge*gravity*cosTheta*sinOffAbs -
+		muB*gravity*cosTheta -
+		muE*gravity*cosTheta*sinOffAbs -
 		kDrag*speed*speed -
 		float64(dec.Scrub)
 	a.Speed = float32(math.Max(0, speed+accel*dt))
@@ -581,7 +648,7 @@ func apply(t *world.Terrain, a *world.Agent, dec Decision, perc Perception, dt f
 	step := a.Speed * float32(dt)
 	a.Pos[0] += hx * step
 	a.Pos[2] += hz * step
-	a.Pos[1] = t.InterpolatedElevationAt(a.Pos[0], a.Pos[2])
+	a.Pos[1] = t.InterpolatedSurfaceElevationAt(a.Pos[0], a.Pos[2])
 }
 
 // =============================================================================

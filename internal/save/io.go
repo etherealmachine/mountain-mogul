@@ -133,9 +133,12 @@ func worldToData(w *world.World) ScenarioData {
 		for z := 0; z < t.Height; z++ {
 			c := t.Cells[x][z]
 			cells = append(cells, CellData{
-				Elevation:   c.Elevation,
-				Groomed:     c.Groomed,
-				SnowDepth:   c.SnowDepth,
+				Ground:      c.GroundElevation,
+				Snow:        c.SnowDepth,
+				Grooming:    c.Grooming,
+				Packed:      c.Packed,
+				Ice:         c.Ice,
+				MogulSize:   c.MogulSize,
 				TreeDensity: c.TreeDensity,
 				Flat:        c.Flat,
 			})
@@ -156,11 +159,25 @@ func worldToData(w *world.World) ScenarioData {
 	for i, b := range w.Buildings {
 		buildings[i] = BuildingData{
 			ID:            b.ID,
+			Type:          uint8(b.Type),
 			X:             b.Pos[0],
 			Z:             b.Pos[1],
 			Rotation:      b.Rotation,
 			MeanSpawnRate: b.MeanSpawnRate,
 			SkierCount:    b.SkierCount,
+			Cats:          b.Cats,
+			RouteCells:    b.RouteCells,
+		}
+	}
+
+	snowcats := make([]SnowcatData, len(w.Snowcats))
+	for i, c := range w.Snowcats {
+		snowcats[i] = SnowcatData{
+			ID:         c.ID,
+			ShedID:     c.ShedID,
+			Pos:        [3]float32{c.Pos[0], c.Pos[1], c.Pos[2]},
+			Heading:    c.Heading,
+			TargetCell: c.TargetCell,
 		}
 	}
 
@@ -220,6 +237,7 @@ func worldToData(w *world.World) ScenarioData {
 		Buildings: buildings,
 		Lifts:     lifts,
 		Agents:    agents,
+		Snowcats:  snowcats,
 		Cash:      w.Cash,
 	}
 }
@@ -233,12 +251,12 @@ func dataToWorld(data ScenarioData) *world.World {
 		for z := 0; z < data.Height; z++ {
 			if idx < len(data.Cells) {
 				c := data.Cells[idx]
-				t.Cells[x][z].Elevation = c.Elevation
-				t.Cells[x][z].Groomed = c.Groomed
-				t.Cells[x][z].SnowDepth = c.SnowDepth
-				if t.Cells[x][z].SnowDepth == 0 {
-					t.Cells[x][z].SnowDepth = 1.0 // default
-				}
+				t.Cells[x][z].GroundElevation = c.Ground
+				t.Cells[x][z].SnowDepth = c.Snow
+				t.Cells[x][z].Grooming = c.Grooming
+				t.Cells[x][z].Packed = c.Packed
+				t.Cells[x][z].Ice = c.Ice
+				t.Cells[x][z].MogulSize = c.MogulSize
 				t.Cells[x][z].TreeDensity = c.TreeDensity
 				t.Cells[x][z].Flat = c.Flat
 			}
@@ -260,7 +278,13 @@ func dataToWorld(data ScenarioData) *world.World {
 	// Restore buildings, preserving IDs so agent.TargetID references stay
 	// valid. Old saves without an `id` field fall back to a fresh ID.
 	for _, bd := range data.Buildings {
-		b := w.PlaceBuilding(bd.X, bd.Z)
+		b := w.PlaceBuildingType(world.BuildingType(bd.Type), bd.X, bd.Z)
+		// PlaceBuildingType auto-spawns one cat for sheds; clear that
+		// so we can restore the saved fleet (and route) verbatim
+		// instead of double-spawning.
+		if b.Type == world.BuildingShed {
+			w.RemoveSnowcatsOwnedBy(b.ID)
+		}
 		if bd.ID != 0 {
 			b.ID = bd.ID
 		}
@@ -271,6 +295,38 @@ func dataToWorld(data ScenarioData) *world.World {
 		if bd.SkierCount > 0 {
 			b.SkierCount = bd.SkierCount
 		}
+		// Shed-only state. Cats and RouteCells default to zero if the
+		// save predates the snowcat work — that's fine, the shed just
+		// loads with an empty fleet/route until the player buys cats
+		// via the popup.
+		if b.Type == world.BuildingShed {
+			if bd.Cats > 0 {
+				b.Cats = bd.Cats
+			}
+			b.RouteCells = bd.RouteCells
+		}
+	}
+
+	// Restore snowcats. Each cat's ShedID must already resolve via the
+	// just-restored buildings; otherwise we drop the cat as orphaned.
+	shedByID := make(map[uint64]*world.Building)
+	for _, b := range w.Buildings {
+		if b.Type == world.BuildingShed {
+			shedByID[b.ID] = b
+		}
+	}
+	for _, cd := range data.Snowcats {
+		shed := shedByID[cd.ShedID]
+		if shed == nil {
+			continue
+		}
+		cat := w.SpawnSnowcat(shed)
+		if cd.ID != 0 {
+			cat.ID = cd.ID
+		}
+		cat.Pos = mgl32.Vec3{cd.Pos[0], cd.Pos[1], cd.Pos[2]}
+		cat.Heading = cd.Heading
+		cat.TargetCell = cd.TargetCell
 	}
 
 	// Restore lifts. Chair count is computed from cable length so it's
@@ -376,6 +432,11 @@ func dataToWorld(data ScenarioData) *world.World {
 	for _, a := range w.Agents {
 		if a.ID > maxID {
 			maxID = a.ID
+		}
+	}
+	for _, c := range w.Snowcats {
+		if c.ID > maxID {
+			maxID = c.ID
 		}
 	}
 	w.SetMinNextID(maxID)

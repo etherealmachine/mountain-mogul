@@ -18,6 +18,8 @@ const (
 	MeshAgent       uint32 = 7
 	MeshLiftStation uint32 = 8
 	MeshChair       uint32 = 9
+	MeshShed        uint32 = 10
+	MeshSnowcat     uint32 = 11
 )
 
 // Mesh wraps a GPU vertex/index buffer.

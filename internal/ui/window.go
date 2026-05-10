@@ -20,9 +20,11 @@ const (
 type rowKind int
 
 const (
-	rowLabel      rowKind = iota // read-only label + value
-	rowStepper                   // label + [−] value [+] buttons (float)
-	rowIntStepper                // same controls, int-backed value
+	rowLabel        rowKind = iota // read-only label + value
+	rowStepper                     // label + [−] value [+] buttons (float)
+	rowIntStepper                  // same controls, int-backed value
+	rowStepperFn                   // label + [−] valueFn [+] buttons backed by callbacks (no direct pointer)
+	rowActionButton                // single full-width button row
 )
 
 type windowRow struct {
@@ -39,6 +41,9 @@ type windowRow struct {
 	intMax   int
 	minusBtn *Button
 	plusBtn  *Button
+
+	// rowActionButton — single full-width clickable.
+	actionBtn *Button
 }
 
 // Window is a simple floating info panel.
@@ -97,6 +102,36 @@ func (w *Window) AddStepper(label string, val *float32, step, minVal, maxVal flo
 	w.rebuildLayout()
 }
 
+// AddIntStepperFn is a stepper backed by callbacks instead of a direct
+// pointer to the value. The display is whatever `getText` returns —
+// callers typically format the count plus a max (e.g. "1/3"). +/-
+// clicks call the supplied handlers; the handlers are responsible for
+// clamping and any side effects (spawning entities, deducting cash, …).
+func (w *Window) AddIntStepperFn(label string, getText func() string, onMinus, onPlus func()) {
+	row := &windowRow{
+		kind:    rowStepperFn,
+		label:   label,
+		getText: getText,
+	}
+	row.minusBtn = NewButton(0, 0, winBtnW, winRowH-4, "-", onMinus)
+	row.plusBtn = NewButton(0, 0, winBtnW, winRowH-4, "+", onPlus)
+	w.rows = append(w.rows, row)
+	w.rebuildLayout()
+}
+
+// AddActionButton adds a full-width clickable row labelled `label`.
+// Used for one-shot actions (e.g. "Paint Route") that don't have a
+// stepper-style value.
+func (w *Window) AddActionButton(label string, onClick func()) {
+	row := &windowRow{
+		kind:      rowActionButton,
+		label:     label,
+		actionBtn: NewButton(0, 0, 0, winRowH-4, label, onClick),
+	}
+	w.rows = append(w.rows, row)
+	w.rebuildLayout()
+}
+
 // AddIntStepper adds a row with [−] value [+] controls for an int value.
 // Same look and behaviour as AddStepper but the value displays as a bare
 // integer (no decimals) and clamps in int space.
@@ -149,12 +184,19 @@ func (w *Window) rebuildLayout() {
 	h := winTitleH + winPadding/2
 	for _, row := range w.rows {
 		rowY := w.Y + h
-		if row.kind == rowStepper || row.kind == rowIntStepper {
+		switch row.kind {
+		case rowStepper, rowIntStepper, rowStepperFn:
 			btnH := winRowH - 4
 			row.plusBtn.X = w.X + w.width - winBtnW - winPadding
 			row.plusBtn.Y = rowY + (winRowH-btnH)/2
 			row.minusBtn.X = row.plusBtn.X - winBtnW - 4
 			row.minusBtn.Y = row.plusBtn.Y
+		case rowActionButton:
+			btnH := winRowH - 4
+			row.actionBtn.X = w.X + winPadding
+			row.actionBtn.Y = rowY + (winRowH-btnH)/2
+			row.actionBtn.W = w.width - 2*winPadding
+			row.actionBtn.H = btnH
 		}
 		h += winRowH
 	}
@@ -189,9 +231,12 @@ func (w *Window) HandleInput(inp *engine.Input) {
 	mx, my := inp.MousePos[0], inp.MousePos[1]
 	w.closeBtn.SetHovered(w.closeBtn.Contains(mx, my))
 	for _, row := range w.rows {
-		if row.kind == rowStepper || row.kind == rowIntStepper {
+		switch row.kind {
+		case rowStepper, rowIntStepper, rowStepperFn:
 			row.minusBtn.SetHovered(row.minusBtn.Contains(mx, my))
 			row.plusBtn.SetHovered(row.plusBtn.Contains(mx, my))
+		case rowActionButton:
+			row.actionBtn.SetHovered(row.actionBtn.Contains(mx, my))
 		}
 	}
 	if !inp.LeftClick {
@@ -202,13 +247,19 @@ func (w *Window) HandleInput(inp *engine.Input) {
 		return
 	}
 	for _, row := range w.rows {
-		if row.kind == rowStepper || row.kind == rowIntStepper {
+		switch row.kind {
+		case rowStepper, rowIntStepper, rowStepperFn:
 			if row.minusBtn.Contains(mx, my) {
 				row.minusBtn.Click()
 				return
 			}
 			if row.plusBtn.Contains(mx, my) {
 				row.plusBtn.Click()
+				return
+			}
+		case rowActionButton:
+			if row.actionBtn.Contains(mx, my) {
+				row.actionBtn.Click()
 				return
 			}
 		}
@@ -243,6 +294,13 @@ func (w *Window) Draw(r *render.Renderer) {
 	textOffY := (winRowH - float32(render.GlyphH)) / 2
 
 	for _, row := range w.rows {
+		// Action buttons get their own row treatment — full width, no
+		// label column.
+		if row.kind == rowActionButton {
+			row.actionBtn.Draw(r)
+			y += winRowH
+			continue
+		}
 		if r.Font != nil {
 			r.Font.DrawText(r, row.label+":", w.X+winPadding, y+textOffY, labelColor)
 		}
@@ -264,6 +322,16 @@ func (w *Window) Draw(r *render.Renderer) {
 			row.plusBtn.Draw(r)
 		case rowIntStepper:
 			val := fmt.Sprintf("%d", *row.intVal)
+			if r.Font != nil {
+				r.Font.DrawText(r, val, w.X+w.labelW, y+textOffY, textColor)
+			}
+			row.minusBtn.Draw(r)
+			row.plusBtn.Draw(r)
+		case rowStepperFn:
+			val := ""
+			if row.getText != nil {
+				val = row.getText()
+			}
 			if r.Font != nil {
 				r.Font.DrawText(r, val, w.X+w.labelW, y+textOffY, textColor)
 			}

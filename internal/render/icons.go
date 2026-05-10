@@ -35,6 +35,21 @@ const (
 	IconSnowflake      IconName = "snowflake"
 	IconCloudLightning IconName = "cloud-lightning"
 	IconArrowRight     IconName = "arrow-right"
+
+	// Overlay panel — the right-side stack of view toggles. `Stack` is the
+	// panel's own toggle in the top bar; the rest are the individual overlay
+	// modes addressable from the panel.
+	IconStack     IconName = "stack"      // overlay panel toggle (top bar)
+	IconChartLine IconName = "chart-line" // contour
+	IconTriangle  IconName = "triangle"   // slope debug
+	IconWaves     IconName = "waves"      // snow depth
+	IconBroom     IconName = "broom"      // grooming
+	IconGridFour  IconName = "grid-four"  // packed snow
+	IconDrop      IconName = "drop"       // ice
+	IconDotsNine  IconName = "dots-nine"  // moguls
+
+	// Buildings / equipment
+	IconGarage IconName = "garage" // equipment shed (snowcats, snowmobiles)
 )
 
 // allIcons is the full set loaded at startup. Adding an icon requires
@@ -47,6 +62,8 @@ var allIcons = []IconName{
 	IconCoin, IconUsers, IconHeart,
 	IconSun, IconCloudSun, IconCloud, IconCloudSnow, IconSnowflake, IconCloudLightning,
 	IconArrowRight,
+	IconStack, IconChartLine, IconTriangle, IconWaves, IconBroom, IconGridFour, IconDrop, IconDotsNine,
+	IconGarage,
 }
 
 // LoadIcons populates r.icons from assetDir/icons/. Missing files log a
