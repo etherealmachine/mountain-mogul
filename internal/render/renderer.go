@@ -241,10 +241,33 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 	idx := uint32(0)
 
 	// ── Pre-compute jittered elevations ───────────────────────────────────────
+	// Cells with Flat > 0 (lift station aprons) scale jitter down by their
+	// Flat weight so intentionally smoothed terrain reads flat instead of
+	// pebbled. The corner at (x, z) is shared by up to 4 cells; we suppress
+	// jitter using the strongest Flat among them so any flattened neighbour
+	// pulls the corner toward exact.
+	cornerFlat := func(x, z int) float32 {
+		var maxFlat float32
+		for ox := x - 1; ox <= x; ox++ {
+			if ox < 0 || ox >= t.Width {
+				continue
+			}
+			for oz := z - 1; oz <= z; oz++ {
+				if oz < 0 || oz >= t.Height {
+					continue
+				}
+				if f := t.Cells[ox][oz].Flat; f > maxFlat {
+					maxFlat = f
+				}
+			}
+		}
+		return maxFlat
+	}
 	jit := make([]float32, t.Width*t.Height)
 	for z := 0; z < t.Height; z++ {
 		for x := 0; x < t.Width; x++ {
-			jit[x*t.Height+z] = t.ElevationAt(x, z) + terrainJitter(x, z, cellSize)
+			j := terrainJitter(x, z, cellSize) * (1 - cornerFlat(x, z))
+			jit[x*t.Height+z] = t.ElevationAt(x, z) + j
 		}
 	}
 	jitAt := func(x, z int) float32 { return jit[x*t.Height+z] }

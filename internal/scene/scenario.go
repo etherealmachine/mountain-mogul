@@ -241,6 +241,9 @@ func flattenStationApron(t *world.Terrain, station, axis mgl32.Vec2, side, halfW
 			}
 			cur := t.Cells[x][z].Elevation
 			t.Cells[x][z].Elevation = cur + (stationElev-cur)*w
+			if w > t.Cells[x][z].Flat {
+				t.Cells[x][z].Flat = w
+			}
 		}
 	}
 }

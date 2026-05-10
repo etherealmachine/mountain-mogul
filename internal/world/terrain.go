@@ -11,6 +11,12 @@ type Cell struct {
 	Groomed     bool
 	SnowDepth   float32
 	TreeDensity float32 // 0.0 = clear, 1.0 = dense old-growth
+	// Flat is a render-side hint: 0 = natural terrain (full vertex jitter),
+	// 1 = intentionally flattened (skip jitter so the result actually reads
+	// flat). Lift station aprons set this to the same falloff weight they
+	// apply to elevation, so partial-falloff edges still scale jitter down
+	// proportionally.
+	Flat float32
 }
 
 // Walkable returns true if an agent on foot can enter this cell.

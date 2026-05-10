@@ -19,6 +19,7 @@ type CellData struct {
 	Groomed     bool    `json:"g,omitempty"`
 	SnowDepth   float32 `json:"s,omitempty"`
 	TreeDensity float32 `json:"td,omitempty"`
+	Flat        float32 `json:"f,omitempty"`
 }
 
 // ObjectData is a placed natural object.

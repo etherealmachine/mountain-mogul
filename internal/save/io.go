@@ -137,6 +137,7 @@ func worldToData(w *world.World) ScenarioData {
 				Groomed:     c.Groomed,
 				SnowDepth:   c.SnowDepth,
 				TreeDensity: c.TreeDensity,
+				Flat:        c.Flat,
 			})
 		}
 	}
@@ -239,6 +240,7 @@ func dataToWorld(data ScenarioData) *world.World {
 					t.Cells[x][z].SnowDepth = 1.0 // default
 				}
 				t.Cells[x][z].TreeDensity = c.TreeDensity
+				t.Cells[x][z].Flat = c.Flat
 			}
 			idx++
 		}
