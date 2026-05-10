@@ -240,7 +240,7 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 
 	idx := uint32(0)
 
-	// ── Pre-compute jittered elevations ───────────────────────────────────────
+	// ── Pre-compute jittered corner positions ────────────────────────────────
 	// Cells with Flat > 0 (lift station aprons) scale jitter down by their
 	// Flat weight so intentionally smoothed terrain reads flat instead of
 	// pebbled. The corner at (x, z) is shared by up to 4 cells; we suppress
@@ -263,14 +263,29 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 		}
 		return maxFlat
 	}
+	// jit holds Y (elevation including jitter); jitX/jitZ hold the small
+	// horizontal offsets used to displace the grid lattice so it doesn't
+	// read as a perfect square pattern from above.
 	jit := make([]float32, t.Width*t.Height)
+	jitX := make([]float32, t.Width*t.Height)
+	jitZ := make([]float32, t.Width*t.Height)
 	for z := 0; z < t.Height; z++ {
 		for x := 0; x < t.Width; x++ {
-			j := terrainJitter(x, z, cellSize) * (1 - cornerFlat(x, z))
-			jit[x*t.Height+z] = t.ElevationAt(x, z) + j
+			jx, jy, jz := terrainJitterXYZ(x, z, t.Width, t.Height, cellSize)
+			scale := 1 - cornerFlat(x, z)
+			i := x*t.Height + z
+			jitX[i] = jx * scale
+			jit[i] = t.ElevationAt(x, z) + jy*scale
+			jitZ[i] = jz * scale
 		}
 	}
 	jitAt := func(x, z int) float32 { return jit[x*t.Height+z] }
+	cornerXAt := func(x, z int) float32 {
+		return float32(x)*cellSize + jitX[x*t.Height+z]
+	}
+	cornerZAt := func(x, z int) float32 {
+		return float32(z)*cellSize + jitZ[x*t.Height+z]
+	}
 
 	// ── Smoothed elevation for contour overlay ────────────────────────────────
 	// Separable 5-tap binomial filter (1,4,6,4,1)/16 applied to the un-jittered
@@ -406,10 +421,10 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 	// ── Surface ───────────────────────────────────────────────────────────────
 	for z := 0; z < t.Height-1; z++ {
 		for x := 0; x < t.Width-1; x++ {
-			p00 := [3]float32{float32(x) * cellSize, jitAt(x, z), float32(z) * cellSize}
-			p10 := [3]float32{float32(x+1) * cellSize, jitAt(x+1, z), float32(z) * cellSize}
-			p01 := [3]float32{float32(x) * cellSize, jitAt(x, z+1), float32(z+1) * cellSize}
-			p11 := [3]float32{float32(x+1) * cellSize, jitAt(x+1, z+1), float32(z+1) * cellSize}
+			p00 := [3]float32{cornerXAt(x, z), jitAt(x, z), cornerZAt(x, z)}
+			p10 := [3]float32{cornerXAt(x+1, z), jitAt(x+1, z), cornerZAt(x+1, z)}
+			p01 := [3]float32{cornerXAt(x, z+1), jitAt(x, z+1), cornerZAt(x, z+1)}
+			p11 := [3]float32{cornerXAt(x+1, z+1), jitAt(x+1, z+1), cornerZAt(x+1, z+1)}
 
 			// Track which grid point each triangle corner maps to for per-vertex
 			// AO and smooth-Y lookup.
@@ -480,50 +495,56 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 	maxX := float32(t.Width-1) * cellSize
 	maxZ := float32(t.Height-1) * cellSize
 
+	// Skirt walls: top edge follows the surface vertices (jittered XZ),
+	// bottom edge sits at skirtBaseY but shares the same XZ as the top so
+	// each quad stays planar. Boundary corners zero their perpendicular
+	// jitter (terrainJitterXYZ enforces this) so the floor face below
+	// remains a proper rectangle.
+
 	// North wall (z=0, normal −Z)
 	for x := 0; x < t.Width-1; x++ {
-		xL, xR := float32(x)*cellSize, float32(x+1)*cellSize
-		yL := t.ElevationAt(x, 0) + terrainJitter(x, 0, cellSize)
-		yR := t.ElevationAt(x+1, 0) + terrainJitter(x+1, 0, cellSize)
+		xL, zL := cornerXAt(x, 0), cornerZAt(x, 0)
+		xR, zR := cornerXAt(x+1, 0), cornerZAt(x+1, 0)
+		yL, yR := jitAt(x, 0), jitAt(x+1, 0)
 		emitQuad(
-			[3]float32{xL, yL, 0}, [3]float32{xR, yR, 0},
-			[3]float32{xR, skirtBaseY, 0}, [3]float32{xL, skirtBaseY, 0},
+			[3]float32{xL, yL, zL}, [3]float32{xR, yR, zR},
+			[3]float32{xR, skirtBaseY, zR}, [3]float32{xL, skirtBaseY, zL},
 			[3]float32{0, 0, -1}, wallAO,
 		)
 	}
 
 	// South wall (z=maxZ, normal +Z)
 	for x := 0; x < t.Width-1; x++ {
-		xL, xR := float32(x)*cellSize, float32(x+1)*cellSize
-		yL := t.ElevationAt(x, t.Height-1) + terrainJitter(x, t.Height-1, cellSize)
-		yR := t.ElevationAt(x+1, t.Height-1) + terrainJitter(x+1, t.Height-1, cellSize)
+		xL, zL := cornerXAt(x, t.Height-1), cornerZAt(x, t.Height-1)
+		xR, zR := cornerXAt(x+1, t.Height-1), cornerZAt(x+1, t.Height-1)
+		yL, yR := jitAt(x, t.Height-1), jitAt(x+1, t.Height-1)
 		emitQuad(
-			[3]float32{xR, yR, maxZ}, [3]float32{xL, yL, maxZ},
-			[3]float32{xL, skirtBaseY, maxZ}, [3]float32{xR, skirtBaseY, maxZ},
+			[3]float32{xR, yR, zR}, [3]float32{xL, yL, zL},
+			[3]float32{xL, skirtBaseY, zL}, [3]float32{xR, skirtBaseY, zR},
 			[3]float32{0, 0, 1}, wallAO,
 		)
 	}
 
 	// West wall (x=0, normal −X)
 	for z := 0; z < t.Height-1; z++ {
-		zN, zS := float32(z)*cellSize, float32(z+1)*cellSize
-		yN := t.ElevationAt(0, z) + terrainJitter(0, z, cellSize)
-		yS := t.ElevationAt(0, z+1) + terrainJitter(0, z+1, cellSize)
+		xN, zN := cornerXAt(0, z), cornerZAt(0, z)
+		xS, zS := cornerXAt(0, z+1), cornerZAt(0, z+1)
+		yN, yS := jitAt(0, z), jitAt(0, z+1)
 		emitQuad(
-			[3]float32{0, yS, zS}, [3]float32{0, yN, zN},
-			[3]float32{0, skirtBaseY, zN}, [3]float32{0, skirtBaseY, zS},
+			[3]float32{xS, yS, zS}, [3]float32{xN, yN, zN},
+			[3]float32{xN, skirtBaseY, zN}, [3]float32{xS, skirtBaseY, zS},
 			[3]float32{-1, 0, 0}, wallAO,
 		)
 	}
 
 	// East wall (x=maxX, normal +X)
 	for z := 0; z < t.Height-1; z++ {
-		zN, zS := float32(z)*cellSize, float32(z+1)*cellSize
-		yN := t.ElevationAt(t.Width-1, z) + terrainJitter(t.Width-1, z, cellSize)
-		yS := t.ElevationAt(t.Width-1, z+1) + terrainJitter(t.Width-1, z+1, cellSize)
+		xN, zN := cornerXAt(t.Width-1, z), cornerZAt(t.Width-1, z)
+		xS, zS := cornerXAt(t.Width-1, z+1), cornerZAt(t.Width-1, z+1)
+		yN, yS := jitAt(t.Width-1, z), jitAt(t.Width-1, z+1)
 		emitQuad(
-			[3]float32{maxX, yN, zN}, [3]float32{maxX, yS, zS},
-			[3]float32{maxX, skirtBaseY, zS}, [3]float32{maxX, skirtBaseY, zN},
+			[3]float32{xN, yN, zN}, [3]float32{xS, yS, zS},
+			[3]float32{xS, skirtBaseY, zS}, [3]float32{xN, skirtBaseY, zN},
 			[3]float32{1, 0, 0}, wallAO,
 		)
 	}
@@ -538,13 +559,51 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 	return verts, indices, minY, maxY
 }
 
-// terrainJitter returns a small deterministic elevation offset for a grid corner.
+// terrainJitter returns a small deterministic Y offset for a grid corner.
 func terrainJitter(gx, gz int, cellSize float32) float32 {
 	h := uint32(gx)*2654435761 ^ uint32(gz)*2246822519
 	h ^= h >> 16
 	h *= 0x45d9f3b
 	h ^= h >> 16
 	return (float32(h)/float32(^uint32(0)) - 0.5) * 0.2 * cellSize
+}
+
+// terrainJitterXYZ returns deterministic per-corner offsets in X, Y, Z.
+// Y matches terrainJitter (kept separate so the existing slope/AO maths
+// don't shift); X and Z use independent hashes so the cell grid breaks
+// up visually when seen from above. Magnitudes: Y ±0.5 m, XZ ±1.0 m at
+// cellSize=5 m — enough to break the square pattern without making
+// adjacent triangles unreasonably skinny. Boundary corners zero their
+// perpendicular component so the skirt walls stay planar quads — a
+// corner on z=0 keeps z=0, a corner on x=0 keeps x=0, etc.
+func terrainJitterXYZ(gx, gz, width, height int, cellSize float32) (float32, float32, float32) {
+	hY := uint32(gx)*2654435761 ^ uint32(gz)*2246822519
+	hY ^= hY >> 16
+	hY *= 0x45d9f3b
+	hY ^= hY >> 16
+
+	hX := uint32(gx)*0x9E3779B1 ^ uint32(gz)*0x85EBCA77
+	hX ^= hX >> 16
+	hX *= 0xC2B2AE3D
+	hX ^= hX >> 16
+
+	hZ := uint32(gx)*0x27D4EB2F ^ uint32(gz)*0x165667B1
+	hZ ^= hZ >> 16
+	hZ *= 0xD3A2646C
+	hZ ^= hZ >> 16
+
+	const inv = 1.0 / float32(^uint32(0))
+	fy := (float32(hY)*inv - 0.5) * 0.2 * cellSize
+	fx := (float32(hX)*inv - 0.5) * 0.4 * cellSize
+	fz := (float32(hZ)*inv - 0.5) * 0.4 * cellSize
+
+	if gx == 0 || gx == width-1 {
+		fx = 0
+	}
+	if gz == 0 || gz == height-1 {
+		fz = 0
+	}
+	return fx, fy, fz
 }
 
 // VisualElevationAt returns the exact terrain mesh surface height at world

@@ -118,15 +118,25 @@ func applyDensityBrush(t *world.Terrain, cx, cz, radius int, delta float32) {
 
 // applyLiftPlacementEffects applies the ground-side consequences of putting
 // down a lift: a tree-free maintenance corridor under the cable line and
-// flattened boarding/exit aprons at the base and top stations.
+// raised boarding/exit aprons at the base and top stations.
+//
+// Both aprons are raise-only — real ski areas typically build up an
+// earthwork pad at each station rather than carve a notch into the
+// hillside, so cells whose natural elevation is already higher than the
+// station footing keep their elevation untouched and only lower-lying
+// cells get raised toward the station. Sizing is fixed at 40 × 24 m
+// (8 × 5 cells at 5 m granularity); the lift-station mesh itself is
+// smaller than a single cell, so the apron is what gives the lift
+// visual mass on the map.
 //
 // Lives in scenario.go (not world.PlaceLift) so save loading and testbed
 // setup can reconstruct lifts without re-flattening or re-clearing terrain
 // the player may have intentionally edited.
 func applyLiftPlacementEffects(t *world.Terrain, lift *world.Lift) {
-	const corridorHalfWidth = float32(8.0)
-	const apronHalfWidth = float32(12.0) // → 24 m total width along the cross-axis
-	const apronDepth = float32(12.0)     // distance from station's back edge outward
+	const corridorHalfWidth = float32(12.0) // → 24 m wide maintenance lane
+	const apronHalfWidth = float32(20.0)    // → 40 m total cross-axis width
+	const apronDepth = float32(24.0)
+	const apronBuildup = float32(2.5) // metres above station footing
 	clearLiftCorridor(t, lift.Base, lift.Top, corridorHalfWidth)
 	axis := mgl32.Vec2{
 		lift.Top[0] - lift.Base[0],
@@ -135,12 +145,10 @@ func applyLiftPlacementEffects(t *world.Terrain, lift *world.Lift) {
 	if l := axis.Len(); l > 0 {
 		axis = axis.Mul(1 / l)
 	}
-	// Top station: rectangle extends forward (along axis) past the top —
-	// skiers exit forward off the chair and disperse to either side.
-	// Base station: rectangle extends backward (against axis) — skiers
-	// approach from below to board the empty incoming chair.
-	flattenStationApron(t, lift.Top, axis, +1, apronHalfWidth, apronDepth)
-	flattenStationApron(t, lift.Base, axis, -1, apronHalfWidth, apronDepth)
+	// Top: extends forward (along axis). Base: extends backward (against
+	// axis). Both raise-only — see buildStationApron docs.
+	buildStationApron(t, lift.Top, axis, +1, apronHalfWidth, apronDepth, apronBuildup)
+	buildStationApron(t, lift.Base, axis, -1, apronHalfWidth, apronDepth, apronBuildup)
 }
 
 // clearLiftCorridor zeros TreeDensity in cells within `halfWidth` metres of
@@ -172,21 +180,29 @@ func clearLiftCorridor(t *world.Terrain, base, top mgl32.Vec2, halfWidth float32
 	}
 }
 
-// flattenStationApron flattens terrain in a rectangular pad whose back edge
+// buildStationApron raises terrain in a rectangular pad whose back edge
 // sits flush against `station`, extending `depth` metres along `axis * side`
 // (the apron-forward direction) and ±`halfWidth` metres along the perpendicular.
+// The pad is raised to `stationElev + buildup` so it sits visibly elevated
+// above the natural ground even on flat terrain — without a buildup, lifts
+// placed in nearly-flat spots get an apron with nothing to raise *to* and
+// look unmodified.
+//
+// Raise-only: only cells whose natural elevation is below the target get
+// pulled up; cells already higher are left alone. Real ski areas grade
+// these areas as built-up earthwork pads rather than carving notches into
+// the hillside, so this is closer to how a boarding/exit area actually
+// looks at a real lift.
+//
 // Falloff is applied at the front edge and the two side edges — where skiers
 // exit off the chair, in any of the forward / left / right directions — but
-// NOT at the back edge against the lift. Real lift stations cut hard into the
-// uphill terrain; we mirror that by leaving a sharp transition at the back
-// rather than smoothing it, since smoothing it would either bury the lift on
-// uphill placements or pull a hill into thin air on downhill placements.
+// NOT at the back edge against the lift, which keeps a sharp transition.
 //
 // `axis` is a unit vector along the cable (base → top). `side = +1` flips
 // the apron to extend in the +axis direction (top station: forward toward
 // the front of the platform), `side = -1` extends the apron in the -axis
 // direction (base station: back toward the boarding queue).
-func flattenStationApron(t *world.Terrain, station, axis mgl32.Vec2, side, halfWidth, depth float32) {
+func buildStationApron(t *world.Terrain, station, axis mgl32.Vec2, side, halfWidth, depth, buildup float32) {
 	const cellSize = float32(5.0)
 	stationCell := [2]int{
 		int(station[0] / cellSize),
@@ -195,7 +211,7 @@ func flattenStationApron(t *world.Terrain, station, axis mgl32.Vec2, side, halfW
 	if !t.InBounds(stationCell[0], stationCell[1]) {
 		return
 	}
-	stationElev := t.Cells[stationCell[0]][stationCell[1]].Elevation
+	target := t.Cells[stationCell[0]][stationCell[1]].Elevation + buildup
 	bound := halfWidth
 	if depth > bound {
 		bound = depth
@@ -240,7 +256,14 @@ func flattenStationApron(t *world.Terrain, station, axis mgl32.Vec2, side, halfW
 				continue
 			}
 			cur := t.Cells[x][z].Elevation
-			t.Cells[x][z].Elevation = cur + (stationElev-cur)*w
+			if target <= cur {
+				// Raise-only: cells whose natural elevation is already
+				// at or above the target pad height keep what they have.
+				// Real lift aprons are built-up earthwork pads, not
+				// notches carved into a hillside.
+				continue
+			}
+			t.Cells[x][z].Elevation = cur + (target-cur)*w
 			if w > t.Cells[x][z].Flat {
 				t.Cells[x][z].Flat = w
 			}
@@ -1247,9 +1270,11 @@ func (s *Scenario) Destroy() {
 }
 
 // tryOpenPopup opens a popup window if the click is within the pick
-// radius of a building or lift base. Buildings have priority — clicks
-// inside a building's footprint open the lodge panel even if a lift
-// happens to be near.
+// radius of a building or any part of a lift (base, top, or anywhere
+// along the cable line). Buildings have priority — clicks inside a
+// building's footprint open the lodge panel even if a lift happens to
+// be near. The cable check uses point-to-segment distance so towers
+// (which sit on the cable line) and stations are all selectable.
 func (s *Scenario) tryOpenPopup(clickPos mgl32.Vec3, screenW, screenH int) {
 	pick := mgl32.Vec2{clickPos[0], clickPos[2]}
 	for _, b := range s.world.Buildings {
@@ -1258,8 +1283,11 @@ func (s *Scenario) tryOpenPopup(clickPos mgl32.Vec3, screenW, screenH int) {
 			return
 		}
 	}
+	cableHalfWidth2 := float32(liftPickRadius * liftPickRadius)
 	for _, lift := range s.world.Lifts {
-		if lift.Base.Sub(pick).Len() <= liftPickRadius {
+		if lift.Base.Sub(pick).Len() <= liftPickRadius ||
+			lift.Top.Sub(pick).Len() <= liftPickRadius ||
+			pointSegmentDistSq(pick, lift.Base, lift.Top) <= cableHalfWidth2 {
 			s.openLiftPopup(lift, screenW, screenH)
 			return
 		}
