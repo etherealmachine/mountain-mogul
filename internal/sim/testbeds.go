@@ -76,26 +76,26 @@ var Testbeds = []Testbed{
 	{
 		// Trail divergence: side walls channel the skier, a center patch
 		// blocks the straight line, and the skier spawns 1 cell east of
-		// the corridor centerline. This puts the skier next to a ~130 m
-		// "easy" gap on the right (5 m of drift to clear the patch's east
-		// edge) and a ~40 m "hard" gap on the left (~125 m of drift to
-		// reach). Used to test whether skiers DELIBERATELY choose paths or
-		// merely avoid the nearest hazard.
+		// the corridor centerline. The patch sits well below the spawn so
+		// the skier has ~10 s of skiing before they reach it — enough
+		// time for the controller to commit to a side and traverse.
+		// Tests whether skiers DELIBERATELY choose paths or merely
+		// avoid the nearest hazard.
 		//
-		// Layout (40 cells wide × 50 tall):
-		//   walls at x=[3,4]   (world  30–50)
-		//   walls at x=[35,36] (world 350–370)
-		//   patch at (cx=15, cz=25, r=6) → x=[90,220), z=[190,320)
-		//   skier at (gx=21, gz=1) → world (215, 5), 1 cell east of axis
-		//   lodge at (gx=21, gz=48)
+		// Layout (40 cells wide × 80 tall, 200 m × 400 m world):
+		//   walls at x=[3,4],   z=[5,75]  (world x 15–25, z 25–375)
+		//   walls at x=[35,36], z=[5,75]  (world x 175–185)
+		//   patch at (cx=15, cz=50, r=6)  → world x 45–105, z 220–280
+		//   skier at (gx=21, gz=1)        → world (107.5, 7.5)
+		//   lodge at (gx=21, gz=78)       → world (107.5, 392.5)
 		Name: "Trail diverge, offset skier east, intermediate",
 		Seed: 1,
 		Build: func(_ *rand.Rand) *world.World {
-			return scene(40, 50).slope(15).
-				lodgeAt(21, 48).
-				treeRect(3, 5, 4, 45, 0.8).    // left wall
-				treeRect(35, 5, 36, 45, 0.8).  // right wall
-				treePatch(15, 25, 6, 0.8).     // center obstacle (off-axis west)
+			return scene(40, 80).slope(15).
+				lodgeAt(21, 78).
+				treeRect(3, 5, 4, 75, 0.8).    // left wall
+				treeRect(35, 5, 36, 75, 0.8).  // right wall
+				treePatch(15, 50, 6, 0.8).     // center obstacle (off-axis west)
 				skierAt(21, 1, ai.SkillIntermediate).
 				build()
 		},
