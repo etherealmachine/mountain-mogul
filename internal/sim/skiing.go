@@ -299,8 +299,20 @@ func decide(t *world.Terrain, a *world.Agent, perc Perception, dt float32, rng *
 
 	tactical, obstacleSeen, probeC, probeR, probeL := sampleTactical(t, perc, axisHeading, a.LastTactical, rng)
 
-	// Speed control.
+	// Speed control. Base target from skill/traits, then reduce when trees
+	// are visible in the forward fan — real skiers back off in glades to
+	// give themselves more reaction time. Worst-probe density saturates the
+	// reduction at 40% (target × 0.6) so even dense trees don't drop the
+	// skier below half their cruising speed.
 	targetSpeed := desiredSpeed(a.Traits, perc)
+	worstProbe := probeC
+	if probeR > worstProbe {
+		worstProbe = probeR
+	}
+	if probeL > worstProbe {
+		worstProbe = probeL
+	}
+	targetSpeed *= 1.0 - 0.4*clamp32(worstProbe/0.4, 0, 1)
 	overspeed := float32(0)
 	if perc.Speed > targetSpeed && targetSpeed > 0.01 {
 		overspeed = (perc.Speed - targetSpeed) / targetSpeed
