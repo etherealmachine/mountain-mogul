@@ -37,7 +37,7 @@ func NewEditor(path string) *Editor {
 func (e *Editor) Init(app *engine.App) error {
 	e.app = app
 
-	w, err := save.LoadScenario(e.scenarioPath)
+	w, savedCam, err := save.LoadScenario(e.scenarioPath)
 	if err != nil {
 		fmt.Printf("Editor load error (%v), creating blank world\n", err)
 		t := world.NewTerrain(256, 256)
@@ -53,14 +53,18 @@ func (e *Editor) Init(app *engine.App) error {
 		r.AddLiftCable(lift, w.Terrain)
 	}
 
-	const cellSize = float32(5.0)
-	r.Camera.Target = mgl32.Vec3{
-		float32(w.Terrain.Width) * cellSize / 2,
-		0,
-		float32(w.Terrain.Height) * cellSize / 2,
+	if savedCam != nil {
+		applyCameraSnapshot(r.Camera, savedCam)
+	} else {
+		const cellSize = float32(5.0)
+		r.Camera.Target = mgl32.Vec3{
+			float32(w.Terrain.Width) * cellSize / 2,
+			0,
+			float32(w.Terrain.Height) * cellSize / 2,
+		}
+		r.Camera.OrthoScale = 700
+		r.Camera.Recalculate()
 	}
-	r.Camera.OrthoScale = 700
-	r.Camera.Recalculate()
 
 	// Editor tool bar — same shape as the scenario's: centred icon buttons,
 	// anchored to the bottom of the screen each frame in Update().
@@ -82,7 +86,7 @@ func (e *Editor) Init(app *engine.App) error {
 		))
 	})
 	e.menuBar.AddIconButton(render.IconFloppyDisk, "Save", func() {
-		if err := save.SaveScenario(e.scenarioPath, e.world); err != nil {
+		if err := save.SaveScenario(e.scenarioPath, e.world, editorCameraSnapshot(e)); err != nil {
 			fmt.Println("Save error:", err)
 		} else {
 			fmt.Println("Saved to", e.scenarioPath)
@@ -90,7 +94,7 @@ func (e *Editor) Init(app *engine.App) error {
 	})
 
 	e.escapeMenu = NewEscapeMenu(app, func() {
-		if err := save.SaveScenario(e.scenarioPath, e.world); err != nil {
+		if err := save.SaveScenario(e.scenarioPath, e.world, editorCameraSnapshot(e)); err != nil {
 			fmt.Println("Save error:", err)
 		} else {
 			fmt.Println("Saved to", e.scenarioPath)
@@ -398,6 +402,23 @@ func (e *Editor) layoutBrushSliders(r *render.Renderer) {
 func (e *Editor) Destroy() {
 	if e.app != nil && e.app.Renderer != nil {
 		e.app.Renderer.ResetSceneState()
+	}
+}
+
+// editorCameraSnapshot pulls the live camera state for save-time
+// persistence. Mirrors Scenario.cameraSnapshot.
+func editorCameraSnapshot(e *Editor) *save.CameraData {
+	if e.app == nil || e.app.Renderer == nil || e.app.Renderer.Camera == nil {
+		return nil
+	}
+	c := e.app.Renderer.Camera
+	return &save.CameraData{
+		TargetX:    c.Target[0],
+		TargetY:    c.Target[1],
+		TargetZ:    c.Target[2],
+		Yaw:        c.Yaw,
+		Pitch:      c.Pitch,
+		OrthoScale: c.OrthoScale,
 	}
 }
 

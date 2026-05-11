@@ -12,6 +12,19 @@ type ScenarioData struct {
 	Agents    []AgentData    `json:"agents"`
 	Snowcats  []SnowcatData  `json:"snowcats,omitempty"`
 	Cash      int            `json:"cash,omitempty"`
+	Camera    *CameraData    `json:"camera,omitempty"`
+}
+
+// CameraData is the saved orthographic-camera state: where it's
+// looking and how it's framed. First-person (perspective) state is
+// excluded — it's tied to a followed skier and resets on load.
+// Saving lets reloading a scenario or capturing a screenshot land on
+// the same view the player left.
+type CameraData struct {
+	TargetX, TargetY, TargetZ float32
+	Yaw                       float32
+	Pitch                     float32
+	OrthoScale                float32
 }
 
 // CellData is the serialisable representation of a terrain cell. Schema
@@ -29,7 +42,6 @@ type CellData struct {
 	Ice         float32 `json:"ic,omitempty"`
 	MogulSize   float32 `json:"mg,omitempty"`
 	TreeDensity float32 `json:"td,omitempty"`
-	Flat        float32 `json:"f,omitempty"`
 }
 
 // ObjectData is a placed natural object.

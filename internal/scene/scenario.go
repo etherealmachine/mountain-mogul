@@ -280,9 +280,6 @@ func buildStationApron(t *world.Terrain, station, axis mgl32.Vec2, side, halfWid
 				continue
 			}
 			t.Cells[x][z].GroundElevation = cur + (target-cur)*w
-			if w > t.Cells[x][z].Flat {
-				t.Cells[x][z].Flat = w
-			}
 			// Apron snow: a thin packed layer. Building pads aren't
 			// corduroyed by snowcats — they're foot-tracked and
 			// machine-compacted, so they read as packed flat snow
@@ -524,10 +521,11 @@ func (s *Scenario) Init(app *engine.App) error {
 	s.app = app
 
 	var w *world.World
+	var cam *save.CameraData
 	if s.prebuiltWorld != nil {
 		w = s.prebuiltWorld
 	} else {
-		loaded, err := save.LoadScenario(s.scenarioPath)
+		loaded, loadedCam, err := save.LoadScenario(s.scenarioPath)
 		if err != nil {
 			// Fall back to a blank world
 			fmt.Printf("Scenario load error (%v), creating blank world\n", err)
@@ -535,8 +533,12 @@ func (s *Scenario) Init(app *engine.App) error {
 			loaded = world.NewWorld(t)
 		}
 		w = loaded
+		cam = loadedCam
 	}
 	s.installWorld(w)
+	if cam != nil {
+		applyCameraSnapshot(app.Renderer.Camera, cam)
+	}
 
 	if s.saveAllowed {
 		s.escapeMenu = NewEscapeMenu(app, s.openSavePrompt, s.gotoLoadMenu)
@@ -648,6 +650,44 @@ func resortHappiness(w *world.World) float32 {
 	return 0.80
 }
 
+// cameraSnapshot captures the live orthographic-camera state into a
+// save.CameraData so the scene can be reloaded framed exactly as the
+// player left it. First-person (perspective) state is excluded — it
+// follows a transient skier and resets on load.
+func (s *Scenario) cameraSnapshot() *save.CameraData {
+	if s.app == nil || s.app.Renderer == nil || s.app.Renderer.Camera == nil {
+		return nil
+	}
+	c := s.app.Renderer.Camera
+	return &save.CameraData{
+		TargetX:    c.Target[0],
+		TargetY:    c.Target[1],
+		TargetZ:    c.Target[2],
+		Yaw:        c.Yaw,
+		Pitch:      c.Pitch,
+		OrthoScale: c.OrthoScale,
+	}
+}
+
+// applyCameraSnapshot writes a saved camera state back onto the
+// renderer's live camera. Disables perspective mode in case the save
+// was taken before first-person was added; orthographic fields are
+// applied verbatim. OrthoScale guard keeps a corrupt or zero-valued
+// scale from making the world invisible.
+func applyCameraSnapshot(c *render.Camera, cam *save.CameraData) {
+	if c == nil || cam == nil {
+		return
+	}
+	c.Perspective = false
+	c.Target = mgl32.Vec3{cam.TargetX, cam.TargetY, cam.TargetZ}
+	c.Yaw = cam.Yaw
+	c.Pitch = cam.Pitch
+	if cam.OrthoScale > 0 {
+		c.OrthoScale = cam.OrthoScale
+	}
+	c.Recalculate()
+}
+
 // installWorld swaps in a new world and rebuilds renderer state. Tears down
 // per-lift meshes for the previous world (if any) before bringing up the new.
 func (s *Scenario) installWorld(w *world.World) {
@@ -697,7 +737,7 @@ func (s *Scenario) commitSave(name string) {
 		s.setToast("Save name cannot be empty")
 		return
 	}
-	path, err := save.SaveAs(clean, s.world)
+	path, err := save.SaveAs(clean, s.world, s.cameraSnapshot())
 	if err != nil {
 		s.setToast("Save error: " + err.Error())
 		return

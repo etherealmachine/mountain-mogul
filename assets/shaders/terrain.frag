@@ -6,6 +6,7 @@ in float vSmoothY;
 in float vAO;
 in vec4  vSnow;        // (Grooming, Packed, Ice, MogulSize)
 in float vSnowDepth;   // SnowDepth in metres
+in vec3  vSmoothNormal; // per-corner smoothed normal, interpolated across triangles
 
 uniform vec2  uBrushCenter;
 uniform float uBrushRadius;
@@ -40,15 +41,27 @@ float valueNoise(vec2 p) {
 }
 
 void main() {
-    vec3  N     = normalize(vNormal);
-    float slope = clamp(N.y, 0.0, 1.0);                  // 1 = flat, 0 = vertical
-    float h     = clamp((vWorldPos.y - uTerrainMinY) /
-                        max(uTerrainMaxY - uTerrainMinY, 1.0), 0.0, 1.0);
-
     float grooming = clamp(vSnow.x, 0.0, 1.0);
     float packed   = clamp(vSnow.y, 0.0, 1.0);
     float ice      = clamp(vSnow.z, 0.0, 1.0);
     float mogul    = clamp(vSnow.w, 0.0, 1.0);
+
+    // Surface normal. The per-quad flat normal (vNormal) gives the
+    // diorama-style faceted look that's appropriate for ungroomed
+    // terrain and cliffs, but reads as bumpiness across a groomed
+    // run even when the underlying geometry is smooth. Groomed
+    // surfaces blend toward vSmoothNormal — a per-corner normal
+    // derived from the smoothed elevation grid at build time and
+    // interpolated across triangle edges, so corduroyed cells light
+    // as a single continuous slope.
+    vec3 flatN   = normalize(vNormal);
+    vec3 smoothN = normalize(vSmoothNormal);
+    // Heavily-groomed cells use 95% smooth normal so lighting facets
+    // vanish; fades smoothly back to flat shading as grooming drops.
+    vec3  N     = mix(flatN, smoothN, smoothstep(0.0, 0.5, grooming) * 0.95);
+    float slope = clamp(N.y, 0.0, 1.0);                  // 1 = flat, 0 = vertical
+    float h     = clamp((vWorldPos.y - uTerrainMinY) /
+                        max(uTerrainMaxY - uTerrainMinY, 1.0), 0.0, 1.0);
 
     // Topographic palette — height-driven for flats, slope override for cliffs.
     vec3 rock      = vec3(0.34, 0.33, 0.32);
@@ -95,23 +108,26 @@ void main() {
     // Ambient + diffuse, multiplied by baked AO to deepen valleys / cliff bases.
     vec3 lit = shaded * (0.25 + 0.85 * diff) * vAO;
 
-    // Corduroy stripes — periodic brightness modulation. Real
-    // groomers drive perpendicular to the fall line so the stripe
-    // direction would ideally follow contours, but the per-quad flat
-    // normals we compute today produce visibly different stripe angles
-    // between adjacent cells. A fixed world-space direction looks
-    // cleaner: stripes run along world X (perpendicular to world Z)
-    // everywhere there's grooming, reading as a uniform pattern.
-    // We can swap back to contour-aligned stripes once we have
-    // smoothed per-vertex surface gradients.
+    // Groomed snow visual — no directional stripes (corduroy
+    // line-art has its own set of issues: any per-fragment direction
+    // function rotates across the surface and produces curved/oval
+    // iso-lines rather than parallel stripes; reliably-parallel
+    // stripes need either a fixed world axis, a per-route uniform,
+    // or a heavily-smoothed CPU-side gradient — all more machinery
+    // than the look is worth at this point).
     //
-    // Frequency: ~2 stripes/metre. Amplitude: ±12% brightness swing,
-    // strong enough to read as corduroy from gameplay zoom.
+    // Instead, two cheap non-directional cues mark groomed snow:
+    //   1. A subtle low-amplitude 2D value-noise grain, so the
+    //      surface has a touch of "fine snow texture" rather than
+    //      reading as a flat shaded slab.
+    //   2. A slight cool tint — packed-and-smoothed snow reads
+    //      bluer than fresh powder.
+    //
+    // The smoothed-normal lighting (computed earlier) is the primary
+    // signal that the surface is groomed; these two add character.
     if (grooming > 0.01 && snowness > 0.1) {
-        float stripe = sin(vWorldPos.z * 12.5);
-        lit *= 1.0 + stripe * 0.12 * grooming;
-        // Subtle cool tint on groomed surfaces — corduroy reads slightly
-        // bluer than fresh snow because it's been packed and smoothed.
+        float grain = valueNoise(vWorldPos.xz / 1.5) - 0.5; // ±0.5 around zero
+        lit *= 1.0 + grain * 0.05 * grooming;
         lit = mix(lit, lit * vec3(0.92, 0.96, 1.02), 0.15 * grooming);
     }
 

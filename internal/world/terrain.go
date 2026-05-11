@@ -34,12 +34,6 @@ type Cell struct {
 
 	Passable    bool    // hard structural block (buildings, lift endpoints)
 	TreeDensity float32 // 0.0 = clear, 1.0 = dense old-growth
-
-	// Flat is a render-side hint: 0 = natural terrain (full vertex jitter),
-	// 1 = intentionally flattened (skip jitter so the result actually reads
-	// flat). Apron passes set this to the same falloff weight they apply to
-	// elevation, so partial-falloff edges still scale jitter down proportionally.
-	Flat float32
 }
 
 // SurfaceElevation returns the snow-surface elevation for this cell

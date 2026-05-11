@@ -2,14 +2,19 @@
 
 Parametric 3D models for the game, authored as OpenSCAD code. The build
 pipeline (`make models`) compiles each `.scad` here into an OBJ under
-`assets/models/` via an intermediate ASCII STL.
+`assets/models/` via an intermediate 3MF, preserving `color()` blocks as
+per-vertex colour in the OBJ.
 
 ```
-models-src/foo.scad  →  build/stl/foo.stl  →  assets/models/foo.obj
+models-src/foo.scad  →  build/3mf/foo.3mf  →  assets/models/foo.obj
 ```
 
-The conversion happens in `tools/stl2obj/main.go`, which also bridges the
-coordinate-system mismatch between OpenSCAD and the game (see below).
+The conversion happens in `tools/scad2obj/main.go`, which also bridges
+the coordinate-system mismatch between OpenSCAD and the game (see below).
+
+> **Requires the OpenSCAD development snapshot** (>= 2026.04 or so) —
+> the 2021.01 stable release drops `color()` information at every mesh
+> export format. `brew install --cask openscad@snapshot`.
 
 ## Conventions
 
@@ -65,12 +70,18 @@ Set `$fn = 8` to `$fn = 16` globally so cylinders and spheres stay
 game-suitable. The renderer can handle dense meshes but agents are
 spawned by the hundreds — every triangle counts in the static batch.
 
-### Materials: structural primitives only
+### Materials: `color()` flows through
 
-`color()` blocks are useful as visual identification in the OpenSCAD
-preview but get dropped at OBJ export — the game uses a uniform white
-texture for SCAD-authored models today. Don't rely on per-face colour
-for in-game appearance; use shape and proportion instead.
+`color()` blocks are preserved through the build pipeline as per-vertex
+RGB in the generated OBJ. OpenSCAD's 3MF export groups triangles by the
+`color()` in scope, scad2obj maps each group's `displaycolor` to a float
+RGB triple, and the renderer multiplies it into the per-instance
+`ColorTint` so the SCAD-authored colours are the base and the
+ColorTint becomes a tint on top.
+
+Geometry that has no `color()` wrapper renders as white (the OpenSCAD
+"Default" basematerial is remapped to (1, 1, 1) by the converter so
+nothing accidentally ships in OpenSCAD preview yellow).
 
 ## Real-world reference dimensions
 

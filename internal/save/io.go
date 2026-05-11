@@ -82,14 +82,15 @@ func MostRecentSave() (string, bool) {
 
 // SaveAs writes the world to a file inside SavesDir named after `name`. Any
 // path separators in `name` are stripped so the write can't escape the dir.
-// Returns the final path written.
-func SaveAs(name string, w *world.World) (string, error) {
+// Returns the final path written. cam is optional — pass nil to skip
+// camera persistence.
+func SaveAs(name string, w *world.World, cam *CameraData) (string, error) {
 	clean := SanitizeSaveName(name)
 	if clean == "" {
 		clean = "save"
 	}
 	path := filepath.Join(SavesDir(), clean+SaveExt)
-	if err := SaveScenario(path, w); err != nil {
+	if err := SaveScenario(path, w, cam); err != nil {
 		return "", err
 	}
 	return path, nil
@@ -112,7 +113,9 @@ func DefaultSaveName() string {
 	return "save-" + time.Now().Format("2006-01-02-1504")
 }
 
-// SaveScenario marshals the world and writes it to path.
+// SaveScenario marshals the world and writes it to path. cam is
+// optional; if non-nil, the orthographic camera state is captured so
+// the scene reloads framed exactly as the player left it.
 //
 // Format: msgpack-encoded ScenarioData wrapped in a gzip stream. The
 // msgpack encoder is configured to honour the existing `json:` struct
@@ -120,8 +123,13 @@ func DefaultSaveName() string {
 // then crushes the long runs of identical-or-similar cell values
 // (most cells in a scenario have default snow state) down to a tiny
 // fraction of the original.
-func SaveScenario(path string, w *world.World) error {
-	return WriteScenarioData(path, worldToData(w))
+func SaveScenario(path string, w *world.World, cam *CameraData) error {
+	data := worldToData(w)
+	if cam != nil {
+		c := *cam
+		data.Camera = &c
+	}
+	return WriteScenarioData(path, data)
 }
 
 // WriteScenarioData writes an already-built ScenarioData to disk in
@@ -144,24 +152,26 @@ func WriteScenarioData(path string, data ScenarioData) error {
 	return os.WriteFile(path, buf.Bytes(), 0644)
 }
 
-// LoadScenario reads and parses a `.save` file, returning a World.
-func LoadScenario(path string) (*world.World, error) {
+// LoadScenario reads and parses a `.save` file, returning a World
+// and, if the save included one, the camera snapshot. cam is nil for
+// saves that predate camera persistence (or never had a camera set).
+func LoadScenario(path string) (*world.World, *CameraData, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	gz, err := gzip.NewReader(bytes.NewReader(raw))
 	if err != nil {
-		return nil, fmt.Errorf("save %q: %w", path, err)
+		return nil, nil, fmt.Errorf("save %q: %w", path, err)
 	}
 	defer gz.Close()
 	var data ScenarioData
 	dec := msgpack.NewDecoder(gz)
 	dec.SetCustomStructTag("json")
 	if err := dec.Decode(&data); err != nil && err != io.EOF {
-		return nil, fmt.Errorf("save %q: %w", path, err)
+		return nil, nil, fmt.Errorf("save %q: %w", path, err)
 	}
-	return dataToWorld(data), nil
+	return dataToWorld(data), data.Camera, nil
 }
 
 func worldToData(w *world.World) ScenarioData {
@@ -178,7 +188,6 @@ func worldToData(w *world.World) ScenarioData {
 				Ice:         c.Ice,
 				MogulSize:   c.MogulSize,
 				TreeDensity: c.TreeDensity,
-				Flat:        c.Flat,
 			})
 		}
 	}
@@ -296,7 +305,6 @@ func dataToWorld(data ScenarioData) *world.World {
 				t.Cells[x][z].Ice = c.Ice
 				t.Cells[x][z].MogulSize = c.MogulSize
 				t.Cells[x][z].TreeDensity = c.TreeDensity
-				t.Cells[x][z].Flat = c.Flat
 			}
 			idx++
 		}

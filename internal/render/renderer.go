@@ -190,6 +190,12 @@ func NewRenderer(w, h int, assetDir string) (*Renderer, error) {
 	gl.Enable(gl.DEPTH_TEST)
 	gl.ClearColor(0.635, 0.682, 0.918, 1.0)
 
+	// Constant fallback for the per-vertex base-colour attribute (location 8).
+	// Meshes that don't supply per-vertex colour leave this attribute
+	// unbound; GL reads the global constant set here, so they render as
+	// iColorTint × 1 instead of iColorTint × 0.
+	gl.VertexAttrib3f(VertexColorLoc, 1, 1, 1)
+
 	return r, nil
 }
 
@@ -250,11 +256,16 @@ func (r *Renderer) SetLogicalSize(w, h int) {
 
 // buildTerrainVerts generates vertex and index data for the terrain mesh.
 // Vertex layout per vertex: pos(3) + flatNormal(3) + smoothY(1) + ao(1) +
-// snow(4) + snowDepth(1) = 13 floats. snow = (Grooming, Packed, Ice,
-// MogulSize) sampled from the cell at the vertex's grid corner; the
-// fragment shader uses these to render corduroy, packed snow, ice sheen,
-// and mogul roughness. snowDepth is in metres at the same corner — used
-// by the depth-heatmap overlay.
+// snow(4) + snowDepth(1) + smoothNormal(3) = 16 floats. snow =
+// (Grooming, Packed, Ice, MogulSize) sampled from the cell at the
+// vertex's grid corner; the fragment shader uses these to render
+// corduroy, packed snow, ice sheen, and mogul roughness. snowDepth is
+// in metres at the same corner — used by the depth-heatmap overlay.
+// smoothNormal is the per-corner normal derived from the smoothed
+// elevation grid via central differences, passed as a non-flat
+// interpolated varying so groomed cells render with continuous
+// lighting across triangle edges (ungroomed cells keep flatNormal for
+// the diorama-style facets).
 // flatNormal is the per-triangle face normal (vertices duplicated per-tri so
 // flat shading falls out naturally). smoothY is a low-pass-filtered elevation
 // driving the contour overlay (so its lines don't zig-zag along the triangle
@@ -271,7 +282,7 @@ func (r *Renderer) SetLogicalSize(w, h int) {
 func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, minY, maxY float32, surfaceVerts int) {
 	const cellSize = float32(5.0)
 	const skirtBaseY = float32(-50.0)
-	const floatsPerVert = 13
+	const floatsPerVert = 16
 
 	numSurface := (t.Width - 1) * (t.Height - 1)
 	numSkirt := 2*(t.Width-1) + 2*(t.Height-1) + 1
@@ -283,13 +294,15 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 	idx := uint32(0)
 
 	// ── Pre-compute jittered corner positions ────────────────────────────────
-	// Cells with Flat > 0 (lift station aprons) scale jitter down by their
-	// Flat weight so intentionally smoothed terrain reads flat instead of
-	// pebbled. The corner at (x, z) is shared by up to 4 cells; we suppress
-	// jitter using the strongest Flat among them so any flattened neighbour
-	// pulls the corner toward exact.
-	cornerFlat := func(x, z int) float32 {
-		var maxFlat float32
+	// Thin-snow cells (lift station aprons clamp SnowDepth to ~5 cm) scale
+	// jitter down so intentionally graded earthwork reads flat instead of
+	// pebbled. The corner at (x, z) is shared by up to 4 cells; we take the
+	// minimum SnowDepth among them so any thin-snow neighbour pulls the
+	// corner toward exact. Smoothstep from 0.5 m → 1.5 m gives a clean
+	// transition between apron snow (no jitter) and natural snow (full
+	// jitter).
+	cornerSmoothness := func(x, z int) float32 {
+		minDepth := float32(math.Inf(1))
 		for ox := x - 1; ox <= x; ox++ {
 			if ox < 0 || ox >= t.Width {
 				continue
@@ -298,12 +311,22 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 				if oz < 0 || oz >= t.Height {
 					continue
 				}
-				if f := t.Cells[ox][oz].Flat; f > maxFlat {
-					maxFlat = f
+				if d := t.Cells[ox][oz].SnowDepth; d < minDepth {
+					minDepth = d
 				}
 			}
 		}
-		return maxFlat
+		if math.IsInf(float64(minDepth), 1) {
+			return 1
+		}
+		// Inline smoothstep(0.5, 1.5, minDepth).
+		x01 := (minDepth - 0.5) / 1.0
+		if x01 < 0 {
+			x01 = 0
+		} else if x01 > 1 {
+			x01 = 1
+		}
+		return x01 * x01 * (3 - 2*x01)
 	}
 	// jit holds Y (elevation including jitter); jitX/jitZ hold the small
 	// horizontal offsets used to displace the grid lattice so it doesn't
@@ -314,7 +337,7 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 	for z := 0; z < t.Height; z++ {
 		for x := 0; x < t.Width; x++ {
 			jx, jy, jz := terrainJitterXYZ(x, z, t.Width, t.Height, cellSize)
-			scale := 1 - cornerFlat(x, z)
+			scale := cornerSmoothness(x, z)
 			i := x*t.Height + z
 			jitX[i] = jx * scale
 			jit[i] = t.SurfaceElevationAt(x, z) + jy*scale
@@ -460,26 +483,74 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 	}
 	aoAt := func(x, z int) float32 { return ao[x*t.Height+z] }
 
-	// Snow state per grid corner. Corner (x, z) samples the cell at the
-	// same indices, clamped to the in-bounds region — the visible mesh is
-	// only (W-1)×(H-1) cells so right/back-edge corners (x=W-1, z=H-1)
-	// borrow snow state from the last *interior* cell rather than from an
-	// unrendered phantom one.
-	snowAt := func(x, z int) (g, p, ice, mog, depth float32) {
-		if x >= t.Width-1 {
-			x = t.Width - 2
+	// Per-corner smooth normal from the smoothed-elevation grid via
+	// central differences. The "smoothY" filter (5-tap binomial × 2
+	// passes) has already removed cell-scale noise; differentiating
+	// it gives a continuous gradient field. Adjacent triangles share
+	// corner vertices and therefore share these normals, so when the
+	// fragment shader interpolates the attribute across each triangle
+	// the result is smooth across cell edges — no per-quad facets.
+	smoothNormalAt := func(x, z int) [3]float32 {
+		xL, xR := x-1, x+1
+		if xL < 0 {
+			xL = 0
 		}
-		if z >= t.Height-1 {
-			z = t.Height - 2
+		if xR >= t.Width {
+			xR = t.Width - 1
 		}
-		if x < 0 {
-			x = 0
+		zU, zD := z-1, z+1
+		if zU < 0 {
+			zU = 0
 		}
-		if z < 0 {
-			z = 0
+		if zD >= t.Height {
+			zD = t.Height - 1
 		}
-		c := t.Cells[x][z]
-		return c.Grooming, c.Packed, c.Ice, c.MogulSize, c.SnowDepth
+		runX := float32(xR-xL) * cellSize
+		runZ := float32(zD-zU) * cellSize
+		var dYdx, dYdz float32
+		if runX > 0 {
+			dYdx = (smoothYAt(xR, z) - smoothYAt(xL, z)) / runX
+		}
+		if runZ > 0 {
+			dYdz = (smoothYAt(x, zD) - smoothYAt(x, zU)) / runZ
+		}
+		nx, ny, nz := -dYdx, float32(1.0), -dYdz
+		invL := float32(1.0) / float32(math.Sqrt(float64(nx*nx+ny*ny+nz*nz)))
+		return [3]float32{nx * invL, ny * invL, nz * invL}
+	}
+
+	// Snow state per grid corner. Each corner averages the 4 cells
+	// surrounding it (cells at (x-1,z-1), (x,z-1), (x-1,z), (x,z) — the
+	// four quads that share this corner). Averaging gives soft edges:
+	// adjacent groomed cells share corner values, so a 5×5 groomed
+	// patch fades smoothly into its neighbours instead of stopping at
+	// a hard cell boundary. Single isolated groomed cells show up as
+	// dim peaks rather than triangle artefacts.
+	//
+	// Out-of-bounds corners contribute nothing — the divisor counts
+	// only the cells that actually exist.
+	snowAt := func(cx, cz int) (g, pk, ic, mg, dp float32) {
+		var n float32
+		for dz := -1; dz <= 0; dz++ {
+			for dx := -1; dx <= 0; dx++ {
+				x, z := cx+dx, cz+dz
+				if x < 0 || x >= t.Width || z < 0 || z >= t.Height {
+					continue
+				}
+				c := t.Cells[x][z]
+				g += c.Grooming
+				pk += c.Packed
+				ic += c.Ice
+				mg += c.MogulSize
+				dp += c.SnowDepth
+				n++
+			}
+		}
+		if n == 0 {
+			return 0, 0, 0, 0, 0
+		}
+		inv := 1.0 / n
+		return g * inv, pk * inv, ic * inv, mg * inv, dp * inv
 	}
 
 	// ── Surface ───────────────────────────────────────────────────────────────
@@ -506,26 +577,27 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 				corners[1] = [3][2]int{{x + 1, z}, {x + 1, z + 1}, {x, z + 1}}
 			}
 
-			// Snow state is sampled once per quad (cell (x, z)) and
-			// applied to all 6 vertices of the quad's two triangles, so
-			// snow-type visualisations are flat-shaded per cell. The
-			// alternative — per-corner sampling — bilinearly smears each
-			// cell's value across four neighbours, which made a single
-			// cat-groomed cell appear as a faint triangle of green
-			// rather than a crisp cell. Per-vertex AO and smoothY stay
-			// per-corner since those legitimately interpolate.
-			qg, qpk, qic, qmg, qdp := snowAt(x, z)
+			// Snow state is sampled per corner via the 4-cell average
+			// in snowAt. Adjacent triangles share corner vertices, so
+			// the snow attributes are continuous across cell edges;
+			// bilinear interpolation across each triangle then yields
+			// soft transitions between groomed and ungroomed regions
+			// rather than the hard per-cell boundary the flat-shaded
+			// variant had.
 			for ti, tri := range tris {
 				n := upwardNormal(tri[0], tri[1], tri[2])
 				for vi, p := range tri {
 					cx, cz := corners[ti][vi][0], corners[ti][vi][1]
+					g, pk, ic, mg, dp := snowAt(cx, cz)
+					sn := smoothNormalAt(cx, cz)
 					verts = append(verts,
 						p[0], p[1], p[2],
 						n[0], n[1], n[2],
 						smoothYAt(cx, cz),
 						aoAt(cx, cz),
-						qg, qpk, qic, qmg,
-						qdp,
+						g, pk, ic, mg,
+						dp,
+						sn[0], sn[1], sn[2],
 					)
 					if p[1] < minY {
 						minY = p[1]
@@ -564,6 +636,7 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 				ao,
 				0, 0, 0, 0, // skirts get no snow-state shading
 				0,          // and no snow depth
+				n[0], n[1], n[2], // skirts: smooth normal == flat normal
 			)
 		}
 		indices = append(indices, idx, idx+1, idx+2)
@@ -779,7 +852,7 @@ func (r *Renderer) BuildTerrainMesh(t *world.Terrain) {
 	gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo)
 	gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(indices)*4, gl.Ptr(indices), gl.STATIC_DRAW)
 
-	stride := int32(13 * 4)
+	stride := int32(16 * 4)
 	gl.EnableVertexAttribArray(0)
 	gl.VertexAttribPointerWithOffset(0, 3, gl.FLOAT, false, stride, 0)  // aPos
 	gl.EnableVertexAttribArray(1)
@@ -792,6 +865,8 @@ func (r *Renderer) BuildTerrainMesh(t *world.Terrain) {
 	gl.VertexAttribPointerWithOffset(4, 4, gl.FLOAT, false, stride, 32) // aSnow = (Grooming, Packed, Ice, MogulSize)
 	gl.EnableVertexAttribArray(5)
 	gl.VertexAttribPointerWithOffset(5, 1, gl.FLOAT, false, stride, 48) // aSnowDepth (metres)
+	gl.EnableVertexAttribArray(6)
+	gl.VertexAttribPointerWithOffset(6, 3, gl.FLOAT, false, stride, 52) // aSmoothNormal (per-corner, interpolated)
 	gl.BindVertexArray(0)
 
 	r.scene.terrainVBO = vbo
@@ -822,7 +897,7 @@ func (r *Renderer) FlushTerrainVerts(t *world.Terrain) {
 	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
 }
 
-// FlushSnowState rewrites the per-cell snow-state attributes on the
+// FlushSnowState rewrites the per-corner snow-state attributes on the
 // cached terrain vertex array and uploads. AO, smoothY, jitter, and
 // corner positions are NOT recomputed — they don't depend on snow
 // state and recomputing them was the source of the per-frame stall
@@ -833,35 +908,99 @@ func (r *Renderer) FlushTerrainVerts(t *world.Terrain) {
 // | snow(4: Grooming, Packed, Ice, MogulSize) | snowDepth(1).
 // We rewrite floats 8..12 per surface vertex.
 //
-// Surface vertex order matches buildTerrainVerts: row-major over
-// (x, z) ∈ [0, W-1)×[0, H-1), each quad emitting 6 vertices that all
-// flat-share the cell at (x, z).
+// Per-corner values average the 4 cells around each corner so the
+// fragment shader sees smooth transitions at cell boundaries — a
+// groomed patch fades into its neighbours rather than cutting off at
+// the cell edge. This mirrors the corner-sampling rule used by
+// buildTerrainVerts; vertex order in the cached array must match
+// buildTerrainVerts exactly or values land on the wrong vertices.
 func (r *Renderer) FlushSnowState(t *world.Terrain) {
 	if r.scene.terrainMesh == nil || r.scene.terrainVerts == nil {
 		return
 	}
 	verts := r.scene.terrainVerts
 	surfaceVerts := r.scene.terrainSurfaceVerts
-	const stride = 13
+	const stride = 16
+	W, H := t.Width, t.Height
 
-	const vertsPerQuad = 6
-	idx := 0
-	for z := 0; z < t.Height-1; z++ {
-		for x := 0; x < t.Width-1; x++ {
-			c := t.Cells[x][z]
-			for v := 0; v < vertsPerQuad; v++ {
-				vi := idx + v
-				if vi >= surfaceVerts {
-					break
+	// Precompute per-corner averages once, then look them up while
+	// walking the vertex stream. Cheaper than recomputing the average
+	// six times per quad — and the corner data is the same regardless
+	// of which triangle the vertex belongs to.
+	//
+	// We also recompute corner Y here: SnowDepth changes (from cat
+	// grooming) shift the snow-surface elevation, so the mesh vertex
+	// Y has to follow. Y uses per-cell direct sampling (same rule as
+	// the original mesh build) rather than the 4-cell average — the
+	// shader attributes get blended to soften their visual; the
+	// mesh geometry remains the authoritative cell-by-cell surface.
+	type cornerSnow struct{ g, pk, ic, mg, dp float32 }
+	corners := make([]cornerSnow, W*H)
+	cornerY := make([]float32, W*H)
+	for cz := 0; cz < H; cz++ {
+		for cx := 0; cx < W; cx++ {
+			cornerY[cx*H+cz] = t.SurfaceElevationAt(cx, cz)
+			var g, pk, ic, mg, dp, n float32
+			for dz := -1; dz <= 0; dz++ {
+				for dx := -1; dx <= 0; dx++ {
+					x, z := cx+dx, cz+dz
+					if x < 0 || x >= W || z < 0 || z >= H {
+						continue
+					}
+					c := t.Cells[x][z]
+					g += c.Grooming
+					pk += c.Packed
+					ic += c.Ice
+					mg += c.MogulSize
+					dp += c.SnowDepth
+					n++
 				}
-				base := vi * stride
-				verts[base+8] = c.Grooming
-				verts[base+9] = c.Packed
-				verts[base+10] = c.Ice
-				verts[base+11] = c.MogulSize
-				verts[base+12] = c.SnowDepth
 			}
-			idx += vertsPerQuad
+			if n == 0 {
+				continue
+			}
+			inv := 1.0 / n
+			corners[cx*H+cz] = cornerSnow{g * inv, pk * inv, ic * inv, mg * inv, dp * inv}
+		}
+	}
+
+	vi := 0
+	write := func(cx, cz int) {
+		if vi >= surfaceVerts {
+			return
+		}
+		base := vi * stride
+		ci := cx*H + cz
+		verts[base+1] = cornerY[ci] // refresh vertex Y to current ground + snow
+		c := corners[ci]
+		verts[base+8] = c.g
+		verts[base+9] = c.pk
+		verts[base+10] = c.ic
+		verts[base+11] = c.mg
+		verts[base+12] = c.dp
+		vi++
+	}
+	for z := 0; z < H-1; z++ {
+		for x := 0; x < W-1; x++ {
+			if (x+z)%2 == 0 {
+				// tri0: (x,z), (x+1,z), (x+1,z+1)
+				write(x, z)
+				write(x+1, z)
+				write(x+1, z+1)
+				// tri1: (x,z), (x+1,z+1), (x,z+1)
+				write(x, z)
+				write(x+1, z+1)
+				write(x, z+1)
+			} else {
+				// tri0: (x,z), (x+1,z), (x,z+1)
+				write(x, z)
+				write(x+1, z)
+				write(x, z+1)
+				// tri1: (x+1,z), (x+1,z+1), (x,z+1)
+				write(x+1, z)
+				write(x+1, z+1)
+				write(x, z+1)
+			}
 		}
 	}
 	gl.BindBuffer(gl.ARRAY_BUFFER, r.scene.terrainVBO)
@@ -1125,7 +1264,7 @@ func generateCableMesh(lift *world.Lift, t *world.Terrain, perpOff float32) *Mes
 			indices = append(indices, base, base+1, base+2, base+1, base+3, base+2)
 		}
 	}
-	return NewMesh(verts, indices, []int{3, 3, 2})
+	return NewMesh(verts, indices, []int{3, 3, 2}, nil)
 }
 
 // DrawWorld renders the full 3D world.
@@ -1619,22 +1758,13 @@ func treeCountFromDensity(density float32, cellHash uint64) int {
 	return whole
 }
 
-// treeTintForVariant returns the foliage colour for a given tree-mesh variant
-// (procedural meshes are bound to the white texture, so the static shader's
-// final colour comes from this per-instance tint × the lighting model).
-// Three slightly different greens give the forest visible variation without
-// individual trees needing per-instance colouring.
+// treeTintForVariant returns the per-instance ColorTint for a tree variant.
+// Foliage colour now lives in the .scad source per variant (medium pine /
+// dark spruce / blue-green fir) and flows through as per-vertex base
+// colour, so the tint is white — reserved for future per-instance effects
+// (selection highlight, seasonal mood) on top of the SCAD-authored palette.
 func treeTintForVariant(variant uint32) mgl32.Vec3 {
-	switch variant {
-	case MeshTree:
-		return mgl32.Vec3{0.32, 0.50, 0.28} // medium pine green
-	case MeshTree + 1:
-		return mgl32.Vec3{0.22, 0.40, 0.22} // dark spruce green
-	case MeshTree + 2:
-		return mgl32.Vec3{0.30, 0.48, 0.36} // blue-green fir
-	default:
-		return mgl32.Vec3{1, 1, 1}
-	}
+	return mgl32.Vec3{1, 1, 1}
 }
 
 // treeInstanceHash returns a stable 64-bit hash for deriving per-tree visual properties.

@@ -71,11 +71,14 @@ within a structure-specific footprint. The apron:
    raise-only, with smoothstep falloff on the outer edges. Lifts get a
    40 × 24 m rectangle aligned with the cable axis; lodges get a 24 × 24 m
    square.
-2. Sets `Flat` (a render-side hint that suppresses vertex jitter).
-3. Clamps `SnowDepth` to ~5 cm (a thin groomed pad).
-4. Sets `Grooming` to the falloff weight (full inside, fading to zero at
-   the edge).
-5. Zeros `MogulSize` and `Ice` proportionally to the weight.
+2. Clamps `SnowDepth` to ~5 cm (a thin packed pad). This is what the
+   renderer keys off to suppress vertex jitter — thin snow → smooth-read
+   terrain.
+3. Raises `Packed` to the falloff weight (full inside, fading to zero at
+   the edge). Aprons are foot-tracked and machine-compacted, so they read
+   as packed flat snow — not corduroyed. `Grooming` is deliberately NOT
+   raised; if the player grooms over the apron later, that's their choice.
+4. Zeros `MogulSize` and `Ice` proportionally to the weight.
 
 The apron is a one-shot terrain edit at placement time. Save loading does
 *not* re-apply it — the apron-edited cell state is what's serialised, so
@@ -84,6 +87,29 @@ loading a save reconstructs the apron faithfully without re-mutating.
 Both pass through a shared `buildStationApron` helper in `internal/scene/
 scenario.go`. Adding a new structure type means: add a placement-effects
 function that picks footprint + axis + buildup and calls the helper.
+
+## Skier traffic wear
+
+`internal/sim/skiing.go::wearSnowUnderfoot` runs once per skier per tick
+on the cell beneath the agent. It mutates three scalars at rates tuned
+to the average per-pass exposure (~0.5 s in a 5 m cell at 10 m/s):
+
+| Field       | Rate          | Effect                                   |
+| ----------- | ------------- | ---------------------------------------- |
+| `Grooming`  | −0.02/s       | Skis cut up the corduroy; ~100 passes wipe out fresh grooming |
+| `Packed`    | +0.05/s       | Boots and edges compact the column; ~40 passes saturate from 0.5 |
+| `MogulSize` | +0.005·(1−Grooming)/s | Ungroomed cells slowly mogul up; corduroy resists bumps |
+
+Mogul growth is gated on `SnowDepth > 0.3 m` so aprons (clamped to
+~5 cm) and scraped patches don't grow geometry-less bumps. Fallen,
+walking, queueing, and on-lift agents don't run this — only active
+skiing in `tickSkier`.
+
+The wear loop sets `Terrain.SnowDirty = true`; the renderer rebuilds
+the whole mesh at most once per frame regardless of how many cells
+changed. The snowcat fleet refreshes `Grooming` back to 1.0 as cats
+arrive at cells, so a heavily-trafficked piste reaches a dynamic
+equilibrium between wear and grooming throughput.
 
 ## Rendering
 
@@ -144,7 +170,6 @@ pk  → Packed
 ic  → Ice
 mg  → MogulSize
 td  → TreeDensity
-f   → Flat
 ```
 
 The original `e` tag was preserved through the rename so saves that predate
@@ -158,13 +183,10 @@ fill in the full set.
 - **Snow brushes.** Player-facing tools to paint `SnowDepth`, `Grooming`,
   spray snowmaking, etc. The data model supports them; UI is the remaining
   work.
-- **Snowcat agent.** AI agent that drives along trails raising `Grooming`
-  and crushing `MogulSize`. Currently grooming is only applied by the
-  apron pass at placement time.
-- **Dynamic snow state.** Each tick: snowfall adds `SnowDepth`; skier
-  traffic raises `Packed` and slowly grows `MogulSize` in ungroomed cells;
-  thin-snow + traffic + freeze cycles raise `Ice`. None of these dynamics
-  exist yet — snow state is static between placement events.
+- **Snowfall and freeze cycles.** Each tick: snowfall adds `SnowDepth`;
+  thin-snow + traffic + freeze cycles raise `Ice`. Skier wear (Grooming
+  decay, Packed rise, Mogul growth) and snowcat grooming are already
+  implemented; precipitation and freeze-thaw are not.
 - **Glade tolerance trait.** Per-skier willingness to enter trees;
   currently all skiers avoid trees equally. Already on the roadmap.
 - **Lift cable clearance over ground.** Cables currently sit at `Surface +

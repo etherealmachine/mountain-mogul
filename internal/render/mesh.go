@@ -31,13 +31,22 @@ const (
 type Mesh struct {
 	VAO, VBO, EBO uint32
 	IndexCount    int32
-	Layout        []int // per-vertex attribute sizes in floats
+	Layout        []int    // per-vertex attribute sizes in floats
+	Locations     []uint32 // optional GL location overrides per layout entry; nil → 0..N-1
 }
+
+// VertexColorLoc is the GL attribute location reserved for per-vertex base
+// colour (multiplied with per-instance ColorTint in the static/dynamic
+// shaders). Pinned to 8 so per-vertex colour can coexist with the static
+// batch's per-instance attributes at locations 3-7 and the dynamic batch's
+// at 2-4 without colliding.
+const VertexColorLoc uint32 = 8
 
 // NewMesh creates a GPU mesh from vertex and index data.
 // layout is the vertex attribute sizes in floats, e.g. [3,3,2] for pos/normal/uv.
-func NewMesh(vertices []float32, indices []uint32, layout []int) *Mesh {
-	m := &Mesh{IndexCount: int32(len(indices)), Layout: layout}
+// locations may be nil (locations default to 0..N-1) or must match len(layout).
+func NewMesh(vertices []float32, indices []uint32, layout []int, locations []uint32) *Mesh {
+	m := &Mesh{IndexCount: int32(len(indices)), Layout: layout, Locations: locations}
 
 	gl.GenVertexArrays(1, &m.VAO)
 	gl.GenBuffers(1, &m.VBO)
@@ -60,8 +69,12 @@ func NewMesh(vertices []float32, indices []uint32, layout []int) *Mesh {
 
 	offset := 0
 	for i, size := range layout {
-		gl.EnableVertexAttribArray(uint32(i))
-		gl.VertexAttribPointerWithOffset(uint32(i), int32(size), gl.FLOAT, false, strideBytes, uintptr(offset*4))
+		loc := uint32(i)
+		if locations != nil {
+			loc = locations[i]
+		}
+		gl.EnableVertexAttribArray(loc)
+		gl.VertexAttribPointerWithOffset(loc, int32(size), gl.FLOAT, false, strideBytes, uintptr(offset*4))
 		offset += size
 	}
 
@@ -125,7 +138,7 @@ func NewChairMesh() *Mesh {
 	// Foot bar at bottom for passenger feet.
 	addBox(&verts, &indices, -0.75, 0.75, -1.85, -1.8, -0.05, 0.05)
 
-	return NewMesh(verts, indices, []int{3, 3})
+	return NewMesh(verts, indices, []int{3, 3}, nil)
 }
 
 // NewBoxMesh creates a simple box mesh with the given dimensions and color.
@@ -186,5 +199,5 @@ func NewBoxMesh(w, h, d float32, color [3]float32) *Mesh {
 		20, 21, 22, 20, 22, 23, // bottom
 	}
 
-	return NewMesh(vertices, indices, []int{3, 3, 2})
+	return NewMesh(vertices, indices, []int{3, 3, 2}, nil)
 }

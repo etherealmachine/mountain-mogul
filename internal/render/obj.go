@@ -59,6 +59,7 @@ func loadOBJFile(path string) (*Mesh, uint32, error) {
 	defer f.Close()
 
 	var positions [][3]float32
+	var colors [][3]float32 // parallel to positions; defaults to white if not in OBJ
 	var normals [][3]float32
 	var uvs [][2]float32
 	var faces []objFace
@@ -81,6 +82,16 @@ func loadOBJFile(path string) (*Mesh, uint32, error) {
 				y, _ := strconv.ParseFloat(fields[2], 32)
 				z, _ := strconv.ParseFloat(fields[3], 32)
 				positions = append(positions, [3]float32{float32(x), float32(y), float32(z)})
+				// Wavefront extension: `v x y z r g b` carries per-vertex colour.
+				// Falls back to white if the three colour components aren't there.
+				col := [3]float32{1, 1, 1}
+				if len(fields) >= 7 {
+					r, _ := strconv.ParseFloat(fields[4], 32)
+					g, _ := strconv.ParseFloat(fields[5], 32)
+					b, _ := strconv.ParseFloat(fields[6], 32)
+					col = [3]float32{float32(r), float32(g), float32(b)}
+				}
+				colors = append(colors, col)
 			}
 		case "vn":
 			if len(fields) >= 4 {
@@ -128,9 +139,14 @@ func loadOBJFile(path string) (*Mesh, uint32, error) {
 		return nil, 0, fmt.Errorf("no faces in OBJ %q", path)
 	}
 
-	// Build flat-shaded vertex buffer
-	// For each face, compute face normal, duplicate vertices
-	vertices := make([]float32, 0, len(faces)*3*8)
+	// Build flat-shaded vertex buffer. Vertex layout: pos(3) + normal(3) +
+	// uv(2) + color(3) = 11 floats. Color comes from the OBJ extension
+	// `v x y z r g b`; defaults to white if not provided. The color slot
+	// binds at GL location 8 (VertexColorLoc) so it doesn't collide with
+	// the static batch's per-instance attributes at 3-7 or the dynamic
+	// batch's at 2-4 — see mesh.go.
+	const floatsPerVert = 11
+	vertices := make([]float32, 0, len(faces)*3*floatsPerVert)
 	indices := make([]uint32, 0, len(faces)*3)
 
 	for fi, face := range faces {
@@ -156,6 +172,10 @@ func loadOBJFile(path string) (*Mesh, uint32, error) {
 		for j := 0; j < 3; j++ {
 			vi := clampIdx(face.vIdx[j]-1, len(positions))
 			pos := positions[vi]
+			col := [3]float32{1, 1, 1}
+			if vi < len(colors) {
+				col = colors[vi]
+			}
 
 			// UV
 			var uv [2]float32
@@ -167,12 +187,13 @@ func loadOBJFile(path string) (*Mesh, uint32, error) {
 				pos[0], pos[1], pos[2],
 				faceNormal[0], faceNormal[1], faceNormal[2],
 				uv[0], uv[1],
+				col[0], col[1], col[2],
 			)
 			indices = append(indices, baseIdx+uint32(j))
 		}
 	}
 
-	mesh := NewMesh(vertices, indices, []int{3, 3, 2})
+	mesh := NewMesh(vertices, indices, []int{3, 3, 2, 3}, []uint32{0, 1, 2, VertexColorLoc})
 
 	// Load texture from MTL if present
 	texID := whiteTexture()

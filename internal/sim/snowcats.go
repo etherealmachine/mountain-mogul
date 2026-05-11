@@ -142,8 +142,15 @@ func cellGrooming(w *world.World, c [2]int) float32 {
 
 // groomCell applies a single cat-pass to the cell at `c`. Grooming
 // goes to full; mogul roughness and surface ice are knocked back; the
-// snow column packs a touch. Marks the terrain dirty so the scene
-// re-uploads the mesh on the next frame.
+// snow column packs a touch; and the snow depth is pulled toward the
+// average of the cell and its 4-neighbourhood — real cats redistribute
+// snow as they pass, scraping high spots into low ones. Mass isn't
+// strictly conserved (we average rather than blur), but the visual
+// effect is a flattened snow surface in the groomed area which is
+// what the user sees.
+//
+// Marks the terrain dirty so the scene re-uploads the mesh on the
+// next frame.
 func groomCell(w *world.World, c [2]int) {
 	if !w.Terrain.InBounds(c[0], c[1]) {
 		return
@@ -156,6 +163,42 @@ func groomCell(w *world.World, c [2]int) {
 	if cell.Packed > 1 {
 		cell.Packed = 1
 	}
+
+	// Surface leveling — pull this cell's *snow surface* toward the
+	// neighbourhood mean surface, not just snow depth. Real cats
+	// scrape snow off high spots and pile it into low spots; what
+	// flattens is the surface (ground + snow), not the snow column
+	// in isolation. Targeting the average surface and back-solving
+	// for SnowDepth keeps that behaviour and means a cat working a
+	// bumpy ground still produces a visibly flatter run.
+	//
+	// Mass isn't conserved — the cat is treated as if it has an
+	// infinite supply of snow to redistribute, which is fine for
+	// gameplay readability and matches how groomers feel in practice.
+	var sumSurface, n float32
+	for dz := -1; dz <= 1; dz++ {
+		for dx := -1; dx <= 1; dx++ {
+			if dx != 0 && dz != 0 {
+				continue // 4-neighbourhood plus self, skip diagonals
+			}
+			x, z := c[0]+dx, c[1]+dz
+			if !w.Terrain.InBounds(x, z) {
+				continue
+			}
+			nc := w.Terrain.Cells[x][z]
+			sumSurface += nc.GroundElevation + nc.SnowDepth
+			n++
+		}
+	}
+	if n > 0 {
+		targetSurface := sumSurface / n
+		newDepth := targetSurface - cell.GroundElevation
+		if newDepth < 0 {
+			newDepth = 0
+		}
+		cell.SnowDepth = newDepth
+	}
+
 	w.Terrain.SnowDirty = true
 }
 

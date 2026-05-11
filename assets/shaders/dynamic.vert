@@ -8,6 +8,11 @@ layout(location = 2) in vec3 iPosition;
 layout(location = 3) in float iHeading;
 layout(location = 4) in vec3 iColor;
 
+// per-vertex base colour from the 3MF pipeline (color() blocks in SCAD).
+// Meshes without per-vertex colour leave this unbound — the renderer sets
+// a constant default of (1,1,1) so chairs and agent boxes tint via iColor.
+layout(location = 8) in vec3 aBaseColor;
+
 uniform mat4 uViewProj;
 uniform float uTime;
 
@@ -40,7 +45,7 @@ void main() {
     vec3 animPos = vec3(aPos.x, aPos.y + animY, aPos.z);
     mat4 model = translate * rotY;
 
-    vColor = iColor;
+    vColor = iColor * aBaseColor;
     vNormal = mat3(rotY) * aNormal;
     gl_Position = uViewProj * model * vec4(animPos, 1.0);
 }

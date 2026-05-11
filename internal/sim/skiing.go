@@ -88,6 +88,7 @@ const (
 	boundaryPenalty  = 8.0
 	progressBonus    = 0.3 // weight on cos(offset) — small so wider clearances aren't outvoted by "stay on axis"
 	sideCommitBonus  = 0.4 // weight on sign(prevTactical)·sign(offset) — biases toward the side already chosen so symmetric obstacles don't flip-flop
+	groomingBonus    = 0.5 // weight on Σ grooming along the candidate path — pulls skiers toward corduroy on clear slopes, outvoted by trees when present
 
 	// Width of the corridor the sampler treats as "the skier" when
 	// integrating tree density along a candidate path. Each segment reads
@@ -109,6 +110,19 @@ const (
 
 	// Tree underfoot signal (display-only — controller doesn't branch on it)
 	inTreesThreshold = 0.3
+
+	// Snow wear from skier traffic. Each rate is per-second-of-time-in-cell;
+	// a typical 5 m cell at 10 m/s sees ~0.5 s of traffic per pass, so a
+	// rate of R/s gives ~R/2 per pass. Calibration:
+	//   - grooming wears off in ~100 passes (snowcats refresh on their cycle)
+	//   - default-packed (0.5) saturates to fully packed in ~40 passes
+	//   - mogul fields take ~400 passes to fully form on ungroomed terrain
+	// Mogul growth scales with (1 − Grooming) so fresh corduroy resists
+	// bumps; gated on SnowDepth so aprons and scraped patches stay smooth.
+	groomingWearRate  = 0.02
+	packingRate       = 0.05
+	mogulFormRate     = 0.005
+	mogulMinSnowDepth = 0.3
 
 	// Energy budget. Drains at a flat rate per sim-second of active skiing
 	// (lift rides + walks don't count). Below energyLowThreshold, decision
@@ -217,8 +231,49 @@ func (s *Simulation) tickSkier(a *world.Agent, target mgl32.Vec3, dt float64) bo
 	}
 
 	apply(s.World.Terrain, a, dec, perc, dt)
+	wearSnowUnderfoot(s.World.Terrain, a.Pos, dt)
 	recordFrame(s, a, target, dist, perc, dec)
 	return false
+}
+
+// wearSnowUnderfoot mutates the cell beneath the agent to model skier
+// traffic on the snow surface. Grooming decays (skis cut up the corduroy),
+// Packed rises (boots and edges compact the column), and MogulSize grows
+// proportionally to (1 − Grooming) so groomed cells resist bump formation
+// and ungroomed cells slowly mogul up. Mogul growth is gated on having
+// enough snow underfoot — aprons (SnowDepth ≈ 0.05 m) stay smooth.
+func wearSnowUnderfoot(t *world.Terrain, pos mgl32.Vec3, dt float64) {
+	xi := int(pos[0] / world.CellSize)
+	zi := int(pos[2] / world.CellSize)
+	if !t.InBounds(xi, zi) {
+		return
+	}
+	c := &t.Cells[xi][zi]
+	dirty := false
+	if c.Grooming > 0 {
+		c.Grooming -= float32(groomingWearRate * dt)
+		if c.Grooming < 0 {
+			c.Grooming = 0
+		}
+		dirty = true
+	}
+	if c.Packed < 1 {
+		c.Packed += float32(packingRate * dt)
+		if c.Packed > 1 {
+			c.Packed = 1
+		}
+		dirty = true
+	}
+	if c.SnowDepth > mogulMinSnowDepth && c.MogulSize < 1 {
+		c.MogulSize += float32(mogulFormRate*dt) * (1 - c.Grooming)
+		if c.MogulSize > 1 {
+			c.MogulSize = 1
+		}
+		dirty = true
+	}
+	if dirty {
+		t.SnowDirty = true
+	}
 }
 
 // tickFallen counts the agent down out of the fallen window and resumes.
@@ -452,11 +507,15 @@ func sampleTactical(t *world.Terrain, perc Perception, axisHeading, prevTactical
 		horizon = float32(sampleMaxDist)
 	}
 
-	// Pass 1: integrate density and boundary hits along each candidate.
+	// Pass 1: integrate density, boundary hits, and grooming along each
+	// candidate. Grooming reads the centre point only — the edge of a
+	// groomed strip is still groomed, so corridor sampling would just
+	// double-count adjacent cells without adding signal.
 	type sampleData struct {
-		ang          float32
-		totalDensity float32
-		boundaryHits int
+		ang           float32
+		totalDensity  float32
+		totalGrooming float32
+		boundaryHits  int
 	}
 	samples := make([]sampleData, sampleCount)
 	var maxDensity float32
@@ -469,7 +528,7 @@ func sampleTactical(t *world.Terrain, perc Perception, axisHeading, prevTactical
 		// Perpendicular-to-path unit vector for the corridor checks below.
 		rx, rz := hz, -hx
 
-		var totalDensity float32
+		var totalDensity, totalGrooming float32
 		var boundaryHits int
 		for sIdx := 1; sIdx <= sampleSegments; sIdx++ {
 			d := horizon * float32(sIdx) / float32(sampleSegments)
@@ -490,8 +549,10 @@ func sampleTactical(t *world.Terrain, perc Perception, axisHeading, prevTactical
 				density = dr
 			}
 			totalDensity += density
+			_, grooming, _, _, _ := t.SnowAt(x, z)
+			totalGrooming += grooming
 		}
-		samples[i] = sampleData{ang, totalDensity, boundaryHits}
+		samples[i] = sampleData{ang, totalDensity, totalGrooming, boundaryHits}
 		if totalDensity > maxDensity {
 			maxDensity = totalDensity
 		}
@@ -525,6 +586,7 @@ func sampleTactical(t *world.Terrain, perc Perception, axisHeading, prevTactical
 		score := float32(progressBonus) * float32(math.Cos(float64(sd.ang)))
 		score -= float32(treePenalty) * sd.totalDensity
 		score -= float32(boundaryPenalty) * float32(sd.boundaryHits)
+		score += float32(groomingBonus) * sd.totalGrooming
 		if prevSign != 0 && sd.ang != 0 {
 			angSign := float32(+1)
 			if sd.ang < 0 {

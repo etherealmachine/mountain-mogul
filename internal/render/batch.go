@@ -61,8 +61,12 @@ func bindVertexLayout(mesh *Mesh) {
 	strideBytes := int32(stride * 4)
 	offset := 0
 	for i, size := range mesh.Layout {
-		gl.EnableVertexAttribArray(uint32(i))
-		gl.VertexAttribPointerWithOffset(uint32(i), int32(size), gl.FLOAT, false, strideBytes, uintptr(offset*4))
+		loc := uint32(i)
+		if mesh.Locations != nil {
+			loc = mesh.Locations[i]
+		}
+		gl.EnableVertexAttribArray(loc)
+		gl.VertexAttribPointerWithOffset(loc, int32(size), gl.FLOAT, false, strideBytes, uintptr(offset*4))
 		offset += size
 	}
 	gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, mesh.EBO)
