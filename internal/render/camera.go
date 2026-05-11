@@ -148,3 +148,43 @@ func (c *Camera) ScreenToTerrain(screenPos mgl32.Vec2, terrainY float32) mgl32.V
 	t := (terrainY - origin[1]) / dir[1]
 	return origin.Add(dir.Mul(t))
 }
+
+// ScreenCenterOnHeightmap returns the world-space point at the centre of
+// the screen that lies on the heightmap given by elevationAt(x, z). Used
+// to pivot camera rotation around what the player actually sees in the
+// middle of the view, not the abstract Target anchor — which sits at
+// whatever Y the scene last placed it (often 0, far below the visible
+// terrain on a mountain map).
+//
+// Iterates the screen-centre ray against a plane at the previous Y
+// estimate, sampling the heightmap at the new XZ each round, until the
+// plane height matches the heightmap. At ortho pitch 45° each iteration
+// shrinks the residual by (1 - terrain_slope) so on resort terrain
+// (slopes well under 45°) we converge geometrically in a handful of
+// rounds — but the *seed* matters a lot at high zoom, because a cold
+// Target.Y of 0 on a 200 m mountain takes several iterations to walk in
+// from. We seed instead from the heightmap at Target.XZ, which is on
+// the screen-centre ray from the previous frame (since we last snapped
+// Target there), so cold-start error is bounded by terrain undulation
+// over one rotation step. A 1 mm threshold and 16-iteration cap absorb
+// the rare divergent geometry without visible jitter even when one
+// world-metre fills tens of screen pixels.
+func (c *Camera) ScreenCenterOnHeightmap(elevationAt func(x, z float32) float32) mgl32.Vec3 {
+	centre := mgl32.Vec2{c.viewport[0] * 0.5, c.viewport[1] * 0.5}
+	y := elevationAt(c.Target[0], c.Target[2])
+	for i := 0; i < 16; i++ {
+		p := c.ScreenToTerrain(centre, y)
+		newY := elevationAt(p[0], p[2])
+		if math.Abs(float64(newY-y)) < 0.001 {
+			y = newY
+			break
+		}
+		y = newY
+	}
+	// One final raycast with the converged Y so the returned XZ is
+	// exactly on the screen-centre ray at that elevation (the loop's
+	// last `p` was raycast against the *previous* Y).
+	p := c.ScreenToTerrain(centre, y)
+	p[1] = y
+	return p
+}

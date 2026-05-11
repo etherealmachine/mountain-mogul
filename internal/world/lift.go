@@ -120,6 +120,63 @@ func (l *Lift) QueueCell() [2]int {
 	return cellOf(l.Base)
 }
 
+// QueueSpacing is the metres between adjacent skiers in a single-file
+// lift queue. ~2 m gives room for skis (length ~1.8 m) and a small
+// breathing gap; tight enough that a 20-deep queue is only ~40 m long.
+const QueueSpacing = 2.0
+
+// queueDir returns the unit vector pointing from the lift base away
+// from the cable axis — the direction the single-file queue extends.
+// For a lift going up the hill, the queue trails downhill of the base.
+func (l *Lift) queueDir() (dirX, dirZ float32) {
+	dx := l.Base[0] - l.Top[0]
+	dz := l.Base[1] - l.Top[1]
+	length := float32(math.Sqrt(float64(dx*dx + dz*dz)))
+	if length < 1e-3 {
+		// Degenerate: lift base and top coincident. Fall back to +Z so
+		// the queue still extends in some direction rather than
+		// collapsing onto the base.
+		return 0, 1
+	}
+	return dx / length, dz / length
+}
+
+// QueueSlotXZ returns the world-XZ position of the index-th queue slot.
+// Slot 0 is the boarding spot at the base; slot N+1 sits QueueSpacing
+// further along queueDir. Cell-only callers (pathfinder) don't need Y.
+func (l *Lift) QueueSlotXZ(index int) (x, z float32) {
+	dirX, dirZ := l.queueDir()
+	return l.Base[0] + dirX*float32(index)*QueueSpacing,
+		l.Base[1] + dirZ*float32(index)*QueueSpacing
+}
+
+// QueueSlotWorldPos returns the world-space position of the index-th
+// slot in this lift's queue. Y comes from the snow surface so queued
+// skiers stand on snow rather than floating.
+func (l *Lift) QueueSlotWorldPos(index int, t *Terrain) mgl32.Vec3 {
+	x, z := l.QueueSlotXZ(index)
+	y := t.InterpolatedSurfaceElevationAt(x, z)
+	return mgl32.Vec3{x, y, z}
+}
+
+// BackOfQueueWorldPos returns where the next arrival should head. Skiers
+// in transit (skiing down or walking from a lodge) target this spot so
+// they line up behind any existing queue instead of all converging on
+// the base anchor. Pulled each tick by resolveTarget so the target
+// shifts as the queue grows or boards.
+func (l *Lift) BackOfQueueWorldPos(t *Terrain) mgl32.Vec3 {
+	return l.QueueSlotWorldPos(len(l.Queue), t)
+}
+
+// BackOfQueueCell returns the grid cell of the back-of-queue slot — the
+// pathfinder destination for skiers walking to queue. A snapshot at
+// path-plan time; tickQueued handles any residual drift once they
+// arrive and join the actual queue.
+func (l *Lift) BackOfQueueCell() [2]int {
+	x, z := l.QueueSlotXZ(len(l.Queue))
+	return cellOf(mgl32.Vec2{x, z})
+}
+
 // TopCell returns the grid cell containing the lift's top station —
 // used for elevation lookups at unload time and passability rasterisation.
 func (l *Lift) TopCell() [2]int {

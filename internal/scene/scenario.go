@@ -873,6 +873,13 @@ func (s *Scenario) Update(dt float64) {
 		rotDelta += rotSpeed * float32(dt)
 	}
 	if rotDelta != 0 {
+		// Pivot the rotation around what's currently at the centre of the
+		// screen, not Camera.Target. Otherwise rotation visibly drifts when
+		// Target sits at Y=0 but the visible terrain is hundreds of metres
+		// above — the screen-centre world point moves under the cursor as
+		// yaw changes. Snapping Target to the on-screen pivot point each
+		// frame keeps the view pinned.
+		r.Camera.Target = r.Camera.ScreenCenterOnHeightmap(s.world.Terrain.InterpolatedSurfaceElevationAt)
 		r.Camera.Yaw += rotDelta
 		r.Camera.Recalculate()
 	}

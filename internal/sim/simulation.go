@@ -74,12 +74,12 @@ func (s *Simulation) tickBuildings(dt float64) {
 			agent.Balance = 1.0
 			agent.Energy = 1.0
 			agent.TurnSide = 0
-			// Pathfinder routes from the lodge's door cell to the lift's
-			// queue cell. Walking the path drops the agent at the queue
-			// cell's centre; tickWalkToward / tickLocomote close the last
-			// few metres to the lodge or lift base anchor under
-			// ArrivalThreshold.
-			path := s.Pathfinder.FindPath(b.DoorCell(), nearest.QueueCell())
+			// Pathfinder routes from the lodge's door cell to the back of
+			// the lift's current queue so walkers don't all converge on
+			// the base anchor. The destination is a snapshot taken now;
+			// tickQueued does the final shuffle once they arrive and
+			// join the actual queue.
+			path := s.Pathfinder.FindPath(b.DoorCell(), nearest.BackOfQueueCell())
 			if path != nil {
 				agent.Path = path
 				agent.PathIdx = 0
@@ -181,7 +181,10 @@ func pickTopTarget(w *world.World, agent *world.Agent, rng *rand.Rand) (uint64, 
 		}
 	}
 	next := w.Lifts[rng.Intn(len(w.Lifts))]
-	return next.ID, liftBaseWorldPos(w, next)
+	// Aim for the back of next's queue, matching resolveTarget — so the
+	// initial heading at lift unload points at the right spot from the
+	// first tick instead of needing one tick to correct.
+	return next.ID, next.BackOfQueueWorldPos(w.Terrain)
 }
 
 // lodgeWorldPos returns the lodge's anchor as a world-space Vec3, with Y
@@ -210,7 +213,7 @@ func (s *Simulation) tickAgents(dt float64) {
 		case agent.OnLiftID != 0:
 			s.tickRiding(agent, dt)
 		case agent.Queued:
-			// Waiting in lift.Queue — boarding is driven by tickLifts.
+			s.tickQueued(agent, dt)
 		case len(agent.Path) > 0 && agent.PathIdx < len(agent.Path):
 			s.tickPath(agent, dt)
 		default:
@@ -273,6 +276,40 @@ func (s *Simulation) onPathComplete(agent *world.Agent) {
 			agent.Queued = true
 			return
 		}
+	}
+}
+
+// tickQueued walks the agent toward their assigned single-file queue slot
+// (index in lift.Queue) and orients them to face the boarding spot. Slot 0
+// is at the base, so the front-of-line skier holds station there; deeper
+// slots are further downhill of the base axis. As skiers board off the
+// front and lift.Queue shrinks, each remaining agent's index drops by one
+// and they shuffle forward on subsequent ticks.
+func (s *Simulation) tickQueued(agent *world.Agent, dt float64) {
+	w := s.World
+	for _, lift := range w.Lifts {
+		idx := -1
+		for i, q := range lift.Queue {
+			if q == agent {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			continue
+		}
+		slot := lift.QueueSlotWorldPos(idx, w.Terrain)
+		s.tickWalkToward(agent, slot, dt)
+		// Always face the lift base — tickWalkToward sets heading to the
+		// walk direction, but skiers who've reached their slot need to
+		// keep looking forward instead of holding whatever heading they
+		// last walked in with.
+		faceX := lift.Base[0] - agent.Pos[0]
+		faceZ := lift.Base[1] - agent.Pos[2]
+		if faceX*faceX+faceZ*faceZ > 0.01 {
+			agent.Heading = float32(math.Atan2(float64(faceX), float64(faceZ)))
+		}
+		return
 	}
 }
 
@@ -439,7 +476,11 @@ const (
 func resolveTarget(w *world.World, id uint64) (mgl32.Vec3, targetKind, bool) {
 	for _, l := range w.Lifts {
 		if l.ID == id {
-			return liftBaseWorldPos(w, l), targetLift, true
+			// Aim for the back of the queue, not the base anchor —
+			// pulled each locomotion tick so the target shifts as the
+			// queue grows (more skiers behind us) or shrinks (boarders
+			// peel off the front).
+			return l.BackOfQueueWorldPos(w.Terrain), targetLift, true
 		}
 	}
 	for _, b := range w.Buildings {
