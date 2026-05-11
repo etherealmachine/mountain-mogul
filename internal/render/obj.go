@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"mountain-mogul/internal/world"
 )
 
 type objFace struct {
@@ -24,6 +26,49 @@ func LoadOBJ(path string, fallbackMeshID uint32) (*Mesh, uint32) {
 		mesh, texID = fallbackMesh(fallbackMeshID)
 	}
 	return mesh, texID
+}
+
+// LoadOBJSlots reads `# slot N x y z` comment lines from an OBJ produced
+// by tools/scad2obj. Coordinates are mesh-local game-space (the converter
+// has already applied the SCAD Z-up → game Y-up rotation). Returns nil
+// if the file is missing or has no slot lines — callers handle the
+// no-slots case via a plain fallback.
+func LoadOBJSlots(path string) []world.MeshSlot {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	var slots []world.MeshSlot
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if !strings.HasPrefix(line, "# slot ") {
+			// Only the leading `# slot ...` comment block is interesting;
+			// once we hit a vertex line, no slot lines can follow.
+			if strings.HasPrefix(line, "v ") || strings.HasPrefix(line, "f ") {
+				break
+			}
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) != 6 {
+			continue
+		}
+		idx, err1 := strconv.Atoi(fields[2])
+		x, err2 := strconv.ParseFloat(fields[3], 32)
+		y, err3 := strconv.ParseFloat(fields[4], 32)
+		z, err4 := strconv.ParseFloat(fields[5], 32)
+		if err1 != nil || err2 != nil || err3 != nil || err4 != nil {
+			continue
+		}
+		slots = append(slots, world.MeshSlot{
+			Index: idx,
+			Pos:   [3]float32{float32(x), float32(y), float32(z)},
+		})
+	}
+	return slots
 }
 
 func fallbackMesh(meshID uint32) (*Mesh, uint32) {
@@ -47,6 +92,8 @@ func fallbackMesh(meshID uint32) (*Mesh, uint32) {
 		return NewBoxMesh(16, 7, 12, [3]float32{0.65, 0.70, 0.78}), texID
 	case MeshSnowcat:
 		return NewBoxMesh(6, 3, 3, [3]float32{0.95, 0.45, 0.20}), texID
+	case MeshChair:
+		return NewBoxMesh(1.5, 0.6, 0.7, [3]float32{0.7, 0.7, 0.7}), texID
 	}
 	return NewBoxMesh(2, 2, 2, [3]float32{1, 1, 1}), texID
 }

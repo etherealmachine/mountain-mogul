@@ -279,7 +279,7 @@ map tile overlay → player confirms to create a new `World` from the data.
 - `Lift.Speed` is in **m/s** (default 2.5 m/s — realistic chairlift speed). `Lift.LoopLength()` converts to fractional progress per tick.
 
 ### Chair rendering
-- Procedural chair mesh (`NewChairMesh`): suspension bar + seat + backrest + footbar, all hanging below the cable-attachment origin. All local Y ≤ 0 so the dynamic-shader limb animation never fires.
+- Chair mesh loaded from `assets/models/chair.obj` (built from `models-src/chair.scad`): suspension bar + seat + backrest + footbar, all hanging below the cable-attachment origin. All vertices sit at local Y ≤ 0 so the dynamic-shader limb animation never fires.
 - Separate `chairBatch` (dynamic) renders all chairs each frame: grey when empty, blue-tint when carrying passengers.
 
 ### Pop-up info windows
@@ -600,9 +600,9 @@ readability; items inside a group are not necessarily related.
   `GenerateTowerMesh` with a real OBJ.
 - **Lift base + top stations** — `lift_station.obj` is a placeholder cube;
   needs a proper bullwheel housing.
-- **Chair** — `NewChairMesh` is procedural (suspension bar + seat + bar
-  rest); load a real OBJ instead, with separate variants for fixed-grip
-  and detachable.
+- **Chair** — `chair.scad` is a basic two-seater (suspension bar + seat +
+  backrest + footbar). Could grow safety-bar variants, four-seaters, and
+  separate detachable / fixed-grip silhouettes.
 - **Skier** — `agent.obj` is a primitive humanoid; needs a proper skier
   with skis, poles, jacket.
 - **Lodge** — only `building.obj` exists today and it's generic.

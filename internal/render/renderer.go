@@ -226,9 +226,11 @@ func (r *Renderer) initStaticMeshes() {
 	agentMesh, agentTexID := LoadOBJ(modelDir+"agent.obj", MeshAgent)
 	r.dynamicBatch = NewDynamicBatch(agentMesh, agentTexID)
 
-	// Chair — dynamic batch with procedural mesh.
-	chairMesh := NewChairMesh()
-	r.chairBatch = NewDynamicBatch(chairMesh, whiteTexture())
+	// Chair — dynamic batch (heading rotates each chair along the cable).
+	chairPath := modelDir + "chair.obj"
+	chairMesh, chairTexID := LoadOBJ(chairPath, MeshChair)
+	r.chairBatch = NewDynamicBatch(chairMesh, chairTexID)
+	world.RegisterMeshSlots(world.MeshChair, LoadOBJSlots(chairPath))
 
 	// Snowcat — dynamic batch. Snowcats drive over the terrain every
 	// tick so they share the agent-style instance path rather than

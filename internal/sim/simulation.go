@@ -313,24 +313,52 @@ func (s *Simulation) tickQueued(agent *world.Agent, dt float64) {
 	}
 }
 
-// tickRiding glues the agent to its current chair's position. Resolved by
-// scanning the named lift's chair passenger lists.
+// tickRiding glues the agent to its current chair's position. Seat
+// anchors come from MeshChair's slot metadata, which scad2obj baked into
+// chair.obj from echo() declarations in models-src/chair.scad — see that
+// file for the exact geometry. The slot Pos is in the chair-local game
+// frame; we rotate by heading and offset from the chair's cable anchor.
 func (s *Simulation) tickRiding(agent *world.Agent, dt float64) {
 	w := s.World
+	slots := world.SlotsFor(world.MeshChair)
 	for _, lift := range w.Lifts {
 		if lift.ID != agent.OnLiftID {
 			continue
 		}
 		for _, chair := range lift.Chairs {
-			for _, p := range chair.Passengers {
-				if p == agent {
-					pos, heading := lift.ChairPos(chair.Progress, w.Terrain)
-					agent.Pos = pos
-					agent.Heading = heading
-					return
+			for slotIdx, p := range chair.Passengers {
+				if p != agent {
+					continue
 				}
+				pos, heading := lift.ChairPos(chair.Progress, w.Terrain)
+				agent.Pos = seatWorldPos(pos, heading, slotIdx, slots)
+				agent.Heading = heading
+				return
 			}
 		}
+	}
+}
+
+// seatWorldPos maps a passenger-slot index on a chair to its world-space
+// position. The chair-local slot anchor is rotated by `heading` (same
+// rotation the dynamic shader applies to the chair geometry) and offset
+// from the chair's cable-attachment point `chairPos`. If no slot
+// metadata is registered for the chair mesh, the rider sits on the
+// cable anchor — visibly wrong, but a stable fallback that flags the
+// missing data rather than crashing.
+func seatWorldPos(chairPos mgl32.Vec3, heading float32, slotIdx int, slots []world.MeshSlot) mgl32.Vec3 {
+	if slotIdx >= len(slots) {
+		return chairPos
+	}
+	local := slots[slotIdx].Pos
+	c := float32(math.Cos(float64(heading)))
+	s := float32(math.Sin(float64(heading)))
+	// Match the dynamic shader's heading rotation around game Y:
+	//   (x, y, z) → (s·x − c·z, y, c·x + s·z)
+	return mgl32.Vec3{
+		chairPos[0] + s*local[0] - c*local[2],
+		chairPos[1] + local[1],
+		chairPos[2] + c*local[0] + s*local[2],
 	}
 }
 

@@ -28,11 +28,16 @@ models: $(OBJ_FILES)
 build/3mf:
 	mkdir -p $@
 
+# OpenSCAD writes ECHO() output to stderr; we tee it into a sidecar .echo
+# file so scad2obj can pick up `MOGUL_META …` lines and bake them into the
+# OBJ as slot metadata. The redirection still keeps build-time errors and
+# warnings visible because make prints stderr from the spawned shell on
+# failure.
 build/3mf/%.3mf: models-src/%.scad | build/3mf
-	$(OPENSCAD) -o $@ $<
+	$(OPENSCAD) -o $@ $< 2> $(@:.3mf=.echo)
 
 assets/models/%.obj: build/3mf/%.3mf tools/scad2obj/main.go
-	go run ./tools/scad2obj $< $@
+	go run ./tools/scad2obj $< $(<:.3mf=.echo) $@
 
 clean-models:
 	rm -rf build/3mf

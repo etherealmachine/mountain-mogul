@@ -20,12 +20,17 @@ out vec3 vColor;
 flat out vec3 vNormal;
 
 void main() {
+    // Heading is computed as atan2(dx, dz) — angle from +Z toward +X —
+    // so motion direction in world space is (sin h, 0, cos h). The rotation
+    // must take the model's +X axis (the project's "forward" convention,
+    // matching snowcat.scad's +X = direction of travel) to that motion
+    // vector, with +Z mapped 90° CCW (left of forward) for consistency.
     float s = sin(iHeading);
     float c = cos(iHeading);
     mat4 rotY = mat4(
-        c,   0.0, s,   0.0,
+        s,   0.0, c,   0.0,
         0.0, 1.0, 0.0, 0.0,
-        -s,  0.0, c,   0.0,
+        -c,  0.0, s,   0.0,
         0.0, 0.0, 0.0, 1.0
     );
     mat4 translate = mat4(
