@@ -59,7 +59,7 @@ func (s *StartMenu) rebuildButtons() {
 			s.app.PushScene(NewSaveList())
 		}},
 		btnDef{"Scenario Editor", func() {
-			ed := NewEditor(s.app.AssetDir + "/scenarios/tutorial.json")
+			ed := NewEditor(s.app.AssetDir + "/scenarios/tutorial" + save.SaveExt)
 			s.app.PushScene(ed)
 		}},
 		btnDef{"Testbeds", func() {

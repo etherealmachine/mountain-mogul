@@ -10,6 +10,7 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 	"mountain-mogul/internal/engine"
 	"mountain-mogul/internal/render"
+	"mountain-mogul/internal/save"
 	"mountain-mogul/internal/ui"
 )
 
@@ -30,7 +31,7 @@ func (s *ScenarioPicker) Init(app *engine.App) error {
 	if err == nil {
 		files := make([]string, 0, len(entries))
 		for _, e := range entries {
-			if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), save.SaveExt) {
 				continue
 			}
 			files = append(files, e.Name())
@@ -38,7 +39,7 @@ func (s *ScenarioPicker) Init(app *engine.App) error {
 		sort.Strings(files)
 		for _, name := range files {
 			path := filepath.Join(dir, name)
-			label := strings.TrimSuffix(name, ".json")
+			label := strings.TrimSuffix(name, save.SaveExt)
 			btn := ui.NewButton(0, 0, 280, 40, label, func() {
 				s.app.ReplaceScene(NewScenarioFromFile(path))
 			})

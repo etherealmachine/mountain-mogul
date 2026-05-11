@@ -16,6 +16,8 @@ require (
 	github.com/golang/geo v0.0.0-20260302211937-87f5a40ea07a // indirect
 	github.com/mazznoer/csscolorparser v0.1.8 // indirect
 	github.com/tkrajina/gpxgo v1.4.0 // indirect
+	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
+	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	golang.org/x/image v0.39.0 // indirect
 	golang.org/x/net v0.33.0 // indirect
 	golang.org/x/text v0.36.0 // indirect

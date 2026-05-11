@@ -1,7 +1,10 @@
 package save
 
 import (
-	"encoding/json"
+	"bytes"
+	"compress/gzip"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -9,8 +12,13 @@ import (
 	"time"
 
 	"github.com/go-gl/mathgl/mgl32"
+	"github.com/vmihailenco/msgpack/v5"
 	"mountain-mogul/internal/world"
 )
+
+// SaveExt is the on-disk extension for the save format: msgpack-
+// encoded ScenarioData wrapped in gzip. Cheap, compact, binary.
+const SaveExt = ".save"
 
 // SaveInfo describes one entry in the user's saves directory.
 type SaveInfo struct {
@@ -35,7 +43,8 @@ func SavesDir() string {
 }
 
 // ListSaves returns every save file in SavesDir, sorted newest-first by
-// modification time. Non-JSON entries are ignored.
+// modification time. Only `.save` files are considered — the binary
+// format is the project's single save format.
 func ListSaves() []SaveInfo {
 	dir := SavesDir()
 	entries, err := os.ReadDir(dir)
@@ -44,7 +53,7 @@ func ListSaves() []SaveInfo {
 	}
 	out := make([]SaveInfo, 0, len(entries))
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), SaveExt) {
 			continue
 		}
 		info, err := e.Info()
@@ -52,7 +61,7 @@ func ListSaves() []SaveInfo {
 			continue
 		}
 		out = append(out, SaveInfo{
-			Name:    strings.TrimSuffix(e.Name(), ".json"),
+			Name:    strings.TrimSuffix(e.Name(), SaveExt),
 			Path:    filepath.Join(dir, e.Name()),
 			ModTime: info.ModTime(),
 		})
@@ -79,7 +88,7 @@ func SaveAs(name string, w *world.World) (string, error) {
 	if clean == "" {
 		clean = "save"
 	}
-	path := filepath.Join(SavesDir(), clean+".json")
+	path := filepath.Join(SavesDir(), clean+SaveExt)
 	if err := SaveScenario(path, w); err != nil {
 		return "", err
 	}
@@ -103,25 +112,54 @@ func DefaultSaveName() string {
 	return "save-" + time.Now().Format("2006-01-02-1504")
 }
 
-// SaveScenario marshals the world to JSON and writes it to path.
+// SaveScenario marshals the world and writes it to path.
+//
+// Format: msgpack-encoded ScenarioData wrapped in a gzip stream. The
+// msgpack encoder is configured to honour the existing `json:` struct
+// tags so the on-wire schema stays the single source of truth. Gzip
+// then crushes the long runs of identical-or-similar cell values
+// (most cells in a scenario have default snow state) down to a tiny
+// fraction of the original.
 func SaveScenario(path string, w *world.World) error {
-	data := worldToData(w)
-	raw, err := json.MarshalIndent(data, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, raw, 0644)
+	return WriteScenarioData(path, worldToData(w))
 }
 
-// LoadScenario reads and parses a scenario JSON file, returning a World.
+// WriteScenarioData writes an already-built ScenarioData to disk in
+// the project's binary format. Used by SaveScenario and by the
+// converter tool that produces bundled scenarios from external
+// sources.
+func WriteScenarioData(path string, data ScenarioData) error {
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	enc := msgpack.NewEncoder(gz)
+	enc.SetCustomStructTag("json")
+	enc.UseCompactInts(true)
+	enc.UseCompactFloats(true)
+	if err := enc.Encode(data); err != nil {
+		return err
+	}
+	if err := gz.Close(); err != nil {
+		return err
+	}
+	return os.WriteFile(path, buf.Bytes(), 0644)
+}
+
+// LoadScenario reads and parses a `.save` file, returning a World.
 func LoadScenario(path string) (*world.World, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
+	gz, err := gzip.NewReader(bytes.NewReader(raw))
+	if err != nil {
+		return nil, fmt.Errorf("save %q: %w", path, err)
+	}
+	defer gz.Close()
 	var data ScenarioData
-	if err := json.Unmarshal(raw, &data); err != nil {
-		return nil, err
+	dec := msgpack.NewDecoder(gz)
+	dec.SetCustomStructTag("json")
+	if err := dec.Decode(&data); err != nil && err != io.EOF {
+		return nil, fmt.Errorf("save %q: %w", path, err)
 	}
 	return dataToWorld(data), nil
 }
