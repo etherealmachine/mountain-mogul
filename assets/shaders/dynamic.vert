@@ -7,6 +7,7 @@ layout(location = 1) in vec3 aNormal;
 layout(location = 2) in vec3 iPosition;
 layout(location = 3) in float iHeading;
 layout(location = 4) in vec3 iColor;
+layout(location = 5) in float iAnimate; // 1 = bob limbs (skiers), 0 = rigid (vehicles, chairs)
 
 // per-vertex base colour from the 3MF pipeline (color() blocks in SCAD).
 // Meshes without per-vertex colour leave this unbound — the renderer sets
@@ -40,10 +41,11 @@ void main() {
         iPosition.x, iPosition.y, iPosition.z, 1.0
     );
 
-    // limb animation: small Y displacement for vertices above threshold
+    // limb animation: small Y displacement for vertices above threshold,
+    // gated by the per-instance iAnimate flag so vehicles don't bob.
     float phase = sin(uTime * 3.0 + float(gl_InstanceID) * 1.618);
     float animY = 0.0;
-    if (aPos.y > 0.3) {
+    if (aPos.y > 0.3 && iAnimate > 0.5) {
         animY = phase * 0.05;
     }
 

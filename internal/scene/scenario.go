@@ -1360,7 +1360,7 @@ func (s *Scenario) routeOverlayLines() []render.DebugLine {
 
 // steeringLines builds the F3 steering-debug visualisation for the agent.
 func steeringLines(w *world.World, a *world.Agent, target mgl32.Vec3) []render.DebugLine {
-	d := sim.ComputeSteeringDebug(w.Terrain, a, target)
+	d := sim.ComputeSteeringDebug(w, a, target)
 	origin := mgl32.Vec3{a.Pos[0], a.Pos[1] + 1.5, a.Pos[2]}
 	mk := func(dir mgl32.Vec2, length float32, color [3]float32) render.DebugLine {
 		return render.DebugLine{

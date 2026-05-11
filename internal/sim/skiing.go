@@ -98,6 +98,14 @@ const (
 	// off any dense cell.
 	corridorHalfWidth = 10.0
 
+	// Hazard avoidance: nearby lift towers and other skiers register a
+	// density bump in the sampler so the controller routes around them
+	// like it does for trees. The radii are how far from a hazard a
+	// sample point starts seeing penalty — picked so the corridor sweep
+	// catches them well before the skier brushes through.
+	towerHazardRadius = 5.0 // lift towers are 0.6–0.9 m poles; the radius gives ~4 m of carving room
+	skierHazardRadius = 2.5 // ski-width is ~0.6 m; the radius is "don't ski into someone's blind spot"
+
 
 	// Fall-line attenuation. Identical to prior model — gentle terrain has
 	// noisy gradients, so we ignore the fall direction below flatSlopeL.
@@ -198,7 +206,7 @@ func (s *Simulation) tickSkier(a *world.Agent, target mgl32.Vec3, dt float64) bo
 	}
 
 	perc := perceive(s.World.Terrain, a, target)
-	dec := decide(s.World.Terrain, a, perc, float32(dt), s.Rng)
+	dec := decide(s.World, a, perc, float32(dt), s.Rng)
 	if dec.TurnSide != a.TurnSide {
 		a.TurnDwell = 0
 	} else {
@@ -349,10 +357,10 @@ func perceive(t *world.Terrain, a *world.Agent, target mgl32.Vec3) Perception {
 // brakeAngle > 0 → desired heading is off the fall line → edge friction
 // scrubs speed → speed drops → brakeAngle shrinks → if heading has reached
 // the arc edge on the committed side, flip TurnSide and carve back.
-func decide(t *world.Terrain, a *world.Agent, perc Perception, dt float32, rng *rand.Rand) Decision {
+func decide(w *world.World, a *world.Agent, perc Perception, dt float32, rng *rand.Rand) Decision {
 	axisHeading := composeAxis(perc)
 
-	tactical, obstacleSeen, probeC, probeR, probeL := sampleTactical(t, perc, axisHeading, a.LastTactical, rng)
+	tactical, obstacleSeen, probeC, probeR, probeL := sampleTactical(w, a, perc, axisHeading, a.LastTactical, rng)
 
 	// Speed control. Base target from skill/traits, then reduce when trees
 	// are visible in the forward fan — real skiers back off in glades to
@@ -482,6 +490,64 @@ func pickInitialSide(perc Perception, deviation float32, rng *rand.Rand) int8 {
 	return +1
 }
 
+// collectTowerXZs gathers the XZ positions of every lift tower in the
+// world into a single slice. Computed once per sampleTactical call so
+// the corridor-sample inner loop can iterate towers without re-walking
+// the lift list (or re-allocating per-lift slices) at every probe point.
+func collectTowerXZs(w *world.World) []mgl32.Vec2 {
+	if len(w.Lifts) == 0 {
+		return nil
+	}
+	var out []mgl32.Vec2
+	for _, lift := range w.Lifts {
+		out = append(out, lift.TowerXZs()...)
+	}
+	return out
+}
+
+// hazardDensityAt returns a [0, 1]-ish penalty at world (x, z), combining:
+//
+//   - terrain TreeDensity (the existing signal)
+//   - linear falloff inside towerHazardRadius of any lift tower
+//   - linear falloff inside skierHazardRadius of any other skier
+//
+// Combination is max(): one big hazard dominates. Tree-only paths score
+// the same as before this function existed; tower/skier presence raises
+// the penalty so the candidate-fan scorer routes around them.
+func hazardDensityAt(t *world.Terrain, towers []mgl32.Vec2, agents []*world.Agent, selfID uint64, x, z float32) float32 {
+	d := t.TreeDensityAt(x, z)
+
+	const towerR2 = towerHazardRadius * towerHazardRadius
+	for _, p := range towers {
+		dx := p[0] - x
+		dz := p[1] - z
+		r2 := dx*dx + dz*dz
+		if r2 < towerR2 {
+			f := 1 - r2/towerR2
+			if f > d {
+				d = f
+			}
+		}
+	}
+
+	const skierR2 = skierHazardRadius * skierHazardRadius
+	for _, other := range agents {
+		if other.ID == selfID {
+			continue
+		}
+		dx := other.Pos[0] - x
+		dz := other.Pos[2] - z
+		r2 := dx*dx + dz*dz
+		if r2 < skierR2 {
+			f := 1 - r2/skierR2
+			if f > d {
+				d = f
+			}
+		}
+	}
+	return d
+}
+
 // sampleTactical scores a fan of candidate forward arcs and returns the
 // best lateral offset (relative to axis), a flag indicating whether an
 // obstacle is in view (so the controller can suppress S-turn oscillation
@@ -498,13 +564,24 @@ func pickInitialSide(perc Perception, deviation float32, rng *rand.Rand) int8 {
 // score equally — but it's gated on actually seeing an obstacle in the
 // fan. Without that gate the commit bonus would slowly drift the skier
 // off-axis even on a clear slope, since prevTactical is self-perpetuating.
-func sampleTactical(t *world.Terrain, perc Perception, axisHeading, prevTactical float32, rng *rand.Rand) (offset float32, obstacleSeen bool, probeC, probeR, probeL float32) {
+func sampleTactical(w *world.World, self *world.Agent, perc Perception, axisHeading, prevTactical float32, rng *rand.Rand) (offset float32, obstacleSeen bool, probeC, probeR, probeL float32) {
+	t := w.Terrain
 	horizon := perc.Speed * float32(sampleHorizonSec)
 	if horizon < float32(sampleMinDist) {
 		horizon = float32(sampleMinDist)
 	}
 	if horizon > float32(sampleMaxDist) {
 		horizon = float32(sampleMaxDist)
+	}
+
+	// Precompute hazard positions once per call so the inner corridor
+	// loop doesn't re-walk the lift list or reslice tower XZs on every
+	// sample point. Self is excluded from the agent list so the skier
+	// doesn't avoid itself.
+	towers := collectTowerXZs(w)
+	var selfID uint64
+	if self != nil {
+		selfID = self.ID
 	}
 
 	// Pass 1: integrate density, boundary hits, and grooming along each
@@ -541,11 +618,12 @@ func sampleTactical(t *world.Terrain, perc Perception, axisHeading, prevTactical
 			// Worst-of-three: centre + ±corridorHalfWidth perpendicular.
 			// Treats the candidate path as a corridor, so the skier
 			// avoids brushing the patch edge instead of grazing it.
-			density := t.TreeDensityAt(x, z)
-			if dl := t.TreeDensityAt(x-rx*float32(corridorHalfWidth), z-rz*float32(corridorHalfWidth)); dl > density {
+			// Hazard includes trees, lift towers, and other skiers.
+			density := hazardDensityAt(t, towers, w.Agents, selfID, x, z)
+			if dl := hazardDensityAt(t, towers, w.Agents, selfID, x-rx*float32(corridorHalfWidth), z-rz*float32(corridorHalfWidth)); dl > density {
 				density = dl
 			}
-			if dr := t.TreeDensityAt(x+rx*float32(corridorHalfWidth), z+rz*float32(corridorHalfWidth)); dr > density {
+			if dr := hazardDensityAt(t, towers, w.Agents, selfID, x+rx*float32(corridorHalfWidth), z+rz*float32(corridorHalfWidth)); dr > density {
 				density = dr
 			}
 			totalDensity += density
@@ -853,11 +931,12 @@ type SteeringDebug struct {
 
 // ComputeSteeringDebug runs a non-mutating perception + decide pass for
 // rendering. The TurnSide on the agent is read but not mutated.
-func ComputeSteeringDebug(t *world.Terrain, a *world.Agent, target mgl32.Vec3) SteeringDebug {
+func ComputeSteeringDebug(w *world.World, a *world.Agent, target mgl32.Vec3) SteeringDebug {
+	t := w.Terrain
 	clone := *a
 	perc := perceive(t, &clone, target)
 	// nil rng → no jitter, debug shows the deterministic part of the score.
-	dec := decide(t, &clone, perc, 0, nil)
+	dec := decide(w, &clone, perc, 0, nil)
 
 	horizon := perc.Speed * float32(sampleHorizonSec)
 	if horizon < float32(sampleMinDist) {
@@ -878,12 +957,13 @@ func ComputeSteeringDebug(t *world.Terrain, a *world.Agent, target mgl32.Vec3) S
 	hz := float32(math.Cos(float64(a.Heading)))
 	rx, rz := hz, -hx
 	angles := [3]float64{0, float64(sampleAngleMax), -float64(sampleAngleMax)}
+	towers := collectTowerXZs(w)
 	for i, ang := range angles {
 		c := float32(math.Cos(ang))
 		s := float32(math.Sin(ang))
 		d := mgl32.Vec2{c*hx + s*rx, c*hz + s*rz}
 		out.Probes[i].Dir = d
-		out.Probes[i].Density = t.TreeDensityAt(a.Pos[0]+d[0]*horizon, a.Pos[2]+d[1]*horizon)
+		out.Probes[i].Density = hazardDensityAt(t, towers, w.Agents, a.ID, a.Pos[0]+d[0]*horizon, a.Pos[2]+d[1]*horizon)
 	}
 	return out
 }

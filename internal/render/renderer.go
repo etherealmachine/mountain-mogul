@@ -230,9 +230,10 @@ func (r *Renderer) initStaticMeshes() {
 		}
 	}
 
-	// Agent — dynamic batch.
-	agentMesh, agentTexID := LoadOBJ(modelDir + "agent.obj")
-	r.dynamicBatch = NewDynamicBatch(agentMesh, agentTexID)
+	// Skier — dynamic batch. One instance per world.Agent, repositioned
+	// each tick by the sim.
+	skierMesh, skierTexID := LoadOBJ(modelDir + "skier.obj")
+	r.dynamicBatch = NewDynamicBatch(skierMesh, skierTexID)
 
 	// Chair — dynamic batch (heading rotates each chair along the cable).
 	chairPath := modelDir + "chair.obj"
@@ -1460,6 +1461,7 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 				Position: [3]float32{agent.Pos[0], posY, agent.Pos[2]},
 				Heading:  agent.Heading,
 				Color:    color,
+				Animate:  1.0, // skiers breathe; the shader bobs limbs above y=0.3
 			})
 		}
 		r.dynamicBatch.SetDynamic(instances)

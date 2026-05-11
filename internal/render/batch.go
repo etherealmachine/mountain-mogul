@@ -15,12 +15,15 @@ type StaticInstance struct {
 	Pad       float32
 }
 
-// DynamicInstance holds per-instance data for dynamic objects (agents).
+// DynamicInstance holds per-instance data for dynamic objects (agents,
+// chairs, snowcats, cars). Animate gates the limb-bob in dynamic.vert
+// — set it to 1.0 for figures whose geometry should breathe (skiers),
+// 0.0 for vehicles and rigid props.
 type DynamicInstance struct {
 	Position [3]float32
 	Heading  float32
 	Color    [3]float32
-	Pad      float32
+	Animate  float32
 }
 
 // batchType distinguishes static vs dynamic batch layout.
@@ -140,6 +143,11 @@ func NewDynamicBatch(mesh *Mesh, texID uint32) *Batch {
 	gl.EnableVertexAttribArray(4)
 	gl.VertexAttribPointerWithOffset(4, 3, gl.FLOAT, false, stride, 16)
 	gl.VertexAttribDivisor(4, 1)
+
+	// Animate flag at location 5 (1.0 = bob limbs, 0.0 = rigid).
+	gl.EnableVertexAttribArray(5)
+	gl.VertexAttribPointerWithOffset(5, 1, gl.FLOAT, false, stride, 28)
+	gl.VertexAttribDivisor(5, 1)
 
 	gl.BindVertexArray(0)
 

@@ -113,6 +113,43 @@ func (l *Lift) LoopLength() float32 {
 	return 2 * float32(math.Sqrt(float64(dx*dx+dz*dz)))
 }
 
+// TowerSpacing is the target distance between adjacent towers along a
+// lift cable. Real chairlifts run with 40–60 m spacing; 50 m sits in
+// the middle. Kept package-level so render and sim agree on tower XZ
+// positions without re-deriving spacing.
+const TowerSpacing = 50.0
+
+// TowerXZs returns the XZ positions of every tower along the lift,
+// matching the spacing the renderer draws. Returns nil for lifts too
+// short to fit any towers (length ≤ 2 × StationOffset). The first and
+// last entries sit StationOffset inboard from the base and top stations
+// respectively; intermediate entries are evenly spaced.
+func (l *Lift) TowerXZs() []mgl32.Vec2 {
+	bx, bz := l.Base[0], l.Base[1]
+	tx, tz := l.Top[0], l.Top[1]
+	dx := tx - bx
+	dz := tz - bz
+	length := float32(math.Sqrt(float64(dx*dx + dz*dz)))
+	stationOffset := float32(StationOffset)
+	if length <= 2*stationOffset {
+		return nil
+	}
+	innerLen := length - 2*stationOffset
+	intervals := int(innerLen / TowerSpacing)
+	if intervals < 1 {
+		intervals = 1
+	}
+	spacing := innerLen / float32(intervals)
+	dirX := dx / length
+	dirZ := dz / length
+	out := make([]mgl32.Vec2, 0, intervals+1)
+	for i := 0; i <= intervals; i++ {
+		d := stationOffset + float32(i)*spacing
+		out = append(out, mgl32.Vec2{bx + dirX*d, bz + dirZ*d})
+	}
+	return out
+}
+
 // QueueCell returns the grid cell containing the lift's base — the
 // pathfinder destination for skiers walking to queue. Same convention as
 // Building.DoorCell.
