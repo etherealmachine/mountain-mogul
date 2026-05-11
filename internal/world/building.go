@@ -8,19 +8,23 @@ import (
 )
 
 // BuildingType selects what a Building represents and which mesh
-// renders it. New types added here also need a fallback mesh in
-// render/obj.go, a per-type cost in world.go, and a toolbar button
-// in scene/scenario.go.
+// renders it. New types added here also need a mesh ID in
+// world/objects.go (mirrored in render/mesh.go), a `.scad` source in
+// models-src/, a per-type cost in world.go, and a toolbar button in
+// scene/scenario.go.
 type BuildingType uint8
 
 const (
-	BuildingLodge BuildingType = 0
-	BuildingShed  BuildingType = 1
+	BuildingLodge   BuildingType = 0
+	BuildingShed    BuildingType = 1
+	BuildingParking BuildingType = 2
 )
 
-// Building represents a structure placed on the terrain. Lodges hold and
-// spawn skiers; sheds garage snowcat / snowmobile equipment (and won't
-// spawn skiers — their Mean/Skier fields stay zero).
+// Building represents a structure placed on the terrain. Parking lots are
+// the primary skier spawn/despawn point (a car arrives, four skiers walk
+// to the lifts; later they walk back and the car drives off). Lodges are
+// reserved for future rest/lunch buildings and currently have no spawn
+// behavior. Sheds garage snowcat / snowmobile equipment.
 //
 // Pos is the building's anchor in continuous world XZ coordinates (metres).
 // Y is derived from terrain elevation at use time. Footprints are still
@@ -31,10 +35,17 @@ type Building struct {
 	Type          BuildingType
 	Pos           mgl32.Vec2
 	Rotation      float32
-	MeanSpawnRate float64 // mean spawns per second (Poisson process); Lodge only
-	SkierCount    int     // skiers currently in the lodge pool; Lodge only
+	MeanSpawnRate float64 // mean spawns per second (Poisson process); Parking only
+	SkierCount    int     // skiers currently in the lot's pool; Parking only
 	spawnTimer    float64
 	nextSpawnIn   float64 // random interval until next spawn (exponential)
+
+	// Parking-only state. MaxCars caps how many cars the lot can hold;
+	// CurrentCars is a continuous estimate (incremented per spawn,
+	// decremented per despawn) and the render path floors it to instance
+	// N car models in a grid pattern. Roughly 4 skiers per car.
+	MaxCars     int
+	CurrentCars float32
 
 	// Shed-only state. Cats is the number of grooming machines this
 	// shed dispatches (1..MaxCatsPerShed). RouteCells holds the cells
@@ -44,6 +55,27 @@ type Building struct {
 	// path; the cat picks a next target each time it arrives.
 	Cats       int
 	RouteCells [][2]int
+}
+
+// SkiersPerCar is the average number of skiers that arrive together in one
+// car. Drives the visual CurrentCars increment/decrement on each spawn/despawn.
+const SkiersPerCar = 4
+
+// ArrivalDeparture nudges CurrentCars based on a +1 (arrival = spawn) or -1
+// (departure = despawn) event, clamped to [0, MaxCars]. Centralised so
+// spawn and despawn callsites can't drift out of sync.
+func (b *Building) ArrivalDeparture(sign int) {
+	if b.Type != BuildingParking {
+		return
+	}
+	delta := float32(sign) / float32(SkiersPerCar)
+	b.CurrentCars += delta
+	if b.CurrentCars < 0 {
+		b.CurrentCars = 0
+	}
+	if max := float32(b.MaxCars); max > 0 && b.CurrentCars > max {
+		b.CurrentCars = max
+	}
 }
 
 // DoorCell returns the grid cell containing the building's anchor — the

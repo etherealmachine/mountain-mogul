@@ -17,7 +17,18 @@ import (
 // patchScale is roughly "cells per patch" of the largest octave (24 ≈ 120 m
 // patches at 5 m cells). coverage in [0, 1] sets how much of the map is
 // forested before treeline/slope masking — 0.5 leaves about half open.
-func GenerateTreeCover(t *world.Terrain, patchScale, coverage float32, seed int64) {
+// treelineFrac in [0, 1] is the elevation (as a fraction of the map's range)
+// at which forest density tapers to zero; a 20%-of-range band straddles
+// that midpoint so the treeline isn't a horizontal hard cut.
+func GenerateTreeCover(t *world.Terrain, patchScale, coverage, treelineFrac float32, seed int64) {
+	computeElevFields(t).generateTreeCover(t, patchScale, coverage, treelineFrac, seed)
+}
+
+// generateTreeCover is the cached-fields variant: callers that need to
+// re-run the generator several times in a row (e.g. live slider drag)
+// can build an *elevFields once and call this directly to skip the
+// flow-accumulation and curvature passes.
+func (f *elevFields) generateTreeCover(t *world.Terrain, patchScale, coverage, treelineFrac float32, seed int64) {
 	if patchScale <= 0 {
 		patchScale = 24
 	}
@@ -26,27 +37,23 @@ func GenerateTreeCover(t *world.Terrain, patchScale, coverage float32, seed int6
 	} else if coverage > 1 {
 		coverage = 1
 	}
+	if treelineFrac < 0 {
+		treelineFrac = 0
+	} else if treelineFrac > 1 {
+		treelineFrac = 1
+	}
 
 	rng := rand.New(rand.NewSource(seed))
 	hashSeed := int(rng.Int31())
 
-	minE, maxE := float32(math.Inf(1)), float32(math.Inf(-1))
-	for x := 0; x < t.Width; x++ {
-		for z := 0; z < t.Height; z++ {
-			e := t.Cells[x][z].GroundElevation
-			if e < minE {
-				minE = e
-			}
-			if e > maxE {
-				maxE = e
-			}
-		}
-	}
+	minE, maxE := f.minE, f.maxE
 	span := maxE - minE
-	// Treeline: density tapers from `treeStart` and is fully gone by `treelineMax`.
-	// On flat maps the band collapses; the slope mask still gives variation.
-	treeStart := minE + 0.65*span
-	treelineMax := minE + 0.85*span
+	// Treeline: density starts tapering ~10 % of the elevation range below
+	// the slider value and is fully gone ~10 % above. On flat maps the
+	// band collapses; the slope mask still gives variation.
+	const treelineBand = float32(0.20)
+	treeStart := minE + (treelineFrac-treelineBand/2)*span
+	treelineMax := minE + (treelineFrac+treelineBand/2)*span
 
 	// Drainage signal: MFD flow accumulation, log-normalised. Cells with high
 	// upstream contributing area (valleys, gullies, the floor of bowls) get a
@@ -59,7 +66,7 @@ func GenerateTreeCover(t *world.Terrain, patchScale, coverage float32, seed int6
 	// a boost (wide alluvial-fan corridors), while up at the headwaters the
 	// thresholds tighten so only the strongest stems carry forest. Mirrors how
 	// real drainages widen as they collect water, soil, and sediment downhill.
-	flow := flowAccumulation(t)
+	flow := f.flow
 	const flowBoost = float32(0.60) // max additive density along main channels
 	// Headwater thresholds — tight, so only the strongest stems survive at altitude.
 	const flowLowHead = float32(0.70)
@@ -79,7 +86,7 @@ func GenerateTreeCover(t *world.Terrain, patchScale, coverage float32, seed int6
 	// ridges that get wind-blasted and shed soil. Normalised against the map's
 	// own curvature distribution so the effect is comparable across terrains
 	// with different relief.
-	curv := curvature(t)
+	curv := f.curv
 	const concavityBoost = float32(0.35)
 	const ridgePenalty = float32(0.25)
 

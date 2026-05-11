@@ -74,7 +74,7 @@ type GoalKind int
 const (
 	GoalNone GoalKind = iota
 	GoalLift
-	GoalLodge
+	GoalDepart // heading to a parking lot / bus stop / train station to leave the resort
 )
 
 // Plan is the strategic layer's output: where the skier is heading and

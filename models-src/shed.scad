@@ -89,3 +89,12 @@ module shed() {
 }
 
 shed();
+
+// ── Footprint metadata ─────────────────────────────────────────────────
+// Half-extents in SCAD coords (X, Y). The office annex sticks out the
+// −X back wall by office_w, so the full X extent is (wall_w/2 + office_w)
+// on the back side and wall_w/2 on the front side — we use the larger of
+// the two so the apron covers the full silhouette. The scad2obj converter
+// applies the SCAD → game rotation and writes the canonical (halfX, halfZ)
+// into the OBJ header for the placement pass.
+echo("MOGUL_META", "footprint", wall_w / 2 + office_w, wall_d / 2);

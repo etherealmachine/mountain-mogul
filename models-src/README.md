@@ -83,6 +83,50 @@ Geometry that has no `color()` wrapper renders as white (the OpenSCAD
 "Default" basematerial is remapped to (1, 1, 1) by the converter so
 nothing accidentally ships in OpenSCAD preview yellow).
 
+## Model metadata
+
+The .scad source can publish a handful of named anchors and attributes via
+openscad's `echo()` function. The build pipeline captures these from
+openscad's stderr, applies the SCAD → game rotation, and bakes them into
+the head of the generated OBJ as `#`-prefixed comment lines. The renderer
+parses them at load time and registers them against the mesh ID so
+simulation and scene code can query without depending on the render package.
+
+All metadata lines share the same `MOGUL_META` prefix so unrelated
+debugging `echo()` output doesn't accidentally collide.
+
+### Passenger slots — `slot`
+
+For ridden meshes (currently just the chairlift chair). Declares an
+anchor point where a rider's feet should land. Multiple slots are
+allowed; index 0, 1, 2 … must be unique.
+
+```scad
+echo("MOGUL_META", "slot", <index>, <x>, <y>, <z>);
+```
+
+OBJ output: `# slot <index> <x> <y> <z>` (coordinates rotated to game frame).
+Loader: `render.LoadOBJSlots` → `world.RegisterMeshSlots`.
+
+### Building footprint — `footprint`
+
+For placed buildings (lodge, shed, parking lot, future hotels, etc.).
+Declares the building's ground-plane half-extents — the placement-effects
+pass adds a fixed clearance margin around these values to size the apron
+pad and clear trees from the surrounding cells.
+
+```scad
+echo("MOGUL_META", "footprint", <halfX>, <halfY>);
+```
+
+`halfX` and `halfY` are in SCAD coords (Z-up). The converter applies the
+Z-up → Y-up rotation so the OBJ stores `halfX` and `halfZ` in game
+coords. Include any visible overhang (eaves, annexes) so the apron covers
+the full silhouette, not just the wall plane.
+
+OBJ output: `# footprint <halfX> <halfZ>`.
+Loader: `render.LoadOBJFootprint` → `world.RegisterMeshFootprint`.
+
 ## Real-world reference dimensions
 
 These are real-world spec ranges for the things we model. Pick numbers

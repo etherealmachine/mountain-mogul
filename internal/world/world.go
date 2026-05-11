@@ -10,11 +10,12 @@ import (
 // lodge plus two ~600 m lifts with no padding — players hit the wall
 // quickly and have to think about layout.
 const (
-	LodgeCost       = 50000  // single fixed cost per lodge
+	LodgeCost       = 50000  // single fixed cost per lodge (no spawn behavior yet — reserved)
 	ShedCost        = 30000  // grooming equipment storage; cheaper than a lodge — no plumbing, no kitchen, just bays
+	ParkingCost     = 40000  // base parking lot — capacity is fixed for now, scaling via multiple lots
 	LiftStationCost = 50000  // fixed cost for both stations of a lift (you always need two)
 	LiftPerMeter    = 100    // cost per metre of cable run, covers towers + cable
-	StartingCash    = 250000 // 1× lodge + 2× ~600 m lifts (50K + 2 × (50K + 60K) = 270K) — slight stretch on lift length
+	StartingCash    = 250000 // 1× parking + 2× ~600 m lifts (40K + 2 × (50K + 60K) = 260K) — slight stretch on lift length
 
 	DefaultTicketPrice = 10 // dollars per lift ride; player adjusts via the lift popup
 )
@@ -25,6 +26,8 @@ func BuildingCost(t BuildingType) int {
 	switch t {
 	case BuildingShed:
 		return ShedCost
+	case BuildingParking:
+		return ParkingCost
 	}
 	return LodgeCost
 }
@@ -125,9 +128,16 @@ func (w *World) PlaceBuildingType(typ BuildingType, x, z float32) *Building {
 		Pos:  mgl32.Vec2{x, z},
 	}
 	switch typ {
-	case BuildingLodge:
+	case BuildingParking:
+		// Parking lots are the primary skier spawn/despawn point. Each
+		// arriving car drops off ~4 skiers; departures reverse it.
 		b.MeanSpawnRate = 0.5 // mean: 1 skier per 2 seconds
 		b.SkierCount = 100
+		b.MaxCars = 40
+	case BuildingLodge:
+		// Lodges are reserved for future rest/lunch features and don't
+		// currently spawn skiers. The spawn fields stay zero so the
+		// sim's spawn picker ignores them.
 	case BuildingShed:
 		// Sheds start with one cat included. Additional cats are
 		// purchased via the shed popup. SpawnSnowcat is called after

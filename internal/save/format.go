@@ -69,6 +69,10 @@ type BuildingData struct {
 	// Shed-only state.
 	Cats       int        `json:"cats,omitempty"`
 	RouteCells [][2]int   `json:"route,omitempty"`
+
+	// Parking-only state.
+	MaxCars     int     `json:"max_cars,omitempty"`
+	CurrentCars float32 `json:"cur_cars,omitempty"`
 }
 
 // SnowcatData is a saved cat. ShedID links it back to its shed; both

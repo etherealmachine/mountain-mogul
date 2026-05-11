@@ -43,3 +43,11 @@ module lodge() {
 }
 
 lodge();
+
+// ── Footprint metadata ─────────────────────────────────────────────────
+// Half-extents in SCAD coords (X, Y) — the eaves overhang adds 0.6 m
+// per side, which we include so the apron + tree-clearance zone covers
+// the visible roof outline rather than just the wall plane. The
+// scad2obj converter applies the SCAD → game rotation and writes the
+// canonical (halfX, halfZ) into the OBJ header for the placement pass.
+echo("MOGUL_META", "footprint", wall_w / 2 + overhang, wall_d / 2 + overhang);

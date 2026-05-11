@@ -55,6 +55,7 @@ type Renderer struct {
 	dynamicBatch  *Batch
 	chairBatch    *Batch
 	snowcatBatch  *Batch
+	carBatch      *Batch
 
 	uiVAO, uiVBO uint32
 	whiteTexID   uint32 // 1×1 white texture; always bound to unit 0 during UI pass
@@ -214,29 +215,43 @@ func (r *Renderer) initStaticMeshes() {
 		{MeshLiftStation, "lift_station"},
 		{MeshTower, "tower"},
 		{MeshShed, "shed"},
+		{MeshParkingPad, "parking"}, // built by models-src/parking.scad
 	}
 
 	for _, def := range meshDefs {
 		objPath := modelDir + def.name + ".obj"
-		mesh, texID := LoadOBJ(objPath, def.id)
+		mesh, texID := LoadOBJ(objPath)
 		r.staticBatches[def.id] = NewStaticBatch(mesh, texID)
+		// Footprint metadata is optional — only the building-type meshes
+		// publish it today. Missing values just leave the registry empty
+		// and the placement-effects pass falls back to a default extent.
+		if fp, ok := LoadOBJFootprint(objPath); ok {
+			world.RegisterMeshFootprint(def.id, fp)
+		}
 	}
 
 	// Agent — dynamic batch.
-	agentMesh, agentTexID := LoadOBJ(modelDir+"agent.obj", MeshAgent)
+	agentMesh, agentTexID := LoadOBJ(modelDir + "agent.obj")
 	r.dynamicBatch = NewDynamicBatch(agentMesh, agentTexID)
 
 	// Chair — dynamic batch (heading rotates each chair along the cable).
 	chairPath := modelDir + "chair.obj"
-	chairMesh, chairTexID := LoadOBJ(chairPath, MeshChair)
+	chairMesh, chairTexID := LoadOBJ(chairPath)
 	r.chairBatch = NewDynamicBatch(chairMesh, chairTexID)
 	world.RegisterMeshSlots(world.MeshChair, LoadOBJSlots(chairPath))
 
 	// Snowcat — dynamic batch. Snowcats drive over the terrain every
 	// tick so they share the agent-style instance path rather than
 	// sitting in the static batches.
-	snowcatMesh, snowcatTexID := LoadOBJ(modelDir+"snowcat.obj", MeshSnowcat)
+	snowcatMesh, snowcatTexID := LoadOBJ(modelDir + "snowcat.obj")
 	r.snowcatBatch = NewDynamicBatch(snowcatMesh, snowcatTexID)
+
+	// Cars — dynamic batch. Each parking lot's CurrentCars fluctuates as
+	// skiers arrive / depart; rather than rebuild the whole static batch
+	// every time the count ticks, we draw cars from a per-frame instance
+	// list keyed off live parking-lot state.
+	carMesh, carTexID := LoadOBJ(modelDir + "car.obj")
+	r.carBatch = NewDynamicBatch(carMesh, carTexID)
 }
 
 // SetViewport updates the OpenGL framebuffer viewport. Call this from the
@@ -1105,12 +1120,15 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 	}
 
 	// Buildings — mesh varies by Type. Lodges use the building mesh;
-	// sheds use the dedicated shed mesh. New types add another case.
+	// sheds use the dedicated shed mesh; parking lots use a flat asphalt
+	// pad and draw their cars dynamically. New types add another case.
 	for _, bldg := range w.Buildings {
 		meshID := MeshBuilding
 		switch bldg.Type {
 		case world.BuildingShed:
 			meshID = MeshShed
+		case world.BuildingParking:
+			meshID = MeshParkingPad
 		}
 		if batch, ok := r.staticBatches[meshID]; ok {
 			batch.AddStatic(BuildingTransform(bldg.Pos, bldg.Rotation, w.Terrain), mgl32.Vec3{1, 1, 1})
@@ -1144,6 +1162,82 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 func BuildingTransform(pos mgl32.Vec2, rotation float32, terrain *world.Terrain) mgl32.Mat4 {
 	y := VisualElevationAt(terrain, pos[0], pos[1])
 	return mgl32.Translate3D(pos[0], y, pos[1]).Mul4(mgl32.HomogRotate3DY(rotation))
+}
+
+// carInstancesFor enumerates the parked-car instances across every parking
+// lot in the world. Cars are placed in a regular grid inside each lot's
+// pad footprint, filling row-major up to floor(CurrentCars). Stall pitch
+// is fixed; pad size comes from the lot's mesh footprint metadata so a
+// larger parking-pad model would Just Work without re-tuning here.
+func carInstancesFor(w *world.World) []DynamicInstance {
+	const (
+		stallX = float32(2.5) // x pitch — slightly wider than the 2 m car footprint
+		stallZ = float32(5.0) // z pitch — bumper-to-bumper down the rows
+		margin = float32(2.0) // inset from pad edge so cars don't poke off the asphalt
+	)
+
+	var instances []DynamicInstance
+	for _, b := range w.Buildings {
+		if b.Type != world.BuildingParking {
+			continue
+		}
+		count := int(b.CurrentCars)
+		if count <= 0 {
+			continue
+		}
+		// Pad half-extents come from the SCAD footprint metadata. Without
+		// it (e.g. parking.obj hasn't been built yet) we skip car
+		// instancing — the renderer is already showing the magenta
+		// marker cube for the pad, and floating cars over it would just
+		// add to the noise.
+		fp, ok := world.FootprintFor(b.Type.MeshID())
+		if !ok {
+			continue
+		}
+		padHalfX, padHalfZ := fp.HalfX, fp.HalfZ
+		cols := int(math.Floor(float64((padHalfX*2 - margin*2) / stallX)))
+		rows := int(math.Floor(float64((padHalfZ*2 - margin*2) / stallZ)))
+		if cols < 1 || rows < 1 {
+			continue
+		}
+		if maxStalls := cols * rows; count > maxStalls {
+			count = maxStalls
+		}
+		// Pad origin is at the building anchor at ground level. Cars rest
+		// on the asphalt surface — the pad top is parkingPadHeight above
+		// the anchor, and an extra epsilon keeps the wheels from
+		// z-fighting with the stripe geometry that sits ~1 cm above the
+		// asphalt slab in parking.scad.
+		const parkingPadHeight = float32(0.6)
+		anchorY := VisualElevationAt(w.Terrain, b.Pos[0], b.Pos[1])
+		carBaseY := anchorY + parkingPadHeight + 0.02
+		// Cosine/sine of the lot rotation so the grid rotates with it.
+		ca := float32(math.Cos(float64(b.Rotation)))
+		sa := float32(math.Sin(float64(b.Rotation)))
+		startX := -padHalfX + margin + stallX/2
+		startZ := -padHalfZ + margin + stallZ/2
+		for i := 0; i < count; i++ {
+			col := i % cols
+			row := i / cols
+			localX := startX + float32(col)*stallX
+			localZ := startZ + float32(row)*stallZ
+			worldX := b.Pos[0] + localX*ca - localZ*sa
+			worldZ := b.Pos[1] + localX*sa + localZ*ca
+			// Subtle deterministic tint variation so the lot doesn't read
+			// as a single flat block — derived from the lot ID and stall
+			// index so the same car at the same stall keeps the same colour.
+			hash := uint32(b.ID*31 + uint64(i)*17)
+			r := 0.35 + float32(hash&0x3f)/255.0
+			g := 0.35 + float32((hash>>6)&0x3f)/255.0
+			bl := 0.35 + float32((hash>>12)&0x3f)/255.0
+			instances = append(instances, DynamicInstance{
+				Position: [3]float32{worldX, carBaseY, worldZ},
+				Heading:  b.Rotation,
+				Color:    [3]float32{r, g, bl},
+			})
+		}
+	}
+	return instances
 }
 
 // LiftStationTransform builds the world-space transform for a lift station
@@ -1388,6 +1482,17 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		r.snowcatBatch.Draw()
 	}
 
+	// Parked cars — one box per filled parking-lot stall, count driven by
+	// the lot's CurrentCars. Dynamic so the count can fluctuate per tick
+	// without forcing a full static-batch rebuild.
+	if r.carBatch != nil {
+		carInstances := carInstancesFor(w)
+		if len(carInstances) > 0 {
+			r.carBatch.SetDynamic(carInstances)
+			r.carBatch.Draw()
+		}
+	}
+
 	// Debug-line pass (steering overlay etc.) — runs before chairs so chairs draw over.
 	if r.debugVertCount > 0 && r.DebugShader != nil {
 		r.DebugShader.Use()
@@ -1432,7 +1537,7 @@ func agentColor(w *world.World, a *world.Agent) [3]float32 {
 		return [3]float32{0.9, 0.4, 0.1}
 	case "To Lift":
 		return [3]float32{0.1, 0.8, 0.3}
-	case "To Lodge":
+	case "Departing":
 		return [3]float32{0.8, 0.3, 0.8}
 	case "Fallen":
 		return [3]float32{0.8, 0.1, 0.1}

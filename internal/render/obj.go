@@ -17,13 +17,12 @@ type objFace struct {
 	vtIdx [3]int
 }
 
-// LoadOBJ loads an OBJ file and returns a Mesh and texture ID.
-// Falls back to NewBoxMesh if the file is missing.
-func LoadOBJ(path string, fallbackMeshID uint32) (*Mesh, uint32) {
+// LoadOBJ loads an OBJ file and returns a Mesh and texture ID. Falls
+// back to a magenta marker cube if the file is missing — see fallbackMesh.
+func LoadOBJ(path string) (*Mesh, uint32) {
 	mesh, texID, err := loadOBJFile(path)
 	if err != nil {
-		// fallback to box mesh based on mesh type
-		mesh, texID = fallbackMesh(fallbackMeshID)
+		mesh, texID = fallbackMesh()
 	}
 	return mesh, texID
 }
@@ -71,31 +70,49 @@ func LoadOBJSlots(path string) []world.MeshSlot {
 	return slots
 }
 
-func fallbackMesh(meshID uint32) (*Mesh, uint32) {
-	texID := whiteTexture()
-	switch meshID {
-	case MeshTree:
-		return NewBoxMesh(2, 20, 2, [3]float32{0.1, 0.5, 0.1}), texID
-	case MeshRock:
-		return NewBoxMesh(3, 2, 3, [3]float32{0.5, 0.5, 0.5}), texID
-	case MeshStump:
-		return NewBoxMesh(1.5, 1.5, 1.5, [3]float32{0.4, 0.3, 0.2}), texID
-	case MeshBuilding:
-		return NewBoxMesh(20, 8, 20, [3]float32{0.8, 0.7, 0.6}), texID
-	case MeshTower:
-		return NewBoxMesh(1, 20, 1, [3]float32{0.6, 0.6, 0.6}), texID
-	case MeshAgent:
-		return NewBoxMesh(1, 2, 0.5, [3]float32{0.9, 0.2, 0.2}), texID
-	case MeshLiftStation:
-		return NewBoxMesh(8, 6, 8, [3]float32{0.5, 0.55, 0.6}), texID
-	case MeshShed:
-		return NewBoxMesh(16, 7, 12, [3]float32{0.65, 0.70, 0.78}), texID
-	case MeshSnowcat:
-		return NewBoxMesh(6, 3, 3, [3]float32{0.95, 0.45, 0.20}), texID
-	case MeshChair:
-		return NewBoxMesh(1.5, 0.6, 0.7, [3]float32{0.7, 0.7, 0.7}), texID
+// LoadOBJFootprint reads a `# footprint halfX halfZ` comment line from an
+// OBJ produced by tools/scad2obj. Both values are in metres in mesh-local
+// game coords (the converter has already applied the SCAD Z-up → game
+// Y-up rotation). Returns ok=false when the file is missing or has no
+// footprint line — callers fall back to a box-bbox default.
+func LoadOBJFootprint(path string) (world.MeshFootprint, bool) {
+	f, err := os.Open(path)
+	if err != nil {
+		return world.MeshFootprint{}, false
 	}
-	return NewBoxMesh(2, 2, 2, [3]float32{1, 1, 1}), texID
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "# footprint ") {
+			fields := strings.Fields(line)
+			if len(fields) != 4 {
+				continue
+			}
+			hx, err1 := strconv.ParseFloat(fields[2], 32)
+			hz, err2 := strconv.ParseFloat(fields[3], 32)
+			if err1 != nil || err2 != nil {
+				continue
+			}
+			return world.MeshFootprint{HalfX: float32(hx), HalfZ: float32(hz)}, true
+		}
+		// Footprint sits in the leading comment block; once vertices /
+		// faces appear, no footprint line can follow.
+		if strings.HasPrefix(line, "v ") || strings.HasPrefix(line, "f ") {
+			break
+		}
+	}
+	return world.MeshFootprint{}, false
+}
+
+// fallbackMesh returns a 2 m marker cube used when an OBJ fails to load
+// — typically because `make models` hasn't run for a new SCAD file.
+// Per-mesh sizes were a development convenience but the working build has
+// all OBJs in place, so this only appears as a diagnostic. If you see
+// this cube, rebuild the models.
+func fallbackMesh() (*Mesh, uint32) {
+	return NewBoxMesh(2, 2, 2), whiteTexture()
 }
 
 func loadOBJFile(path string) (*Mesh, uint32, error) {

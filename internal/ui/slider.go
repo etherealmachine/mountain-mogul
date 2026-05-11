@@ -14,7 +14,11 @@ type VSlider struct {
 	X, Y, W, H float32
 	Min, Max   float32
 	Value      float32
-	Label      string // shown above the track; %.0f formatted with current value
+	Label      string // shown above the track; formatted with current value
+	// ValueFormat is the printf format for the numeric readout below the
+	// track. Empty defaults to "%.0f". Set to e.g. "%.1f m", "%.0f°", or
+	// "%.0f%%" to attach units.
+	ValueFormat string
 
 	dragging bool
 }
@@ -90,7 +94,11 @@ func (s *VSlider) Draw(r *render.Renderer) {
 		r.Font.DrawText(r, s.Label, lx, s.Y-float32(render.GlyphH)-4, mgl32.Vec4{1, 1, 1, 1})
 	}
 	// Numeric value below the track.
-	val := fmt.Sprintf("%.0f", s.Value)
+	format := s.ValueFormat
+	if format == "" {
+		format = "%.0f"
+	}
+	val := fmt.Sprintf(format, s.Value)
 	valW := float32(len(val) * render.GlyphAdvance)
 	vx := s.X + (s.W-valW)/2
 	r.Font.DrawText(r, val, vx, s.Y+s.H+4, mgl32.Vec4{1, 1, 1, 1})

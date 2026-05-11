@@ -19,13 +19,25 @@ type Editor struct {
 	app               *engine.App
 	world             *world.World
 	menuBar           *ui.MenuBar
+	topBar            *ui.TopBar       // editor-mode bar: just overlay + settings buttons
+	overlayPanel      *ui.OverlayPanel // right-edge terrain-overlay toggles
 	escapeMenu        *EscapeMenu
 	toolButtons       map[toolMode]*ui.Button
 	activeTool        toolMode
 	scenarioPath      string
 	hoverCell         [2]int      // terrain cell currently under the mouse
+	hoverWorld        mgl32.Vec3  // continuous terrain hit under the mouse — for placement and ghost preview
+	hoverValid        bool        // false when the cursor isn't on the terrain (or sits on chrome)
 	radiusSlider      *ui.VSlider // shown for any brush tool
 	densitySlider     *ui.VSlider // shown only for the plant tool — caps brush target density
+	autoMaxSlider      *ui.VSlider // shown only in auto tool: max snow depth (m)
+	autoSnowlineSlider *ui.VSlider // shown only in auto tool: snowline elevation (%)
+	autoTreelineSlider *ui.VSlider // shown only in auto tool: treeline elevation (%) — drives both snow & forest
+	autoCoverageSlider *ui.VSlider // shown only in auto tool: forest coverage (%)
+	autoWindSlider     *ui.VSlider // shown only in auto tool: wind direction (deg)
+	autoSeed           int64       // seed for the noise overlays; stable across slider tweaks
+	autoFields         *elevFields // cached flow / curvature / minE-maxE; invalidated on elevation edits
+	liftBase          mgl32.Vec2  // toolLiftBase → toolLiftTop two-click state: first click stored here
 	pendingScreenshot bool        // captured at end of Render so the PNG matches what's on screen
 }
 
@@ -71,11 +83,15 @@ func (e *Editor) Init(app *engine.App) error {
 	e.toolButtons = make(map[toolMode]*ui.Button)
 	e.menuBar = ui.NewMenuBar(0, 60)
 	e.menuBar.Centered = true
+	// Placement tools — same set the scenario exposes, but free in the
+	// editor (no cost gating) since the editor's purpose is laying out
+	// starting state for a scenario.
+	e.toolButtons[toolParking] = e.menuBar.AddIconButton(render.IconUsers, "Parking", func() { e.setTool(toolParking) })
+	e.toolButtons[toolBuilding] = e.menuBar.AddIconButton(render.IconHouse, "Lodge", func() { e.setTool(toolBuilding) })
+	e.toolButtons[toolShed] = e.menuBar.AddIconButton(render.IconGarage, "Shed", func() { e.setTool(toolShed) })
+	e.toolButtons[toolLiftBase] = e.menuBar.AddIconButton(render.IconCableCar, "Lift", func() { e.setTool(toolLiftBase) })
 	e.toolButtons[toolPlantTrees] = e.menuBar.AddIconButton(render.IconTreeEvergreen, "Plant", func() { e.setTool(toolPlantTrees) })
-	e.menuBar.AddIconButton(render.IconTreeEvergreen, "Auto-forest", func() {
-		GenerateTreeCover(e.world.Terrain, 24, 0.55, time.Now().UnixNano())
-		e.app.Renderer.RebuildStaticBatch(e.world)
-	})
+	e.toolButtons[toolAuto] = e.menuBar.AddIconButton(render.IconSnowflake, "Auto", func() { e.setTool(toolAuto) })
 	e.toolButtons[toolGlade] = e.menuBar.AddIconButton(render.IconAxe, "Glade", func() { e.setTool(toolGlade) })
 	e.toolButtons[toolEditorRaise] = e.menuBar.AddIconButton(render.IconArrowFatUp, "Raise", func() { e.setTool(toolEditorRaise) })
 	e.toolButtons[toolEditorLower] = e.menuBar.AddIconButton(render.IconArrowFatDown, "Lower", func() { e.setTool(toolEditorLower) })
@@ -101,11 +117,41 @@ func (e *Editor) Init(app *engine.App) error {
 		}
 	}, nil)
 
+	// Top bar — editor-mode only has overlay-panel toggle + settings (gear).
+	// No stats, no date/weather, no time controls, so the centre and left
+	// stay empty by leaving the callbacks unset.
+	const topBarH = float32(96)
+	e.topBar = ui.NewTopBar(topBarH)
+	e.topBar.SetSettingsButton(func() { e.escapeMenu.Toggle() })
+
+	e.overlayPanel = ui.NewOverlayPanel()
+	e.overlayPanel.Top = topBarH
+	e.overlayPanel.Bottom = float32(app.Renderer.ScreenHeight()) - e.menuBar.H
+	e.topBar.SetOverlayToggle(func() {
+		visible := e.overlayPanel.Toggle()
+		e.topBar.SetOverlayActive(visible)
+	})
+
 	// Brush sliders — repositioned each Render relative to screen size.
 	// Radius shows for any brush tool; density only for plant. Range max is
 	// generous on radius so users can paint a whole forest in one stroke.
 	e.radiusSlider = ui.NewVSlider(0, 0, 18, 200, 1, 30, float32(defaultBrushRadius), "Radius")
 	e.densitySlider = ui.NewVSlider(0, 0, 18, 200, 0, 100, 100, "Density")
+
+	// Auto-gen sliders — drive both forest and snow generation. Persistent
+	// across tool toggles so the player's last settings stick around.
+	// Treeline is shared (forest cap + snow wind-exposure threshold); the
+	// other sliders each affect one of the two layers.
+	e.autoMaxSlider = ui.NewVSlider(0, 0, 18, 200, 0, 8, 4, "Max")
+	e.autoMaxSlider.ValueFormat = "%.1f m"
+	e.autoSnowlineSlider = ui.NewVSlider(0, 0, 18, 200, 0, 100, 30, "Snowline")
+	e.autoSnowlineSlider.ValueFormat = "%.0f%%"
+	e.autoTreelineSlider = ui.NewVSlider(0, 0, 18, 200, 0, 100, 70, "Treeline")
+	e.autoTreelineSlider.ValueFormat = "%.0f%%"
+	e.autoCoverageSlider = ui.NewVSlider(0, 0, 18, 200, 0, 100, 55, "Cover")
+	e.autoCoverageSlider.ValueFormat = "%.0f%%"
+	e.autoWindSlider = ui.NewVSlider(0, 0, 18, 200, 0, 360, 270, "Wind")
+	e.autoWindSlider.ValueFormat = "%.0fdeg"
 
 	return nil
 }
@@ -113,11 +159,21 @@ func (e *Editor) Init(app *engine.App) error {
 const (
 	toolEditorRaise = toolMode(100)
 	toolEditorLower = toolMode(101)
+	toolAuto        = toolMode(102)
 )
 
 func (e *Editor) Update(dt float64) {
 	inp := e.app.Input
 	r := e.app.Renderer
+
+	// Coalesced snow-state flush: any tool that mutates SnowDepth /
+	// Grooming / Packed / Ice / MogulSize sets Terrain.SnowDirty and we
+	// push the result to the GPU once per frame. Matches the scenario's
+	// per-frame check so tools can be shared without per-call wiring.
+	if e.world != nil && e.world.Terrain != nil && e.world.Terrain.SnowDirty {
+		r.FlushSnowState(e.world.Terrain)
+		e.world.Terrain.SnowDirty = false
+	}
 
 	if inp.Pressed[glfw.KeyEscape] {
 		if e.activeTool != toolNone {
@@ -132,9 +188,12 @@ func (e *Editor) Update(dt float64) {
 		return
 	}
 
-	// C: cycle terrain overlay (off → contour → slope debug → off).
+	// C: toggle the contour overlay via the panel so the hotkey and the
+	// panel UI stay in sync (otherwise the panel's mask overwrites the
+	// hotkey's change the same frame).
 	if inp.Pressed[glfw.KeyC] {
-		r.TerrainOverlayMode = (r.TerrainOverlayMode + 1) % 3
+		e.overlayPanel.ToggleBit(render.OverlayContour)
+		r.TerrainOverlayMode = e.overlayPanel.Mask()
 	}
 
 	// F12: queue a screenshot — captured at the end of Render so the PNG
@@ -168,6 +227,13 @@ func (e *Editor) Update(dt float64) {
 	// hit-testing — otherwise the buttons would float at the top.
 	e.menuBar.Y = float32(r.ScreenHeight()) - e.menuBar.H
 	e.menuBar.HandleInput(inp, float32(r.ScreenWidth()), float32(r.ScreenHeight()))
+	e.topBar.HandleInput(inp, float32(r.ScreenWidth()))
+
+	// Keep overlay panel sized to the live window and mirror its mask into
+	// the renderer so toggles take effect this frame.
+	e.overlayPanel.Bottom = float32(r.ScreenHeight()) - e.menuBar.H
+	e.overlayPanel.HandleInput(inp, float32(r.ScreenWidth()))
+	r.TerrainOverlayMode = e.overlayPanel.Mask()
 
 	// Camera pan — right-drag or arrow keys
 	if inp.RightClick || inp.RightHeld {
@@ -227,42 +293,221 @@ func (e *Editor) Update(dt float64) {
 		}
 	}
 
-	// Track terrain cell under mouse for brush preview.
-	if !e.menuBar.ContainsY(inp.MousePos[1]) {
-		gx, gz := screenToCell(r.Camera, e.world.Terrain, inp.MousePos)
-		e.hoverCell = [2]int{gx, gz}
+	// Auto-gen sliders — adjusting any of them re-runs both the snow and
+	// forest generators with the new values so the player gets live feedback.
+	if e.activeTool == toolAuto {
+		e.layoutAutoSliders(r)
+		sliders := e.autoSliders()
+		prev := make([]float32, len(sliders))
+		for i, s := range sliders {
+			prev[i] = s.Value
+			if s.HandleInput(inp.MousePos[0], inp.MousePos[1], inp.LeftClick, inp.LeftHeld) {
+				sliderActive = true
+			}
+		}
+		changed := false
+		for i, s := range sliders {
+			if s.Value != prev[i] {
+				changed = true
+				break
+			}
+		}
+		if changed {
+			e.regenerateAuto()
+		}
+	}
+
+	// Track terrain hit under the mouse — continuous Vec3 for the
+	// placement ghost preview, plus the integer cell for the brush
+	// tools. Both gated by the same on-chrome check so hovers over the
+	// top bar / menu bar / overlay panel don't paint a ghost into the world.
+	overChrome := e.menuBar.ContainsY(inp.MousePos[1]) ||
+		e.topBar.ContainsY(inp.MousePos[1]) ||
+		e.overlayPanel.ContainsXY(inp.MousePos[0], inp.MousePos[1], float32(r.ScreenWidth()))
+	if !overChrome {
+		if pos, ok := screenToWorld(r.Camera, e.world.Terrain, inp.MousePos); ok {
+			e.hoverWorld = pos
+			e.hoverValid = true
+			const cellSize = float32(5.0)
+			e.hoverCell = [2]int{int(pos[0] / cellSize), int(pos[2] / cellSize)}
+		} else {
+			e.hoverValid = false
+			e.hoverCell = [2]int{-1, -1}
+		}
 	} else {
+		e.hoverValid = false
 		e.hoverCell = [2]int{-1, -1}
 	}
 
-	// Tool application — suppressed when a slider is grabbing input or
-	// the cursor is over slider/menu chrome.
-	if !sliderActive && (inp.LeftClick || inp.LeftHeld) && !e.menuBar.ContainsY(inp.MousePos[1]) {
+	// Ghost preview for placement tools — editor placements are free so
+	// the tint is always the affordable colour.
+	updatePlacementGhost(r, e.world.Terrain, placementGhostState{
+		activeTool: e.activeTool,
+		hoverPos:   mgl32.Vec2{e.hoverWorld[0], e.hoverWorld[2]},
+		hoverValid: e.hoverValid,
+		liftBase:   e.liftBase,
+		tint:       ghostTint(true),
+	})
+
+	// Tool application — placement tools fire on click only; brush tools
+	// follow the cursor while held. Suppressed when a slider is grabbing
+	// input or the cursor is over slider/menu chrome.
+	if !sliderActive && !overChrome {
 		overSlider := e.toolUsesRadiusSlider() && e.radiusSlider.Contains(inp.MousePos[0], inp.MousePos[1])
 		overSlider = overSlider || (e.toolUsesDensitySlider() && e.densitySlider.Contains(inp.MousePos[0], inp.MousePos[1]))
+		if e.activeTool == toolAuto {
+			for _, s := range e.autoSliders() {
+				if s.Contains(inp.MousePos[0], inp.MousePos[1]) {
+					overSlider = true
+					break
+				}
+			}
+		}
 		if !overSlider {
-			gx, gz := e.hoverCell[0], e.hoverCell[1]
-			if e.world.Terrain.InBounds(gx, gz) {
-				e.applyEditorTool(gx, gz, r, float32(dt))
+			if e.isPlacementTool() {
+				if inp.LeftClick && e.hoverValid {
+					e.applyPlacement(r)
+				}
+			} else if inp.LeftClick || inp.LeftHeld {
+				gx, gz := e.hoverCell[0], e.hoverCell[1]
+				if e.world.Terrain.InBounds(gx, gz) {
+					e.applyEditorTool(gx, gz, r, float32(dt))
+				}
 			}
 		}
 	}
 }
 
+// isPlacementTool reports whether the active tool is a one-shot building
+// or lift placement (click to commit) rather than a held brush.
+func (e *Editor) isPlacementTool() bool {
+	switch e.activeTool {
+	case toolBuilding, toolShed, toolParking, toolLiftBase, toolLiftTop:
+		return true
+	}
+	return false
+}
+
+// applyPlacement commits a one-shot building or lift placement at the
+// current continuous hover position. No cost gating — editor placements
+// are free. Mirrors the scenario's placement flow (apron, terrain flush,
+// batch rebuild) so the resulting world is identical to one built by
+// playing through the scenario.
+func (e *Editor) applyPlacement(r *render.Renderer) {
+	w := e.world
+	wx := e.hoverWorld[0]
+	wz := e.hoverWorld[2]
+	switch e.activeTool {
+	case toolBuilding:
+		b := w.PlaceBuildingType(world.BuildingLodge, wx, wz)
+		applyBuildingPlacementEffects(w.Terrain, b)
+		r.FlushTerrainVerts(w.Terrain)
+		r.RebuildStaticBatch(w)
+		e.autoFields = nil
+	case toolShed:
+		b := w.PlaceBuildingType(world.BuildingShed, wx, wz)
+		applyBuildingPlacementEffects(w.Terrain, b)
+		r.FlushTerrainVerts(w.Terrain)
+		r.RebuildStaticBatch(w)
+		e.autoFields = nil
+	case toolParking:
+		b := w.PlaceBuildingType(world.BuildingParking, wx, wz)
+		applyBuildingPlacementEffects(w.Terrain, b)
+		r.FlushTerrainVerts(w.Terrain)
+		r.RebuildStaticBatch(w)
+		e.autoFields = nil
+	case toolLiftBase:
+		e.liftBase = mgl32.Vec2{wx, wz}
+		e.activeTool = toolLiftTop
+		e.syncToolButtons()
+	case toolLiftTop:
+		lift := w.PlaceLift(e.liftBase[0], e.liftBase[1], wx, wz)
+		applyLiftPlacementEffects(w.Terrain, lift)
+		r.FlushTerrainVerts(w.Terrain)
+		r.AddLiftCable(lift, w.Terrain)
+		r.RebuildStaticBatch(w)
+		e.activeTool = toolNone
+		e.syncToolButtons()
+		e.autoFields = nil
+	}
+}
+
 // setTool toggles the given editor tool; re-clicking an active tool deactivates it.
+// The Lift button is treated as "the lift tool" across both placement steps —
+// clicking it again during the second click (toolLiftTop) cancels the flow.
+// Activating auto re-rolls the noise seed and runs an initial generation
+// so the player sees the result of the current slider values immediately.
 func (e *Editor) setTool(t toolMode) {
-	if e.activeTool == t {
+	prev := e.activeTool
+	isActive := e.activeTool == t || (t == toolLiftBase && e.activeTool == toolLiftTop)
+	if isActive {
 		e.activeTool = toolNone
 	} else {
 		e.activeTool = t
 	}
 	e.syncToolButtons()
+	if e.activeTool == toolAuto && prev != toolAuto {
+		e.autoSeed = time.Now().UnixNano()
+		e.regenerateAuto()
+	}
 }
 
-// syncToolButtons updates the active state of all tool buttons to match activeTool.
+// autoSliders returns the slider set for the auto-gen tool in display order.
+// Centralised so input handling, hit-testing, layout, and draw all walk the
+// same list — adding a slider only requires touching this method.
+func (e *Editor) autoSliders() []*ui.VSlider {
+	return []*ui.VSlider{
+		e.autoMaxSlider,
+		e.autoSnowlineSlider,
+		e.autoTreelineSlider,
+		e.autoCoverageSlider,
+		e.autoWindSlider,
+	}
+}
+
+// regenerateAuto runs the snow and forest generators with the current slider
+// values and pushes the results to the GPU. Snow goes via Terrain.SnowDirty
+// (flushed at the top of Update), forest goes via RebuildStaticBatch.
+//
+// The elevation-derived passes (flow accumulation, curvature, min/max
+// elevation) are cached on autoFields so live slider drag doesn't pay the
+// O(N log N) sort every frame. The cache is invalidated whenever ground
+// elevation changes (raise/lower brushes, terrain import).
+func (e *Editor) regenerateAuto() {
+	if e.world == nil || e.world.Terrain == nil {
+		return
+	}
+	if e.autoFields == nil {
+		e.autoFields = computeElevFields(e.world.Terrain)
+	}
+	treelineFrac := e.autoTreelineSlider.Value / 100
+	e.autoFields.generateSnowCover(
+		e.world.Terrain,
+		e.autoMaxSlider.Value,
+		e.autoSnowlineSlider.Value/100,
+		treelineFrac,
+		e.autoWindSlider.Value,
+		e.autoSeed,
+	)
+	e.autoFields.generateTreeCover(
+		e.world.Terrain,
+		24,
+		e.autoCoverageSlider.Value/100,
+		treelineFrac,
+		e.autoSeed,
+	)
+	if e.app != nil && e.app.Renderer != nil {
+		e.app.Renderer.RebuildStaticBatch(e.world)
+	}
+}
+
+// syncToolButtons updates the active state of all tool buttons to match
+// activeTool. The Lift button stays highlighted during the two-click flow
+// (toolLiftBase → toolLiftTop) so the player can see the placement is mid-flight.
 func (e *Editor) syncToolButtons() {
 	for mode, btn := range e.toolButtons {
-		btn.SetActive(e.activeTool == mode)
+		active := e.activeTool == mode || (mode == toolLiftBase && e.activeTool == toolLiftTop)
+		btn.SetActive(active)
 	}
 }
 
@@ -308,12 +553,14 @@ func (e *Editor) applyEditorTool(gx, gz int, r *render.Renderer, dt float32) {
 	case toolEditorRaise:
 		w.Terrain.Cells[gx][gz].GroundElevation += 5.0 * dt
 		r.FlushTerrainVerts(w.Terrain)
+		e.autoFields = nil
 	case toolEditorLower:
 		w.Terrain.Cells[gx][gz].GroundElevation -= 5.0 * dt
 		if w.Terrain.Cells[gx][gz].GroundElevation < 0 {
 			w.Terrain.Cells[gx][gz].GroundElevation = 0
 		}
 		r.FlushTerrainVerts(w.Terrain)
+		e.autoFields = nil
 	}
 }
 
@@ -321,7 +568,9 @@ func (e *Editor) applyEditorTool(gx, gz int, r *render.Renderer, dt float32) {
 // from the imported elevations. Buildings, lifts, agents, placed objects,
 // and per-cell tree density are wiped — re-using terrain on top of an old
 // layout would leave lifts dangling in mid-air and trees floating above
-// new mountains. Cell defaults (snow depth, passability) match NewTerrain.
+// new mountains. Snow depth starts at zero so the imported terrain reads
+// as bare ground; the Auto-snow generator (and brushes, eventually) is the
+// authoritative way to lay snow on top.
 func (e *Editor) applyImportedTerrain(elevs [][]float32, r *render.Renderer) {
 	rows := len(elevs)
 	cols := 0
@@ -337,10 +586,12 @@ func (e *Editor) applyImportedTerrain(elevs [][]float32, r *render.Renderer) {
 			if row < len(elevs) && col < len(elevs[row]) {
 				t.Cells[col][row].GroundElevation = elevs[row][col]
 			}
+			t.Cells[col][row].SnowDepth = 0
 		}
 	}
 	e.world = world.NewWorld(t)
 	e.activeTool = toolNone
+	e.autoFields = nil
 	e.syncToolButtons()
 
 	r.ResetSceneState()
@@ -364,12 +615,19 @@ func (e *Editor) Render(r *render.Renderer) {
 
 	// Re-anchor before draw so menuBar.Y matches the live screen height.
 	e.menuBar.Y = float32(r.ScreenHeight()) - e.menuBar.H
-	edDrawables := []render.UIDrawable{e.menuBar}
+	e.overlayPanel.Bottom = float32(r.ScreenHeight()) - e.menuBar.H
+	edDrawables := []render.UIDrawable{e.topBar, e.menuBar, e.overlayPanel}
 	if e.toolUsesRadiusSlider() {
 		e.layoutBrushSliders(r)
 		edDrawables = append(edDrawables, e.radiusSlider)
 		if e.toolUsesDensitySlider() {
 			edDrawables = append(edDrawables, e.densitySlider)
+		}
+	}
+	if e.activeTool == toolAuto {
+		e.layoutAutoSliders(r)
+		for _, s := range e.autoSliders() {
+			edDrawables = append(edDrawables, s)
 		}
 	}
 	if e.escapeMenu.Visible() {
@@ -404,6 +662,23 @@ func (e *Editor) layoutBrushSliders(r *render.Renderer) {
 	e.densitySlider.Y = y
 	e.densitySlider.W = trackW
 	e.densitySlider.H = trackH
+}
+
+// layoutAutoSliders positions the auto-gen sliders along the left edge,
+// vertically centred. Wider column spacing than the brush sliders so the
+// longer suffixes ("Snowline", "180deg") have room to read.
+func (e *Editor) layoutAutoSliders(r *render.Renderer) {
+	const trackW = float32(18)
+	const trackH = float32(200)
+	const col = float32(60)
+	sh := float32(r.ScreenHeight())
+	y := (sh-trackH)/2 + 20
+	for i, s := range e.autoSliders() {
+		s.X = 28 + float32(i)*col
+		s.Y = y
+		s.W = trackW
+		s.H = trackH
+	}
 }
 
 func (e *Editor) Destroy() {

@@ -62,13 +62,18 @@ func (t *TopBar) SetOverlayActive(active bool) {
 	}
 }
 
-// SetSpeedControls installs the pause / 1× / 2× / 4× / gear buttons. The
+// SetSettingsButton installs the gear (settings) button at the far right.
+// Scenes that don't want speed controls can call this alone.
+func (t *TopBar) SetSettingsButton(onGear func()) {
+	t.gearBtn = newIconButton("gear", onGear)
+}
+
+// SetSpeedControls installs the pause / 1× / 2× / 4× buttons. The
 // caller passes one callback per speedOptions entry (length must match
 // the iconKinds slice — the scenario currently uses 1×/2×/4× in that order
 // rendered as play / fast-forward / double-fast-forward).
-func (t *TopBar) SetSpeedControls(onPause func(), onSpeed []func(), onGear func()) {
+func (t *TopBar) SetSpeedControls(onPause func(), onSpeed []func()) {
 	t.pauseBtn = newIconButton("pause", onPause)
-	t.gearBtn = newIconButton("gear", onGear)
 	kinds := []string{"play", "ff2", "ff4"}
 	if len(onSpeed) != len(kinds) {
 		// Be defensive: stick to as many slots as we have callbacks. The
@@ -212,22 +217,22 @@ func (t *TopBar) drawStats(r *render.Renderer) {
 	}
 
 	// Row 0: Cash
-	IconCoin(r, pad, iconY(0), iconSize, mgl32.Vec4{1, 0.85, 0.25, 1})
 	if t.GetCash != nil {
+		IconCoin(r, pad, iconY(0), iconSize, mgl32.Vec4{1, 0.85, 0.25, 1})
 		text := fmt.Sprintf("$%d", t.GetCash())
 		r.Font.DrawText(r, text, pad+iconSize+8, textY(0), col)
 	}
 
 	// Row 1: Guests
-	IconPerson(r, pad, iconY(1), iconSize, mgl32.Vec4{0.55, 0.85, 1.0, 1})
 	if t.GetGuests != nil {
+		IconPerson(r, pad, iconY(1), iconSize, mgl32.Vec4{0.55, 0.85, 1.0, 1})
 		text := fmt.Sprintf("%d", t.GetGuests())
 		r.Font.DrawText(r, text, pad+iconSize+8, textY(1), col)
 	}
 
 	// Row 2: Happiness — heart icon + a slim filled bar.
-	IconHeart(r, pad, iconY(2), iconSize, mgl32.Vec4{0.95, 0.45, 0.55, 1})
 	if t.GetHappiness != nil {
+		IconHeart(r, pad, iconY(2), iconSize, mgl32.Vec4{0.95, 0.45, 0.55, 1})
 		barX := pad + iconSize + 8
 		barY := t.Y + float32(2)*rowH + (rowH-8)/2
 		barW := float32(80)
@@ -265,24 +270,21 @@ func (t *TopBar) drawCenter(r *render.Renderer, screenW float32) {
 	dim := mgl32.Vec4{0.78, 0.82, 0.92, 1}
 
 	// Date line.
-	dateText := "Year 1"
 	if t.GetDate != nil {
 		day, month, year := t.GetDate()
-		dateText = fmt.Sprintf("%s %d, Year %d", month, day, year)
+		dateText := fmt.Sprintf("%s %d, Year %d", month, day, year)
+		dateW := float32(len(dateText) * render.GlyphAdvance)
+		dateX := (screenW - dateW) / 2
+		dateY := t.Y + t.H*0.18
+		r.Font.DrawText(r, dateText, dateX, dateY, col)
 	}
-	dateW := float32(len(dateText) * render.GlyphAdvance)
-	dateX := (screenW - dateW) / 2
-	dateY := t.Y + t.H*0.18
-	r.Font.DrawText(r, dateText, dateX, dateY, col)
 
 	// Weather row: temp text   [iconNow]  →  [iconNext]
-	const iconSize = float32(22)
-	now := WKSunny
-	next := WKSunny
-	tempF := 20
-	if t.GetWeather != nil {
-		now, next, tempF = t.GetWeather()
+	if t.GetWeather == nil {
+		return
 	}
+	const iconSize = float32(22)
+	now, next, tempF := t.GetWeather()
 	tempText := fmt.Sprintf("%d F", tempF)
 	tempW := float32(len(tempText) * render.GlyphAdvance)
 	gap := float32(8)

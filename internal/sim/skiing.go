@@ -291,7 +291,7 @@ func (s *Simulation) tickFallen(a *world.Agent, dt float64) {
 func planGoalFor(w *world.World, a *world.Agent) ai.GoalKind {
 	for _, b := range w.Buildings {
 		if b.ID == a.TargetID {
-			return ai.GoalLodge
+			return ai.GoalDepart
 		}
 	}
 	return ai.GoalLift

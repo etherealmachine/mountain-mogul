@@ -20,6 +20,8 @@ const (
 	MeshChair       uint32 = 9
 	MeshShed        uint32 = 10
 	MeshSnowcat     uint32 = 11
+	MeshParkingPad  uint32 = 12 // flat asphalt-coloured pad for a parking lot footprint
+	MeshCar         uint32 = 13 // small box used per parked car (dynamic instance per lot)
 )
 
 // Mesh wraps a GPU vertex/index buffer.
@@ -97,12 +99,13 @@ func (m *Mesh) Delete() {
 	gl.DeleteBuffers(1, &m.EBO)
 }
 
-// NewBoxMesh creates a simple box mesh with the given dimensions and color.
-// Used as a fallback when OBJ files are not present.
-func NewBoxMesh(w, h, d float32, color [3]float32) *Mesh {
+// NewBoxMesh creates a simple box mesh with the given dimensions. The
+// origin is at the bottom-centre so placement Y is the ground level.
+// Per-vertex colour isn't part of the layout; callers tint via the
+// per-instance ColorTint that the static/dynamic batches multiply on top.
+func NewBoxMesh(w, h, d float32) *Mesh {
 	hw := w / 2
 	hd := d / 2
-	r, g, b := color[0], color[1], color[2]
 
 	// Each face: 4 vertices with pos(3) + normal(3) + uv(2) = 8 floats.
 	// Origin is at the bottom-centre so placement Y is the ground level.
@@ -138,13 +141,6 @@ func NewBoxMesh(w, h, d float32, color [3]float32) *Mesh {
 		hw, 0, hd, 0, -1, 0, 1, 1,
 		-hw, 0, hd, 0, -1, 0, 0, 1,
 	}
-
-	// Tint the vertex colors into the UV channels (we'll use white texture * color)
-	// Actually the box mesh uses pos+normal+uv layout; color comes from instance tint.
-	// The _ variable suppresses unused warning.
-	_ = r
-	_ = g
-	_ = b
 
 	indices := []uint32{
 		0, 1, 2, 0, 2, 3, // front

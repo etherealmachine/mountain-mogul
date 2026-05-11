@@ -77,7 +77,7 @@ func Activity(w *World, a *Agent) string {
 	}
 	for _, b := range w.Buildings {
 		if b.ID == a.TargetID {
-			return "To Lodge"
+			return "Departing"
 		}
 	}
 	for _, l := range w.Lifts {

@@ -146,25 +146,125 @@ func applyLiftPlacementEffects(t *world.Terrain, lift *world.Lift) {
 		axis = axis.Mul(1 / l)
 	}
 	// Top: extends forward (along axis). Base: extends backward (against
-	// axis). Both raise-only — see buildStationApron docs.
-	buildStationApron(t, lift.Top, axis, +1, apronHalfWidth, apronDepth, apronBuildup)
-	buildStationApron(t, lift.Base, axis, -1, apronHalfWidth, apronDepth, apronBuildup)
+	// axis). Both raise-only — the lift buildup is sized to clear typical
+	// snowpack on its own. Lift aprons keep a thin 5 cm packed-snow
+	// layer (foot-traffic compacted, not plowed flat like a parking lot).
+	topTarget := stationGroundElev(t, lift.Top) + apronBuildup
+	baseTarget := stationGroundElev(t, lift.Base) + apronBuildup
+	const liftApronSnow = float32(0.05)
+	buildStationApron(t, lift.Top, axis, +1, apronHalfWidth, apronDepth, topTarget, liftApronSnow, false)
+	buildStationApron(t, lift.Base, axis, -1, apronHalfWidth, apronDepth, baseTarget, liftApronSnow, false)
 }
 
-// applyBuildingPlacementEffects grooms a small square apron around a
-// lodge so the lodge doesn't appear to be perched on a mogul field or
-// surrounded by ungroomed powder. Smaller than lift aprons (lodges have
-// less of a footprint) and unlike lifts it doesn't raise the ground —
-// lodges fit the natural slope. Same falloff math, axis-aligned, applied
-// once at placement (same contract as applyLiftPlacementEffects).
+// stationGroundElev returns the ground elevation of the cell containing
+// the given world XZ position, or 0 if the position is off-terrain.
+func stationGroundElev(t *world.Terrain, pos mgl32.Vec2) float32 {
+	const cellSize = float32(5.0)
+	xi := int(pos[0] / cellSize)
+	zi := int(pos[1] / cellSize)
+	if !t.InBounds(xi, zi) {
+		return 0
+	}
+	return t.Cells[xi][zi].GroundElevation
+}
+
+// buildingFootprint returns the building's approximate physical
+// half-extents in (halfX, halfZ) metres. The authoritative source is the
+// `# footprint` line baked into the building's .obj by tools/scad2obj
+// from `echo("MOGUL_META", "footprint", halfX, halfY)` in the .scad — so
+// model dimensions are declared once, in the source of truth. The
+// fallback below only kicks in when the OBJ hasn't been built (the
+// renderer is showing the magenta marker cube in that case), so its
+// half-extents just match that cube.
+func buildingFootprint(typ world.BuildingType) (halfX, halfZ float32) {
+	if fp, ok := world.FootprintFor(typ.MeshID()); ok {
+		return fp.HalfX, fp.HalfZ
+	}
+	return 1, 1 // matches the 2 m magenta fallback cube
+}
+
+// buildingApronBareGround is the width of the visible plowed-clearing
+// band between the building footprint and the start of the smoothstep
+// blend back to natural snow, in metres. The apron is sized per-axis so
+// this band is uniform on all four sides of the pad — without that,
+// rectangular buildings like the 40 × 30 m parking lot get visibly
+// different bare-ground widths on their long vs. short edges (one side
+// bleeds toward the snow, the other reads as a sharp boundary).
+const buildingApronBareGround = float32(8.0)
+
+// apronInnerFraction is the smoothstep threshold inside buildStationApron
+// — the inner core stays at full target until perpDist/halfWidth (or
+// signedAlong/depth) passes this fraction, then blends back to natural.
+// Keep in sync with the smoothstep32(0.7, 1.0, …) calls below.
+const apronInnerFraction = float32(0.7)
+
+// applyBuildingPlacementEffects grooms a rectangular apron around a
+// placed building and clears trees inside the same zone. The apron is
+// sized from the building's footprint (halfX, halfZ) plus a clearance
+// margin so each building gets visual breathing room. Unlike lifts the
+// apron is raise-only with a small buildup — buildings fit the natural
+// slope but won't sink into mogul fields or ungroomed powder.
 func applyBuildingPlacementEffects(t *world.Terrain, b *world.Building) {
-	const apronHalfWidth = float32(12.0) // → 24 m square apron
-	const apronBuildup = float32(0.5)    // a small graded pad so doorsteps don't sink into the hill
-	// Two passes along orthogonal axes give a square apron with side
-	// falloff on all four edges (full weight in the inner core, smoothstep
-	// down to nothing at the edge).
-	buildStationApron(t, b.Pos, mgl32.Vec2{1, 0}, +1, apronHalfWidth, apronHalfWidth, apronBuildup)
-	buildStationApron(t, b.Pos, mgl32.Vec2{1, 0}, -1, apronHalfWidth, apronHalfWidth, apronBuildup)
+	const apronBuildup = float32(0.5) // a small graded pad so doorsteps don't sink into the hill
+	halfX, halfZ := buildingFootprint(b.Type)
+	// Size each axis of the apron so its inner flat zone extends exactly
+	// buildingApronBareGround beyond the pad on every side. Solving
+	// apronHalf * apronInnerFraction = footprintHalf + bareGround for
+	// apronHalf gives the formula below.
+	apronHalfX := (halfX + buildingApronBareGround) / apronInnerFraction
+	apronHalfZ := (halfZ + buildingApronBareGround) / apronInnerFraction
+
+	// Building apron: flatten the ground to the anchor's natural
+	// elevation and plow off all the snow. The apron's inner cells have
+	// SnowDepth = 0 (bare ground / asphalt visible), and the smoothstep
+	// blend at the outer edge ramps SnowDepth back up to the natural
+	// snowpack so the clearing has snowdrift sides instead of a hard
+	// cliff. Result: parking lots, lodges and sheds sit in a plowed
+	// graded clearing, not raised above or buried beneath the snow.
+	target := stationGroundElev(t, b.Pos) + apronBuildup
+	const buildingApronSnow = float32(0)
+
+	// Two passes along the world-X axis give a 2*apronHalfX × 2*apronHalfZ
+	// rectangle with side falloff on all four edges (full weight in the
+	// inner core, smoothstep down to nothing at the edge). The two passes'
+	// "back edges" meet flush at the building centre, producing a single
+	// uniform pad with no internal seam.
+	buildStationApron(t, b.Pos, mgl32.Vec2{1, 0}, +1, apronHalfZ, apronHalfX, target, buildingApronSnow, true)
+	buildStationApron(t, b.Pos, mgl32.Vec2{1, 0}, -1, apronHalfZ, apronHalfX, target, buildingApronSnow, true)
+
+	// Trees inside the apron zone go to zero density so the building isn't
+	// rendered with trunks pressing through its walls. Same extents as the
+	// apron — the visible clear pad matches the tree-free footprint.
+	clearBuildingTrees(t, b.Pos, apronHalfX, apronHalfZ)
+}
+
+// clearBuildingTrees zeros TreeDensity in cells inside the axis-aligned
+// rectangle ±(halfX, halfZ) around `pos`. Matches the apron rectangle so
+// the visible clear pad lines up with the tree-cleared zone.
+func clearBuildingTrees(t *world.Terrain, pos mgl32.Vec2, halfX, halfZ float32) {
+	const cellSize = float32(5.0)
+	x0 := int((pos[0] - halfX) / cellSize)
+	x1 := int((pos[0]+halfX)/cellSize) + 1
+	z0 := int((pos[1] - halfZ) / cellSize)
+	z1 := int((pos[1]+halfZ)/cellSize) + 1
+	for x := x0; x <= x1; x++ {
+		for z := z0; z <= z1; z++ {
+			if !t.InBounds(x, z) {
+				continue
+			}
+			cx := (float32(x)+0.5)*cellSize - pos[0]
+			cz := (float32(z)+0.5)*cellSize - pos[1]
+			if cx < 0 {
+				cx = -cx
+			}
+			if cz < 0 {
+				cz = -cz
+			}
+			if cx <= halfX && cz <= halfZ {
+				t.Cells[x][z].TreeDensity = 0
+			}
+		}
+	}
 }
 
 // clearLiftCorridor zeros TreeDensity in cells within `halfWidth` metres of
@@ -196,29 +296,32 @@ func clearLiftCorridor(t *world.Terrain, base, top mgl32.Vec2, halfWidth float32
 	}
 }
 
-// buildStationApron raises terrain in a rectangular pad whose back edge
-// sits flush against `station`, extending `depth` metres along `axis * side`
-// (the apron-forward direction) and ±`halfWidth` metres along the perpendicular.
-// The pad is raised to `stationElev + buildup` so it sits visibly elevated
-// above the natural ground even on flat terrain — without a buildup, lifts
-// placed in nearly-flat spots get an apron with nothing to raise *to* and
-// look unmodified.
+// buildStationApron grades a rectangular pad whose back edge sits flush
+// against `station`, extending `depth` metres along `axis * side` (the
+// apron-forward direction) and ±`halfWidth` metres along the perpendicular.
+// The pad's GroundElevation is set to `target`; the caller decides what
+// that means (lift-base footing, max surface across the building's
+// footprint, etc.) so the apron itself is just the grading operation.
 //
-// Raise-only: only cells whose natural elevation is below the target get
-// pulled up; cells already higher are left alone. Real ski areas grade
-// these areas as built-up earthwork pads rather than carving notches into
-// the hillside, so this is closer to how a boarding/exit area actually
-// looks at a real lift.
+// `cut` toggles between two grading modes:
 //
-// Falloff is applied at the front edge and the two side edges — where skiers
-// exit off the chair, in any of the forward / left / right directions — but
-// NOT at the back edge against the lift, which keeps a sharp transition.
+//   - cut = false (lifts): raise-only. Cells whose natural elevation
+//     already exceeds the target are left alone. Real lift aprons are
+//     built-up earthwork pads, not notches carved into the hillside.
 //
-// `axis` is a unit vector along the cable (base → top). `side = +1` flips
-// the apron to extend in the +axis direction (top station: forward toward
-// the front of the platform), `side = -1` extends the apron in the -axis
-// direction (base station: back toward the boarding queue).
-func buildStationApron(t *world.Terrain, station, axis mgl32.Vec2, side, halfWidth, depth, buildup float32) {
+//   - cut = true (buildings): cut-and-fill. Cells above the target are
+//     pulled down to the pad level; cells below are pushed up. Produces
+//     a true flat platform under the building on sloped sites.
+//
+// Falloff is applied at the front edge and the two side edges so the
+// transition between the pad and natural terrain blends smoothly, but
+// NOT at the back edge against the station/building anchor, which keeps
+// a sharp transition where the two passes meet at the centre.
+//
+// `axis` is a unit vector along the apron's primary axis. `side = +1`
+// flips the apron to extend in the +axis direction; `side = -1` extends
+// the apron in the -axis direction.
+func buildStationApron(t *world.Terrain, station, axis mgl32.Vec2, side, halfWidth, depth, target, apronSnow float32, cut bool) {
 	const cellSize = float32(5.0)
 	stationCell := [2]int{
 		int(station[0] / cellSize),
@@ -227,7 +330,6 @@ func buildStationApron(t *world.Terrain, station, axis mgl32.Vec2, side, halfWid
 	if !t.InBounds(stationCell[0], stationCell[1]) {
 		return
 	}
-	target := t.Cells[stationCell[0]][stationCell[1]].GroundElevation + buildup
 	bound := halfWidth
 	if depth > bound {
 		bound = depth
@@ -272,23 +374,28 @@ func buildStationApron(t *world.Terrain, station, axis mgl32.Vec2, side, halfWid
 				continue
 			}
 			cur := t.Cells[x][z].GroundElevation
-			if target <= cur {
-				// Raise-only: cells whose natural elevation is already
-				// at or above the target pad height keep what they have.
-				// Real lift aprons are built-up earthwork pads, not
-				// notches carved into a hillside.
+			if !cut && target <= cur {
+				// Raise-only mode: cells whose natural elevation is
+				// already at or above the target pad height keep what
+				// they have.
 				continue
 			}
+			// Blend toward the target by the smoothstep weight. When
+			// cut = false this only ever raises (the guard above
+			// filters cells where target <= cur). When cut = true it
+			// can also lower cells above the target, producing a true
+			// flat platform.
 			t.Cells[x][z].GroundElevation = cur + (target-cur)*w
-			// Apron snow: a thin packed layer. Building pads aren't
-			// corduroyed by snowcats — they're foot-tracked and
-			// machine-compacted, so they read as packed flat snow
-			// rather than tilled stripes. SnowDepth tapers along the
-			// falloff so apron edges blend into the surrounding
-			// snowpack. Grooming is explicitly NOT raised here; if
-			// the player grooms over the apron later, fine, but the
-			// default state of an apron is packed-not-groomed.
-			const apronSnow = float32(0.05)
+			// Apron snow: blend from `apronSnow` (full weight at the
+			// inner zone) to the cell's natural snow depth at the
+			// outer edge. Buildings pass apronSnow=0 — the apron is a
+			// plowed clearing with the surrounding snowpack ramping
+			// back to natural at the smoothstep blend. Lifts pass a
+			// small thickness (5 cm) so the boarding pad still reads
+			// as snow under skiers' feet, not bare ground. Grooming is
+			// explicitly NOT raised here; if the player grooms over
+			// the apron later, fine, but the default state of an
+			// apron is packed-not-groomed.
 			deepSnow := t.Cells[x][z].SnowDepth
 			if deepSnow > apronSnow {
 				t.Cells[x][z].SnowDepth = apronSnow + (deepSnow-apronSnow)*(1-w)
@@ -369,6 +476,7 @@ const (
 	toolNone        toolMode = iota
 	toolBuilding    toolMode = iota // place a lodge
 	toolShed        toolMode = iota // place an equipment shed
+	toolParking     toolMode = iota // place a parking lot (skier spawn/despawn)
 	toolLiftBase    toolMode = iota // waiting for first lift click
 	toolLiftTop     toolMode = iota // waiting for second lift click
 	toolGlade       toolMode = iota // reduce TreeDensity (brush)
@@ -486,7 +594,7 @@ func (s *Scenario) RegenForest(seed int64) {
 	if s.world == nil || s.world.Terrain == nil {
 		return
 	}
-	GenerateTreeCover(s.world.Terrain, 24, 0.55, seed)
+	GenerateTreeCover(s.world.Terrain, 24, 0.55, 0.75, seed)
 	if s.app != nil && s.app.Renderer != nil {
 		s.app.Renderer.RebuildStaticBatch(s.world)
 	}
@@ -553,6 +661,7 @@ func (s *Scenario) Init(app *engine.App) error {
 	s.toolButtons = make(map[toolMode]*ui.Button)
 	s.toolBar = ui.NewMenuBar(0, toolBarH)
 	s.toolBar.Centered = true
+	s.toolButtons[toolParking] = s.toolBar.AddIconButton(render.IconUsers, "Parking", func() { s.setTool(toolParking) })
 	s.toolButtons[toolBuilding] = s.toolBar.AddIconButton(render.IconHouse, "Lodge", func() { s.setTool(toolBuilding) })
 	s.toolButtons[toolShed] = s.toolBar.AddIconButton(render.IconGarage, "Shed", func() { s.setTool(toolShed) })
 	s.toolButtons[toolLiftBase] = s.toolBar.AddIconButton(render.IconCableCar, "Lift", func() { s.setTool(toolLiftBase) })
@@ -605,8 +714,8 @@ func (s *Scenario) Init(app *engine.App) error {
 			s.syncSpeedButtons()
 		},
 		onSpeed,
-		func() { s.escapeMenu.Toggle() },
 	)
+	s.topBar.SetSettingsButton(func() { s.escapeMenu.Toggle() })
 	s.syncSpeedButtons()
 
 	// Overlay panel — vertical strip on the right edge. Toggle button in
@@ -972,8 +1081,15 @@ func (s *Scenario) Update(dt float64) {
 		s.hoverCell = [2]int{-1, -1}
 	}
 
-	// Ghost preview for lift placement.
-	s.updatePlacementGhost(r)
+	// Ghost preview for placement tools — uses the continuous hover so
+	// the preview tracks the cursor without snapping.
+	updatePlacementGhost(r, s.world.Terrain, placementGhostState{
+		activeTool: s.activeTool,
+		hoverPos:   mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]},
+		hoverValid: s.hoverValid,
+		liftBase:   s.liftBase,
+		tint:       ghostTint(s.placementAffordable()),
+	})
 
 	// Popup window input — handle before world clicks so buttons consume the event.
 	popupConsumed := false
@@ -1324,6 +1440,17 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		}
 		w.Cash -= world.ShedCost
 		b := w.PlaceBuildingType(world.BuildingShed, wx, wz)
+		applyBuildingPlacementEffects(w.Terrain, b)
+		r.FlushTerrainVerts(w.Terrain)
+		r.RebuildStaticBatch(w)
+	case toolParking:
+		if w.Cash < world.ParkingCost {
+			s.setToast(fmt.Sprintf("Need $%d for a parking lot — short by $%d",
+				world.ParkingCost, world.ParkingCost-w.Cash))
+			return
+		}
+		w.Cash -= world.ParkingCost
+		b := w.PlaceBuildingType(world.BuildingParking, wx, wz)
 		applyBuildingPlacementEffects(w.Terrain, b)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
@@ -1746,51 +1873,63 @@ func (s *Scenario) syncToolButtons() {
 	}
 }
 
+// placementGhostState bundles the inputs that drive the placement ghost
+// preview for one frame. Centralised so scenario and editor share the
+// same ghost-rendering code; affordability tinting is the caller's job
+// (the editor is always free; the scenario red-tints when over-budget).
+type placementGhostState struct {
+	activeTool toolMode
+	hoverPos   mgl32.Vec2 // continuous world XZ under the cursor
+	hoverValid bool       // false when the cursor isn't on the terrain
+	liftBase   mgl32.Vec2 // first-click position for the two-step lift placement (toolLiftTop only)
+	tint       [3]float32 // colour multiplier for the ghost — typically affordable / unaffordable
+}
+
 // updatePlacementGhost drives the translucent preview that follows the
 // cursor while a placement tool is active. Resets every ghost up-front
 // each frame, then opts the active tool's geometry back in — keeps the
 // state of the ghost world in lockstep with the active tool without
-// per-tool teardown logic. The ghost tints red when the player can't
-// afford the placement.
+// per-tool teardown logic.
 //
-// Reads the continuous hoverWorld so previews track the cursor at
-// freeform precision, not snapped to a cell.
-func (s *Scenario) updatePlacementGhost(r *render.Renderer) {
-	t := s.world.Terrain
-
+// Reads the continuous hoverPos so previews track the cursor at freeform
+// precision, not snapped to a cell.
+func updatePlacementGhost(r *render.Renderer, t *world.Terrain, st placementGhostState) {
 	r.ClearAllGhosts()
 	r.ClearGhostCable()
 
-	if !s.hoverValid {
+	if !st.hoverValid {
 		return
 	}
-	pos := mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]}
-	tint := ghostTint(s.placementAffordable())
 
-	switch s.activeTool {
+	switch st.activeTool {
 	case toolBuilding:
 		r.SetGhosts(render.MeshBuilding, []render.StaticInstance{
-			buildingInstance(pos, t, tint),
+			buildingInstance(st.hoverPos, t, st.tint),
 		})
 
 	case toolShed:
 		r.SetGhosts(render.MeshShed, []render.StaticInstance{
-			buildingInstance(pos, t, tint),
+			buildingInstance(st.hoverPos, t, st.tint),
+		})
+
+	case toolParking:
+		r.SetGhosts(render.MeshParkingPad, []render.StaticInstance{
+			buildingInstance(st.hoverPos, t, st.tint),
 		})
 
 	case toolLiftBase:
 		// No top yet — render at default orientation by passing
 		// otherEnd == pos. Rotation kicks in in toolLiftTop below.
 		r.SetGhosts(render.MeshLiftStation, []render.StaticInstance{
-			stationInstance(pos, pos, t, tint),
+			stationInstance(st.hoverPos, st.hoverPos, t, st.tint),
 		})
 
 	case toolLiftTop:
-		base := s.liftBase
-		top := pos
+		base := st.liftBase
+		top := st.hoverPos
 		r.SetGhosts(render.MeshLiftStation, []render.StaticInstance{
-			stationInstance(base, top, t, tint), // base faces top
-			stationInstance(top, base, t, tint), // top faces base
+			stationInstance(base, top, t, st.tint), // base faces top
+			stationInstance(top, base, t, st.tint), // top faces base
 		})
 		r.SetGhostCable(base, top, t)
 	}

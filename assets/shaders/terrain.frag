@@ -63,35 +63,45 @@ void main() {
     float h     = clamp((vWorldPos.y - uTerrainMinY) /
                         max(uTerrainMaxY - uTerrainMinY, 1.0), 0.0, 1.0);
 
-    // Topographic palette — height-driven for flats, slope override for cliffs.
-    vec3 rock      = vec3(0.34, 0.33, 0.32);
+    // Ground palette — what the bare rock/dirt/grass under the snow looks
+    // like. Height-driven on flats; cliffs blend toward plain rock.
+    vec3 rock       = vec3(0.34, 0.33, 0.32);
+    vec3 groundLow  = vec3(0.42, 0.46, 0.32);            // alpine grass / meadow
+    vec3 groundMid  = vec3(0.42, 0.38, 0.32);            // dirt / tundra
+    vec3 groundHigh = vec3(0.52, 0.50, 0.46);            // exposed scree
+    vec3 groundFlat = mix(groundLow, groundMid, smoothstep(0.20, 0.55, h));
+         groundFlat = mix(groundFlat, groundHigh, smoothstep(0.65, 0.95, h));
+    float rocky     = 1.0 - smoothstep(0.55, 0.78, slope);
+    vec3  ground    = mix(groundFlat, rock, rocky);
+
+    // Snow palette — the previous topographic gradient. Packed reads
+    // slightly bluer / ~5 % darker than fresh powder; modulate before
+    // mixing with ground so packed never leaks onto bare rock.
     vec3 lowFlat   = vec3(0.78, 0.86, 0.84);             // frozen-grass / icy tint
     vec3 midPowder = vec3(0.92, 0.94, 0.97);
     vec3 highWhite = vec3(0.99, 0.99, 1.00);
-
-    vec3 flatColor = mix(lowFlat,   midPowder, smoothstep(0.20, 0.55, h));
-         flatColor = mix(flatColor, highWhite, smoothstep(0.65, 0.95, h));
-    float rocky    = 1.0 - smoothstep(0.55, 0.78, slope);
-    vec3  base     = mix(flatColor, rock, rocky);
-    float snowness = 1.0 - rocky;
-
-    // Packed snow reads slightly bluer and ~5 % darker than fresh powder —
-    // wind-scoured slope rather than unconsolidated dump.
-    if (snowness > 0.0) {
-        vec3 packedTint = vec3(0.87, 0.91, 0.97);
-        base = mix(base, base * packedTint, packed * snowness * 0.4);
-    }
+    vec3 snow      = mix(lowFlat, midPowder, smoothstep(0.20, 0.55, h));
+         snow      = mix(snow,    highWhite, smoothstep(0.65, 0.95, h));
+    vec3 packedTint = vec3(0.87, 0.91, 0.97);
+    snow            = mix(snow, snow * packedTint, packed * 0.4);
 
     // Mogul roughness — multi-octave value-noise modulating brightness.
-    // Mogul wavelength ~3 m matches real spacing; an octave at half that
-    // adds the inter-trough detail. Result is gated by mogul weight and
-    // by snowness so cliff faces don't get fake bumps.
-    if (mogul > 0.0 && snowness > 0.0) {
+    // Mogul wavelength ~3 m matches real spacing; a half-wavelength octave
+    // adds inter-trough detail. Applied to the snow layer only; the
+    // ground/snow mix below attenuates the effect on patchy / bare cells.
+    if (mogul > 0.0) {
         vec2 mp = vWorldPos.xz / 3.0;
         float n = valueNoise(mp) * 0.6 + valueNoise(mp * 2.1) * 0.4;
-        float shade = (n - 0.5) * 0.35 * mogul * snowness;
-        base += vec3(shade);
+        snow += vec3((n - 0.5) * 0.35 * mogul);
     }
+
+    // Snowness from depth — 5 cm fully buries the ground (matches the
+    // packed-apron SnowDepth so building / lift aprons read as snow,
+    // not dirt). Below 5 cm, partial coverage reads as patchy snow over
+    // rock/dirt. The depth field already zeroes on cliffs (auto-snow
+    // slope shed), so no second slope gate is needed here.
+    float snowness = smoothstep(0.0, 0.05, vSnowDepth);
+    vec3  base     = mix(ground, snow, snowness);
 
     // Wrap lighting — soft terminator that hints at sub-surface scatter on snow.
     vec3  L    = normalize(vec3(0.6, 1.0, 0.4));
@@ -178,11 +188,13 @@ void main() {
 
     // Snow depth heatmap — light cyan at 0, deep navy at saturated.
     // Typical depths run 0–4 m; saturate at 5 m so the colour scale spans
-    // the meaningful range.
-    if ((uOverlayMode & 4) != 0 && snowness > 0.0) {
+    // the meaningful range. Drawn over bare cells too so "no snow here"
+    // reads directly from the overlay instead of looking like the
+    // overlay is just off.
+    if ((uOverlayMode & 4) != 0) {
         float d = clamp(vSnowDepth / 5.0, 0.0, 1.0);
         vec3 col = mix(vec3(0.85, 0.94, 1.00), vec3(0.10, 0.18, 0.45), d);
-        fragColor.rgb = mix(fragColor.rgb, col, 0.55 * snowness);
+        fragColor.rgb = mix(fragColor.rgb, col, 0.55);
     }
 
     // Grooming heatmap — bright green where corduroy lives. Heavy

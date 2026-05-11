@@ -68,15 +68,16 @@ func (s *Simulation) tickBuildings(dt float64) {
 				continue
 			}
 			b.SkierCount--
+			b.ArrivalDeparture(+1) // a skier spawning = a car arriving
 			agent := w.SpawnAgent(b)
 			agent.TargetID = nearest.ID
 			agent.Traits = ai.TraitsFor(rollSkillLevel(s.Rng))
 			agent.Balance = 1.0
 			agent.Energy = 1.0
 			agent.TurnSide = 0
-			// Pathfinder routes from the lodge's door cell to the back of
-			// the lift's current queue so walkers don't all converge on
-			// the base anchor. The destination is a snapshot taken now;
+			// Pathfinder routes from the parking lot's door cell to the
+			// back of the lift's current queue so walkers don't all converge
+			// on the base anchor. The destination is a snapshot taken now;
 			// tickQueued does the final shuffle once they arrive and
 			// join the actual queue.
 			path := s.Pathfinder.FindPath(b.DoorCell(), nearest.BackOfQueueCell())
@@ -85,7 +86,8 @@ func (s *Simulation) tickBuildings(dt float64) {
 				agent.PathIdx = 0
 			} else {
 				w.RemoveAgent(agent.ID)
-				b.SkierCount++ // failed spawn; return to pool
+				b.SkierCount++       // failed spawn; return to pool
+				b.ArrivalDeparture(-1) // and undo the arrival-side bump
 			}
 		}
 	}
@@ -153,31 +155,32 @@ func (s *Simulation) tickLifts(dt float64) {
 }
 
 // pickTopTarget chooses where a skier goes after unloading at a lift top.
-// pickRandomLodge returns a uniformly-chosen Lodge-type building, or
-// nil if the world has none. Sheds and other non-skier buildings are
-// skipped — only lodges hold the skier despawn pool.
-func pickRandomLodge(w *world.World, rng *rand.Rand) *world.Building {
-	lodges := w.Buildings[:0:0] // reuse-safe: don't write through to w.Buildings
+// pickRandomParking returns a uniformly-chosen Parking-type building, or
+// nil if the world has none. Sheds, lodges, and other non-spawn buildings
+// are skipped — only parking lots hold the skier spawn/despawn pool.
+func pickRandomParking(w *world.World, rng *rand.Rand) *world.Building {
+	lots := w.Buildings[:0:0] // reuse-safe: don't write through to w.Buildings
 	for _, b := range w.Buildings {
-		if b.Type == world.BuildingLodge {
-			lodges = append(lodges, b)
+		if b.Type == world.BuildingParking {
+			lots = append(lots, b)
 		}
 	}
-	if len(lodges) == 0 {
+	if len(lots) == 0 {
 		return nil
 	}
-	return lodges[rng.Intn(len(lodges))]
+	return lots[rng.Intn(len(lots))]
 }
 
-// Low-energy skiers head to a randomly-chosen lodge to despawn; otherwise
-// they pick a uniform-random lift across the whole resort and ski to its
-// base — the resort-spanning "I'll do whichever lift next" behaviour. With
-// a single-lift scenario this just keeps picking the same lift, matching
-// prior behaviour. Returns the entity ID and its world-space position.
+// Low-energy skiers head to a randomly-chosen parking lot to depart;
+// otherwise they pick a uniform-random lift across the whole resort and
+// ski to its base — the resort-spanning "I'll do whichever lift next"
+// behaviour. With a single-lift scenario this just keeps picking the
+// same lift, matching prior behaviour. Returns the entity ID and its
+// world-space position.
 func pickTopTarget(w *world.World, agent *world.Agent, rng *rand.Rand) (uint64, mgl32.Vec3) {
 	if agent != nil && agent.Energy <= energyLowThreshold {
-		if lodge := pickRandomLodge(w, rng); lodge != nil {
-			return lodge.ID, lodgeWorldPos(w, lodge)
+		if lot := pickRandomParking(w, rng); lot != nil {
+			return lot.ID, parkingWorldPos(w, lot)
 		}
 	}
 	next := w.Lifts[rng.Intn(len(w.Lifts))]
@@ -187,10 +190,10 @@ func pickTopTarget(w *world.World, agent *world.Agent, rng *rand.Rand) (uint64, 
 	return next.ID, next.BackOfQueueWorldPos(w.Terrain)
 }
 
-// lodgeWorldPos returns the lodge's anchor as a world-space Vec3, with Y
-// from the terrain mesh under the lodge's door cell. Centralised so the
-// "ID → world pos" lookup pattern lives in one place.
-func lodgeWorldPos(w *world.World, b *world.Building) mgl32.Vec3 {
+// parkingWorldPos returns the parking lot's anchor as a world-space Vec3,
+// with Y from the terrain mesh under the lot's door cell. Centralised so
+// the "ID → world pos" lookup pattern lives in one place.
+func parkingWorldPos(w *world.World, b *world.Building) mgl32.Vec3 {
 	cell := b.DoorCell()
 	return mgl32.Vec3{b.Pos[0], w.Terrain.SurfaceElevationAt(cell[0], cell[1]), b.Pos[1]}
 }
@@ -456,6 +459,7 @@ func (s *Simulation) onArrive(agent *world.Agent, kind targetKind) {
 		for _, b := range s.World.Buildings {
 			if b.ID == agent.TargetID {
 				b.SkierCount++
+				b.ArrivalDeparture(-1) // a skier leaving = a car driving off
 				s.World.RemoveAgent(agent.ID)
 				return
 			}
@@ -463,25 +467,26 @@ func (s *Simulation) onArrive(agent *world.Agent, kind targetKind) {
 	}
 }
 
-// routeHome retargets a depleted agent at a randomly-chosen lodge and lays
-// down a pathfinder route from the agent's current cell. Used when a skier
-// arrives at a lift base with no energy left: instead of queueing, they
-// walk home and despawn in onArrive(targetBuilding). Returns false (and
-// does nothing) if there are no lodges to route to — caller falls through
-// to the normal queueing behaviour. The path may be nil if the pathfinder
-// can't find a route; tickLocomote handles that with direct walk/ski.
+// routeHome retargets a depleted agent at a randomly-chosen parking lot
+// and lays down a pathfinder route from the agent's current cell. Used
+// when a skier arrives at a lift base with no energy left: instead of
+// queueing, they walk to the lot and despawn in onArrive(targetBuilding).
+// Returns false (and does nothing) if there are no parking lots to route
+// to — caller falls through to the normal queueing behaviour. The path
+// may be nil if the pathfinder can't find a route; tickLocomote handles
+// that with direct walk/ski.
 func (s *Simulation) routeHome(agent *world.Agent) bool {
 	w := s.World
-	lodge := pickRandomLodge(w, s.Rng)
-	if lodge == nil {
+	lot := pickRandomParking(w, s.Rng)
+	if lot == nil {
 		return false
 	}
-	agent.TargetID = lodge.ID
+	agent.TargetID = lot.ID
 	startCell := [2]int{
 		int(math.Floor(float64(agent.Pos[0] / CellSize))),
 		int(math.Floor(float64(agent.Pos[2] / CellSize))),
 	}
-	if path := s.Pathfinder.FindPath(startCell, lodge.DoorCell()); path != nil {
+	if path := s.Pathfinder.FindPath(startCell, lot.DoorCell()); path != nil {
 		agent.Path = path
 		agent.PathIdx = 0
 	}
@@ -513,7 +518,7 @@ func resolveTarget(w *world.World, id uint64) (mgl32.Vec3, targetKind, bool) {
 	}
 	for _, b := range w.Buildings {
 		if b.ID == id {
-			return lodgeWorldPos(w, b), targetBuilding, true
+			return parkingWorldPos(w, b), targetBuilding, true
 		}
 	}
 	return mgl32.Vec3{}, targetNone, false

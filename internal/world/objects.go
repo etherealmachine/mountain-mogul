@@ -11,15 +11,17 @@ const (
 
 // MeshID constants mirror render.Mesh* constants to avoid circular imports.
 const (
-	MeshTree     uint32 = 0
-	MeshTree2    uint32 = 1
-	MeshTree3    uint32 = 2
-	MeshRock     uint32 = 3
-	MeshStump    uint32 = 4
-	MeshBuilding uint32 = 5
-	MeshTower    uint32 = 6
-	MeshAgent    uint32 = 7
-	MeshChair    uint32 = 9
+	MeshTree       uint32 = 0
+	MeshTree2      uint32 = 1
+	MeshTree3      uint32 = 2
+	MeshRock       uint32 = 3
+	MeshStump      uint32 = 4
+	MeshBuilding   uint32 = 5
+	MeshTower      uint32 = 6
+	MeshAgent      uint32 = 7
+	MeshChair      uint32 = 9
+	MeshShed       uint32 = 10
+	MeshParkingPad uint32 = 12
 )
 
 // MeshSlot is an anchor point baked into a mesh by the SCAD pipeline
@@ -44,6 +46,45 @@ func RegisterMeshSlots(meshID uint32, slots []MeshSlot) {
 // did not declare any in its .scad source.
 func SlotsFor(meshID uint32) []MeshSlot {
 	return meshSlots[meshID]
+}
+
+// MeshFootprint is the building's ground-plane half-extents (in metres,
+// game coords), baked into the OBJ from the .scad source. The placement-
+// effects pass uses this to size the apron and the tree-clearance zone so
+// per-type dimensions don't have to be duplicated in Go.
+type MeshFootprint struct {
+	HalfX, HalfZ float32
+}
+
+var meshFootprints = map[uint32]MeshFootprint{}
+
+// RegisterMeshFootprint records the ground-plane half-extents of a mesh.
+// Called by the renderer when it loads each building OBJ.
+func RegisterMeshFootprint(meshID uint32, fp MeshFootprint) {
+	meshFootprints[meshID] = fp
+}
+
+// FootprintFor returns the footprint registered for meshID, or
+// (zero, false) if the mesh did not declare one in its .scad source.
+func FootprintFor(meshID uint32) (MeshFootprint, bool) {
+	fp, ok := meshFootprints[meshID]
+	return fp, ok
+}
+
+// MeshID returns the renderer mesh ID for a building type. Centralised
+// so scene-side helpers (footprint lookup, placement effects) can resolve
+// the mesh without depending on the render package.
+func (t BuildingType) MeshID() uint32 {
+	switch t {
+	case BuildingShed:
+		return MeshShed
+	case BuildingParking:
+		return MeshParkingPad
+	case BuildingLodge:
+		fallthrough
+	default:
+		return MeshBuilding
+	}
 }
 
 // MeshID maps an ObjectType to its mesh ID constant.

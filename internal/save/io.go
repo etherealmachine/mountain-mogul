@@ -214,6 +214,8 @@ func worldToData(w *world.World) ScenarioData {
 			SkierCount:    b.SkierCount,
 			Cats:          b.Cats,
 			RouteCells:    b.RouteCells,
+			MaxCars:       b.MaxCars,
+			CurrentCars:   b.CurrentCars,
 		}
 	}
 
@@ -350,6 +352,15 @@ func dataToWorld(data ScenarioData) *world.World {
 				b.Cats = bd.Cats
 			}
 			b.RouteCells = bd.RouteCells
+		}
+		// Parking-only state. MaxCars/CurrentCars default to zero on
+		// older saves; the placement defaults from PlaceBuildingType
+		// already populated MaxCars to a reasonable value above.
+		if b.Type == world.BuildingParking {
+			if bd.MaxCars > 0 {
+				b.MaxCars = bd.MaxCars
+			}
+			b.CurrentCars = bd.CurrentCars
 		}
 	}
 

@@ -231,7 +231,7 @@ func targetPos(w *world.World, a *world.Agent) [3]float32 {
 	}
 	for _, b := range w.Buildings {
 		if b.ID == a.TargetID {
-			p := lodgeWorldPos(w, b)
+			p := parkingWorldPos(w, b)
 			return [3]float32{p[0], p[1], p[2]}
 		}
 	}
