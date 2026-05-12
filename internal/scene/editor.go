@@ -38,6 +38,7 @@ type Editor struct {
 	autoSeed           int64       // seed for the noise overlays; stable across slider tweaks
 	autoFields         *elevFields // cached flow / curvature / minE-maxE; invalidated on elevation edits
 	liftBase          mgl32.Vec2  // toolLiftBase → toolLiftTop two-click state: first click stored here
+	roadStart         mgl32.Vec2  // toolRoadStart → toolRoadEnd two-click state: first click stored here (post-snap)
 	pendingScreenshot bool        // captured at end of Render so the PNG matches what's on screen
 }
 
@@ -61,6 +62,7 @@ func (e *Editor) Init(app *engine.App) error {
 	r.ResetSceneState()
 	r.BuildTerrainMesh(w.Terrain)
 	r.RebuildStaticBatch(w)
+	r.RebuildRoads(w)
 	for _, lift := range w.Lifts {
 		r.AddLiftCable(lift, w.Terrain)
 	}
@@ -90,6 +92,8 @@ func (e *Editor) Init(app *engine.App) error {
 	e.toolButtons[toolBuilding] = e.menuBar.AddIconButton(render.IconHouse, "Lodge", func() { e.setTool(toolBuilding) })
 	e.toolButtons[toolShed] = e.menuBar.AddIconButton(render.IconGarage, "Shed", func() { e.setTool(toolShed) })
 	e.toolButtons[toolLiftBase] = e.menuBar.AddIconButton(render.IconCableCar, "Lift", func() { e.setTool(toolLiftBase) })
+	e.toolButtons[toolRoadStart] = e.menuBar.AddIconButton(render.IconRoad, "Road", func() { e.setTool(toolRoadStart) })
+	e.toolButtons[toolEdgeConnect] = e.menuBar.AddIconButton(render.IconFlag, "Edge", func() { e.setTool(toolEdgeConnect) })
 	e.toolButtons[toolPlantTrees] = e.menuBar.AddIconButton(render.IconTreeEvergreen, "Plant", func() { e.setTool(toolPlantTrees) })
 	e.toolButtons[toolAuto] = e.menuBar.AddIconButton(render.IconSnowflake, "Auto", func() { e.setTool(toolAuto) })
 	e.toolButtons[toolGlade] = e.menuBar.AddIconButton(render.IconAxe, "Glade", func() { e.setTool(toolGlade) })
@@ -346,8 +350,14 @@ func (e *Editor) Update(dt float64) {
 		hoverPos:   mgl32.Vec2{e.hoverWorld[0], e.hoverWorld[2]},
 		hoverValid: e.hoverValid,
 		liftBase:   e.liftBase,
-		tint:       ghostTint(true),
+		roadStart:  e.roadStart,
+		tint:       ghostTint(true, e.placementLegal()),
 	})
+	// Editor mirrors the scenario's node-highlight behaviour while a
+	// road tool is active — same snap rules, same visual cue.
+	if e.activeTool == toolRoadStart || e.activeTool == toolRoadEnd {
+		emitRoadNodeMarkers(r, e.world, mgl32.Vec2{e.hoverWorld[0], e.hoverWorld[2]}, e.hoverValid)
+	}
 
 	// Tool application — placement tools fire on click only; brush tools
 	// follow the cursor while held. Suppressed when a slider is grabbing
@@ -382,10 +392,32 @@ func (e *Editor) Update(dt float64) {
 // or lift placement (click to commit) rather than a held brush.
 func (e *Editor) isPlacementTool() bool {
 	switch e.activeTool {
-	case toolBuilding, toolShed, toolParking, toolLiftBase, toolLiftTop:
+	case toolBuilding, toolShed, toolParking, toolLiftBase, toolLiftTop, toolRoadStart, toolRoadEnd, toolEdgeConnect:
 		return true
 	}
 	return false
+}
+
+// placementLegal reports whether the current hover position is a legal
+// spot for the active building tool. Lift placement is unconstrained for
+// now — only building footprint overlap is checked.
+func (e *Editor) placementLegal() bool {
+	if !e.hoverValid {
+		return true
+	}
+	wx, wz := e.hoverWorld[0], e.hoverWorld[2]
+	switch e.activeTool {
+	case toolBuilding:
+		return !e.world.BuildingOverlap(world.BuildingLodge, wx, wz)
+	case toolShed:
+		return !e.world.BuildingOverlap(world.BuildingShed, wx, wz)
+	case toolParking:
+		return !e.world.BuildingOverlap(world.BuildingParking, wx, wz)
+	case toolEdgeConnect:
+		_, _, ok := projectToMapEdge(e.world.Terrain, mgl32.Vec2{wx, wz}, edgeConnectTolerance)
+		return ok
+	}
+	return true
 }
 
 // applyPlacement commits a one-shot building or lift placement at the
@@ -399,22 +431,33 @@ func (e *Editor) applyPlacement(r *render.Renderer) {
 	wz := e.hoverWorld[2]
 	switch e.activeTool {
 	case toolBuilding:
+		if w.BuildingOverlap(world.BuildingLodge, wx, wz) {
+			return
+		}
 		b := w.PlaceBuildingType(world.BuildingLodge, wx, wz)
 		applyBuildingPlacementEffects(w.Terrain, b)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 		e.autoFields = nil
 	case toolShed:
+		if w.BuildingOverlap(world.BuildingShed, wx, wz) {
+			return
+		}
 		b := w.PlaceBuildingType(world.BuildingShed, wx, wz)
 		applyBuildingPlacementEffects(w.Terrain, b)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 		e.autoFields = nil
 	case toolParking:
+		if w.BuildingOverlap(world.BuildingParking, wx, wz) {
+			return
+		}
 		b := w.PlaceBuildingType(world.BuildingParking, wx, wz)
+		w.EnsureParkingDriveway(b)
 		applyBuildingPlacementEffects(w.Terrain, b)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
+		r.RebuildRoads(w)
 		e.autoFields = nil
 	case toolLiftBase:
 		e.liftBase = mgl32.Vec2{wx, wz}
@@ -429,6 +472,44 @@ func (e *Editor) applyPlacement(r *render.Renderer) {
 		e.activeTool = toolNone
 		e.syncToolButtons()
 		e.autoFields = nil
+	case toolRoadStart:
+		e.roadStart = resolveRoadEndpoint(w, mgl32.Vec2{wx, wz}).pos
+		e.activeTool = toolRoadEnd
+		e.syncToolButtons()
+	case toolRoadEnd:
+		start := resolveRoadEndpoint(w, e.roadStart)
+		end := resolveRoadEndpoint(w, mgl32.Vec2{wx, wz})
+		if placeRoadSegment(w, start, end) != nil {
+			applyAllRoadChainEffects(w)
+			r.FlushTerrainVerts(w.Terrain)
+			r.RebuildStaticBatch(w)
+		}
+		r.RebuildRoads(w)
+		e.activeTool = toolNone
+		e.syncToolButtons()
+		e.autoFields = nil
+	case toolEdgeConnect:
+		snapped, inward, ok := projectToMapEdge(w.Terrain, mgl32.Vec2{wx, wz}, edgeConnectTolerance)
+		if !ok {
+			return
+		}
+		inland := mgl32.Vec2{
+			snapped[0] + inward[0]*edgeConnectStubLength,
+			snapped[1] + inward[1]*edgeConnectStubLength,
+		}
+		// Two nodes + an edge between them. The post-bearing edge node
+		// is the spawn/despawn anchor; the inland end is a plain
+		// freestanding node the player will hook their network onto
+		// via the road tool's snap-to-edge/node logic.
+		edgeNode := w.AddRoadNode(snapped, world.RoadNodeEdgeConnection)
+		inlandNode := w.AddRoadNode(inland, world.RoadNodeFreestanding)
+		w.AddRoadEdge(edgeNode.ID, inlandNode.ID)
+		applyAllRoadChainEffects(w)
+		r.FlushTerrainVerts(w.Terrain)
+		r.RebuildStaticBatch(w)
+		r.RebuildRoads(w)
+		// Stay in the tool — designers usually place several edge
+		// connections in a row.
 	}
 }
 
@@ -439,7 +520,9 @@ func (e *Editor) applyPlacement(r *render.Renderer) {
 // so the player sees the result of the current slider values immediately.
 func (e *Editor) setTool(t toolMode) {
 	prev := e.activeTool
-	isActive := e.activeTool == t || (t == toolLiftBase && e.activeTool == toolLiftTop)
+	isActive := e.activeTool == t ||
+		(t == toolLiftBase && e.activeTool == toolLiftTop) ||
+		(t == toolRoadStart && e.activeTool == toolRoadEnd)
 	if isActive {
 		e.activeTool = toolNone
 	} else {
@@ -506,7 +589,9 @@ func (e *Editor) regenerateAuto() {
 // (toolLiftBase → toolLiftTop) so the player can see the placement is mid-flight.
 func (e *Editor) syncToolButtons() {
 	for mode, btn := range e.toolButtons {
-		active := e.activeTool == mode || (mode == toolLiftBase && e.activeTool == toolLiftTop)
+		active := e.activeTool == mode ||
+			(mode == toolLiftBase && e.activeTool == toolLiftTop) ||
+			(mode == toolRoadStart && e.activeTool == toolRoadEnd)
 		btn.SetActive(active)
 	}
 }

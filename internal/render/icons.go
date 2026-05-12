@@ -50,6 +50,10 @@ const (
 
 	// Buildings / equipment
 	IconGarage IconName = "garage" // equipment shed (snowcats, snowmobiles)
+
+	// Infrastructure
+	IconRoad IconName = "road" // road placement tool
+	IconFlag IconName = "flag" // road-network edge-connection marker (editor only)
 )
 
 // allIcons is the full set loaded at startup. Adding an icon requires
@@ -64,6 +68,8 @@ var allIcons = []IconName{
 	IconArrowRight,
 	IconStack, IconChartLine, IconTriangle, IconWaves, IconBroom, IconGridFour, IconDrop, IconDotsNine,
 	IconGarage,
+	IconRoad,
+	IconFlag,
 }
 
 // LoadIcons populates r.icons from assetDir/icons/. Missing files log a

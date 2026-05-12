@@ -116,45 +116,9 @@ func applyDensityBrush(t *world.Terrain, cx, cz, radius int, delta float32) {
 	}
 }
 
-// applyLiftPlacementEffects applies the ground-side consequences of putting
-// down a lift: a tree-free maintenance corridor under the cable line and
-// raised boarding/exit aprons at the base and top stations.
-//
-// Both aprons are raise-only — real ski areas typically build up an
-// earthwork pad at each station rather than carve a notch into the
-// hillside, so cells whose natural elevation is already higher than the
-// station footing keep their elevation untouched and only lower-lying
-// cells get raised toward the station. Sizing is fixed at 40 × 24 m
-// (8 × 5 cells at 5 m granularity); the lift-station mesh itself is
-// smaller than a single cell, so the apron is what gives the lift
-// visual mass on the map.
-//
-// Lives in scenario.go (not world.PlaceLift) so save loading and testbed
-// setup can reconstruct lifts without re-flattening or re-clearing terrain
-// the player may have intentionally edited.
-func applyLiftPlacementEffects(t *world.Terrain, lift *world.Lift) {
-	const corridorHalfWidth = float32(12.0) // → 24 m wide maintenance lane
-	const apronHalfWidth = float32(20.0)    // → 40 m total cross-axis width
-	const apronDepth = float32(24.0)
-	const apronBuildup = float32(2.5) // metres above station footing
-	clearLiftCorridor(t, lift.Base, lift.Top, corridorHalfWidth)
-	axis := mgl32.Vec2{
-		lift.Top[0] - lift.Base[0],
-		lift.Top[1] - lift.Base[1],
-	}
-	if l := axis.Len(); l > 0 {
-		axis = axis.Mul(1 / l)
-	}
-	// Top: extends forward (along axis). Base: extends backward (against
-	// axis). Both raise-only — the lift buildup is sized to clear typical
-	// snowpack on its own. Lift aprons keep a thin 5 cm packed-snow
-	// layer (foot-traffic compacted, not plowed flat like a parking lot).
-	topTarget := stationGroundElev(t, lift.Top) + apronBuildup
-	baseTarget := stationGroundElev(t, lift.Base) + apronBuildup
-	const liftApronSnow = float32(0.05)
-	buildStationApron(t, lift.Top, axis, +1, apronHalfWidth, apronDepth, topTarget, liftApronSnow, false)
-	buildStationApron(t, lift.Base, axis, -1, apronHalfWidth, apronDepth, baseTarget, liftApronSnow, false)
-}
+// applyLiftPlacementEffects, applyLiftStationApron and clearLiftCorridor
+// live in lift_apron.go — lift terminal grading is its own concern and
+// we expect it to iterate.
 
 // stationGroundElev returns the ground elevation of the cell containing
 // the given world XZ position, or 0 if the position is off-terrain.
@@ -252,8 +216,8 @@ func clearBuildingTrees(t *world.Terrain, pos mgl32.Vec2, halfX, halfZ float32) 
 			if !t.InBounds(x, z) {
 				continue
 			}
-			cx := (float32(x)+0.5)*cellSize - pos[0]
-			cz := (float32(z)+0.5)*cellSize - pos[1]
+			cx := float32(x)*cellSize - pos[0]
+			cz := float32(z)*cellSize - pos[1]
 			if cx < 0 {
 				cx = -cx
 			}
@@ -267,51 +231,24 @@ func clearBuildingTrees(t *world.Terrain, pos mgl32.Vec2, halfX, halfZ float32) 
 	}
 }
 
-// clearLiftCorridor zeros TreeDensity in cells within `halfWidth` metres of
-// the line segment between two world XZ points. Models the standard
-// chairlift maintenance lane — trees would otherwise foul cables, towers,
-// and the over-snow grooming machines that service the line.
-func clearLiftCorridor(t *world.Terrain, base, top mgl32.Vec2, halfWidth float32) {
-	const cellSize = float32(5.0)
-	minX := minF(base[0], top[0]) - halfWidth
-	maxX := maxF(base[0], top[0]) + halfWidth
-	minZ := minF(base[1], top[1]) - halfWidth
-	maxZ := maxF(base[1], top[1]) + halfWidth
-	x0 := int(minX / cellSize)
-	x1 := int(maxX/cellSize) + 1
-	z0 := int(minZ / cellSize)
-	z1 := int(maxZ/cellSize) + 1
-	hw2 := halfWidth * halfWidth
-	for x := x0; x <= x1; x++ {
-		for z := z0; z <= z1; z++ {
-			if !t.InBounds(x, z) {
-				continue
-			}
-			cx := (float32(x) + 0.5) * cellSize
-			cz := (float32(z) + 0.5) * cellSize
-			if pointSegmentDistSq(mgl32.Vec2{cx, cz}, base, top) <= hw2 {
-				t.Cells[x][z].TreeDensity = 0
-			}
-		}
-	}
-}
-
 // buildStationApron grades a rectangular pad whose back edge sits flush
 // against `station`, extending `depth` metres along `axis * side` (the
 // apron-forward direction) and ±`halfWidth` metres along the perpendicular.
 // The pad's GroundElevation is set to `target`; the caller decides what
-// that means (lift-base footing, max surface across the building's
-// footprint, etc.) so the apron itself is just the grading operation.
+// that means.
+//
+// Used by the building apron (called as a pair of back-to-back passes to
+// make a single rectangular pad). The lift apron has its own grading
+// path in lift_apron.go.
 //
 // `cut` toggles between two grading modes:
 //
-//   - cut = false (lifts): raise-only. Cells whose natural elevation
-//     already exceeds the target are left alone. Real lift aprons are
-//     built-up earthwork pads, not notches carved into the hillside.
+//   - cut = false: raise-only. Cells whose natural elevation already
+//     exceeds the target are left alone.
 //
 //   - cut = true (buildings): cut-and-fill. Cells above the target are
 //     pulled down to the pad level; cells below are pushed up. Produces
-//     a true flat platform under the building on sloped sites.
+//     a true flat platform on sloped sites.
 //
 // Falloff is applied at the front edge and the two side edges so the
 // transition between the pad and natural terrain blends smoothly, but
@@ -343,8 +280,8 @@ func buildStationApron(t *world.Terrain, station, axis mgl32.Vec2, side, halfWid
 			if !t.InBounds(x, z) {
 				continue
 			}
-			cx := (float32(x) + 0.5) * cellSize
-			cz := (float32(z) + 0.5) * cellSize
+			cx := float32(x) * cellSize
+			cz := float32(z) * cellSize
 			dx := cx - station[0]
 			dz := cz - station[1]
 			// Decompose into along-axis and perpendicular components.
@@ -479,6 +416,9 @@ const (
 	toolParking     toolMode = iota // place a parking lot (skier spawn/despawn)
 	toolLiftBase    toolMode = iota // waiting for first lift click
 	toolLiftTop     toolMode = iota // waiting for second lift click
+	toolRoadStart   toolMode = iota // waiting for first road click
+	toolRoadEnd     toolMode = iota // waiting for second road click
+	toolEdgeConnect toolMode = iota // place a map-edge road connection node (editor only)
 	toolGlade       toolMode = iota // reduce TreeDensity (brush)
 	toolPlantTrees  toolMode = iota // increase TreeDensity (brush, editor only)
 	toolRemove      toolMode = iota // remove building at clicked cell
@@ -497,6 +437,7 @@ type Scenario struct {
 	toolButtons     map[toolMode]*ui.Button
 	activeTool      toolMode
 	liftBase        mgl32.Vec2 // first click world position for lift placement
+	roadStart       mgl32.Vec2 // first click world position for road placement (post-snap)
 	scenarioPath    string
 	time            float32
 	rightDragging   bool
@@ -665,6 +606,7 @@ func (s *Scenario) Init(app *engine.App) error {
 	s.toolButtons[toolBuilding] = s.toolBar.AddIconButton(render.IconHouse, "Lodge", func() { s.setTool(toolBuilding) })
 	s.toolButtons[toolShed] = s.toolBar.AddIconButton(render.IconGarage, "Shed", func() { s.setTool(toolShed) })
 	s.toolButtons[toolLiftBase] = s.toolBar.AddIconButton(render.IconCableCar, "Lift", func() { s.setTool(toolLiftBase) })
+	s.toolButtons[toolRoadStart] = s.toolBar.AddIconButton(render.IconRoad, "Road", func() { s.setTool(toolRoadStart) })
 	s.toolButtons[toolGlade] = s.toolBar.AddIconButton(render.IconAxe, "Glade", func() { s.setTool(toolGlade) })
 	s.toolButtons[toolRemove] = s.toolBar.AddIconButton(render.IconTrash, "Remove", func() { s.setTool(toolRemove) })
 	if s.rebuild != nil {
@@ -810,6 +752,7 @@ func (s *Scenario) installWorld(w *world.World) {
 	}
 	r.BuildTerrainMesh(w.Terrain)
 	r.RebuildStaticBatch(w)
+	r.RebuildRoads(w)
 	for _, lift := range w.Lifts {
 		r.AddLiftCable(lift, w.Terrain)
 	}
@@ -1088,8 +1031,15 @@ func (s *Scenario) Update(dt float64) {
 		hoverPos:   mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]},
 		hoverValid: s.hoverValid,
 		liftBase:   s.liftBase,
-		tint:       ghostTint(s.placementAffordable()),
+		roadStart:  s.roadStart,
+		tint:       s.placementTint(),
 	})
+	// Highlight every existing road node while the road tool is active so
+	// the player can see snap targets. The snap-target node (or the
+	// projected snap point on an edge) is rendered brighter.
+	if s.activeTool == toolRoadStart || s.activeTool == toolRoadEnd {
+		emitRoadNodeMarkers(r, s.world, mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]}, s.hoverValid)
+	}
 
 	// Popup window input — handle before world clicks so buttons consume the event.
 	popupConsumed := false
@@ -1427,6 +1377,10 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 				world.LodgeCost, world.LodgeCost-w.Cash))
 			return
 		}
+		if w.BuildingOverlap(world.BuildingLodge, wx, wz) {
+			s.setToast("Can't place a lodge here — overlaps another building")
+			return
+		}
 		w.Cash -= world.LodgeCost
 		b := w.PlaceBuildingType(world.BuildingLodge, wx, wz)
 		applyBuildingPlacementEffects(w.Terrain, b)
@@ -1436,6 +1390,10 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		if w.Cash < world.ShedCost {
 			s.setToast(fmt.Sprintf("Need $%d for a shed — short by $%d",
 				world.ShedCost, world.ShedCost-w.Cash))
+			return
+		}
+		if w.BuildingOverlap(world.BuildingShed, wx, wz) {
+			s.setToast("Can't place a shed here — overlaps another building")
 			return
 		}
 		w.Cash -= world.ShedCost
@@ -1449,11 +1407,17 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 				world.ParkingCost, world.ParkingCost-w.Cash))
 			return
 		}
+		if w.BuildingOverlap(world.BuildingParking, wx, wz) {
+			s.setToast("Can't place a parking lot here — overlaps another building")
+			return
+		}
 		w.Cash -= world.ParkingCost
 		b := w.PlaceBuildingType(world.BuildingParking, wx, wz)
+		w.EnsureParkingDriveway(b)
 		applyBuildingPlacementEffects(w.Terrain, b)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
+		r.RebuildRoads(w)
 	case toolGlade:
 		// Slider value 0–10 = % density delta per application. Each click
 		// or drag-into-new-cell event fires one application; stationary
@@ -1488,6 +1452,52 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		r.RebuildStaticBatch(w)
 		r.ClearAllGhosts()
 		r.ClearGhostCable()
+		s.activeTool = toolNone
+	case toolRoadStart:
+		// Cheapest a road can be is the base cost — gate entry so the
+		// player can't waste a click on a start they couldn't afford
+		// the cheapest follow-up from.
+		if w.Cash < world.RoadBaseCost {
+			s.setToast(fmt.Sprintf("Need $%d to start a road — short by $%d",
+				world.RoadBaseCost, world.RoadBaseCost-w.Cash))
+			return
+		}
+		s.roadStart = resolveRoadEndpoint(w, mgl32.Vec2{wx, wz}).pos
+		s.activeTool = toolRoadEnd
+	case toolRoadEnd:
+		// Re-resolve the start so node/edge context is recovered before
+		// committing — the stored s.roadStart is just the post-snap
+		// position (deterministic since the graph hasn't changed mid-flow).
+		start := resolveRoadEndpoint(w, s.roadStart)
+		end := resolveRoadEndpoint(w, mgl32.Vec2{wx, wz})
+		// Refuse a degenerate same-spot click before charging the player.
+		if end.pos == start.pos {
+			s.setToast("Click somewhere else to finish the road")
+			return
+		}
+		cost := world.RoadCost(start.pos, end.pos)
+		if w.Cash < cost {
+			s.setToast(fmt.Sprintf("Need $%d for this road — short by $%d",
+				cost, cost-w.Cash))
+			return
+		}
+		if placeRoadSegment(w, start, end) == nil {
+			// Endpoints collapsed to the same node — refunded by not
+			// deducting cost.
+			s.setToast("Road endpoints snapped together — no segment placed")
+			return
+		}
+		w.Cash -= cost
+		// Re-stamp every chain: Catmull-Rom curves through neighbouring
+		// nodes mean adjacent chains' geometry changes whenever the
+		// graph topology shifts, so a per-edge stamp wouldn't stay
+		// accurate.
+		applyAllRoadChainEffects(w)
+		r.FlushTerrainVerts(w.Terrain)
+		r.RebuildStaticBatch(w)
+		r.RebuildRoads(w)
+		r.ClearAllGhosts()
+		r.ClearGhostRoad()
 		s.activeTool = toolNone
 	case toolRemove:
 		s.removeAt(s.hoverWorld, r)
@@ -1592,8 +1602,18 @@ func (s *Scenario) removeAt(clickPos mgl32.Vec3, r *render.Renderer) {
 	pick := mgl32.Vec2{clickPos[0], clickPos[2]}
 	for _, b := range w.Buildings {
 		if b.Pos.Sub(pick).Len() <= buildingPickRadius {
+			// Parking lots own a driveway road node + possibly incident
+			// edges; RemoveBuilding drops both, so the road mesh has to
+			// be regenerated and the chain effects re-stamped (the
+			// removal may have re-shaped neighbouring chains).
+			wasParking := b.Type == world.BuildingParking
 			w.RemoveBuilding(b.ID)
 			r.RebuildStaticBatch(w)
+			if wasParking {
+				applyAllRoadChainEffects(w)
+				r.FlushTerrainVerts(w.Terrain)
+				r.RebuildRoads(w)
+			}
 			return
 		}
 	}
@@ -1647,7 +1667,7 @@ func (s *Scenario) Render(r *render.Renderer) {
 			})
 		}
 	}
-	if cost, affordable, valid := s.placementCost(); valid {
+	if cost, affordable, _, valid := s.placementCost(); valid {
 		drawables = append(drawables, &costLabel{cost: cost, affordable: affordable})
 	}
 	for _, a := range s.world.Agents {
@@ -1814,11 +1834,16 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 }
 
 // setTool toggles the given tool on; if it is already active, deactivates it.
+// The Lift and Road tools are two-click flows — clicking their button while
+// the second click is pending cancels the in-progress placement.
 func (s *Scenario) setTool(t toolMode) {
 	r := s.app.Renderer
-	isActive := s.activeTool == t || (t == toolLiftBase && s.activeTool == toolLiftTop)
+	isActive := s.activeTool == t ||
+		(t == toolLiftBase && s.activeTool == toolLiftTop) ||
+		(t == toolRoadStart && s.activeTool == toolRoadEnd)
 	r.ClearAllGhosts()
 	r.ClearGhostCable()
+	r.ClearGhostRoad()
 	if isActive {
 		s.activeTool = toolNone
 	} else {
@@ -1831,6 +1856,7 @@ func (s *Scenario) setTool(t toolMode) {
 func (s *Scenario) cancelTool() {
 	s.app.Renderer.ClearAllGhosts()
 	s.app.Renderer.ClearGhostCable()
+	s.app.Renderer.ClearGhostRoad()
 	if s.activeTool == toolRoute {
 		s.routeShedID = 0
 		s.lastRouteCell = [2]int{-1, -1}
@@ -1869,7 +1895,8 @@ func (s *Scenario) uiCovers(x, y float32, screenW float32) bool {
 func (s *Scenario) syncToolButtons() {
 	for mode, btn := range s.toolButtons {
 		btn.SetActive(s.activeTool == mode ||
-			(mode == toolLiftBase && s.activeTool == toolLiftTop))
+			(mode == toolLiftBase && s.activeTool == toolLiftTop) ||
+			(mode == toolRoadStart && s.activeTool == toolRoadEnd))
 	}
 }
 
@@ -1882,6 +1909,7 @@ type placementGhostState struct {
 	hoverPos   mgl32.Vec2 // continuous world XZ under the cursor
 	hoverValid bool       // false when the cursor isn't on the terrain
 	liftBase   mgl32.Vec2 // first-click position for the two-step lift placement (toolLiftTop only)
+	roadStart  mgl32.Vec2 // first-click position for the two-step road placement (toolRoadEnd only)
 	tint       [3]float32 // colour multiplier for the ghost — typically affordable / unaffordable
 }
 
@@ -1896,6 +1924,7 @@ type placementGhostState struct {
 func updatePlacementGhost(r *render.Renderer, t *world.Terrain, st placementGhostState) {
 	r.ClearAllGhosts()
 	r.ClearGhostCable()
+	r.ClearGhostRoad()
 
 	if !st.hoverValid {
 		return
@@ -1932,45 +1961,104 @@ func updatePlacementGhost(r *render.Renderer, t *world.Terrain, st placementGhos
 			stationInstance(top, base, t, st.tint), // top faces base
 		})
 		r.SetGhostCable(base, top, t)
+
+	case toolRoadEnd:
+		// Ghost a road segment between the stored start and the cursor.
+		// SetGhostRoad mirrors SetGhostCable: a fresh single-segment
+		// mesh regenerated each frame as the cursor moves.
+		r.SetGhostRoad(st.roadStart, st.hoverPos, t, st.tint)
+
+	case toolEdgeConnect:
+		// Show the post at the perimeter and a road stub extending
+		// inland. When the click is too far inland for any edge,
+		// previewPos falls back to the raw cursor and placementLegal
+		// red-tints the whole preview.
+		previewPos := st.hoverPos
+		inland := st.hoverPos
+		if snapped, inward, ok := projectToMapEdge(t, st.hoverPos, edgeConnectTolerance); ok {
+			previewPos = snapped
+			inland = mgl32.Vec2{
+				snapped[0] + inward[0]*edgeConnectStubLength,
+				snapped[1] + inward[1]*edgeConnectStubLength,
+			}
+		}
+		r.SetGhosts(render.MeshRoadConnect, []render.StaticInstance{
+			roadConnectInstance(previewPos, t, st.tint),
+		})
+		r.SetGhostRoad(previewPos, inland, t, st.tint)
 	}
 }
 
+// roadConnectInstance wraps render.RoadConnectTransform into a
+// StaticInstance for the ghost-preview path. Live placements bypass
+// this and go through RebuildStaticBatch like any other batched static.
+func roadConnectInstance(pos mgl32.Vec2, t *world.Terrain, tint [3]float32) render.StaticInstance {
+	m := render.RoadConnectTransform(pos, t)
+	inst := render.StaticInstance{ColorTint: tint}
+	copy(inst.Transform[:], m[:])
+	return inst
+}
+
 // placementCost returns the cost of placing whatever the active tool
-// will create at the current hover position, plus a flag indicating
-// whether the player can afford it. Returns (0, false, false) if no
-// cost-bearing tool is active or the hover is off-terrain.
-func (s *Scenario) placementCost() (cost int, affordable bool, valid bool) {
+// will create at the current hover position, a flag indicating whether
+// the player can afford it, and a flag indicating whether the placement
+// is legal (e.g., footprint doesn't overlap another building). Returns
+// (0, false, true, false) if no cost-bearing tool is active or the
+// hover is off-terrain.
+func (s *Scenario) placementCost() (cost int, affordable, legal, valid bool) {
 	if !s.hoverValid {
-		return 0, false, false
+		return 0, false, true, false
 	}
 	pos := mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]}
+	legal = true
 	switch s.activeTool {
 	case toolBuilding:
 		cost = world.LodgeCost
+		legal = !s.world.BuildingOverlap(world.BuildingLodge, pos[0], pos[1])
 	case toolShed:
 		cost = world.ShedCost
+		legal = !s.world.BuildingOverlap(world.BuildingShed, pos[0], pos[1])
+	case toolParking:
+		cost = world.ParkingCost
+		legal = !s.world.BuildingOverlap(world.BuildingParking, pos[0], pos[1])
 	case toolLiftBase:
 		cost = world.LiftStationCost
 	case toolLiftTop:
 		cost = world.LiftCost(s.liftBase, pos)
+	case toolRoadStart:
+		cost = world.RoadBaseCost
+	case toolRoadEnd:
+		end := resolveRoadEndpoint(s.world, pos)
+		cost = world.RoadCost(s.roadStart, end.pos)
 	default:
-		return 0, false, false
+		return 0, false, true, false
 	}
-	return cost, s.world.Cash >= cost, true
+	return cost, s.world.Cash >= cost, legal, true
 }
 
-func (s *Scenario) placementAffordable() bool {
-	_, ok, valid := s.placementCost()
-	return !valid || ok // no active placement → don't tint anything
+// placementTint resolves the ghost tint for the active placement tool:
+// white when OK, warm red when unaffordable, saturated red when illegal.
+// No-op tint when no placement is active.
+func (s *Scenario) placementTint() [3]float32 {
+	_, affordable, legal, valid := s.placementCost()
+	if !valid {
+		return ghostTint(true, true)
+	}
+	return ghostTint(affordable, legal)
 }
 
 // ghostTint returns the per-instance ColorTint for ghost previews:
-// white when affordable, warm red when not.
-func ghostTint(affordable bool) [3]float32 {
-	if affordable {
-		return [3]float32{1, 1, 1}
+// saturated red when the placement is illegal (overlap, etc.), warm red
+// when the player can't afford it, white otherwise. Illegal beats
+// unaffordable since you can't place at all.
+func ghostTint(affordable, legal bool) [3]float32 {
+	if !legal {
+		return [3]float32{1.0, 0.25, 0.25}
 	}
-	return [3]float32{1.0, 0.45, 0.45}
+	if !affordable {
+		return [3]float32{1.0, 0.45, 0.45}
+	}
+	return [3]float32{1, 1, 1}
 }
 
 // stationInstance wraps render.LiftStationTransform into a StaticInstance

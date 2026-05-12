@@ -27,6 +27,14 @@ type SceneResources struct {
 	liftUpCables   map[uint64]*Mesh
 	liftDownCables map[uint64]*Mesh
 
+	// roadMesh is a single quad strip covering every road edge in the
+	// world; roadLanesMesh is a parallel mesh of dashed centre-line
+	// quads drawn over it in a second pass. Both regenerated wholesale
+	// by RebuildRoads whenever the road graph changes.
+	roadMesh      *Mesh
+	roadLanesMesh *Mesh
+	roadGhostMesh *Mesh
+
 	ghostBatches   map[uint32]*Batch
 	ghostUpCable   *Mesh
 	ghostDownCable *Mesh
@@ -65,5 +73,17 @@ func (s *SceneResources) Delete() {
 	if s.ghostDownCable != nil {
 		s.ghostDownCable.Delete()
 		s.ghostDownCable = nil
+	}
+	if s.roadMesh != nil {
+		s.roadMesh.Delete()
+		s.roadMesh = nil
+	}
+	if s.roadLanesMesh != nil {
+		s.roadLanesMesh.Delete()
+		s.roadLanesMesh = nil
+	}
+	if s.roadGhostMesh != nil {
+		s.roadGhostMesh.Delete()
+		s.roadGhostMesh = nil
 	}
 }

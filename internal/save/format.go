@@ -11,8 +11,26 @@ type ScenarioData struct {
 	Lifts     []LiftData     `json:"lifts"`
 	Agents    []AgentData    `json:"agents"`
 	Snowcats  []SnowcatData  `json:"snowcats,omitempty"`
+	RoadNodes []RoadNodeData `json:"road_nodes,omitempty"`
+	RoadEdges []RoadEdgeData `json:"road_edges,omitempty"`
 	Cash      int            `json:"cash,omitempty"`
 	Camera    *CameraData    `json:"camera,omitempty"`
+}
+
+// RoadNodeData is one vertex in the road graph. ID is preserved across
+// save/load so RoadEdgeData.A/B references stay valid.
+type RoadNodeData struct {
+	ID   uint64  `json:"id,omitempty"`
+	X    float32 `json:"x"`
+	Z    float32 `json:"z"`
+	Kind uint8   `json:"k,omitempty"`
+}
+
+// RoadEdgeData is a straight road segment between two RoadNodes.
+type RoadEdgeData struct {
+	ID uint64 `json:"id,omitempty"`
+	A  uint64 `json:"a"`
+	B  uint64 `json:"b"`
 }
 
 // CameraData is the saved orthographic-camera state: where it's
@@ -71,8 +89,9 @@ type BuildingData struct {
 	RouteCells [][2]int   `json:"route,omitempty"`
 
 	// Parking-only state.
-	MaxCars     int     `json:"max_cars,omitempty"`
-	CurrentCars float32 `json:"cur_cars,omitempty"`
+	MaxCars        int     `json:"max_cars,omitempty"`
+	CurrentCars    float32 `json:"cur_cars,omitempty"`
+	DrivewayNodeID uint64  `json:"driveway,omitempty"` // road-network attach node
 }
 
 // SnowcatData is a saved cat. ShedID links it back to its shed; both

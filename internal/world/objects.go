@@ -20,8 +20,10 @@ const (
 	MeshTower      uint32 = 6
 	MeshSkier      uint32 = 7
 	MeshChair      uint32 = 9
-	MeshShed       uint32 = 10
-	MeshParkingPad uint32 = 12
+	MeshShed        uint32 = 10
+	MeshParkingPad  uint32 = 12
+	MeshRoadConnect uint32 = 14
+	MeshRoadNode    uint32 = 15
 )
 
 // MeshSlot is an anchor point baked into a mesh by the SCAD pipeline

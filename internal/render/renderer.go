@@ -216,6 +216,7 @@ func (r *Renderer) initStaticMeshes() {
 		{MeshTower, "tower"},
 		{MeshShed, "shed"},
 		{MeshParkingPad, "parking"}, // built by models-src/parking.scad
+		{MeshRoadConnect, "road_connect"},
 	}
 
 	for _, def := range meshDefs {
@@ -228,7 +229,21 @@ func (r *Renderer) initStaticMeshes() {
 		if fp, ok := LoadOBJFootprint(objPath); ok {
 			world.RegisterMeshFootprint(def.id, fp)
 		}
+		// Slot metadata — used by the parking lot's driveway position
+		// today, and by anything else that needs a mesh-local anchor
+		// in the future. Missing slots register as nil; consumers fall
+		// back to a sensible default (parking's DrivewayPosition does
+		// a halfZ-edge guess if no slot 0 exists).
+		if slots := LoadOBJSlots(objPath); len(slots) > 0 {
+			world.RegisterMeshSlots(def.id, slots)
+		}
 	}
+
+	// Road node marker — procedural disc (thin cylinder slice). Sits
+	// flush on the snow surface and reads as a "click target" puck
+	// from the top-down gameplay camera. White texture + per-instance
+	// tint keeps the colour palette decision in the placement code.
+	r.staticBatches[MeshRoadNode] = NewStaticBatch(NewCylinderMesh(1.5, 0.15, 24), r.whiteTexID)
 
 	// Skier — dynamic batch. One instance per world.Agent, repositioned
 	// each tick by the sim.
@@ -1155,6 +1170,38 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 			}
 		}
 	}
+
+	// Road edge-connection markers — one yellow-flag post per node with
+	// kind RoadNodeEdgeConnection. Editor-placed scenario metadata, but
+	// rendered in scenarios too so the player can see where the road
+	// network meets the map perimeter.
+	if connectBatch, ok := r.staticBatches[MeshRoadConnect]; ok {
+		for _, n := range w.RoadNodes {
+			if n.Kind != world.RoadNodeEdgeConnection {
+				continue
+			}
+			connectBatch.AddStatic(RoadConnectTransform(n.Pos, w.Terrain), mgl32.Vec3{1, 1, 1})
+		}
+	}
+}
+
+// RoadConnectTransform builds the world-space transform for an edge-
+// connection marker at world XZ `pos`. Y comes from the snow surface so
+// the post sits on whatever's currently underfoot. No rotation: the flag
+// is small enough that orientation isn't load-bearing visually.
+func RoadConnectTransform(pos mgl32.Vec2, terrain *world.Terrain) mgl32.Mat4 {
+	y := VisualElevationAt(terrain, pos[0], pos[1])
+	return mgl32.Translate3D(pos[0], y, pos[1])
+}
+
+// RoadNodeMarkerTransform builds the world-space transform for a node-
+// highlight marker at world XZ `pos`. Lifted a touch above the surface
+// so the disc sits cleanly on top of the road quad (which already rides
+// 5 cm above the terrain) without z-fighting.
+func RoadNodeMarkerTransform(pos mgl32.Vec2, terrain *world.Terrain) mgl32.Mat4 {
+	const markerHover = float32(0.10)
+	y := VisualElevationAt(terrain, pos[0], pos[1]) + markerHover
+	return mgl32.Translate3D(pos[0], y, pos[1])
 }
 
 // BuildingTransform builds the world-space transform for a building
@@ -1395,6 +1442,22 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	r.StaticShader.SetFloat("uPerceptionCosHalfAngle", r.perceptionCosHalfAngle)
 	r.StaticShader.SetFloat("uPerceptionRadius", r.perceptionRadius)
 	gl.ActiveTexture(gl.TEXTURE0)
+
+	// Road pass — drawn before the static batch so buildings/trees sit on
+	// top of road quads where they overlap. Shares the cable shader path
+	// (identity instance transform, dark asphalt tint via VertexAttrib).
+	// Lane dashes ride on top of the asphalt with a brighter tint.
+	if r.scene.roadMesh != nil {
+		gl.BindTexture(gl.TEXTURE_2D, r.whiteTexID)
+		setRoadTransformAttribs()
+		r.scene.roadMesh.Draw()
+	}
+	if r.scene.roadLanesMesh != nil {
+		gl.BindTexture(gl.TEXTURE_2D, r.whiteTexID)
+		setRoadLaneTransformAttribs()
+		r.scene.roadLanesMesh.Draw()
+	}
+
 	for _, batch := range r.staticBatches {
 		batch.Draw()
 	}
@@ -1425,6 +1488,10 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	}
 	if r.scene.ghostDownCable != nil {
 		r.scene.ghostDownCable.Draw()
+	}
+	if r.scene.roadGhostMesh != nil {
+		setRoadTransformAttribs()
+		r.scene.roadGhostMesh.Draw()
 	}
 	r.StaticShader.SetFloat("uAlpha", 1.0)
 	gl.DepthMask(true)
@@ -1755,6 +1822,43 @@ func (r *Renderer) AddLiftCable(lift *world.Lift, t *world.Terrain) {
 	r.AddLiftMeshes(lift, t)
 }
 
+// RebuildRoads regenerates the world's road meshes (asphalt body + dashed
+// centre-line) from the current road graph. Call after any add/remove on
+// RoadNodes / RoadEdges.
+func (r *Renderer) RebuildRoads(w *world.World) {
+	if r.scene.roadMesh != nil {
+		r.scene.roadMesh.Delete()
+		r.scene.roadMesh = nil
+	}
+	if r.scene.roadLanesMesh != nil {
+		r.scene.roadLanesMesh.Delete()
+		r.scene.roadLanesMesh = nil
+	}
+	r.scene.roadMesh = generateRoadsMesh(w, w.Terrain)
+	r.scene.roadLanesMesh = generateRoadLanesMesh(w, w.Terrain)
+}
+
+// SetGhostRoad regenerates the in-flight road preview between a and b.
+// Mirrors SetGhostCable: a single fresh mesh per frame as the cursor
+// moves. The tint parameter is currently advisory — road meshes share
+// the cable shader path, which uses a fixed dark grey for the strip;
+// once roads pick up an instance-tinted path the tint will pass through.
+func (r *Renderer) SetGhostRoad(a, b mgl32.Vec2, t *world.Terrain, tint [3]float32) {
+	if r.scene.roadGhostMesh != nil {
+		r.scene.roadGhostMesh.Delete()
+	}
+	r.scene.roadGhostMesh = generateRoadEdgeMesh(a, b, t)
+	_ = tint // see doc comment — reserved for future use
+}
+
+// ClearGhostRoad removes the in-flight road preview.
+func (r *Renderer) ClearGhostRoad() {
+	if r.scene.roadGhostMesh != nil {
+		r.scene.roadGhostMesh.Delete()
+		r.scene.roadGhostMesh = nil
+	}
+}
+
 // RemoveLiftCable is kept for call-site compatibility; delegates to RemoveLiftMeshes.
 func (r *Renderer) RemoveLiftCable(liftID uint64) {
 	r.RemoveLiftMeshes(liftID)
@@ -1839,6 +1943,28 @@ func setCableTransformAttribs() {
 	gl.VertexAttrib4f(5, 0, 0, 1, 0) // identity col 2
 	gl.VertexAttrib4f(6, 0, 0, 0, 1) // identity col 3
 	gl.VertexAttrib3f(7, 0.15, 0.15, 0.15) // dark charcoal tint
+}
+
+// setRoadTransformAttribs is the road-mesh counterpart to setCableTransformAttribs:
+// identity transform + asphalt-grey tint. Slightly lighter than the cable tint
+// so roads read as a distinct surface treatment rather than a cable shadow.
+func setRoadTransformAttribs() {
+	gl.VertexAttrib4f(3, 1, 0, 0, 0)
+	gl.VertexAttrib4f(4, 0, 1, 0, 0)
+	gl.VertexAttrib4f(5, 0, 0, 1, 0)
+	gl.VertexAttrib4f(6, 0, 0, 0, 1)
+	gl.VertexAttrib3f(7, 0.22, 0.22, 0.23) // asphalt grey, faint blue tinge
+}
+
+// setRoadLaneTransformAttribs is the lane-dash counterpart: identity transform
+// + warm off-white so the dashes read as paint on asphalt without going
+// pure white (which would over-bloom against a snowy backdrop).
+func setRoadLaneTransformAttribs() {
+	gl.VertexAttrib4f(3, 1, 0, 0, 0)
+	gl.VertexAttrib4f(4, 0, 1, 0, 0)
+	gl.VertexAttrib4f(5, 0, 0, 1, 0)
+	gl.VertexAttrib4f(6, 0, 0, 0, 1)
+	gl.VertexAttrib3f(7, 0.92, 0.88, 0.55) // warm cream — reads as faded yellow lane paint
 }
 
 // treeCountFromDensity maps a cell's TreeDensity to a per-cell tree count

@@ -34,13 +34,15 @@ func BuildingCost(t BuildingType) int {
 
 // World owns all simulation state.
 type World struct {
-	Terrain   *Terrain
-	Objects   []*PlacedObject
-	Buildings []*Building
-	Lifts     []*Lift
-	Agents    []*Agent
-	Snowcats  []*Snowcat
-	nextID    uint64
+	Terrain    *Terrain
+	Objects    []*PlacedObject
+	Buildings  []*Building
+	Lifts      []*Lift
+	Agents     []*Agent
+	Snowcats   []*Snowcat
+	RoadNodes  []*RoadNode
+	RoadEdges  []*RoadEdge
+	nextID     uint64
 
 	// Cash is the resort's bank balance in dollars. PlaceBuilding /
 	// PlaceLift deduct from this and refuse the placement when the
@@ -158,7 +160,9 @@ func (w *World) PlaceBuildingType(typ BuildingType, x, z float32) *Building {
 
 // RemoveBuilding removes a building and restores cell passability.
 // Sheds also evict their snowcats — the cats have nowhere to go home
-// to once the shed is gone.
+// to once the shed is gone. Parking lots also drop their driveway
+// node (and any road edges the player attached to it) since those
+// references can't survive the lot's removal.
 func (w *World) RemoveBuilding(id uint64) {
 	for i, b := range w.Buildings {
 		if b.ID == id {
@@ -168,6 +172,9 @@ func (w *World) RemoveBuilding(id uint64) {
 			}
 			if b.Type == BuildingShed {
 				w.RemoveSnowcatsOwnedBy(b.ID)
+			}
+			if b.Type == BuildingParking && b.DrivewayNodeID != 0 {
+				w.RemoveRoadNode(b.DrivewayNodeID)
 			}
 			w.Buildings = append(w.Buildings[:i], w.Buildings[i+1:]...)
 			return

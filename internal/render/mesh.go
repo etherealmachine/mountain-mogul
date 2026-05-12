@@ -1,6 +1,7 @@
 package render
 
 import (
+	"math"
 	"unsafe"
 
 	"github.com/go-gl/gl/v4.1-core/gl"
@@ -22,6 +23,8 @@ const (
 	MeshSnowcat     uint32 = 11
 	MeshParkingPad  uint32 = 12 // flat asphalt-coloured pad for a parking lot footprint
 	MeshCar         uint32 = 13 // small box used per parked car (dynamic instance per lot)
+	MeshRoadConnect uint32 = 14 // yellow-flag marker for road-network edge connections (editor-placed)
+	MeshRoadNode    uint32 = 15 // small procedural post used as a hover/snap target marker for road nodes
 )
 
 // Mesh wraps a GPU vertex/index buffer.
@@ -152,4 +155,89 @@ func NewBoxMesh(w, h, d float32) *Mesh {
 	}
 
 	return NewMesh(vertices, indices, []int{3, 3, 2}, nil)
+}
+
+// NewCylinderMesh creates a vertical cylinder centred on the origin with
+// its base on the Y = 0 plane. Vertex layout matches NewBoxMesh
+// (pos/normal/uv), so the mesh slots straight into the static-batch
+// shader path. Top/bottom caps use a triangle fan from the centre;
+// the side wall uses per-segment quads with outward-radial normals.
+//
+// `segments` must be ≥ 3; values < 3 are clamped up to 3.
+func NewCylinderMesh(radius, height float32, segments int) *Mesh {
+	if segments < 3 {
+		segments = 3
+	}
+
+	verts := make([]float32, 0, (2+2*segments+2*segments)*8)
+	indices := make([]uint32, 0, segments*3*2+segments*6)
+
+	// Top face — centre vertex then `segments` rim vertices.
+	topCenter := uint32(len(verts) / 8)
+	verts = append(verts, 0, height, 0, 0, 1, 0, 0.5, 0.5)
+	for i := 0; i < segments; i++ {
+		theta := float32(i) / float32(segments) * 2 * float32(math.Pi)
+		cx := radius * float32(math.Cos(float64(theta)))
+		cz := radius * float32(math.Sin(float64(theta)))
+		verts = append(verts,
+			cx, height, cz,
+			0, 1, 0,
+			0.5+0.5*float32(math.Cos(float64(theta))), 0.5+0.5*float32(math.Sin(float64(theta))),
+		)
+	}
+	for i := 0; i < segments; i++ {
+		next := (i + 1) % segments
+		indices = append(indices, topCenter, topCenter+uint32(i+1), topCenter+uint32(next+1))
+	}
+
+	// Bottom face — same shape, opposite winding so the outward normal
+	// is (0, -1, 0). Used so the cylinder reads correctly when viewed
+	// from below (e.g. tucked-camera angles, debug overlays).
+	botCenter := uint32(len(verts) / 8)
+	verts = append(verts, 0, 0, 0, 0, -1, 0, 0.5, 0.5)
+	for i := 0; i < segments; i++ {
+		theta := float32(i) / float32(segments) * 2 * float32(math.Pi)
+		cx := radius * float32(math.Cos(float64(theta)))
+		cz := radius * float32(math.Sin(float64(theta)))
+		verts = append(verts,
+			cx, 0, cz,
+			0, -1, 0,
+			0.5+0.5*float32(math.Cos(float64(theta))), 0.5+0.5*float32(math.Sin(float64(theta))),
+		)
+	}
+	for i := 0; i < segments; i++ {
+		next := (i + 1) % segments
+		indices = append(indices, botCenter, botCenter+uint32(next+1), botCenter+uint32(i+1))
+	}
+
+	// Side wall — 2 vertices per segment column (top + bottom rim) with
+	// flat radial normals. UV.s wraps around the cylinder; UV.t is 0
+	// at the base and 1 at the top.
+	sideStart := uint32(len(verts) / 8)
+	for i := 0; i < segments; i++ {
+		theta := float32(i) / float32(segments) * 2 * float32(math.Pi)
+		nx := float32(math.Cos(float64(theta)))
+		nz := float32(math.Sin(float64(theta)))
+		u := float32(i) / float32(segments)
+		verts = append(verts,
+			radius*nx, height, radius*nz,
+			nx, 0, nz,
+			u, 1,
+		)
+		verts = append(verts,
+			radius*nx, 0, radius*nz,
+			nx, 0, nz,
+			u, 0,
+		)
+	}
+	for i := 0; i < segments; i++ {
+		next := (i + 1) % segments
+		a := sideStart + uint32(i*2)
+		b := sideStart + uint32(i*2+1)
+		c := sideStart + uint32(next*2)
+		d := sideStart + uint32(next*2+1)
+		indices = append(indices, a, b, d, a, d, c)
+	}
+
+	return NewMesh(verts, indices, []int{3, 3, 2}, nil)
 }

@@ -44,8 +44,13 @@ type Building struct {
 	// CurrentCars is a continuous estimate (incremented per spawn,
 	// decremented per despawn) and the render path floors it to instance
 	// N car models in a grid pattern. Roughly 4 skiers per car.
-	MaxCars     int
-	CurrentCars float32
+	// DrivewayNodeID points at the road node auto-created at the lot's
+	// front edge — the player attaches the road network there. Zero on
+	// non-parking buildings (and on parking lots that haven't had
+	// EnsureParkingDriveway called yet).
+	MaxCars        int
+	CurrentCars    float32
+	DrivewayNodeID uint64
 
 	// Shed-only state. Cats is the number of grooming machines this
 	// shed dispatches (1..MaxCatsPerShed). RouteCells holds the cells
@@ -87,6 +92,32 @@ func (b *Building) DoorCell() [2]int {
 	return cellOf(b.Pos)
 }
 
+// FootprintAABB returns the axis-aligned ground bounding box of a building
+// of typ centred at (x, z) in world XZ coords. Buildings are currently
+// placed with Rotation=0 so the AABB is the mesh footprint at the anchor;
+// once placement rotation lands this needs an OBB query.
+// Returns a zero-extent box at (x, z) if no footprint is registered.
+func FootprintAABB(typ BuildingType, x, z float32) (minX, minZ, maxX, maxZ float32) {
+	fp, ok := FootprintFor(typ.MeshID())
+	if !ok {
+		return x, z, x, z
+	}
+	return x - fp.HalfX, z - fp.HalfZ, x + fp.HalfX, z + fp.HalfZ
+}
+
+// BuildingOverlap reports whether a building of typ centred at (x, z)
+// would overlap any existing building's footprint AABB.
+func (w *World) BuildingOverlap(typ BuildingType, x, z float32) bool {
+	minX, minZ, maxX, maxZ := FootprintAABB(typ, x, z)
+	for _, b := range w.Buildings {
+		bMinX, bMinZ, bMaxX, bMaxZ := FootprintAABB(b.Type, b.Pos[0], b.Pos[1])
+		if maxX > bMinX && minX < bMaxX && maxZ > bMinZ && minZ < bMaxZ {
+			return true
+		}
+	}
+	return false
+}
+
 // SpawnTimer returns the current spawn timer value.
 func (b *Building) SpawnTimer() float64 { return b.spawnTimer }
 
@@ -118,4 +149,83 @@ func randExp(rate float64, rng *rand.Rand) float64 {
 		return math.MaxFloat64
 	}
 	return -math.Log(1-rng.Float64()) / rate
+}
+
+// DrivewayPosition returns the world XZ position of a parking lot's
+// driveway — the road-network attach point. Reads the parking mesh's
+// slot 0 (declared in parking.scad as `MOGUL_META slot 0 ...`) and
+// rotates it by the building's Y rotation before adding the anchor.
+// Falls back to a halfZ-edge guess if no slot is registered, so a
+// missing OBJ rebuild doesn't strand the driveway at the origin.
+func (b *Building) DrivewayPosition() mgl32.Vec2 {
+	if b.Type != BuildingParking {
+		return b.Pos
+	}
+	cos := float32(math.Cos(float64(b.Rotation)))
+	sin := float32(math.Sin(float64(b.Rotation)))
+	for _, s := range SlotsFor(b.Type.MeshID()) {
+		if s.Index == 0 {
+			// Mesh-local (X, _, Z) → world delta rotated around Y. The
+			// renderer's HomogRotate3DY convention maps (1,0,0) →
+			// (cos, 0, -sin) and (0,0,1) → (sin, 0, cos).
+			mx, mz := s.Pos[0], s.Pos[2]
+			return mgl32.Vec2{
+				b.Pos[0] + mx*cos + mz*sin,
+				b.Pos[1] - mx*sin + mz*cos,
+			}
+		}
+	}
+	// Fallback: sit at the +Z edge midpoint. Same convention the SCAD
+	// slot is supposed to override, just less informed.
+	fp, ok := FootprintFor(b.Type.MeshID())
+	if !ok {
+		return b.Pos
+	}
+	d := fp.HalfZ
+	return mgl32.Vec2{
+		b.Pos[0] + d*sin,
+		b.Pos[1] + d*cos,
+	}
+}
+
+// EnsureParkingDriveway creates the road-network attach node for a
+// parking lot if it doesn't already have one. Idempotent — safe to
+// call multiple times. Driveway position is computed from the lot's
+// current Pos + Rotation + footprint via Building.DrivewayPosition.
+//
+// No-op for non-parking buildings.
+func (w *World) EnsureParkingDriveway(b *Building) {
+	if b == nil || b.Type != BuildingParking {
+		return
+	}
+	if b.DrivewayNodeID != 0 && w.RoadNodeByID(b.DrivewayNodeID) != nil {
+		return
+	}
+	n := w.AddRoadNode(b.DrivewayPosition(), RoadNodeParkingDriveway)
+	b.DrivewayNodeID = n.ID
+}
+
+// RemoveRoadNode deletes a road node and every edge incident to it.
+// Used by parking-lot teardown to clean up the driveway and whatever
+// the player attached to it; safe on a never-existed ID (no-op).
+func (w *World) RemoveRoadNode(id uint64) {
+	if id == 0 {
+		return
+	}
+	// Drop incident edges first so the node's removal doesn't leave
+	// dangling references in RoadEdges.
+	filteredEdges := w.RoadEdges[:0]
+	for _, e := range w.RoadEdges {
+		if e.A == id || e.B == id {
+			continue
+		}
+		filteredEdges = append(filteredEdges, e)
+	}
+	w.RoadEdges = filteredEdges
+	for i, n := range w.RoadNodes {
+		if n.ID == id {
+			w.RoadNodes = append(w.RoadNodes[:i], w.RoadNodes[i+1:]...)
+			return
+		}
+	}
 }

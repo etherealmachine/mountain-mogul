@@ -69,3 +69,11 @@ parking_lot();
 // SCAD → game rotation and writes the canonical (halfX, halfZ) into the
 // OBJ header for the placement pass and the per-car layout.
 echo("MOGUL_META", "footprint", pad_w / 2, pad_d / 2);
+
+// ── Driveway slot ──────────────────────────────────────────────────────
+// Cars enter the lot from the +X face — the end of the single aisle
+// that runs along the stall-width axis. The slot sits a metre past the
+// pad edge so the road network's quad has a tiny gap before the
+// parking apron starts (both are dark grey, so the gap reads as a
+// clean kerb rather than overlap).
+echo("MOGUL_META", "slot", 0, pad_w / 2 + 1.0, 0, 0);

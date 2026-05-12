@@ -205,17 +205,18 @@ func worldToData(w *world.World) ScenarioData {
 	buildings := make([]BuildingData, len(w.Buildings))
 	for i, b := range w.Buildings {
 		buildings[i] = BuildingData{
-			ID:            b.ID,
-			Type:          uint8(b.Type),
-			X:             b.Pos[0],
-			Z:             b.Pos[1],
-			Rotation:      b.Rotation,
-			MeanSpawnRate: b.MeanSpawnRate,
-			SkierCount:    b.SkierCount,
-			Cats:          b.Cats,
-			RouteCells:    b.RouteCells,
-			MaxCars:       b.MaxCars,
-			CurrentCars:   b.CurrentCars,
+			ID:             b.ID,
+			Type:           uint8(b.Type),
+			X:              b.Pos[0],
+			Z:              b.Pos[1],
+			Rotation:       b.Rotation,
+			MeanSpawnRate:  b.MeanSpawnRate,
+			SkierCount:     b.SkierCount,
+			Cats:           b.Cats,
+			RouteCells:     b.RouteCells,
+			MaxCars:        b.MaxCars,
+			CurrentCars:    b.CurrentCars,
+			DrivewayNodeID: b.DrivewayNodeID,
 		}
 	}
 
@@ -277,6 +278,24 @@ func worldToData(w *world.World) ScenarioData {
 		}
 	}
 
+	roadNodes := make([]RoadNodeData, len(w.RoadNodes))
+	for i, n := range w.RoadNodes {
+		roadNodes[i] = RoadNodeData{
+			ID:   n.ID,
+			X:    n.Pos[0],
+			Z:    n.Pos[1],
+			Kind: uint8(n.Kind),
+		}
+	}
+	roadEdges := make([]RoadEdgeData, len(w.RoadEdges))
+	for i, e := range w.RoadEdges {
+		roadEdges[i] = RoadEdgeData{
+			ID: e.ID,
+			A:  e.A,
+			B:  e.B,
+		}
+	}
+
 	return ScenarioData{
 		Name:      "scenario",
 		Width:     t.Width,
@@ -287,6 +306,8 @@ func worldToData(w *world.World) ScenarioData {
 		Lifts:     lifts,
 		Agents:    agents,
 		Snowcats:  snowcats,
+		RoadNodes: roadNodes,
+		RoadEdges: roadEdges,
 		Cash:      w.Cash,
 	}
 }
@@ -355,12 +376,17 @@ func dataToWorld(data ScenarioData) *world.World {
 		}
 		// Parking-only state. MaxCars/CurrentCars default to zero on
 		// older saves; the placement defaults from PlaceBuildingType
-		// already populated MaxCars to a reasonable value above.
+		// already populated MaxCars to a reasonable value above. The
+		// driveway node is restored via the road-node pass below; we
+		// just relink the building's pointer here. PlaceBuildingType
+		// doesn't auto-create driveways, so there's no conflict to
+		// undo first.
 		if b.Type == world.BuildingParking {
 			if bd.MaxCars > 0 {
 				b.MaxCars = bd.MaxCars
 			}
 			b.CurrentCars = bd.CurrentCars
+			b.DrivewayNodeID = bd.DrivewayNodeID
 		}
 	}
 
@@ -473,6 +499,34 @@ func dataToWorld(data ScenarioData) *world.World {
 		}
 	}
 
+	// Restore road graph. Nodes first so edges can reference them by ID.
+	// Old saves without road data leave both slices empty — there's no
+	// implicit road network to fall back to.
+	for _, nd := range data.RoadNodes {
+		pos := mgl32.Vec2{nd.X, nd.Z}
+		n := w.AddRoadNode(pos, world.RoadNodeKind(nd.Kind))
+		if nd.ID != 0 {
+			n.ID = nd.ID
+		}
+	}
+	for _, ed := range data.RoadEdges {
+		e := w.AddRoadEdge(ed.A, ed.B)
+		if ed.ID != 0 {
+			e.ID = ed.ID
+		}
+	}
+
+	// Validate parking driveways now that road nodes are in place.
+	// EnsureParkingDriveway is idempotent — a parking lot whose
+	// DrivewayNodeID resolves to an existing node is left alone; one
+	// with a missing or zero ID gets a fresh driveway. Covers older
+	// saves that predate the driveway field and any corrupted graphs.
+	for _, b := range w.Buildings {
+		if b.Type == world.BuildingParking {
+			w.EnsureParkingDriveway(b)
+		}
+	}
+
 	// Bump the world's ID counter past the highest restored ID so future
 	// spawns don't collide.
 	var maxID uint64
@@ -494,6 +548,16 @@ func dataToWorld(data ScenarioData) *world.World {
 	for _, c := range w.Snowcats {
 		if c.ID > maxID {
 			maxID = c.ID
+		}
+	}
+	for _, n := range w.RoadNodes {
+		if n.ID > maxID {
+			maxID = n.ID
+		}
+	}
+	for _, e := range w.RoadEdges {
+		if e.ID > maxID {
+			maxID = e.ID
 		}
 	}
 	w.SetMinNextID(maxID)
