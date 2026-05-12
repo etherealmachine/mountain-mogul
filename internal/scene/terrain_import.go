@@ -31,9 +31,20 @@ const (
 // always satisfies cell == 5 m on the ground regardless of preview zoom.
 const importMetersPerCell = 5.0
 
-// gridSizeOptions are the small/medium/large grid choices offered to
-// the player. Each maps directly to terrain.Width = terrain.Height.
-var gridSizeOptions = []int{256, 512, 1280}
+// Import grid-size limits. Min keeps the imported map at least a few
+// hundred metres on a side so chosen regions aren't useless; max is
+// the historical "Large" preset so saves and renderer sizing don't
+// inherit larger-than-tested maps. Default size sits in the middle.
+const (
+	importMinCells     = 128
+	importMaxCells     = 1280
+	importDefaultCells = 512
+)
+
+// importCornerHandlePx is the screen-space click target for each
+// selection-square corner. Generous so a corner is easy to grab on a
+// preview that may have small pixel dimensions for tight crops.
+const importCornerHandlePx = float32(18)
 
 // tiJob handles any single background network operation for the terrain import scene.
 type tiJob struct {
@@ -95,18 +106,30 @@ type TerrainImport struct {
 	panDrag   mgl32.Vec2
 	panActive bool
 
+	// Selection-square corner drag: active while the user is resizing
+	// the imported area by dragging one of its corner handles. Takes
+	// priority over panActive so a corner-grab doesn't also pan.
+	resizeActive bool
+
 	job     *tiJob
 	menuBar *ui.MenuBar
 }
 
 // NewTerrainImport creates the scene.
 // initialGridSize is the starting destination grid side length; the
-// player can switch between gridSizeOptions in the map UI.
-// onImport is called with the resampled elevation grid on success.
+// player resizes the imported area inside the map view by dragging the
+// selection-square corners. onImport is called with the resampled
+// elevation grid on success.
 func NewTerrainImport(initialGridSize int, onImport func([][]float32)) *TerrainImport {
 	g := initialGridSize
 	if g <= 0 {
-		g = gridSizeOptions[1]
+		g = importDefaultCells
+	}
+	if g < importMinCells {
+		g = importMinCells
+	}
+	if g > importMaxCells {
+		g = importMaxCells
 	}
 	return &TerrainImport{
 		onImport: onImport,
@@ -223,8 +246,24 @@ func (t *TerrainImport) updateMap(inp *engine.Input, r *render.Renderer) {
 		}
 	}
 
+	// ── Corner-drag: resize selection square ─────────────────────────────────
+	// Tested before pan so grabbing a corner handle doesn't also start
+	// dragging the map. Only fires while the map is shown and a tile
+	// has been loaded.
+	if inp.LeftClick && inMap && !t.mapLoading && t.mapTexID != 0 && !t.resizeActive {
+		if t.cornerHit(mx, my, sw, sh) {
+			t.resizeActive = true
+		}
+	}
+	if t.resizeActive && inp.LeftHeld {
+		t.applyResizeDrag(mx, my, sw, sh)
+	}
+	if t.resizeActive && inp.LeftRelease {
+		t.resizeActive = false
+	}
+
 	// ── Left drag: pan ───────────────────────────────────────────────────────
-	if inp.LeftClick && inMap && !t.mapLoading {
+	if inp.LeftClick && inMap && !t.mapLoading && !t.resizeActive {
 		t.panActive = true
 		t.panDrag = mgl32.Vec2{}
 	}
@@ -270,25 +309,76 @@ func (t *TerrainImport) updateMap(inp *engine.Input, r *render.Renderer) {
 		}
 	}
 
-	// ── Grid-size selector buttons ───────────────────────────────────────────
-	if t.mapTexID != 0 && inp.LeftClick && t.state == tisMap {
-		for i, opt := range gridSizeOptions {
-			bx, by, bw, bh := gridSizeButtonRect(sw, i)
-			if mx >= bx && mx <= bx+bw && my >= by && my <= by+bh {
-				t.gridSize = opt
-				return
-			}
-		}
-	}
-
 	// ── Import button ────────────────────────────────────────────────────────
-	if t.mapTexID != 0 && inp.LeftClick {
+	if t.mapTexID != 0 && inp.LeftClick && !t.resizeActive {
 		btnX := sw - 140
 		btnY := sh - 50
 		if mx >= btnX && mx <= btnX+130 && my >= btnY && my <= btnY+36 {
 			t.startFetch()
 		}
 	}
+}
+
+// cornerHit reports whether the given screen point is within the
+// click target of any of the selection square's four corners.
+func (t *TerrainImport) cornerHit(mx, my, sw, sh float32) bool {
+	x0, y0, x1, y1 := t.selectionSquare(sw, sh)
+	corners := [4][2]float32{{x0, y0}, {x1, y0}, {x0, y1}, {x1, y1}}
+	hp := importCornerHandlePx / 2
+	for _, c := range corners {
+		if mx >= c[0]-hp && mx <= c[0]+hp && my >= c[1]-hp && my <= c[1]+hp {
+			return true
+		}
+	}
+	return false
+}
+
+// applyResizeDrag converts the cursor's distance from the selection
+// square centre into a new gridSize. The square stays centred on
+// screen, so dragging a corner outward grows it symmetrically and
+// dragging inward shrinks it. Sized as max(|dx|, |dy|) from centre to
+// keep the shape square regardless of which axis the cursor moves
+// along most.
+func (t *TerrainImport) applyResizeDrag(mx, my, sw, sh float32) {
+	cx := sw / 2
+	cy := 32 + (sh-32)/2
+	dx := mx - cx
+	if dx < 0 {
+		dx = -dx
+	}
+	dy := my - cy
+	if dy < 0 {
+		dy = -dy
+	}
+	half := dx
+	if dy > half {
+		half = dy
+	}
+	gs := t.gridSizeForHalfPx(half)
+	if gs < importMinCells {
+		gs = importMinCells
+	}
+	if gs > importMaxCells {
+		gs = importMaxCells
+	}
+	t.gridSize = gs
+}
+
+// gridSizeForHalfPx inverts selectionHalfPx — given a pixel half-size
+// for the current preview, returns the corresponding grid side length
+// in cells.
+func (t *TerrainImport) gridSizeForHalfPx(halfPx float32) int {
+	cosLat := math.Cos(t.mapCenter[0] * math.Pi / 180)
+	if cosLat < 0.05 {
+		cosLat = 0.05
+	}
+	mppNative := 156543.0339 * cosLat / math.Pow(2, float64(t.mapZoom))
+	mpp := mppNative / float64(t.mapScale)
+	if mpp <= 0 {
+		mpp = 1
+	}
+	groundMetres := float64(halfPx) * 2 * mpp
+	return int(groundMetres / importMetersPerCell)
 }
 
 // refreshMapCenter updates mapCenter to the geographic point currently at screen
@@ -570,7 +660,8 @@ func (d *tiMapDrawable) Draw(r *render.Renderer) {
 	}
 
 	// Selection square — always centred on the map area, sized so its
-	// extent in metres equals gridSize × importMetersPerCell.
+	// extent in metres equals gridSize × importMetersPerCell. Corner
+	// handles let the player resize it by drag.
 	if t.mapTexID != 0 {
 		qx0, qy0, qx1, qy1 := t.selectionSquare(sw, sh)
 		thick := float32(2)
@@ -579,27 +670,31 @@ func (d *tiMapDrawable) Draw(r *render.Renderer) {
 		r.DrawColorRect(qx0, qy0, thick, qy1-qy0, yellow)
 		r.DrawColorRect(qx1-thick, qy0, thick, qy1-qy0, yellow)
 
+		// Corner handles — solid square markers on each corner so the
+		// drag target is obvious. Sized to match importCornerHandlePx
+		// (the hit-test extent) so what you see is what you can grab.
+		hs := importCornerHandlePx / 2
+		corners := [4][2]float32{{qx0, qy0}, {qx1, qy0}, {qx0, qy1}, {qx1, qy1}}
+		for _, c := range corners {
+			r.DrawColorRect(c[0]-hs, c[1]-hs, hs*2, hs*2, yellow)
+		}
+
 		// Caption beneath the square: cells × cells (km × km).
 		km := float64(t.gridSize) * importMetersPerCell / 1000.0
 		caption := fmt.Sprintf("%d × %d cells   (%.2f km × %.2f km)",
 			t.gridSize, t.gridSize, km, km)
 		captionW := float32(len(caption) * render.GlyphAdvance)
 		captionX := (qx0+qx1)/2 - captionW/2
-		captionY := qy1 + 6
+		captionY := qy1 + 6 + hs
 		if captionY > sh-44 {
-			captionY = qy0 - float32(render.GlyphH) - 6
+			captionY = qy0 - float32(render.GlyphH) - 6 - hs
 		}
 		r.Font.DrawText(r, caption, captionX, captionY, yellow)
 	}
 
-	// Grid-size selector (small / medium / large).
-	if t.mapTexID != 0 && t.state == tisMap {
-		t.drawGridSizeButtons(r, sw, sh)
-	}
-
 	// Hint
 	if t.mapTexID != 0 && t.state != tisFetching {
-		r.Font.DrawText(r, "Left-drag: pan   Scroll: zoom   Pick size at top-right; centre square on target", 10, sh-22, grey)
+		r.Font.DrawText(r, "Left-drag: pan   Scroll: zoom   Drag a corner of the square to resize", 10, sh-22, grey)
 	}
 
 	if t.errMsg != "" {
@@ -622,51 +717,6 @@ func (d *tiMapDrawable) Draw(r *render.Renderer) {
 		barX, barY, barW, barH := sw/2-200, sh/2+10, float32(400), float32(20)
 		r.DrawColorRect(barX, barY, barW, barH, mgl32.Vec4{0.1, 0.1, 0.2, 1})
 		r.DrawColorRect(barX, barY, barW*progress, barH, mgl32.Vec4{0.2, 0.6, 0.3, 1})
-	}
-}
-
-// gridSizeButtonRect returns the screen-space rectangle for the i-th
-// grid-size option button, anchored to the top-right corner just below
-// the menu bar.
-func gridSizeButtonRect(sw float32, i int) (x, y, w, h float32) {
-	const btnW = float32(110)
-	const btnH = float32(28)
-	const gap = float32(4)
-	totalW := float32(len(gridSizeOptions))*btnW + float32(len(gridSizeOptions)-1)*gap
-	x = sw - totalW - 10 + float32(i)*(btnW+gap)
-	y = 38
-	w = btnW
-	h = btnH
-	return
-}
-
-// drawGridSizeButtons renders the small/medium/large selector. The
-// active option is highlighted; each button shows its grid side length
-// and equivalent ground extent in km so the player can pick by either.
-func (t *TerrainImport) drawGridSizeButtons(r *render.Renderer, sw, sh float32) {
-	labels := []string{"Small", "Medium", "Large"}
-	white := mgl32.Vec4{1, 1, 1, 1}
-	dim := mgl32.Vec4{0.7, 0.75, 0.85, 1}
-	bgIdle := mgl32.Vec4{0.15, 0.18, 0.28, 0.95}
-	bgActive := mgl32.Vec4{0.25, 0.5, 0.85, 0.95}
-
-	for i, opt := range gridSizeOptions {
-		bx, by, bw, bh := gridSizeButtonRect(sw, i)
-		bg := bgIdle
-		if opt == t.gridSize {
-			bg = bgActive
-		}
-		r.DrawColorRect(bx, by, bw, bh, bg)
-		km := float64(opt) * importMetersPerCell / 1000.0
-		label := fmt.Sprintf("%s  %.1fkm", labels[i], km)
-		labelW := float32(len(label) * render.GlyphAdvance)
-		labelX := bx + (bw-labelW)/2
-		labelY := by + (bh-float32(render.GlyphH))/2
-		col := dim
-		if opt == t.gridSize {
-			col = white
-		}
-		r.Font.DrawText(r, label, labelX, labelY, col)
 	}
 }
 

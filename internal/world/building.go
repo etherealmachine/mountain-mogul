@@ -108,8 +108,19 @@ func FootprintAABB(typ BuildingType, x, z float32) (minX, minZ, maxX, maxZ float
 // BuildingOverlap reports whether a building of typ centred at (x, z)
 // would overlap any existing building's footprint AABB.
 func (w *World) BuildingOverlap(typ BuildingType, x, z float32) bool {
+	return w.BuildingOverlapExcept(typ, x, z, 0)
+}
+
+// BuildingOverlapExcept is BuildingOverlap with one building excluded
+// from the collision check by ID. Used by the move tool to ask "would
+// this position overlap any building OTHER than the one I'm dragging?"
+// Passing exceptID == 0 reproduces BuildingOverlap exactly.
+func (w *World) BuildingOverlapExcept(typ BuildingType, x, z float32, exceptID uint64) bool {
 	minX, minZ, maxX, maxZ := FootprintAABB(typ, x, z)
 	for _, b := range w.Buildings {
+		if b.ID == exceptID {
+			continue
+		}
 		bMinX, bMinZ, bMaxX, bMaxZ := FootprintAABB(b.Type, b.Pos[0], b.Pos[1])
 		if maxX > bMinX && minX < bMaxX && maxZ > bMinZ && minZ < bMaxZ {
 			return true

@@ -181,13 +181,17 @@ func worldToData(w *world.World) ScenarioData {
 		for z := 0; z < t.Height; z++ {
 			c := t.Cells[x][z]
 			cells = append(cells, CellData{
-				Ground:      c.GroundElevation,
-				Snow:        c.SnowDepth,
-				Grooming:    c.Grooming,
-				Packed:      c.Packed,
-				Ice:         c.Ice,
-				MogulSize:   c.MogulSize,
-				TreeDensity: c.TreeDensity,
+				Ground:        c.GroundElevation,
+				Snow:          c.SnowDepth,
+				Grooming:      c.Grooming,
+				Packed:        c.Packed,
+				Ice:           c.Ice,
+				MogulSize:     c.MogulSize,
+				TreeDensity:   c.TreeDensity,
+				HasNatural:    true,
+				NaturalGround: c.NaturalElev,
+				NaturalSnow:   c.NaturalSnow,
+				NaturalTrees:  c.NaturalTrees,
 			})
 		}
 	}
@@ -328,6 +332,21 @@ func dataToWorld(data ScenarioData) *world.World {
 				t.Cells[x][z].Ice = c.Ice
 				t.Cells[x][z].MogulSize = c.MogulSize
 				t.Cells[x][z].TreeDensity = c.TreeDensity
+				// Natural layer: HasNatural distinguishes "saved with
+				// natural data" from "pre-natural-layer save". When
+				// absent, fall back to copying display→natural so the
+				// loaded scenario at least has a baseline that matches
+				// what the player just saw — even if it can't perfectly
+				// restore terrain under existing structures.
+				if c.HasNatural {
+					t.Cells[x][z].NaturalElev = c.NaturalGround
+					t.Cells[x][z].NaturalSnow = c.NaturalSnow
+					t.Cells[x][z].NaturalTrees = c.NaturalTrees
+				} else {
+					t.Cells[x][z].NaturalElev = c.Ground
+					t.Cells[x][z].NaturalSnow = c.Snow
+					t.Cells[x][z].NaturalTrees = c.TreeDensity
+				}
 			}
 			idx++
 		}

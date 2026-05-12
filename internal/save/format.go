@@ -60,6 +60,16 @@ type CellData struct {
 	Ice         float32 `json:"ic,omitempty"`
 	MogulSize   float32 `json:"mg,omitempty"`
 	TreeDensity float32 `json:"td,omitempty"`
+
+	// Natural-layer shadow — what the cell would be with no road /
+	// building / lift on top. Persisted so structure moves can restore
+	// the underlying terrain after a reload. HasNatural distinguishes
+	// "present and zero-valued" from "absent in pre-natural-layer save";
+	// when absent the loader falls back to copying display→natural.
+	HasNatural   bool    `json:"nh,omitempty"`
+	NaturalGround float32 `json:"ne,omitempty"`
+	NaturalSnow  float32 `json:"ns,omitempty"`
+	NaturalTrees float32 `json:"nt,omitempty"`
 }
 
 // ObjectData is a placed natural object.

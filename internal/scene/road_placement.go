@@ -1,11 +1,33 @@
 package scene
 
 import (
+	"math"
+
 	"github.com/go-gl/mathgl/mgl32"
 
 	"mountain-mogul/internal/render"
 	"mountain-mogul/internal/world"
 )
+
+// snapToCellGrid rounds a continuous world XZ position to the nearest
+// terrain cell-vertex coordinate (multiples of cellSize). All new
+// road-node positions go through this so that the per-cell snow / tree
+// clearance pass treats both sides of the centerline symmetrically.
+// For an off-grid centerline, the vertices flanking the road sit at
+// unequal perpendicular distances and one side ends up over-cleared
+// relative to the other.
+//
+// Slight loss: free-form placement is now 5 m-quantised. The chain
+// curve still bends through arbitrary directions, so the visual
+// effect is small (a node placed at world (37, 51) lands at (35, 50)
+// instead, but the curve through it bends just the same).
+func snapToCellGrid(pos mgl32.Vec2) mgl32.Vec2 {
+	const cellSize = float32(5.0)
+	return mgl32.Vec2{
+		float32(math.Round(float64(pos[0]/cellSize))) * cellSize,
+		float32(math.Round(float64(pos[1]/cellSize))) * cellSize,
+	}
+}
 
 // Road-node marker tints. The "all nodes" colour is muted so a busy
 // network doesn't drown the scene, and the "snap target" colour is
@@ -87,16 +109,72 @@ type roadEndpoint struct {
 // back to projecting onto the nearest edge inside RoadSnapRadius. When
 // nothing is in range, returns the raw position untouched.
 //
+// When the projection lands near a degree-1 endpoint of the hit edge
+// (a dead-end), the snap upgrades to that endpoint node rather than
+// producing a near-the-end split. Lets the player click the visible
+// asphalt at the tip of an end segment — including the inland end of
+// an edge-connect stub — to pick the dead-end up as the chain anchor.
+//
 // Used by both scenario and editor so the player and the level designer
 // see the same snap behaviour.
 func resolveRoadEndpoint(w *world.World, raw mgl32.Vec2) roadEndpoint {
+	raw = snapToCellGrid(raw)
 	if n := w.SnapRoadNode(raw, world.RoadSnapRadius); n != nil {
 		return roadEndpoint{pos: n.Pos, node: n}
 	}
 	if e, cp, ok := w.SnapToRoadEdge(raw, world.RoadSnapRadius); ok {
-		return roadEndpoint{pos: cp, edge: e}
+		if n := nearDegreeOneEndpoint(w, e, cp, world.RoadSnapRadius); n != nil {
+			return roadEndpoint{pos: n.Pos, node: n}
+		}
+		// Snap the edge-projected point too — leaves the new
+		// intersection node slightly off the original edge's line, but
+		// the resulting kink is at most ~2.5 m and the Catmull-Rom
+		// chain smooths it. Keeps every road node grid-aligned.
+		return roadEndpoint{pos: snapToCellGrid(cp), edge: e}
 	}
 	return roadEndpoint{pos: raw}
+}
+
+// nearDegreeOneEndpoint returns whichever endpoint of e is a dead-end
+// (degree 1) AND whose distance to cp is within tol, or nil if neither
+// qualifies. cp is expected to be the projection of the raw click onto
+// the edge — i.e. SnapToRoadEdge's contact point.
+func nearDegreeOneEndpoint(w *world.World, e *world.RoadEdge, cp mgl32.Vec2, tol float32) *world.RoadNode {
+	tol2 := tol * tol
+	var best *world.RoadNode
+	bestD2 := tol2
+	for _, id := range [2]uint64{e.A, e.B} {
+		if !isDegreeOneNode(w, id) {
+			continue
+		}
+		n := w.RoadNodeByID(id)
+		if n == nil {
+			continue
+		}
+		dx := n.Pos[0] - cp[0]
+		dz := n.Pos[1] - cp[1]
+		d2 := dx*dx + dz*dz
+		if d2 <= bestD2 {
+			best = n
+			bestD2 = d2
+		}
+	}
+	return best
+}
+
+// isDegreeOneNode reports whether the given node has exactly one
+// incident edge — i.e., it's the tip of a chain.
+func isDegreeOneNode(w *world.World, id uint64) bool {
+	count := 0
+	for _, e := range w.RoadEdges {
+		if e.A == id || e.B == id {
+			count++
+			if count > 1 {
+				return false
+			}
+		}
+	}
+	return count == 1
 }
 
 // placeRoadSegment commits a road segment between two resolved
@@ -158,8 +236,12 @@ const edgeConnectStubLength = float32(20.0)
 // false) so the ghost preview can red-tint and placement can refuse.
 func projectToMapEdge(t *world.Terrain, pos mgl32.Vec2, tolerance float32) (mgl32.Vec2, mgl32.Vec2, bool) {
 	const cellSize = float32(5.0)
-	mapW := float32(t.Width) * cellSize
-	mapH := float32(t.Height) * cellSize
+	// The terrain mesh's surface quads span (Width-1) × (Height-1)
+	// cells — the last vertex sits at (Width-1)*cellSize, not at
+	// Width*cellSize. Snapping to the cell-count-based edge dropped
+	// the connection node a cell past the visible map.
+	mapW := float32(t.Width-1) * cellSize
+	mapH := float32(t.Height-1) * cellSize
 
 	distLeft := pos[0]
 	distRight := mapW - pos[0]

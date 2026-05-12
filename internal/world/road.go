@@ -263,8 +263,19 @@ func CatmullRomPoint(p0, p1, p2, p3 mgl32.Vec2, t float32) mgl32.Vec2 {
 // tangents use reflected phantom control points so the curve
 // continues naturally past degree-1 / degree-≥3 chain endpoints.
 //
+// For a chain ending at a RoadNodeEdgeConnection node, the phantom
+// gets overridden to sit off the map perpendicular to the map edge
+// the node lives on — produces a clean "road enters straight from
+// off the map" tangent instead of a sharp inward kink that the
+// short two-node edge-connect stubs otherwise generate. The off-map
+// phantom only affects the curve's tangent at the edge node; the
+// sampled centerline still terminates at the node, so nothing gets
+// drawn beyond the perimeter. Pass nil for `t` to skip the off-map
+// override (used by tests / call paths that don't have terrain
+// dimensions handy).
+//
 // For a chain with N nodes, the result has length (N-1)*samplesPerSegment + 1.
-func SampleRoadChain(chain RoadChain, samplesPerSegment int) []mgl32.Vec2 {
+func SampleRoadChain(chain RoadChain, t *Terrain, samplesPerSegment int) []mgl32.Vec2 {
 	if samplesPerSegment < 1 {
 		samplesPerSegment = 1
 	}
@@ -278,22 +289,72 @@ func SampleRoadChain(chain RoadChain, samplesPerSegment int) []mgl32.Vec2 {
 		p2 := chain.Nodes[i+1].Pos
 		var p0, p3 mgl32.Vec2
 		if i == 0 {
-			p0 = mgl32.Vec2{2*p1[0] - p2[0], 2*p1[1] - p2[1]}
+			if t != nil && chain.Nodes[0].Kind == RoadNodeEdgeConnection {
+				p0 = offMapPhantom(chain.Nodes[0].Pos, t)
+			} else {
+				p0 = mgl32.Vec2{2*p1[0] - p2[0], 2*p1[1] - p2[1]}
+			}
 		} else {
 			p0 = chain.Nodes[i-1].Pos
 		}
 		if i+2 >= n {
-			p3 = mgl32.Vec2{2*p2[0] - p1[0], 2*p2[1] - p1[1]}
+			if t != nil && chain.Nodes[n-1].Kind == RoadNodeEdgeConnection {
+				p3 = offMapPhantom(chain.Nodes[n-1].Pos, t)
+			} else {
+				p3 = mgl32.Vec2{2*p2[0] - p1[0], 2*p2[1] - p1[1]}
+			}
 		} else {
 			p3 = chain.Nodes[i+2].Pos
 		}
 		for j := 0; j < samplesPerSegment; j++ {
-			t := float32(j) / float32(samplesPerSegment)
-			samples = append(samples, CatmullRomPoint(p0, p1, p2, p3, t))
+			tt := float32(j) / float32(samplesPerSegment)
+			samples = append(samples, CatmullRomPoint(p0, p1, p2, p3, tt))
 		}
 	}
 	samples = append(samples, chain.Nodes[n-1].Pos)
 	return samples
+}
+
+// offMapPhantomDist is how far past the map perimeter the Catmull-Rom
+// phantom sits for edge-connection endpoints. Matches the inland stub
+// length so the off-map "tail" has comparable tangent strength to the
+// short edge-connect chain that follows it — keeps the curve
+// reasonably symmetric around the edge node.
+const offMapPhantomDist = float32(20.0)
+
+// offMapPhantom returns a Catmull-Rom phantom control point for an
+// edge-connection node — positioned `offMapPhantomDist` metres past
+// whichever map perimeter the node sits on. Outward direction is
+// inferred from which perimeter the node is closest to (in practice
+// the node sits exactly on that edge, since edge-connect placement
+// snaps it there).
+func offMapPhantom(pos mgl32.Vec2, t *Terrain) mgl32.Vec2 {
+	const cellSize = float32(5.0)
+	mapW := float32(t.Width-1) * cellSize
+	mapH := float32(t.Height-1) * cellSize
+
+	distLeft := pos[0]
+	distRight := mapW - pos[0]
+	distTop := pos[1]
+	distBottom := mapH - pos[1]
+
+	outward := mgl32.Vec2{-1, 0}
+	minDist := distLeft
+	if distRight < minDist {
+		minDist = distRight
+		outward = mgl32.Vec2{1, 0}
+	}
+	if distTop < minDist {
+		minDist = distTop
+		outward = mgl32.Vec2{0, -1}
+	}
+	if distBottom < minDist {
+		outward = mgl32.Vec2{0, 1}
+	}
+	return mgl32.Vec2{
+		pos[0] + outward[0]*offMapPhantomDist,
+		pos[1] + outward[1]*offMapPhantomDist,
+	}
 }
 
 // CumulativeChainDist returns the running arc-length along a sample
@@ -310,10 +371,12 @@ func CumulativeChainDist(samples []mgl32.Vec2) []float32 {
 	return cum
 }
 
-// closestPointOnRoadSegment projects pos onto the line segment ab and
+// ClosestPointOnRoadSegment projects pos onto the line segment ab and
 // returns the projection clamped to the segment. Plain Euclidean math
-// in the world XZ plane — terrain elevation is ignored.
-func closestPointOnRoadSegment(pos, a, b mgl32.Vec2) mgl32.Vec2 {
+// in the world XZ plane — terrain elevation is ignored. Exported so
+// the scene-side road effects pass can compute true perpendicular
+// distance to a chain's sample polyline.
+func ClosestPointOnRoadSegment(pos, a, b mgl32.Vec2) mgl32.Vec2 {
 	dx := b[0] - a[0]
 	dz := b[1] - a[1]
 	len2 := dx*dx + dz*dz
@@ -347,7 +410,7 @@ func (w *World) SnapToRoadEdge(pos mgl32.Vec2, tolerance float32) (*RoadEdge, mg
 		if na == nil || nb == nil {
 			continue
 		}
-		cp := closestPointOnRoadSegment(pos, na.Pos, nb.Pos)
+		cp := ClosestPointOnRoadSegment(pos, na.Pos, nb.Pos)
 		dx := pos[0] - cp[0]
 		dz := pos[1] - cp[1]
 		d2 := dx*dx + dz*dz

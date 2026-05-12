@@ -34,6 +34,26 @@ type Cell struct {
 
 	Passable    bool    // hard structural block (buildings, lift endpoints)
 	TreeDensity float32 // 0.0 = clear, 1.0 = dense old-growth
+
+	// Natural-state shadow fields. These hold the cell's "no structures
+	// present" baseline so that placing / moving / removing a building,
+	// lift, or road can restore the original terrain. Player non-sim
+	// edits (auto-gen, glade / plant brushes, raise / lower, terrain
+	// import) write the natural values; structure stamps overwrite the
+	// display fields above on top of the natural baseline.
+	//
+	// Sim writes (snowfall, decay, grooming) intentionally hit the
+	// display fields only — the natural layer is design-time intent and
+	// shouldn't drift with runtime weather. The cost is that snow that
+	// fell on a road's footprint at runtime won't reappear when the
+	// road later moves; only what was originally painted does.
+	//
+	// Passable has no natural shadow — no natural terrain in this
+	// codebase is impassable, so the rebuild path resets Display.Passable
+	// to true and lets each structure's stamp re-mark the cells it owns.
+	NaturalElev  float32
+	NaturalSnow  float32
+	NaturalTrees float32
 }
 
 // SurfaceElevation returns the snow-surface elevation for this cell
@@ -80,6 +100,8 @@ func NewTerrain(w, h int) *Terrain {
 				SnowDepth:       DefaultSnowDepth,
 				Packed:          0.5,
 				Passable:        true,
+				NaturalElev:     0,
+				NaturalSnow:     DefaultSnowDepth,
 			}
 		}
 	}
@@ -93,6 +115,40 @@ func NewTerrain(w, h int) *Terrain {
 // InBounds returns true if the given grid coordinates are within the terrain.
 func (t *Terrain) InBounds(x, z int) bool {
 	return x >= 0 && x < t.Width && z >= 0 && z < t.Height
+}
+
+// SnapshotNatural copies every cell's display fields into its Natural
+// shadow. Call after the world's "no structures yet" terrain state has
+// been set up — i.e. once after generation, or once after save load
+// (since the save format may not yet carry Natural fields), before any
+// structure stamping has run.
+func (t *Terrain) SnapshotNatural() {
+	for x := 0; x < t.Width; x++ {
+		for z := 0; z < t.Height; z++ {
+			c := &t.Cells[x][z]
+			c.NaturalElev = c.GroundElevation
+			c.NaturalSnow = c.SnowDepth
+			c.NaturalTrees = c.TreeDensity
+		}
+	}
+}
+
+// ResetDisplayFromNatural restores every cell's display fields from
+// its Natural shadow. The caller is expected to re-stamp current
+// structure footprints (roads, buildings, lifts) afterwards. Sim-side
+// fields (Grooming, Packed, Ice, MogulSize) are not part of the
+// natural layer and are left untouched. Passable is force-reset to
+// true here so structure stamps own the "blocked" cells exclusively.
+func (t *Terrain) ResetDisplayFromNatural() {
+	for x := 0; x < t.Width; x++ {
+		for z := 0; z < t.Height; z++ {
+			c := &t.Cells[x][z]
+			c.GroundElevation = c.NaturalElev
+			c.SnowDepth = c.NaturalSnow
+			c.TreeDensity = c.NaturalTrees
+			c.Passable = true
+		}
+	}
 }
 
 // InBoundsWorld returns true if the given world-space XZ point falls within

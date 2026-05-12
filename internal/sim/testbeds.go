@@ -241,6 +241,7 @@ func (b *builder) flat(elev float32) *builder {
 			t.Cells[x][z].Passable = true
 		}
 	}
+	t.SnapshotNatural()
 	return b
 }
 
@@ -259,6 +260,7 @@ func (b *builder) slope(slopeDeg float64) *builder {
 			t.Cells[x][z].Passable = true
 		}
 	}
+	t.SnapshotNatural()
 	return b
 }
 
@@ -286,6 +288,7 @@ func (b *builder) runout(upperEndZ int, upperDeg, runoutDeg float64) *builder {
 			t.Cells[x][z].Passable = true
 		}
 	}
+	t.SnapshotNatural()
 	return b
 }
 
@@ -369,6 +372,7 @@ func (b *builder) treePatch(cx, cz, radius int, density float32) *builder {
 				continue
 			}
 			t.Cells[x][z].TreeDensity = density
+			t.Cells[x][z].NaturalTrees = density
 		}
 	}
 	return b
@@ -385,6 +389,7 @@ func (b *builder) treeRect(x1, z1, x2, z2 int, density float32) *builder {
 				continue
 			}
 			t.Cells[x][z].TreeDensity = density
+			t.Cells[x][z].NaturalTrees = density
 		}
 	}
 	return b

@@ -67,6 +67,17 @@ func applyLiftPlacementEffects(t *world.Terrain, lift *world.Lift) {
 	buildStationApron(t, lift.Base, axis, -1, liftApronHalfWidth, liftApronDepth, baseTarget, liftApronSnow, false)
 	groomLiftApron(t, lift.Top, axis, +1)
 	groomLiftApron(t, lift.Base, axis, -1)
+	// Stamp queue + top cells impassable so the rebuild path matches
+	// PlaceLift's blocking. ResetDisplayFromNatural always returns
+	// Passable to true; structure stamps own the blocked cells.
+	queue := lift.QueueCell()
+	if t.InBounds(queue[0], queue[1]) {
+		t.Cells[queue[0]][queue[1]].Passable = false
+	}
+	top := lift.TopCell()
+	if t.InBounds(top[0], top[1]) {
+		t.Cells[top[0]][top[1]].Passable = false
+	}
 }
 
 // maxGroundIn returns the maximum GroundElevation across cells whose
@@ -88,8 +99,8 @@ func maxGroundIn(t *world.Terrain, pos mgl32.Vec2, radius float32) float32 {
 			if !t.InBounds(x, z) {
 				continue
 			}
-			cx := float32(x) * cellSize
-			cz := float32(z) * cellSize
+			cx := (float32(x) + 0.5) * cellSize
+			cz := (float32(z) + 0.5) * cellSize
 			dx := cx - pos[0]
 			dz := cz - pos[1]
 			if dx*dx+dz*dz > r2 {
@@ -132,8 +143,8 @@ func groomLiftApron(t *world.Terrain, station, axis mgl32.Vec2, side float32) {
 			if !t.InBounds(x, z) {
 				continue
 			}
-			cx := float32(x) * cellSize
-			cz := float32(z) * cellSize
+			cx := (float32(x) + 0.5) * cellSize
+			cz := (float32(z) + 0.5) * cellSize
 			dx := cx - station[0]
 			dz := cz - station[1]
 			alongRaw := dx*axis[0] + dz*axis[1]
@@ -172,8 +183,8 @@ func clearLiftCorridor(t *world.Terrain, base, top mgl32.Vec2, halfWidth float32
 			if !t.InBounds(x, z) {
 				continue
 			}
-			cx := float32(x) * cellSize
-			cz := float32(z) * cellSize
+			cx := (float32(x) + 0.5) * cellSize
+			cz := (float32(z) + 0.5) * cellSize
 			if pointSegmentDistSq(mgl32.Vec2{cx, cz}, base, top) <= hw2 {
 				t.Cells[x][z].TreeDensity = 0
 			}

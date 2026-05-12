@@ -218,7 +218,9 @@ func (f *elevFields) generateSnowCover(t *world.Terrain, maxDepth, snowlineFrac,
 			} else if d > 1 {
 				d = 1
 			}
-			t.Cells[x][z].SnowDepth = maxDepth * d
+			depth := maxDepth * d
+			t.Cells[x][z].SnowDepth = depth
+			t.Cells[x][z].NaturalSnow = depth
 		}
 	}
 	t.SnowDirty = true

@@ -39,6 +39,8 @@ type Editor struct {
 	autoFields         *elevFields // cached flow / curvature / minE-maxE; invalidated on elevation edits
 	liftBase          mgl32.Vec2  // toolLiftBase → toolLiftTop two-click state: first click stored here
 	roadStart         mgl32.Vec2  // toolRoadStart → toolRoadEnd two-click state: first click stored here (post-snap)
+	roadEdit          roadEditSelection // toolNone click-to-edit road handle / dragged node
+	structureEdit     structureEditSelection // toolNone click-to-edit building / lift handle
 	pendingScreenshot bool        // captured at end of Render so the PNG matches what's on screen
 }
 
@@ -60,6 +62,11 @@ func (e *Editor) Init(app *engine.App) error {
 
 	r := app.Renderer
 	r.ResetSceneState()
+	// Recompute Display fields from the Natural baseline + current
+	// structures (roads, buildings, lifts). Idempotent for fresh saves;
+	// also the single rebuild path the editor uses after every
+	// structure-graph edit.
+	rebuildTerrainFromNatural(w)
 	r.BuildTerrainMesh(w.Terrain)
 	r.RebuildStaticBatch(w)
 	r.RebuildRoads(w)
@@ -180,11 +187,25 @@ func (e *Editor) Update(dt float64) {
 	}
 
 	if inp.Pressed[glfw.KeyEscape] {
-		if e.activeTool != toolNone {
+		switch {
+		case e.roadEdit.active() || e.structureEdit.active():
+			e.roadEdit.clear()
+			e.structureEdit.clear()
+		case e.activeTool != toolNone:
 			e.activeTool = toolNone
 			e.syncToolButtons()
-		} else {
+		default:
 			e.escapeMenu.Toggle()
+		}
+	}
+	if (inp.Pressed[glfw.KeyDelete] || inp.Pressed[glfw.KeyBackspace]) {
+		switch {
+		case e.roadEdit.active():
+			deleteSelectedRoad(r, e.world, &e.roadEdit)
+			e.autoFields = nil
+		case e.structureEdit.active():
+			deleteSelectedStructure(r, e.world, &e.structureEdit)
+			e.autoFields = nil
 		}
 	}
 	if e.escapeMenu.Visible() {
@@ -354,9 +375,17 @@ func (e *Editor) Update(dt float64) {
 		tint:       ghostTint(true, e.placementLegal()),
 	})
 	// Editor mirrors the scenario's node-highlight behaviour while a
-	// road tool is active — same snap rules, same visual cue.
+	// road tool is active — same snap rules, same visual cue. While
+	// editing an existing road (toolNone selection), draw the full node
+	// handle layer instead so the player can see what they're moving.
+	// Structure edit (building / lift handles) gets a single marker on
+	// the selected anchor.
 	if e.activeTool == toolRoadStart || e.activeTool == toolRoadEnd {
 		emitRoadNodeMarkers(r, e.world, mgl32.Vec2{e.hoverWorld[0], e.hoverWorld[2]}, e.hoverValid)
+	} else if e.activeTool == toolNone && e.roadEdit.active() {
+		emitRoadEditMarkers(r, e.world, &e.roadEdit)
+	} else if e.activeTool == toolNone && e.structureEdit.active() {
+		emitStructureEditMarkers(r, e.world, &e.structureEdit)
 	}
 
 	// Tool application — placement tools fire on click only; brush tools
@@ -378,6 +407,8 @@ func (e *Editor) Update(dt float64) {
 				if inp.LeftClick && e.hoverValid {
 					e.applyPlacement(r)
 				}
+			} else if e.activeTool == toolNone {
+				e.handleToolNoneMouse(r, inp.LeftClick, inp.LeftHeld)
 			} else if inp.LeftClick || inp.LeftHeld {
 				gx, gz := e.hoverCell[0], e.hoverCell[1]
 				if e.world.Terrain.InBounds(gx, gz) {
@@ -385,6 +416,46 @@ func (e *Editor) Update(dt float64) {
 				}
 			}
 		}
+	}
+}
+
+// handleToolNoneMouse processes click / drag / release for both the
+// road-edit and structure-edit affordances. Hit priority on click is
+// road first (small, precise targets), then building / lift. Drag and
+// release route to whichever selection is active.
+func (e *Editor) handleToolNoneMouse(r *render.Renderer, leftClick, leftHeld bool) {
+	// Drag-release handling runs even when the cursor is off-terrain so
+	// a player who drags onto the menu bar can still get a clean commit.
+	if !leftHeld {
+		if e.roadEdit.dragging {
+			commitRoadDrag(r, e.world)
+			e.roadEdit.dragging = false
+			e.autoFields = nil
+		}
+		if e.structureEdit.dragging {
+			commitStructureDrag(r, e.world)
+			e.structureEdit.dragging = false
+			e.autoFields = nil
+		}
+	}
+	if !e.hoverValid {
+		return
+	}
+	pos := mgl32.Vec2{e.hoverWorld[0], e.hoverWorld[2]}
+	switch {
+	case leftClick:
+		if tryStartRoadEdit(e.world, pos, &e.roadEdit) {
+			e.structureEdit.clear()
+		} else if tryStartStructureEdit(e.world, pos, &e.structureEdit) {
+			e.roadEdit.clear()
+		} else {
+			e.roadEdit.clear()
+			e.structureEdit.clear()
+		}
+	case leftHeld && e.roadEdit.dragging:
+		dragRoadNode(r, e.world, &e.roadEdit, pos)
+	case leftHeld && e.structureEdit.dragging:
+		dragStructure(r, e.world, &e.structureEdit, pos)
 	}
 }
 
@@ -434,8 +505,8 @@ func (e *Editor) applyPlacement(r *render.Renderer) {
 		if w.BuildingOverlap(world.BuildingLodge, wx, wz) {
 			return
 		}
-		b := w.PlaceBuildingType(world.BuildingLodge, wx, wz)
-		applyBuildingPlacementEffects(w.Terrain, b)
+		w.PlaceBuildingType(world.BuildingLodge, wx, wz)
+		rebuildTerrainFromNatural(w)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 		e.autoFields = nil
@@ -443,8 +514,8 @@ func (e *Editor) applyPlacement(r *render.Renderer) {
 		if w.BuildingOverlap(world.BuildingShed, wx, wz) {
 			return
 		}
-		b := w.PlaceBuildingType(world.BuildingShed, wx, wz)
-		applyBuildingPlacementEffects(w.Terrain, b)
+		w.PlaceBuildingType(world.BuildingShed, wx, wz)
+		rebuildTerrainFromNatural(w)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 		e.autoFields = nil
@@ -454,7 +525,7 @@ func (e *Editor) applyPlacement(r *render.Renderer) {
 		}
 		b := w.PlaceBuildingType(world.BuildingParking, wx, wz)
 		w.EnsureParkingDriveway(b)
-		applyBuildingPlacementEffects(w.Terrain, b)
+		rebuildTerrainFromNatural(w)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 		r.RebuildRoads(w)
@@ -465,7 +536,7 @@ func (e *Editor) applyPlacement(r *render.Renderer) {
 		e.syncToolButtons()
 	case toolLiftTop:
 		lift := w.PlaceLift(e.liftBase[0], e.liftBase[1], wx, wz)
-		applyLiftPlacementEffects(w.Terrain, lift)
+		rebuildTerrainFromNatural(w)
 		r.FlushTerrainVerts(w.Terrain)
 		r.AddLiftCable(lift, w.Terrain)
 		r.RebuildStaticBatch(w)
@@ -480,19 +551,24 @@ func (e *Editor) applyPlacement(r *render.Renderer) {
 		start := resolveRoadEndpoint(w, e.roadStart)
 		end := resolveRoadEndpoint(w, mgl32.Vec2{wx, wz})
 		if placeRoadSegment(w, start, end) != nil {
-			applyAllRoadChainEffects(w)
+			rebuildTerrainFromNatural(w)
 			r.FlushTerrainVerts(w.Terrain)
 			r.RebuildStaticBatch(w)
+			// Continue chaining from the just-placed endpoint. Esc or
+			// re-clicking the Road button drops out of the tool.
+			e.roadStart = end.pos
 		}
 		r.RebuildRoads(w)
-		e.activeTool = toolNone
-		e.syncToolButtons()
 		e.autoFields = nil
 	case toolEdgeConnect:
 		snapped, inward, ok := projectToMapEdge(w.Terrain, mgl32.Vec2{wx, wz}, edgeConnectTolerance)
 		if !ok {
 			return
 		}
+		// Quantise to the cell grid (same rule as road-tool clicks) so
+		// the perimeter post + inland end both land on vertex
+		// coordinates and the clearance pass stays symmetric.
+		snapped = snapToCellGrid(snapped)
 		inland := mgl32.Vec2{
 			snapped[0] + inward[0]*edgeConnectStubLength,
 			snapped[1] + inward[1]*edgeConnectStubLength,
@@ -504,7 +580,7 @@ func (e *Editor) applyPlacement(r *render.Renderer) {
 		edgeNode := w.AddRoadNode(snapped, world.RoadNodeEdgeConnection)
 		inlandNode := w.AddRoadNode(inland, world.RoadNodeFreestanding)
 		w.AddRoadEdge(edgeNode.ID, inlandNode.ID)
-		applyAllRoadChainEffects(w)
+		rebuildTerrainFromNatural(w)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 		r.RebuildRoads(w)
@@ -527,6 +603,15 @@ func (e *Editor) setTool(t toolMode) {
 		e.activeTool = toolNone
 	} else {
 		e.activeTool = t
+	}
+	// Activating any tool ends a toolNone-level edit session — the
+	// selection markers should disappear and a half-finished drag must
+	// not continue across a tool switch.
+	if e.roadEdit.active() || e.roadEdit.dragging {
+		e.roadEdit.clear()
+	}
+	if e.structureEdit.active() || e.structureEdit.dragging {
+		e.structureEdit.clear()
 	}
 	e.syncToolButtons()
 	if e.activeTool == toolAuto && prev != toolAuto {
@@ -579,7 +664,12 @@ func (e *Editor) regenerateAuto() {
 		treelineFrac,
 		e.autoSeed,
 	)
+	// Re-stamp structure footprints on top of the freshly-generated
+	// natural baseline so roads / buildings / lifts still show their
+	// cleared cells after the regenerate.
+	rebuildTerrainFromNatural(e.world)
 	if e.app != nil && e.app.Renderer != nil {
+		e.app.Renderer.FlushTerrainVerts(e.world.Terrain)
 		e.app.Renderer.RebuildStaticBatch(e.world)
 	}
 }
@@ -631,19 +721,29 @@ func (e *Editor) applyEditorTool(gx, gz int, r *render.Renderer, dt float32) {
 	case toolPlantTrees:
 		target := e.densitySlider.Value / 100
 		applyDensityBrushUpTo(w.Terrain, gx, gz, e.brushRadius(), 0.3, target)
+		rebuildTerrainFromNatural(w)
+		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 	case toolGlade:
 		applyDensityBrush(w.Terrain, gx, gz, e.brushRadius(), -0.4)
+		rebuildTerrainFromNatural(w)
+		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 	case toolEditorRaise:
-		w.Terrain.Cells[gx][gz].GroundElevation += 5.0 * dt
+		newE := w.Terrain.Cells[gx][gz].NaturalElev + 5.0*dt
+		w.Terrain.Cells[gx][gz].NaturalElev = newE
+		w.Terrain.Cells[gx][gz].GroundElevation = newE
+		rebuildTerrainFromNatural(w)
 		r.FlushTerrainVerts(w.Terrain)
 		e.autoFields = nil
 	case toolEditorLower:
-		w.Terrain.Cells[gx][gz].GroundElevation -= 5.0 * dt
-		if w.Terrain.Cells[gx][gz].GroundElevation < 0 {
-			w.Terrain.Cells[gx][gz].GroundElevation = 0
+		newE := w.Terrain.Cells[gx][gz].NaturalElev - 5.0*dt
+		if newE < 0 {
+			newE = 0
 		}
+		w.Terrain.Cells[gx][gz].NaturalElev = newE
+		w.Terrain.Cells[gx][gz].GroundElevation = newE
+		rebuildTerrainFromNatural(w)
 		r.FlushTerrainVerts(w.Terrain)
 		e.autoFields = nil
 	}
@@ -674,6 +774,9 @@ func (e *Editor) applyImportedTerrain(elevs [][]float32, r *render.Renderer) {
 			t.Cells[col][row].SnowDepth = 0
 		}
 	}
+	// Imported terrain becomes the new Natural baseline — there are no
+	// structures yet so display fields and natural fields are identical.
+	t.SnapshotNatural()
 	e.world = world.NewWorld(t)
 	e.activeTool = toolNone
 	e.autoFields = nil

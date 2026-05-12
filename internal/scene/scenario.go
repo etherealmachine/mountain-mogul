@@ -93,7 +93,12 @@ func screenToWorld(cam *render.Camera, terrain *world.Terrain, mousePos mgl32.Ve
 }
 
 // applyDensityBrush modifies TreeDensity within `radius` cells of (cx, cz) by `delta`.
-// Clamps each cell's density to [0, 1].
+// Clamps each cell's density to [0, 1]. Also writes the matching Natural
+// field so the cell's natural baseline absorbs the player's paint — a
+// road that later moves away from a brushed cell will restore the
+// painted density instead of pre-paint state. Callers should run
+// rebuildTerrainFromNatural after the brush stroke to re-stamp any
+// structure clearance on top.
 func applyDensityBrush(t *world.Terrain, cx, cz, radius int, delta float32) {
 	r2 := radius * radius
 	for dz := -radius; dz <= radius; dz++ {
@@ -105,12 +110,13 @@ func applyDensityBrush(t *world.Terrain, cx, cz, radius int, delta float32) {
 			if !t.InBounds(x, z) {
 				continue
 			}
-			d := t.Cells[x][z].TreeDensity + delta
+			d := t.Cells[x][z].NaturalTrees + delta
 			if d < 0 {
 				d = 0
 			} else if d > 1 {
 				d = 1
 			}
+			t.Cells[x][z].NaturalTrees = d
 			t.Cells[x][z].TreeDensity = d
 		}
 	}
@@ -200,6 +206,15 @@ func applyBuildingPlacementEffects(t *world.Terrain, b *world.Building) {
 	// rendered with trunks pressing through its walls. Same extents as the
 	// apron — the visible clear pad matches the tree-free footprint.
 	clearBuildingTrees(t, b.Pos, apronHalfX, apronHalfZ)
+
+	// Stamp the door cell as impassable so the rebuild path produces the
+	// same blocked-cell state as the original PlaceBuilding call. Cell
+	// passability is owned by the structure-stamp pass; ResetDisplayFrom-
+	// Natural always returns Passable to true before stamps re-apply.
+	door := b.DoorCell()
+	if t.InBounds(door[0], door[1]) {
+		t.Cells[door[0]][door[1]].Passable = false
+	}
 }
 
 // clearBuildingTrees zeros TreeDensity in cells inside the axis-aligned
@@ -216,8 +231,11 @@ func clearBuildingTrees(t *world.Terrain, pos mgl32.Vec2, halfX, halfZ float32) 
 			if !t.InBounds(x, z) {
 				continue
 			}
-			cx := float32(x)*cellSize - pos[0]
-			cz := float32(z)*cellSize - pos[1]
+			// Cell CENTER, not corner — matches the renderer's tree
+			// anchor at ((x+0.5)*cellSize). Corner-based testing biased
+			// the clear toward +X / +Z by a half cell.
+			cx := (float32(x)+0.5)*cellSize - pos[0]
+			cz := (float32(z)+0.5)*cellSize - pos[1]
 			if cx < 0 {
 				cx = -cx
 			}
@@ -280,8 +298,12 @@ func buildStationApron(t *world.Terrain, station, axis mgl32.Vec2, side, halfWid
 			if !t.InBounds(x, z) {
 				continue
 			}
-			cx := float32(x) * cellSize
-			cz := float32(z) * cellSize
+			// Cell CENTER, not corner — same fix as road clearance and
+			// clearBuildingTrees. Corner-based decomposition pushed the
+			// apron half a cell to the +X / +Z side relative to where
+			// the cell's visual contents (tree, snow shading) sit.
+			cx := (float32(x) + 0.5) * cellSize
+			cz := (float32(z) + 0.5) * cellSize
 			dx := cx - station[0]
 			dz := cz - station[1]
 			// Decompose into along-axis and perpendicular components.
@@ -393,7 +415,7 @@ func applyDensityBrushUpTo(t *world.Terrain, cx, cz, radius int, step, target fl
 			if !t.InBounds(x, z) {
 				continue
 			}
-			cur := t.Cells[x][z].TreeDensity
+			cur := t.Cells[x][z].NaturalTrees
 			if cur >= target {
 				continue
 			}
@@ -401,6 +423,7 @@ func applyDensityBrushUpTo(t *world.Terrain, cx, cz, radius int, step, target fl
 			if d > target {
 				d = target
 			}
+			t.Cells[x][z].NaturalTrees = d
 			t.Cells[x][z].TreeDensity = d
 		}
 	}
@@ -472,6 +495,15 @@ type Scenario struct {
 	// no shed selected (the tool is a no-op).
 	routeShedID  uint64
 	lastRouteCell [2]int
+
+	// Click-to-edit road state. Active only while activeTool == toolNone:
+	// a toolNone left click on a road node/edge populates this and the
+	// player can drag the node or press Delete to remove it.
+	roadEdit roadEditSelection
+
+	// Click-to-edit building / lift state. Same toolNone affordance as
+	// road edit but for placed structures.
+	structureEdit structureEditSelection
 
 	// Debug instrumentation (see plan: orbiting-skier debug aids).
 	csvRecorder       *sim.CSVRecorder
@@ -750,6 +782,12 @@ func (s *Scenario) installWorld(w *world.World) {
 	} else {
 		s.sim = sim.NewSimulation(w)
 	}
+	// Rebuild Display fields from the Natural baseline + current
+	// structure footprints. For new saves this is idempotent (loaded
+	// state already matches). For terrain edits made post-load this is
+	// the single recompute path so structures stay consistent with the
+	// natural baseline.
+	rebuildTerrainFromNatural(w)
 	r.BuildTerrainMesh(w.Terrain)
 	r.RebuildStaticBatch(w)
 	r.RebuildRoads(w)
@@ -858,10 +896,22 @@ func (s *Scenario) Update(dt float64) {
 	}
 
 	if inp.Pressed[glfw.KeyEscape] {
-		if s.activeTool != toolNone {
+		switch {
+		case s.roadEdit.active() || s.structureEdit.active():
+			s.roadEdit.clear()
+			s.structureEdit.clear()
+		case s.activeTool != toolNone:
 			s.cancelTool()
-		} else {
+		default:
 			s.escapeMenu.Toggle()
+		}
+	}
+	if inp.Pressed[glfw.KeyDelete] || inp.Pressed[glfw.KeyBackspace] {
+		switch {
+		case s.roadEdit.active():
+			deleteSelectedRoad(r, s.world, &s.roadEdit)
+		case s.structureEdit.active():
+			deleteSelectedStructure(r, s.world, &s.structureEdit)
 		}
 	}
 	if s.escapeMenu.Visible() {
@@ -1036,9 +1086,16 @@ func (s *Scenario) Update(dt float64) {
 	})
 	// Highlight every existing road node while the road tool is active so
 	// the player can see snap targets. The snap-target node (or the
-	// projected snap point on an edge) is rendered brighter.
+	// projected snap point on an edge) is rendered brighter. While
+	// editing an existing road / structure (toolNone selection), draw
+	// the full handle layer instead so the player can see the move
+	// target.
 	if s.activeTool == toolRoadStart || s.activeTool == toolRoadEnd {
 		emitRoadNodeMarkers(r, s.world, mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]}, s.hoverValid)
+	} else if s.activeTool == toolNone && s.roadEdit.active() {
+		emitRoadEditMarkers(r, s.world, &s.roadEdit)
+	} else if s.activeTool == toolNone && s.structureEdit.active() {
+		emitStructureEditMarkers(r, s.world, &s.structureEdit)
 	}
 
 	// Popup window input — handle before world clicks so buttons consume the event.
@@ -1054,13 +1111,63 @@ func (s *Scenario) Update(dt float64) {
 	clickConsumed := popupConsumed
 	screenW := float32(r.ScreenWidth())
 	if !clickConsumed && inp.LeftClick && s.activeTool == toolNone && !s.uiCovers(inp.MousePos[0], inp.MousePos[1], screenW) {
-		// Skier pick takes priority over popups when no tool is active.
+		// Skier pick takes priority over toolNone-level edits and popups.
 		if a := s.pickAgent(r.Camera, inp.MousePos); a != nil {
 			s.followAgentID = a.ID
 			if s.popup != nil {
 				s.popup.Visible = false
 			}
 			clickConsumed = true
+		} else if s.hoverValid {
+			// toolNone hit-test cascade: road handle → structure
+			// (building / lift) → fall through to the existing popup
+			// flow. Each selection mode clears the other so only one
+			// thing is highlighted at a time.
+			pos := mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]}
+			if tryStartRoadEdit(s.world, pos, &s.roadEdit) {
+				s.structureEdit.clear()
+				if s.popup != nil {
+					s.popup.Visible = false
+				}
+				clickConsumed = true
+			} else if tryStartStructureEdit(s.world, pos, &s.structureEdit) {
+				s.roadEdit.clear()
+				// Let the existing popup flow still open for buildings
+				// and lifts — structure edit overlays drag-to-move and
+				// Delete on top of the informational popup.
+			} else {
+				if s.roadEdit.active() {
+					s.roadEdit.clear()
+				}
+				if s.structureEdit.active() {
+					s.structureEdit.clear()
+				}
+			}
+		}
+	}
+	// toolNone drag handling — road or structure depending on which
+	// selection is dragging. Release commits the deferred static-batch
+	// rebuild.
+	if s.activeTool == toolNone {
+		if s.roadEdit.dragging {
+			if inp.LeftHeld {
+				if s.hoverValid {
+					dragRoadNode(r, s.world, &s.roadEdit, mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]})
+				}
+			} else {
+				commitRoadDrag(r, s.world)
+				s.roadEdit.dragging = false
+			}
+		}
+		if s.structureEdit.dragging {
+			if inp.LeftHeld {
+				if s.hoverValid {
+					dragStructure(r, s.world, &s.structureEdit, mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]})
+				}
+			} else {
+				commitStructureDrag(r, s.world)
+				s.structureEdit.dragging = false
+			}
 		}
 	}
 	// Glade sliders take input before the brush so dragging the thumb
@@ -1382,8 +1489,8 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 			return
 		}
 		w.Cash -= world.LodgeCost
-		b := w.PlaceBuildingType(world.BuildingLodge, wx, wz)
-		applyBuildingPlacementEffects(w.Terrain, b)
+		w.PlaceBuildingType(world.BuildingLodge, wx, wz)
+		rebuildTerrainFromNatural(w)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 	case toolShed:
@@ -1397,8 +1504,8 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 			return
 		}
 		w.Cash -= world.ShedCost
-		b := w.PlaceBuildingType(world.BuildingShed, wx, wz)
-		applyBuildingPlacementEffects(w.Terrain, b)
+		w.PlaceBuildingType(world.BuildingShed, wx, wz)
+		rebuildTerrainFromNatural(w)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 	case toolParking:
@@ -1414,7 +1521,7 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		w.Cash -= world.ParkingCost
 		b := w.PlaceBuildingType(world.BuildingParking, wx, wz)
 		w.EnsureParkingDriveway(b)
-		applyBuildingPlacementEffects(w.Terrain, b)
+		rebuildTerrainFromNatural(w)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 		r.RebuildRoads(w)
@@ -1424,6 +1531,8 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		// holding does nothing further (see lastGladeCell gate in Update).
 		strength := s.gladeThinSlider.Value / 100
 		applyDensityBrush(w.Terrain, gx, gz, s.gladeBrushRadius(), -strength)
+		rebuildTerrainFromNatural(w)
+		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 	case toolLiftBase:
 		// Cheapest a lift can be is the station-pair fee — gate
@@ -1446,7 +1555,7 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		}
 		w.Cash -= cost
 		lift := w.PlaceLift(s.liftBase[0], s.liftBase[1], wx, wz)
-		applyLiftPlacementEffects(w.Terrain, lift)
+		rebuildTerrainFromNatural(w)
 		r.FlushTerrainVerts(w.Terrain)
 		r.AddLiftCable(lift, w.Terrain)
 		r.RebuildStaticBatch(w)
@@ -1488,17 +1597,16 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 			return
 		}
 		w.Cash -= cost
-		// Re-stamp every chain: Catmull-Rom curves through neighbouring
-		// nodes mean adjacent chains' geometry changes whenever the
-		// graph topology shifts, so a per-edge stamp wouldn't stay
-		// accurate.
-		applyAllRoadChainEffects(w)
+		rebuildTerrainFromNatural(w)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 		r.RebuildRoads(w)
-		r.ClearAllGhosts()
-		r.ClearGhostRoad()
-		s.activeTool = toolNone
+		// Continue the chain from the just-placed endpoint — the player
+		// stays in toolRoadEnd and the next click extends the road. Esc
+		// or re-clicking the Road button drops them out. The ghost
+		// preview will redraw with the new roadStart on the next frame's
+		// updatePlacementGhost call, so we don't clear it here.
+		s.roadStart = end.pos
 	case toolRemove:
 		s.removeAt(s.hoverWorld, r)
 	case toolRoute:
@@ -1604,14 +1712,17 @@ func (s *Scenario) removeAt(clickPos mgl32.Vec3, r *render.Renderer) {
 		if b.Pos.Sub(pick).Len() <= buildingPickRadius {
 			// Parking lots own a driveway road node + possibly incident
 			// edges; RemoveBuilding drops both, so the road mesh has to
-			// be regenerated and the chain effects re-stamped (the
-			// removal may have re-shaped neighbouring chains).
+			// be regenerated when one comes out.
 			wasParking := b.Type == world.BuildingParking
 			w.RemoveBuilding(b.ID)
+			// Rebuild from natural so the cells the building / lift
+			// claimed (apron flattening, snow plowing, tree clear,
+			// passability) revert and any remaining structures re-stamp
+			// their own footprints.
+			rebuildTerrainFromNatural(w)
+			r.FlushTerrainVerts(w.Terrain)
 			r.RebuildStaticBatch(w)
 			if wasParking {
-				applyAllRoadChainEffects(w)
-				r.FlushTerrainVerts(w.Terrain)
 				r.RebuildRoads(w)
 			}
 			return
@@ -1848,6 +1959,14 @@ func (s *Scenario) setTool(t toolMode) {
 		s.activeTool = toolNone
 	} else {
 		s.activeTool = t
+	}
+	// Activating any tool ends a toolNone-level edit session so the
+	// selection markers disappear and any in-flight drag is dropped.
+	if s.roadEdit.active() || s.roadEdit.dragging {
+		s.roadEdit.clear()
+	}
+	if s.structureEdit.active() || s.structureEdit.dragging {
+		s.structureEdit.clear()
 	}
 	s.syncToolButtons()
 }

@@ -32,7 +32,7 @@ const (
 	roadLaneDashLength  = float32(2.5)  // dash length along the road (metres)
 	roadLaneDashGap     = float32(3.5)  // gap between dashes
 	roadLaneHalfWidth   = float32(0.15) // dashed line is 30 cm wide
-	roadLaneHoverOffset = float32(0.01) // sits 1 cm above the asphalt to avoid z-fight
+	roadLaneHoverOffset = float32(0.05) // sits 5 cm above the asphalt — large enough that small bilinear differences between the dash quad (sampled at centreline) and the road quad (sampled at edges) can't flip the depth comparison and make dashes blink.
 )
 
 // generateRoadsMesh builds a single quad-strip mesh covering every road
@@ -102,7 +102,7 @@ func generateRoadLanesMesh(w *world.World, t *world.Terrain) *Mesh {
 // taken from the per-sample tangent so the strip width stays
 // perpendicular to the curve even on tight bends.
 func buildRoadChainStripVerts(chain world.RoadChain, t *world.Terrain, baseIdx uint32) ([]float32, []uint32) {
-	samples := world.SampleRoadChain(chain, world.RoadChainSamplesPerSegment)
+	samples := world.SampleRoadChain(chain, t, world.RoadChainSamplesPerSegment)
 	return buildRoadStripFromSamples(samples, t, baseIdx)
 }
 
@@ -196,7 +196,7 @@ func sampleTangent(samples []mgl32.Vec2, i int) (tx, tz float32) {
 // pattern. Each dash quad is small enough that its endpoints can share
 // the closest sample's tangent without visible bending.
 func buildRoadChainDashes(chain world.RoadChain, t *world.Terrain, baseIdx uint32) ([]float32, []uint32) {
-	samples := world.SampleRoadChain(chain, world.RoadChainSamplesPerSegment)
+	samples := world.SampleRoadChain(chain, t, world.RoadChainSamplesPerSegment)
 	if len(samples) < 2 {
 		return nil, nil
 	}

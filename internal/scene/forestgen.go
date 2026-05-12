@@ -182,6 +182,7 @@ func (f *elevFields) generateTreeCover(t *world.Terrain, patchScale, coverage, t
 				d = 1
 			}
 			t.Cells[x][z].TreeDensity = d
+			t.Cells[x][z].NaturalTrees = d
 		}
 	}
 }
