@@ -2330,7 +2330,7 @@ func (f *followLabel) Draw(r *render.Renderer) {
 		mode = "—"
 	}
 	rows := []string{
-		fmt.Sprintf("Skier #%d  |  %s  |  %s", f.agent.ID, activity, mode),
+		fmt.Sprintf("Skier #%d (%s)  |  %s  |  %s", f.agent.ID, f.agent.Traits.Skill, activity, mode),
 		fmt.Sprintf("%.1f m/s    energy %d%%", f.agent.Speed, energyPct),
 	}
 

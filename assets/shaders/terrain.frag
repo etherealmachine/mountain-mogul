@@ -46,19 +46,13 @@ void main() {
     float ice      = clamp(vSnow.z, 0.0, 1.0);
     float mogul    = clamp(vSnow.w, 0.0, 1.0);
 
-    // Surface normal. The per-quad flat normal (vNormal) gives the
-    // diorama-style faceted look that's appropriate for ungroomed
-    // terrain and cliffs, but reads as bumpiness across a groomed
-    // run even when the underlying geometry is smooth. Groomed
-    // surfaces blend toward vSmoothNormal — a per-corner normal
-    // derived from the smoothed elevation grid at build time and
-    // interpolated across triangle edges, so corduroyed cells light
-    // as a single continuous slope.
-    vec3 flatN   = normalize(vNormal);
-    vec3 smoothN = normalize(vSmoothNormal);
-    // Heavily-groomed cells use 95% smooth normal so lighting facets
-    // vanish; fades smoothly back to flat shading as grooming drops.
-    vec3  N     = mix(flatN, smoothN, smoothstep(0.0, 0.5, grooming) * 0.95);
+    // Smooth normals on gentle terrain, flat (per-triangle) normals on
+    // steep slopes. The faceted shading on cliffs reads as crisp rock
+    // breaks; the smooth elsewhere reads as continuous snow.
+    vec3 flatN    = normalize(vNormal);
+    vec3 smoothN  = normalize(vSmoothNormal);
+    float cliffness = 1.0 - smoothstep(0.55, 0.85, smoothN.y);
+    vec3  N      = normalize(mix(smoothN, flatN, cliffness));
     float slope = clamp(N.y, 0.0, 1.0);                  // 1 = flat, 0 = vertical
     float h     = clamp((vWorldPos.y - uTerrainMinY) /
                         max(uTerrainMaxY - uTerrainMinY, 1.0), 0.0, 1.0);
@@ -66,7 +60,7 @@ void main() {
     // Ground palette — what the bare rock/dirt/grass under the snow looks
     // like. Height-driven on flats; cliffs blend toward plain rock.
     vec3 rock       = vec3(0.34, 0.33, 0.32);
-    vec3 groundLow  = vec3(0.42, 0.46, 0.32);            // alpine grass / meadow
+    vec3 groundLow  = vec3(0.45, 0.40, 0.28);            // dry meadow / tundra
     vec3 groundMid  = vec3(0.42, 0.38, 0.32);            // dirt / tundra
     vec3 groundHigh = vec3(0.52, 0.50, 0.46);            // exposed scree
     vec3 groundFlat = mix(groundLow, groundMid, smoothstep(0.20, 0.55, h));
@@ -77,7 +71,7 @@ void main() {
     // Snow palette — the previous topographic gradient. Packed reads
     // slightly bluer / ~5 % darker than fresh powder; modulate before
     // mixing with ground so packed never leaks onto bare rock.
-    vec3 lowFlat   = vec3(0.78, 0.86, 0.84);             // frozen-grass / icy tint
+    vec3 lowFlat   = vec3(0.82, 0.85, 0.92);             // cool shadow tint
     vec3 midPowder = vec3(0.92, 0.94, 0.97);
     vec3 highWhite = vec3(0.99, 0.99, 1.00);
     vec3 snow      = mix(lowFlat, midPowder, smoothstep(0.20, 0.55, h));

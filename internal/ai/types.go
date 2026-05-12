@@ -28,6 +28,19 @@ const (
 	SkillAdvanced
 )
 
+// String returns a human-readable label for HUD / debug overlays.
+func (l SkillLevel) String() string {
+	switch l {
+	case SkillBeginner:
+		return "Beginner"
+	case SkillIntermediate:
+		return "Intermediate"
+	case SkillAdvanced:
+		return "Advanced"
+	}
+	return "Unknown"
+}
+
 // SkierTraits captures the per-skier inputs the controller reads.
 type SkierTraits struct {
 	Skill        SkillLevel
