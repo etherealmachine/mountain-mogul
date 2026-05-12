@@ -30,6 +30,7 @@ func main() {
 	warmupFrames := flag.Int("warmup", 30, "frames to render before capturing -screenshot (so the world settles)")
 	regenForest := flag.Bool("regen-forest", false, "with -screenshot: regenerate auto-forest on the loaded terrain before capture")
 	forestSeed := flag.Int64("forest-seed", 0, "with -regen-forest: seed for the regen (0 = wall-clock)")
+	skipIntro := flag.Bool("skip-intro", false, "skip the Minty Fresh splash and jump straight to the start menu")
 	flag.Parse()
 
 	if *testbed != "" {
@@ -49,7 +50,11 @@ func main() {
 	app := engine.NewApp("Mountain Mogul", 1280, 720, "assets")
 	defer app.Destroy()
 
-	app.PushScene(scene.NewStartMenu())
+	if *skipIntro {
+		app.PushScene(scene.NewStartMenu())
+	} else {
+		app.PushScene(scene.NewIntroScene())
+	}
 	app.Run()
 }
 

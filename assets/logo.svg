@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 320" width="240" height="320">
+  <!--
+    Minty Fresh — company logo.
+
+    A tall highball glass holding a mojito-style mint cocktail: pale
+    green liquid, four rounded ice cubes, and a sprig of mint leaves
+    spilling out the top. Designed to read at small sizes (the glass
+    silhouette and the green mint cluster are the two strong shapes).
+  -->
+
+  <defs>
+    <linearGradient id="liquid" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#b8e3b8"/>
+      <stop offset="1" stop-color="#86c498"/>
+    </linearGradient>
+    <linearGradient id="iceFace" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#dceef3"/>
+    </linearGradient>
+  </defs>
+
+  <!-- ── Mint sprig (drawn first so the rim sits over the stems) ───
+       Anchored on the right half of the rim to balance the ice
+       cluster, which leans left after the tilt + overlap pass. The
+       sprig's centre of mass sits around x≈145; the ice cluster's
+       sits around x≈110, so the two roughly mirror across the rim. -->
+  <!-- ── Mint sprig ────────────────────────────────────────────────
+       Real mint grows in opposite pairs along a central stem with
+       ovate, serrated leaves and a clear central vein. We approximate:
+       a vertical-ish stem rising from the rim with three pairs of
+       leaves attached at "nodes" plus a terminal tip cluster. Each
+       leaf is an asymmetric ovate path with a bumped outline (the
+       bumps read as serration at small sizes) and a thin darker
+       central vein for plant-anatomy hint.
+
+       Anchored at x≈154 to balance the ice cluster (centre-left). -->
+  <g id="mint">
+    <!-- ── Main stem (back-most, so leaves overlap on top) ──────── -->
+    <path d="M 154 70 C 156 55 150 38 148 12"
+          fill="none" stroke="#2d6b3d" stroke-width="2.2"
+          stroke-linecap="round"/>
+
+    <!-- ── Bottom pair: largest, broad ovate leaves ─────────────── -->
+    <!-- Right leaf -->
+    <g transform="translate(155 52) rotate(60)">
+      <path d="M 0 0
+               Q -5 -4 -6 -10
+               Q -7 -16 -4 -22
+               Q 0 -28 4 -22
+               Q 7 -16 6 -10
+               Q 5 -4 0 0 Z"
+            fill="#4caf50" stroke="#1f5a36" stroke-width="1"/>
+      <path d="M 0 -1 L 0 -25"
+            fill="none" stroke="#1f5a36" stroke-width="0.6"/>
+      <path d="M 0 -10 Q -2 -8 -4 -7" fill="none" stroke="#1f5a36" stroke-width="0.4"/>
+      <path d="M 0 -10 Q 2 -8 4 -7" fill="none" stroke="#1f5a36" stroke-width="0.4"/>
+      <path d="M 0 -16 Q -2 -14 -4 -13" fill="none" stroke="#1f5a36" stroke-width="0.4"/>
+      <path d="M 0 -16 Q 2 -14 4 -13" fill="none" stroke="#1f5a36" stroke-width="0.4"/>
+    </g>
+    <!-- Left leaf -->
+    <g transform="translate(153 52) rotate(-65)">
+      <path d="M 0 0
+               Q -5 -4 -6 -10
+               Q -7 -16 -4 -22
+               Q 0 -28 4 -22
+               Q 7 -16 6 -10
+               Q 5 -4 0 0 Z"
+            fill="#4caf50" stroke="#1f5a36" stroke-width="1"/>
+      <path d="M 0 -1 L 0 -25"
+            fill="none" stroke="#1f5a36" stroke-width="0.6"/>
+      <path d="M 0 -10 Q -2 -8 -4 -7" fill="none" stroke="#1f5a36" stroke-width="0.4"/>
+      <path d="M 0 -10 Q 2 -8 4 -7" fill="none" stroke="#1f5a36" stroke-width="0.4"/>
+      <path d="M 0 -16 Q -2 -14 -4 -13" fill="none" stroke="#1f5a36" stroke-width="0.4"/>
+      <path d="M 0 -16 Q 2 -14 4 -13" fill="none" stroke="#1f5a36" stroke-width="0.4"/>
+    </g>
+
+    <!-- ── Middle pair: medium leaves, more vertical lean ───────── -->
+    <!-- Right -->
+    <g transform="translate(151 32) rotate(45)">
+      <path d="M 0 0
+               Q -4 -3 -5 -8
+               Q -6 -13 -3 -18
+               Q 0 -22 3 -18
+               Q 6 -13 5 -8
+               Q 4 -3 0 0 Z"
+            fill="#66bb6a" stroke="#1f5a36" stroke-width="1"/>
+      <path d="M 0 -1 L 0 -20"
+            fill="none" stroke="#1f5a36" stroke-width="0.5"/>
+      <path d="M 0 -8 Q -2 -7 -3 -6" fill="none" stroke="#1f5a36" stroke-width="0.4"/>
+      <path d="M 0 -8 Q 2 -7 3 -6" fill="none" stroke="#1f5a36" stroke-width="0.4"/>
+    </g>
+    <!-- Left -->
+    <g transform="translate(149 32) rotate(-50)">
+      <path d="M 0 0
+               Q -4 -3 -5 -8
+               Q -6 -13 -3 -18
+               Q 0 -22 3 -18
+               Q 6 -13 5 -8
+               Q 4 -3 0 0 Z"
+            fill="#66bb6a" stroke="#1f5a36" stroke-width="1"/>
+      <path d="M 0 -1 L 0 -20"
+            fill="none" stroke="#1f5a36" stroke-width="0.5"/>
+      <path d="M 0 -8 Q -2 -7 -3 -6" fill="none" stroke="#1f5a36" stroke-width="0.4"/>
+      <path d="M 0 -8 Q 2 -7 3 -6" fill="none" stroke="#1f5a36" stroke-width="0.4"/>
+    </g>
+
+    <!-- ── Tip cluster: a small pair + one centre terminal leaf ── -->
+    <g transform="translate(149 16) rotate(25)">
+      <path d="M 0 0
+               Q -3 -3 -4 -6
+               Q -4 -11 -2 -14
+               Q 0 -16 2 -14
+               Q 4 -11 4 -6
+               Q 3 -3 0 0 Z"
+            fill="#81c784" stroke="#1f5a36" stroke-width="0.8"/>
+      <path d="M 0 -1 L 0 -14"
+            fill="none" stroke="#1f5a36" stroke-width="0.4"/>
+    </g>
+    <g transform="translate(148 16) rotate(-25)">
+      <path d="M 0 0
+               Q -3 -3 -4 -6
+               Q -4 -11 -2 -14
+               Q 0 -16 2 -14
+               Q 4 -11 4 -6
+               Q 3 -3 0 0 Z"
+            fill="#81c784" stroke="#1f5a36" stroke-width="0.8"/>
+      <path d="M 0 -1 L 0 -14"
+            fill="none" stroke="#1f5a36" stroke-width="0.4"/>
+    </g>
+    <!-- terminal -->
+    <g transform="translate(148 14)">
+      <path d="M 0 0
+               Q -3 -3 -3 -8
+               Q -2 -12 0 -14
+               Q 2 -12 3 -8
+               Q 3 -3 0 0 Z"
+            fill="#a5d6a7" stroke="#1f5a36" stroke-width="0.8"/>
+      <path d="M 0 -1 L 0 -12"
+            fill="none" stroke="#1f5a36" stroke-width="0.4"/>
+    </g>
+  </g>
+
+  <!-- ── Glass interior — liquid, ice, rim ──────────────────────── -->
+
+  <!-- Back side of rim, faded so the mint stems read through it -->
+  <ellipse cx="120" cy="72" rx="44" ry="8" fill="#d4e8ee" opacity="0.45"/>
+
+  <!-- Liquid body (front-facing parallelogram with a curved bottom) -->
+  <path d="M 78 72
+           L 80 264
+           Q 120 278 160 264
+           L 162 72
+           Q 120 84 78 72 Z"
+        fill="url(#liquid)" opacity="0.92"/>
+
+  <!-- Liquid surface (front arc of an ellipse) -->
+  <path d="M 78 72 Q 120 84 162 72" fill="#74b884" opacity="0.7"/>
+
+  <!-- Ice cubes — rounded squares, clustered just below the surface
+       because ice floats. Each cube tilts at a different angle and
+       they overlap, so the cluster reads as physical objects jostling
+       rather than a tidy grid. Rotation is about the cube's centre. -->
+  <g id="ice" stroke="#aac8d3" stroke-width="0.6">
+    <rect x="84"  y="76"  width="30" height="30" rx="6" fill="url(#iceFace)" opacity="0.92"
+          transform="rotate(-18 99 91)"/>
+    <rect x="106" y="78"  width="32" height="32" rx="7" fill="url(#iceFace)" opacity="0.92"
+          transform="rotate(14 122 94)"/>
+    <rect x="86"  y="100" width="28" height="28" rx="6" fill="url(#iceFace)" opacity="0.92"
+          transform="rotate(8 100 114)"/>
+    <rect x="112" y="106" width="30" height="30" rx="6" fill="url(#iceFace)" opacity="0.92"
+          transform="rotate(-22 127 121)"/>
+  </g>
+
+  <!-- ── Glass outline (top-most so it crisps the silhouette) ───── -->
+  <g fill="none" stroke="#1e5a3a" stroke-width="4" stroke-linejoin="round" stroke-linecap="round">
+    <!-- Rim (full ellipse) -->
+    <ellipse cx="120" cy="72" rx="44" ry="8"/>
+    <!-- Left wall -->
+    <path d="M 76 72 L 78 266"/>
+    <!-- Right wall -->
+    <path d="M 164 72 L 162 266"/>
+    <!-- Front base arc -->
+    <path d="M 78 266 Q 120 280 162 266"/>
+  </g>
+</svg>
