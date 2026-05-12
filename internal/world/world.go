@@ -173,8 +173,10 @@ func (w *World) RemoveBuilding(id uint64) {
 			if b.Type == BuildingShed {
 				w.RemoveSnowcatsOwnedBy(b.ID)
 			}
-			if b.Type == BuildingParking && b.DrivewayNodeID != 0 {
-				w.RemoveRoadNode(b.DrivewayNodeID)
+			if b.Type == BuildingParking {
+				for _, id := range b.DrivewayNodeIDs {
+					w.RemoveRoadNode(id)
+				}
 			}
 			w.Buildings = append(w.Buildings[:i], w.Buildings[i+1:]...)
 			return

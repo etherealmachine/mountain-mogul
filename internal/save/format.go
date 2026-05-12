@@ -89,9 +89,9 @@ type BuildingData struct {
 	RouteCells [][2]int   `json:"route,omitempty"`
 
 	// Parking-only state.
-	MaxCars        int     `json:"max_cars,omitempty"`
-	CurrentCars    float32 `json:"cur_cars,omitempty"`
-	DrivewayNodeID uint64  `json:"driveway,omitempty"` // road-network attach node
+	MaxCars         int      `json:"max_cars,omitempty"`
+	CurrentCars     float32  `json:"cur_cars,omitempty"`
+	DrivewayNodeIDs []uint64 `json:"driveway_ids,omitempty"` // road-network attach nodes, one per parking mesh slot
 }
 
 // SnowcatData is a saved cat. ShedID links it back to its shed; both

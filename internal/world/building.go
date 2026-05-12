@@ -44,13 +44,13 @@ type Building struct {
 	// CurrentCars is a continuous estimate (incremented per spawn,
 	// decremented per despawn) and the render path floors it to instance
 	// N car models in a grid pattern. Roughly 4 skiers per car.
-	// DrivewayNodeID points at the road node auto-created at the lot's
-	// front edge — the player attaches the road network there. Zero on
-	// non-parking buildings (and on parking lots that haven't had
-	// EnsureParkingDriveway called yet).
-	MaxCars        int
-	CurrentCars    float32
-	DrivewayNodeID uint64
+	// DrivewayNodeIDs holds the road-graph attach points auto-created
+	// from the parking mesh's MOGUL_META slot table — one node per slot,
+	// in slot-index order. Empty on non-parking buildings and on parking
+	// lots that haven't had EnsureParkingDriveway called yet.
+	MaxCars         int
+	CurrentCars     float32
+	DrivewayNodeIDs []uint64
 
 	// Shed-only state. Cats is the number of grooming machines this
 	// shed dispatches (1..MaxCatsPerShed). RouteCells holds the cells
@@ -151,58 +151,66 @@ func randExp(rate float64, rng *rand.Rand) float64 {
 	return -math.Log(1-rng.Float64()) / rate
 }
 
-// DrivewayPosition returns the world XZ position of a parking lot's
-// driveway — the road-network attach point. Reads the parking mesh's
-// slot 0 (declared in parking.scad as `MOGUL_META slot 0 ...`) and
-// rotates it by the building's Y rotation before adding the anchor.
-// Falls back to a halfZ-edge guess if no slot is registered, so a
-// missing OBJ rebuild doesn't strand the driveway at the origin.
-func (b *Building) DrivewayPosition() mgl32.Vec2 {
+// DrivewayPositions returns the world XZ positions of a parking lot's
+// driveway attach points — one per MOGUL_META slot declared by the
+// parking mesh, in slot-index order. Each mesh-local slot position is
+// rotated by the building's Y rotation before being added to the
+// anchor. Returns nil for non-parking buildings or when no slots are
+// registered (e.g. before the OBJ has been rebuilt).
+func (b *Building) DrivewayPositions() []mgl32.Vec2 {
 	if b.Type != BuildingParking {
-		return b.Pos
+		return nil
+	}
+	slots := SlotsFor(b.Type.MeshID())
+	if len(slots) == 0 {
+		return nil
 	}
 	cos := float32(math.Cos(float64(b.Rotation)))
 	sin := float32(math.Sin(float64(b.Rotation)))
-	for _, s := range SlotsFor(b.Type.MeshID()) {
-		if s.Index == 0 {
-			// Mesh-local (X, _, Z) → world delta rotated around Y. The
-			// renderer's HomogRotate3DY convention maps (1,0,0) →
-			// (cos, 0, -sin) and (0,0,1) → (sin, 0, cos).
-			mx, mz := s.Pos[0], s.Pos[2]
-			return mgl32.Vec2{
-				b.Pos[0] + mx*cos + mz*sin,
-				b.Pos[1] - mx*sin + mz*cos,
-			}
+	out := make([]mgl32.Vec2, len(slots))
+	for i, s := range slots {
+		// Mesh-local (X, _, Z) → world delta rotated around Y, matching
+		// the renderer's HomogRotate3DY convention: (1,0,0) →
+		// (cos, 0, -sin) and (0,0,1) → (sin, 0, cos).
+		mx, mz := s.Pos[0], s.Pos[2]
+		out[i] = mgl32.Vec2{
+			b.Pos[0] + mx*cos + mz*sin,
+			b.Pos[1] - mx*sin + mz*cos,
 		}
 	}
-	// Fallback: sit at the +Z edge midpoint. Same convention the SCAD
-	// slot is supposed to override, just less informed.
-	fp, ok := FootprintFor(b.Type.MeshID())
-	if !ok {
-		return b.Pos
-	}
-	d := fp.HalfZ
-	return mgl32.Vec2{
-		b.Pos[0] + d*sin,
-		b.Pos[1] + d*cos,
-	}
+	return out
 }
 
-// EnsureParkingDriveway creates the road-network attach node for a
-// parking lot if it doesn't already have one. Idempotent — safe to
-// call multiple times. Driveway position is computed from the lot's
-// current Pos + Rotation + footprint via Building.DrivewayPosition.
+// EnsureParkingDriveway creates the road-network attach nodes for a
+// parking lot — one per MOGUL_META slot from the parking mesh. Each
+// slot's stored node ID is reused if it still resolves to a live
+// RoadNode; missing ones get freshly created. Slot ordering is
+// preserved so DrivewayNodeIDs[i] always corresponds to slot i.
 //
-// No-op for non-parking buildings.
+// Idempotent — safe to call multiple times. No-op for non-parking
+// buildings; no-op for parking lots without registered slots (which
+// keeps the placement path from crashing during a missing-asset run).
 func (w *World) EnsureParkingDriveway(b *Building) {
 	if b == nil || b.Type != BuildingParking {
 		return
 	}
-	if b.DrivewayNodeID != 0 && w.RoadNodeByID(b.DrivewayNodeID) != nil {
+	positions := b.DrivewayPositions()
+	if len(positions) == 0 {
 		return
 	}
-	n := w.AddRoadNode(b.DrivewayPosition(), RoadNodeParkingDriveway)
-	b.DrivewayNodeID = n.ID
+	// Grow the ID slice to match the slot count; values default to 0,
+	// which the existence check below treats as "needs a fresh node".
+	for len(b.DrivewayNodeIDs) < len(positions) {
+		b.DrivewayNodeIDs = append(b.DrivewayNodeIDs, 0)
+	}
+	for i, pos := range positions {
+		id := b.DrivewayNodeIDs[i]
+		if id != 0 && w.RoadNodeByID(id) != nil {
+			continue
+		}
+		n := w.AddRoadNode(pos, RoadNodeParkingDriveway)
+		b.DrivewayNodeIDs[i] = n.ID
+	}
 }
 
 // RemoveRoadNode deletes a road node and every edge incident to it.

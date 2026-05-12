@@ -227,10 +227,11 @@ void main() {
     // Contour lines drawn last so they remain readable through any
     // heatmap underneath.
     if ((uOverlayMode & 1) != 0) {
-        float elevMod = mod(vSmoothY, 50.0);
+        const float contourInterval = 10.0;
+        float elevMod = mod(vSmoothY, contourInterval);
         float fw      = fwidth(vSmoothY);
         float line    = 1.0 - smoothstep(fw, fw * 3.0,
-                                         min(elevMod, 50.0 - elevMod));
+                                         min(elevMod, contourInterval - elevMod));
         fragColor.rgb = mix(fragColor.rgb, vec3(0.05, 0.05, 0.10), line * 0.85);
     }
 

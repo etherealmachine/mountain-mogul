@@ -70,10 +70,20 @@ parking_lot();
 // OBJ header for the placement pass and the per-car layout.
 echo("MOGUL_META", "footprint", pad_w / 2, pad_d / 2);
 
-// ── Driveway slot ──────────────────────────────────────────────────────
-// Cars enter the lot from the +X face — the end of the single aisle
-// that runs along the stall-width axis. The slot sits a metre past the
-// pad edge so the road network's quad has a tiny gap before the
-// parking apron starts (both are dark grey, so the gap reads as a
-// clean kerb rather than overlap).
-echo("MOGUL_META", "slot", 0, pad_w / 2 + 1.0, 0, 0);
+// ── Driveway slots ─────────────────────────────────────────────────────
+// Eight attach points for the road network — two on each of the lot's
+// four edges. Each slot sits 1 m past the pad edge so the connecting
+// road quad has a small gap before the parking apron starts.
+//
+// On the short faces (±X) the pair is spaced ±pad_d/4 along Y; on the
+// long faces (±Y) the pair is spaced ±pad_w/4 along X. Pair spacing
+// is wide enough that two roads converging from different angles
+// don't fight for the same attach point.
+echo("MOGUL_META", "slot", 0,  pad_w / 2 + 1,  pad_d / 4, 0);
+echo("MOGUL_META", "slot", 1,  pad_w / 2 + 1, -pad_d / 4, 0);
+echo("MOGUL_META", "slot", 2, -pad_w / 2 - 1,  pad_d / 4, 0);
+echo("MOGUL_META", "slot", 3, -pad_w / 2 - 1, -pad_d / 4, 0);
+echo("MOGUL_META", "slot", 4,  pad_w / 4,  pad_d / 2 + 1, 0);
+echo("MOGUL_META", "slot", 5, -pad_w / 4,  pad_d / 2 + 1, 0);
+echo("MOGUL_META", "slot", 6,  pad_w / 4, -pad_d / 2 - 1, 0);
+echo("MOGUL_META", "slot", 7, -pad_w / 4, -pad_d / 2 - 1, 0);

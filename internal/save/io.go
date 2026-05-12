@@ -212,11 +212,11 @@ func worldToData(w *world.World) ScenarioData {
 			Rotation:       b.Rotation,
 			MeanSpawnRate:  b.MeanSpawnRate,
 			SkierCount:     b.SkierCount,
-			Cats:           b.Cats,
-			RouteCells:     b.RouteCells,
-			MaxCars:        b.MaxCars,
-			CurrentCars:    b.CurrentCars,
-			DrivewayNodeID: b.DrivewayNodeID,
+			Cats:            b.Cats,
+			RouteCells:      b.RouteCells,
+			MaxCars:         b.MaxCars,
+			CurrentCars:     b.CurrentCars,
+			DrivewayNodeIDs: b.DrivewayNodeIDs,
 		}
 	}
 
@@ -386,7 +386,7 @@ func dataToWorld(data ScenarioData) *world.World {
 				b.MaxCars = bd.MaxCars
 			}
 			b.CurrentCars = bd.CurrentCars
-			b.DrivewayNodeID = bd.DrivewayNodeID
+			b.DrivewayNodeIDs = bd.DrivewayNodeIDs
 		}
 	}
 
