@@ -4,7 +4,7 @@
 ---
 
 ### 1. Executive Summary
-**Mountain Mogul** is a low-poly management simulation where players design, build, and operate world-class ski destinations. Unlike traditional builders, *Mountain Mogul* leverages real-world geospatial data, allowing players to recreate their local "hidden gems" or massive international peaks. The core loop balances technical mountain operations with a complex real-estate economy.
+**Mountain Mogul** is a management simulation where players design, build, and operate world-class ski destinations. *Mountain Mogul* leverages real-world geospatial data to allow players to recreate their local "hidden gems" or massive international peaks. The core loop balances technical mountain operations with a complex economy.
 
 ---
 
@@ -30,10 +30,17 @@ Movement is the heartbeat of the resort. Players must strategically place a hier
 *   **Aerial Lifts:** Fixed-grip chairs, high-speed detachables, and massive gondolas.
 *   **Specialty Transport:** CAT skiing for backcountry access and Heliskiing pads for the ultra-wealthy "whale" guests.
 
-
-
 #### C. The "Agentic Skier" System
-Each guest is a unique agent with:
+Each guest is a unique agent. See [SKIER_AI.md](SKIER_AI.md) for the full AI architecture (L0 GOAP planner + L1–L3 continuous controller).
+
+**Per-skier state:**
+*   **Energy:** Session-level fatigue budget. Drains while skiing, recovers on lifts and at lodges.
+*   **Hunger:** Grows over time; resolved by eating at a lodge.
+*   **Fun:** Composite satisfaction signal (`Mood` in the AI doc). Modulated by run quality, queue waits, falls, and matched-difficulty terrain.
+*   **Revenue:** Cumulative spend per skier — lift ticket, food, lodging, merch — rolled into resort revenue on departure.
+*   **Injury:** Boolean event state; triggered by overshoot, ungroomed terrain at low skill, or unsafe density. Pulls the skier out of play and dispatches Ski Patrol.
+
+**Per-skier traits:**
 *   **Skill Level:** Beginner, Intermediate, Expert, Pro. Determines run selection and sets the agent's base fatigue accumulation rate on a given run.
 *   **Goals:** "Hunt powder," "Find the shortest line," "Go to après-ski," or "Stay near the lodge."
 *   **Satisfaction:** Composite score driven by lift wait times, grooming quality, trail crowding, and whether runs at their skill level are available and reachable. An expert who can only access beginner terrain, or a beginner who can't find a safe way down, both tank their satisfaction.
@@ -47,7 +54,20 @@ Efficiency is determined by behind-the-scenes infrastructure:
 
 ---
 
-### 4. Economy & Real Estate
+### 4. Park Rating
+
+A single top-bar metric that summarizes how the resort is doing. Computed as an exponential moving average of skier `Fun` at departure (see [SKIER_AI.md](SKIER_AI.md) §Resort rating).
+
+Park Rating is the player's primary feedback signal:
+*   Drives the spawn rate at parking — bad rating means fewer arrivals.
+*   Drives real-estate demand — condo / hotel sales soften when rating drops.
+*   Surfaces top complaint reasons so the player can diagnose (long queues, mismatched difficulty, falls, parking full).
+
+Specific events that move the rating disproportionately: injuries, deaths, parking turn-aways, and long-line cascades across the whole resort.
+
+---
+
+### 5. Economy & Real Estate
 Growth is funded by more than just lift tickets. The game features a **Real Estate Economy**:
 *   **Land Acquisition:** Take out high-interest loans to expand your boundary.
 *   **Zoning:** Develop base areas with parking, hotels, luxury condos, and retail.
@@ -55,18 +75,63 @@ Growth is funded by more than just lift tickets. The game features a **Real Esta
 
 ---
 
-### 5. Technical & Visual Style
-*   **Visuals:** Clean, low-poly aesthetic with a high-contrast color palette. This ensures that even with 5,000+ agents on screen, the game remains performant and readable.
-*   **Time System:** No day/night cycle. This allows for a continuous "flow state" for the player, focusing on the constant pulse of the resort rather than scheduling shifts.
+### 6. Building Catalog
+
+The full set of placeable buildings and zones, grouped by role. Most exist to either move skiers, keep them happy, keep them safe, or extract revenue.
+
+#### A. Uplift
+| Building | Role |
+|---|---|
+| **Lifts** | A variety of lifts get skiers up the mountain for more fun. Standing in line drains fun. Surface lifts, fixed-grip chairs, high-speed detachables, gondolas — each with different throughput, cost, and skill suitability. |
+
+#### B. Hospitality (on-mountain revenue & rest)
+| Building | Role |
+|---|---|
+| **Lodges** | Provide food and rest for hungry and tired skiers. |
+| **Shops / Restaurants / Bars** | Give skiers something to do while resting and provide off-mountain revenue. |
+| **Ice Rink** | Non-ski attraction; gives lodgers something to do. |
+| **Sledding Hill** | Non-ski attraction; family-friendly. |
+
+#### C. Terrain Operations
+| Building / Zone | Role |
+|---|---|
+| **Cat Shed** | Houses a fleet of snowcats. Snowcats groom terrain and cut cat trails. |
+| **Grooming** | Most skiers prefer groomed terrain, and it's easier for beginners — fewer falls and injuries. |
+| **Moguls** | Some skiers actually prefer moguls. An expert bombing moguls can provide fun for skiers watching from a lift. |
+| **Cat Trails** | Give beginners an easy way down the mountain. Cat trails can fill up, increasing injury risk. |
+| **Slow Zone** | Encourages skiers to go slow through congested areas, reducing injuries. |
+| **Ski Area Boundary** | Keeps skiers off dangerous unpatrolled terrain. Injuries or deaths outside patrol coverage tank the rating hard. |
+
+#### D. Safety
+| Building | Role |
+|---|---|
+| **Ski Patrol** | Enforces slow zones and responds to injuries. |
+| **Clinic** | Treats injuries on-site so skiers don't get mad and hurt the rating. |
+| **Medevac** | Emergency air evacuation for serious incidents. |
+
+#### E. Real Estate (long-term revenue & guest retention)
+| Building | Role |
+|---|---|
+| **Condos** | Selling condos gives a quick burst of income when demand is there. Owners become a reliable source of skiers. |
+| **Hotels** | Expensive to build but provide ongoing revenue and keep skiers on the mountain across days. |
+| **Houses** | Similar to condos with even more income, but take up valuable land. |
+
+#### F. Access
+| Building | Role |
+|---|---|
+| **Parking** | Primary spawn point. Capacity caps daily attendance; a full lot turns guests away and dings the rating. |
+| **Train Station** | Alternative arrival mode. Higher throughput, no parking footprint. |
+
+#### G. Premium / "Whale" Experiences
+| Building | Role |
+|---|---|
+| **Heli Pad** | Enables Heli Skiing. |
+| **Cat Skiing** | Snowcat-assisted backcountry access for advanced skiers. |
+| **Heli Skiing** | Top-tier experience for ultra-wealthy guests. High revenue per skier. |
 
 ---
 
-### 6. Development Roadmap (Phase 1 - MVP)
-Three scenes - Start Menu, Scenario (main gameplay loop), and Scenario Editor
+### Related Documents
 
-Start Menu has Start Game, Load Save, Scenario Editor, Settings, and Exit
-Start Game transitions to Scenario with the Tutorial resort
-Tutorial resort has a predefined terrain with trees and obstacles (tree stumps, rocks)
-Scenario Editor loads the Tutorial scene and lets edit it and save it, buttons for placing trees and modifying terrain (menu bar style)
-Scenario scene has a menu bar for removing trees, placing trees, building lifts, and building lodges
-Lodges will spawn skiers, skiers will head towards the base of the lift, take the lift up, and ski down either into the lodge or to the lift base again.
+*   [SKIER_AI.md](SKIER_AI.md) — agent AI architecture (planning + steering)
+*   [SNOW.md](SNOW.md) — snow surface model and friction multipliers

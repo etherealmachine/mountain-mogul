@@ -12,6 +12,7 @@ import (
 	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
 	"github.com/go-gl/mathgl/mgl32"
+	"mountain-mogul/internal/ai/goap"
 	"mountain-mogul/internal/engine"
 	"mountain-mogul/internal/render"
 	"mountain-mogul/internal/save"
@@ -458,8 +459,11 @@ type Scenario struct {
 	overlayPanel    *ui.OverlayPanel // right-side terrain-overlay toggles
 	escapeMenu      *EscapeMenu
 	toolButtons     map[toolMode]*ui.Button
+	liftDoubleBtn   *ui.Button // toolbar button for the double-chair lift variant
+	liftQuadBtn     *ui.Button // toolbar button for the fixed-quad lift variant
 	activeTool      toolMode
-	liftBase        mgl32.Vec2 // first click world position for lift placement
+	liftType        world.LiftType // chair variant the toolLiftBase/Top flow will place
+	liftBase        mgl32.Vec2     // first click world position for lift placement
 	roadStart       mgl32.Vec2 // first click world position for road placement (post-snap)
 	scenarioPath    string
 	time            float32
@@ -470,6 +474,7 @@ type Scenario struct {
 	followAgentID   uint64 // 0 = free camera; >0 = ID of followed skier
 	firstPerson     bool   // V: first-person camera at the followed skier's head
 	debugSteering   bool   // F3: render steering forces on the followed skier
+	debugPlanner    bool   // F4: show goal weights, full plan, snapshot anchors for the followed skier
 	paused          bool
 	popup           *ui.Window
 	saveAllowed     bool   // false in testbed mode; gates the Save prompt
@@ -637,7 +642,8 @@ func (s *Scenario) Init(app *engine.App) error {
 	s.toolButtons[toolParking] = s.toolBar.AddIconButton(render.IconUsers, "Parking", func() { s.setTool(toolParking) })
 	s.toolButtons[toolBuilding] = s.toolBar.AddIconButton(render.IconHouse, "Lodge", func() { s.setTool(toolBuilding) })
 	s.toolButtons[toolShed] = s.toolBar.AddIconButton(render.IconGarage, "Shed", func() { s.setTool(toolShed) })
-	s.toolButtons[toolLiftBase] = s.toolBar.AddIconButton(render.IconCableCar, "Lift", func() { s.setTool(toolLiftBase) })
+	s.liftDoubleBtn = s.toolBar.AddIconButton(render.IconCableCar, "Double", func() { s.activateLiftTool(world.LiftDouble) })
+	s.liftQuadBtn = s.toolBar.AddIconButton(render.IconCableCar, "Quad", func() { s.activateLiftTool(world.LiftFixedQuad) })
 	s.toolButtons[toolRoadStart] = s.toolBar.AddIconButton(render.IconRoad, "Road", func() { s.setTool(toolRoadStart) })
 	s.toolButtons[toolGlade] = s.toolBar.AddIconButton(render.IconAxe, "Glade", func() { s.setTool(toolGlade) })
 	s.toolButtons[toolRemove] = s.toolBar.AddIconButton(render.IconTrash, "Remove", func() { s.setTool(toolRemove) })
@@ -895,6 +901,12 @@ func (s *Scenario) Update(dt float64) {
 		return
 	}
 
+	// When the lift popup (or any popup with a text-input row) is open,
+	// keyboard chars belong to its field — suppress single-letter
+	// hotkeys so typing a lift name doesn't also toggle FPV / contour /
+	// CSV logging.
+	typing := s.popup.WantsKeyboard()
+
 	if inp.Pressed[glfw.KeyEscape] {
 		switch {
 		case s.roadEdit.active() || s.structureEdit.active():
@@ -906,7 +918,7 @@ func (s *Scenario) Update(dt float64) {
 			s.escapeMenu.Toggle()
 		}
 	}
-	if inp.Pressed[glfw.KeyDelete] || inp.Pressed[glfw.KeyBackspace] {
+	if !typing && (inp.Pressed[glfw.KeyDelete] || inp.Pressed[glfw.KeyBackspace]) {
 		switch {
 		case s.roadEdit.active():
 			deleteSelectedRoad(r, s.world, &s.roadEdit)
@@ -920,21 +932,21 @@ func (s *Scenario) Update(dt float64) {
 	}
 
 	// Tab: cycle the followed skier (first press picks random, subsequent press advances).
-	if inp.Pressed[glfw.KeyTab] {
+	if !typing && inp.Pressed[glfw.KeyTab] {
 		s.cycleFollow()
 	}
 
 	// V: toggle first-person camera at the followed skier's head. No-op
 	// when nobody is followed — FPV without a target would have no
 	// anchor.
-	if inp.Pressed[glfw.KeyV] && s.followAgentID != 0 {
+	if !typing && inp.Pressed[glfw.KeyV] && s.followAgentID != 0 {
 		s.firstPerson = !s.firstPerson
 	}
 
 	// C: quick toggle for the contour overlay. The full overlay panel is
 	// behind the top-bar stack button; this hotkey is kept for muscle
 	// memory since contour was the most-used legacy overlay.
-	if inp.Pressed[glfw.KeyC] {
+	if !typing && inp.Pressed[glfw.KeyC] {
 		s.overlayPanel.ToggleBit(render.OverlayContour)
 		r.TerrainOverlayMode = s.overlayPanel.Mask()
 	}
@@ -947,8 +959,14 @@ func (s *Scenario) Update(dt float64) {
 		}
 	}
 
+	// F4: toggle planner debug panel (goal weights, full plan, snapshot
+	// anchors). Independent of F3 — the user can run either or both.
+	if inp.Pressed[glfw.KeyF4] {
+		s.debugPlanner = !s.debugPlanner
+	}
+
 	// L: toggle CSV log of the followed skier (debug instrumentation).
-	if inp.Pressed[glfw.KeyL] {
+	if !typing && inp.Pressed[glfw.KeyL] {
 		s.toggleSkierLog()
 	}
 
@@ -1554,7 +1572,7 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 			return
 		}
 		w.Cash -= cost
-		lift := w.PlaceLift(s.liftBase[0], s.liftBase[1], wx, wz)
+		lift := w.PlaceLift(s.liftType, s.liftBase[0], s.liftBase[1], wx, wz)
 		rebuildTerrainFromNatural(w)
 		r.FlushTerrainVerts(w.Terrain)
 		r.AddLiftCable(lift, w.Terrain)
@@ -1783,7 +1801,18 @@ func (s *Scenario) Render(r *render.Renderer) {
 	}
 	for _, a := range s.world.Agents {
 		if a.ID == s.followAgentID {
-			drawables = append(drawables, &followLabel{world: s.world, agent: a})
+			drawables = append(drawables, &followLabel{
+				world:   s.world,
+				agent:   a,
+				planner: s.sim.Planner,
+			})
+			if s.debugPlanner {
+				drawables = append(drawables, &plannerDebugPanel{
+					world:   s.world,
+					agent:   a,
+					planner: s.sim.Planner,
+				})
+			}
 			break
 		}
 	}
@@ -1928,6 +1957,14 @@ func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 	l := lift
 	w := ui.NewWindow("Ski Lift", 0, 0)
+	w.AddTextInput("Name", l.Name, func(text string) { l.Name = text })
+	w.AddDifficultyToggles("Services",
+		func(bit uint8) bool { return l.Services.Has(world.TerrainDifficulty(bit)) },
+		func(bit uint8) { l.Services = l.Services.Toggle(world.TerrainDifficulty(bit)) },
+	)
+	w.AddLabel("Type", func() string {
+		return l.Type.Label()
+	})
 	w.AddLabel("Queue", func() string {
 		return fmt.Sprintf("%d skiers", len(l.Queue))
 	})
@@ -1935,10 +1972,25 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 		return fmt.Sprintf("%d skiers", l.PassengerCount())
 	})
 	w.AddLabel("Chairs", func() string {
-		return fmt.Sprintf("%d", len(l.Chairs))
+		return fmt.Sprintf("%d × %d-seat", len(l.Chairs), l.Type.Capacity())
 	})
 	w.AddStepper("Speed (m/s)", &l.Speed, 0.5, 0.5, 8.0)
 	w.AddIntStepper("Ticket ($)", &l.TicketPrice, 5, 0, 200)
+	if l.Type == world.LiftDouble {
+		label := fmt.Sprintf("Upgrade to Quad ($%d)", world.LiftUpgradeCost)
+		w.AddActionButton(label, func() {
+			if !s.world.UpgradeLift(l, world.LiftFixedQuad) {
+				if s.world.Cash < world.LiftUpgradeCost {
+					s.setToast(fmt.Sprintf("Need $%d to upgrade — short by $%d",
+						world.LiftUpgradeCost, world.LiftUpgradeCost-s.world.Cash))
+				}
+				return
+			}
+			// Reopen so the row layout reflects the new type (the upgrade
+			// button drops out, labels refresh).
+			s.openLiftPopup(l, screenW, screenH)
+		})
+	}
 	w.Visible = true
 	w.Center(screenW, screenH)
 	s.popup = w
@@ -1969,6 +2021,27 @@ func (s *Scenario) setTool(t toolMode) {
 		s.structureEdit.clear()
 	}
 	s.syncToolButtons()
+}
+
+// activateLiftTool starts (or switches) the two-click lift placement
+// flow for the given chair variant. Clicking the same variant's
+// toolbar button while it's already active toggles the tool off;
+// clicking the other variant's button mid-flow swaps the chair type
+// without cancelling the placement, so the in-progress base position
+// is preserved.
+func (s *Scenario) activateLiftTool(typ world.LiftType) {
+	inLiftFlow := s.activeTool == toolLiftBase || s.activeTool == toolLiftTop
+	if inLiftFlow && s.liftType == typ {
+		s.cancelTool()
+		return
+	}
+	s.liftType = typ
+	if inLiftFlow {
+		// Keep the current step (base or top); only the chair type changes.
+		s.syncToolButtons()
+		return
+	}
+	s.setTool(toolLiftBase)
 }
 
 // cancelTool deactivates whatever tool is currently active.
@@ -2011,11 +2084,20 @@ func (s *Scenario) uiCovers(x, y float32, screenW float32) bool {
 }
 
 // syncToolButtons updates the active state of all tool buttons to match activeTool.
+// The lift buttons live outside toolButtons because two of them share the
+// toolLiftBase/Top tool modes — only the one whose chair type matches the
+// current liftType selection should highlight.
 func (s *Scenario) syncToolButtons() {
 	for mode, btn := range s.toolButtons {
 		btn.SetActive(s.activeTool == mode ||
-			(mode == toolLiftBase && s.activeTool == toolLiftTop) ||
 			(mode == toolRoadStart && s.activeTool == toolRoadEnd))
+	}
+	liftActive := s.activeTool == toolLiftBase || s.activeTool == toolLiftTop
+	if s.liftDoubleBtn != nil {
+		s.liftDoubleBtn.SetActive(liftActive && s.liftType == world.LiftDouble)
+	}
+	if s.liftQuadBtn != nil {
+		s.liftQuadBtn.SetActive(liftActive && s.liftType == world.LiftFixedQuad)
 	}
 }
 
@@ -2316,24 +2398,209 @@ func (s *Scenario) applyPerceptionCone(r *render.Renderer) {
 	r.SetPerceptionCone(a.Pos, mgl32.Vec2{hx, hz}, cosHalf, a.Sense.ProbeDist)
 }
 
-// followLabel draws a HUD banner showing which skier the camera is following.
+// followLabel is the compact HUD banner shown for the currently followed
+// skier. Stays narrow: identity, speed/energy/fun, selected goal name,
+// and the next action only. Deep planner introspection — full plan,
+// goal weights, snapshot anchors — moves to plannerDebugPanel behind F4.
 type followLabel struct {
-	world *world.World
-	agent *world.Agent
+	world   *world.World
+	agent   *world.Agent
+	planner *goap.Planner
 }
 
 func (f *followLabel) Draw(r *render.Renderer) {
 	activity := world.Activity(f.world, f.agent)
 	energyPct := int(f.agent.Energy*100 + 0.5)
+	funPct := int(f.agent.Fun*100 + 0.5)
 	mode := f.agent.Sense.Mode
 	if mode == "" {
 		mode = "—"
 	}
 	rows := []string{
 		fmt.Sprintf("Skier #%d (%s)  |  %s  |  %s", f.agent.ID, f.agent.Traits.Skill, activity, mode),
-		fmt.Sprintf("%.1f m/s    energy %d%%", f.agent.Speed, energyPct),
+		fmt.Sprintf("%.1f m/s    energy %d%%    fun %d%%", f.agent.Speed, energyPct, funPct),
+	}
+	if f.planner != nil {
+		plan, goal, _ := f.planner.PlanForAgent(f.agent, f.world)
+		switch {
+		case goal == nil:
+			rows = append(rows, "goal: —")
+		case len(plan) == 0:
+			rows = append(rows, fmt.Sprintf("goal: %s   (satisfied)", goal.Name()))
+		case plan == nil:
+			rows = append(rows, fmt.Sprintf("goal: %s   (no plan)", goal.Name()))
+		default:
+			rows = append(rows, fmt.Sprintf("goal: %s   →  %s",
+				goal.Name(), goap.DisplayName(plan[0], f.world)))
+		}
+	}
+	drawHUDBox(r, rows, 106, mgl32.Vec4{1, 0.95, 0.1, 1}, true)
+}
+
+// plannerDebugPanel is the F4-toggled deep readout of the L0 GOAP
+// planner for the followed skier. Recomputes the snapshot + plan every
+// frame so the panel reflects the live state — cheap because it's one
+// skier. Renders to the right of the screen as a stacked column so it
+// doesn't compete with the centred followLabel banner.
+type plannerDebugPanel struct {
+	world   *world.World
+	agent   *world.Agent
+	planner *goap.Planner
+}
+
+// debugPanelMaxPlan caps how many plan rows the panel shows. Plans can
+// run to Planner.MaxPlanLen (16) but the panel is for spot-checking,
+// not full plan archaeology — overflow gets "… +N more".
+const debugPanelMaxPlan = 12
+
+func (p *plannerDebugPanel) Draw(r *render.Renderer) {
+	if p.planner == nil {
+		return
+	}
+	plan, _, snap := p.planner.PlanForAgent(p.agent, p.world)
+
+	var rows []string
+	rows = append(rows, fmt.Sprintf("─── Planner: Skier #%d ───", p.agent.ID))
+
+	// Ranked goal weights — the actual decision audit.
+	rows = append(rows, "Goal weights:")
+	winnerMarked := false
+	for _, gr := range goap.RankedGoals(&snap, p.world) {
+		marker := "  "
+		if !gr.Satisfied && !winnerMarked {
+			marker = "> "
+			winnerMarked = true
+		}
+		label := gr.Goal.Name()
+		if gr.Satisfied {
+			label += " (satisfied)"
+		}
+		rows = append(rows, fmt.Sprintf("%s%-22s  w=%.2f", marker, label, gr.Weight))
 	}
 
+	// Snapshot anchors — surfaces Extract() output so we can spot mis-
+	// derived positions.
+	rows = append(rows, "Snapshot:")
+	rows = append(rows, fmt.Sprintf("  base=%s  top=%s  q=%s",
+		liftRef(p.world, snap.AtLiftBase),
+		liftRef(p.world, snap.AtLiftTop),
+		liftRef(p.world, snap.Queued)))
+	rows = append(rows, fmt.Sprintf("  onLift=%s  lodge=%s  lot=%s",
+		liftRef(p.world, snap.OnLift),
+		buildingRef(p.world, snap.AtLodge),
+		buildingRef(p.world, snap.AtParking)))
+
+	// Per-lift ride counts driving Explore + RideLift.Cost.
+	rows = append(rows, "RidenLifts:")
+	rows = append(rows, ridenLiftsLine(p.world, snap.RidenLifts))
+
+	// Plan body — each row shows action + its cost-at-snapshot-time.
+	rows = append(rows, "Plan:")
+	switch {
+	case plan == nil:
+		rows = append(rows, "  (no plan)")
+	case len(plan) == 0:
+		rows = append(rows, "  (goal already satisfied)")
+	default:
+		// Step through the snapshot copy as we walk the plan so each
+		// action's cost is computed against the state it actually acts
+		// on — same shape A* used during search.
+		step := snap.Clone()
+		for i, a := range plan {
+			if i >= debugPanelMaxPlan {
+				rows = append(rows, fmt.Sprintf("  … +%d more", len(plan)-debugPanelMaxPlan))
+				break
+			}
+			cost := a.Cost(&step, p.world)
+			rows = append(rows, fmt.Sprintf("  %2d. %-32s  c=%5.1fs",
+				i+1, goap.DisplayName(a, p.world), cost))
+			a.Apply(&step, p.world)
+		}
+	}
+
+	drawHUDBox(r, rows, 200, mgl32.Vec4{0.85, 0.95, 1, 1}, false)
+}
+
+// ridenLiftsLine formats the per-lift ride count map as a single row
+// like "Lift1×2, Accelerator×1". Sorted by descending count so the most-
+// ridden lift comes first.
+func ridenLiftsLine(w *world.World, m map[uint64]int) string {
+	if len(m) == 0 {
+		return "  (none)"
+	}
+	type entry struct {
+		label string
+		count int
+	}
+	var entries []entry
+	for id, c := range m {
+		if c == 0 {
+			continue
+		}
+		entries = append(entries, entry{liftRef(w, id), c})
+	}
+	if len(entries) == 0 {
+		return "  (none)"
+	}
+	// Sort by descending count, ties broken by label.
+	for i := 1; i < len(entries); i++ {
+		for j := i; j > 0; j-- {
+			if entries[j-1].count >= entries[j].count {
+				if entries[j-1].count > entries[j].count || entries[j-1].label <= entries[j].label {
+					break
+				}
+			}
+			entries[j-1], entries[j] = entries[j], entries[j-1]
+		}
+	}
+	out := "  "
+	for i, e := range entries {
+		if i > 0 {
+			out += ", "
+		}
+		out += fmt.Sprintf("%s×%d", e.label, e.count)
+	}
+	return out
+}
+
+func liftRef(w *world.World, id uint64) string {
+	if id == 0 {
+		return "—"
+	}
+	for _, l := range w.Lifts {
+		if l.ID == id {
+			if l.Name != "" {
+				return l.Name
+			}
+			return fmt.Sprintf("#%d", id)
+		}
+	}
+	return fmt.Sprintf("#%d", id)
+}
+
+func buildingRef(w *world.World, id uint64) string {
+	if id == 0 {
+		return "—"
+	}
+	for _, b := range w.Buildings {
+		if b.ID != id {
+			continue
+		}
+		switch b.Type {
+		case world.BuildingLodge:
+			return fmt.Sprintf("Lodge#%d", id)
+		case world.BuildingParking:
+			return fmt.Sprintf("Lot#%d", id)
+		}
+	}
+	return fmt.Sprintf("#%d", id)
+}
+
+// drawHUDBox renders a translucent black box with centred text rows at
+// vertical offset y. col selects the text colour; centred=true centres
+// each row in the box, otherwise rows are left-aligned (used by the
+// debug panel where alignment matters more than centring).
+func drawHUDBox(r *render.Renderer, rows []string, y float32, col mgl32.Vec4, centred bool) {
 	const padX = 10
 	const padY = 4
 	const lineGap = 2
@@ -2343,18 +2610,27 @@ func (f *followLabel) Draw(r *render.Renderer) {
 			maxLen = len(row)
 		}
 	}
-	w := float32(maxLen*render.GlyphAdvance + 2*padX)
+	bw := float32(maxLen*render.GlyphAdvance + 2*padX)
 	boxH := float32(render.GlyphH*len(rows)+lineGap*(len(rows)-1)) + float32(2*padY)
-	x := (float32(r.ScreenWidth()) - w) / 2
-	y := float32(106) // sits just below the 96-px top HUD bar
-	r.DrawColorRect(x, y, w, boxH, mgl32.Vec4{0, 0, 0, 0.6})
-	if r.Font != nil {
-		col := mgl32.Vec4{1, 0.95, 0.1, 1}
-		for i, row := range rows {
-			rowX := x + (w-float32(len(row)*render.GlyphAdvance))/2
-			rowY := y + float32(padY) + float32(i*(render.GlyphH+lineGap))
-			r.Font.DrawText(r, row, rowX, rowY, col)
+	var x float32
+	if centred {
+		x = (float32(r.ScreenWidth()) - bw) / 2
+	} else {
+		x = float32(r.ScreenWidth()) - bw - 8 // right-anchored panel
+	}
+	r.DrawColorRect(x, y, bw, boxH, mgl32.Vec4{0, 0, 0, 0.65})
+	if r.Font == nil {
+		return
+	}
+	for i, row := range rows {
+		var rowX float32
+		if centred {
+			rowX = x + (bw-float32(len(row)*render.GlyphAdvance))/2
+		} else {
+			rowX = x + float32(padX)
 		}
+		rowY := y + float32(padY) + float32(i*(render.GlyphH+lineGap))
+		r.Font.DrawText(r, row, rowX, rowY, col)
 	}
 }
 

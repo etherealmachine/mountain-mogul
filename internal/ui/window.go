@@ -25,6 +25,8 @@ const (
 	rowIntStepper                  // same controls, int-backed value
 	rowStepperFn                   // label + [−] valueFn [+] buttons backed by callbacks (no direct pointer)
 	rowActionButton                // single full-width button row
+	rowTextInput                   // label + editable text field; captures keyboard focus
+	rowToggles                     // label + N small toggle buttons drawn as shape glyphs
 )
 
 type windowRow struct {
@@ -44,6 +46,38 @@ type windowRow struct {
 
 	// rowActionButton — single full-width clickable.
 	actionBtn *Button
+
+	// rowTextInput — single line editor sitting in the value column.
+	// onCommit fires whenever the text changes so callers can sync the
+	// new value back to their domain model.
+	textInput *TextInput
+	onCommit  func(string)
+
+	// rowToggles — N inline shape-button toggles. Each entry hits its
+	// own onClick when clicked; the renderer reads `active` each frame
+	// so callers don't have to update the row when external state changes.
+	toggles []*toggleEntry
+}
+
+// toggleShape selects how a toggleEntry is drawn.
+type toggleShape int
+
+const (
+	toggleDisc    toggleShape = iota // filled circle
+	toggleSquare                     // filled square
+	toggleDiamond                    // filled 45°-rotated square
+)
+
+// toggleEntry is one shape-toggle button in a rowToggles. The active
+// state is read each frame from the active callback so the UI tracks
+// external mutations without re-creating the row.
+type toggleEntry struct {
+	shape   toggleShape
+	color   [3]float32
+	active  func() bool
+	onClick func()
+	x, y, w float32 // populated by rebuildLayout
+	hovered bool
 }
 
 // Window is a simple floating info panel.
@@ -132,6 +166,57 @@ func (w *Window) AddActionButton(label string, onClick func()) {
 	w.rebuildLayout()
 }
 
+// AddTextInput adds a label + single-line editable text field. The
+// field captures keyboard input while the window is visible; any edit
+// fires onCommit so the caller can sync the new value back to its
+// domain model (lift name, label, etc.).
+func (w *Window) AddTextInput(label, initial string, onCommit func(string)) {
+	ti := NewTextInput(0, 0, 0, winRowH-4, initial)
+	row := &windowRow{
+		kind:      rowTextInput,
+		label:     label,
+		textInput: ti,
+		onCommit:  onCommit,
+	}
+	// Re-route Submit / Cancel so Enter / Esc don't bubble out of the
+	// popup (callers can override after AddTextInput returns).
+	ti.OnSubmit = func(string) {}
+	ti.OnCancel = func() {}
+	w.rows = append(w.rows, row)
+	w.rebuildLayout()
+}
+
+// AddDifficultyToggles adds a single row of three side-by-side toggle
+// buttons: a green circle, a blue square, and a black diamond, in that
+// order. Each toggle reads/writes the corresponding bit in `bits` via
+// the supplied has/toggle callbacks (so the row is reusable for any
+// uint8 bitfield, not just lift.Services).
+func (w *Window) AddDifficultyToggles(label string, has func(bit uint8) bool, toggle func(bit uint8)) {
+	row := &windowRow{
+		kind:  rowToggles,
+		label: label,
+	}
+	for _, t := range []struct {
+		shape toggleShape
+		color [3]float32
+		bit   uint8
+	}{
+		{toggleDisc, [3]float32{0.18, 0.78, 0.30}, 1 << 0},   // green
+		{toggleSquare, [3]float32{0.18, 0.55, 0.92}, 1 << 1}, // blue
+		{toggleDiamond, [3]float32{0.05, 0.05, 0.08}, 1 << 2}, // black
+	} {
+		bit := t.bit
+		row.toggles = append(row.toggles, &toggleEntry{
+			shape:   t.shape,
+			color:   t.color,
+			active:  func() bool { return has(bit) },
+			onClick: func() { toggle(bit) },
+		})
+	}
+	w.rows = append(w.rows, row)
+	w.rebuildLayout()
+}
+
 // AddIntStepper adds a row with [−] value [+] controls for an int value.
 // Same look and behaviour as AddStepper but the value displays as a bare
 // integer (no decimals) and clamps in int space.
@@ -197,6 +282,26 @@ func (w *Window) rebuildLayout() {
 			row.actionBtn.Y = rowY + (winRowH-btnH)/2
 			row.actionBtn.W = w.width - 2*winPadding
 			row.actionBtn.H = btnH
+		case rowTextInput:
+			row.textInput.X = w.X + w.labelW
+			row.textInput.Y = rowY + (winRowH-row.textInput.H)/2
+			row.textInput.W = w.width - w.labelW - winPadding
+		case rowToggles:
+			// Three small square hit-targets in the value column. Size
+			// each so the trio plus inter-gaps fits inside winValueAreaW.
+			const gap = float32(6)
+			n := float32(len(row.toggles))
+			btnW := (winValueAreaW - gap*(n-1) - winPadding) / n
+			if btnW > winRowH-4 {
+				btnW = winRowH - 4
+			}
+			startX := w.X + w.labelW
+			y := rowY + (winRowH-btnW)/2
+			for i, t := range row.toggles {
+				t.x = startX + float32(i)*(btnW+gap)
+				t.y = y
+				t.w = btnW
+			}
 		}
 		h += winRowH
 	}
@@ -223,7 +328,9 @@ func (w *Window) Center(screenW, screenH int) {
 	)
 }
 
-// HandleInput processes mouse clicks.
+// HandleInput processes mouse clicks and (when a text-input row is
+// present) keyboard input — the popup acts as a soft modal for typing,
+// so callers should gate global letter hotkeys behind WantsKeyboard().
 func (w *Window) HandleInput(inp *engine.Input) {
 	if !w.Visible {
 		return
@@ -237,8 +344,28 @@ func (w *Window) HandleInput(inp *engine.Input) {
 			row.plusBtn.SetHovered(row.plusBtn.Contains(mx, my))
 		case rowActionButton:
 			row.actionBtn.SetHovered(row.actionBtn.Contains(mx, my))
+		case rowToggles:
+			for _, t := range row.toggles {
+				t.hovered = mx >= t.x && mx <= t.x+t.w && my >= t.y && my <= t.y+t.w
+			}
 		}
 	}
+
+	// Feed keyboard input to the first (and typically only) text-input
+	// row. Capture the pre-edit text so we can fire onCommit only when
+	// it actually changes.
+	for _, row := range w.rows {
+		if row.kind != rowTextInput {
+			continue
+		}
+		before := row.textInput.Text
+		row.textInput.HandleInput(inp)
+		if row.textInput.Text != before && row.onCommit != nil {
+			row.onCommit(row.textInput.Text)
+		}
+		break
+	}
+
 	if !inp.LeftClick {
 		return
 	}
@@ -262,8 +389,33 @@ func (w *Window) HandleInput(inp *engine.Input) {
 				row.actionBtn.Click()
 				return
 			}
+		case rowToggles:
+			for _, t := range row.toggles {
+				if t.hovered {
+					if t.onClick != nil {
+						t.onClick()
+					}
+					return
+				}
+			}
 		}
 	}
+}
+
+// WantsKeyboard reports whether the window has a text-input row that
+// will swallow keyboard characters this frame. Callers should skip
+// global letter hotkeys when this returns true so typing a name doesn't
+// also fire camera or tool shortcuts.
+func (w *Window) WantsKeyboard() bool {
+	if w == nil || !w.Visible {
+		return false
+	}
+	for _, row := range w.rows {
+		if row.kind == rowTextInput {
+			return true
+		}
+	}
+	return false
 }
 
 // ContainsPoint returns true if the given point is inside the window.
@@ -337,7 +489,53 @@ func (w *Window) Draw(r *render.Renderer) {
 			}
 			row.minusBtn.Draw(r)
 			row.plusBtn.Draw(r)
+		case rowTextInput:
+			row.textInput.Draw(r)
+		case rowToggles:
+			for _, t := range row.toggles {
+				drawToggleEntry(r, t)
+			}
 		}
 		y += winRowH
+	}
+}
+
+// drawToggleEntry renders one shape-toggle button. Inactive entries are
+// drawn dimmed against a subtle slot background; the hovered/active
+// outline pops the entry so the player can read its state at a glance.
+func drawToggleEntry(r *render.Renderer, t *toggleEntry) {
+	slotBg := mgl32.Vec4{0.12, 0.15, 0.22, 1.0}
+	outline := mgl32.Vec4{0.55, 0.65, 0.85, 1.0}
+	r.DrawColorRect(t.x, t.y, t.w, t.w, slotBg)
+
+	on := t.active != nil && t.active()
+	alpha := float32(0.30)
+	if on {
+		alpha = 1.0
+	}
+	col := mgl32.Vec4{t.color[0], t.color[1], t.color[2], alpha}
+
+	cx := t.x + t.w/2
+	cy := t.y + t.w/2
+	// Inset so the glyph doesn't kiss the slot border.
+	gr := t.w*0.40
+	switch t.shape {
+	case toggleDisc:
+		r.DrawColorDisc(cx, cy, gr, col)
+	case toggleSquare:
+		side := gr * 2 * 0.92 // 92 % so the square reads as inset
+		r.DrawColorRect(cx-side/2, cy-side/2, side, side, col)
+	case toggleDiamond:
+		r.DrawColorDiamond(cx, cy, gr, col)
+	}
+
+	if on || t.hovered {
+		// Frame the active or hovered entry with a 1-px outline drawn as
+		// four thin rects (no dedicated stroke primitive yet).
+		const th = float32(1)
+		r.DrawColorRect(t.x, t.y, t.w, th, outline)
+		r.DrawColorRect(t.x, t.y+t.w-th, t.w, th, outline)
+		r.DrawColorRect(t.x, t.y, th, t.w, outline)
+		r.DrawColorRect(t.x+t.w-th, t.y, th, t.w, outline)
 	}
 }

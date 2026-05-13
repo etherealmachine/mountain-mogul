@@ -239,7 +239,10 @@ func worldToData(w *world.World) ScenarioData {
 	for i, l := range w.Lifts {
 		chairs := make([]ChairData, len(l.Chairs))
 		for ci, c := range l.Chairs {
-			cd := ChairData{Progress: c.Progress}
+			cd := ChairData{
+				Progress:     c.Progress,
+				PassengerIDs: make([]uint64, len(c.Passengers)),
+			}
 			for pi, pax := range c.Passengers {
 				if pax != nil {
 					cd.PassengerIDs[pi] = pax.ID
@@ -255,6 +258,9 @@ func worldToData(w *world.World) ScenarioData {
 		}
 		lifts[i] = LiftData{
 			ID:          l.ID,
+			Type:        uint8(l.Type),
+			Name:        l.Name,
+			Services:    uint8(l.Services),
 			BaseX:       l.Base[0],
 			BaseZ:       l.Base[1],
 			TopX:        l.Top[0],
@@ -436,10 +442,17 @@ func dataToWorld(data ScenarioData) *world.World {
 	// from the saved chair list. Queue IDs are resolved after agents
 	// load below.
 	for _, ld := range data.Lifts {
-		lift := w.PlaceLift(ld.BaseX, ld.BaseZ, ld.TopX, ld.TopZ)
+		lift := w.PlaceLift(world.LiftType(ld.Type), ld.BaseX, ld.BaseZ, ld.TopX, ld.TopZ)
 		if ld.ID != 0 {
 			lift.ID = ld.ID
 		}
+		// Only adopt the saved name when it's non-empty; old saves that
+		// predate auto-naming leave Name blank, so we keep the LiftN
+		// default that PlaceLift just assigned.
+		if ld.Name != "" {
+			lift.Name = ld.Name
+		}
+		lift.Services = world.TerrainDifficulty(ld.Services)
 		if ld.Speed >= 0.1 {
 			lift.Speed = ld.Speed
 		}
@@ -502,7 +515,7 @@ func dataToWorld(data ScenarioData) *world.World {
 				break
 			}
 			for pi, pid := range ld.Chairs[ci].PassengerIDs {
-				if pid == 0 {
+				if pid == 0 || pi >= len(lift.Chairs[ci].Passengers) {
 					continue
 				}
 				if a := agentByID[pid]; a != nil {

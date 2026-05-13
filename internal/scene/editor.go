@@ -23,6 +23,9 @@ type Editor struct {
 	overlayPanel      *ui.OverlayPanel // right-edge terrain-overlay toggles
 	escapeMenu        *EscapeMenu
 	toolButtons       map[toolMode]*ui.Button
+	liftDoubleBtn     *ui.Button     // toolbar button for the double-chair lift variant
+	liftQuadBtn       *ui.Button     // toolbar button for the fixed-quad lift variant
+	liftType          world.LiftType // chair variant the toolLiftBase/Top flow will place
 	activeTool        toolMode
 	scenarioPath      string
 	hoverCell         [2]int      // terrain cell currently under the mouse
@@ -98,7 +101,8 @@ func (e *Editor) Init(app *engine.App) error {
 	e.toolButtons[toolParking] = e.menuBar.AddIconButton(render.IconUsers, "Parking", func() { e.setTool(toolParking) })
 	e.toolButtons[toolBuilding] = e.menuBar.AddIconButton(render.IconHouse, "Lodge", func() { e.setTool(toolBuilding) })
 	e.toolButtons[toolShed] = e.menuBar.AddIconButton(render.IconGarage, "Shed", func() { e.setTool(toolShed) })
-	e.toolButtons[toolLiftBase] = e.menuBar.AddIconButton(render.IconCableCar, "Lift", func() { e.setTool(toolLiftBase) })
+	e.liftDoubleBtn = e.menuBar.AddIconButton(render.IconCableCar, "Double", func() { e.activateLiftTool(world.LiftDouble) })
+	e.liftQuadBtn = e.menuBar.AddIconButton(render.IconCableCar, "Quad", func() { e.activateLiftTool(world.LiftFixedQuad) })
 	e.toolButtons[toolRoadStart] = e.menuBar.AddIconButton(render.IconRoad, "Road", func() { e.setTool(toolRoadStart) })
 	e.toolButtons[toolEdgeConnect] = e.menuBar.AddIconButton(render.IconFlag, "Edge", func() { e.setTool(toolEdgeConnect) })
 	e.toolButtons[toolPlantTrees] = e.menuBar.AddIconButton(render.IconTreeEvergreen, "Plant", func() { e.setTool(toolPlantTrees) })
@@ -535,7 +539,7 @@ func (e *Editor) applyPlacement(r *render.Renderer) {
 		e.activeTool = toolLiftTop
 		e.syncToolButtons()
 	case toolLiftTop:
-		lift := w.PlaceLift(e.liftBase[0], e.liftBase[1], wx, wz)
+		lift := w.PlaceLift(e.liftType, e.liftBase[0], e.liftBase[1], wx, wz)
 		rebuildTerrainFromNatural(w)
 		r.FlushTerrainVerts(w.Terrain)
 		r.AddLiftCable(lift, w.Terrain)
@@ -675,15 +679,41 @@ func (e *Editor) regenerateAuto() {
 }
 
 // syncToolButtons updates the active state of all tool buttons to match
-// activeTool. The Lift button stays highlighted during the two-click flow
-// (toolLiftBase → toolLiftTop) so the player can see the placement is mid-flight.
+// activeTool. Lift buttons live outside toolButtons because two of them
+// share the toolLiftBase/Top tool modes — only the one whose chair type
+// matches the current liftType selection should highlight.
 func (e *Editor) syncToolButtons() {
 	for mode, btn := range e.toolButtons {
 		active := e.activeTool == mode ||
-			(mode == toolLiftBase && e.activeTool == toolLiftTop) ||
 			(mode == toolRoadStart && e.activeTool == toolRoadEnd)
 		btn.SetActive(active)
 	}
+	liftActive := e.activeTool == toolLiftBase || e.activeTool == toolLiftTop
+	if e.liftDoubleBtn != nil {
+		e.liftDoubleBtn.SetActive(liftActive && e.liftType == world.LiftDouble)
+	}
+	if e.liftQuadBtn != nil {
+		e.liftQuadBtn.SetActive(liftActive && e.liftType == world.LiftFixedQuad)
+	}
+}
+
+// activateLiftTool starts (or switches) the two-click lift placement
+// flow for the given chair variant. Clicking the same variant again
+// toggles the tool off; clicking the other variant mid-flow swaps the
+// chair type without cancelling the placement.
+func (e *Editor) activateLiftTool(typ world.LiftType) {
+	inLiftFlow := e.activeTool == toolLiftBase || e.activeTool == toolLiftTop
+	if inLiftFlow && e.liftType == typ {
+		e.activeTool = toolNone
+		e.syncToolButtons()
+		return
+	}
+	e.liftType = typ
+	if inLiftFlow {
+		e.syncToolButtons()
+		return
+	}
+	e.setTool(toolLiftBase)
 }
 
 const defaultBrushRadius = 2 // cells

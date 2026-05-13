@@ -51,11 +51,12 @@ type Renderer struct {
 	// by ResetSceneState on every scene transition.
 	scene *SceneResources
 
-	staticBatches map[uint32]*Batch
-	dynamicBatch  *Batch
-	chairBatch    *Batch
-	snowcatBatch  *Batch
-	carBatch      *Batch
+	staticBatches  map[uint32]*Batch
+	dynamicBatch   *Batch
+	chairBatch     *Batch
+	chairQuadBatch *Batch
+	snowcatBatch   *Batch
+	carBatch       *Batch
 
 	uiVAO, uiVBO uint32
 	whiteTexID   uint32 // 1×1 white texture; always bound to unit 0 during UI pass
@@ -251,10 +252,18 @@ func (r *Renderer) initStaticMeshes() {
 	r.dynamicBatch = NewDynamicBatch(skierMesh, skierTexID)
 
 	// Chair — dynamic batch (heading rotates each chair along the cable).
+	// Two variants: the double-seat default and a fixed-grip quad. Each
+	// has its own batch + slot registration so per-rider seating works
+	// for both without per-frame mesh switching.
 	chairPath := modelDir + "chair.obj"
 	chairMesh, chairTexID := LoadOBJ(chairPath)
 	r.chairBatch = NewDynamicBatch(chairMesh, chairTexID)
 	world.RegisterMeshSlots(world.MeshChair, LoadOBJSlots(chairPath))
+
+	chairQuadPath := modelDir + "chair_quad.obj"
+	chairQuadMesh, chairQuadTexID := LoadOBJ(chairQuadPath)
+	r.chairQuadBatch = NewDynamicBatch(chairQuadMesh, chairQuadTexID)
+	world.RegisterMeshSlots(world.MeshChairQuad, LoadOBJSlots(chairQuadPath))
 
 	// Snowcat — dynamic batch. Snowcats drive over the terrain every
 	// tick so they share the agent-style instance path rather than
@@ -1572,27 +1581,45 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		gl.BindVertexArray(0)
 	}
 
-	// Chair pass
-	if r.chairBatch != nil {
-		chairInstances := make([]DynamicInstance, 0)
+	// Chair pass — one dynamic batch per chair mesh variant. Group lift
+	// instances by type so each batch draws its own chairs in a single
+	// call, regardless of how many lifts of each type the resort has.
+	if r.chairBatch != nil || r.chairQuadBatch != nil {
+		var doubles, quads []DynamicInstance
 		for _, lift := range w.Lifts {
 			for _, chair := range lift.Chairs {
 				pos, heading := lift.ChairPos(chair.Progress, w.Terrain)
-				// Chair color: grey when empty, blue-tint when carrying passengers.
-				hasPax := chair.Passengers[0] != nil || chair.Passengers[1] != nil
+				hasPax := false
+				for _, p := range chair.Passengers {
+					if p != nil {
+						hasPax = true
+						break
+					}
+				}
 				color := [3]float32{0.7, 0.7, 0.7}
 				if hasPax {
 					color = [3]float32{0.55, 0.65, 0.85}
 				}
-				chairInstances = append(chairInstances, DynamicInstance{
+				inst := DynamicInstance{
 					Position: [3]float32{pos[0], pos[1], pos[2]},
 					Heading:  heading,
 					Color:    color,
-				})
+				}
+				if lift.Type == world.LiftFixedQuad {
+					quads = append(quads, inst)
+				} else {
+					doubles = append(doubles, inst)
+				}
 			}
 		}
-		r.chairBatch.SetDynamic(chairInstances)
-		r.chairBatch.Draw()
+		if r.chairBatch != nil {
+			r.chairBatch.SetDynamic(doubles)
+			r.chairBatch.Draw()
+		}
+		if r.chairQuadBatch != nil {
+			r.chairQuadBatch.SetDynamic(quads)
+			r.chairQuadBatch.Draw()
+		}
 	}
 }
 
@@ -1693,6 +1720,53 @@ func (r *Renderer) DrawColorRect(x, y, w, h float32, color mgl32.Vec4) {
 	r.UIShader.SetInt("uUseTexture", 0)
 	r.UIShader.SetVec4("uColor", color)
 	r.drawRect(x, y, w, h)
+}
+
+// DrawColorDisc draws a filled circle centred at (cx, cy) with the
+// given radius. Built as a triangle fan; the UI shader path is used so
+// alpha blending and the same uProjection / uniforms apply.
+func (r *Renderer) DrawColorDisc(cx, cy, radius float32, color mgl32.Vec4) {
+	const segments = 24
+	r.UIShader.SetInt("uUseTexture", 0)
+	r.UIShader.SetVec4("uColor", color)
+	verts := make([]float32, 0, (segments+2)*4)
+	verts = append(verts, cx, cy, 0.5, 0.5)
+	for i := 0; i <= segments; i++ {
+		theta := float64(i) / float64(segments) * 2 * math.Pi
+		x := cx + radius*float32(math.Cos(theta))
+		y := cy + radius*float32(math.Sin(theta))
+		verts = append(verts, x, y, 0, 0)
+	}
+	r.drawTriFan(verts)
+}
+
+// DrawColorDiamond draws a filled diamond (45-degree-rotated square)
+// inscribed in the bounding box (cx, cy, half-diagonal=radius).
+func (r *Renderer) DrawColorDiamond(cx, cy, radius float32, color mgl32.Vec4) {
+	r.UIShader.SetInt("uUseTexture", 0)
+	r.UIShader.SetVec4("uColor", color)
+	verts := []float32{
+		cx, cy, 0.5, 0.5,
+		cx, cy - radius, 0.5, 0,
+		cx + radius, cy, 1, 0.5,
+		cx, cy + radius, 0.5, 1,
+		cx - radius, cy, 0, 0.5,
+		cx, cy - radius, 0.5, 0,
+	}
+	r.drawTriFan(verts)
+}
+
+// drawTriFan uploads verts as a TRIANGLE_FAN, used by the disc/diamond
+// primitives above. Vertex layout matches drawRect: pos(2) + uv(2).
+// Uses BufferData (orphan + reallocate) rather than BufferSubData so
+// the uiVBO can hold fans larger than the 6-vertex quad it was sized
+// for at creation.
+func (r *Renderer) drawTriFan(verts []float32) {
+	gl.BindVertexArray(r.uiVAO)
+	gl.BindBuffer(gl.ARRAY_BUFFER, r.uiVBO)
+	gl.BufferData(gl.ARRAY_BUFFER, len(verts)*4, gl.Ptr(verts), gl.DYNAMIC_DRAW)
+	gl.DrawArrays(gl.TRIANGLE_FAN, 0, int32(len(verts)/4))
+	gl.BindVertexArray(0)
 }
 
 // SetDebugLines uploads a fresh batch of debug line segments for the

@@ -1,6 +1,7 @@
 package world
 
 import (
+	"fmt"
 	"math"
 
 	"github.com/go-gl/mathgl/mgl32"
@@ -189,16 +190,25 @@ func (w *World) RemoveBuilding(id uint64) {
 // lives in the caller (the placement tool path) so save load and
 // testbed setup can construct entities without re-deducting from the
 // player's balance.
-func (w *World) PlaceLift(bx, bz, tx, tz float32) *Lift {
+//
+// New lifts get an auto-generated display name ("Lift1", "Lift2", ...)
+// derived from the highest existing "Lift%d" suffix + 1, so the F4
+// debug panel and lift popup show something meaningful out of the box.
+// Players can rename via the popup; the auto-namer skips renamed lifts
+// when computing the next suffix so renames don't create collisions.
+func (w *World) PlaceLift(typ LiftType, bx, bz, tx, tz float32) *Lift {
 	lift := &Lift{
 		ID:          w.NextID(),
+		Type:        typ,
+		Name:        w.nextLiftDefaultName(),
 		Base:        mgl32.Vec2{bx, bz},
 		Top:         mgl32.Vec2{tx, tz},
 		Speed:       2.5, // m/s — realistic chairlift speed
 		TicketPrice: DefaultTicketPrice,
 	}
 
-	// Initialise chairs evenly spaced around the loop.
+	// Initialise chairs evenly spaced around the loop, each pre-sized
+	// to the lift type's per-chair capacity.
 	dx := float64(tx - bx)
 	dz := float64(tz - bz)
 	cableLen := math.Sqrt(dx*dx + dz*dz)
@@ -207,9 +217,13 @@ func (w *World) PlaceLift(bx, bz, tx, tz float32) *Lift {
 	if numChairs < 2 {
 		numChairs = 2
 	}
+	cap := typ.Capacity()
 	lift.Chairs = make([]Chair, numChairs)
 	for i := range lift.Chairs {
-		lift.Chairs[i] = Chair{Progress: float32(i) / float32(numChairs)}
+		lift.Chairs[i] = Chair{
+			Progress:   float32(i) / float32(numChairs),
+			Passengers: make([]*Agent, cap),
+		}
 	}
 
 	w.Lifts = append(w.Lifts, lift)
@@ -220,6 +234,38 @@ func (w *World) PlaceLift(bx, bz, tx, tz float32) *Lift {
 		w.Terrain.Cells[top[0]][top[1]].Passable = false
 	}
 	return lift
+}
+
+// LiftUpgradeCost is the price to convert a fixed-grip double into a
+// fixed-grip quad — covers replacement of both station bullwheels and
+// the full chair set. Towers and cable stay in place, so it's cheaper
+// than building a fresh lift from scratch.
+const LiftUpgradeCost = LiftStationCost
+
+// UpgradeLift converts a lift to the given chair variant, deducting the
+// upgrade cost from World.Cash. Returns true on success, false if the
+// target type doesn't represent a valid upgrade or the player can't
+// afford it. Existing passengers are preserved (they keep their current
+// seat indices in the resized chair).
+//
+// Currently only Double → FixedQuad is supported; other transitions are
+// rejected. Cable, towers, queue, and chair positions are unchanged.
+func (w *World) UpgradeLift(l *Lift, target LiftType) bool {
+	if l == nil || l.Type != LiftDouble || target != LiftFixedQuad {
+		return false
+	}
+	if w.Cash < LiftUpgradeCost {
+		return false
+	}
+	w.Cash -= LiftUpgradeCost
+	l.Type = target
+	cap := target.Capacity()
+	for i := range l.Chairs {
+		fresh := make([]*Agent, cap)
+		copy(fresh, l.Chairs[i].Passengers)
+		l.Chairs[i].Passengers = fresh
+	}
+	return true
 }
 
 // RemoveLift removes a lift and restores passability on both endpoint cells.
@@ -261,6 +307,35 @@ func (w *World) RemoveAgent(id uint64) {
 		if a.ID == id {
 			w.Agents = append(w.Agents[:i], w.Agents[i+1:]...)
 			return
+		}
+	}
+}
+
+// nextLiftDefaultName returns the next "Lift%d" suffix to assign to a
+// freshly-placed lift, by scanning existing lifts for the highest used
+// suffix and adding 1. Lifts the player has renamed (e.g. "Accelerator")
+// are skipped, so renames don't open up gaps that later collide. Empty
+// names from old saves predating the auto-name change count as zero and
+// also get skipped — call EnsureLiftNames to backfill those.
+func (w *World) nextLiftDefaultName() string {
+	max := 0
+	for _, l := range w.Lifts {
+		var n int
+		if _, err := fmt.Sscanf(l.Name, "Lift%d", &n); err == nil && n > max {
+			max = n
+		}
+	}
+	return fmt.Sprintf("Lift%d", max+1)
+}
+
+// EnsureLiftNames assigns a default "Lift%d" name to every lift whose
+// Name is currently empty. Idempotent — re-running it is a no-op. Used
+// by the save loader to backfill names on lifts saved before the auto-
+// naming change.
+func (w *World) EnsureLiftNames() {
+	for _, l := range w.Lifts {
+		if l.Name == "" {
+			l.Name = w.nextLiftDefaultName()
 		}
 	}
 }

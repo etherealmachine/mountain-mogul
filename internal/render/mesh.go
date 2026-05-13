@@ -25,6 +25,7 @@ const (
 	MeshCar         uint32 = 13 // small box used per parked car (dynamic instance per lot)
 	MeshRoadConnect uint32 = 14 // yellow-flag marker for road-network edge connections (editor-placed)
 	MeshRoadNode    uint32 = 15 // small procedural post used as a hover/snap target marker for road nodes
+	MeshChairQuad   uint32 = 16 // 4-seat fixed grip chair; second chair variant
 )
 
 // Mesh wraps a GPU vertex/index buffer.

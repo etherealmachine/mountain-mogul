@@ -15,6 +15,70 @@ const (
 	ChairSpacingM   = 30.0 // one chair per N metres of loop (approx)
 )
 
+// LiftType is the chair variant a lift carries. Capacity, chair mesh,
+// and per-instance slot anchors all derive from this — the simulation
+// loads N riders per chair where N = Type.Capacity(), and the renderer
+// picks the matching chair OBJ via Type.MeshID().
+type LiftType uint8
+
+const (
+	LiftDouble    LiftType = iota // 2-seat fixed grip (the original)
+	LiftFixedQuad                 // 4-seat fixed grip
+)
+
+// Capacity returns the number of riders a single chair of this lift
+// type carries.
+func (t LiftType) Capacity() int {
+	switch t {
+	case LiftFixedQuad:
+		return 4
+	}
+	return 2
+}
+
+// MeshID returns the chair-mesh ID the renderer should draw for this
+// lift type. Slot anchors registered for the same mesh ID drive
+// per-rider seat positioning in sim.tickRiding.
+func (t LiftType) MeshID() uint32 {
+	switch t {
+	case LiftFixedQuad:
+		return MeshChairQuad
+	}
+	return MeshChair
+}
+
+// Label returns a short human-readable name for HUD / popup display.
+func (t LiftType) Label() string {
+	switch t {
+	case LiftFixedQuad:
+		return "Fixed Quad"
+	}
+	return "Double"
+}
+
+// TerrainDifficulty is a bitfield of trail-marker categories a lift
+// services. A lift can post any subset — including the empty set — so
+// the values compose with bitwise OR. Pure metadata for now (the AI
+// doesn't read it); the trail-tolerance feature on the roadmap will.
+type TerrainDifficulty uint8
+
+const (
+	DiffGreen TerrainDifficulty = 1 << iota // beginner runs
+	DiffBlue                                // intermediate runs
+	DiffBlack                               // advanced / expert runs
+)
+
+// Has reports whether the difficulty set includes flag.
+func (d TerrainDifficulty) Has(flag TerrainDifficulty) bool {
+	return d&flag != 0
+}
+
+// Toggle flips flag in the difficulty set and returns the new value.
+// Used by UI toggle buttons that operate on a pointer to the set.
+func (d TerrainDifficulty) Toggle(flag TerrainDifficulty) TerrainDifficulty {
+	return d ^ flag
+}
+
 // CableHeightAt returns the cable's height above terrain at a fractional
 // position 0→1 along the cable line from base to top. Profile: rises
 // linearly from BullwheelHeight at each station to TowerHeight over the
@@ -42,9 +106,12 @@ func CableHeightAt(frac, length float32) float32 {
 
 // Chair holds one chair on the lift loop.
 // Progress 0→1 is a full loop: 0=at base going up, 0.5=at top going down, 1.0=back at base.
+//
+// Passengers is sized to the parent Lift's Type.Capacity() at construction
+// time; iterate it directly rather than assuming a fixed length.
 type Chair struct {
 	Progress   float32
-	Passengers [2]*Agent
+	Passengers []*Agent
 }
 
 // ChairPos returns the world-space position and heading for a chair at the given
@@ -94,6 +161,8 @@ func (l *Lift) ChairPos(progress float32, t *Terrain) (mgl32.Vec3, float32) {
 // from terrain elevation at use time.
 type Lift struct {
 	ID    uint64
+	Type  LiftType
+	Name  string // free-form label; empty means "unnamed"
 	Base  mgl32.Vec2
 	Top   mgl32.Vec2
 	Speed float32 // cable speed in m/s (typical real lift: 2–3 m/s)
@@ -101,6 +170,11 @@ type Lift struct {
 	// TicketPrice is the per-ride fare credited to World.Cash when a
 	// skier boards a chair. Set per-lift via the lift popup.
 	TicketPrice int
+
+	// Services is the bitfield of trail markers this lift advertises
+	// (green / blue / black). Pure metadata — no sim behaviour reads
+	// it yet.
+	Services TerrainDifficulty
 
 	Queue  []*Agent
 	Chairs []Chair

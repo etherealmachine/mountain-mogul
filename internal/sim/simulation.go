@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-gl/mathgl/mgl32"
 	"mountain-mogul/internal/ai"
+	"mountain-mogul/internal/ai/goap"
 	"mountain-mogul/internal/world"
 )
 
@@ -22,6 +23,12 @@ type Simulation struct {
 	TimeScale  float64    // simulation speed multiplier (default 5)
 	SimTime    float64    // accumulated sim seconds (post-TimeScale)
 	Rng        *rand.Rand // single source for all gameplay randomness; testbeds seed this for determinism
+
+	// Planner is the L0 GOAP planner. Currently observe-only — the
+	// follow HUD renders its decision for the watched skier but agent
+	// behaviour still flows through pickTopTarget. Phase 2 will replace
+	// pickTopTarget and the lodge-routing branch with PlanForAgent.
+	Planner *goap.Planner
 
 	// Recorder, if non-nil, receives one RecorderFrame per skiing tick.
 	// Used by the debug CSV log; default nil.
@@ -43,6 +50,7 @@ func NewSimulationWithSeed(w *world.World, seed int64) *Simulation {
 		Pathfinder: NewPathfinder(w.Terrain),
 		TimeScale:  5.0,
 		Rng:        rand.New(rand.NewSource(seed)),
+		Planner:    goap.NewPlanner(),
 	}
 }
 
@@ -121,6 +129,12 @@ func (s *Simulation) tickLifts(dt float64) {
 					if agent.Balance < 0.5 {
 						agent.Balance = 1.0 // ride up restored balance
 					}
+
+					// Novelty-driven Fun bump. First ride of this lift is the
+					// biggest gain; subsequent rides taper geometrically so
+					// the planner's Explore goal naturally drives skiers to
+					// unridden lifts before everything else.
+					bumpFunAndRideCount(agent, lift)
 					topCell := lift.TopCell()
 					ty := w.Terrain.SurfaceElevationAt(topCell[0], topCell[1])
 					agent.Pos = mgl32.Vec3{lift.Top[0], ty, lift.Top[1]}
@@ -137,11 +151,12 @@ func (s *Simulation) tickLifts(dt float64) {
 				}
 			}
 
-			// At base (progress wraps past 1.0): load up to 2 skiers from queue.
-			// Each boarder pays TicketPrice into the resort's bank.
+			// At base (progress wraps past 1.0): fill the chair from the
+			// queue up to its capacity. Each boarder pays TicketPrice
+			// into the resort's bank.
 			if chair.Progress >= 1.0 {
 				chair.Progress -= 1.0
-				for j := 0; j < 2 && len(lift.Queue) > 0; j++ {
+				for j := 0; j < len(chair.Passengers) && len(lift.Queue) > 0; j++ {
 					agent := lift.Queue[0]
 					lift.Queue = lift.Queue[1:]
 					chair.Passengers[j] = agent
@@ -152,6 +167,31 @@ func (s *Simulation) tickLifts(dt float64) {
 			}
 		}
 	}
+}
+
+// bumpFunAndRideCount applies the per-agent novelty bonus at lift unload:
+// first ride of this lift is the biggest Fun gain (≈0.15), subsequent
+// rides taper geometrically with factor 0.55 so a 4th repeat is barely
+// rewarded. RidenLifts is incremented after the bonus so count=0 maps
+// to the unridden case. Allocates RidenLifts on first call.
+//
+// Mirrored shape in goap.RideLift.Cost — keep the two in sync if the
+// constants move so the planner's preference for unridden lifts matches
+// the actual Fun outcome.
+func bumpFunAndRideCount(agent *world.Agent, lift *world.Lift) {
+	if agent.RidenLifts == nil {
+		agent.RidenLifts = make(map[uint64]int)
+	}
+	count := agent.RidenLifts[lift.ID]
+	bonus := float32(0.15)
+	for i := 0; i < count; i++ {
+		bonus *= 0.55
+	}
+	agent.Fun += bonus
+	if agent.Fun > 1 {
+		agent.Fun = 1
+	}
+	agent.RidenLifts[lift.ID] = count + 1
 }
 
 // pickTopTarget chooses where a skier goes after unloading at a lift top.
@@ -317,17 +357,18 @@ func (s *Simulation) tickQueued(agent *world.Agent, dt float64) {
 }
 
 // tickRiding glues the agent to its current chair's position. Seat
-// anchors come from MeshChair's slot metadata, which scad2obj baked into
-// chair.obj from echo() declarations in models-src/chair.scad — see that
-// file for the exact geometry. The slot Pos is in the chair-local game
-// frame; we rotate by heading and offset from the chair's cable anchor.
+// anchors come from the lift type's chair mesh slot metadata, which
+// scad2obj baked into chair.obj / chair_quad.obj from echo()
+// declarations in the .scad source. The slot Pos is in the chair-local
+// game frame; we rotate by heading and offset from the chair's cable
+// anchor.
 func (s *Simulation) tickRiding(agent *world.Agent, dt float64) {
 	w := s.World
-	slots := world.SlotsFor(world.MeshChair)
 	for _, lift := range w.Lifts {
 		if lift.ID != agent.OnLiftID {
 			continue
 		}
+		slots := world.SlotsFor(lift.Type.MeshID())
 		for _, chair := range lift.Chairs {
 			for slotIdx, p := range chair.Passengers {
 				if p != agent {

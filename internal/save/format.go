@@ -116,10 +116,11 @@ type SnowcatData struct {
 }
 
 // ChairData is one chair on a lift loop — its position around the loop and
-// the IDs of the agents currently riding it.
+// the IDs of the agents currently riding it. PassengerIDs is sized to the
+// parent lift's per-chair capacity; 0 means "empty slot."
 type ChairData struct {
-	Progress     float32   `json:"p"`
-	PassengerIDs [2]uint64 `json:"pax,omitempty"` // 0 = empty slot
+	Progress     float32  `json:"p"`
+	PassengerIDs []uint64 `json:"pax,omitempty"`
 }
 
 // LiftData is a placed lift, including its full runtime state (chair
@@ -128,6 +129,9 @@ type ChairData struct {
 // (metres).
 type LiftData struct {
 	ID          uint64      `json:"id,omitempty"`
+	Type        uint8       `json:"type,omitempty"`
+	Name        string      `json:"name,omitempty"`
+	Services    uint8       `json:"services,omitempty"` // TerrainDifficulty bitfield
 	BaseX       float32     `json:"bx"`
 	BaseZ       float32     `json:"bz"`
 	TopX        float32     `json:"tx"`
