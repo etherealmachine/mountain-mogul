@@ -209,13 +209,11 @@ func worldToData(w *world.World) ScenarioData {
 	buildings := make([]BuildingData, len(w.Buildings))
 	for i, b := range w.Buildings {
 		buildings[i] = BuildingData{
-			ID:             b.ID,
-			Type:           uint8(b.Type),
-			X:              b.Pos[0],
-			Z:              b.Pos[1],
-			Rotation:       b.Rotation,
-			MeanSpawnRate:  b.MeanSpawnRate,
-			SkierCount:     b.SkierCount,
+			ID:              b.ID,
+			Type:            uint8(b.Type),
+			X:               b.Pos[0],
+			Z:               b.Pos[1],
+			Rotation:        b.Rotation,
 			Cats:            b.Cats,
 			RouteCells:      b.RouteCells,
 			MaxCars:         b.MaxCars,
@@ -383,12 +381,6 @@ func dataToWorld(data ScenarioData) *world.World {
 			b.ID = bd.ID
 		}
 		b.Rotation = bd.Rotation
-		if bd.MeanSpawnRate > 0 {
-			b.MeanSpawnRate = bd.MeanSpawnRate
-		}
-		if bd.SkierCount > 0 {
-			b.SkierCount = bd.SkierCount
-		}
 		// Shed-only state. Cats and RouteCells default to zero if the
 		// save predates the snowcat work — that's fine, the shed just
 		// loads with an empty fleet/route until the player buys cats

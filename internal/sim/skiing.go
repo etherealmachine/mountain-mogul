@@ -197,7 +197,7 @@ func (s *Simulation) tickSkier(a *world.Agent, target mgl32.Vec3, dt float64) bo
 	}
 
 	perc := perceive(s.World.Terrain, a, target)
-	dec := decide(s.World, a, perc, float32(dt), s.Rng)
+	dec := decide(s.World, s.towersScratch, s.spatial, a, perc, float32(dt), s.Rng)
 	if dec.TurnSide != a.TurnSide {
 		a.TurnDwell = 0
 	} else {
@@ -225,6 +225,7 @@ func (s *Simulation) tickSkier(a *world.Agent, target mgl32.Vec3, dt float64) bo
 		a.Fallen = true
 		a.FallTimer = float32(fallRecoverTime)
 		a.Speed = 0
+		a.Events = append(a.Events, ai.AgentEvent{Kind: ai.EventFall, Time: s.SimTime})
 		recordFrame(s, a, target, dist, perc, dec)
 		return false
 	}
@@ -338,10 +339,10 @@ func perceive(t *world.Terrain, a *world.Agent, target mgl32.Vec3) Perception {
 // brakeAngle > 0 → desired heading is off the fall line → edge friction
 // scrubs speed → speed drops → brakeAngle shrinks → if heading has reached
 // the arc edge on the committed side, flip TurnSide and carve back.
-func decide(w *world.World, a *world.Agent, perc Perception, dt float32, rng *rand.Rand) Decision {
+func decide(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, a *world.Agent, perc Perception, dt float32, rng *rand.Rand) Decision {
 	axisHeading := composeAxis(perc)
 
-	tactical, obstacleSeen, probeC, probeR, probeL := sampleTactical(w, a, perc, axisHeading, a.LastTactical, rng)
+	tactical, obstacleSeen, probeC, probeR, probeL := sampleTactical(w, towers, grid, a, perc, axisHeading, a.LastTactical, rng)
 
 	// Speed control. Base target from skill/traits, then reduce when trees
 	// are visible in the forward fan — real skiers back off in glades to
@@ -495,7 +496,12 @@ func collectTowerXZs(w *world.World) []mgl32.Vec2 {
 // Combination is max(): one big hazard dominates. Tree-only paths score
 // the same as before this function existed; tower/skier presence raises
 // the penalty so the candidate-fan scorer routes around them.
-func hazardDensityAt(t *world.Terrain, towers []mgl32.Vec2, agents []*world.Agent, selfID uint64, x, z float32) float32 {
+//
+// The agent term uses a spatial grid bucketed once per Tick — without
+// it, this function dominated the profile (70% CPU) once active agent
+// count crossed ~150 because every probe point iterated every other
+// agent. With the grid, hazardDensityAt is O(towers + nearby) per call.
+func hazardDensityAt(t *world.Terrain, towers []mgl32.Vec2, grid *spatialGrid, selfID uint64, x, z float32) float32 {
 	d := t.TreeDensityAt(x, z)
 
 	const towerR2 = towerHazardRadius * towerHazardRadius
@@ -512,19 +518,21 @@ func hazardDensityAt(t *world.Terrain, towers []mgl32.Vec2, agents []*world.Agen
 	}
 
 	const skierR2 = skierHazardRadius * skierHazardRadius
-	for _, other := range agents {
-		if other.ID == selfID {
-			continue
-		}
-		dx := other.Pos[0] - x
-		dz := other.Pos[2] - z
-		r2 := dx*dx + dz*dz
-		if r2 < skierR2 {
-			f := 1 - r2/skierR2
-			if f > d {
-				d = f
+	if grid != nil {
+		grid.forEachNear(x, z, func(other *world.Agent) {
+			if other.ID == selfID {
+				return
 			}
-		}
+			dx := other.Pos[0] - x
+			dz := other.Pos[2] - z
+			r2 := dx*dx + dz*dz
+			if r2 < skierR2 {
+				f := 1 - r2/skierR2
+				if f > d {
+					d = f
+				}
+			}
+		})
 	}
 	return d
 }
@@ -545,7 +553,7 @@ func hazardDensityAt(t *world.Terrain, towers []mgl32.Vec2, agents []*world.Agen
 // score equally — but it's gated on actually seeing an obstacle in the
 // fan. Without that gate the commit bonus would slowly drift the skier
 // off-axis even on a clear slope, since prevTactical is self-perpetuating.
-func sampleTactical(w *world.World, self *world.Agent, perc Perception, axisHeading, prevTactical float32, rng *rand.Rand) (offset float32, obstacleSeen bool, probeC, probeR, probeL float32) {
+func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self *world.Agent, perc Perception, axisHeading, prevTactical float32, rng *rand.Rand) (offset float32, obstacleSeen bool, probeC, probeR, probeL float32) {
 	t := w.Terrain
 	horizon := perc.Speed * float32(sampleHorizonSec)
 	if horizon < float32(sampleMinDist) {
@@ -555,11 +563,9 @@ func sampleTactical(w *world.World, self *world.Agent, perc Perception, axisHead
 		horizon = float32(sampleMaxDist)
 	}
 
-	// Precompute hazard positions once per call so the inner corridor
-	// loop doesn't re-walk the lift list or reslice tower XZs on every
-	// sample point. Self is excluded from the agent list so the skier
-	// doesn't avoid itself.
-	towers := collectTowerXZs(w)
+	// `towers` is the shared per-Tick scratch built once in Simulation.
+	// Self is excluded from the agent list so the skier doesn't avoid
+	// itself.
 	var selfID uint64
 	if self != nil {
 		selfID = self.ID
@@ -600,11 +606,11 @@ func sampleTactical(w *world.World, self *world.Agent, perc Perception, axisHead
 			// Treats the candidate path as a corridor, so the skier
 			// avoids brushing the patch edge instead of grazing it.
 			// Hazard includes trees, lift towers, and other skiers.
-			density := hazardDensityAt(t, towers, w.Agents, selfID, x, z)
-			if dl := hazardDensityAt(t, towers, w.Agents, selfID, x-rx*float32(corridorHalfWidth), z-rz*float32(corridorHalfWidth)); dl > density {
+			density := hazardDensityAt(t, towers, grid, selfID, x, z)
+			if dl := hazardDensityAt(t, towers, grid, selfID, x-rx*float32(corridorHalfWidth), z-rz*float32(corridorHalfWidth)); dl > density {
 				density = dl
 			}
-			if dr := hazardDensityAt(t, towers, w.Agents, selfID, x+rx*float32(corridorHalfWidth), z+rz*float32(corridorHalfWidth)); dr > density {
+			if dr := hazardDensityAt(t, towers, grid, selfID, x+rx*float32(corridorHalfWidth), z+rz*float32(corridorHalfWidth)); dr > density {
 				density = dr
 			}
 			totalDensity += density
@@ -916,8 +922,14 @@ func ComputeSteeringDebug(w *world.World, a *world.Agent, target mgl32.Vec3) Ste
 	t := w.Terrain
 	clone := *a
 	perc := perceive(t, &clone, target)
+	towers := collectTowerXZs(w)
+	// One-off spatial grid for the debug pass — debug overlay only
+	// fires for the followed agent so the construction cost is
+	// negligible compared with the per-frame Simulation grid.
+	grid := newSpatialGrid(float32(w.Terrain.Width)*CellSize, float32(w.Terrain.Height)*CellSize)
+	grid.rebuild(w.Agents)
 	// nil rng → no jitter, debug shows the deterministic part of the score.
-	dec := decide(w, &clone, perc, 0, nil)
+	dec := decide(w, towers, grid, &clone, perc, 0, nil)
 
 	horizon := perc.Speed * float32(sampleHorizonSec)
 	if horizon < float32(sampleMinDist) {
@@ -938,13 +950,12 @@ func ComputeSteeringDebug(w *world.World, a *world.Agent, target mgl32.Vec3) Ste
 	hz := float32(math.Cos(float64(a.Heading)))
 	rx, rz := hz, -hx
 	angles := [3]float64{0, float64(sampleAngleMax), -float64(sampleAngleMax)}
-	towers := collectTowerXZs(w)
 	for i, ang := range angles {
 		c := float32(math.Cos(ang))
 		s := float32(math.Sin(ang))
 		d := mgl32.Vec2{c*hx + s*rx, c*hz + s*rz}
 		out.Probes[i].Dir = d
-		out.Probes[i].Density = hazardDensityAt(t, towers, w.Agents, a.ID, a.Pos[0]+d[0]*horizon, a.Pos[2]+d[1]*horizon)
+		out.Probes[i].Density = hazardDensityAt(t, towers, grid, a.ID, a.Pos[0]+d[0]*horizon, a.Pos[2]+d[1]*horizon)
 	}
 	return out
 }

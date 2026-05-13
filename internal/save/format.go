@@ -86,19 +86,19 @@ type ObjectData struct {
 // load time. Type defaults to lodge when omitted so saves predating
 // the multi-building work load as all-lodges.
 type BuildingData struct {
-	ID            uint64  `json:"id,omitempty"`
-	Type          uint8   `json:"bt,omitempty"`
-	X             float32 `json:"x"`
-	Z             float32 `json:"z"`
-	Rotation      float32 `json:"r,omitempty"`
-	MeanSpawnRate float64 `json:"mean_spawn_rate"`
-	SkierCount    int     `json:"skier_count,omitempty"`
+	ID       uint64  `json:"id,omitempty"`
+	Type     uint8   `json:"bt,omitempty"`
+	X        float32 `json:"x"`
+	Z        float32 `json:"z"`
+	Rotation float32 `json:"r,omitempty"`
 
 	// Shed-only state.
-	Cats       int        `json:"cats,omitempty"`
-	RouteCells [][2]int   `json:"route,omitempty"`
+	Cats       int      `json:"cats,omitempty"`
+	RouteCells [][2]int `json:"route,omitempty"`
 
-	// Parking-only state.
+	// Parking-only state. CurrentCars is the visible population
+	// (rendered as car meshes); MaxCars is the cap. Spawn timing /
+	// skier pool lives elsewhere (future demand system).
 	MaxCars         int      `json:"max_cars,omitempty"`
 	CurrentCars     float32  `json:"cur_cars,omitempty"`
 	DrivewayNodeIDs []uint64 `json:"driveway_ids,omitempty"` // road-network attach nodes, one per parking mesh slot

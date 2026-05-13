@@ -160,6 +160,28 @@ type Prefs struct{}
 // SENSE SNAPSHOT
 // =============================================================================
 
+// =============================================================================
+// AGENT EVENTS
+// =============================================================================
+
+// AgentEventKind tags a recordable per-agent occurrence. The event log
+// is read at depart time by the demand system to feed the resort-rating
+// score (cleanness = function of falls vs runs).
+type AgentEventKind uint8
+
+const (
+	EventFall AgentEventKind = iota // L1 controller detected Balance ≤ 0
+	EventRun                        // agent completed a descent (any ActSkiTo*)
+)
+
+// AgentEvent is one row in an agent's per-session log. Time is sim-time
+// at emission. Storage is a flat slice on the agent — appended only,
+// inspected at depart, then garbage-collected with the agent.
+type AgentEvent struct {
+	Kind AgentEventKind
+	Time float64
+}
+
 // Sense is a per-tick snapshot of the controller used by the renderer and
 // follow HUD. Display-only; the AI never reads this back. Stale outside
 // active skiing — readers should gate on Activity.

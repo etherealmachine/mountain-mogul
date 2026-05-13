@@ -308,8 +308,6 @@ func (b *builder) lodge() *builder {
 func (b *builder) lodgeAt(gx, gz int) *builder {
 	const cellSize = 5.0
 	lodge := b.w.PlaceBuilding((float32(gx)+0.5)*cellSize, (float32(gz)+0.5)*cellSize)
-	lodge.SkierCount = 0
-	lodge.MeanSpawnRate = 0
 	b.lastLodge = lodge
 	return b
 }

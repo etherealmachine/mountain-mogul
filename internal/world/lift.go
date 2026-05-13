@@ -178,6 +178,11 @@ type Lift struct {
 
 	Queue  []*Agent
 	Chairs []Chair
+
+	// towerCache memoises TowerXZs() — towers are immutable after
+	// placement, so the slice can be reused across the per-tick L1
+	// hazard sampler instead of rebuilt every call.
+	towerCache []mgl32.Vec2
 }
 
 // LoopLength returns the total length of the chair loop in metres (2× cable length).
@@ -198,7 +203,17 @@ const TowerSpacing = 50.0
 // short to fit any towers (length ≤ 2 × StationOffset). The first and
 // last entries sit StationOffset inboard from the base and top stations
 // respectively; intermediate entries are evenly spaced.
+//
+// The result is cached on the Lift after the first call — towers are
+// purely a function of Base / Top / StationOffset / TowerSpacing, all
+// of which are immutable after placement. Editing tools that mutate
+// Base or Top must call ResetTowerCache() to discard the stale slice
+// (or set towerCache = nil); none currently do because lifts aren't
+// movable post-placement.
 func (l *Lift) TowerXZs() []mgl32.Vec2 {
+	if l.towerCache != nil {
+		return l.towerCache
+	}
 	bx, bz := l.Base[0], l.Base[1]
 	tx, tz := l.Top[0], l.Top[1]
 	dx := tx - bx
@@ -221,7 +236,14 @@ func (l *Lift) TowerXZs() []mgl32.Vec2 {
 		d := stationOffset + float32(i)*spacing
 		out = append(out, mgl32.Vec2{bx + dirX*d, bz + dirZ*d})
 	}
+	l.towerCache = out
 	return out
+}
+
+// ResetTowerCache discards the cached tower-position slice. Call after
+// mutating Base or Top so the next TowerXZs() call recomputes.
+func (l *Lift) ResetTowerCache() {
+	l.towerCache = nil
 }
 
 // QueueCell returns the grid cell containing the lift's base — the

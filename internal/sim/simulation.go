@@ -24,15 +24,32 @@ type Simulation struct {
 	SimTime    float64    // accumulated sim seconds (post-TimeScale)
 	Rng        *rand.Rand // single source for all gameplay randomness; testbeds seed this for determinism
 
-	// Planner is the L0 GOAP planner. Currently observe-only — the
-	// follow HUD renders its decision for the watched skier but agent
-	// behaviour still flows through pickTopTarget. Phase 2 will replace
-	// pickTopTarget and the lodge-routing branch with PlanForAgent.
+	// Planner is the L0 GOAP planner — picks goals and chains actions
+	// for every agent in the world.
 	Planner *goap.Planner
+
+	// Demand owns the global skier pool and resort rating. The
+	// per-30-sim-seconds poll fires from Tick.
+	Demand *DemandSystem
 
 	// Recorder, if non-nil, receives one RecorderFrame per skiing tick.
 	// Used by the debug CSV log; default nil.
 	Recorder Recorder
+
+	// towersScratch is a reusable slice holding every lift tower's XZ
+	// position. Rebuilt at the top of Tick (cheap — len(lifts) work)
+	// and shared by every L1 sampleTactical call during the frame so
+	// the hot inner loop doesn't allocate. The per-Lift TowerXZs()
+	// cache means each refill is also allocation-free in steady state.
+	towersScratch []mgl32.Vec2
+
+	// spatial is the per-Tick agent grid the L1 hazard sampler reads.
+	// Without it, hazardDensityAt iterates every other agent per
+	// query and sampleTactical becomes O(N²) in agent count — at 50×
+	// with the demand system pushing N past ~150 that wedged the main
+	// thread for seconds at a time. The grid is rebuilt once per Tick
+	// alongside towersScratch.
+	spatial *spatialGrid
 }
 
 // NewSimulation creates a Simulation wrapping the given world, seeded from
@@ -51,12 +68,16 @@ func NewSimulation(w *world.World) *Simulation {
 // tick. Agents with no plan are left alone — tickPlanning's plan-empty
 // branch picks them up.
 func NewSimulationWithSeed(w *world.World, seed int64) *Simulation {
+	widthM := float32(w.Terrain.Width) * CellSize
+	heightM := float32(w.Terrain.Height) * CellSize
 	sim := &Simulation{
 		World:      w,
 		Pathfinder: NewPathfinder(w.Terrain),
 		TimeScale:  5.0,
 		Rng:        rand.New(rand.NewSource(seed)),
 		Planner:    goap.NewPlanner(),
+		Demand:     NewDemandSystem(),
+		spatial:    newSpatialGrid(widthM, heightM),
 	}
 	for _, a := range w.Agents {
 		if !a.Plan.Done() {
@@ -66,46 +87,58 @@ func NewSimulationWithSeed(w *world.World, seed int64) *Simulation {
 	return sim
 }
 
-// Tick advances the simulation by dt real seconds.
+// maxSubstepSec caps the sim-time delta passed to any per-tick handler.
+// At 1× the render frame's dt (~16 ms) is already well below this so
+// substepping is a no-op; at 100× we run ~5 substeps per frame, which
+// keeps the L1 controller's arrival check, heading-rate cap, and
+// Euler physics integration on a small enough step to stay accurate.
+const maxSubstepSec = 1.0 / 30.0
+
+// Tick advances the simulation by dt real seconds. dt is scaled by
+// TimeScale then sliced into substeps of at most maxSubstepSec so the
+// continuous controllers never see a huge dt — necessary above ~10×
+// because position/heading integrators in L1 assume a small step.
 func (s *Simulation) Tick(dt float64) {
-	dt *= s.TimeScale
+	// Refill the shared tower-position scratch once per Tick. Lifts
+	// don't move during a frame, so the L1 sampler in every substep /
+	// every agent can read the same slice.
+	s.refillTowersScratch()
+	// Rebucket every agent into the spatial grid for the L1 hazard
+	// sampler. Cheap — O(agents) — and turns hazardDensityAt's agent
+	// iteration from O(N) into O(near).
+	s.spatial.rebuild(s.World.Agents)
+
+	remaining := dt * s.TimeScale
+	for remaining > 0 {
+		sub := remaining
+		if sub > maxSubstepSec {
+			sub = maxSubstepSec
+		}
+		s.subTick(sub)
+		remaining -= sub
+	}
+}
+
+// refillTowersScratch rebuilds s.towersScratch in place from the live
+// lift list. Each per-lift TowerXZs() is cached on the Lift so this
+// is a flat copy in steady state — no allocations after the first
+// call per Lift.
+func (s *Simulation) refillTowersScratch() {
+	s.towersScratch = s.towersScratch[:0]
+	for _, lift := range s.World.Lifts {
+		s.towersScratch = append(s.towersScratch, lift.TowerXZs()...)
+	}
+}
+
+// subTick is one indivisible simulation step. All per-handler dt's
+// come from here so substepping in Tick is the single place that
+// controls step size.
+func (s *Simulation) subTick(dt float64) {
 	s.SimTime += dt
-	s.tickBuildings(dt)
+	s.Demand.maybePoll(s)
 	s.tickLifts(dt)
 	s.tickAgents(dt)
 	s.tickSnowcats(dt)
-}
-
-func (s *Simulation) tickBuildings(dt float64) {
-	w := s.World
-	if len(w.Lifts) == 0 {
-		return
-	}
-	for _, b := range w.Buildings {
-		if !b.AdvanceTimer(dt, s.Rng) {
-			continue
-		}
-		b.SkierCount--
-		b.ArrivalDeparture(+1) // a skier spawning = a car arriving
-		agent := w.SpawnAgent(b)
-		agent.Traits = ai.TraitsFor(rollSkillLevel(s.Rng))
-		agent.Balance = 1.0
-		agent.Energy = 1.0
-		agent.TurnSide = 0
-		// Planner picks the first lift and onPlanStepStart lays the
-		// pathfinder route. If no viable plan or no walkable path
-		// exists, undo the spawn so the parking lot pool stays
-		// consistent.
-		s.replan(agent)
-		head := agent.Plan.Head()
-		bad := agent.Plan.Done() ||
-			(head.Kind == ai.ActWalkToLift && len(agent.Path) == 0)
-		if bad {
-			w.RemoveAgent(agent.ID)
-			b.SkierCount++
-			b.ArrivalDeparture(-1)
-		}
-	}
 }
 
 func (s *Simulation) tickLifts(dt float64) {
@@ -254,6 +287,35 @@ func (s *Simulation) tickAgents(dt float64) {
 	s.reapDeparted()
 }
 
+// spawnSkier materialises one agent of the given skill at the given
+// lot's anchor and lets the planner pick their first lift. Returns
+// false (and unwinds the agent) if no viable plan or no walkable path
+// can be laid — the caller treats that as a failed spawn and doesn't
+// deduct from the group pool. The carload caller bumps CurrentCars
+// once per successful carload, not per skier.
+func (s *Simulation) spawnSkier(lot *world.Building, skill ai.SkillLevel) bool {
+	w := s.World
+	cell := lot.DoorCell()
+	elev := w.Terrain.SurfaceElevationAt(cell[0], cell[1])
+	agent := &world.Agent{
+		ID:      w.NextID(),
+		Pos:     mgl32.Vec3{lot.Pos[0], elev, lot.Pos[1]},
+		Traits:  ai.TraitsFor(skill),
+		Balance: 1.0,
+		Energy:  1.0,
+	}
+	w.Agents = append(w.Agents, agent)
+	s.replan(agent)
+	head := agent.Plan.Head()
+	bad := agent.Plan.Done() ||
+		(head.Kind == ai.ActWalkToLift && len(agent.Path) == 0)
+	if bad {
+		w.RemoveAgent(agent.ID)
+		return false
+	}
+	return true
+}
+
 // =============================================================================
 // Planning layer — drives target / queue / removal off the stored ai.Plan
 // =============================================================================
@@ -291,6 +353,9 @@ func (s *Simulation) tickPlanning(a *world.Agent) {
 	snap := goap.Extract(a, s.World)
 	head := a.Plan.Head()
 	if planActionComplete(head, a, snap) {
+		if isDescentKind(head.Kind) {
+			a.Events = append(a.Events, ai.AgentEvent{Kind: ai.EventRun, Time: s.SimTime})
+		}
 		s.advancePlan(a)
 		return
 	}
@@ -298,6 +363,17 @@ func (s *Simulation) tickPlanning(a *world.Agent) {
 		s.replan(a)
 		return
 	}
+}
+
+// isDescentKind reports whether a step represents a completed ski
+// descent. Used to log EventRun on completion so the demand system
+// can score sessions by run count.
+func isDescentKind(k ai.PlanActionKind) bool {
+	switch k {
+	case ai.ActSkiToLift, ai.ActSkiToLodge, ai.ActSkiToParking:
+		return true
+	}
+	return false
 }
 
 // replan generates a fresh plan and starts its head step. Called at
@@ -391,10 +467,15 @@ func (s *Simulation) onPlanStepStart(a *world.Agent) {
 		a.Speed = 0
 		a.TargetID = 0
 	case ai.ActDepart:
-		b := findBuildingByID(w, step.BldgID)
-		if b != nil {
-			b.SkierCount++
-			b.ArrivalDeparture(-1) // a skier leaving = a car driving off
+		// Score this skier's session into the resort rating and return
+		// them to their group's pool, then decrement the lot's visible
+		// car count (4 departures = -1 car).
+		s.Demand.recordDeparture(a)
+		if b := findBuildingByID(w, step.BldgID); b != nil {
+			b.CurrentCars -= 1.0 / float32(SkiersPerCar)
+			if b.CurrentCars < 0 {
+				b.CurrentCars = 0
+			}
 		}
 		a.Removed = true
 	}
@@ -498,20 +579,6 @@ func findBuildingByID(w *world.World, id uint64) *world.Building {
 		}
 	}
 	return nil
-}
-
-// rollSkillLevel samples the lodge-population skill distribution: 60% beginner,
-// 30% intermediate, 10% advanced. Per-lodge tuning is a future extension.
-func rollSkillLevel(rng *rand.Rand) ai.SkillLevel {
-	r := rng.Float64()
-	switch {
-	case r < 0.6:
-		return ai.SkillBeginner
-	case r < 0.9:
-		return ai.SkillIntermediate
-	default:
-		return ai.SkillAdvanced
-	}
 }
 
 // tickPath walks the agent along their pathfinder route at WalkSpeed. When

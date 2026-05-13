@@ -68,10 +68,11 @@ func (t *TopBar) SetSettingsButton(onGear func()) {
 	t.gearBtn = newIconButton("gear", onGear)
 }
 
-// SetSpeedControls installs the pause / 1× / 2× / 4× buttons. The
-// caller passes one callback per speedOptions entry (length must match
-// the iconKinds slice — the scenario currently uses 1×/2×/4× in that order
-// rendered as play / fast-forward / double-fast-forward).
+// SetSpeedControls installs the pause + speed-preset buttons. The
+// caller passes one callback per speedOptions entry; the visual
+// glyphs (play / fast-forward / double-fast-forward) are decoupled
+// from the underlying multipliers so retuning the speeds doesn't
+// require new icons.
 func (t *TopBar) SetSpeedControls(onPause func(), onSpeed []func()) {
 	t.pauseBtn = newIconButton("pause", onPause)
 	kinds := []string{"play", "ff2", "ff4"}

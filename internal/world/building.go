@@ -2,7 +2,6 @@ package world
 
 import (
 	"math"
-	"math/rand"
 
 	"github.com/go-gl/mathgl/mgl32"
 )
@@ -20,30 +19,26 @@ const (
 	BuildingParking BuildingType = 2
 )
 
-// Building represents a structure placed on the terrain. Parking lots are
-// the primary skier spawn/despawn point (a car arrives, four skiers walk
-// to the lifts; later they walk back and the car drives off). Lodges are
-// reserved for future rest/lunch buildings and currently have no spawn
-// behavior. Sheds garage snowcat / snowmobile equipment.
+// Building represents a structure placed on the terrain. Lodges are
+// reserved for future rest/lunch buildings. Sheds garage snowcat /
+// snowmobile equipment. Parking lots hold a visible car population
+// (CurrentCars, capped by MaxCars) — the demand system writes
+// CurrentCars; the lot itself carries no spawn machinery.
 //
 // Pos is the building's anchor in continuous world XZ coordinates (metres).
 // Y is derived from terrain elevation at use time. Footprints are still
 // effectively a single cell for passability rasterisation; oriented-AABB
 // footprints are a future extension.
 type Building struct {
-	ID            uint64
-	Type          BuildingType
-	Pos           mgl32.Vec2
-	Rotation      float32
-	MeanSpawnRate float64 // mean spawns per second (Poisson process); Parking only
-	SkierCount    int     // skiers currently in the lot's pool; Parking only
-	spawnTimer    float64
-	nextSpawnIn   float64 // random interval until next spawn (exponential)
+	ID       uint64
+	Type     BuildingType
+	Pos      mgl32.Vec2
+	Rotation float32
 
 	// Parking-only state. MaxCars caps how many cars the lot can hold;
-	// CurrentCars is a continuous estimate (incremented per spawn,
-	// decremented per despawn) and the render path floors it to instance
-	// N car models in a grid pattern. Roughly 4 skiers per car.
+	// CurrentCars is the visible count the renderer floors to instance
+	// N car models in a grid pattern. The demand system (future) drives
+	// CurrentCars; the lot itself is passive.
 	// DrivewayNodeIDs holds the road-graph attach points auto-created
 	// from the parking mesh's MOGUL_META slot table — one node per slot,
 	// in slot-index order. Empty on non-parking buildings and on parking
@@ -60,27 +55,6 @@ type Building struct {
 	// path; the cat picks a next target each time it arrives.
 	Cats       int
 	RouteCells [][2]int
-}
-
-// SkiersPerCar is the average number of skiers that arrive together in one
-// car. Drives the visual CurrentCars increment/decrement on each spawn/despawn.
-const SkiersPerCar = 4
-
-// ArrivalDeparture nudges CurrentCars based on a +1 (arrival = spawn) or -1
-// (departure = despawn) event, clamped to [0, MaxCars]. Centralised so
-// spawn and despawn callsites can't drift out of sync.
-func (b *Building) ArrivalDeparture(sign int) {
-	if b.Type != BuildingParking {
-		return
-	}
-	delta := float32(sign) / float32(SkiersPerCar)
-	b.CurrentCars += delta
-	if b.CurrentCars < 0 {
-		b.CurrentCars = 0
-	}
-	if max := float32(b.MaxCars); max > 0 && b.CurrentCars > max {
-		b.CurrentCars = max
-	}
 }
 
 // DoorCell returns the grid cell containing the building's anchor — the
@@ -127,39 +101,6 @@ func (w *World) BuildingOverlapExcept(typ BuildingType, x, z float32, exceptID u
 		}
 	}
 	return false
-}
-
-// SpawnTimer returns the current spawn timer value.
-func (b *Building) SpawnTimer() float64 { return b.spawnTimer }
-
-// AdvanceTimer advances the spawn timer by dt seconds and returns true if a
-// spawn should occur. Inter-arrival times are exponentially distributed with
-// mean 1/MeanSpawnRate (Poisson process). The first interval is drawn lazily
-// on the first call so callers don't need to know about RNG init order.
-// Returns false if the pool is empty.
-func (b *Building) AdvanceTimer(dt float64, rng *rand.Rand) bool {
-	if b.MeanSpawnRate <= 0 || b.SkierCount <= 0 {
-		return false
-	}
-	if b.nextSpawnIn == 0 {
-		b.nextSpawnIn = randExp(b.MeanSpawnRate, rng)
-		return false
-	}
-	b.spawnTimer += dt
-	if b.spawnTimer >= b.nextSpawnIn {
-		b.spawnTimer = 0
-		b.nextSpawnIn = randExp(b.MeanSpawnRate, rng)
-		return true
-	}
-	return false
-}
-
-// randExp returns an exponential random variate with the given rate parameter.
-func randExp(rate float64, rng *rand.Rand) float64 {
-	if rate <= 0 {
-		return math.MaxFloat64
-	}
-	return -math.Log(1-rng.Float64()) / rate
 }
 
 // DrivewayPositions returns the world XZ positions of a parking lot's

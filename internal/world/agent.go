@@ -75,6 +75,11 @@ type Agent struct {
 	// the range loop's slice header doesn't shift mid-pass.
 	Removed bool
 
+	// Events is the per-session log appended to by the sim (falls, run
+	// completions). Read at depart by the demand system to feed the
+	// resort-rating score. Append-only; cleared on agent removal.
+	Events []ai.AgentEvent
+
 	// Display-only snapshot of the last skiing tick's perception/intent.
 	// Populated by sim.tickSkier; read by the follow HUD and the renderer's
 	// perception-cone shader. Stale outside of skiing — gate on Activity.

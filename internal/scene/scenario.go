@@ -529,9 +529,11 @@ const (
 )
 
 // speedOptions lists the time-scale presets shown in the top bar.
-// 1× is real-time, 2× and 4× are the two fast-forward steps. Pause is its
+// 1× is real-time; 10× and 50× are the fast-forward steps. The
+// simulation substeps internally (see Simulation.Tick) so the L1
+// controller still sees a small dt at the upper preset. Pause is its
 // own button — not in this list.
-var speedOptions = []float64{1, 2, 4}
+var speedOptions = []float64{1, 10, 50}
 
 
 // NewScenarioFromFile creates a Scenario that loads its initial world from
@@ -660,7 +662,12 @@ func (s *Scenario) Init(app *engine.App) error {
 	s.topBar = ui.NewTopBar(topBarH)
 	s.topBar.GetCash = func() int { return s.world.Cash }
 	s.topBar.GetGuests = func() int { return len(s.world.Agents) }
-	s.topBar.GetHappiness = func() float32 { return resortHappiness(s.world) }
+	s.topBar.GetHappiness = func() float32 {
+		if s.sim == nil || s.sim.Demand == nil {
+			return 0
+		}
+		return s.sim.Demand.ResortRating
+	}
 	s.topBar.GetDate = func() (int, string, int) {
 		d := sim.CalendarAt(s.sim.SimTime)
 		return d.Day, d.Month, d.Year
@@ -726,17 +733,6 @@ func weatherToUI(w sim.WeatherKind) ui.WeatherKind {
 		return ui.WKStorm
 	}
 	return ui.WKSunny
-}
-
-// resortHappiness is a placeholder readout for the top-bar happiness bar.
-// Stays at 0.80 today; the eventual model will derive this from per-agent
-// satisfaction (lift waits, terrain match, etc.). Wired up to a function
-// rather than a constant so swapping in the real signal is a one-line change.
-func resortHappiness(w *world.World) float32 {
-	if w == nil {
-		return 0.0
-	}
-	return 0.80
 }
 
 // cameraSnapshot captures the live orthographic-camera state into a
@@ -1932,12 +1928,6 @@ func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 		return
 	}
 	w := ui.NewWindow("Lodge", 0, 0)
-	w.AddLabel("Skiers inside", func() string {
-		return fmt.Sprintf("%d", bldg.SkierCount)
-	})
-	w.AddLabel("Spawn rate", func() string {
-		return fmt.Sprintf("%.2f/s", bldg.MeanSpawnRate)
-	})
 	w.AddLabel("Inbound", func() string {
 		count := 0
 		for _, a := range s.world.Agents {

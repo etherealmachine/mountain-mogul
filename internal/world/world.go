@@ -118,9 +118,8 @@ func (w *World) PlaceBuilding(x, z float32) *Building {
 // setup can construct entities without re-deducting from the player's
 // balance.
 //
-// Lodge defaults: spawn 1 skier every ~2 s from a pool of 100.
-// Shed defaults: no spawning — sheds are equipment storage and don't
-// hold a skier pool.
+// Parking lots are passive containers — MaxCars caps the visible
+// population, CurrentCars is driven by the (future) demand system.
 //
 // Multi-cell footprints with rotated AABB rasterisation are a future
 // extension.
@@ -132,15 +131,9 @@ func (w *World) PlaceBuildingType(typ BuildingType, x, z float32) *Building {
 	}
 	switch typ {
 	case BuildingParking:
-		// Parking lots are the primary skier spawn/despawn point. Each
-		// arriving car drops off ~4 skiers; departures reverse it.
-		b.MeanSpawnRate = 0.5 // mean: 1 skier per 2 seconds
-		b.SkierCount = 100
 		b.MaxCars = 40
 	case BuildingLodge:
-		// Lodges are reserved for future rest/lunch features and don't
-		// currently spawn skiers. The spawn fields stay zero so the
-		// sim's spawn picker ignores them.
+		// Lodges are reserved for future rest/lunch features.
 	case BuildingShed:
 		// Sheds start with one cat included. Additional cats are
 		// purchased via the shed popup. SpawnSnowcat is called after
@@ -282,23 +275,6 @@ func (w *World) RemoveLift(id uint64) {
 			return
 		}
 	}
-}
-
-// SpawnAgent creates a new agent at the building's anchor position.
-//
-// Y is taken from the terrain mesh under the lodge cell. Pre-migration
-// this used the cell *corner* as the spawn XZ, producing a half-cell
-// offset from where the lodge actually sat — fixed alongside the move
-// to continuous Pos so agents now spawn exactly under the lodge anchor.
-func (w *World) SpawnAgent(b *Building) *Agent {
-	cell := b.DoorCell()
-	elev := w.Terrain.SurfaceElevationAt(cell[0], cell[1])
-	agent := &Agent{
-		ID:  w.NextID(),
-		Pos: mgl32.Vec3{b.Pos[0], elev, b.Pos[1]},
-	}
-	w.Agents = append(w.Agents, agent)
-	return agent
 }
 
 // RemoveAgent removes an agent by ID.
