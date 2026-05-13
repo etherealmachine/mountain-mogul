@@ -344,13 +344,26 @@ func (b *builder) skierAt(gx, gz int, skill ai.SkillLevel) *builder {
 	heading := float32(math.Atan2(float64(lx-pos[0]), float64(lz-pos[2])))
 
 	a := &world.Agent{
-		ID:       b.w.NextID(),
-		Pos:      pos,
-		Heading:  heading,
-		TargetID: b.lastLodge.ID,
-		Traits:   ai.TraitsFor(skill),
-		Balance:  1.0,
-		Energy:   1.0,
+		ID:      b.w.NextID(),
+		Pos:     pos,
+		Heading: heading,
+		Traits:  ai.TraitsFor(skill),
+		Balance: 1.0,
+		Energy:  1.0,
+	}
+	// Seed a two-step plan: ski to the lodge, then despawn. The GOAP
+	// planner would never emit this from a no-lift testbed world
+	// (its action graph requires a lift top to ski-from), so we drop
+	// the steps onto the agent directly. The runtime only replans on
+	// plan-empty / head-done / precondition-broken — all stable for
+	// the seed plan — so the planner won't overwrite it. Per
+	// [[feedback_testbeds_simple]] testbeds stay minimal.
+	a.Plan = ai.Plan{
+		GoalName: "TestbedGoal",
+		Steps: []ai.PlanAction{
+			{Kind: ai.ActSkiToLodge, BldgID: b.lastLodge.ID},
+			{Kind: ai.ActDepart, BldgID: b.lastLodge.ID},
+		},
 	}
 	b.w.Agents = append(b.w.Agents, a)
 	return b

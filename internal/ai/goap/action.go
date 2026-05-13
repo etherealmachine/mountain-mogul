@@ -5,6 +5,7 @@ import (
 	"math"
 
 	"github.com/go-gl/mathgl/mgl32"
+	"mountain-mogul/internal/ai"
 	"mountain-mogul/internal/world"
 )
 
@@ -385,6 +386,81 @@ func ApplicableActions(s *WorldSnapshot, w *world.World) []Action {
 		out = append(out, &Depart{LotID: s.AtParking})
 	}
 	return out
+}
+
+// =============================================================================
+// Storage handoff — translate concrete Actions to plain-data ai.PlanAction
+// =============================================================================
+
+// ToPlanActions translates a planner-emitted Action slice into the leaf
+// ai package's PlanAction records so the result can live on
+// world.Agent.Plan without forcing world to import goap. Walks the plan
+// applying each step to a snapshot copy so the per-step Cost reflects
+// the state it was costed against during search.
+func ToPlanActions(actions []Action, snap WorldSnapshot, w *world.World) []ai.PlanAction {
+	if len(actions) == 0 {
+		return nil
+	}
+	out := make([]ai.PlanAction, 0, len(actions))
+	step := snap.Clone()
+	for _, a := range actions {
+		pa := ai.PlanAction{Cost: a.Cost(&step, w)}
+		switch t := a.(type) {
+		case *WalkToLift:
+			pa.Kind = ai.ActWalkToLift
+			pa.LiftID = t.LiftID
+		case *JoinQueue:
+			pa.Kind = ai.ActJoinQueue
+			pa.LiftID = t.LiftID
+		case *RideLift:
+			pa.Kind = ai.ActRideLift
+			pa.LiftID = t.LiftID
+		case *SkiToLift:
+			pa.Kind = ai.ActSkiToLift
+			pa.LiftID = t.LiftID
+		case *SkiToLodge:
+			pa.Kind = ai.ActSkiToLodge
+			pa.BldgID = t.LodgeID
+		case *SkiToParking:
+			pa.Kind = ai.ActSkiToParking
+			pa.BldgID = t.LotID
+		case *RestAtLodge:
+			pa.Kind = ai.ActRestAtLodge
+			pa.BldgID = t.LodgeID
+		case *Depart:
+			pa.Kind = ai.ActDepart
+			pa.BldgID = t.LotID
+		}
+		out = append(out, pa)
+		a.Apply(&step, w)
+	}
+	return out
+}
+
+// PlanActionLabel renders an ai.PlanAction with the same name + entity
+// label formatting goap.DisplayName uses for concrete Actions. Used by
+// the HUD which now reads plan steps from the agent rather than from
+// fresh planner output.
+func PlanActionLabel(pa ai.PlanAction, w *world.World) string {
+	switch pa.Kind {
+	case ai.ActWalkToLift:
+		return "WalkToLift(" + liftLabel(w, pa.LiftID) + ")"
+	case ai.ActJoinQueue:
+		return "JoinQueue(" + liftLabel(w, pa.LiftID) + ")"
+	case ai.ActRideLift:
+		return "RideLift(" + liftLabel(w, pa.LiftID) + ")"
+	case ai.ActSkiToLift:
+		return "SkiToLift(" + liftLabel(w, pa.LiftID) + ")"
+	case ai.ActSkiToLodge:
+		return "SkiToLodge(" + buildingLabel(w, pa.BldgID) + ")"
+	case ai.ActSkiToParking:
+		return "SkiToParking(" + buildingLabel(w, pa.BldgID) + ")"
+	case ai.ActRestAtLodge:
+		return "RestAtLodge(" + buildingLabel(w, pa.BldgID) + ")"
+	case ai.ActDepart:
+		return "Depart(" + buildingLabel(w, pa.BldgID) + ")"
+	}
+	return "—"
 }
 
 // =============================================================================

@@ -52,10 +52,8 @@ type Agent struct {
 	// Fun is the smoothed satisfaction signal the L0 GOAP planner reads
 	// to weight goals. Rises on a fresh lift ride (novelty bonus on
 	// unridden lifts, smaller bonus on repeats), decays slowly otherwise.
-	// 0..1; clamped on writeback. Display-only for now — the planner runs
-	// observe-only in Phase 1 and the simulation behavior still follows
-	// pickTopTarget. Future writes from the planner will drive resort
-	// rating once GoHome lands.
+	// 0..1; clamped on writeback. Resort rating will EMA this at Depart
+	// once GoHome lands.
 	Fun float32
 
 	// RidenLifts is a per-agent ride count keyed by lift ID. The MVP
@@ -64,6 +62,18 @@ type Agent struct {
 	// goap.WorldSnapshot to weight Explore and to compute RideLift cost.
 	// Allocated lazily on first lift unload.
 	RidenLifts map[uint64]int
+
+	// RestTimer counts down the atomic RestAtLodge action. While >0 the
+	// agent is parked at a lodge recovering; on expiry Energy resets to
+	// 1 and the plan advances. Sim-seconds (driven by TimeScale-scaled
+	// dt). 0 outside of an active rest.
+	RestTimer float32
+
+	// Removed flags the terminal state set by the GOAP Depart action.
+	// The per-tick dispatch skips Removed agents and reapDeparted
+	// splices them out of the world after tickAgents completes, so
+	// the range loop's slice header doesn't shift mid-pass.
+	Removed bool
 
 	// Display-only snapshot of the last skiing tick's perception/intent.
 	// Populated by sim.tickSkier; read by the follow HUD and the renderer's

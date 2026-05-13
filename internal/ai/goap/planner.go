@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 
+	"mountain-mogul/internal/ai"
 	"mountain-mogul/internal/world"
 )
 
@@ -121,6 +122,26 @@ func (p *Planner) PlanForAgent(a *world.Agent, w *world.World) ([]Action, Goal, 
 		return nil, nil, snap
 	}
 	return p.Plan(snap, goal, w), goal, snap
+}
+
+// StoredPlanFor returns a freshly computed ai.Plan ready to drop onto
+// world.Agent.Plan. The simulation's replan path uses this; the HUD
+// reads the stored result instead of recomputing each frame.
+//
+// When no goal is selectable (everything satisfied) or the planner
+// returns no plan, the returned ai.Plan has empty Steps so Plan.Done()
+// is true. Callers should still set the Plan onto the agent so the
+// previous stale Steps don't survive.
+func (p *Planner) StoredPlanFor(a *world.Agent, w *world.World) ai.Plan {
+	actions, goal, snap := p.PlanForAgent(a, w)
+	out := ai.Plan{}
+	if goal != nil {
+		out.GoalName = goal.Name()
+	}
+	if len(actions) > 0 {
+		out.Steps = ToPlanActions(actions, snap, w)
+	}
+	return out
 }
 
 // reconstruct walks the parent chain from a goal node back to the start

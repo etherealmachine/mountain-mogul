@@ -1802,15 +1802,13 @@ func (s *Scenario) Render(r *render.Renderer) {
 	for _, a := range s.world.Agents {
 		if a.ID == s.followAgentID {
 			drawables = append(drawables, &followLabel{
-				world:   s.world,
-				agent:   a,
-				planner: s.sim.Planner,
+				world: s.world,
+				agent: a,
 			})
 			if s.debugPlanner {
 				drawables = append(drawables, &plannerDebugPanel{
-					world:   s.world,
-					agent:   a,
-					planner: s.sim.Planner,
+					world: s.world,
+					agent: a,
 				})
 			}
 			break
@@ -2402,10 +2400,14 @@ func (s *Scenario) applyPerceptionCone(r *render.Renderer) {
 // skier. Stays narrow: identity, speed/energy/fun, selected goal name,
 // and the next action only. Deep planner introspection — full plan,
 // goal weights, snapshot anchors — moves to plannerDebugPanel behind F4.
+//
+// Reads agent.Plan directly — the simulation's tickPlanning updates it
+// only when a replan trigger fires (plan empty, head done, precondition
+// broken, periodic safety check), so the displayed action is stable
+// across frames.
 type followLabel struct {
-	world   *world.World
-	agent   *world.Agent
-	planner *goap.Planner
+	world *world.World
+	agent *world.Agent
 }
 
 func (f *followLabel) Draw(r *render.Renderer) {
@@ -2420,32 +2422,31 @@ func (f *followLabel) Draw(r *render.Renderer) {
 		fmt.Sprintf("Skier #%d (%s)  |  %s  |  %s", f.agent.ID, f.agent.Traits.Skill, activity, mode),
 		fmt.Sprintf("%.1f m/s    energy %d%%    fun %d%%", f.agent.Speed, energyPct, funPct),
 	}
-	if f.planner != nil {
-		plan, goal, _ := f.planner.PlanForAgent(f.agent, f.world)
-		switch {
-		case goal == nil:
-			rows = append(rows, "goal: —")
-		case len(plan) == 0:
-			rows = append(rows, fmt.Sprintf("goal: %s   (satisfied)", goal.Name()))
-		case plan == nil:
-			rows = append(rows, fmt.Sprintf("goal: %s   (no plan)", goal.Name()))
-		default:
-			rows = append(rows, fmt.Sprintf("goal: %s   →  %s",
-				goal.Name(), goap.DisplayName(plan[0], f.world)))
-		}
+	// Read the stored plan rather than running the planner per frame.
+	// Plan is updated by sim.tickPlanning at the four MD-spec replan
+	// triggers; HUD reads what the sim is actually executing.
+	plan := &f.agent.Plan
+	switch {
+	case plan.GoalName == "":
+		rows = append(rows, "goal: —")
+	case plan.Done():
+		rows = append(rows, fmt.Sprintf("goal: %s   (idle)", plan.GoalName))
+	default:
+		rows = append(rows, fmt.Sprintf("goal: %s   →  %s",
+			plan.GoalName, goap.PlanActionLabel(plan.Head(), f.world)))
 	}
 	drawHUDBox(r, rows, 106, mgl32.Vec4{1, 0.95, 0.1, 1}, true)
 }
 
 // plannerDebugPanel is the F4-toggled deep readout of the L0 GOAP
-// planner for the followed skier. Recomputes the snapshot + plan every
-// frame so the panel reflects the live state — cheap because it's one
-// skier. Renders to the right of the screen as a stacked column so it
-// doesn't compete with the centred followLabel banner.
+// planner for the followed skier. Reads the *stored* plan on
+// agent.Plan rather than recomputing — keeps the panel in sync with
+// what the sim is actually executing. Snapshot anchors and goal
+// weights are recomputed each frame from a fresh Extract since they
+// reflect live state (one agent per frame is cheap).
 type plannerDebugPanel struct {
-	world   *world.World
-	agent   *world.Agent
-	planner *goap.Planner
+	world *world.World
+	agent *world.Agent
 }
 
 // debugPanelMaxPlan caps how many plan rows the panel shows. Plans can
@@ -2454,15 +2455,14 @@ type plannerDebugPanel struct {
 const debugPanelMaxPlan = 12
 
 func (p *plannerDebugPanel) Draw(r *render.Renderer) {
-	if p.planner == nil {
-		return
-	}
-	plan, _, snap := p.planner.PlanForAgent(p.agent, p.world)
+	snap := goap.Extract(p.agent, p.world)
+	plan := &p.agent.Plan
 
 	var rows []string
 	rows = append(rows, fmt.Sprintf("─── Planner: Skier #%d ───", p.agent.ID))
 
-	// Ranked goal weights — the actual decision audit.
+	// Ranked goal weights — the actual decision audit, computed off the
+	// live snapshot so weights reflect what the next replan would see.
 	rows = append(rows, "Goal weights:")
 	winnerMarked := false
 	for _, gr := range goap.RankedGoals(&snap, p.world) {
@@ -2494,27 +2494,30 @@ func (p *plannerDebugPanel) Draw(r *render.Renderer) {
 	rows = append(rows, "RidenLifts:")
 	rows = append(rows, ridenLiftsLine(p.world, snap.RidenLifts))
 
-	// Plan body — each row shows action + its cost-at-snapshot-time.
+	// Plan body — read straight from the stored agent.Plan, with the
+	// current step marked. Steps that have already executed sit above
+	// it (cosmetically dimmed via "·"), upcoming steps below.
+	if plan.GoalName != "" {
+		rows = append(rows, fmt.Sprintf("Goal: %s", plan.GoalName))
+	}
 	rows = append(rows, "Plan:")
 	switch {
-	case plan == nil:
+	case plan.Done():
 		rows = append(rows, "  (no plan)")
-	case len(plan) == 0:
-		rows = append(rows, "  (goal already satisfied)")
 	default:
-		// Step through the snapshot copy as we walk the plan so each
-		// action's cost is computed against the state it actually acts
-		// on — same shape A* used during search.
-		step := snap.Clone()
-		for i, a := range plan {
+		for i, step := range plan.Steps {
 			if i >= debugPanelMaxPlan {
-				rows = append(rows, fmt.Sprintf("  … +%d more", len(plan)-debugPanelMaxPlan))
+				rows = append(rows, fmt.Sprintf("  … +%d more", len(plan.Steps)-debugPanelMaxPlan))
 				break
 			}
-			cost := a.Cost(&step, p.world)
-			rows = append(rows, fmt.Sprintf("  %2d. %-32s  c=%5.1fs",
-				i+1, goap.DisplayName(a, p.world), cost))
-			a.Apply(&step, p.world)
+			marker := "  "
+			if i == plan.Step {
+				marker = "→ "
+			} else if i < plan.Step {
+				marker = "· "
+			}
+			rows = append(rows, fmt.Sprintf("%s%2d. %-32s  c=%5.1fs",
+				marker, i+1, goap.PlanActionLabel(step, p.world), step.Cost))
 		}
 	}
 

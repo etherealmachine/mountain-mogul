@@ -44,14 +44,26 @@ func NewSimulation(w *world.World) *Simulation {
 // NewSimulationWithSeed creates a Simulation with a fixed RNG seed. Identical
 // seed + identical world produces identical agent trajectories — the property
 // testbeds rely on.
+//
+// Any agents already present in w (testbed seeds, save-restored agents) get
+// onPlanStepStart called for their head action so TargetID, the L1 plan
+// target, and any pathfinder route are materialised before the first
+// tick. Agents with no plan are left alone — tickPlanning's plan-empty
+// branch picks them up.
 func NewSimulationWithSeed(w *world.World, seed int64) *Simulation {
-	return &Simulation{
+	sim := &Simulation{
 		World:      w,
 		Pathfinder: NewPathfinder(w.Terrain),
 		TimeScale:  5.0,
 		Rng:        rand.New(rand.NewSource(seed)),
 		Planner:    goap.NewPlanner(),
 	}
+	for _, a := range w.Agents {
+		if !a.Plan.Done() {
+			sim.onPlanStepStart(a)
+		}
+	}
+	return sim
 }
 
 // Tick advances the simulation by dt real seconds.
@@ -70,33 +82,28 @@ func (s *Simulation) tickBuildings(dt float64) {
 		return
 	}
 	for _, b := range w.Buildings {
-		if b.AdvanceTimer(dt, s.Rng) {
-			nearest := w.NearestLift(b.Pos)
-			if nearest == nil {
-				continue
-			}
-			b.SkierCount--
-			b.ArrivalDeparture(+1) // a skier spawning = a car arriving
-			agent := w.SpawnAgent(b)
-			agent.TargetID = nearest.ID
-			agent.Traits = ai.TraitsFor(rollSkillLevel(s.Rng))
-			agent.Balance = 1.0
-			agent.Energy = 1.0
-			agent.TurnSide = 0
-			// Pathfinder routes from the parking lot's door cell to the
-			// back of the lift's current queue so walkers don't all converge
-			// on the base anchor. The destination is a snapshot taken now;
-			// tickQueued does the final shuffle once they arrive and
-			// join the actual queue.
-			path := s.Pathfinder.FindPath(b.DoorCell(), nearest.BackOfQueueCell())
-			if path != nil {
-				agent.Path = path
-				agent.PathIdx = 0
-			} else {
-				w.RemoveAgent(agent.ID)
-				b.SkierCount++       // failed spawn; return to pool
-				b.ArrivalDeparture(-1) // and undo the arrival-side bump
-			}
+		if !b.AdvanceTimer(dt, s.Rng) {
+			continue
+		}
+		b.SkierCount--
+		b.ArrivalDeparture(+1) // a skier spawning = a car arriving
+		agent := w.SpawnAgent(b)
+		agent.Traits = ai.TraitsFor(rollSkillLevel(s.Rng))
+		agent.Balance = 1.0
+		agent.Energy = 1.0
+		agent.TurnSide = 0
+		// Planner picks the first lift and onPlanStepStart lays the
+		// pathfinder route. If no viable plan or no walkable path
+		// exists, undo the spawn so the parking lot pool stays
+		// consistent.
+		s.replan(agent)
+		head := agent.Plan.Head()
+		bad := agent.Plan.Done() ||
+			(head.Kind == ai.ActWalkToLift && len(agent.Path) == 0)
+		if bad {
+			w.RemoveAgent(agent.ID)
+			b.SkierCount++
+			b.ArrivalDeparture(-1)
 		}
 	}
 }
@@ -125,7 +132,6 @@ func (s *Simulation) tickLifts(dt float64) {
 					agent.OnLiftID = 0
 					agent.Speed = 0
 					agent.TurnSide = 0
-					agent.Plan = ai.Plan{}
 					if agent.Balance < 0.5 {
 						agent.Balance = 1.0 // ride up restored balance
 					}
@@ -139,15 +145,19 @@ func (s *Simulation) tickLifts(dt float64) {
 					ty := w.Terrain.SurfaceElevationAt(topCell[0], topCell[1])
 					agent.Pos = mgl32.Vec3{lift.Top[0], ty, lift.Top[1]}
 
-					// Pick a fresh target so we can orient the skier downhill.
-					// Heading must be reset: while riding, Heading points up the lift
-					// cable, which would make the new tickSkier physics treat gravity
-					// as decelerating (cos θ_off < 0) and the skier would never start.
-					targetID, targetPos := pickTopTarget(w, agent, s.Rng)
-					agent.TargetID = targetID
-					dx := targetPos[0] - agent.Pos[0]
-					dz := targetPos[2] - agent.Pos[2]
-					agent.Heading = float32(math.Atan2(float64(dx), float64(dz)))
+					// Advance the plan past the just-completed RideLift so
+					// onPlanStepStart sets TargetID for the next step
+					// (typically SkiToLift/SkiToLodge/SkiToParking). Then
+					// orient heading toward that target — while riding,
+					// Heading points up the lift cable, which would make
+					// the new tickSkier physics treat gravity as
+					// decelerating and the skier would never start.
+					s.advancePlan(agent)
+					if pos, ok := planTargetWorldPos(w, agent); ok {
+						dx := pos[0] - agent.Pos[0]
+						dz := pos[2] - agent.Pos[2]
+						agent.Heading = float32(math.Atan2(float64(dx), float64(dz)))
+					}
 				}
 			}
 
@@ -194,42 +204,6 @@ func bumpFunAndRideCount(agent *world.Agent, lift *world.Lift) {
 	agent.RidenLifts[lift.ID] = count + 1
 }
 
-// pickTopTarget chooses where a skier goes after unloading at a lift top.
-// pickRandomParking returns a uniformly-chosen Parking-type building, or
-// nil if the world has none. Sheds, lodges, and other non-spawn buildings
-// are skipped — only parking lots hold the skier spawn/despawn pool.
-func pickRandomParking(w *world.World, rng *rand.Rand) *world.Building {
-	lots := w.Buildings[:0:0] // reuse-safe: don't write through to w.Buildings
-	for _, b := range w.Buildings {
-		if b.Type == world.BuildingParking {
-			lots = append(lots, b)
-		}
-	}
-	if len(lots) == 0 {
-		return nil
-	}
-	return lots[rng.Intn(len(lots))]
-}
-
-// Low-energy skiers head to a randomly-chosen parking lot to depart;
-// otherwise they pick a uniform-random lift across the whole resort and
-// ski to its base — the resort-spanning "I'll do whichever lift next"
-// behaviour. With a single-lift scenario this just keeps picking the
-// same lift, matching prior behaviour. Returns the entity ID and its
-// world-space position.
-func pickTopTarget(w *world.World, agent *world.Agent, rng *rand.Rand) (uint64, mgl32.Vec3) {
-	if agent != nil && agent.Energy <= energyLowThreshold {
-		if lot := pickRandomParking(w, rng); lot != nil {
-			return lot.ID, parkingWorldPos(w, lot)
-		}
-	}
-	next := w.Lifts[rng.Intn(len(w.Lifts))]
-	// Aim for the back of next's queue, matching resolveTarget — so the
-	// initial heading at lift unload points at the right spot from the
-	// first tick instead of needing one tick to correct.
-	return next.ID, next.BackOfQueueWorldPos(w.Terrain)
-}
-
 // parkingWorldPos returns the parking lot's anchor as a world-space Vec3,
 // with Y from the terrain mesh under the lot's door cell. Centralised so
 // the "ID → world pos" lookup pattern lives in one place.
@@ -245,11 +219,23 @@ func liftBaseWorldPos(w *world.World, l *world.Lift) mgl32.Vec3 {
 }
 
 // tickAgents dispatches each agent to the appropriate handler based on its
-// implicit state. Order of checks matters: fallen short-circuits everything,
-// then on-lift, then queued, then path-walking, then goal locomotion.
+// implicit state. tickPlanning runs first per agent so any replan / step
+// advance settles the implicit state (Queued / TargetID / RestTimer /
+// Removed) before the switch picks a handler. Order of checks matters:
+// fallen short-circuits everything, then on-lift, then queued, then
+// resting, then path-walking, then goal locomotion. Removed agents are
+// reaped from w.Agents after the loop so range iteration isn't shifted
+// mid-pass.
 func (s *Simulation) tickAgents(dt float64) {
 	w := s.World
 	for _, agent := range w.Agents {
+		if agent.Removed {
+			continue
+		}
+		s.tickPlanning(agent)
+		if agent.Removed {
+			continue
+		}
 		switch {
 		case agent.Fallen:
 			s.tickFallen(agent, dt)
@@ -257,12 +243,261 @@ func (s *Simulation) tickAgents(dt float64) {
 			s.tickRiding(agent, dt)
 		case agent.Queued:
 			s.tickQueued(agent, dt)
+		case agent.RestTimer > 0:
+			s.tickResting(agent, dt)
 		case len(agent.Path) > 0 && agent.PathIdx < len(agent.Path):
 			s.tickPath(agent, dt)
 		default:
 			s.tickLocomote(agent, dt)
 		}
 	}
+	s.reapDeparted()
+}
+
+// =============================================================================
+// Planning layer — drives target / queue / removal off the stored ai.Plan
+// =============================================================================
+
+// restAtLodgeSec mirrors goap.restDurationSec — the planner costs
+// RestAtLodge as ~60 s and tickResting counts down for the same
+// duration so plan cost and runtime stay in sync.
+const restAtLodgeSec = 60.0
+
+// tickPlanning is the per-agent replan / advance check. Runs first in
+// the per-agent loop so any implicit state it sets (Queued, TargetID,
+// RestTimer, Removed) is visible to the dispatch switch below it.
+//
+// Replan triggers (a deliberate subset of the SKIER_AI.md design):
+//
+//   - plan empty / done
+//   - head action complete (snapshot matches the action's post-state)
+//   - head action precondition broken (entity gone, etc)
+//
+// A periodic safety re-check is intentionally NOT implemented — it
+// caused mid-descent goal re-elections (KeepSkiing flipping back on
+// once AtLiftTop dropped) that made skiers loop indefinitely.
+// Future replans for genuine world changes (lift closure, queue
+// spikes) should be explicit event hooks, not a fixed-interval poll.
+//
+// Order matters: the completion check has to run before the precondition
+// check because most actions' preconditions go false at the moment they
+// complete (e.g. JoinQueue's precondition AtLiftBase==L is broken as
+// soon as Queued==L is set).
+func (s *Simulation) tickPlanning(a *world.Agent) {
+	if a.Plan.Done() {
+		s.replan(a)
+		return
+	}
+	snap := goap.Extract(a, s.World)
+	head := a.Plan.Head()
+	if planActionComplete(head, a, snap) {
+		s.advancePlan(a)
+		return
+	}
+	if !planActionPreconditionHolds(head, snap, s.World) {
+		s.replan(a)
+		return
+	}
+}
+
+// replan generates a fresh plan and starts its head step. Called at
+// spawn, when the plan exhausts, and when a precondition breaks.
+func (s *Simulation) replan(a *world.Agent) {
+	a.Plan = s.Planner.StoredPlanFor(a, s.World)
+	if !a.Plan.Done() {
+		s.onPlanStepStart(a)
+	}
+}
+
+// advancePlan moves the cursor to the next step and starts it; if the
+// cursor walks off the end, the plan is done and we re-plan instead.
+func (s *Simulation) advancePlan(a *world.Agent) {
+	a.Plan.Step++
+	if a.Plan.Done() {
+		s.replan(a)
+		return
+	}
+	s.onPlanStepStart(a)
+}
+
+// onPlanStepStart materialises the head action's effect on the live
+// agent + world. Locomotion steps (Walk/Ski) set TargetID + lay
+// pathfinder routes; transition steps (JoinQueue / RestAtLodge /
+// Depart) flip the implicit-state bits the per-tick dispatcher reads.
+// RideLift is a no-op — boarding belongs to tickLifts.
+func (s *Simulation) onPlanStepStart(a *world.Agent) {
+	w := s.World
+	step := a.Plan.Head()
+	switch step.Kind {
+	case ai.ActWalkToLift:
+		lift := findLiftByID(w, step.LiftID)
+		if lift == nil {
+			return
+		}
+		a.TargetID = lift.ID
+		a.Plan.Goal = ai.GoalLift
+		a.Plan.GoalID = lift.ID
+		a.Plan.Target = lift.BackOfQueueWorldPos(w.Terrain)
+		startCell := [2]int{
+			int(math.Floor(float64(a.Pos[0] / CellSize))),
+			int(math.Floor(float64(a.Pos[2] / CellSize))),
+		}
+		if path := s.Pathfinder.FindPath(startCell, lift.BackOfQueueCell()); path != nil {
+			a.Path = path
+			a.PathIdx = 0
+		} else {
+			a.Path = nil
+			a.PathIdx = 0
+		}
+	case ai.ActJoinQueue:
+		lift := findLiftByID(w, step.LiftID)
+		if lift == nil {
+			return
+		}
+		lift.Queue = append(lift.Queue, a)
+		a.Queued = true
+		a.TargetID = 0
+	case ai.ActRideLift:
+		// Boarding handled by tickLifts' chair-load branch.
+	case ai.ActSkiToLift:
+		lift := findLiftByID(w, step.LiftID)
+		if lift == nil {
+			return
+		}
+		a.TargetID = lift.ID
+		a.Plan.Goal = ai.GoalLift
+		a.Plan.GoalID = lift.ID
+		a.Plan.Target = lift.BackOfQueueWorldPos(w.Terrain)
+	case ai.ActSkiToLodge:
+		b := findBuildingByID(w, step.BldgID)
+		if b == nil {
+			return
+		}
+		a.TargetID = b.ID
+		a.Plan.Goal = ai.GoalNone
+		a.Plan.GoalID = b.ID
+		a.Plan.Target = parkingWorldPos(w, b)
+	case ai.ActSkiToParking:
+		b := findBuildingByID(w, step.BldgID)
+		if b == nil {
+			return
+		}
+		a.TargetID = b.ID
+		a.Plan.Goal = ai.GoalDepart
+		a.Plan.GoalID = b.ID
+		a.Plan.Target = parkingWorldPos(w, b)
+	case ai.ActRestAtLodge:
+		a.RestTimer = restAtLodgeSec
+		a.Speed = 0
+		a.TargetID = 0
+	case ai.ActDepart:
+		b := findBuildingByID(w, step.BldgID)
+		if b != nil {
+			b.SkierCount++
+			b.ArrivalDeparture(-1) // a skier leaving = a car driving off
+		}
+		a.Removed = true
+	}
+}
+
+// planActionComplete returns true when the head step's post-state is
+// observable in snap. Drives advancePlan.
+func planActionComplete(step ai.PlanAction, a *world.Agent, snap goap.WorldSnapshot) bool {
+	switch step.Kind {
+	case ai.ActWalkToLift, ai.ActSkiToLift:
+		return snap.AtLiftBase == step.LiftID
+	case ai.ActJoinQueue:
+		return snap.Queued == step.LiftID
+	case ai.ActRideLift:
+		return snap.AtLiftTop == step.LiftID
+	case ai.ActSkiToLodge:
+		return snap.AtLodge == step.BldgID
+	case ai.ActSkiToParking:
+		return snap.AtParking == step.BldgID
+	case ai.ActRestAtLodge:
+		return a.RestTimer <= 0
+	case ai.ActDepart:
+		// Terminal — the Removed flag is the real signal; this is
+		// queried only when the agent hasn't been reaped yet.
+		return false
+	}
+	return false
+}
+
+// planActionPreconditionHolds returns true when the head step's
+// precondition is still satisfied. Mainly catches "entity disappeared
+// under the agent's feet" — most preconditions are trivially true while
+// the agent is in transit (no anchor IDs set).
+func planActionPreconditionHolds(step ai.PlanAction, snap goap.WorldSnapshot, w *world.World) bool {
+	switch step.Kind {
+	case ai.ActWalkToLift, ai.ActJoinQueue, ai.ActRideLift, ai.ActSkiToLift:
+		return findLiftByID(w, step.LiftID) != nil
+	case ai.ActSkiToLodge, ai.ActSkiToParking, ai.ActRestAtLodge, ai.ActDepart:
+		return findBuildingByID(w, step.BldgID) != nil
+	}
+	return true
+}
+
+// tickResting counts down the atomic RestAtLodge timer. On expiry
+// Energy resets to 1; tickPlanning on the next frame advances the plan.
+func (s *Simulation) tickResting(a *world.Agent, dt float64) {
+	if a.RestTimer <= 0 {
+		return
+	}
+	a.RestTimer -= float32(dt)
+	if a.RestTimer <= 0 {
+		a.RestTimer = 0
+		a.Energy = 1
+	}
+}
+
+// reapDeparted removes agents flagged by ActDepart at the end of
+// tickAgents. Defers removal out of the range loop so the slice header
+// doesn't shift mid-iteration.
+func (s *Simulation) reapDeparted() {
+	w := s.World
+	for i := len(w.Agents) - 1; i >= 0; i-- {
+		if w.Agents[i].Removed {
+			w.RemoveAgent(w.Agents[i].ID)
+		}
+	}
+}
+
+// planTargetWorldPos returns the world-space position the agent's head
+// step is steering toward, if any. Lift / building targets resolve via
+// the same routes resolveTarget uses, so heading orientation at lift
+// unload matches what tickLocomote will steer at next tick.
+func planTargetWorldPos(w *world.World, a *world.Agent) (mgl32.Vec3, bool) {
+	step := a.Plan.Head()
+	switch step.Kind {
+	case ai.ActWalkToLift, ai.ActSkiToLift:
+		if l := findLiftByID(w, step.LiftID); l != nil {
+			return l.BackOfQueueWorldPos(w.Terrain), true
+		}
+	case ai.ActSkiToLodge, ai.ActSkiToParking:
+		if b := findBuildingByID(w, step.BldgID); b != nil {
+			return parkingWorldPos(w, b), true
+		}
+	}
+	return mgl32.Vec3{}, false
+}
+
+func findLiftByID(w *world.World, id uint64) *world.Lift {
+	for _, l := range w.Lifts {
+		if l.ID == id {
+			return l
+		}
+	}
+	return nil
+}
+
+func findBuildingByID(w *world.World, id uint64) *world.Building {
+	for _, b := range w.Buildings {
+		if b.ID == id {
+			return b
+		}
+	}
+	return nil
 }
 
 // rollSkillLevel samples the lodge-population skill distribution: 60% beginner,
@@ -300,26 +535,16 @@ func (s *Simulation) tickPath(agent *world.Agent, dt float64) {
 		if agent.PathIdx >= len(agent.Path) {
 			agent.Path = nil
 			agent.PathIdx = 0
-			s.onPathComplete(agent)
+			// Path arrival is detected by tickPlanning's snapshot check
+			// next frame (snap.AtLiftBase == L within proximityRadius);
+			// it advances the plan into JoinQueue. Nothing else to do
+			// here.
 		}
 		return
 	}
 	dirNorm := dir.Normalize()
 	agent.Pos = agent.Pos.Add(dirNorm.Mul(step))
 	agent.Heading = float32(math.Atan2(float64(dirNorm[0]), float64(dirNorm[2])))
-}
-
-// onPathComplete handles the transition out of pathfinder-walking. If the
-// target is a lift, the agent joins its queue; otherwise locomotion takes
-// over on the next tick.
-func (s *Simulation) onPathComplete(agent *world.Agent) {
-	for _, lift := range s.World.Lifts {
-		if lift.ID == agent.TargetID {
-			lift.Queue = append(lift.Queue, agent)
-			agent.Queued = true
-			return
-		}
-	}
 }
 
 // tickQueued walks the agent toward their assigned single-file queue slot
@@ -408,28 +633,29 @@ func seatWorldPos(chairPos mgl32.Vec3, heading float32, slotIdx int, slots []wor
 
 // tickLocomote moves the agent toward TargetID, choosing ski or walk based
 // on local slope and goal direction. Steep downhill toward the goal → ski;
-// flat or uphill → walk straight.
+// flat or uphill → walk straight. Arrival is observed by tickPlanning on
+// the next frame via a snapshot extract — the implicit AtLiftBase /
+// AtLodge / AtParking signal is what tells the planning layer the head
+// step is done, so this function doesn't need an explicit on-arrival
+// callback.
 func (s *Simulation) tickLocomote(agent *world.Agent, dt float64) {
 	w := s.World
 	if agent.TargetID == 0 {
 		return
 	}
-	targetPos, kind, ok := resolveTarget(w, agent.TargetID)
+	targetPos, ok := resolveTarget(w, agent.TargetID)
 	if !ok {
-		// Target vanished — drop it; next tick this agent is idle.
+		// Target vanished — drop it; tickPlanning's precondition check
+		// will re-plan on the next tick.
 		agent.TargetID = 0
 		return
 	}
 
 	if shouldSki(w.Terrain, agent.Pos, targetPos) {
-		if s.tickSkier(agent, targetPos, dt) {
-			s.onArrive(agent, kind)
-		}
+		s.tickSkier(agent, targetPos, dt)
 		return
 	}
-	if s.tickWalkToward(agent, targetPos, dt) {
-		s.onArrive(agent, kind)
-	}
+	s.tickWalkToward(agent, targetPos, dt)
 }
 
 // shouldSki returns true when the goal lies in the downhill direction from
@@ -479,90 +705,27 @@ func (s *Simulation) tickWalkToward(agent *world.Agent, target mgl32.Vec3, dt fl
 	return false
 }
 
-// onArrive handles arrival at the agent's TargetID. For lift targets the
-// agent queues up — unless their Energy is depleted, in which case they're
-// rerouted to a lodge to despawn. For building (lodge) targets the agent
-// is absorbed.
-func (s *Simulation) onArrive(agent *world.Agent, kind targetKind) {
-	switch kind {
-	case targetLift:
-		if agent.Energy <= energyLowThreshold && s.routeHome(agent) {
-			return
-		}
-		for _, lift := range s.World.Lifts {
-			if lift.ID == agent.TargetID {
-				lift.Queue = append(lift.Queue, agent)
-				agent.Queued = true
-				return
-			}
-		}
-	case targetBuilding:
-		for _, b := range s.World.Buildings {
-			if b.ID == agent.TargetID {
-				b.SkierCount++
-				b.ArrivalDeparture(-1) // a skier leaving = a car driving off
-				s.World.RemoveAgent(agent.ID)
-				return
-			}
-		}
-	}
-}
-
-// routeHome retargets a depleted agent at a randomly-chosen parking lot
-// and lays down a pathfinder route from the agent's current cell. Used
-// when a skier arrives at a lift base with no energy left: instead of
-// queueing, they walk to the lot and despawn in onArrive(targetBuilding).
-// Returns false (and does nothing) if there are no parking lots to route
-// to — caller falls through to the normal queueing behaviour. The path
-// may be nil if the pathfinder can't find a route; tickLocomote handles
-// that with direct walk/ski.
-func (s *Simulation) routeHome(agent *world.Agent) bool {
-	w := s.World
-	lot := pickRandomParking(w, s.Rng)
-	if lot == nil {
-		return false
-	}
-	agent.TargetID = lot.ID
-	startCell := [2]int{
-		int(math.Floor(float64(agent.Pos[0] / CellSize))),
-		int(math.Floor(float64(agent.Pos[2] / CellSize))),
-	}
-	if path := s.Pathfinder.FindPath(startCell, lot.DoorCell()); path != nil {
-		agent.Path = path
-		agent.PathIdx = 0
-	}
-	return true
-}
-
-// targetKind discriminates an Agent.TargetID lookup result.
-type targetKind uint8
-
-const (
-	targetNone targetKind = iota
-	targetLift
-	targetBuilding
-)
-
-// resolveTarget looks up an agent's TargetID against the world's lifts and
-// buildings, returning the target's world-space position and which kind
-// it was. ok=false when the ID matches nothing (e.g. the entity was
-// removed). Y is taken from the terrain mesh under the entity's cell.
-func resolveTarget(w *world.World, id uint64) (mgl32.Vec3, targetKind, bool) {
+// resolveTarget looks up an agent's TargetID against the world's lifts
+// and buildings, returning the target's world-space position. ok=false
+// when the ID matches nothing (e.g. the entity was removed mid-plan —
+// tickPlanning's precondition check will re-plan on the next tick).
+// Y is taken from the terrain mesh under the entity's cell.
+func resolveTarget(w *world.World, id uint64) (mgl32.Vec3, bool) {
 	for _, l := range w.Lifts {
 		if l.ID == id {
 			// Aim for the back of the queue, not the base anchor —
 			// pulled each locomotion tick so the target shifts as the
 			// queue grows (more skiers behind us) or shrinks (boarders
 			// peel off the front).
-			return l.BackOfQueueWorldPos(w.Terrain), targetLift, true
+			return l.BackOfQueueWorldPos(w.Terrain), true
 		}
 	}
 	for _, b := range w.Buildings {
 		if b.ID == id {
-			return parkingWorldPos(w, b), targetBuilding, true
+			return parkingWorldPos(w, b), true
 		}
 	}
-	return mgl32.Vec3{}, targetNone, false
+	return mgl32.Vec3{}, false
 }
 
 // findBuilding returns the building with the given ID, or nil.

@@ -185,24 +185,15 @@ type Decision struct {
 // =============================================================================
 
 // tickSkier runs one frame of the controller against `target`. Returns true
-// when the agent has arrived (within ArrivalThreshold).
+// when the agent has arrived (within ArrivalThreshold). a.Plan is set
+// once at step-start by sim.onPlanStepStart; this function never re-reads
+// strategic state.
 func (s *Simulation) tickSkier(a *world.Agent, target mgl32.Vec3, dt float64) bool {
 	delta := target.Sub(a.Pos)
 	dist := delta.Len()
 	if dist < ArrivalThreshold {
 		a.Pos = target
 		return true
-	}
-
-	// Plan refresh: only on goal change. The strategic layer is intentionally
-	// thin in Plan A — this is where future "explore a new run / weigh
-	// conditions" logic will hook in, not the per-tick controller.
-	if a.Plan.Target != target {
-		a.Plan = ai.Plan{
-			Goal:   planGoalFor(s.World, a),
-			GoalID: a.TargetID,
-			Target: target,
-		}
 	}
 
 	perc := perceive(s.World.Terrain, a, target)
@@ -293,16 +284,6 @@ func (s *Simulation) tickFallen(a *world.Agent, dt float64) {
 		a.Speed = 0
 		a.TurnSide = 0
 	}
-}
-
-// planGoalFor returns the GoalKind for whatever entity TargetID resolves to.
-func planGoalFor(w *world.World, a *world.Agent) ai.GoalKind {
-	for _, b := range w.Buildings {
-		if b.ID == a.TargetID {
-			return ai.GoalDepart
-		}
-	}
-	return ai.GoalLift
 }
 
 // =============================================================================

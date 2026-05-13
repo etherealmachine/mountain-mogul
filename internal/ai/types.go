@@ -81,7 +81,9 @@ func TraitsFor(level SkillLevel) SkierTraits {
 // PLAN
 // =============================================================================
 
-// GoalKind labels what kind of entity the Plan is heading at.
+// GoalKind labels what kind of entity the Plan is heading at. This is the
+// L1 hint — what the continuous controller is steering toward right now,
+// derived from the head L0 step's destination.
 type GoalKind int
 
 const (
@@ -90,15 +92,64 @@ const (
 	GoalDepart // heading to a parking lot / bus stop / train station to leave the resort
 )
 
-// Plan is the strategic layer's output: where the skier is heading and
-// what they care about. Refreshed on goal change (lift unload, arrival),
-// not per-tick. Prefs is reserved for future exploration / lift selection /
-// conditions logic.
+// PlanActionKind tags an L0 plan step so the simulation can drive
+// locomotion off it without importing the GOAP package's action types
+// (which would cycle: world → goap → world). One enum value per concrete
+// goap.Action implementation.
+type PlanActionKind uint8
+
+const (
+	ActNone PlanActionKind = iota
+	ActWalkToLift
+	ActJoinQueue
+	ActRideLift
+	ActSkiToLift
+	ActSkiToLodge
+	ActSkiToParking
+	ActRestAtLodge
+	ActDepart
+)
+
+// PlanAction is one step in the stored L0 plan — plain data, no behaviour.
+// Either LiftID or BldgID is set depending on Kind; the runtime resolves
+// the entity at execute time. Cost is the planner's cost-at-emission for
+// HUD display.
+type PlanAction struct {
+	Kind   PlanActionKind
+	LiftID uint64
+	BldgID uint64
+	Cost   float32
+}
+
+// Plan is the per-agent strategic layer state. Steps is the L0 plan
+// produced by the GOAP planner; Step indexes the current head action.
+// Target / Goal / GoalID are the L1 hint — set once by the simulation
+// when a step starts, never per-tick. Replan triggers (plan empty, head
+// done, head precondition broken, periodic safety check) regenerate
+// Steps; the L1 controller never re-reads strategic state mid-tick.
 type Plan struct {
-	Goal   GoalKind
-	GoalID uint64
-	Target mgl32.Vec3
-	Prefs  Prefs
+	Goal     GoalKind
+	GoalID   uint64
+	Target   mgl32.Vec3
+	GoalName string // L0 goal name for HUD ("Explore" / "Rest" / ...)
+	Steps    []PlanAction
+	Step     int
+	Prefs    Prefs
+}
+
+// Done reports whether the plan is exhausted — no steps or the cursor has
+// advanced past the last one. The simulation re-plans when this is true.
+func (p *Plan) Done() bool {
+	return len(p.Steps) == 0 || p.Step >= len(p.Steps)
+}
+
+// Head returns the current head action, or the zero PlanAction (Kind =
+// ActNone) if the plan is done.
+func (p *Plan) Head() PlanAction {
+	if p.Done() {
+		return PlanAction{}
+	}
+	return p.Steps[p.Step]
 }
 
 // Prefs is the slot for future strategic preferences (preferred steepness,
