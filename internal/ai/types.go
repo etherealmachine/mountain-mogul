@@ -156,6 +156,39 @@ func (p *Plan) Head() PlanAction {
 // glade tolerance, exploration bias, conditions). Empty for now.
 type Prefs struct{}
 
+// RideCount is one entry in an agent's per-lift ride tally. Stored as a
+// flat slice rather than a map because the GOAP planner clones the
+// per-agent snapshot on every A* node expansion — at ~150 agents
+// replanning across substeps that turned into tens of thousands of map
+// allocations per tick and froze the main loop for seconds. With ≤10
+// lifts a linear scan is faster than a map hash lookup anyway.
+type RideCount struct {
+	LiftID uint64
+	Count  int
+}
+
+// RideCountOf returns the ride count for liftID in rides, or 0 if absent.
+func RideCountOf(rides []RideCount, liftID uint64) int {
+	for i := range rides {
+		if rides[i].LiftID == liftID {
+			return rides[i].Count
+		}
+	}
+	return 0
+}
+
+// AddRide increments the count for liftID in rides, appending a new
+// entry if liftID isn't present yet. Returns the (possibly grown) slice.
+func AddRide(rides []RideCount, liftID uint64) []RideCount {
+	for i := range rides {
+		if rides[i].LiftID == liftID {
+			rides[i].Count++
+			return rides
+		}
+	}
+	return append(rides, RideCount{LiftID: liftID, Count: 1})
+}
+
 // =============================================================================
 // SENSE SNAPSHOT
 // =============================================================================

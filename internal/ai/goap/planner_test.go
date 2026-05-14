@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/go-gl/mathgl/mgl32"
+	"mountain-mogul/internal/ai"
 	"mountain-mogul/internal/world"
 )
 
@@ -91,7 +92,7 @@ func TestExplorePrefersUnridden(t *testing.T) {
 		Pos:        mgl32.Vec3{liftA.Top[0], 0, liftA.Top[1]},
 		Energy:     0.7,
 		AtLiftTop:  liftA.ID,
-		RidenLifts: map[uint64]int{liftA.ID: 1},
+		RidenLifts: []ai.RideCount{{LiftID: liftA.ID, Count: 1}},
 	}
 
 	p := NewPlanner()

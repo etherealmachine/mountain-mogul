@@ -191,10 +191,8 @@ func stateKey(s *WorldSnapshot) string {
 	eb := int(s.Energy * 100)
 	fb := int(s.Fun * 100)
 	ridden := 0
-	if s.RidenLifts != nil {
-		for _, v := range s.RidenLifts {
-			ridden += v
-		}
+	for _, r := range s.RidenLifts {
+		ridden += r.Count
 	}
 	return fmt.Sprintf("E%dF%dB%dT%dQ%dL%dD%dP%dR%dX%v",
 		eb, fb,

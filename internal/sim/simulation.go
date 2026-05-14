@@ -216,16 +216,13 @@ func (s *Simulation) tickLifts(dt float64) {
 // first ride of this lift is the biggest Fun gain (≈0.15), subsequent
 // rides taper geometrically with factor 0.55 so a 4th repeat is barely
 // rewarded. RidenLifts is incremented after the bonus so count=0 maps
-// to the unridden case. Allocates RidenLifts on first call.
+// to the unridden case.
 //
 // Mirrored shape in goap.RideLift.Cost — keep the two in sync if the
 // constants move so the planner's preference for unridden lifts matches
 // the actual Fun outcome.
 func bumpFunAndRideCount(agent *world.Agent, lift *world.Lift) {
-	if agent.RidenLifts == nil {
-		agent.RidenLifts = make(map[uint64]int)
-	}
-	count := agent.RidenLifts[lift.ID]
+	count := ai.RideCountOf(agent.RidenLifts, lift.ID)
 	bonus := float32(0.15)
 	for i := 0; i < count; i++ {
 		bonus *= 0.55
@@ -234,7 +231,7 @@ func bumpFunAndRideCount(agent *world.Agent, lift *world.Lift) {
 	if agent.Fun > 1 {
 		agent.Fun = 1
 	}
-	agent.RidenLifts[lift.ID] = count + 1
+	agent.RidenLifts = ai.AddRide(agent.RidenLifts, lift.ID)
 }
 
 // parkingWorldPos returns the parking lot's anchor as a world-space Vec3,

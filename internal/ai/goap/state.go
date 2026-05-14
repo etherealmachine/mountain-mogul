@@ -15,6 +15,7 @@ package goap
 
 import (
 	"github.com/go-gl/mathgl/mgl32"
+	"mountain-mogul/internal/ai"
 	"mountain-mogul/internal/world"
 )
 
@@ -39,11 +40,12 @@ type WorldSnapshot struct {
 	// this as the unique goal-state for GoHome.
 	Removed bool
 
-	// RidenLifts is a per-lift ride count. The novelty bonus on RideLift
-	// reads this — first ride of a lift is a big Fun gain, subsequent
-	// rides taper geometrically. Allocated lazily; planner search copies
-	// the map per state (cheap at ≤10 lifts per resort).
-	RidenLifts map[uint64]int
+	// RidenLifts is the per-lift ride tally. The novelty bonus on
+	// RideLift reads this — first ride of a lift is a big Fun gain,
+	// subsequent rides taper geometrically. Stored as a flat slice so
+	// Clone is a cheap copy; A* allocates one Clone per node expansion
+	// and a map there was the dominant source of main-loop stalls.
+	RidenLifts []ai.RideCount
 }
 
 // Clone returns a deep copy suitable for planner search expansion.
@@ -51,10 +53,7 @@ type WorldSnapshot struct {
 func (s WorldSnapshot) Clone() WorldSnapshot {
 	out := s
 	if len(s.RidenLifts) > 0 {
-		out.RidenLifts = make(map[uint64]int, len(s.RidenLifts))
-		for k, v := range s.RidenLifts {
-			out.RidenLifts[k] = v
-		}
+		out.RidenLifts = append(make([]ai.RideCount, 0, len(s.RidenLifts)), s.RidenLifts...)
 	} else {
 		out.RidenLifts = nil
 	}

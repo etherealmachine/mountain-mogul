@@ -5,6 +5,7 @@ import (
 	"math"
 
 	"github.com/go-gl/mathgl/mgl32"
+
 	"mountain-mogul/internal/ai"
 	"mountain-mogul/internal/world"
 )
@@ -141,10 +142,7 @@ func (a *RideLift) Apply(s *WorldSnapshot, w *world.World) {
 	s.Queued = 0
 	s.OnLift = 0
 	s.AtLiftTop = a.LiftID
-	if s.RidenLifts == nil {
-		s.RidenLifts = make(map[uint64]int)
-	}
-	s.RidenLifts[a.LiftID]++
+	s.RidenLifts = ai.AddRide(s.RidenLifts, a.LiftID)
 }
 
 func (a *RideLift) Cost(s *WorldSnapshot, w *world.World) float32 {
@@ -154,10 +152,7 @@ func (a *RideLift) Cost(s *WorldSnapshot, w *world.World) float32 {
 	}
 	ride := l.LoopLength() / (2 * l.Speed)
 	// Repeat penalty: 0 for the first ride, ramps to repeatPenaltyCap.
-	count := 0
-	if s.RidenLifts != nil {
-		count = s.RidenLifts[a.LiftID]
-	}
+	count := ai.RideCountOf(s.RidenLifts, a.LiftID)
 	penalty := float32(count) * repeatPenaltyPerRide
 	if penalty > repeatPenaltyCap {
 		penalty = repeatPenaltyCap

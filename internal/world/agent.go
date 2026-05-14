@@ -56,12 +56,14 @@ type Agent struct {
 	// once GoHome lands.
 	Fun float32
 
-	// RidenLifts is a per-agent ride count keyed by lift ID. The MVP
-	// novelty mechanic: first ride of a lift is the biggest Fun bump,
-	// subsequent rides taper. The planner reads this through
-	// goap.WorldSnapshot to weight Explore and to compute RideLift cost.
-	// Allocated lazily on first lift unload.
-	RidenLifts map[uint64]int
+	// RidenLifts is the per-agent ride tally. The MVP novelty mechanic:
+	// first ride of a lift is the biggest Fun bump, subsequent rides
+	// taper. The planner reads this through goap.WorldSnapshot to weight
+	// Explore and to compute RideLift cost. Stored as a flat slice (not
+	// a map) so the planner's per-expansion Clone is a cheap slice copy
+	// — see ai.RideCount for the why. Appended lazily on first ride of
+	// a lift.
+	RidenLifts []ai.RideCount
 
 	// RestTimer counts down the atomic RestAtLodge action. While >0 the
 	// agent is parked at a lodge recovering; on expiry Energy resets to

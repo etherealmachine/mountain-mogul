@@ -12,6 +12,7 @@ import (
 	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
 	"github.com/go-gl/mathgl/mgl32"
+	"mountain-mogul/internal/ai"
 	"mountain-mogul/internal/ai/goap"
 	"mountain-mogul/internal/engine"
 	"mountain-mogul/internal/render"
@@ -2590,8 +2591,8 @@ func (p *plannerDebugPanel) Draw(r *render.Renderer) {
 // ridenLiftsLine formats the per-lift ride count map as a single row
 // like "Lift1×2, Accelerator×1". Sorted by descending count so the most-
 // ridden lift comes first.
-func ridenLiftsLine(w *world.World, m map[uint64]int) string {
-	if len(m) == 0 {
+func ridenLiftsLine(w *world.World, rides []ai.RideCount) string {
+	if len(rides) == 0 {
 		return "  (none)"
 	}
 	type entry struct {
@@ -2599,11 +2600,11 @@ func ridenLiftsLine(w *world.World, m map[uint64]int) string {
 		count int
 	}
 	var entries []entry
-	for id, c := range m {
-		if c == 0 {
+	for _, r := range rides {
+		if r.Count == 0 {
 			continue
 		}
-		entries = append(entries, entry{liftRef(w, id), c})
+		entries = append(entries, entry{liftRef(w, r.LiftID), r.Count})
 	}
 	if len(entries) == 0 {
 		return "  (none)"

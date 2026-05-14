@@ -3,6 +3,7 @@ package goap
 import (
 	"sort"
 
+	"mountain-mogul/internal/ai"
 	"mountain-mogul/internal/world"
 )
 
@@ -85,7 +86,7 @@ func (Explore) IsSatisfied(s *WorldSnapshot, w *world.World) bool {
 		return true
 	}
 	for _, l := range w.Lifts {
-		if s.RidenLifts == nil || s.RidenLifts[l.ID] == 0 {
+		if ai.RideCountOf(s.RidenLifts, l.ID) == 0 {
 			return false
 		}
 	}
@@ -98,7 +99,7 @@ func (Explore) Weight(s *WorldSnapshot, w *world.World) float32 {
 	}
 	unridden := 0
 	for _, l := range w.Lifts {
-		if s.RidenLifts == nil || s.RidenLifts[l.ID] == 0 {
+		if ai.RideCountOf(s.RidenLifts, l.ID) == 0 {
 			unridden++
 		}
 	}
