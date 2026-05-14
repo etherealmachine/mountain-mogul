@@ -131,7 +131,9 @@ func (w *World) PlaceBuildingType(typ BuildingType, x, z float32) *Building {
 	}
 	switch typ {
 	case BuildingParking:
-		b.MaxCars = 40
+		if layout, ok := ParkingLotLayout(typ); ok {
+			b.MaxCars = layout.Capacity()
+		}
 	case BuildingLodge:
 		// Lodges are reserved for future rest/lunch features.
 	case BuildingShed:

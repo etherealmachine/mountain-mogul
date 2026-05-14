@@ -89,7 +89,10 @@ type Terrain struct {
 const DefaultSnowDepth = float32(2.0)
 
 // NewTerrain creates a flat terrain with all cells passable, default
-// snow depth, and moderately packed snow.
+// snow depth, and lightly-packed (close to fresh powder) snow. Skier
+// traffic and snowcat grooming both compress the column toward Packed=1
+// under SWE conservation, so starting near zero gives the most room
+// for visible compression as the resort gets tracked out.
 func NewTerrain(w, h int) *Terrain {
 	cells := make([][]Cell, w)
 	for x := 0; x < w; x++ {
@@ -98,7 +101,7 @@ func NewTerrain(w, h int) *Terrain {
 			cells[x][z] = Cell{
 				GroundElevation: 0,
 				SnowDepth:       DefaultSnowDepth,
-				Packed:          0.5,
+				Packed:          0.2,
 				Passable:        true,
 				NaturalElev:     0,
 				NaturalSnow:     DefaultSnowDepth,

@@ -1222,17 +1222,9 @@ func BuildingTransform(pos mgl32.Vec2, rotation float32, terrain *world.Terrain)
 }
 
 // carInstancesFor enumerates the parked-car instances across every parking
-// lot in the world. Cars are placed in a regular grid inside each lot's
-// pad footprint, filling row-major up to floor(CurrentCars). Stall pitch
-// is fixed; pad size comes from the lot's mesh footprint metadata so a
-// larger parking-pad model would Just Work without re-tuning here.
+// lot in the world. Stall positions come from world.ParkingLotLayout so
+// MaxCars in the lot's popup matches what the renderer actually fills.
 func carInstancesFor(w *world.World) []DynamicInstance {
-	const (
-		stallX = float32(2.5) // x pitch — slightly wider than the 2 m car footprint
-		stallZ = float32(5.0) // z pitch — bumper-to-bumper down the rows
-		margin = float32(2.0) // inset from pad edge so cars don't poke off the asphalt
-	)
-
 	var instances []DynamicInstance
 	for _, b := range w.Buildings {
 		if b.Type != world.BuildingParking {
@@ -1242,23 +1234,15 @@ func carInstancesFor(w *world.World) []DynamicInstance {
 		if count <= 0 {
 			continue
 		}
-		// Pad half-extents come from the SCAD footprint metadata. Without
-		// it (e.g. parking.obj hasn't been built yet) we skip car
-		// instancing — the renderer is already showing the magenta
-		// marker cube for the pad, and floating cars over it would just
-		// add to the noise.
-		fp, ok := world.FootprintFor(b.Type.MeshID())
+		// Layout depends on registered footprint metadata. Without it
+		// (e.g. parking.obj hasn't been built yet) we skip car instancing
+		// — the magenta marker cube for the pad is enough noise.
+		layout, ok := world.ParkingLotLayout(b.Type)
 		if !ok {
 			continue
 		}
-		padHalfX, padHalfZ := fp.HalfX, fp.HalfZ
-		cols := int(math.Floor(float64((padHalfX*2 - margin*2) / stallX)))
-		rows := int(math.Floor(float64((padHalfZ*2 - margin*2) / stallZ)))
-		if cols < 1 || rows < 1 {
-			continue
-		}
-		if maxStalls := cols * rows; count > maxStalls {
-			count = maxStalls
+		if cap := layout.Capacity(); count > cap {
+			count = cap
 		}
 		// Pad origin is at the building anchor at ground level. Cars rest
 		// on the asphalt surface — the pad top is parkingPadHeight above
@@ -1271,13 +1255,8 @@ func carInstancesFor(w *world.World) []DynamicInstance {
 		// Cosine/sine of the lot rotation so the grid rotates with it.
 		ca := float32(math.Cos(float64(b.Rotation)))
 		sa := float32(math.Sin(float64(b.Rotation)))
-		startX := -padHalfX + margin + stallX/2
-		startZ := -padHalfZ + margin + stallZ/2
 		for i := 0; i < count; i++ {
-			col := i % cols
-			row := i / cols
-			localX := startX + float32(col)*stallX
-			localZ := startZ + float32(row)*stallZ
+			localX, localZ := layout.StallPosition(i)
 			worldX := b.Pos[0] + localX*ca - localZ*sa
 			worldZ := b.Pos[1] + localX*sa + localZ*ca
 			// Subtle deterministic tint variation so the lot doesn't read

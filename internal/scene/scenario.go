@@ -1926,6 +1926,15 @@ func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 		w.Center(screenW, screenH)
 		s.popup = w
 		return
+	case world.BuildingParking:
+		w := ui.NewWindow("Parking Lot", 0, 0)
+		w.AddLabel("Cars", func() string {
+			return fmt.Sprintf("%d / %d", int(bldg.CurrentCars), bldg.MaxCars)
+		})
+		w.Visible = true
+		w.Center(screenW, screenH)
+		s.popup = w
+		return
 	}
 	w := ui.NewWindow("Lodge", 0, 0)
 	w.AddLabel("Inbound", func() string {

@@ -131,6 +131,15 @@ The full set of placeable buildings and zones, grouped by role. Most exist to ei
 
 ---
 
+### Easter Eggs
+These should be "discoverable" by the player and not placeable, they're things that just happen if the conditions are right
+* Pond skimming — warm temps + a flat run-out + low-snow patch turns into a puddle; an expert with full Fun yolos across it. Crowd gathers, Fun bonus radiates to nearby skiers.
+* Gaper Day — last weekend of season, a fraction of skiers spawn in absurd retro outfits. Pure cosmetic, nostalgia bonus to Park Rating.
+* Send It — Pro encounters a small cliff feature on steep terrain, hucks it. Possible "stomp" (big Fun + audience bonus) or "yard sale" (gear scattered, Ski Patrol response).
+* Bootpacking — a Pro at full energy hikes above the highest lift to access an untouched alpine face. Visible little figure on the ridge; pulls other Pros toward that terrain.
+* Mogul Bomber — an expert on a bumped-up run draws an audience from the adjacent lift (you mentioned this in the doc — formalize it as an emergent event).
+* Yeti Sighting — extremely rare, only when alpine biome + low traffic + heavy snow; one skier returns claiming to have seen it. Tiny Park Rating wobble, big screenshot moment.
+
 ### Related Documents
 
 *   [SKIER_AI.md](SKIER_AI.md) — agent AI architecture (planning + steering)

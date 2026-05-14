@@ -41,26 +41,28 @@ hillside.
 
 Each cell stores five floats describing the snow on top of it. All are in
 `[0, 1]` except `SnowDepth`, which is in metres. Defaults from
-`world.NewTerrain` are roughly "fresh dump, moderately packed":
+`world.NewTerrain` seed loose, lightly-packed snow — close to fresh
+powder — so skier traffic and grooming have full compression range:
 
 | Field       | Range  | Meaning                              | Default |
 | ----------- | ------ | ------------------------------------ | ------- |
 | `SnowDepth` | metres | Thickness of the snow layer          | 2.0     |
 | `Grooming`  | 0..1   | Recency/intensity of cat-track passes | 0       |
-| `Packed`    | 0..1   | Column density (powder → bulletproof) | 0.5     |
+| `Packed`    | 0..1   | Column density (powder → bulletproof) | 0.2     |
 | `Ice`       | 0..1   | Ice fraction at the surface          | 0       |
 | `MogulSize` | 0..1   | Mogul amplitude                      | 0       |
 
 **Emergent "types":**
 
-- *Corduroy:* `Grooming` high, `MogulSize` low, `Packed` moderate.
+- *Corduroy:* `Grooming` high, `MogulSize` low, `Packed` = 1 (fresh groom).
 - *Powder:* `SnowDepth` high, `Packed` low.
 - *Moguls:* `Grooming` low + skier traffic over time → `MogulSize` rises.
 - *Boilerplate ice:* `Ice` high + `SnowDepth` low + freeze cycle.
 
-These dynamics (traffic packing, mogul formation, freeze-thaw) are not yet
-implemented — currently snow state is set at terrain construction and by the
-apron pass, and otherwise stays constant. See *Future work* below.
+`SnowDepth` and `Packed` are coupled by snow-water-equivalent conservation
+(see *Snow-water-equivalent coupling* below): as the column packs, the
+surface drops proportionally. Traffic packing, depth compression, and
+mogul formation are all live; freeze-thaw / precipitation are not.
 
 ## Apron pass
 
@@ -91,13 +93,14 @@ function that picks footprint + axis + buildup and calls the helper.
 ## Skier traffic wear
 
 `internal/sim/skiing.go::wearSnowUnderfoot` runs once per skier per tick
-on the cell beneath the agent. It mutates three scalars at rates tuned
+on the cell beneath the agent. It mutates four scalars at rates tuned
 to the average per-pass exposure (~0.5 s in a 5 m cell at 10 m/s):
 
 | Field       | Rate          | Effect                                   |
 | ----------- | ------------- | ---------------------------------------- |
 | `Grooming`  | −0.02/s       | Skis cut up the corduroy; ~100 passes wipe out fresh grooming |
 | `Packed`    | +0.05/s       | Boots and edges compact the column; ~40 passes saturate from 0.5 |
+| `SnowDepth` | coupled       | Column compresses as it packs (see *SWE coupling* below) |
 | `MogulSize` | +0.005·(1−Grooming)/s | Ungroomed cells slowly mogul up; corduroy resists bumps |
 
 Mogul growth is gated on `SnowDepth > 0.3 m` so aprons (clamped to
@@ -107,9 +110,53 @@ skiing in `tickSkier`.
 
 The wear loop sets `Terrain.SnowDirty = true`; the renderer rebuilds
 the whole mesh at most once per frame regardless of how many cells
-changed. The snowcat fleet refreshes `Grooming` back to 1.0 as cats
-arrive at cells, so a heavily-trafficked piste reaches a dynamic
-equilibrium between wear and grooming throughput.
+changed. The snowcat fleet refreshes `Grooming` back to 1.0 (and
+compresses to `Packed = 1.0`) as cats arrive at cells, so a heavily-
+trafficked piste reaches a dynamic equilibrium between wear and
+grooming throughput.
+
+### Snow-water-equivalent coupling
+
+`SnowDepth` and `Packed` are linked by a linear density model:
+
+```
+density(Packed) = 0.15 + 0.85 × Packed
+```
+
+The 0.15→1.0 ratio (~6.7×) is exaggerated vs. real snow (real ratio is
+closer to 5–10× from fluff to corduroy, but real default-state snow is
+much firmer than our default Packed=0.2). The numbers are picked so the
+step at a groomed-lane boundary is readable in a near-top-down view,
+not just from a side angle.
+
+When `Packed` changes — either gradually under skier traffic or in one
+step under a snowcat — `SnowDepth` is scaled to conserve SWE:
+
+```
+SnowDepth_new = SnowDepth_old × density(Packed_old) / density(Packed_new)
+```
+
+Concrete effects:
+
+- A fresh-powder cell (`Packed = 0`, 2 m deep) groomed by a cat in one
+  pass settles to ~0.30 m of corduroy. Compression ratio = 0.15 / 1.0.
+- A default cell (`Packed = 0.2`, 2 m) groomed settles to ~0.64 m.
+  Ratio = 0.32 / 1.0; the boundary step is ~1.36 m.
+- A handful of skier passes on a default-state cell drops it
+  noticeably: 4 passes (≈2 s in-cell exposure) takes Packed from 0.2
+  to 0.3, density 0.32 to 0.41, depth 2 m to ~1.56 m — a 44 cm
+  visible dimple from light traffic alone.
+
+The compression is what the player sees: groomed and well-tracked lanes
+sit visibly lower than the adjacent untracked snow shoulder. The
+divergence-driven flat-normal lighting in `terrain.frag` accentuates
+the step at the boundary so the shadowed shelf reads clearly even
+without a side-on camera angle.
+
+Aprons (lift, lodge) write `Packed = 1.0` and `SnowDepth ≈ 0.05 m`
+directly as a one-shot structure-placement edit — they bypass the SWE
+formula because they represent graded earthwork, not a physical
+compression of pre-existing snow.
 
 ## Rendering
 
@@ -122,9 +169,17 @@ the four corners of its quad.
 
 `assets/shaders/terrain.frag` consumes them:
 
-- **Grooming** drives a 4-stripes-per-metre corduroy sine oriented along the
-  contour (perpendicular to the local fall line). Amplitude scales with
-  `Grooming`; gated off on cliffs and skirts.
+- **Grooming** drives a 4-stripes-per-metre corduroy sine oriented along
+  the contour (perpendicular to the local fall line). The fall direction
+  comes from the heavily filtered per-vertex `smoothNormal` (5-tap
+  binomial × 2 passes on the elevation grid, then central differences),
+  interpolated per fragment — so the stripes smoothly curve with the
+  terrain instead of fragmenting at triangle edges. Faded in over the
+  slope range `|N.xz| ∈ [0.05, 0.15]` (~3° to ~9°) so flat aprons don't
+  pick up noise-rotated direction from near-zero gradients. Amplitude
+  scales with `Grooming`; gated off on cliffs and skirts. A subtle
+  value-noise grain and a cool tint also key off `Grooming` to mark
+  groomed surfaces beyond the cords themselves.
 - **Packed** mixes a bluer cool tint into the base color (~20 % at full).
 - **MogulSize** modulates brightness via a two-octave value-noise at ~3 m
   feature size, simulating the highlight/shadow pattern of bumps without
@@ -183,10 +238,12 @@ fill in the full set.
 - **Snow brushes.** Player-facing tools to paint `SnowDepth`, `Grooming`,
   spray snowmaking, etc. The data model supports them; UI is the remaining
   work.
-- **Snowfall and freeze cycles.** Each tick: snowfall adds `SnowDepth`;
-  thin-snow + traffic + freeze cycles raise `Ice`. Skier wear (Grooming
-  decay, Packed rise, Mogul growth) and snowcat grooming are already
-  implemented; precipitation and freeze-thaw are not.
+- **Snowfall and freeze cycles.** Each tick: snowfall adds `SnowDepth`
+  (typically as low-`Packed`, low-`Ice` accumulation, lifting the surface
+  back up); thin-snow + traffic + freeze cycles raise `Ice`. Skier wear
+  (Grooming decay, Packed rise, SWE-conserving depth compression, Mogul
+  growth) and snowcat grooming (full pack + compression + corduroy) are
+  already implemented; precipitation and freeze-thaw are not.
 - **Glade tolerance trait.** Per-skier willingness to enter trees;
   currently all skiers avoid trees equally. Already on the roadmap.
 - **Lift cable clearance over ground.** Cables currently sit at `Surface +

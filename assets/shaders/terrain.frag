@@ -49,10 +49,21 @@ void main() {
     // Smooth normals on gentle terrain, flat (per-triangle) normals on
     // steep slopes. The faceted shading on cliffs reads as crisp rock
     // breaks; the smooth elsewhere reads as continuous snow.
+    //
+    // Additionally, shift toward the flat normal wherever smoothN and
+    // flatN disagree noticeably — that disagreement means the mesh has
+    // a real geometric step (e.g. a groomed lane sitting lower than
+    // the untracked shoulder due to SWE compression) that the CPU-side
+    // smoothing has averaged away. Without this, the depth drop from
+    // grooming/packing produces a smooth dip rather than the sharp
+    // shadowed shelf the player should be reading the piste from.
     vec3 flatN    = normalize(vNormal);
     vec3 smoothN  = normalize(vSmoothNormal);
-    float cliffness = 1.0 - smoothstep(0.55, 0.85, smoothN.y);
-    vec3  N      = normalize(mix(smoothN, flatN, cliffness));
+    float cliffness  = 1.0 - smoothstep(0.55, 0.85, smoothN.y);
+    float divergence = 1.0 - dot(smoothN, flatN);
+    float stepReveal = smoothstep(0.02, 0.20, divergence);
+    float flatWeight = max(cliffness, stepReveal);
+    vec3  N          = normalize(mix(smoothN, flatN, flatWeight));
     float slope = clamp(N.y, 0.0, 1.0);                  // 1 = flat, 0 = vertical
     float h     = clamp((vWorldPos.y - uTerrainMinY) /
                         max(uTerrainMaxY - uTerrainMinY, 1.0), 0.0, 1.0);
@@ -76,8 +87,15 @@ void main() {
     vec3 highWhite = vec3(0.99, 0.99, 1.00);
     vec3 snow      = mix(lowFlat, midPowder, smoothstep(0.20, 0.55, h));
          snow      = mix(snow,    highWhite, smoothstep(0.65, 0.95, h));
-    vec3 packedTint = vec3(0.87, 0.91, 0.97);
-    snow            = mix(snow, snow * packedTint, packed * 0.4);
+    // Packed-snow tint — slightly darker and a touch cooler than fresh
+    // powder. Kept subtle so the primary signal of packed/groomed snow
+    // is the geometric depth step (revealed via flat-normal lighting at
+    // boundaries above), not a strong colour shift. Default Packed=0.5
+    // sits near zero shift; groomed Packed=1 reads ~5% darker / faintly
+    // cool.
+    vec3 packedTint = vec3(0.92, 0.94, 0.97);
+    float packedMix = smoothstep(0.45, 1.0, packed) * 0.45;
+    snow            = mix(snow, snow * packedTint, packedMix);
 
     // Mogul roughness — multi-octave value-noise modulating brightness.
     // Mogul wavelength ~3 m matches real spacing; a half-wavelength octave
@@ -112,27 +130,54 @@ void main() {
     // Ambient + diffuse, multiplied by baked AO to deepen valleys / cliff bases.
     vec3 lit = shaded * (0.25 + 0.85 * diff) * vAO;
 
-    // Groomed snow visual — no directional stripes (corduroy
-    // line-art has its own set of issues: any per-fragment direction
-    // function rotates across the surface and produces curved/oval
-    // iso-lines rather than parallel stripes; reliably-parallel
-    // stripes need either a fixed world axis, a per-route uniform,
-    // or a heavily-smoothed CPU-side gradient — all more machinery
-    // than the look is worth at this point).
-    //
-    // Instead, two cheap non-directional cues mark groomed snow:
-    //   1. A subtle low-amplitude 2D value-noise grain, so the
-    //      surface has a touch of "fine snow texture" rather than
-    //      reading as a flat shaded slab.
-    //   2. A slight cool tint — packed-and-smoothed snow reads
+    // Groomed snow visual. Three layered cues:
+    //   1. Corduroy stripes — a sine pattern projected along the
+    //      contour direction (perpendicular to the local fall line).
+    //      Direction comes from smoothN.xz, the heavily filtered
+    //      CPU-side normal (5-tap binomial × 2 passes before vert
+    //      shader); its horizontal projection is the smoothed fall
+    //      direction. Per-fragment interpolation produces continuous
+    //      contour-following stripes that gently curve with the
+    //      terrain, which is what real corduroy looks like on a
+    //      curving piste. Gated on slope so flat aprons don't pick
+    //      up garbage from noisy near-zero gradients, and faded in
+    //      over the slope threshold so groomed flats blend cleanly
+    //      into pitched groomed runs.
+    //   2. A subtle low-amplitude 2D value-noise grain — fine snow
+    //      texture between the cords.
+    //   3. A slight cool tint — packed-and-smoothed snow reads
     //      bluer than fresh powder.
-    //
-    // The smoothed-normal lighting (computed earlier) is the primary
-    // signal that the surface is groomed; these two add character.
     if (grooming > 0.01 && snowness > 0.1) {
+        vec2 horizN = smoothN.xz;
+        float horizLen = length(horizN);
+        if (horizLen > 0.05) {
+            vec2 fallDir    = horizN / horizLen;
+            vec2 contourDir = vec2(-fallDir.y, fallDir.x);
+            const float stripesPerMeter = 4.0;
+            float phase  = dot(vWorldPos.xz, contourDir) * stripesPerMeter * 6.2831853;
+            float stripe = sin(phase);
+            // Anti-alias: fade the stripe out when one period spans
+            // less than a few pixels on screen. fwidth(phase) gives the
+            // total phase change across a 2×2 pixel quad, so we fade
+            // once that exceeds ~π (Nyquist) toward ~3π where the
+            // moiré would otherwise dominate.
+            float phaseFW = fwidth(phase);
+            float aaFade  = 1.0 - smoothstep(1.6, 4.0, phaseFW);
+            float slopeFade = smoothstep(0.05, 0.15, horizLen);
+            // Stripe amplitude is the strongest grooming signal — a
+            // single groomed cell only reads ~25 % grooming at its
+            // corners after the 4-cell average, so the base amplitude
+            // has to be loud enough that 25 % × amp is still visible.
+            lit *= 1.0 + stripe * 0.15 * grooming * slopeFade * aaFade;
+        }
         float grain = valueNoise(vWorldPos.xz / 1.5) - 0.5; // ±0.5 around zero
-        lit *= 1.0 + grain * 0.05 * grooming;
-        lit = mix(lit, lit * vec3(0.92, 0.96, 1.02), 0.15 * grooming);
+        lit *= 1.0 + grain * 0.04 * grooming;
+        // Subtle cool tint and brightness lift — the primary grooming
+        // signal is the cord stripes plus the depth step revealed by
+        // the divergence-driven flat-normal lighting, so colour shifts
+        // stay quiet.
+        lit  = mix(lit, lit * vec3(0.95, 0.97, 1.02), 0.15 * grooming);
+        lit *= 1.0 + 0.04 * grooming;
     }
 
     // Per-fragment sparkle: high-freq world-cell hash gated by tight specular
