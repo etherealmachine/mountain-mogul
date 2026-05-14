@@ -376,13 +376,37 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 	jit := make([]float32, t.Width*t.Height)
 	jitX := make([]float32, t.Width*t.Height)
 	jitZ := make([]float32, t.Width*t.Height)
+	// Corner elevation is the 4-cell average of ground+snow around this
+	// grid point — the same averaging rule snowAt uses for snow attrs.
+	// A sharp SnowDepth step between two cells becomes a 2-cell-wide
+	// ramp instead of the per-corner-cell parallelogram the single-cell
+	// lookup produced. Apron / road / pad blends (which already use a
+	// multi-cell smoothstep) stay smooth; grooming → powder boundaries
+	// get a visible-but-soft dip that reads as a depressed lane.
+	cornerSurfaceY := func(cx, cz int) float32 {
+		var sum, n float32
+		for dz := -1; dz <= 0; dz++ {
+			for dx := -1; dx <= 0; dx++ {
+				x, z := cx+dx, cz+dz
+				if x < 0 || x >= t.Width || z < 0 || z >= t.Height {
+					continue
+				}
+				sum += t.SurfaceElevationAt(x, z)
+				n++
+			}
+		}
+		if n == 0 {
+			return 0
+		}
+		return sum / n
+	}
 	for z := 0; z < t.Height; z++ {
 		for x := 0; x < t.Width; x++ {
 			jx, jy, jz := terrainJitterXYZ(x, z, t.Width, t.Height, cellSize)
 			scale := cornerSmoothness(x, z)
 			i := x*t.Height + z
 			jitX[i] = jx * scale
-			jit[i] = t.SurfaceElevationAt(x, z) + jy*scale
+			jit[i] = cornerSurfaceY(x, z) + jy*scale
 			jitZ[i] = jz * scale
 		}
 	}
@@ -981,8 +1005,7 @@ func (r *Renderer) FlushSnowState(t *world.Terrain) {
 	cornerY := make([]float32, W*H)
 	for cz := 0; cz < H; cz++ {
 		for cx := 0; cx < W; cx++ {
-			cornerY[cx*H+cz] = t.SurfaceElevationAt(cx, cz)
-			var g, pk, ic, mg, dp, n float32
+			var g, pk, ic, mg, dp, surf, n float32
 			for dz := -1; dz <= 0; dz++ {
 				for dx := -1; dx <= 0; dx++ {
 					x, z := cx+dx, cz+dz
@@ -995,6 +1018,7 @@ func (r *Renderer) FlushSnowState(t *world.Terrain) {
 					ic += c.Ice
 					mg += c.MogulSize
 					dp += c.SnowDepth
+					surf += c.GroundElevation + c.SnowDepth
 					n++
 				}
 			}
@@ -1003,6 +1027,9 @@ func (r *Renderer) FlushSnowState(t *world.Terrain) {
 			}
 			inv := 1.0 / n
 			corners[cx*H+cz] = cornerSnow{g * inv, pk * inv, ic * inv, mg * inv, dp * inv}
+			// 4-cell averaged surface Y — matches buildTerrainVerts so
+			// vertex Y stays consistent after grooming compresses cells.
+			cornerY[cx*H+cz] = surf * inv
 		}
 	}
 

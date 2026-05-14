@@ -87,14 +87,20 @@ void main() {
     vec3 highWhite = vec3(0.99, 0.99, 1.00);
     vec3 snow      = mix(lowFlat, midPowder, smoothstep(0.20, 0.55, h));
          snow      = mix(snow,    highWhite, smoothstep(0.65, 0.95, h));
-    // Packed-snow tint — slightly darker and a touch cooler than fresh
-    // powder. Kept subtle so the primary signal of packed/groomed snow
-    // is the geometric depth step (revealed via flat-normal lighting at
-    // boundaries above), not a strong colour shift. Default Packed=0.5
-    // sits near zero shift; groomed Packed=1 reads ~5% darker / faintly
-    // cool.
-    vec3 packedTint = vec3(0.92, 0.94, 0.97);
-    float packedMix = smoothstep(0.45, 1.0, packed) * 0.45;
+    // Packed-snow tint — noticeably cooler and a touch darker than
+    // fresh powder. The geometric depth step at a groomed/powder
+    // boundary is only a soft 2-cell ramp (corner Y is 4-cell averaged),
+    // so the color shift is doing most of the work to mark a groomed
+    // lane as visually distinct from its powder shoulder.
+    //
+    // World defaults to Packed=0.2 (powder reads untinted). A groomed
+    // cell hits Packed=1.0 which lands ~22% darker / ~10% cooler — a
+    // clear gray-blue cast vs the surrounding powder white. The
+    // smoothstep starts at 0.30 so passing skier traffic (which slowly
+    // raises Packed toward 1) starts to pick up the tint before full
+    // grooming.
+    vec3 packedTint = vec3(0.78, 0.82, 0.92);
+    float packedMix = smoothstep(0.30, 1.0, packed) * 0.75;
     snow            = mix(snow, snow * packedTint, packedMix);
 
     // Mogul roughness — multi-octave value-noise modulating brightness.
