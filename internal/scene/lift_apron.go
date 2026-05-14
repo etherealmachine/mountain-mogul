@@ -21,9 +21,6 @@ const (
 	liftApronHalfWidth    = float32(20.0) // → 40 m total cross-axis width
 	liftApronDepth        = float32(24.0)
 	liftApronBuildup      = float32(2.5) // metres above station footing (base station only)
-	// Lift aprons keep a thin 5 cm packed-snow layer (foot traffic
-	// compacted, not plowed flat like a parking lot).
-	liftApronSnow = float32(0.05)
 
 	// Top-station cut-and-fill tuning. The top apron is shelved into
 	// the hillside: we sample the max natural ground elevation within
@@ -61,15 +58,21 @@ func applyLiftPlacementEffects(t *world.Terrain, lift *world.Lift) {
 	// the hillside so the column doesn't clip uphill terrain, while the
 	// base stays raise-only — bottom-of-lift sites are typically flatter
 	// (parking, day lodge) and carving there would read as wrong.
+	// Reads live cell elevations — fine because each lift is stamped
+	// exactly once at placement (or drag) when the cells are still
+	// natural. The apron leaves a permanent footprint; re-stamping is
+	// not part of the model.
 	topTarget := maxGroundIn(t, lift.Top, liftStationFootprintRadius) + liftTopApronLip
 	baseTarget := stationGroundElev(t, lift.Base) + liftApronBuildup
-	buildStationApron(t, lift.Top, axis, +1, liftApronHalfWidth, liftApronDepth, topTarget, liftApronSnow, true)
-	buildStationApron(t, lift.Base, axis, -1, liftApronHalfWidth, liftApronDepth, baseTarget, liftApronSnow, false)
+	// No snow plow on lift aprons — Packed=1.0 (set by buildStationApron's
+	// inner zone) shrinks the visible column on its own, which reads as
+	// the packed-down boarding pad without removing snow under the skiers.
+	buildStationApron(t, lift.Top, axis, +1, liftApronHalfWidth, liftApronDepth, topTarget, true)
+	buildStationApron(t, lift.Base, axis, -1, liftApronHalfWidth, liftApronDepth, baseTarget, false)
 	groomLiftApron(t, lift.Top, axis, +1)
 	groomLiftApron(t, lift.Base, axis, -1)
-	// Stamp queue + top cells impassable so the rebuild path matches
-	// PlaceLift's blocking. ResetDisplayFromNatural always returns
-	// Passable to true; structure stamps own the blocked cells.
+	// Stamp queue + top cells impassable so the structure-stamp path
+	// matches PlaceLift's blocking.
 	queue := lift.QueueCell()
 	if t.InBounds(queue[0], queue[1]) {
 		t.Cells[queue[0]][queue[1]].Passable = false

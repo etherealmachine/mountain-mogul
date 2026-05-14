@@ -65,11 +65,9 @@ func (e *Editor) Init(app *engine.App) error {
 
 	r := app.Renderer
 	r.ResetSceneState()
-	// Recompute Display fields from the Natural baseline + current
-	// structures (roads, buildings, lifts). Idempotent for fresh saves;
-	// also the single rebuild path the editor uses after every
-	// structure-graph edit.
-	rebuildTerrainFromNatural(w)
+	// Saved cells already carry every apron / road / corridor stamp that
+	// was in effect at save time — no rebuild needed on load. New
+	// structures get their footprint stamped at placement time.
 	r.BuildTerrainMesh(w.Terrain)
 	r.RebuildStaticBatch(w)
 	r.RebuildRoads(w)
@@ -157,7 +155,7 @@ func (e *Editor) Init(app *engine.App) error {
 	// across tool toggles so the player's last settings stick around.
 	// Treeline is shared (forest cap + snow wind-exposure threshold); the
 	// other sliders each affect one of the two layers.
-	e.autoMaxSlider = ui.NewVSlider(0, 0, 18, 200, 0, 8, 4, "Max")
+	e.autoMaxSlider = ui.NewVSlider(0, 0, 18, 200, 0, 4, 2, "Max")
 	e.autoMaxSlider.ValueFormat = "%.1f m"
 	e.autoSnowlineSlider = ui.NewVSlider(0, 0, 18, 200, 0, 100, 30, "Snowline")
 	e.autoSnowlineSlider.ValueFormat = "%.0f%%"
@@ -181,7 +179,7 @@ func (e *Editor) Update(dt float64) {
 	inp := e.app.Input
 	r := e.app.Renderer
 
-	// Coalesced snow-state flush: any tool that mutates SnowDepth /
+	// Coalesced snow-state flush: any tool that mutates SnowAccumulation /
 	// Grooming / Packed / Ice / MogulSize sets Terrain.SnowDirty and we
 	// push the result to the GPU once per frame. Matches the scenario's
 	// per-frame check so tools can be shared without per-call wiring.
@@ -509,8 +507,8 @@ func (e *Editor) applyPlacement(r *render.Renderer) {
 		if w.BuildingOverlap(world.BuildingLodge, wx, wz) {
 			return
 		}
-		w.PlaceBuildingType(world.BuildingLodge, wx, wz)
-		rebuildTerrainFromNatural(w)
+		b := w.PlaceBuildingType(world.BuildingLodge, wx, wz)
+		applyBuildingPlacementEffects(w.Terrain, b)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 		e.autoFields = nil
@@ -518,8 +516,8 @@ func (e *Editor) applyPlacement(r *render.Renderer) {
 		if w.BuildingOverlap(world.BuildingShed, wx, wz) {
 			return
 		}
-		w.PlaceBuildingType(world.BuildingShed, wx, wz)
-		rebuildTerrainFromNatural(w)
+		b := w.PlaceBuildingType(world.BuildingShed, wx, wz)
+		applyBuildingPlacementEffects(w.Terrain, b)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 		e.autoFields = nil
@@ -529,7 +527,7 @@ func (e *Editor) applyPlacement(r *render.Renderer) {
 		}
 		b := w.PlaceBuildingType(world.BuildingParking, wx, wz)
 		w.EnsureParkingDriveway(b)
-		rebuildTerrainFromNatural(w)
+		applyBuildingPlacementEffects(w.Terrain, b)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 		r.RebuildRoads(w)
@@ -540,7 +538,7 @@ func (e *Editor) applyPlacement(r *render.Renderer) {
 		e.syncToolButtons()
 	case toolLiftTop:
 		lift := w.PlaceLift(e.liftType, e.liftBase[0], e.liftBase[1], wx, wz)
-		rebuildTerrainFromNatural(w)
+		applyLiftPlacementEffects(w.Terrain, lift)
 		r.FlushTerrainVerts(w.Terrain)
 		r.AddLiftCable(lift, w.Terrain)
 		r.RebuildStaticBatch(w)
@@ -555,7 +553,7 @@ func (e *Editor) applyPlacement(r *render.Renderer) {
 		start := resolveRoadEndpoint(w, e.roadStart)
 		end := resolveRoadEndpoint(w, mgl32.Vec2{wx, wz})
 		if placeRoadSegment(w, start, end) != nil {
-			rebuildTerrainFromNatural(w)
+			applyRoadCellState(w)
 			r.FlushTerrainVerts(w.Terrain)
 			r.RebuildStaticBatch(w)
 			// Continue chaining from the just-placed endpoint. Esc or
@@ -584,7 +582,7 @@ func (e *Editor) applyPlacement(r *render.Renderer) {
 		edgeNode := w.AddRoadNode(snapped, world.RoadNodeEdgeConnection)
 		inlandNode := w.AddRoadNode(inland, world.RoadNodeFreestanding)
 		w.AddRoadEdge(edgeNode.ID, inlandNode.ID)
-		rebuildTerrainFromNatural(w)
+		applyRoadCellState(w)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 		r.RebuildRoads(w)
@@ -668,10 +666,6 @@ func (e *Editor) regenerateAuto() {
 		treelineFrac,
 		e.autoSeed,
 	)
-	// Re-stamp structure footprints on top of the freshly-generated
-	// natural baseline so roads / buildings / lifts still show their
-	// cleared cells after the regenerate.
-	rebuildTerrainFromNatural(e.world)
 	if e.app != nil && e.app.Renderer != nil {
 		e.app.Renderer.FlushTerrainVerts(e.world.Terrain)
 		e.app.Renderer.RebuildStaticBatch(e.world)
@@ -751,29 +745,22 @@ func (e *Editor) applyEditorTool(gx, gz int, r *render.Renderer, dt float32) {
 	case toolPlantTrees:
 		target := e.densitySlider.Value / 100
 		applyDensityBrushUpTo(w.Terrain, gx, gz, e.brushRadius(), 0.3, target)
-		rebuildTerrainFromNatural(w)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 	case toolGlade:
 		applyDensityBrush(w.Terrain, gx, gz, e.brushRadius(), -0.4)
-		rebuildTerrainFromNatural(w)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 	case toolEditorRaise:
-		newE := w.Terrain.Cells[gx][gz].NaturalElev + 5.0*dt
-		w.Terrain.Cells[gx][gz].NaturalElev = newE
-		w.Terrain.Cells[gx][gz].GroundElevation = newE
-		rebuildTerrainFromNatural(w)
+		w.Terrain.Cells[gx][gz].GroundElevation += 5.0 * dt
 		r.FlushTerrainVerts(w.Terrain)
 		e.autoFields = nil
 	case toolEditorLower:
-		newE := w.Terrain.Cells[gx][gz].NaturalElev - 5.0*dt
+		newE := w.Terrain.Cells[gx][gz].GroundElevation - 5.0*dt
 		if newE < 0 {
 			newE = 0
 		}
-		w.Terrain.Cells[gx][gz].NaturalElev = newE
 		w.Terrain.Cells[gx][gz].GroundElevation = newE
-		rebuildTerrainFromNatural(w)
 		r.FlushTerrainVerts(w.Terrain)
 		e.autoFields = nil
 	}
@@ -801,12 +788,9 @@ func (e *Editor) applyImportedTerrain(elevs [][]float32, r *render.Renderer) {
 			if row < len(elevs) && col < len(elevs[row]) {
 				t.Cells[col][row].GroundElevation = elevs[row][col]
 			}
-			t.Cells[col][row].SnowDepth = 0
+			t.Cells[col][row].SnowAccumulation = 0
 		}
 	}
-	// Imported terrain becomes the new Natural baseline — there are no
-	// structures yet so display fields and natural fields are identical.
-	t.SnapshotNatural()
 	e.world = world.NewWorld(t)
 	e.activeTool = toolNone
 	e.autoFields = nil

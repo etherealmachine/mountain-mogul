@@ -22,13 +22,14 @@ type UIDrawable interface {
 // base terrain shading; bits are independent so any combination can stack.
 // Kept in sync with the bitand checks in assets/shaders/terrain.frag.
 const (
-	OverlayContour   = 1 << 0
-	OverlaySlope     = 1 << 1
-	OverlaySnowDepth = 1 << 2
-	OverlayGrooming  = 1 << 3
-	OverlayPacked    = 1 << 4
-	OverlayIce       = 1 << 5
-	OverlayMoguls    = 1 << 6
+	OverlayContour    = 1 << 0
+	OverlaySlope      = 1 << 1
+	OverlaySnowDepth  = 1 << 2
+	OverlayGrooming   = 1 << 3
+	OverlayPacked     = 1 << 4
+	OverlayIce        = 1 << 5
+	OverlayMoguls     = 1 << 6
+	OverlayBumpNormal = 1 << 7 // debug: render the perturbed shading normal as RGB
 )
 
 // DebugLine is a single world-space line segment for tuning overlays.
@@ -336,11 +337,11 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 	idx := uint32(0)
 
 	// ── Pre-compute jittered corner positions ────────────────────────────────
-	// Thin-snow cells (lift station aprons clamp SnowDepth to ~5 cm) scale
+	// Thin-snow cells (lift station aprons drive visible depth to ~5 cm) scale
 	// jitter down so intentionally graded earthwork reads flat instead of
 	// pebbled. The corner at (x, z) is shared by up to 4 cells; we take the
-	// minimum SnowDepth among them so any thin-snow neighbour pulls the
-	// corner toward exact. Smoothstep from 0.5 m → 1.5 m gives a clean
+	// minimum visible snow depth among them so any thin-snow neighbour pulls
+	// the corner toward exact. Smoothstep from 0.5 m → 1.5 m gives a clean
 	// transition between apron snow (no jitter) and natural snow (full
 	// jitter).
 	cornerSmoothness := func(x, z int) float32 {
@@ -353,7 +354,7 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 				if oz < 0 || oz >= t.Height {
 					continue
 				}
-				if d := t.Cells[ox][oz].SnowDepth; d < minDepth {
+				if d := t.Cells[ox][oz].VisibleSnowDepth(); d < minDepth {
 					minDepth = d
 				}
 			}
@@ -376,13 +377,13 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 	jit := make([]float32, t.Width*t.Height)
 	jitX := make([]float32, t.Width*t.Height)
 	jitZ := make([]float32, t.Width*t.Height)
-	// Corner elevation is the 4-cell average of ground+snow around this
-	// grid point — the same averaging rule snowAt uses for snow attrs.
-	// A sharp SnowDepth step between two cells becomes a 2-cell-wide
-	// ramp instead of the per-corner-cell parallelogram the single-cell
-	// lookup produced. Apron / road / pad blends (which already use a
-	// multi-cell smoothstep) stay smooth; grooming → powder boundaries
-	// get a visible-but-soft dip that reads as a depressed lane.
+	// Corner elevation is the 4-cell average of GroundElevation +
+	// VisibleSnowDepth around this grid point — same averaging rule snowAt
+	// uses for snow attrs. A sharp visible-depth step between two cells
+	// becomes a 2-cell-wide ramp instead of the per-corner-cell
+	// parallelogram the single-cell lookup produced. Apron / road / pad
+	// blends stay smooth; grooming → powder boundaries get a visible-but-
+	// soft dip that reads as a depressed lane.
 	cornerSurfaceY := func(cx, cz int) float32 {
 		var sum, n float32
 		for dz := -1; dz <= 0; dz++ {
@@ -608,7 +609,7 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 				pk += c.Packed
 				ic += c.Ice
 				mg += c.MogulSize
-				dp += c.SnowDepth
+				dp += c.VisibleSnowDepth()
 				n++
 			}
 		}
@@ -782,18 +783,18 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 
 // terrainJitter returns the Y offset for a grid corner. Currently zero —
 // vertical jitter was removed in favour of expressing height variation
-// through SnowDepth (powder dunes, mogul fields, etc.) once those
-// systems land. Kept as a function (not deleted) so VisualElevationAt
-// and the picker keep their flat structure; future variants of "natural
-// terrain unevenness" can plug in here.
+// through the visible snow column (powder dunes, mogul fields, etc.)
+// once those systems land. Kept as a function (not deleted) so
+// VisualElevationAt and the picker keep their flat structure; future
+// variants of "natural terrain unevenness" can plug in here.
 func terrainJitter(gx, gz int, cellSize float32) float32 {
 	return 0
 }
 
 // terrainJitterXYZ returns deterministic per-corner offsets in X, Z.
 // Y is zero: vertical variation now comes exclusively from
-// SurfaceElevation = ground + SnowDepth, so the mesh is "flat" between
-// neighbouring corners except for the per-cell snow column. X and Z
+// SurfaceElevation = ground + visible snow column, so the mesh is
+// "flat" between neighbouring corners except for the per-cell snow. X and Z
 // jitter remains so the cell grid still breaks up visually from above
 // — without it the terrain reads as a perfect square lattice.
 // Boundary corners zero their perpendicular component so the skirt
@@ -994,12 +995,10 @@ func (r *Renderer) FlushSnowState(t *world.Terrain) {
 	// six times per quad — and the corner data is the same regardless
 	// of which triangle the vertex belongs to.
 	//
-	// We also recompute corner Y here: SnowDepth changes (from cat
-	// grooming) shift the snow-surface elevation, so the mesh vertex
-	// Y has to follow. Y uses per-cell direct sampling (same rule as
-	// the original mesh build) rather than the 4-cell average — the
-	// shader attributes get blended to soften their visual; the
-	// mesh geometry remains the authoritative cell-by-cell surface.
+	// We also recompute corner Y here: Packed changes (from cat grooming
+	// / skier wear) reduce the visible snow column even though SWE is
+	// conserved, so the mesh vertex Y has to follow. SurfaceElevation
+	// already derives visible depth from accumulation/packing.
 	type cornerSnow struct{ g, pk, ic, mg, dp float32 }
 	corners := make([]cornerSnow, W*H)
 	cornerY := make([]float32, W*H)
@@ -1017,8 +1016,8 @@ func (r *Renderer) FlushSnowState(t *world.Terrain) {
 					pk += c.Packed
 					ic += c.Ice
 					mg += c.MogulSize
-					dp += c.SnowDepth
-					surf += c.GroundElevation + c.SnowDepth
+					dp += c.VisibleSnowDepth()
+					surf += c.SurfaceElevation()
 					n++
 				}
 			}
@@ -1027,8 +1026,6 @@ func (r *Renderer) FlushSnowState(t *world.Terrain) {
 			}
 			inv := 1.0 / n
 			corners[cx*H+cz] = cornerSnow{g * inv, pk * inv, ic * inv, mg * inv, dp * inv}
-			// 4-cell averaged surface Y — matches buildTerrainVerts so
-			// vertex Y stays consistent after grooming compresses cells.
 			cornerY[cx*H+cz] = surf * inv
 		}
 	}
@@ -1098,11 +1095,11 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 			}
 			// Trees root in the ground, then poke through the snow above.
 			// We anchor the rendered mesh just above ground (capped by
-			// SnowDepth so light snow lets the full trunk show; deeper snow
-			// raises the visible anchor and the lower trunk disappears
-			// below the surface mesh).
+			// the visible snow column so light snow lets the full trunk
+			// show; deeper snow raises the visible anchor and the lower
+			// trunk disappears below the surface mesh).
 			elev := w.Terrain.GroundElevationAt(x, z)
-			if snow := w.Terrain.Cells[x][z].SnowDepth; snow > 0 {
+			if snow := w.Terrain.Cells[x][z].VisibleSnowDepth(); snow > 0 {
 				const maxBury = float32(1.5)
 				if snow < maxBury {
 					elev += snow
@@ -1154,7 +1151,7 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 		// ground and let snow bury their base — same rule as forest cover.
 		y := w.Terrain.GroundElevationAt(obj.Pos[0], obj.Pos[1])
 		if w.Terrain.InBounds(obj.Pos[0], obj.Pos[1]) {
-			snow := w.Terrain.Cells[obj.Pos[0]][obj.Pos[1]].SnowDepth
+			snow := w.Terrain.Cells[obj.Pos[0]][obj.Pos[1]].VisibleSnowDepth()
 			const maxBury = float32(1.5)
 			if snow > maxBury {
 				snow = maxBury

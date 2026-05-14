@@ -126,7 +126,7 @@ const (
 	//   - default-packed (0.5) saturates to fully packed in ~40 passes
 	//   - mogul fields take ~400 passes to fully form on ungroomed terrain
 	// Mogul growth scales with (1 − Grooming) so fresh corduroy resists
-	// bumps; gated on SnowDepth so aprons and scraped patches stay smooth.
+	// bumps; gated on visible snow depth so aprons and scraped patches stay smooth.
 	groomingWearRate  = 0.02
 	packingRate       = 0.05
 	mogulFormRate     = 0.005
@@ -236,29 +236,14 @@ func (s *Simulation) tickSkier(a *world.Agent, target mgl32.Vec3, dt float64) bo
 	return false
 }
 
-// snowDensity returns the relative density of a snow column at the given
-// Packed scalar. Linear model from loose powder (0.15) to bulletproof
-// pack (1.0). Used to back-solve SnowDepth from a change in Packed
-// under snow-water-equivalent conservation: compacting the column raises
-// density and proportionally lowers the surface, matching how real snow
-// behaves under traffic and groomer treads.
-//
-// The 0.15→1.0 ratio is exaggerated relative to real snow (real ratio is
-// closer to 5–10× rather than the 6.7× here) for game visibility —
-// gameplay-readable steps between groomed lanes and untracked shoulders
-// are worth more than strict realism. Numbers in SNOW.md.
-func snowDensity(packed float32) float32 {
-	return 0.15 + 0.85*packed
-}
-
 // wearSnowUnderfoot mutates the cell beneath the agent to model skier
 // traffic on the snow surface. Grooming decays (skis cut up the corduroy),
-// Packed rises (boots and edges compact the column) AND SnowDepth drops
-// proportionally to conserve snow-water-equivalent — the surface visibly
-// settles as a piste gets tracked out. MogulSize grows proportionally to
-// (1 − Grooming) so groomed cells resist bump formation and ungroomed
-// cells slowly mogul up. Mogul growth is gated on having enough snow
-// underfoot — aprons (SnowDepth ≈ 0.05 m) stay smooth.
+// Packed rises (boots and edges compact the column). SWE — held in
+// Cell.SnowAccumulation — is conserved by construction; the visible snow
+// depth therefore drops automatically as packing rises (depth =
+// accumulation / density(packed)), matching how real snow behaves under
+// traffic and groomer treads. MogulSize grows proportionally to
+// (1 − Grooming) on cells with enough visible snow to form a bump.
 func wearSnowUnderfoot(t *world.Terrain, pos mgl32.Vec3, dt float64) {
 	xi := int(pos[0] / world.CellSize)
 	zi := int(pos[2] / world.CellSize)
@@ -275,17 +260,13 @@ func wearSnowUnderfoot(t *world.Terrain, pos mgl32.Vec3, dt float64) {
 		dirty = true
 	}
 	if c.Packed < 1 {
-		oldPacked := c.Packed
 		c.Packed += float32(packingRate * dt)
 		if c.Packed > 1 {
 			c.Packed = 1
 		}
-		if c.SnowDepth > 0 {
-			c.SnowDepth *= snowDensity(oldPacked) / snowDensity(c.Packed)
-		}
 		dirty = true
 	}
-	if c.SnowDepth > mogulMinSnowDepth && c.MogulSize < 1 {
+	if c.VisibleSnowDepth() > mogulMinSnowDepth && c.MogulSize < 1 {
 		c.MogulSize += float32(mogulFormRate*dt) * (1 - c.Grooming)
 		if c.MogulSize > 1 {
 			c.MogulSize = 1

@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"math"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
@@ -16,6 +17,7 @@ import (
 
 	"mountain-mogul/internal/ai"
 	"mountain-mogul/internal/engine"
+	"mountain-mogul/internal/render"
 	"mountain-mogul/internal/save"
 	"mountain-mogul/internal/scene"
 	"mountain-mogul/internal/sim"
@@ -25,16 +27,23 @@ import (
 func init() { runtime.LockOSThread() }
 
 func main() {
-	testbed := flag.String("testbed", "", "run a registered testbed headless and log debug to stdout (matches a name prefix, e.g. \"10 degree slope\", or 'list')")
-	simSeconds := flag.Float64("sim-seconds", 240, "max sim seconds for headless testbed runs")
-	samplePeriod := flag.Float64("sample", 0.5, "sim seconds between trace rows in headless testbed runs")
+	testbed := flag.String("testbed", "", "load a registered testbed by name prefix (e.g. \"10 degree slope\", or 'list'). Default: open in the UI. Pair with -headless to drive the trace runner, or -screenshot to capture a PNG.")
+	headless := flag.Bool("headless", false, "with -testbed: skip the UI and run the trace/aggregate runner that prints to stdout")
+	simSeconds := flag.Float64("sim-seconds", 240, "max sim seconds for -testbed -headless runs")
+	samplePeriod := flag.Float64("sample", 0.5, "sim seconds between trace rows in -testbed -headless runs")
 	seed := flag.Int64("seed", 0, "override testbed seed (0 = use the testbed's recommended seed)")
-	runs := flag.Int("runs", 1, "number of headless iterations; >1 switches to aggregate mode (silent per-run, summary at end). Per-run seed = base seed + iteration index.")
-	screenshot := flag.String("screenshot", "", "load a save, render a few frames, write a PNG to this path, then exit")
+	runs := flag.Int("runs", 1, "number of -headless iterations; >1 switches to aggregate mode (silent per-run, summary at end). Per-run seed = base seed + iteration index.")
+	screenshot := flag.String("screenshot", "", "render a few frames and write a PNG to this path, then exit. Source: -testbed if set, else -load, else most recent save.")
 	loadPath := flag.String("load", "", "save file path to use with -screenshot (default: most recent save)")
 	warmupFrames := flag.Int("warmup", 30, "frames to render before capturing -screenshot (so the world settles)")
 	regenForest := flag.Bool("regen-forest", false, "with -screenshot: regenerate auto-forest on the loaded terrain before capture")
 	forestSeed := flag.Int64("forest-seed", 0, "with -regen-forest: seed for the regen (0 = wall-clock)")
+	camTargetX := flag.Float64("camera-target-x", math.NaN(), "initial camera target X (world units) for -screenshot or -testbed UI mode. Default: terrain centre.")
+	camTargetZ := flag.Float64("camera-target-z", math.NaN(), "initial camera target Z (world units) for -screenshot or -testbed UI mode. Default: terrain centre.")
+	camYaw := flag.Float64("camera-yaw", math.NaN(), "initial camera yaw in degrees for -screenshot or -testbed UI mode. Default: 225.")
+	camPitch := flag.Float64("camera-pitch", math.NaN(), "initial camera pitch in degrees for -screenshot or -testbed UI mode. Default: 45.")
+	camZoom := flag.Float64("camera-zoom", math.NaN(), "initial camera OrthoScale (world units per half-viewport-height) for -screenshot or -testbed UI mode. Default: auto-fit terrain.")
+	overlayMode := flag.Int("overlay-mode", 0, "-screenshot terrain overlay bitmask (render.Overlay*: contour=1, slope=2, snow-depth=4, grooming=8, packed=16, ice=32, mogul=64, bump-normal=128)")
 	skipIntro := flag.Bool("skip-intro", false, "skip the Minty Fresh splash and jump straight to the start menu")
 	profile := flag.Bool("profile", false, "run a headless 50× sim profile (representative resort, demand on) → cpu.prof + mem.prof")
 	profileSeconds := flag.Float64("profile-seconds", 10, "wall-clock seconds to run with -profile")
@@ -56,18 +65,60 @@ func main() {
 		return
 	}
 
-	if *testbed != "" {
-		if *runs > 1 {
-			runHeadlessAggregate(*testbed, *simSeconds, *seed, *runs)
-		} else {
-			runHeadless(*testbed, *simSeconds, *samplePeriod, *seed)
-		}
+	// -screenshot takes precedence over -testbed: if both are set, the
+	// testbed is rendered (not run headless) and captured to PNG. This is
+	// the iterate-on-shader workflow — pick a testbed that exercises the
+	// surface you care about, dial in a camera angle, and re-render after
+	// every shader tweak without leaving the terminal.
+	if *screenshot != "" {
+		runScreenshot(screenshotOpts{
+			outPath:      *screenshot,
+			testbedName:  *testbed,
+			loadPath:     *loadPath,
+			warmupFrames: *warmupFrames,
+			regenForest:  *regenForest,
+			forestSeed:   *forestSeed,
+			camTargetX:   *camTargetX,
+			camTargetZ:   *camTargetZ,
+			camYaw:       *camYaw,
+			camPitch:     *camPitch,
+			camZoom:      *camZoom,
+			seed:         *seed,
+			overlayMode:  *overlayMode,
+		})
 		return
 	}
 
-	if *screenshot != "" {
-		runScreenshot(*loadPath, *screenshot, *warmupFrames, *regenForest, *forestSeed)
+	if *testbed != "" {
+		// `-testbed list` always prints the registry, regardless of mode —
+		// it's a discoverability shortcut, not a sim run.
+		if *testbed == "list" {
+			fmt.Println("registered testbeds:")
+			for _, t := range sim.Testbeds {
+				fmt.Printf("  %s\n", t.Name)
+			}
+			return
+		}
+		if *headless {
+			if *runs > 1 {
+				runHeadlessAggregate(*testbed, *simSeconds, *seed, *runs)
+			} else {
+				runHeadless(*testbed, *simSeconds, *samplePeriod, *seed)
+			}
+			return
+		}
+		runTestbedUI(*testbed, *trace, cameraOverrides{
+			targetX: *camTargetX,
+			targetZ: *camTargetZ,
+			yaw:     *camYaw,
+			pitch:   *camPitch,
+			zoom:    *camZoom,
+		})
 		return
+	}
+	if *headless {
+		fmt.Fprintln(os.Stderr, "-headless requires -testbed=<name>")
+		os.Exit(1)
 	}
 
 	app := engine.NewApp("Mountain Mogul", 1280, 720, "assets")
@@ -82,34 +133,90 @@ func main() {
 	app.Run()
 }
 
-// runScreenshot opens a window, loads the given save (or the most recent one
-// when path is empty), optionally re-runs the auto-forest generator on its
-// terrain, runs the scene loop for warmupFrames, captures the back buffer
-// to outPath, and exits. Used to inspect rendering and procgen changes from
-// CI / agents that can't drive the GUI.
-func runScreenshot(loadPath, outPath string, warmupFrames int, regenForest bool, forestSeed int64) {
-	if loadPath == "" {
-		p, ok := save.MostRecentSave()
-		if !ok {
-			fmt.Fprintln(os.Stderr, "screenshot: no saves found, supply -load=<path>")
-			os.Exit(1)
-		}
-		loadPath = p
+// runTestbedUI launches the regular GUI but skips the splash and start
+// menu, pushing the requested testbed straight onto the scene stack so
+// the user lands inside the scenario ready to play. Mirrors what the
+// in-game testbed menu does on button click. Any -camera-* overrides
+// set the *initial* framing — the user can pan/zoom from there as
+// normal, so the flags are a starting view, not a lock.
+func runTestbedUI(name string, logSlowFrames bool, cam cameraOverrides) {
+	tb, err := sim.FindTestbed(name)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "testbed:", err)
+		os.Exit(1)
 	}
-	if warmupFrames < 1 {
-		warmupFrames = 1
+	app := engine.NewApp("Mountain Mogul", 1280, 720, "assets")
+	defer app.Destroy()
+	app.LogSlowFrames = logSlowFrames
+	sc := scene.NewScenarioFromTestbed(tb)
+	app.PushScene(sc)
+	applyCameraOverrides(app.Renderer.Camera, sc, cam, "testbed")
+	app.Run()
+}
+
+// screenshotOpts bundles the configurable knobs for runScreenshot so the
+// call site stays readable as we add camera-override flags.
+type screenshotOpts struct {
+	outPath      string
+	testbedName  string // if set, build the world from the matching sim.Testbed
+	loadPath     string // else load a save (empty → most recent)
+	warmupFrames int
+	regenForest  bool
+	forestSeed   int64
+	// Camera overrides — NaN means "use the auto default" so partial
+	// overrides (e.g. just zoom) Just Work without clobbering the rest.
+	camTargetX, camTargetZ float64
+	camYaw, camPitch       float64
+	camZoom                float64
+	seed                   int64 // forwarded to NewSimulationWithSeed when loading a testbed
+	overlayMode            int   // render.Overlay* bitmask applied before capture
+}
+
+// runScreenshot opens a window, loads either a registered testbed (when
+// opt.testbedName is set) or a save file (opt.loadPath, defaulting to the
+// most recent save), optionally re-runs the auto-forest generator,
+// applies any camera overrides, runs the scene loop for warmupFrames, and
+// writes the back buffer to opt.outPath before exiting. Used to inspect
+// rendering and procgen changes from CI / agents that can't drive the
+// GUI — and for shader iteration where you want the same testbed,
+// camera angle, and zoom every run so only the visual changes.
+func runScreenshot(opt screenshotOpts) {
+	if opt.warmupFrames < 1 {
+		opt.warmupFrames = 1
 	}
-	fmt.Printf("screenshot: loading %s (warmup=%d frames) → %s\n",
-		loadPath, warmupFrames, outPath)
 
 	app := engine.NewApp("Mountain Mogul (screenshot)", 1280, 720, "assets")
 	defer app.Destroy()
 
-	sc := scene.NewScenarioFromFile(loadPath)
+	var sc *scene.Scenario
+	switch {
+	case opt.testbedName != "":
+		tb, err := sim.FindTestbed(opt.testbedName)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "screenshot:", err)
+			os.Exit(1)
+		}
+		fmt.Printf("screenshot: loading testbed %q (warmup=%d frames) → %s\n",
+			tb.Name, opt.warmupFrames, opt.outPath)
+		sc = scene.NewScenarioFromTestbed(tb)
+	default:
+		path := opt.loadPath
+		if path == "" {
+			p, ok := save.MostRecentSave()
+			if !ok {
+				fmt.Fprintln(os.Stderr, "screenshot: no saves found, supply -testbed=<name> or -load=<path>")
+				os.Exit(1)
+			}
+			path = p
+		}
+		fmt.Printf("screenshot: loading %s (warmup=%d frames) → %s\n",
+			path, opt.warmupFrames, opt.outPath)
+		sc = scene.NewScenarioFromFile(path)
+	}
 	app.PushScene(sc)
 
-	if regenForest {
-		seed := forestSeed
+	if opt.regenForest {
+		seed := opt.forestSeed
 		if seed == 0 {
 			seed = time.Now().UnixNano()
 		}
@@ -117,23 +224,18 @@ func runScreenshot(loadPath, outPath string, warmupFrames int, regenForest bool,
 		sc.RegenForest(seed)
 	}
 
-	// Centre the orthographic camera on the map and zoom out far enough to
-	// frame the whole thing. PushScene already ran Init → installWorld so
-	// the renderer knows the terrain dims; we read them back through the
-	// scenario's accessor.
-	w, h := sc.TerrainSize()
-	const cellSize = float32(5.0)
-	app.Renderer.Camera.Target = mgl32.Vec3{
-		float32(w) * cellSize * 0.5,
-		0,
-		float32(h) * cellSize * 0.5,
+	applyCameraOverrides(app.Renderer.Camera, sc, cameraOverrides{
+		targetX: opt.camTargetX,
+		targetZ: opt.camTargetZ,
+		yaw:     opt.camYaw,
+		pitch:   opt.camPitch,
+		zoom:    opt.camZoom,
+	}, "screenshot")
+
+	if opt.overlayMode != 0 {
+		sc.SetOverlay(opt.overlayMode)
+		fmt.Printf("screenshot: terrain overlay mask=%d\n", opt.overlayMode)
 	}
-	dim := float32(w)
-	if h > w {
-		dim = float32(h)
-	}
-	app.Renderer.Camera.OrthoScale = dim * cellSize * 0.55
-	app.Renderer.Camera.Recalculate()
 
 	// Run a manual scene loop. Mirrors engine.App.Run but exits after
 	// warmup, capturing the back buffer between Render and SwapBuffers so
@@ -143,7 +245,7 @@ func runScreenshot(loadPath, outPath string, warmupFrames int, regenForest bool,
 	const benchSkip = 3
 	prev := time.Now()
 	var benchStart time.Time
-	for frame := 0; frame < warmupFrames; frame++ {
+	for frame := 0; frame < opt.warmupFrames; frame++ {
 		now := time.Now()
 		dt := now.Sub(prev).Seconds()
 		prev = now
@@ -160,23 +262,84 @@ func runScreenshot(loadPath, outPath string, warmupFrames int, regenForest bool,
 		sc.Update(dt)
 		sc.Render(app.Renderer)
 
-		if frame == warmupFrames-1 {
-			if err := app.Renderer.SaveScreenshot(outPath); err != nil {
+		if frame == opt.warmupFrames-1 {
+			if err := app.Renderer.SaveScreenshot(opt.outPath); err != nil {
 				fmt.Fprintln(os.Stderr, "screenshot: write failed:", err)
 				os.Exit(1)
 			}
-			fmt.Println("screenshot: wrote", outPath)
+			fmt.Println("screenshot: wrote", opt.outPath)
 		}
 
 		app.Window.SwapBuffers()
 	}
-	if warmupFrames > benchSkip {
+	if opt.warmupFrames > benchSkip {
 		elapsed := time.Since(benchStart).Seconds()
-		measured := warmupFrames - benchSkip
+		measured := opt.warmupFrames - benchSkip
 		fps := float64(measured) / elapsed
 		fmt.Printf("screenshot: %d frames in %.3fs = %.1f fps (%.2f ms/frame)\n",
 			measured, elapsed, fps, 1000.0/fps)
 	}
+}
+
+// cameraOverrides bundles the `-camera-*` CLI flags. Each field uses NaN
+// as a sentinel for "unset — fall back to the auto-fit default" so a
+// partial override (e.g. only zoom) doesn't force the caller to also
+// supply pitch/yaw/target.
+type cameraOverrides struct {
+	targetX, targetZ float64
+	yaw, pitch       float64
+	zoom             float64
+}
+
+// applyCameraOverrides centres + auto-zooms the orthographic camera to
+// frame the whole map, then overlays any non-NaN flag values. PushScene
+// has already run Init → installWorld so the renderer knows the terrain
+// dims; we read them back through the scenario accessor. Shared between
+// the screenshot path and the -testbed UI path so the same -camera-*
+// flags work for both modes.
+func applyCameraOverrides(cam *render.Camera, sc *scene.Scenario, ov cameraOverrides, logPrefix string) {
+	const cellSize = float32(5.0)
+	w, h := sc.TerrainSize()
+
+	// Auto-fit defaults — terrain centre, current pitch/yaw, zoom sized
+	// to the longer terrain axis so the whole map fits on-screen.
+	target := mgl32.Vec3{
+		float32(w) * cellSize * 0.5,
+		0,
+		float32(h) * cellSize * 0.5,
+	}
+	dim := float32(w)
+	if h > w {
+		dim = float32(h)
+	}
+	zoom := dim * cellSize * 0.55
+	yaw := cam.Yaw
+	pitch := cam.Pitch
+
+	if !math.IsNaN(ov.targetX) {
+		target[0] = float32(ov.targetX)
+	}
+	if !math.IsNaN(ov.targetZ) {
+		target[2] = float32(ov.targetZ)
+	}
+	if !math.IsNaN(ov.yaw) {
+		yaw = float32(ov.yaw)
+	}
+	if !math.IsNaN(ov.pitch) {
+		pitch = float32(ov.pitch)
+	}
+	if !math.IsNaN(ov.zoom) && ov.zoom > 0 {
+		zoom = float32(ov.zoom)
+	}
+
+	cam.Target = target
+	cam.Yaw = yaw
+	cam.Pitch = pitch
+	cam.OrthoScale = zoom
+	cam.Recalculate()
+
+	fmt.Printf("%s: camera target=(%.1f,%.1f,%.1f) yaw=%.1f pitch=%.1f zoom=%.1f\n",
+		logPrefix, target[0], target[1], target[2], yaw, pitch, zoom)
 }
 
 // runProfile builds a representative two-lift resort with a parking lot
@@ -197,7 +360,6 @@ func runProfile(wallSeconds, scale float64) {
 			// Slope rises with z (top of map = top of mountain).
 			elev := float32(h-z) * cellSize * 0.176 // tan(10°) ≈ 0.176
 			terrain.Cells[x][z].GroundElevation = elev
-			terrain.Cells[x][z].NaturalElev = elev
 		}
 	}
 	wld := world.NewWorld(terrain)

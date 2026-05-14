@@ -12,7 +12,7 @@ import (
 // from a cell vertex to the chain's Catmull-Rom polyline.
 //
 // Snow uses a two-band approach: inside the inner radius cells go to
-// SnowDepth=0; between inner and outer the snow scales linearly with
+// SnowAccumulation=0; between inner and outer the snow scales linearly with
 // distance. The gradient blurs the grid-alignment artifact that a
 // hard threshold produced (visible asymmetric clearing on roads whose
 // centreline doesn't align to the 5 m cell grid — the cleared corridor
@@ -28,7 +28,7 @@ const (
 )
 
 // applyRoadCellState walks every road chain in the world and stamps
-// the carriageway footprint onto adjacent terrain cells: SnowDepth=0
+// the carriageway footprint onto adjacent terrain cells: SnowAccumulation=0
 // inside the snow band, TreeDensity=0 inside the (wider) tree band.
 //
 // Idempotent — running it twice produces the same final state, so the
@@ -130,7 +130,7 @@ func applyChainCellState(t *world.Terrain, samples []mgl32.Vec2) {
 
 			switch {
 			case d2 <= snowInnerR2:
-				t.Cells[x][z].SnowDepth = 0
+				t.Cells[x][z].SnowAccumulation = 0
 			case d2 <= snowOuterR2:
 				// Linear falloff between inner and outer — distance is
 				// the sqrt of d2, paid once per cell in the falloff band.
@@ -141,7 +141,7 @@ func applyChainCellState(t *world.Terrain, samples []mgl32.Vec2) {
 				} else if blend > 1 {
 					blend = 1
 				}
-				t.Cells[x][z].SnowDepth *= blend
+				t.Cells[x][z].SnowAccumulation *= blend
 			}
 		}
 	}

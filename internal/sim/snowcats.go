@@ -157,12 +157,11 @@ func groomCell(w *world.World, c [2]int) {
 	}
 	cell := &w.Terrain.Cells[c[0]][c[1]]
 
-	oldPacked := cell.Packed
+	// Packed → 1.0 raises the column density; SnowAccumulation (SWE) is
+	// conserved automatically, so the visible depth drops to ~accumulation
+	// metres without us touching it. Grooming/MogulSize/Ice are the other
+	// fields the cat actually rewrites.
 	cell.Packed = 1.0
-	if cell.SnowDepth > 0 {
-		cell.SnowDepth *= snowDensity(oldPacked) / snowDensity(cell.Packed)
-	}
-
 	cell.Grooming = 1.0
 	cell.MogulSize *= groomMogulDecay
 	cell.Ice *= groomIceDecay

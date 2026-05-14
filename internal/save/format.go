@@ -50,26 +50,17 @@ type CameraData struct {
 // footprint reasonable on big maps.
 //
 // JSON tags are stable across the elevation-contract rename — `e` holds
-// ground elevation (formerly "elevation" before the ground/snow split),
-// so old saves still load even though the Go field is now `Ground`.
+// ground elevation, `s` holds the snow column. `s` used to mean visible
+// depth-in-metres; it now means accumulation (SWE in metres). Old saves
+// fail to interpret this correctly, but pre-release this is fine.
 type CellData struct {
 	Ground      float32 `json:"e,omitempty"`  // ground elevation (rock/dirt)
-	Snow        float32 `json:"s,omitempty"`  // snow depth
+	Snow        float32 `json:"s,omitempty"`  // SWE in metres (Cell.SnowAccumulation)
 	Grooming    float32 `json:"gr,omitempty"`
 	Packed      float32 `json:"pk,omitempty"`
 	Ice         float32 `json:"ic,omitempty"`
 	MogulSize   float32 `json:"mg,omitempty"`
 	TreeDensity float32 `json:"td,omitempty"`
-
-	// Natural-layer shadow — what the cell would be with no road /
-	// building / lift on top. Persisted so structure moves can restore
-	// the underlying terrain after a reload. HasNatural distinguishes
-	// "present and zero-valued" from "absent in pre-natural-layer save";
-	// when absent the loader falls back to copying display→natural.
-	HasNatural   bool    `json:"nh,omitempty"`
-	NaturalGround float32 `json:"ne,omitempty"`
-	NaturalSnow  float32 `json:"ns,omitempty"`
-	NaturalTrees float32 `json:"nt,omitempty"`
 }
 
 // ObjectData is a placed natural object.

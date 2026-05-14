@@ -7,10 +7,23 @@ import (
 // Cell represents a single grid cell in the terrain.
 //
 // The terrain is two layers stacked: ground (rock/dirt the player almost
-// never edits) and a snow layer on top whose depth and state evolve over
-// time and which the player manipulates via grooming, snowmaking, etc.
+// never edits) and a snow column on top whose accumulation and packing
+// state evolve over time and which the player manipulates via grooming,
+// snowmaking, etc.
 //
-//	SurfaceElevation = GroundElevation + SnowDepth
+// SnowAccumulation is the snow-water-equivalent of the column — the
+// conserved quantity. Packing changes the density of that column but
+// doesn't change how much "snow material" is there. The visible depth
+// of the snow surface is therefore a derived quantity:
+//
+//	VisibleSnowDepth = SnowAccumulation / density(Packed)
+//	SurfaceElevation = GroundElevation + VisibleSnowDepth
+//
+// where density runs from ~0.32 at fresh powder (Packed=0.2) to 1.0 at
+// fully compacted (Packed=1.0). So a snowcat passing over fresh powder
+// raises Packed without touching SnowAccumulation; the visible surface
+// drops on its own as density rises. Same SWE, less depth — exactly how
+// real snow compresses under traffic.
 //
 // Things that root in the earth (trees, building foundations) sit at
 // GroundElevation. Skiers, the visible terrain mesh, lift cables, and
@@ -21,45 +34,46 @@ import (
 // corduroy, moguls, ice) are emergent from these fields:
 //
 //   - Grooming high + Packed moderate + MogulSize low → corduroy
-//   - SnowDepth high + Packed low                       → powder
-//   - Grooming low + traffic over time                  → MogulSize grows
-//   - Ice high + SnowDepth low                          → boilerplate
+//   - SnowAccumulation high + Packed low              → powder
+//   - Grooming low + traffic over time                → MogulSize grows
+//   - Ice high + Accumulation low                     → boilerplate
 type Cell struct {
-	GroundElevation float32 // metres; the rock/dirt under the snow
-	SnowDepth       float32 // metres; snow on top of ground
-	Grooming        float32 // 0..1; 1 = freshly groomed corduroy
-	Packed          float32 // 0..1; density of the snow column (0 = fluffy powder, 1 = bulletproof packed)
-	Ice             float32 // 0..1; ice fraction at the surface
-	MogulSize       float32 // 0..1; mogul amplitude (visual + physics roughness)
+	GroundElevation  float32 // metres; the rock/dirt under the snow
+	SnowAccumulation float32 // metres SWE; conserved under packing
+	Grooming         float32 // 0..1; 1 = freshly groomed corduroy
+	Packed           float32 // 0..1; density of the snow column (0 = fluffy powder, 1 = bulletproof packed)
+	Ice              float32 // 0..1; ice fraction at the surface
+	MogulSize        float32 // 0..1; mogul amplitude (visual + physics roughness)
 
 	Passable    bool    // hard structural block (buildings, lift endpoints)
 	TreeDensity float32 // 0.0 = clear, 1.0 = dense old-growth
+}
 
-	// Natural-state shadow fields. These hold the cell's "no structures
-	// present" baseline so that placing / moving / removing a building,
-	// lift, or road can restore the original terrain. Player non-sim
-	// edits (auto-gen, glade / plant brushes, raise / lower, terrain
-	// import) write the natural values; structure stamps overwrite the
-	// display fields above on top of the natural baseline.
-	//
-	// Sim writes (snowfall, decay, grooming) intentionally hit the
-	// display fields only — the natural layer is design-time intent and
-	// shouldn't drift with runtime weather. The cost is that snow that
-	// fell on a road's footprint at runtime won't reappear when the
-	// road later moves; only what was originally painted does.
-	//
-	// Passable has no natural shadow — no natural terrain in this
-	// codebase is impassable, so the rebuild path resets Display.Passable
-	// to true and lets each structure's stamp re-mark the cells it owns.
-	NaturalElev  float32
-	NaturalSnow  float32
-	NaturalTrees float32
+// SnowDensity returns the relative density of a packed-snow column.
+// 0.15 at Packed=0 (fresh fluff floor — even unpacked snow has some
+// minimum cohesion) up to 1.0 at Packed=1.0 (bulletproof piste).
+// Used by VisibleSnowDepth and by anywhere that needs to convert
+// between SWE and visible depth.
+func SnowDensity(packed float32) float32 {
+	return 0.15 + 0.85*packed
+}
+
+// VisibleSnowDepth returns the height of the snow column above ground
+// in metres, derived from accumulation and packing. Read this anywhere
+// you need the physical depth on the surface (rendering, mogul-formation
+// gating, agent collision); write to SnowAccumulation / Packed instead.
+func (c Cell) VisibleSnowDepth() float32 {
+	d := SnowDensity(c.Packed)
+	if d <= 0 {
+		return 0
+	}
+	return c.SnowAccumulation / d
 }
 
 // SurfaceElevation returns the snow-surface elevation for this cell
-// (ground + snow).
+// (ground + visible snow column height).
 func (c Cell) SurfaceElevation() float32 {
-	return c.GroundElevation + c.SnowDepth
+	return c.GroundElevation + c.VisibleSnowDepth()
 }
 
 // Walkable returns true if an agent on foot can enter this cell.
@@ -75,36 +89,35 @@ type Terrain struct {
 	Cells         [][]Cell // [x][z]
 
 	// SnowDirty signals to the renderer that a cell's snow state
-	// (Grooming/Packed/Ice/MogulSize/SnowDepth) has changed and the
-	// terrain VBO needs a re-upload. The sim sets this; the scene
+	// (Grooming/Packed/Ice/MogulSize/SnowAccumulation) has changed and
+	// the terrain VBO needs a re-upload. The sim sets this; the scene
 	// flushes the mesh and clears the flag once per frame. We keep
 	// rebuilds to one per frame max even when many cells change in a
 	// single tick — the whole-mesh upload is the same cost.
 	SnowDirty bool
 }
 
-// DefaultSnowDepth is the baseline snow thickness applied to fresh
-// terrain (NewTerrain) and to old saves that didn't store snow depth.
-// Roughly mid-season packed depth at a typical resort.
-const DefaultSnowDepth = float32(2.0)
+// DefaultSnowAccumulation is the baseline SWE applied to fresh terrain
+// (NewTerrain). At the also-default Packed=0.2 (fresh powder density
+// ~0.32) it yields ~2.0 m of visible snow depth — roughly mid-season
+// at a typical resort.
+const DefaultSnowAccumulation = float32(0.64)
 
 // NewTerrain creates a flat terrain with all cells passable, default
-// snow depth, and lightly-packed (close to fresh powder) snow. Skier
-// traffic and snowcat grooming both compress the column toward Packed=1
-// under SWE conservation, so starting near zero gives the most room
-// for visible compression as the resort gets tracked out.
+// snow accumulation, and lightly-packed (fresh-powder) snow. Skier
+// traffic and snowcat grooming both raise Packed under conserved
+// accumulation, so starting near zero gives the most room for visible
+// compression as the resort gets tracked out.
 func NewTerrain(w, h int) *Terrain {
 	cells := make([][]Cell, w)
 	for x := 0; x < w; x++ {
 		cells[x] = make([]Cell, h)
 		for z := 0; z < h; z++ {
 			cells[x][z] = Cell{
-				GroundElevation: 0,
-				SnowDepth:       DefaultSnowDepth,
-				Packed:          0.2,
-				Passable:        true,
-				NaturalElev:     0,
-				NaturalSnow:     DefaultSnowDepth,
+				GroundElevation:  0,
+				SnowAccumulation: DefaultSnowAccumulation,
+				Packed:           0.2,
+				Passable:         true,
 			}
 		}
 	}
@@ -118,40 +131,6 @@ func NewTerrain(w, h int) *Terrain {
 // InBounds returns true if the given grid coordinates are within the terrain.
 func (t *Terrain) InBounds(x, z int) bool {
 	return x >= 0 && x < t.Width && z >= 0 && z < t.Height
-}
-
-// SnapshotNatural copies every cell's display fields into its Natural
-// shadow. Call after the world's "no structures yet" terrain state has
-// been set up — i.e. once after generation, or once after save load
-// (since the save format may not yet carry Natural fields), before any
-// structure stamping has run.
-func (t *Terrain) SnapshotNatural() {
-	for x := 0; x < t.Width; x++ {
-		for z := 0; z < t.Height; z++ {
-			c := &t.Cells[x][z]
-			c.NaturalElev = c.GroundElevation
-			c.NaturalSnow = c.SnowDepth
-			c.NaturalTrees = c.TreeDensity
-		}
-	}
-}
-
-// ResetDisplayFromNatural restores every cell's display fields from
-// its Natural shadow. The caller is expected to re-stamp current
-// structure footprints (roads, buildings, lifts) afterwards. Sim-side
-// fields (Grooming, Packed, Ice, MogulSize) are not part of the
-// natural layer and are left untouched. Passable is force-reset to
-// true here so structure stamps own the "blocked" cells exclusively.
-func (t *Terrain) ResetDisplayFromNatural() {
-	for x := 0; x < t.Width; x++ {
-		for z := 0; z < t.Height; z++ {
-			c := &t.Cells[x][z]
-			c.GroundElevation = c.NaturalElev
-			c.SnowDepth = c.NaturalSnow
-			c.TreeDensity = c.NaturalTrees
-			c.Passable = true
-		}
-	}
 }
 
 // InBoundsWorld returns true if the given world-space XZ point falls within
@@ -180,8 +159,7 @@ func (t *Terrain) SurfaceElevationAt(x, z int) float32 {
 	if !t.InBounds(x, z) {
 		return 0
 	}
-	c := t.Cells[x][z]
-	return c.GroundElevation + c.SnowDepth
+	return t.Cells[x][z].SurfaceElevation()
 }
 
 // InterpolatedSurfaceElevationAt returns the bilinearly-interpolated
@@ -256,17 +234,21 @@ func (t *Terrain) TreeDensityAt(wx, wz float32) float32 {
 }
 
 // SnowAt returns the snow-state scalars at the given world-space XZ
-// point. Used by skier physics to derive effective friction. Out-of-bounds
-// returns groomed-corduroy defaults.
+// point. `depth` is the visible snow-column height (derived from
+// accumulation and packing), not the raw SWE. Used by skier physics
+// to derive effective friction. Out-of-bounds returns groomed-corduroy
+// defaults.
 func (t *Terrain) SnowAt(wx, wz float32) (depth, grooming, packed, ice, mogul float32) {
 	const cellSize = float32(5.0)
 	xi := int(wx / cellSize)
 	zi := int(wz / cellSize)
 	if !t.InBounds(xi, zi) {
-		return DefaultSnowDepth, 1, 0.5, 0, 0
+		// At-bounds default mirrors a freshly-groomed apron: full SWE
+		// converted to depth at Packed=0.5 density.
+		return DefaultSnowAccumulation / SnowDensity(0.5), 1, 0.5, 0, 0
 	}
 	c := t.Cells[xi][zi]
-	return c.SnowDepth, c.Grooming, c.Packed, c.Ice, c.MogulSize
+	return c.VisibleSnowDepth(), c.Grooming, c.Packed, c.Ice, c.MogulSize
 }
 
 // NormalAt returns the snow-surface normal at the given (continuous)

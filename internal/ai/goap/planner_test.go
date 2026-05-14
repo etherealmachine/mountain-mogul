@@ -37,7 +37,6 @@ func raiseCell(t *world.Terrain, x, z int, dh float32) {
 		return
 	}
 	t.Cells[x][z].GroundElevation = dh
-	t.Cells[x][z].NaturalElev = dh
 }
 
 // TestPlanFromParking is the end-to-end smoke: agent at parking with

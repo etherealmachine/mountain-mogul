@@ -203,6 +203,16 @@ func testbedNames() []string {
 	return out
 }
 
+// testbedPowderAccumulation is the SWE applied to off-piste cells in the
+// testbed builders. At fresh-powder density (Packed=0.2 → 0.32) this
+// yields ~4 m of visible snow depth — deeper than world.DefaultSnow-
+// Accumulation (~2 m visible) so the groomed-lane boundary produces a
+// clearly visible step. Groomed cells in the same testbed run at
+// Packed=1.0 with the same accumulation, so their visible depth drops
+// to 1.28 m — a 2.7 m drop into the lane. Production maps stay on
+// world.DefaultSnowAccumulation; this is a shader-iteration knob.
+const testbedPowderAccumulation = float32(1.28)
+
 // =============================================================================
 // Fluent builder
 // =============================================================================
@@ -228,46 +238,46 @@ func scene(wCells, hCells int) *builder {
 }
 
 // flat fills every cell to the given elevation. The surface starts
-// ungroomed (Grooming = 0); testbeds paint groomed lanes explicitly
-// with groomRect so the skier sees a contrast between groomed and
-// ungroomed snow rather than blanket corduroy.
+// ungroomed (Grooming = 0) and at fresh-powder density (Packed = 0.2,
+// matching world.NewTerrain). Testbeds paint groomed lanes explicitly
+// with groomRect, which raises Packed → 1.0; visible depth drops
+// automatically since SnowAccumulation (SWE) is conserved.
 func (b *builder) flat(elev float32) *builder {
 	t := b.w.Terrain
 	for x := 0; x < t.Width; x++ {
 		for z := 0; z < t.Height; z++ {
 			t.Cells[x][z].GroundElevation = elev
-			t.Cells[x][z].SnowDepth = world.DefaultSnowDepth
-			t.Cells[x][z].Packed = 0.7
+			t.Cells[x][z].SnowAccumulation = testbedPowderAccumulation
+			t.Cells[x][z].Packed = 0.2
 			t.Cells[x][z].Passable = true
 		}
 	}
-	t.SnapshotNatural()
 	return b
 }
 
 // slope tilts the terrain at slopeDeg degrees in +z (top of grid is high,
 // bottom of grid is low). Elevation steps by CellSize · tan(angle) per cell
 // so the produced surface really has the requested angle. Surface starts
-// ungroomed — see flat() for the rationale.
+// ungroomed and at fresh-powder density — see flat() for the rationale.
 func (b *builder) slope(slopeDeg float64) *builder {
 	t := b.w.Terrain
 	rate := float32(math.Tan(slopeDeg * math.Pi / 180))
 	for x := 0; x < t.Width; x++ {
 		for z := 0; z < t.Height; z++ {
 			t.Cells[x][z].GroundElevation = float32(t.Height-z) * CellSize * rate
-			t.Cells[x][z].SnowDepth = world.DefaultSnowDepth
-			t.Cells[x][z].Packed = 0.7
+			t.Cells[x][z].SnowAccumulation = testbedPowderAccumulation
+			t.Cells[x][z].Packed = 0.2
 			t.Cells[x][z].Passable = true
 		}
 	}
-	t.SnapshotNatural()
 	return b
 }
 
 // runout shapes a steep upper section (z < upperEndZ) joining a gentler
 // runout below. Both angles in degrees. Elevation steps by CellSize ·
 // tan(angle) per cell so the produced surface really has the requested
-// angle. Surface starts ungroomed — see flat() for the rationale.
+// angle. Surface starts ungroomed and at fresh-powder density — see
+// flat() for the rationale.
 func (b *builder) runout(upperEndZ int, upperDeg, runoutDeg float64) *builder {
 	t := b.w.Terrain
 	upperRate := float32(math.Tan(upperDeg * math.Pi / 180))
@@ -283,12 +293,11 @@ func (b *builder) runout(upperEndZ int, upperDeg, runoutDeg float64) *builder {
 		}
 		for x := 0; x < t.Width; x++ {
 			t.Cells[x][z].GroundElevation = elev
-			t.Cells[x][z].SnowDepth = world.DefaultSnowDepth
-			t.Cells[x][z].Packed = 0.7
+			t.Cells[x][z].SnowAccumulation = testbedPowderAccumulation
+			t.Cells[x][z].Packed = 0.2
 			t.Cells[x][z].Passable = true
 		}
 	}
-	t.SnapshotNatural()
 	return b
 }
 
@@ -383,7 +392,6 @@ func (b *builder) treePatch(cx, cz, radius int, density float32) *builder {
 				continue
 			}
 			t.Cells[x][z].TreeDensity = density
-			t.Cells[x][z].NaturalTrees = density
 		}
 	}
 	return b
@@ -400,18 +408,21 @@ func (b *builder) treeRect(x1, z1, x2, z2 int, density float32) *builder {
 				continue
 			}
 			t.Cells[x][z].TreeDensity = density
-			t.Cells[x][z].NaturalTrees = density
 		}
 	}
 	return b
 }
 
-// groomRect sets Grooming = 1.0 (corduroy) on every cell in
-// [x1, x2] × [z1, z2] (inclusive, clamped to terrain bounds). Pairs
-// with the ungroomed default left by flat / slope / runout: callers
-// paint the lanes they want groomed and the rest of the surface stays
-// raw. Order vs. tree-placement calls doesn't matter — groomRect
-// touches only the Grooming field.
+// groomRect paints a fully-groomed, fully-packed lane on every cell in
+// [x1, x2] × [z1, z2] (inclusive, clamped to terrain bounds): Grooming
+// = 1.0, Packed = 1.0. SnowAccumulation (SWE) is left alone — it's
+// conserved by definition — but visible depth drops since
+// VisibleSnowDepth = SnowAccumulation / density(Packed), and the
+// density 0.32 → 1.0 jump makes the lane sit about 3× lower than the
+// fresh-powder shoulders left by flat / slope / runout. That's the
+// geometric step the renderer reads when comparing piste vs. powder.
+// Order vs. tree-placement calls doesn't matter; groomRect ignores
+// TreeDensity.
 func (b *builder) groomRect(x1, z1, x2, z2 int) *builder {
 	t := b.w.Terrain
 	for x := x1; x <= x2; x++ {
@@ -419,18 +430,24 @@ func (b *builder) groomRect(x1, z1, x2, z2 int) *builder {
 			if !t.InBounds(x, z) {
 				continue
 			}
-			t.Cells[x][z].Grooming = 1.0
+			c := &t.Cells[x][z]
+			c.Grooming = 1.0
+			c.Packed = 1.0
+			// SnowAccumulation is conserved — visible depth drops on its
+			// own as Packed rises (depth = accumulation / density(packed)).
 		}
 	}
 	return b
 }
 
-// groomPolygon sets Grooming = 1.0 on every cell whose centre lies
-// inside the closed polygon defined by `pts`. Points are in grid
-// coordinates (cell indices, fractional allowed); the polygon is
-// implicitly closed from the last point back to the first. Winding
-// order doesn't matter — uses the even-odd rule via horizontal-ray
-// casting. Out-of-bounds cells are skipped.
+// groomPolygon paints a fully-groomed, fully-packed lane on every cell
+// whose centre lies inside the closed polygon defined by `pts`. Same
+// Packed=1 treatment as groomRect; visible depth drops automatically
+// from the density change. Points are in grid coordinates (cell indices,
+// fractional allowed); the polygon is implicitly closed from the last
+// point back to the first. Winding order doesn't matter — uses the
+// even-odd rule via horizontal-ray casting. Out-of-bounds cells are
+// skipped.
 //
 // Lets testbeds describe organic, curving groomed lanes that the
 // rectangular axis-aligned groomRect can't express cleanly — e.g. a
@@ -466,7 +483,9 @@ func (b *builder) groomPolygon(pts [][2]float32) *builder {
 				continue
 			}
 			if pointInPolygon(float32(x)+0.5, float32(z)+0.5, pts) {
-				t.Cells[x][z].Grooming = 1.0
+				c := &t.Cells[x][z]
+				c.Grooming = 1.0
+				c.Packed = 1.0
 			}
 		}
 	}

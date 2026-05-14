@@ -7,7 +7,7 @@ import (
 	"mountain-mogul/internal/world"
 )
 
-// GenerateSnowCover overwrites Terrain.SnowDepth with a per-cell depth field
+// GenerateSnowCover overwrites Terrain.SnowAccumulation with a per-cell field
 // shaped by physically-motivated factors:
 //
 //   - Snowline gate    — depth tapers off below a user-set elevation cutoff.
@@ -218,9 +218,10 @@ func (f *elevFields) generateSnowCover(t *world.Terrain, maxDepth, snowlineFrac,
 			} else if d > 1 {
 				d = 1
 			}
-			depth := maxDepth * d
-			t.Cells[x][z].SnowDepth = depth
-			t.Cells[x][z].NaturalSnow = depth
+			// maxDepth is in visible-metres at fresh-powder density; convert
+			// to SWE so the accumulation field carries the conserved quantity.
+			acc := maxDepth * d * world.SnowDensity(t.Cells[x][z].Packed)
+			t.Cells[x][z].SnowAccumulation = acc
 		}
 	}
 	t.SnowDirty = true

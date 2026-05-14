@@ -104,7 +104,7 @@ func dragStructure(r *render.Renderer, w *world.World, sel *structureEditSelecti
 		if sel.building.Type == world.BuildingParking {
 			refreshParkingDriveways(w, sel.building)
 		}
-		rebuildTerrainFromNatural(w)
+		applyBuildingPlacementEffects(w.Terrain, sel.building)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildRoads(w)
 	case sel.lift != nil:
@@ -119,13 +119,7 @@ func dragStructure(r *render.Renderer, w *world.World, sel *structureEditSelecti
 			}
 			sel.lift.Top = target
 		}
-		// PlaceLift's chair-spacing math assumes a fresh chain. After a
-		// station move, just leave the existing chairs at their current
-		// loop fractions — they'll redistribute visually as the cable
-		// re-renders. Cable mesh + tower instances regenerate via
-		// AddLiftCable; the previous mesh is freed first so per-frame
-		// drag doesn't leak GPU buffers.
-		rebuildTerrainFromNatural(w)
+		applyLiftPlacementEffects(w.Terrain, sel.lift)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RemoveLiftCable(sel.lift.ID)
 		r.AddLiftCable(sel.lift, w.Terrain)
@@ -139,15 +133,16 @@ func commitStructureDrag(r *render.Renderer, w *world.World) {
 }
 
 // deleteSelectedStructure removes the selected building or lift and
-// clears the selection. Triggers a full rebuild so cleared cells (snow
-// + trees + ground flatten + passability) revert to natural.
+// clears the selection. RemoveBuilding / RemoveLift restore Passable on
+// the freed cells; the apron's ground / snow / tree effects stay where
+// the structure was, since there's no Natural baseline to revert to.
+// The player accepts a left-behind apron until a future rebuild lands.
 func deleteSelectedStructure(r *render.Renderer, w *world.World, sel *structureEditSelection) {
 	switch {
 	case sel.building != nil:
 		wasParking := sel.building.Type == world.BuildingParking
 		w.RemoveBuilding(sel.building.ID)
 		sel.clear()
-		rebuildTerrainFromNatural(w)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 		if wasParking {
@@ -158,7 +153,6 @@ func deleteSelectedStructure(r *render.Renderer, w *world.World, sel *structureE
 		sel.clear()
 		w.RemoveLift(liftID)
 		r.RemoveLiftCable(liftID)
-		rebuildTerrainFromNatural(w)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 	}

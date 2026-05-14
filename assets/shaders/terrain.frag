@@ -46,24 +46,14 @@ void main() {
     float ice      = clamp(vSnow.z, 0.0, 1.0);
     float mogul    = clamp(vSnow.w, 0.0, 1.0);
 
-    // Smooth normals on gentle terrain, flat (per-triangle) normals on
-    // steep slopes. The faceted shading on cliffs reads as crisp rock
-    // breaks; the smooth elsewhere reads as continuous snow.
-    //
-    // Additionally, shift toward the flat normal wherever smoothN and
-    // flatN disagree noticeably — that disagreement means the mesh has
-    // a real geometric step (e.g. a groomed lane sitting lower than
-    // the untracked shoulder due to SWE compression) that the CPU-side
-    // smoothing has averaged away. Without this, the depth drop from
-    // grooming/packing produces a smooth dip rather than the sharp
-    // shadowed shelf the player should be reading the piste from.
-    vec3 flatN    = normalize(vNormal);
-    vec3 smoothN  = normalize(vSmoothNormal);
-    float cliffness  = 1.0 - smoothstep(0.55, 0.85, smoothN.y);
-    float divergence = 1.0 - dot(smoothN, flatN);
-    float stepReveal = smoothstep(0.02, 0.20, divergence);
-    float flatWeight = max(cliffness, stepReveal);
-    vec3  N          = normalize(mix(smoothN, flatN, flatWeight));
+    // Smoothed per-corner normal across the whole surface. Snow reads as
+    // continuous; cliffs (handled by the existing slope-based rocky tint
+    // on the snow palette below) still look distinct via colour. The
+    // vNormal (per-triangle flat) attribute is no longer read by the FS —
+    // the mesh geometry already carries the lane-edge step via the
+    // corner-Y averaging, and the smoothed normal lets the natural slope
+    // do the lighting rather than chopping it into per-triangle facets.
+    vec3 N = normalize(vSmoothNormal);
     float slope = clamp(N.y, 0.0, 1.0);                  // 1 = flat, 0 = vertical
     float h     = clamp((vWorldPos.y - uTerrainMinY) /
                         max(uTerrainMaxY - uTerrainMinY, 1.0), 0.0, 1.0);
@@ -103,14 +93,20 @@ void main() {
     float packedMix = smoothstep(0.30, 1.0, packed) * 0.75;
     snow            = mix(snow, snow * packedTint, packedMix);
 
-    // Mogul roughness — multi-octave value-noise modulating brightness.
-    // Mogul wavelength ~3 m matches real spacing; a half-wavelength octave
-    // adds inter-trough detail. Applied to the snow layer only; the
-    // ground/snow mix below attenuates the effect on patchy / bare cells.
-    if (mogul > 0.0) {
-        vec2 mp = vWorldPos.xz / 3.0;
-        float n = valueNoise(mp) * 0.6 + valueNoise(mp * 2.1) * 0.4;
-        snow += vec3((n - 0.5) * 0.35 * mogul);
+    // Powder character — two phases that together distinguish fresh
+    // untracked snow from the cool, glassy-flat groomed lanes without
+    // subdividing the mesh. (1) Surface tint/grain here on the snow
+    // palette: a subtle high-frequency value-noise grain plus a slight
+    // warm-white shift. (2) A procedural normal-map kick further down,
+    // applied to the shading normal so the lighting reads as if the
+    // surface had been displaced into low pillows. Both are gated on
+    // (1-Packed) and SnowDepth so groomed cells and thin aprons stay
+    // smooth.
+    float powderness = (1.0 - packed) * smoothstep(0.0, 0.5, vSnowDepth);
+    if (powderness > 0.1) {
+        float pgrain = valueNoise(vWorldPos.xz / 0.8) - 0.5;
+        snow += vec3(pgrain * 0.04) * powderness;
+        snow  = mix(snow, snow * vec3(1.02, 1.00, 0.97), 0.20 * powderness);
     }
 
     // Snowness from depth — 5 cm fully buries the ground (matches the
@@ -121,10 +117,52 @@ void main() {
     float snowness = smoothstep(0.0, 0.05, vSnowDepth);
     vec3  base     = mix(ground, snow, snowness);
 
+    // Procedural normal-map for sub-cell surface character. The terrain
+    // mesh is one quad per 5 m cell; details finer than that — powder
+    // pillows and mogul bumps — are added here as per-fragment normal
+    // perturbations rather than as actual VS displacement. Each term
+    // evaluates the same value-noise function used to drive the previous
+    // (now-reverted) geometric experiment, takes a finite-difference
+    // gradient in world space, and contributes a horizontal kick to N
+    // proportional to the displacement-equivalent amplitude. The
+    // lighting then reads as if the surface had been pushed up by
+    // ~10 cm (full powder at Packed=0.2) or up to ~80 cm (MogulSize=1)
+    // — without paying for mesh subdivision or a CPU mirror in
+    // VisualElevationAt. Macro shape (N, slope, cliffness) keeps the
+    // un-perturbed normal so rocky-ness and the cliff-vs-snow blend
+    // aren't fooled by sub-cell roughness; only the lighting and
+    // specular calculations see Nshading.
+    vec3 Nshading = N;
+    {
+        const float bumpEps = 0.5; // world-space sample offset in metres
+        vec3 kick = vec3(0);
+        if (powderness > 0.05) {
+            vec2 off = vec2(17.3, 91.7); // de-correlates from the mogul phase
+            float h0 = valueNoise(vWorldPos.xz / 5.0 + off);
+            float hx = valueNoise((vWorldPos.xz + vec2(bumpEps, 0)) / 5.0 + off);
+            float hz = valueNoise((vWorldPos.xz + vec2(0, bumpEps)) / 5.0 + off);
+            const float powderAmp = 0.10; // metres — matches the prior VS disp
+            kick.x -= (hx - h0) / bumpEps * powderAmp * powderness;
+            kick.z -= (hz - h0) / bumpEps * powderAmp * powderness;
+        }
+        if (mogul > 0.01 && snowness > 0.1) {
+            vec2 p0 = vWorldPos.xz;
+            vec2 px = p0 + vec2(bumpEps, 0);
+            vec2 pz = p0 + vec2(0, bumpEps);
+            float h0 = valueNoise(p0 / 3.0) * 0.6 + valueNoise(p0 * 2.1 / 3.0) * 0.4;
+            float hx = valueNoise(px / 3.0) * 0.6 + valueNoise(px * 2.1 / 3.0) * 0.4;
+            float hz = valueNoise(pz / 3.0) * 0.6 + valueNoise(pz * 2.1 / 3.0) * 0.4;
+            const float mogulAmp = 0.8;
+            kick.x -= (hx - h0) / bumpEps * mogulAmp * mogul;
+            kick.z -= (hz - h0) / bumpEps * mogulAmp * mogul;
+        }
+        Nshading = normalize(N + kick);
+    }
+
     // Wrap lighting — soft terminator that hints at sub-surface scatter on snow.
     vec3  L    = normalize(vec3(0.6, 1.0, 0.4));
     const float wrap = 0.5;
-    float ndl  = dot(N, L);
+    float ndl  = dot(Nshading, L);
     float diff = clamp((ndl + wrap) / (1.0 + wrap), 0.0, 1.0);
 
     // Cool-shadow / warm-highlight tint, applied to snow surfaces only.
@@ -154,7 +192,7 @@ void main() {
     //   3. A slight cool tint — packed-and-smoothed snow reads
     //      bluer than fresh powder.
     if (grooming > 0.01 && snowness > 0.1) {
-        vec2 horizN = smoothN.xz;
+        vec2 horizN = N.xz;
         float horizLen = length(horizN);
         if (horizLen > 0.05) {
             vec2 fallDir    = horizN / horizLen;
@@ -192,7 +230,7 @@ void main() {
     if (snowness > 0.0) {
         vec3  V    = normalize(uCameraPos - vWorldPos);
         vec3  H    = normalize(L + V);
-        float spec = pow(max(dot(N, H), 0.0), 256.0);
+        float spec = pow(max(dot(Nshading, H), 0.0), 256.0);
         vec3  cell = floor(vWorldPos * 2.0 + uTime * 0.07); // ~50 cm cells
         float gate = step(0.985 - ice * 0.05, hash3(cell));
         lit += gate * spec * snowness * (1.0 + ice * 4.0) * vec3(1.4, 1.35, 1.2);
@@ -201,7 +239,7 @@ void main() {
         // Reads as a sheen across icy slopes — distinct from the rough-snow
         // sparkle.
         if (ice > 0.0) {
-            float broadSpec = pow(max(dot(N, H), 0.0), 32.0);
+            float broadSpec = pow(max(dot(Nshading, H), 0.0), 32.0);
             lit += broadSpec * snowness * ice * 0.45 * vec3(0.92, 0.96, 1.10);
         }
     }
@@ -267,6 +305,17 @@ void main() {
     if ((uOverlayMode & 64) != 0 && snowness > 0.0) {
         vec3 col = mix(vec3(0.30, 0.30, 0.36), vec3(0.95, 0.30, 0.75), mogul);
         fragColor.rgb = mix(fragColor.rgb, col, 0.55 * snowness);
+    }
+
+    // Bump-normal debug — render Nshading directly as RGB using the
+    // standard normal-map convention (xyz remapped from [-1,1] → [0,1]).
+    // Flat surface reads as (~0, ~1, ~0) → green; sloped terrain shifts
+    // green toward red/blue with the fall direction; per-fragment bump
+    // perturbations show as red/blue mottling on top of the green.
+    // Replaces the regular shading (not blended) so the normal map is
+    // legible without other overlays bleeding through. Bound to `B`.
+    if ((uOverlayMode & 128) != 0) {
+        fragColor.rgb = Nshading * 0.5 + 0.5;
     }
 
     // Contour lines drawn last so they remain readable through any

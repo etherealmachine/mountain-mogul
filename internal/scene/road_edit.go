@@ -87,7 +87,7 @@ func dragRoadNode(r *render.Renderer, w *world.World, sel *roadEditSelection, po
 		return
 	}
 	sel.node.Pos = snapped
-	rebuildTerrainFromNatural(w)
+	applyRoadCellState(w)
 	r.FlushTerrainVerts(w.Terrain)
 	r.RebuildRoads(w)
 }
@@ -116,7 +116,7 @@ func deleteSelectedRoad(r *render.Renderer, w *world.World, sel *roadEditSelecti
 		return
 	}
 	sel.clear()
-	rebuildTerrainFromNatural(w)
+	applyRoadCellState(w)
 	r.FlushTerrainVerts(w.Terrain)
 	r.RebuildRoads(w)
 	r.RebuildStaticBatch(w)

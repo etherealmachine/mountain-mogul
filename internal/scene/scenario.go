@@ -94,12 +94,7 @@ func screenToWorld(cam *render.Camera, terrain *world.Terrain, mousePos mgl32.Ve
 }
 
 // applyDensityBrush modifies TreeDensity within `radius` cells of (cx, cz) by `delta`.
-// Clamps each cell's density to [0, 1]. Also writes the matching Natural
-// field so the cell's natural baseline absorbs the player's paint — a
-// road that later moves away from a brushed cell will restore the
-// painted density instead of pre-paint state. Callers should run
-// rebuildTerrainFromNatural after the brush stroke to re-stamp any
-// structure clearance on top.
+// Clamps each cell's density to [0, 1].
 func applyDensityBrush(t *world.Terrain, cx, cz, radius int, delta float32) {
 	r2 := radius * radius
 	for dz := -radius; dz <= radius; dz++ {
@@ -111,13 +106,12 @@ func applyDensityBrush(t *world.Terrain, cx, cz, radius int, delta float32) {
 			if !t.InBounds(x, z) {
 				continue
 			}
-			d := t.Cells[x][z].NaturalTrees + delta
+			d := t.Cells[x][z].TreeDensity + delta
 			if d < 0 {
 				d = 0
 			} else if d > 1 {
 				d = 1
 			}
-			t.Cells[x][z].NaturalTrees = d
 			t.Cells[x][z].TreeDensity = d
 		}
 	}
@@ -176,7 +170,6 @@ const apronInnerFraction = float32(0.7)
 // apron is raise-only with a small buildup — buildings fit the natural
 // slope but won't sink into mogul fields or ungroomed powder.
 func applyBuildingPlacementEffects(t *world.Terrain, b *world.Building) {
-	const apronBuildup = float32(0.5) // a small graded pad so doorsteps don't sink into the hill
 	halfX, halfZ := buildingFootprint(b.Type)
 	// Size each axis of the apron so its inner flat zone extends exactly
 	// buildingApronBareGround beyond the pad on every side. Solving
@@ -185,33 +178,42 @@ func applyBuildingPlacementEffects(t *world.Terrain, b *world.Building) {
 	apronHalfX := (halfX + buildingApronBareGround) / apronInnerFraction
 	apronHalfZ := (halfZ + buildingApronBareGround) / apronInnerFraction
 
-	// Building apron: flatten the ground to the anchor's natural
-	// elevation and plow off all the snow. The apron's inner cells have
-	// SnowDepth = 0 (bare ground / asphalt visible), and the smoothstep
-	// blend at the outer edge ramps SnowDepth back up to the natural
-	// snowpack so the clearing has snowdrift sides instead of a hard
-	// cliff. Result: parking lots, lodges and sheds sit in a plowed
-	// graded clearing, not raised above or buried beneath the snow.
+	// Building apron: flatten the ground to the anchor's elevation plus
+	// a small buildup, and plow off all the snow. Inner cells have
+	// SnowAccumulation = 0 (bare ground / asphalt visible); outer edge
+	// smoothsteps back up to the surrounding snowpack so the clearing
+	// has snowdrift sides instead of a hard cliff. Result: parking
+	// lots, lodges and sheds sit in a plowed graded clearing, neither
+	// raised above nor buried beneath the snow.
+	//
+	// Reads the live cell elevation — fine because each structure is
+	// stamped exactly once at placement (or drag) when the ground is
+	// still natural. The apron leaves a permanent footprint; re-stamping
+	// is not part of the model.
+	const apronBuildup = float32(0.5)
 	target := stationGroundElev(t, b.Pos) + apronBuildup
-	const buildingApronSnow = float32(0)
 
 	// Two passes along the world-X axis give a 2*apronHalfX × 2*apronHalfZ
 	// rectangle with side falloff on all four edges (full weight in the
 	// inner core, smoothstep down to nothing at the edge). The two passes'
 	// "back edges" meet flush at the building centre, producing a single
 	// uniform pad with no internal seam.
-	buildStationApron(t, b.Pos, mgl32.Vec2{1, 0}, +1, apronHalfZ, apronHalfX, target, buildingApronSnow, true)
-	buildStationApron(t, b.Pos, mgl32.Vec2{1, 0}, -1, apronHalfZ, apronHalfX, target, buildingApronSnow, true)
+	buildStationApron(t, b.Pos, mgl32.Vec2{1, 0}, +1, apronHalfZ, apronHalfX, target, true)
+	buildStationApron(t, b.Pos, mgl32.Vec2{1, 0}, -1, apronHalfZ, apronHalfX, target, true)
+	// Buildings plow off all the snow under their footprint — parking
+	// lots, lodges and sheds sit on bare asphalt / dirt, not a snowdrift.
+	// Lift aprons (in lift_apron.go) skip this step; their packed=1.0
+	// makes the visible snow column shrink without removing the snow.
+	plowApronSnow(t, b.Pos, mgl32.Vec2{1, 0}, +1, apronHalfZ, apronHalfX)
+	plowApronSnow(t, b.Pos, mgl32.Vec2{1, 0}, -1, apronHalfZ, apronHalfX)
 
 	// Trees inside the apron zone go to zero density so the building isn't
 	// rendered with trunks pressing through its walls. Same extents as the
 	// apron — the visible clear pad matches the tree-free footprint.
 	clearBuildingTrees(t, b.Pos, apronHalfX, apronHalfZ)
 
-	// Stamp the door cell as impassable so the rebuild path produces the
-	// same blocked-cell state as the original PlaceBuilding call. Cell
-	// passability is owned by the structure-stamp pass; ResetDisplayFrom-
-	// Natural always returns Passable to true before stamps re-apply.
+	// Stamp the door cell as impassable so the stamp path produces the
+	// same blocked-cell state as the original PlaceBuilding call.
 	door := b.DoorCell()
 	if t.InBounds(door[0], door[1]) {
 		t.Cells[door[0]][door[1]].Passable = false
@@ -277,7 +279,13 @@ func clearBuildingTrees(t *world.Terrain, pos mgl32.Vec2, halfX, halfZ float32) 
 // `axis` is a unit vector along the apron's primary axis. `side = +1`
 // flips the apron to extend in the +axis direction; `side = -1` extends
 // the apron in the -axis direction.
-func buildStationApron(t *world.Terrain, station, axis mgl32.Vec2, side, halfWidth, depth, target, apronSnow float32, cut bool) {
+// buildStationApron grades the ground under a station footprint and
+// raises Packed in the inner zone. Snow plowing (zeroing
+// SnowAccumulation) is a separate concern handled by plowApronSnow —
+// buildings call it, lift terminals don't (they get the "packed pad"
+// look from Packed=1.0 alone, since visible depth = accumulation /
+// density(Packed) automatically shrinks).
+func buildStationApron(t *world.Terrain, station, axis mgl32.Vec2, side, halfWidth, depth, target float32, cut bool) {
 	const cellSize = float32(5.0)
 	stationCell := [2]int{
 		int(station[0] / cellSize),
@@ -346,25 +354,64 @@ func buildStationApron(t *world.Terrain, station, axis mgl32.Vec2, side, halfWid
 			// can also lower cells above the target, producing a true
 			// flat platform.
 			t.Cells[x][z].GroundElevation = cur + (target-cur)*w
-			// Apron snow: blend from `apronSnow` (full weight at the
-			// inner zone) to the cell's natural snow depth at the
-			// outer edge. Buildings pass apronSnow=0 — the apron is a
-			// plowed clearing with the surrounding snowpack ramping
-			// back to natural at the smoothstep blend. Lifts pass a
-			// small thickness (5 cm) so the boarding pad still reads
-			// as snow under skiers' feet, not bare ground. Grooming is
-			// explicitly NOT raised here; if the player grooms over
-			// the apron later, fine, but the default state of an
-			// apron is packed-not-groomed.
-			deepSnow := t.Cells[x][z].SnowDepth
-			if deepSnow > apronSnow {
-				t.Cells[x][z].SnowDepth = apronSnow + (deepSnow-apronSnow)*(1-w)
-			}
+			// Raise Packed in the inner zone — boarding pads, building
+			// approaches and lift queues are foot-traffic compacted.
+			// VisibleSnowDepth then shrinks automatically (= SWE /
+			// density(Packed)), which is the visual the "thin apron snow"
+			// approximation used to fake before the packing model existed.
 			if w > t.Cells[x][z].Packed {
 				t.Cells[x][z].Packed = w
 			}
 			t.Cells[x][z].MogulSize *= 1 - w
 			t.Cells[x][z].Ice *= 1 - w
+		}
+	}
+}
+
+// plowApronSnow zeros SnowAccumulation across the inner zone of a
+// rectangular apron and smoothsteps it back to natural at the outer
+// edge. Same geometry as buildStationApron (axis / side / halfWidth /
+// depth) so the plowed footprint lines up with the graded footprint.
+// Buildings call this to clear their pad to bare ground; lift terminals
+// do NOT — their visual "packed apron" comes from Packed=1.0 alone.
+func plowApronSnow(t *world.Terrain, station, axis mgl32.Vec2, side, halfWidth, depth float32) {
+	const cellSize = float32(5.0)
+	bound := halfWidth
+	if depth > bound {
+		bound = depth
+	}
+	x0 := int((station[0] - bound) / cellSize)
+	x1 := int((station[0]+bound)/cellSize) + 1
+	z0 := int((station[1] - bound) / cellSize)
+	z1 := int((station[1]+bound)/cellSize) + 1
+	for x := x0; x <= x1; x++ {
+		for z := z0; z <= z1; z++ {
+			if !t.InBounds(x, z) {
+				continue
+			}
+			cx := (float32(x) + 0.5) * cellSize
+			cz := (float32(z) + 0.5) * cellSize
+			dx := cx - station[0]
+			dz := cz - station[1]
+			alongRaw := dx*axis[0] + dz*axis[1]
+			signedAlong := alongRaw * side
+			if signedAlong < 0 || signedAlong > depth {
+				continue
+			}
+			perpX := dx - alongRaw*axis[0]
+			perpZ := dz - alongRaw*axis[1]
+			perpDist := float32(math.Sqrt(float64(perpX*perpX + perpZ*perpZ)))
+			if perpDist > halfWidth {
+				continue
+			}
+			forwardWeight := 1 - smoothstep32(0.7, 1.0, signedAlong/depth)
+			sideWeight := 1 - smoothstep32(0.7, 1.0, perpDist/halfWidth)
+			w := forwardWeight * sideWeight
+			if w <= 0 {
+				continue
+			}
+			// Blend toward 0 at the inner zone; outer edge keeps natural.
+			t.Cells[x][z].SnowAccumulation *= 1 - w
 		}
 	}
 }
@@ -416,7 +463,7 @@ func applyDensityBrushUpTo(t *world.Terrain, cx, cz, radius int, step, target fl
 			if !t.InBounds(x, z) {
 				continue
 			}
-			cur := t.Cells[x][z].NaturalTrees
+			cur := t.Cells[x][z].TreeDensity
 			if cur >= target {
 				continue
 			}
@@ -424,7 +471,6 @@ func applyDensityBrushUpTo(t *world.Terrain, cx, cz, radius int, step, target fl
 			if d > target {
 				d = target
 			}
-			t.Cells[x][z].NaturalTrees = d
 			t.Cells[x][z].TreeDensity = d
 		}
 	}
@@ -559,6 +605,18 @@ func NewScenarioFromFile(path string) *Scenario {
 // TerrainSize returns the loaded world's terrain grid dimensions. Returns
 // (0, 0) before Init has run. Used by the -screenshot harness in main to
 // frame the camera around the whole map.
+// SetOverlay forces the terrain-overlay bitmask on the scenario's
+// overlay panel. The panel is the source of truth — Update writes its
+// mask to r.TerrainOverlayMode every frame — so a CLI caller that
+// just sets the renderer field gets clobbered. This setter installs
+// the mask on the panel itself. Used by -screenshot -overlay-mode for
+// rendering specific debug overlays without driving the keyboard.
+func (s *Scenario) SetOverlay(mask int) {
+	if s.overlayPanel != nil {
+		s.overlayPanel.SetMask(mask)
+	}
+}
+
 func (s *Scenario) TerrainSize() (int, int) {
 	if s.world == nil || s.world.Terrain == nil {
 		return 0, 0
@@ -784,12 +842,10 @@ func (s *Scenario) installWorld(w *world.World) {
 	} else {
 		s.sim = sim.NewSimulation(w)
 	}
-	// Rebuild Display fields from the Natural baseline + current
-	// structure footprints. For new saves this is idempotent (loaded
-	// state already matches). For terrain edits made post-load this is
-	// the single recompute path so structures stay consistent with the
-	// natural baseline.
-	rebuildTerrainFromNatural(w)
+	// Saved cells already carry every apron / road / corridor stamp that
+	// was in effect at save time. Testbeds set their own cell state
+	// directly in the builder (no aprons by default). Either way the
+	// terrain is authoritative as loaded — no global re-stamp needed.
 	r.BuildTerrainMesh(w.Terrain)
 	r.RebuildStaticBatch(w)
 	r.RebuildRoads(w)
@@ -944,6 +1000,15 @@ func (s *Scenario) Update(dt float64) {
 	// memory since contour was the most-used legacy overlay.
 	if !typing && inp.Pressed[glfw.KeyC] {
 		s.overlayPanel.ToggleBit(render.OverlayContour)
+		r.TerrainOverlayMode = s.overlayPanel.Mask()
+	}
+
+	// B: toggle the bump-normal debug overlay — paints the perturbed
+	// shading normal directly as RGB so the procedural powder/mogul
+	// bump map is visible from the testbed without other overlays
+	// blending in.
+	if !typing && inp.Pressed[glfw.KeyB] {
+		s.overlayPanel.ToggleBit(render.OverlayBumpNormal)
 		r.TerrainOverlayMode = s.overlayPanel.Mask()
 	}
 
@@ -1503,8 +1568,8 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 			return
 		}
 		w.Cash -= world.LodgeCost
-		w.PlaceBuildingType(world.BuildingLodge, wx, wz)
-		rebuildTerrainFromNatural(w)
+		b := w.PlaceBuildingType(world.BuildingLodge, wx, wz)
+		applyBuildingPlacementEffects(w.Terrain, b)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 	case toolShed:
@@ -1518,8 +1583,8 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 			return
 		}
 		w.Cash -= world.ShedCost
-		w.PlaceBuildingType(world.BuildingShed, wx, wz)
-		rebuildTerrainFromNatural(w)
+		b := w.PlaceBuildingType(world.BuildingShed, wx, wz)
+		applyBuildingPlacementEffects(w.Terrain, b)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 	case toolParking:
@@ -1535,7 +1600,7 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		w.Cash -= world.ParkingCost
 		b := w.PlaceBuildingType(world.BuildingParking, wx, wz)
 		w.EnsureParkingDriveway(b)
-		rebuildTerrainFromNatural(w)
+		applyBuildingPlacementEffects(w.Terrain, b)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 		r.RebuildRoads(w)
@@ -1545,7 +1610,6 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		// holding does nothing further (see lastGladeCell gate in Update).
 		strength := s.gladeThinSlider.Value / 100
 		applyDensityBrush(w.Terrain, gx, gz, s.gladeBrushRadius(), -strength)
-		rebuildTerrainFromNatural(w)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 	case toolLiftBase:
@@ -1569,7 +1633,7 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		}
 		w.Cash -= cost
 		lift := w.PlaceLift(s.liftType, s.liftBase[0], s.liftBase[1], wx, wz)
-		rebuildTerrainFromNatural(w)
+		applyLiftPlacementEffects(w.Terrain, lift)
 		r.FlushTerrainVerts(w.Terrain)
 		r.AddLiftCable(lift, w.Terrain)
 		r.RebuildStaticBatch(w)
@@ -1611,7 +1675,7 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 			return
 		}
 		w.Cash -= cost
-		rebuildTerrainFromNatural(w)
+		applyRoadCellState(w)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 		r.RebuildRoads(w)
@@ -1729,11 +1793,11 @@ func (s *Scenario) removeAt(clickPos mgl32.Vec3, r *render.Renderer) {
 			// be regenerated when one comes out.
 			wasParking := b.Type == world.BuildingParking
 			w.RemoveBuilding(b.ID)
-			// Rebuild from natural so the cells the building / lift
-			// claimed (apron flattening, snow plowing, tree clear,
-			// passability) revert and any remaining structures re-stamp
-			// their own footprints.
-			rebuildTerrainFromNatural(w)
+			// RemoveBuilding restores Passable on the door cell; we
+			// intentionally do NOT revert the apron's ground / snow / tree
+			// effects (no Natural baseline to revert TO). The graded pad
+			// just stays where the building was — the player can paint
+			// trees back or re-stamp later.
 			r.FlushTerrainVerts(w.Terrain)
 			r.RebuildStaticBatch(w)
 			if wasParking {
