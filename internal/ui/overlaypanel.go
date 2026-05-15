@@ -124,6 +124,11 @@ func (p *OverlayPanel) HandleInput(input *engine.Input, screenW float32) {
 	p.layout(screenW)
 	mx := input.MousePos[0]
 	my := input.MousePos[1]
+	// Mark the click consumed if it lands anywhere inside the panel rect
+	// (including chrome between rows) so world tools don't fire underneath.
+	if input.LeftClick && p.ContainsXY(mx, my, screenW) {
+		input.LeftClickConsumed = true
+	}
 	for _, row := range p.rows {
 		row.hovered = mx >= row.x && mx <= row.x+row.w && my >= row.y && my <= row.y+row.h
 		if input.LeftClick && row.hovered {

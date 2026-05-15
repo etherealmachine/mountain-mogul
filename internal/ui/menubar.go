@@ -124,12 +124,14 @@ func (m *MenuBar) HandleInput(input *engine.Input, screenW, screenH float32) {
 	for _, btn := range m.Buttons {
 		btn.SetHovered(btn.Contains(mx, my))
 		if input.LeftClick && btn.Contains(mx, my) {
+			input.LeftClickConsumed = true
 			btn.Click()
 		}
 	}
 	for _, btn := range m.RightButtons {
 		btn.SetHovered(btn.Contains(mx, my))
 		if input.LeftClick && btn.Contains(mx, my) {
+			input.LeftClickConsumed = true
 			btn.Click()
 		}
 	}

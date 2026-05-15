@@ -15,6 +15,11 @@ type Input struct {
 	LeftClick    bool
 	LeftHeld     bool
 	LeftRelease  bool
+	// LeftClickConsumed is set by UI handlers when they process this
+	// frame's click within their hit-box. World tools should gate on
+	// !LeftClickConsumed so the same click doesn't pass through to
+	// terrain/agents underneath. Cleared each frame in BeginFrame.
+	LeftClickConsumed bool
 	RightClick   bool
 	RightHeld    bool
 	RightRelease bool
@@ -92,6 +97,7 @@ func (in *Input) BeginFrame() {
 	}
 	in.LeftClick = false
 	in.LeftRelease = false
+	in.LeftClickConsumed = false
 	in.RightClick = false
 	in.RightRelease = false
 	in.CharInput = in.CharInput[:0]

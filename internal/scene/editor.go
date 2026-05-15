@@ -311,11 +311,11 @@ func (e *Editor) Update(dt float64) {
 	sliderActive := false
 	if e.toolUsesRadiusSlider() {
 		e.layoutBrushSliders(r)
-		if e.radiusSlider.HandleInput(inp.MousePos[0], inp.MousePos[1], inp.LeftClick, inp.LeftHeld) {
+		if e.radiusSlider.HandleInput(inp) {
 			sliderActive = true
 		}
 		if e.toolUsesDensitySlider() {
-			if e.densitySlider.HandleInput(inp.MousePos[0], inp.MousePos[1], inp.LeftClick, inp.LeftHeld) {
+			if e.densitySlider.HandleInput(inp) {
 				sliderActive = true
 			}
 		}
@@ -329,7 +329,7 @@ func (e *Editor) Update(dt float64) {
 		prev := make([]float32, len(sliders))
 		for i, s := range sliders {
 			prev[i] = s.Value
-			if s.HandleInput(inp.MousePos[0], inp.MousePos[1], inp.LeftClick, inp.LeftHeld) {
+			if s.HandleInput(inp) {
 				sliderActive = true
 			}
 		}

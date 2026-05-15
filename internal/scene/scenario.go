@@ -1225,26 +1225,22 @@ func (s *Scenario) Update(dt float64) {
 		emitStructureEditMarkers(r, s.world, &s.structureEdit)
 	}
 
-	// Popup window input — handle before world clicks so buttons consume the event.
-	popupConsumed := false
+	// Popup window input — handle before world clicks so its buttons can
+	// mark inp.LeftClickConsumed.
 	if s.popup != nil && s.popup.Visible {
 		s.popup.HandleInput(inp)
-		if inp.LeftClick && s.popup.ContainsPoint(inp.MousePos[0], inp.MousePos[1]) {
-			popupConsumed = true
-		}
 	}
 
 	// World click / drag — glade supports held-down; placement tools use click-only.
-	clickConsumed := popupConsumed
 	screenW := float32(r.ScreenWidth())
-	if !clickConsumed && inp.LeftClick && s.activeTool == toolNone && !s.uiCovers(inp.MousePos[0], inp.MousePos[1], screenW) {
+	if !inp.LeftClickConsumed && inp.LeftClick && s.activeTool == toolNone && !s.uiCovers(inp.MousePos[0], inp.MousePos[1], screenW) {
 		// Skier pick takes priority over toolNone-level edits and popups.
 		if a := s.pickAgent(r.Camera, inp.MousePos); a != nil {
 			s.followAgentID = a.ID
 			if s.popup != nil {
 				s.popup.Visible = false
 			}
-			clickConsumed = true
+			inp.LeftClickConsumed = true
 		} else if s.hoverValid {
 			// toolNone hit-test cascade: road handle → structure
 			// (building / lift) → fall through to the existing popup
@@ -1256,7 +1252,7 @@ func (s *Scenario) Update(dt float64) {
 				if s.popup != nil {
 					s.popup.Visible = false
 				}
-				clickConsumed = true
+				inp.LeftClickConsumed = true
 			} else if tryStartStructureEdit(s.world, pos, &s.structureEdit) {
 				s.roadEdit.clear()
 				// Let the existing popup flow still open for buildings
@@ -1302,10 +1298,10 @@ func (s *Scenario) Update(dt float64) {
 	sliderActive := false
 	if s.activeTool == toolGlade {
 		s.layoutGladeSliders(r)
-		if s.gladeRadiusSlider.HandleInput(inp.MousePos[0], inp.MousePos[1], inp.LeftClick, inp.LeftHeld) {
+		if s.gladeRadiusSlider.HandleInput(inp) {
 			sliderActive = true
 		}
-		if s.gladeThinSlider.HandleInput(inp.MousePos[0], inp.MousePos[1], inp.LeftClick, inp.LeftHeld) {
+		if s.gladeThinSlider.HandleInput(inp) {
 			sliderActive = true
 		}
 	}
@@ -1319,7 +1315,7 @@ func (s *Scenario) Update(dt float64) {
 		s.lastRouteCell = [2]int{-1, -1}
 	}
 
-	if !clickConsumed && !sliderActive {
+	if !inp.LeftClickConsumed && !sliderActive {
 		// Glade and route drag-painting: apply once when the cursor moves
 		// into a new cell while held. Requires a prior valid last*Cell —
 		// so holding LMB from a toolbar click doesn't auto-apply on
@@ -2204,14 +2200,18 @@ func (s *Scenario) barsContain(y float32) bool {
 }
 
 // uiCovers reports whether a screen point is inside any HUD element
-// that should suppress world hit-testing. Extends barsContain to also
-// consider the right-side overlay panel (which is only present at
-// specific X coordinates, so the bar-style Y-only check isn't enough).
+// that should suppress world hit-testing. Used for hover updates and
+// held-mouse drag suppression — initial-click consumption lives on
+// inp.LeftClickConsumed instead, since that survives a button callback
+// that hides its own popup mid-frame.
 func (s *Scenario) uiCovers(x, y float32, screenW float32) bool {
 	if s.barsContain(y) {
 		return true
 	}
 	if s.overlayPanel != nil && s.overlayPanel.ContainsXY(x, y, screenW) {
+		return true
+	}
+	if s.popup != nil && s.popup.ContainsPoint(x, y) {
 		return true
 	}
 	return false
@@ -2988,6 +2988,11 @@ func (p *savePrompt) layout(sw, sh float32) {
 
 func (p *savePrompt) HandleInput(inp *engine.Input, sw, sh float32) {
 	p.layout(sw, sh)
+	// Modal: any click while the prompt is up belongs to the prompt — the
+	// dimmed background is part of the modal, not a passthrough.
+	if inp.LeftClick {
+		inp.LeftClickConsumed = true
+	}
 	p.input.HandleInput(inp)
 	mx, my := inp.MousePos[0], inp.MousePos[1]
 	for _, b := range []*ui.Button{p.okBtn, p.cancelBtn} {

@@ -82,6 +82,12 @@ func (m *EscapeMenu) HandleInput(inp *engine.Input) {
 	sh := float32(m.app.Renderer.ScreenHeight())
 	m.layout(sw, sh)
 
+	// Modal: consume any left click while visible — the dimmed background
+	// is part of the modal, not a passthrough to the world.
+	if inp.LeftClick {
+		inp.LeftClickConsumed = true
+	}
+
 	mx, my := inp.MousePos[0], inp.MousePos[1]
 	for _, btn := range m.buttons {
 		btn.SetHovered(btn.Contains(mx, my))

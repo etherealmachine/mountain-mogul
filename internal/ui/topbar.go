@@ -120,6 +120,7 @@ func (t *TopBar) HandleInput(input *engine.Input, screenW float32) {
 	for _, b := range t.iconButtons() {
 		b.hovered = b.contains(mx, my)
 		if input.LeftClick && b.contains(mx, my) {
+			input.LeftClickConsumed = true
 			if b.onClick != nil {
 				b.onClick()
 			}

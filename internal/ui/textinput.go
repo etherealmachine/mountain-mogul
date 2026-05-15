@@ -40,6 +40,10 @@ func NewTextInput(x, y, w, h float32, initial string) *TextInput {
 // the engine input snapshot. Call once per frame while the field is focused.
 func (t *TextInput) HandleInput(in *engine.Input) {
 	t.blink++
+	mx, my := in.MousePos[0], in.MousePos[1]
+	if in.LeftClick && mx >= t.X && mx <= t.X+t.W && my >= t.Y && my <= t.Y+t.H {
+		in.LeftClickConsumed = true
+	}
 	for _, r := range in.CharInput {
 		if r < 0x20 || r == 0x7f { // skip control chars; printable ASCII+Unicode only
 			continue

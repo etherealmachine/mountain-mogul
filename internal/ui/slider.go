@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/go-gl/mathgl/mgl32"
+	"mountain-mogul/internal/engine"
 	"mountain-mogul/internal/render"
 )
 
@@ -37,15 +38,17 @@ func (s *VSlider) Contains(mx, my float32) bool {
 	return mx >= s.X-pad && mx <= s.X+s.W+pad && my >= s.Y-pad && my <= s.Y+s.H+pad
 }
 
-// HandleInput updates Value based on mouse interaction. Pass leftClick (just
-// pressed this frame) and leftHeld (button currently down). Returns true
-// when the slider is actively grabbing input — the caller should treat that
-// as click-consumed.
-func (s *VSlider) HandleInput(mx, my float32, leftClick, leftHeld bool) bool {
-	if leftClick && s.Contains(mx, my) {
+// HandleInput updates Value based on mouse interaction. Returns true when
+// the slider is actively grabbing input — the caller can treat that as a
+// drag-continuation flag (the slider also marks inp.LeftClickConsumed on
+// the grab frame so world tools don't fire underneath the thumb).
+func (s *VSlider) HandleInput(inp *engine.Input) bool {
+	mx, my := inp.MousePos[0], inp.MousePos[1]
+	if inp.LeftClick && s.Contains(mx, my) {
 		s.dragging = true
+		inp.LeftClickConsumed = true
 	}
-	if !leftHeld {
+	if !inp.LeftHeld {
 		s.dragging = false
 	}
 	if s.dragging {

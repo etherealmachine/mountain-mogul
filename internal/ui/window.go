@@ -336,6 +336,13 @@ func (w *Window) HandleInput(inp *engine.Input) {
 		return
 	}
 	mx, my := inp.MousePos[0], inp.MousePos[1]
+	// Mark the click consumed if it lands inside the window rect, BEFORE
+	// dispatching to button callbacks — those callbacks may flip w.Visible
+	// (e.g. close button, "Paint Route" hides the popup) and later code
+	// uses inp.LeftClickConsumed to gate world tools.
+	if inp.LeftClick && mx >= w.X && mx <= w.X+w.width && my >= w.Y && my <= w.Y+w.height {
+		inp.LeftClickConsumed = true
+	}
 	w.closeBtn.SetHovered(w.closeBtn.Contains(mx, my))
 	for _, row := range w.rows {
 		switch row.kind {
@@ -418,7 +425,10 @@ func (w *Window) WantsKeyboard() bool {
 	return false
 }
 
-// ContainsPoint returns true if the given point is inside the window.
+// ContainsPoint returns true if the given point is inside the window. For
+// hover/held-drag tests only; click consumption is handled via
+// inp.LeftClickConsumed inside HandleInput so a button callback that hides
+// the window can't trick callers into thinking the click landed outside.
 func (w *Window) ContainsPoint(x, y float32) bool {
 	return w.Visible && x >= w.X && x <= w.X+w.width && y >= w.Y && y <= w.Y+w.height
 }
