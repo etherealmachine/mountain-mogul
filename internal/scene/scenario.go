@@ -1994,8 +1994,9 @@ func (s *Scenario) Render(r *render.Renderer) {
 	for _, a := range s.world.OnMountain {
 		if a.ID == s.followGuestID {
 			drawables = append(drawables, &followLabel{
-				world: s.world,
-				agent: a,
+				world:   s.world,
+				agent:   a,
+				simTime: s.sim.SimTime,
 			})
 			if s.debugPlanner {
 				drawables = append(drawables, &plannerDebugPanel{
@@ -2622,21 +2623,35 @@ func (s *Scenario) applyPerceptionCone(r *render.Renderer) {
 // broken, periodic safety check), so the displayed action is stable
 // across frames.
 type followLabel struct {
-	world *world.World
-	agent *world.Guest
+	world   *world.World
+	agent   *world.Guest
+	simTime float64
 }
 
 func (f *followLabel) Draw(r *render.Renderer) {
 	activity := world.Activity(f.world, f.agent)
 	energyPct := int(f.agent.Energy*100 + 0.5)
 	funPct := int(f.agent.Fun*100 + 0.5)
+	fearPct := int(f.agent.Fear*100 + 0.5)
 	mode := f.agent.Sense.Mode
 	if mode == "" {
 		mode = "—"
 	}
+	// Trait badges — short flags that show the player which preferences
+	// are driving this guest's terrain reactions.
+	badges := f.agent.Traits.Skill.String()
+	if f.agent.Traits.LikesGlades {
+		badges += " · glades"
+	}
+	if f.agent.Traits.PrefersGroomed {
+		badges += " · corduroy"
+	}
 	rows := []string{
-		fmt.Sprintf("Skier #%d (%s)  |  %s  |  %s", f.agent.ID, f.agent.Traits.Skill, activity, mode),
-		fmt.Sprintf("%.1f m/s    energy %d%%    fun %d%%", f.agent.Speed, energyPct, funPct),
+		fmt.Sprintf("%s #%d (%s)  |  %s  |  %s", f.agent.Name, f.agent.ID, badges, activity, mode),
+		fmt.Sprintf("%.1f m/s    energy %d%%    fun %d%%    fear %d%%", f.agent.Speed, energyPct, funPct, fearPct),
+	}
+	if t := f.agent.CurrentThought(f.simTime); t != ai.ThoughtNone {
+		rows = append(rows, fmt.Sprintf("\"%s\"", t.Display()))
 	}
 	// Read the stored plan rather than running the planner per frame.
 	// Plan is updated by sim.tickPlanning at the four MD-spec replan

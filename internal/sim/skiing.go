@@ -207,9 +207,62 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 	a.LastTactical = dec.TacticalOffset
 	a.Sense = senseFrom(perc, dec)
 
-	// Energy drain (active skiing only).
+	// Trait-driven terrain effects. Reads the cell under the guest and
+	// applies the four rules: glade preference → Fun vs. FearTarget on
+	// in-trees cells; grooming preference → Fun on-piste, Energy
+	// penalty off-piste. Pushes a Thought for each firing so the
+	// player-visible "what's this guest thinking" surface tracks the
+	// reason a stat moved.
+	cx := int(a.Pos[0] / CellSize)
+	cz := int(a.Pos[2] / CellSize)
+	var treeDensity, grooming float32
+	if s.World.Terrain.InBounds(cx, cz) {
+		cell := s.World.Terrain.Cells[cx][cz]
+		treeDensity = cell.TreeDensity
+		grooming = cell.Grooming
+	}
+	const (
+		treeDensityThreshold = 0.30
+		groomingThreshold    = 0.50
+		funBumpPerSec        = 0.05 // per-second boost to Fun when in a loved zone
+		fearBumpPerSec       = 0.40 // FearTarget add per sec for non-glade in trees
+		offPisteFatigueMult  = 1.50 // extra Energy drain multiplier for PrefersGroomed off-piste
+	)
+	dtF := float32(dt)
+	inTrees := treeDensity >= treeDensityThreshold
+	onGroomed := grooming >= groomingThreshold
+
+	energyMult := float32(1)
+	if inTrees {
+		if a.Traits.LikesGlades {
+			a.Fun += funBumpPerSec * dtF
+			a.AddThought(ai.ThoughtLovingGlades, s.SimTime)
+		} else {
+			a.FearTarget += fearBumpPerSec * dtF
+			if a.FearTarget > 1 {
+				a.FearTarget = 1
+			}
+			a.AddThought(ai.ThoughtScaredInTrees, s.SimTime)
+		}
+	}
+	if a.Traits.PrefersGroomed {
+		if onGroomed {
+			a.Fun += funBumpPerSec * dtF
+			a.AddThought(ai.ThoughtLovingCorduroy, s.SimTime)
+		} else {
+			energyMult = offPisteFatigueMult
+			a.AddThought(ai.ThoughtTiredOffPiste, s.SimTime)
+		}
+	}
+	if a.Fun > 1 {
+		a.Fun = 1
+	}
+
+	// Energy drain (active skiing only). Grooming preference can
+	// inflate the drain when this guest is off-piste against their
+	// taste — sustained powder-bashing tires them out faster.
 	if a.Energy > 0 {
-		a.Energy -= float32(dt / energyBudgetSec)
+		a.Energy -= float32(dt/energyBudgetSec) * energyMult
 		if a.Energy < 0 {
 			a.Energy = 0
 		}

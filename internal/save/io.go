@@ -279,6 +279,8 @@ func worldToData(w *world.World) ScenarioData {
 			Name:             g.Name,
 			Discipline:       uint8(g.Discipline),
 			Skill:            uint8(g.Traits.Skill),
+			LikesGlades:      g.Traits.LikesGlades,
+			PrefersGroomed:   g.Traits.PrefersGroomed,
 			VisitsPerSeason:  g.VisitsPerSeason,
 			VisitsThisSeason: g.VisitsThisSeason,
 			LifetimeVisits:   g.LifetimeVisits,
@@ -298,6 +300,8 @@ func worldToData(w *world.World) ScenarioData {
 			gd.OnLiftID = g.OnLiftID
 			gd.Queued = g.Queued
 			gd.Energy = g.Energy
+			gd.Fear = g.Fear
+			gd.FearTarget = g.FearTarget
 		}
 		guests[i] = gd
 	}
@@ -531,11 +535,14 @@ func dataToWorld(data ScenarioData) *world.World {
 		} else {
 			id = w.NextID()
 		}
+		traits := ai.TraitsFor(ai.SkillLevel(gd.Skill))
+		traits.LikesGlades = gd.LikesGlades
+		traits.PrefersGroomed = gd.PrefersGroomed
 		g := &world.Guest{
 			ID:               id,
 			Name:             gd.Name,
 			Discipline:       world.Discipline(gd.Discipline),
-			Traits:           ai.TraitsFor(ai.SkillLevel(gd.Skill)),
+			Traits:           traits,
 			VisitsPerSeason:  gd.VisitsPerSeason,
 			VisitsThisSeason: gd.VisitsThisSeason,
 			LifetimeVisits:   gd.LifetimeVisits,
@@ -560,6 +567,8 @@ func dataToWorld(data ScenarioData) *world.World {
 			}
 			g.Energy = energy
 			g.Balance = 1.0
+			g.Fear = gd.Fear
+			g.FearTarget = gd.FearTarget
 			w.OnMountain = append(w.OnMountain, g)
 		}
 		w.Guests = append(w.Guests, g)

@@ -167,6 +167,8 @@ type GuestData struct {
 	Discipline      uint8   `json:"disc,omitempty"`
 	Skill           uint8   `json:"skill,omitempty"`
 	VisitsPerSeason float32 `json:"vps,omitempty"`
+	LikesGlades     bool    `json:"glades,omitempty"`
+	PrefersGroomed  bool    `json:"groomed,omitempty"`
 
 	// Career stats.
 	VisitsThisSeason int     `json:"vts,omitempty"`
@@ -178,13 +180,15 @@ type GuestData struct {
 	State uint8 `json:"state,omitempty"`
 
 	// Sim scratch — only populated when State == OnMountain.
-	Pos      [3]float32 `json:"pos,omitempty"`
-	Heading  float32    `json:"heading,omitempty"`
-	Path     [][2]int   `json:"path,omitempty"`
-	PathIdx  int        `json:"path_idx,omitempty"`
-	Speed    float32    `json:"speed,omitempty"`
-	TargetID uint64     `json:"target_id,omitempty"`
-	OnLiftID uint64     `json:"on_lift_id,omitempty"`
-	Queued   bool       `json:"queued,omitempty"`
-	Energy   float32    `json:"energy,omitempty"`
+	Pos        [3]float32 `json:"pos,omitempty"`
+	Heading    float32    `json:"heading,omitempty"`
+	Path       [][2]int   `json:"path,omitempty"`
+	PathIdx    int        `json:"path_idx,omitempty"`
+	Speed      float32    `json:"speed,omitempty"`
+	TargetID   uint64     `json:"target_id,omitempty"`
+	OnLiftID   uint64     `json:"on_lift_id,omitempty"`
+	Queued     bool       `json:"queued,omitempty"`
+	Energy     float32    `json:"energy,omitempty"`
+	Fear       float32    `json:"fear,omitempty"`
+	FearTarget float32    `json:"fear_target,omitempty"`
 }

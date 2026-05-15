@@ -42,11 +42,22 @@ func (l SkillLevel) String() string {
 }
 
 // GuestTraits captures the per-guest inputs the controller reads.
+// Boolean preferences are coarse-grained for now (likes / doesn't);
+// fractional or per-axis preferences land if we need finer behaviour.
 type GuestTraits struct {
 	Skill        SkillLevel
 	ComfortSpeed float32 // m/s; above ~comfort the brake controller engages
 	ComfortSlope float32 // radians; steeper than this is uncomfortable
 	Aggression   float32 // 0..1; scales target speed up
+
+	// LikesGlades: true ⇒ time spent in trees boosts Fun. False
+	// (the default) ⇒ time spent in trees drives FearTarget up.
+	LikesGlades bool
+
+	// PrefersGroomed: true ⇒ time on groomed snow boosts Fun, time
+	// off-piste burns Energy faster. False ⇒ grooming state is
+	// irrelevant to this guest's experience.
+	PrefersGroomed bool
 }
 
 // TraitsFor returns sensible defaults for a skill level. Callers can mutate
@@ -214,6 +225,70 @@ type GuestEvent struct {
 	Kind GuestEventKind
 	Time float64
 }
+
+// =============================================================================
+// THOUGHTS — RCT-style "what's this guest thinking" surface
+// =============================================================================
+
+// ThoughtKind enumerates the canned thoughts a guest can have in
+// response to game events. Keep the catalogue small and high-signal —
+// every entry needs a clear Display() string and a trigger somewhere in
+// the sim. The HUD reads the most-recent unexpired thought via
+// Guest.CurrentThought.
+type ThoughtKind uint8
+
+const (
+	ThoughtNone ThoughtKind = iota
+
+	// Glade-trait reactions to TreeDensity > threshold.
+	ThoughtLovingGlades  // LikesGlades = true, in trees
+	ThoughtScaredInTrees // LikesGlades = false, in trees
+
+	// Grooming-trait reactions to cell Grooming.
+	ThoughtLovingCorduroy // PrefersGroomed = true, on groomed snow
+	ThoughtTiredOffPiste  // PrefersGroomed = true, off-piste (extra fatigue)
+
+	// Generic events.
+	ThoughtFell         // Balance went to 0
+	ThoughtLowEnergy    // Energy drained below the low threshold
+	ThoughtLovingALift  // First ride of a previously-unridden lift
+)
+
+// Display returns the short, player-readable phrasing of a thought.
+// Keep these conversational and present-tense ("loving these glades")
+// so a stack of them in the HUD reads like a peep talking to themselves.
+func (k ThoughtKind) Display() string {
+	switch k {
+	case ThoughtLovingGlades:
+		return "loving these glades"
+	case ThoughtScaredInTrees:
+		return "too many trees!"
+	case ThoughtLovingCorduroy:
+		return "this corduroy is perfect"
+	case ThoughtTiredOffPiste:
+		return "this snow is exhausting"
+	case ThoughtFell:
+		return "ouch, that hurt"
+	case ThoughtLowEnergy:
+		return "I need a break"
+	case ThoughtLovingALift:
+		return "what a great lift!"
+	}
+	return ""
+}
+
+// Thought is one entry in a Guest's bounded thoughts ring. Persists in
+// the ring until either ThoughtTTL expires it or another thought
+// displaces it past the ring's capacity.
+type Thought struct {
+	Kind ThoughtKind
+	Time float64 // sim-time at emission; for TTL + display ordering
+}
+
+// ThoughtTTL is the sim-time window during which a thought counts as
+// "currently on the guest's mind." Older entries are skipped by
+// CurrentThought even if they're still inside the ring.
+const ThoughtTTL = 12.0
 
 // Sense is a per-tick snapshot of the controller used by the renderer and
 // follow HUD. Display-only; the AI never reads this back. Stale outside

@@ -53,11 +53,23 @@ func SeedGuests(w *World, rng *rand.Rand, count int) {
 	for i := 0; i < count; i++ {
 		skill := rollSkill(rng)
 		disc := rollDiscipline(rng)
+		traits := ai.TraitsFor(skill)
+		// LikesGlades is a minority taste — ~15 % of the catchment. Skews
+		// slightly higher for advanced skiers since gladiated terrain is
+		// effectively black-rated.
+		gladeProb := float32(0.10)
+		if skill == ai.SkillAdvanced {
+			gladeProb = 0.30
+		}
+		traits.LikesGlades = rng.Float32() < gladeProb
+		// PrefersGroomed is the modal preference at a real resort — most
+		// visitors want corduroy. ~60 %.
+		traits.PrefersGroomed = rng.Float32() < 0.60
 		g := &Guest{
 			ID:              w.NextID(),
 			Name:            firstNames[rng.Intn(len(firstNames))] + " " + lastNames[rng.Intn(len(lastNames))],
 			Discipline:      disc,
-			Traits:          ai.TraitsFor(skill),
+			Traits:          traits,
 			VisitsPerSeason: rollVisitsPerSeason(rng),
 			State:           AtHome,
 		}

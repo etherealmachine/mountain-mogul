@@ -24,7 +24,7 @@ import (
 // guest returns to AtHome (career stats incremented), ready to be
 // rolled again on a future poll.
 //
-// Once per in-game day, maybePollRating averages scoreGuest over every
+// Once per in-game day, maybePollRating averages Guest.Rating over every
 // on-mountain guest and sets ResortRating to that mean. The daily
 // cadence makes the rating read like a "guest survey" rather than a
 // continuous EMA — easier for the player to reason about — and
@@ -61,14 +61,6 @@ const seasonDaysApprox = 186.0
 // Capacity formula constant. avgSessionSec is how long a typical guest
 // occupies a lift seat across one cycle (queue + ride + descent).
 const avgSessionSec = 800.0
-
-// Score equation weights. α + β + γ should sum to 1 so a perfect
-// session lands at score=1 and a disastrous one at score=0.
-const (
-	scoreWeightFun    = 0.4
-	scoreWeightEnergy = 0.3
-	scoreWeightClean  = 0.3
-)
 
 // DemandSystem owns the resort rating + poll timers. The catchment
 // itself lives on world.World.Guests; this struct only tracks the
@@ -149,54 +141,18 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 	}
 }
 
-// scoreGuest computes the 0..1 rating contribution of one guest from
-// their event log + current Fun/Energy. Used both mid-session by the
-// daily rating poll and at departure to capture LastScore on the
-// persistent record. Cleanness penalises falls per completed run — a
-// session with zero falls scores 1 on that axis regardless of how few
-// runs; many falls per run scores 0.
-func scoreGuest(g *world.Guest) float32 {
-	falls, runs := 0, 0
-	for _, e := range g.Events {
-		switch e.Kind {
-		case ai.EventFall:
-			falls++
-		case ai.EventRun:
-			runs++
-		}
-	}
-	clean := float32(1)
-	if runs > 0 {
-		ratio := float32(falls) / float32(runs)
-		if ratio > 1 {
-			ratio = 1
-		}
-		clean = 1 - ratio
-	}
-	score := scoreWeightFun*g.Fun +
-		scoreWeightEnergy*g.Energy +
-		scoreWeightClean*clean
-	if score < 0 {
-		score = 0
-	}
-	if score > 1 {
-		score = 1
-	}
-	return score
-}
-
 // recordDeparture is called once at the moment of ActDepart, before the
 // guest's Removed flag is set. Captures session score + bumps career
 // stats on the persistent Guest record. The resort rating itself is
 // sampled separately by maybePollRating.
 func (d *DemandSystem) recordDeparture(g *world.Guest, simTime float64) {
-	g.LastScore = scoreGuest(g)
+	g.LastScore = g.Rating()
 	g.LifetimeVisits++
 	g.VisitsThisSeason++
 	g.LastVisit = DateAt(simTime)
 }
 
-// maybePollRating sets ResortRating to the mean scoreGuest over every
+// maybePollRating sets ResortRating to the mean Guest.Rating over every
 // on-mountain guest. Fires once per ratingPollInterval sim-seconds.
 // With zero on-mountain guests the rating is left at its previous
 // value.
@@ -212,7 +168,7 @@ func (d *DemandSystem) maybePollRating(s *Simulation) {
 		if g.Removed {
 			continue
 		}
-		sum += scoreGuest(g)
+		sum += g.Rating()
 		n++
 	}
 	if n == 0 {

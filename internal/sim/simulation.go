@@ -289,6 +289,11 @@ func (s *Simulation) tickGuests(dt float64) {
 		if agent.Removed {
 			continue
 		}
+		// Stat smoothing runs unconditionally — Fear (and future
+		// Warmth / Hunger) drift while queuing, riding, walking, etc.
+		// Trait-driven stimuli (in-trees, off-piste) are applied
+		// separately in tickSkier.
+		agent.TickStats(dt)
 		s.tickPlanning(agent)
 		if agent.Removed {
 			continue
