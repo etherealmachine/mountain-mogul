@@ -333,6 +333,64 @@ func worldToData(w *world.World) ScenarioData {
 		RoadNodes: roadNodes,
 		RoadEdges: roadEdges,
 		Cash:      w.Cash,
+		History:   historyToData(w.History),
+	}
+}
+
+// historyFromData rehydrates the History ring from saved chronological
+// samples. Returns a freshly-allocated empty History when hd is nil so
+// the sim immediately starts recording on the loaded world.
+func historyFromData(hd *HistoryData) *world.History {
+	h := world.NewHistory()
+	if hd == nil {
+		return h
+	}
+	h.ArrivalsToday = hd.ArrivalsToday
+	h.DeparturesToday = hd.DeparturesToday
+	for _, s := range hd.Samples {
+		sample := world.DailySample{
+			GuestsOnMountain: s.GuestsOnMountain,
+			ArrivalsToday:    s.ArrivalsToday,
+			DeparturesToday:  s.DeparturesToday,
+			Cash:             s.Cash,
+		}
+		if s.DayUnix != 0 {
+			sample.Day = time.Unix(s.DayUnix, 0).UTC()
+		}
+		h.Push(sample)
+		// Push consumes (zeroes) ArrivalsToday/DeparturesToday on the
+		// history struct; restore them after the last Push for the
+		// caller's in-progress day.
+	}
+	h.ArrivalsToday = hd.ArrivalsToday
+	h.DeparturesToday = hd.DeparturesToday
+	return h
+}
+
+// historyToData captures the History ring in chronological order so the
+// loader doesn't need to know about Head bookkeeping. Returns nil for
+// nil input — msgpack then omits the field entirely.
+func historyToData(h *world.History) *HistoryData {
+	if h == nil {
+		return nil
+	}
+	ordered := h.Ordered()
+	samples := make([]DailySampleData, len(ordered))
+	for i, s := range ordered {
+		samples[i] = DailySampleData{
+			GuestsOnMountain: s.GuestsOnMountain,
+			ArrivalsToday:    s.ArrivalsToday,
+			DeparturesToday:  s.DeparturesToday,
+			Cash:             s.Cash,
+		}
+		if !s.Day.IsZero() {
+			samples[i].DayUnix = s.Day.Unix()
+		}
+	}
+	return &HistoryData{
+		Samples:         samples,
+		ArrivalsToday:   h.ArrivalsToday,
+		DeparturesToday: h.DeparturesToday,
 	}
 }
 
@@ -608,6 +666,10 @@ func dataToWorld(data ScenarioData) *world.World {
 	if len(w.Guests) == 0 {
 		world.SeedGuests(w, rand.New(rand.NewSource(time.Now().UnixNano())), world.DefaultGuestPoolSize)
 	}
+
+	// Rehydrate the history ring. Absent in the save → allocate an
+	// empty *History so the sim starts recording immediately.
+	w.History = historyFromData(data.History)
 
 	return w
 }

@@ -438,6 +438,7 @@ func runProfile(wallSeconds, scale float64) {
 	// Seed a default 10k catchment so the per-Guest demand poll has
 	// someone to draw from. Fixed seed for reproducible profile runs.
 	world.SeedGuests(wld, rand.New(rand.NewSource(1)), world.DefaultGuestPoolSize)
+	wld.History = world.NewHistory()
 
 	s := sim.NewSimulationWithSeed(wld, 1)
 	s.TimeScale = scale
@@ -514,6 +515,10 @@ func runProfile(wallSeconds, scale float64) {
 	}
 	fmt.Printf("profile: at-home now=B%d I%d A%d (pool=%d)\n",
 		atHomeB, atHomeI, atHomeA, len(wld.Guests))
+	if wld.History != nil {
+		fmt.Printf("profile: history samples=%d (cap=%d) arrivals-in-progress=%d departures-in-progress=%d\n",
+			wld.History.Len(), world.HistoryCapacity, wld.History.ArrivalsToday, wld.History.DeparturesToday)
+	}
 	fmt.Printf("profile: alloc=%.1f MB over run, %d GC cycles, heap=%.1f MB at end\n",
 		totalAllocMB, gcCount, heapMB)
 	fmt.Println("profile: wrote cpu.prof, mem.prof")

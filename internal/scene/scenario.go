@@ -507,6 +507,7 @@ type Scenario struct {
 	toolBar         *ui.MenuBar      // bottom-of-screen tool palette
 	topBar          *ui.TopBar       // resort-management HUD strip
 	overlayPanel    *ui.OverlayPanel // right-side terrain-overlay toggles
+	chartWindow     *ui.ChartWindow  // resort-stats charts (line + grouped bar)
 	escapeMenu      *EscapeMenu
 	toolButtons     map[toolMode]*ui.Button
 	liftDoubleBtn   *ui.Button // toolbar button for the double-chair lift variant
@@ -787,7 +788,75 @@ func (s *Scenario) Init(app *engine.App) error {
 		s.topBar.SetOverlayActive(visible)
 	})
 
+	// Charts window — three tabs: guest population (line), arrivals /
+	// departures (grouped bar), cash on hand (line). Data is pulled
+	// from world.History each frame so retuning the simulation doesn't
+	// require touching the UI.
+	s.chartWindow = ui.NewChartWindow("Resort Stats", 0, 0, []ui.Chart{
+		{
+			Title:   "Guests on mountain",
+			Icon:    render.IconUsers,
+			Kind:    ui.ChartLine,
+			Series:  []ui.ChartSeries{{Name: "Guests", Color: mgl32.Vec4{0.55, 0.85, 1.0, 1}}},
+			GetData: func() []ui.ChartPoint { return historyToChart(s.world, guestsField) },
+		},
+		{
+			Title: "Arrivals & departures",
+			Icon:  render.IconChartBar,
+			Kind:  ui.ChartGroupedBar,
+			Series: []ui.ChartSeries{
+				{Name: "Arrivals", Color: mgl32.Vec4{0.35, 0.85, 0.45, 1}},
+				{Name: "Departures", Color: mgl32.Vec4{0.95, 0.55, 0.45, 1}},
+			},
+			GetData: func() []ui.ChartPoint { return historyToChart(s.world, arrDepField) },
+		},
+		{
+			Title:   "Cash on hand",
+			Icon:    render.IconCoin,
+			Kind:    ui.ChartLine,
+			Series:  []ui.ChartSeries{{Name: "Cash", Color: mgl32.Vec4{1.0, 0.85, 0.30, 1}}},
+			GetData: func() []ui.ChartPoint { return historyToChart(s.world, cashField) },
+		},
+	})
+	s.chartWindow.Center(app.Renderer.ScreenWidth(), app.Renderer.ScreenHeight())
+	s.topBar.SetChartsToggle(func() {
+		s.chartWindow.Visible = !s.chartWindow.Visible
+		s.topBar.SetChartsActive(s.chartWindow.Visible)
+	})
+
 	return nil
+}
+
+// historyField selects which DailySample columns get pulled into a
+// chart. Lets the three Chart definitions share one converter.
+type historyField int
+
+const (
+	guestsField historyField = iota
+	arrDepField
+	cashField
+)
+
+// historyToChart turns world.History.Ordered() into []ui.ChartPoint with
+// the values for the requested field. Cheap (one alloc per Draw); the
+// chart window only calls this while visible.
+func historyToChart(w *world.World, field historyField) []ui.ChartPoint {
+	if w == nil || w.History == nil {
+		return nil
+	}
+	samples := w.History.Ordered()
+	out := make([]ui.ChartPoint, len(samples))
+	for i, s := range samples {
+		switch field {
+		case guestsField:
+			out[i] = ui.ChartPoint{Day: s.Day, Values: []float64{float64(s.GuestsOnMountain)}}
+		case arrDepField:
+			out[i] = ui.ChartPoint{Day: s.Day, Values: []float64{float64(s.ArrivalsToday), float64(s.DeparturesToday)}}
+		case cashField:
+			out[i] = ui.ChartPoint{Day: s.Day, Values: []float64{float64(s.Cash)}}
+		}
+	}
+	return out
 }
 
 // weatherToUI maps the sim-side weather enum to the UI-side enum. The two
@@ -1228,6 +1297,10 @@ func (s *Scenario) Update(dt float64) {
 
 	// Popup window input — handle before world clicks so its buttons can
 	// mark inp.LeftClickConsumed.
+	if s.chartWindow != nil && s.chartWindow.Visible {
+		s.chartWindow.HandleInput(inp)
+		s.topBar.SetChartsActive(s.chartWindow.Visible)
+	}
 	if s.popup != nil && s.popup.Visible {
 		s.popup.HandleInput(inp)
 	}
@@ -1947,6 +2020,9 @@ func (s *Scenario) Render(r *render.Renderer) {
 	if s.popup != nil && s.popup.Visible {
 		drawables = append(drawables, s.popup)
 	}
+	if s.chartWindow != nil && s.chartWindow.Visible {
+		drawables = append(drawables, s.chartWindow)
+	}
 	if s.escapeMenu.Visible() {
 		drawables = append(drawables, s.escapeMenu)
 	}
@@ -2213,6 +2289,9 @@ func (s *Scenario) uiCovers(x, y float32, screenW float32) bool {
 		return true
 	}
 	if s.popup != nil && s.popup.ContainsPoint(x, y) {
+		return true
+	}
+	if s.chartWindow != nil && s.chartWindow.ContainsPoint(x, y) {
 		return true
 	}
 	return false

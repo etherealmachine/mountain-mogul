@@ -15,6 +15,28 @@ type ScenarioData struct {
 	RoadEdges []RoadEdgeData `json:"road_edges,omitempty"`
 	Cash      int            `json:"cash,omitempty"`
 	Camera    *CameraData    `json:"camera,omitempty"`
+	History   *HistoryData   `json:"history,omitempty"`
+}
+
+// HistoryData is the saved daily ring of resort stats — see
+// world.History. Samples is stored in chronological order
+// (oldest-first), so loaders can iterate without bothering about the
+// ring's runtime head index; the loader resets Head to len(Samples) %
+// HistoryCapacity and Filled when Samples is at capacity.
+type HistoryData struct {
+	Samples         []DailySampleData `json:"s,omitempty"`
+	ArrivalsToday   int               `json:"a,omitempty"`
+	DeparturesToday int               `json:"d,omitempty"`
+}
+
+// DailySampleData mirrors world.DailySample with msgpack-compact field
+// tags. Day is stored as Unix seconds; non-zero for any persisted row.
+type DailySampleData struct {
+	DayUnix          int64 `json:"d,omitempty"`
+	GuestsOnMountain int   `json:"g,omitempty"`
+	ArrivalsToday    int   `json:"a,omitempty"`
+	DeparturesToday  int   `json:"x,omitempty"`
+	Cash             int   `json:"c,omitempty"`
 }
 
 // RoadNodeData is one vertex in the road graph. ID is preserved across

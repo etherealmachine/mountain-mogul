@@ -57,6 +57,12 @@ type World struct {
 	RoadEdges []*RoadEdge
 	nextID    uint64
 
+	// History is a daily ring of stats (guest count, cash, arrivals,
+	// departures) feeding the in-game charts window. Nil on a freshly
+	// constructed world; the scenario load path / new-game path
+	// allocates an empty one so the sim immediately begins recording.
+	History *History
+
 	// Cash is the resort's bank balance in dollars. PlaceBuilding /
 	// PlaceLift deduct from this and refuse the placement when the
 	// balance can't cover the cost.

@@ -41,6 +41,7 @@ const (
 	// modes addressable from the panel.
 	IconStack     IconName = "stack"      // overlay panel toggle (top bar)
 	IconChartLine IconName = "chart-line" // contour
+	IconChartBar  IconName = "chart-bar"  // charts window toggle (top bar) + bar-chart tab
 	IconTriangle  IconName = "triangle"   // slope debug
 	IconWaves     IconName = "waves"      // snow depth
 	IconBroom     IconName = "broom"      // grooming
@@ -66,7 +67,7 @@ var allIcons = []IconName{
 	IconCoin, IconUsers, IconHeart,
 	IconSun, IconCloudSun, IconCloud, IconCloudSnow, IconSnowflake, IconCloudLightning,
 	IconArrowRight,
-	IconStack, IconChartLine, IconTriangle, IconWaves, IconBroom, IconGridFour, IconDrop, IconDotsNine,
+	IconStack, IconChartLine, IconChartBar, IconTriangle, IconWaves, IconBroom, IconGridFour, IconDrop, IconDotsNine,
 	IconGarage,
 	IconRoad,
 	IconFlag,

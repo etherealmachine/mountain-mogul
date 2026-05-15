@@ -1833,6 +1833,25 @@ func (r *Renderer) DrawColorRect(x, y, w, h float32, color mgl32.Vec4) {
 	r.appendUIQuad(x, y, w, h, 0, 0, 1, 1, color)
 }
 
+// DrawColorLine draws a thick line segment from (x0, y0) to (x1, y1) as
+// two triangles forming a quad perpendicular to the segment direction.
+// `thickness` is the total width in pixels. Degenerate (zero-length)
+// segments draw nothing.
+func (r *Renderer) DrawColorLine(x0, y0, x1, y1, thickness float32, color mgl32.Vec4) {
+	dx := x1 - x0
+	dy := y1 - y0
+	length := float32(math.Sqrt(float64(dx*dx + dy*dy)))
+	if length < 1e-6 {
+		return
+	}
+	// Perpendicular unit vector × half-thickness.
+	nx := -dy / length * (thickness * 0.5)
+	ny := dx / length * (thickness * 0.5)
+	r.useUITexture(r.whiteTexID)
+	r.appendUITriangle(x0+nx, y0+ny, x1+nx, y1+ny, x1-nx, y1-ny, color)
+	r.appendUITriangle(x0+nx, y0+ny, x1-nx, y1-ny, x0-nx, y0-ny, color)
+}
+
 // DrawColorDisc draws a filled circle centred at (cx, cy) with the
 // given radius. Built from 24 triangles fanning out from the centre so
 // it batches alongside rects and glyphs in the same DrawArrays call.

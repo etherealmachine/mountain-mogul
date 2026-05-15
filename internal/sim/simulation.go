@@ -24,6 +24,12 @@ type Simulation struct {
 	SimTime    float64    // accumulated sim seconds (post-TimeScale)
 	Rng        *rand.Rand // single source for all gameplay randomness; testbeds seed this for determinism
 
+	// lastSampledDay is the most recent in-game day index whose end has
+	// been written to World.History. Initialised to int(SimTime /
+	// secondsPerSimDay) so a sim loaded mid-day starts recording from
+	// the next rollover rather than back-filling the partial day.
+	lastSampledDay int
+
 	// Planner is the L0 GOAP planner — picks goals and chains actions
 	// for every agent in the world.
 	Planner *goap.Planner
@@ -71,13 +77,14 @@ func NewSimulationWithSeed(w *world.World, seed int64) *Simulation {
 	widthM := float32(w.Terrain.Width) * CellSize
 	heightM := float32(w.Terrain.Height) * CellSize
 	sim := &Simulation{
-		World:      w,
-		Pathfinder: NewPathfinder(w.Terrain),
-		TimeScale:  4.0,
-		Rng:        rand.New(rand.NewSource(seed)),
-		Planner:    goap.NewPlanner(),
-		Demand:     NewDemandSystem(),
-		spatial:    newSpatialGrid(widthM, heightM),
+		World:          w,
+		Pathfinder:     NewPathfinder(w.Terrain),
+		TimeScale:      4.0,
+		Rng:            rand.New(rand.NewSource(seed)),
+		Planner:        goap.NewPlanner(),
+		Demand:         NewDemandSystem(),
+		spatial:        newSpatialGrid(widthM, heightM),
+		lastSampledDay: 0,
 	}
 	for _, a := range w.OnMountain {
 		if !a.Plan.Done() {
@@ -155,6 +162,7 @@ func (s *Simulation) subTick(dt float64) {
 	s.SimTime += dt
 	s.Demand.maybePoll(s)
 	s.Demand.maybePollRating(s)
+	s.maybeSampleHistory()
 	s.tickLifts(dt)
 	s.tickGuests(dt)
 	s.tickSnowcats(dt)
@@ -333,7 +341,31 @@ func (s *Simulation) spawnGuest(lot *world.Building, g *world.Guest) bool {
 		g.ResetForDeparture()
 		return false
 	}
+	w.History.RecordArrival()
 	return true
+}
+
+// maybeSampleHistory pushes one DailySample per in-game day boundary
+// the sim has crossed since the last call. Snapshots GuestsOnMountain
+// + Cash at the moment of rollover, and consumes the per-day arrival/
+// departure counters that have been accumulating in World.History.
+// No-op when World.History is nil (testbeds, pre-history saves).
+func (s *Simulation) maybeSampleHistory() {
+	if s.World == nil || s.World.History == nil {
+		return
+	}
+	today := int(s.SimTime / secondsPerSimDay)
+	for s.lastSampledDay < today {
+		dayIdx := s.lastSampledDay
+		s.World.History.Push(world.DailySample{
+			Day:              DateAt(float64(dayIdx) * secondsPerSimDay),
+			GuestsOnMountain: len(s.World.OnMountain),
+			ArrivalsToday:    s.World.History.ArrivalsToday,
+			DeparturesToday:  s.World.History.DeparturesToday,
+			Cash:             s.World.Cash,
+		})
+		s.lastSampledDay++
+	}
 }
 
 // =============================================================================
@@ -493,6 +525,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		// car count (4 departures = -1 car), then flip Removed so
 		// reapDeparted will splice this Guest out of OnMountain.
 		s.Demand.recordDeparture(a, s.SimTime)
+		w.History.RecordDeparture()
 		if b := findBuildingByID(w, step.BldgID); b != nil {
 			b.CurrentCars -= 1.0 / float32(GuestsPerCar)
 			if b.CurrentCars < 0 {

@@ -33,6 +33,7 @@ type TopBar struct {
 	speedBtns  []*iconButton
 	gearBtn    *iconButton
 	overlayBtn *iconButton // overlay-panel toggle; sits between speed and gear
+	chartsBtn  *iconButton // chart-window toggle; sits next to overlay
 
 	bgColor mgl32.Vec4
 }
@@ -59,6 +60,20 @@ func (t *TopBar) SetOverlayToggle(onClick func()) {
 func (t *TopBar) SetOverlayActive(active bool) {
 	if t.overlayBtn != nil {
 		t.overlayBtn.active = active
+	}
+}
+
+// SetChartsToggle installs the charts-window toggle button. Sits left
+// of the overlay button; tracks visibility via SetChartsActive.
+func (t *TopBar) SetChartsToggle(onClick func()) {
+	t.chartsBtn = newIconButton("charts", onClick)
+}
+
+// SetChartsActive reflects the chart window's visibility back to the
+// top-bar icon.
+func (t *TopBar) SetChartsActive(active bool) {
+	if t.chartsBtn != nil {
+		t.chartsBtn.active = active
 	}
 }
 
@@ -148,11 +163,14 @@ func (t *TopBar) Draw(r *render.Renderer) {
 
 // iconButtons returns every clickable icon for hover/click iteration.
 func (t *TopBar) iconButtons() []*iconButton {
-	out := make([]*iconButton, 0, len(t.speedBtns)+3)
+	out := make([]*iconButton, 0, len(t.speedBtns)+4)
 	if t.pauseBtn != nil {
 		out = append(out, t.pauseBtn)
 	}
 	out = append(out, t.speedBtns...)
+	if t.chartsBtn != nil {
+		out = append(out, t.chartsBtn)
+	}
 	if t.overlayBtn != nil {
 		out = append(out, t.overlayBtn)
 	}
@@ -182,6 +200,13 @@ func (t *TopBar) layout(screenW float32) {
 		t.overlayBtn.y = t.Y
 		t.overlayBtn.w = iconBoxW
 		t.overlayBtn.h = t.H
+	}
+	if t.chartsBtn != nil {
+		x -= iconBoxW
+		t.chartsBtn.x = x
+		t.chartsBtn.y = t.Y
+		t.chartsBtn.w = iconBoxW
+		t.chartsBtn.h = t.H
 	}
 	for i := len(t.speedBtns) - 1; i >= 0; i-- {
 		x -= iconBoxW
@@ -349,6 +374,8 @@ func (t *TopBar) drawIconButton(r *render.Renderer, b *iconButton) {
 		IconGear(r, cx-iconSize/2, cy, iconSize, col)
 	case "overlay":
 		r.DrawIcon(render.IconStack, cx-iconSize/2, cy, iconSize, col)
+	case "charts":
+		r.DrawIcon(render.IconChartBar, cx-iconSize/2, cy, iconSize, col)
 	}
 }
 
