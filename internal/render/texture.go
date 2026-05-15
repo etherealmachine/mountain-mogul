@@ -46,7 +46,7 @@ func LoadTexture(path string) (uint32, error) {
 
 // LoadIconTexture loads a black-on-transparent PNG (the standard Phosphor
 // pattern) and uploads it as a white-on-transparent alpha mask. The UI
-// fragment shader is `texture * uColor`, so a white-RGB texture lets the
+// fragment shader is `texture * vColor`, so a white-RGB texture lets the
 // caller tint the icon by passing a colour to DrawTexturedRect — exactly
 // how the bitmap font already works.
 //
@@ -66,7 +66,7 @@ func LoadIconTexture(path string) (uint32, error) {
 
 	rgba := toRGBA(img)
 	// Force RGB to white, preserve alpha. After this, sampling the texture
-	// returns vec4(1, 1, 1, alpha) and the shader's multiply with uColor
+	// returns vec4(1, 1, 1, alpha) and the shader's multiply with vColor
 	// yields the tinted icon over the alpha mask.
 	for i := 0; i+3 < len(rgba.Pix); i += 4 {
 		rgba.Pix[i] = 255

@@ -24,6 +24,13 @@ type App struct {
 	// main.go's -trace flag flips this on.
 	LogSlowFrames bool
 
+	// LastUpdateMs / LastRenderMs are the previous frame's wall-clock
+	// split between Update and Render. Populated unconditionally each
+	// frame so the F5 inspector (and any other HUD) can read them
+	// without enabling -trace. Zero until the first frame completes.
+	LastUpdateMs float32
+	LastRenderMs float32
+
 	scenes   []Scene
 	AssetDir string
 }
@@ -142,6 +149,8 @@ func (app *App) Run() {
 			top.Render(app.Renderer)
 			renderDur = time.Since(rStart)
 		}
+		app.LastUpdateMs = float32(updateDur.Seconds() * 1000)
+		app.LastRenderMs = float32(renderDur.Seconds() * 1000)
 
 		app.Window.SwapBuffers()
 

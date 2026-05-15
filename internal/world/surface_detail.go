@@ -25,6 +25,13 @@ type SurfaceDetail struct {
 	Pixels            []uint8 // flat RGBA8, row-major (px-major)
 	Dirty             bool
 	DirtyBox          image.Rectangle // px-space, inclusive on Min, exclusive on Max
+
+	// EdgeCells[cx*Hcells + cz] is true if the cell was a groom-edge
+	// cell at the most recent RecomputeGroomEdges call. Lets the
+	// recompute skip the PxPerCell² per-pixel clear walk on cells that
+	// never had an edge — without this, the steady-state scan was
+	// ~1.5 M memory loads on a 60×60 map.
+	EdgeCells []bool
 }
 
 // PxPerCell is the surface-detail resolution multiplier: each 5 m terrain
@@ -47,9 +54,10 @@ func NewSurfaceDetail(wCells, hCells int) *SurfaceDetail {
 	pw := wCells * PxPerCell
 	ph := hCells * PxPerCell
 	return &SurfaceDetail{
-		PxWidth:  pw,
-		PxHeight: ph,
-		Pixels:   make([]uint8, pw*ph*4),
+		PxWidth:   pw,
+		PxHeight:  ph,
+		Pixels:    make([]uint8, pw*ph*4),
+		EdgeCells: make([]bool, wCells*hCells),
 	}
 }
 

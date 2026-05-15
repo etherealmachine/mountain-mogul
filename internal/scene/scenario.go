@@ -526,6 +526,12 @@ type Scenario struct {
 	debugSteering   bool   // F3: render steering forces on the followed skier
 	debugPlanner    bool   // F4: show goal weights, full plan, snapshot anchors for the followed skier
 	debugTerrainIns bool   // F5: dump cell snow/terrain state under the mouse cursor
+
+	// fpsSmoothed is an EMA of the wall-clock frame rate, updated every
+	// Update tick. Surfaced in the F5 inspector panel so the player can
+	// monitor frame time while looking at sim state. Initialised lazily
+	// from the first dt so the first frame doesn't read as 0 fps.
+	fpsSmoothed float32
 	paused          bool
 	popup           *ui.Window
 	saveAllowed     bool   // false in testbed mode; gates the Save prompt
@@ -957,6 +963,19 @@ func (s *Scenario) Update(dt float64) {
 	s.time += float32(dt)
 	inp := s.app.Input
 	r := s.app.Renderer
+
+	// Wall-clock FPS, exponentially smoothed. α=0.08 gives a ~0.2 s
+	// time constant — steady enough that the displayed number doesn't
+	// flicker on a single hitched frame but responsive enough to show
+	// real dips. Seeded on first frame so the readout doesn't start at 0.
+	if dt > 0 {
+		instant := float32(1.0 / dt)
+		if s.fpsSmoothed == 0 {
+			s.fpsSmoothed = instant
+		} else {
+			s.fpsSmoothed = s.fpsSmoothed*0.92 + instant*0.08
+		}
+	}
 
 	// Save prompt is the topmost modal — it captures all input and even
 	// swallows Escape (handled inside its TextInput's Cancel binding).
@@ -1920,9 +1939,12 @@ func (s *Scenario) Render(r *render.Renderer) {
 	if s.debugTerrainIns && s.world != nil && s.world.Terrain != nil &&
 		s.world.Terrain.InBounds(s.hoverCell[0], s.hoverCell[1]) {
 		drawables = append(drawables, &terrainInspectPanel{
-			terrain: s.world.Terrain,
-			cell:    s.hoverCell,
-			world:   s.hoverWorld,
+			terrain:  s.world.Terrain,
+			cell:     s.hoverCell,
+			world:    s.hoverWorld,
+			fps:      s.fpsSmoothed,
+			updateMs: s.app.LastUpdateMs,
+			renderMs: s.app.LastRenderMs,
 		})
 	}
 	if s.popup != nil && s.popup.Visible {
@@ -2687,15 +2709,25 @@ func ridenLiftsLine(w *world.World, rides []ai.RideCount) string {
 // round-trips, and see what skier wear / grooming is doing to a
 // specific cell.
 type terrainInspectPanel struct {
-	terrain *world.Terrain
-	cell    [2]int
-	world   mgl32.Vec3
+	terrain  *world.Terrain
+	cell     [2]int
+	world    mgl32.Vec3
+	fps      float32 // smoothed wall-clock FPS, 0 = not yet sampled
+	updateMs float32 // previous frame's Update() wall time
+	renderMs float32 // previous frame's Render() wall time
 }
 
 func (p *terrainInspectPanel) Draw(r *render.Renderer) {
 	c := p.terrain.Cells[p.cell[0]][p.cell[1]]
 	density := world.SnowDensity(c.Packed)
+	fpsRow := "FPS        = —"
+	if p.fps > 0 {
+		fpsRow = fmt.Sprintf("FPS        = %5.1f  (%.2f ms)", p.fps, 1000.0/p.fps)
+	}
 	rows := []string{
+		fpsRow,
+		fmt.Sprintf("  update   = %5.2f ms", p.updateMs),
+		fmt.Sprintf("  render   = %5.2f ms", p.renderMs),
 		fmt.Sprintf("─── Cell (%d, %d) ───", p.cell[0], p.cell[1]),
 		fmt.Sprintf("world      = (%.1f, %.1f)", p.world[0], p.world[2]),
 		fmt.Sprintf("Ground     = %.3f m", c.GroundElevation),

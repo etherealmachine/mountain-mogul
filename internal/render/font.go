@@ -80,16 +80,16 @@ func NewFont() *Font {
 }
 
 // DrawText renders a string at screen position (x, y) using the atlas.
+// Appends one quad per glyph to the renderer's per-frame UI batch;
+// flushUI inside DrawUI emits a single DrawArrays for the whole frame
+// (or one per font-atlas switch, which doesn't happen since we have one
+// atlas). Pre-batching this was ~one BufferSubData per character — the
+// dominant CPU cost in the F5 inspector.
 func (f *Font) DrawText(r *Renderer, text string, x, y float32, col mgl32.Vec4) {
 	if r == nil || r.UIShader == nil || f.atlasID == 0 {
 		return
 	}
-
-	r.UIShader.Use()
-	r.UIShader.SetInt("uUseTexture", 1)
-	r.UIShader.SetVec4("uColor", col)
-	gl.ActiveTexture(gl.TEXTURE0)
-	gl.BindTexture(gl.TEXTURE_2D, f.atlasID)
+	r.useUITexture(f.atlasID)
 
 	cw := float32(f.charW)
 	ch := float32(f.charH)
@@ -102,7 +102,7 @@ func (f *Font) DrawText(r *Renderer, text string, x, y float32, col mgl32.Vec4) 
 		}
 		u0 := float32(idx*f.charW) / atlasWF
 		u1 := float32((idx+1)*f.charW) / atlasWF
-		r.drawRectUV(x+float32(i)*GlyphAdvance, y, cw, ch, u0, 0, u1, 1)
+		r.appendUIQuad(x+float32(i)*GlyphAdvance, y, cw, ch, u0, 0, u1, 1, col)
 	}
 }
 

@@ -1,6 +1,9 @@
 package world
 
-import "math"
+import (
+	"image"
+	"math"
+)
 
 // MaxTreesPerCell is the per-cell cap used by TreeCountFromDensity. With
 // 5×5 m cells this is 800 trees/ha at density 1.0 — slightly under the
@@ -63,24 +66,38 @@ type TreeInstance struct {
 // the shader uses to draw a sharp lip / shadow line where untracked
 // powder meets a groomed lane.
 //
-// Cheap — O(W·H·PxPerCell²) — so we always recompute wholesale rather
-// than tracking which cells changed. Runs alongside the existing
-// SnowDirty flush.
+// Writes B in-place — every pixel of every cell gets its new B (0 if
+// no neighbour differs, falloff otherwise). The dirty box accumulates
+// only the cells whose B actually changed since the previous compute,
+// so steady-state frames upload nothing even though we ran the scan.
+//
+// Per-meter band scales with PxPerCell: at PxPerCell=20 the band is
+// 4 pixels = 1 m on each side of the edge.
 func (t *Terrain) RecomputeGroomEdges() {
 	if t == nil || t.Surface == nil {
 		return
 	}
 	sd := t.Surface
-	sd.zeroChannel(chGroomEdge)
-
 	const groomDiffThreshold = float32(0.20)
+	// 1 m band in pixel units.
+	bandPx := PxPerMeter()
+	bandLen := PxPerCell // worst case minD horizon (anything > bandPx → 0)
+
+	dirty := image.Rectangle{}
+	anyDirty := false
+	markCell := func(px0, pz0 int) {
+		r := image.Rect(px0, pz0, px0+PxPerCell, pz0+PxPerCell)
+		if !anyDirty {
+			dirty = r
+			anyDirty = true
+		} else {
+			dirty = dirty.Union(r)
+		}
+	}
 
 	for cz := 0; cz < t.Height; cz++ {
 		for cx := 0; cx < t.Width; cx++ {
 			g0 := t.Cells[cx][cz].Grooming
-			// Per-side differences. NaN-safe — neighbours off the map
-			// don't count as "different" so map edges don't pick up a
-			// false lip.
 			var diffL, diffR, diffD, diffU bool
 			if cx > 0 {
 				diffL = absDiff(g0, t.Cells[cx-1][cz].Grooming) > groomDiffThreshold
@@ -94,22 +111,36 @@ func (t *Terrain) RecomputeGroomEdges() {
 			if cz < t.Height-1 {
 				diffU = absDiff(g0, t.Cells[cx][cz+1].Grooming) > groomDiffThreshold
 			}
-			if !(diffL || diffR || diffD || diffU) {
-				continue
-			}
-			// Walk the cell's PxPerCell² pixels and pick the minimum
-			// distance (in pixels) to any boundary whose other side
-			// has a differing Grooming.
+			hasEdge := diffL || diffR || diffD || diffU
+			ci := cx*t.Height + cz
+			hadEdge := sd.EdgeCells[ci]
 			px0 := cx * PxPerCell
 			pz0 := cz * PxPerCell
+			if !hasEdge {
+				// No edge now. If we didn't have an edge last frame
+				// either, the cell's B pixels are already 0 — skip the
+				// per-pixel walk entirely. Steady-state cost: just the
+				// 4-neighbour check above.
+				if !hadEdge {
+					continue
+				}
+				// Edge moved away — clear the band we last wrote.
+				for dz := 0; dz < PxPerCell; dz++ {
+					row := (pz0 + dz) * sd.PxWidth
+					for dx := 0; dx < PxPerCell; dx++ {
+						off := (row + px0 + dx) * 4
+						sd.Pixels[off+chGroomEdge] = 0
+					}
+				}
+				sd.EdgeCells[ci] = false
+				markCell(px0, pz0)
+				continue
+			}
+			cellDirty := false
 			for dz := 0; dz < PxPerCell; dz++ {
+				row := (pz0 + dz) * sd.PxWidth
 				for dx := 0; dx < PxPerCell; dx++ {
-					// Distance to each side, measured from pixel centre
-					// (dx + 0.5) to the inside edge. The boundary itself
-					// sits at dx == -0.5 (left) or dx == PxPerCell-0.5
-					// (right) — so the nearest pixel to the left edge
-					// is at dx=0, distance 0.5 px = 0.5 m.
-					minD := float32(99.0)
+					minD := float32(bandLen)
 					if diffL {
 						minD = minF32(minD, float32(dx)+0.5)
 					}
@@ -122,20 +153,26 @@ func (t *Terrain) RecomputeGroomEdges() {
 					if diffU {
 						minD = minF32(minD, float32(PxPerCell-1-dz)+0.5)
 					}
-					// 1 m band: pixels within 1 m of a differing edge.
-					if minD >= 1.0 {
-						continue
+					var v uint8
+					if minD < bandPx {
+						v = uint8((1.0 - minD/bandPx) * 255)
 					}
-					v := uint8((1.0 - minD) * 255)
-					off := ((pz0+dz)*sd.PxWidth + (px0 + dx)) * 4
-					if v > sd.Pixels[off+chGroomEdge] {
+					off := (row + px0 + dx) * 4
+					if sd.Pixels[off+chGroomEdge] != v {
 						sd.Pixels[off+chGroomEdge] = v
+						cellDirty = true
 					}
 				}
 			}
+			sd.EdgeCells[ci] = true
+			if cellDirty {
+				markCell(px0, pz0)
+			}
 		}
 	}
-	sd.MarkAllDirty()
+	if anyDirty {
+		sd.MarkDirty(dirty)
+	}
 }
 
 func absDiff(a, b float32) float32 {

@@ -49,6 +49,8 @@ func main() {
 	profileSeconds := flag.Float64("profile-seconds", 10, "wall-clock seconds to run with -profile")
 	profileScale := flag.Float64("profile-scale", 50, "TimeScale to run with -profile")
 	trace := flag.Bool("trace", false, "start a localhost pprof endpoint on :6060 for live profiling (curl http://localhost:6060/debug/pprof/profile?seconds=10 > out.prof during a stall)")
+	cpuProfile := flag.String("cpuprofile", "", "write a CPU profile of the interactive session to FILE; play normally and Cmd-Q to flush. Inspect with: go tool pprof -top FILE")
+	memProfile := flag.String("memprofile", "", "write a heap profile of the interactive session to FILE on exit. Inspect with: go tool pprof -alloc_space -top FILE")
 	flag.Parse()
 
 	if *trace {
@@ -107,6 +109,8 @@ func main() {
 			}
 			return
 		}
+		stopProfile := startInteractiveProfiles(*cpuProfile, *memProfile)
+		defer stopProfile()
 		runTestbedUI(*testbed, *trace, cameraOverrides{
 			targetX: *camTargetX,
 			targetZ: *camTargetZ,
@@ -121,6 +125,9 @@ func main() {
 		os.Exit(1)
 	}
 
+	stopProfile := startInteractiveProfiles(*cpuProfile, *memProfile)
+	defer stopProfile()
+
 	app := engine.NewApp("Mountain Mogul", 1280, 720, "assets")
 	defer app.Destroy()
 	app.LogSlowFrames = *trace
@@ -131,6 +138,52 @@ func main() {
 		app.PushScene(scene.NewIntroScene())
 	}
 	app.Run()
+}
+
+// startInteractiveProfiles begins a CPU and/or heap pprof capture for the
+// lifetime of the interactive session. Returns a cleanup func that the
+// caller defers — it stops the CPU profile and writes the heap profile
+// after the GLFW loop returns. Either path is a no-op when its flag is
+// empty so the same setup is safe to call unconditionally.
+//
+// Workflow: run with `-cpuprofile cpu.prof`, play normally, quit the
+// window. Inspect with `go tool pprof -top cpu.prof` or
+// `go tool pprof -http=:8080 cpu.prof` for the flamegraph.
+func startInteractiveProfiles(cpuPath, memPath string) func() {
+	var cpuFile *os.File
+	if cpuPath != "" {
+		f, err := os.Create(cpuPath)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "cpuprofile: create:", err)
+		} else if err := pprof.StartCPUProfile(f); err != nil {
+			fmt.Fprintln(os.Stderr, "cpuprofile: start:", err)
+			f.Close()
+		} else {
+			cpuFile = f
+			fmt.Fprintln(os.Stderr, "cpuprofile: capturing to", cpuPath)
+		}
+	}
+	return func() {
+		if cpuFile != nil {
+			pprof.StopCPUProfile()
+			cpuFile.Close()
+			fmt.Fprintln(os.Stderr, "cpuprofile: wrote", cpuPath)
+		}
+		if memPath != "" {
+			f, err := os.Create(memPath)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "memprofile: create:", err)
+				return
+			}
+			defer f.Close()
+			runtime.GC()
+			if err := pprof.WriteHeapProfile(f); err != nil {
+				fmt.Fprintln(os.Stderr, "memprofile: write:", err)
+				return
+			}
+			fmt.Fprintln(os.Stderr, "memprofile: wrote", memPath)
+		}
+	}
 }
 
 // runTestbedUI launches the regular GUI but skips the splash and start

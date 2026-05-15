@@ -63,6 +63,19 @@ type Renderer struct {
 	uiVAO, uiVBO uint32
 	whiteTexID   uint32 // 1×1 white texture; always bound to unit 0 during UI pass
 
+	// uiVerts is the per-frame UI quad accumulator. Every UI primitive
+	// (text glyphs, coloured rects, textured rects, discs) appends 6 verts
+	// here; flushUI uploads the slice and emits one DrawArrays. Vertex
+	// layout: pos.xy + uv.xy + color.rgba = 8 floats = 32 bytes.
+	//
+	// Pre-batching, every glyph cost one BufferSubData + one DrawArrays
+	// CGo call. A typical F5 inspector frame went through ~450 GL calls
+	// just for text; the profile showed gl.BufferSubData at 48 % of
+	// total CPU. Batching collapses all UI in a frame into a small
+	// number of draws (one per texture-binding change).
+	uiVerts    []float32
+	uiBoundTex uint32 // current texture on unit 0 for the active batch
+
 	debugVAO, debugVBO uint32
 	debugVertCount     int32 // number of debug vertices currently in the VBO
 
@@ -161,16 +174,21 @@ func NewRenderer(w, h int, assetDir string) (*Renderer, error) {
 	// Font atlas generated from basicfont.Face7x13.
 	r.Font = NewFont()
 
-	// Setup UI quad VAO
+	// Setup UI quad VAO. Vertex layout: pos.xy (8 B) + uv.xy (8 B) +
+	// color.rgba (16 B) = 32 B per vertex. The initial buffer size is a
+	// hint; flushUI calls glBufferData each frame to reallocate as the
+	// per-frame batch grows.
 	gl.GenVertexArrays(1, &r.uiVAO)
 	gl.GenBuffers(1, &r.uiVBO)
 	gl.BindVertexArray(r.uiVAO)
 	gl.BindBuffer(gl.ARRAY_BUFFER, r.uiVBO)
-	gl.BufferData(gl.ARRAY_BUFFER, 4*6*4, nil, gl.DYNAMIC_DRAW)
+	gl.BufferData(gl.ARRAY_BUFFER, 32*6, nil, gl.DYNAMIC_DRAW)
 	gl.EnableVertexAttribArray(0)
-	gl.VertexAttribPointerWithOffset(0, 2, gl.FLOAT, false, 16, 0)
+	gl.VertexAttribPointerWithOffset(0, 2, gl.FLOAT, false, 32, 0)
 	gl.EnableVertexAttribArray(1)
-	gl.VertexAttribPointerWithOffset(1, 2, gl.FLOAT, false, 16, 8)
+	gl.VertexAttribPointerWithOffset(1, 2, gl.FLOAT, false, 32, 8)
+	gl.EnableVertexAttribArray(2)
+	gl.VertexAttribPointerWithOffset(2, 4, gl.FLOAT, false, 32, 16)
 	gl.BindVertexArray(0)
 
 	// Debug-line VAO/VBO. Vertex layout: pos(3) + color(3) = 6 floats = 24 bytes.
@@ -1712,7 +1730,10 @@ func agentColor(w *world.World, a *world.Agent) [3]float32 {
 	return [3]float32{1, 1, 1}
 }
 
-// DrawUI renders screen-space UI elements.
+// DrawUI renders screen-space UI elements. Sets up shader + blend state,
+// then walks the drawables, each of which appends quads to the batch.
+// flushUI at the end emits one (or a few, on texture-switches) DrawArrays
+// for the whole frame's UI instead of one per glyph.
 func (r *Renderer) DrawUI(elements []UIDrawable) {
 	gl.Disable(gl.DEPTH_TEST)
 	defer gl.Enable(gl.DEPTH_TEST)
@@ -1729,115 +1750,118 @@ func (r *Renderer) DrawUI(elements []UIDrawable) {
 	r.UIShader.SetMat4("uProjection", proj)
 	r.UIShader.SetInt("uTexture", 0)
 
-	// Always bind a valid texture to unit 0 — macOS validates the sampler
-	// even when uUseTexture is false, and warns if the unit is empty.
-	gl.ActiveTexture(gl.TEXTURE0)
-	gl.BindTexture(gl.TEXTURE_2D, r.whiteTexID)
+	// Reset batch state. Bind the white fallback so color-only quads
+	// sample 1.0 and reduce to their vertex color.
+	r.uiVerts = r.uiVerts[:0]
+	r.uiBoundTex = 0
+	r.useUITexture(r.whiteTexID)
 
 	for _, e := range elements {
 		e.Draw(r)
 	}
+	r.flushUI()
 }
 
-// drawRect draws a filled rectangle at screen coordinates using the UI shader.
-// The UI shader must already be bound with uProjection set.
-func (r *Renderer) drawRect(x, y, w, h float32) {
-	// vertices: pos(2) + uv(2)
-	verts := []float32{
-		x, y, 0, 0,
-		x + w, y, 1, 0,
-		x + w, y + h, 1, 1,
-		x, y, 0, 0,
-		x + w, y + h, 1, 1,
-		x, y + h, 0, 1,
+// useUITexture binds `tex` to texture unit 0 for the active UI batch.
+// If a different texture was bound, the pending verts are flushed first
+// so each draw call sees one consistent texture. Callers (DrawText for
+// the font atlas, DrawIcon for icons, DrawTexturedRect for arbitrary
+// textures) call this before appending their quads.
+func (r *Renderer) useUITexture(tex uint32) {
+	if r.uiBoundTex == tex {
+		return
 	}
-
-	gl.BindVertexArray(r.uiVAO)
-	gl.BindBuffer(gl.ARRAY_BUFFER, r.uiVBO)
-	gl.BufferSubData(gl.ARRAY_BUFFER, 0, len(verts)*4, gl.Ptr(verts))
-	gl.DrawArrays(gl.TRIANGLES, 0, 6)
-	gl.BindVertexArray(0)
-}
-
-// drawRectUV draws a quad with explicit UV coordinates (used by font rendering).
-func (r *Renderer) drawRectUV(x, y, w, h, u0, v0, u1, v1 float32) {
-	verts := []float32{
-		x, y, u0, v0,
-		x + w, y, u1, v0,
-		x + w, y + h, u1, v1,
-		x, y, u0, v0,
-		x + w, y + h, u1, v1,
-		x, y + h, u0, v1,
-	}
-	gl.BindVertexArray(r.uiVAO)
-	gl.BindBuffer(gl.ARRAY_BUFFER, r.uiVBO)
-	gl.BufferSubData(gl.ARRAY_BUFFER, 0, len(verts)*4, gl.Ptr(verts))
-	gl.DrawArrays(gl.TRIANGLES, 0, 6)
-	gl.BindVertexArray(0)
-}
-
-// DrawTexturedRect draws a textured rectangle.
-func (r *Renderer) DrawTexturedRect(x, y, w, h float32, texID uint32, color mgl32.Vec4) {
-	r.UIShader.Use()
-	r.UIShader.SetInt("uUseTexture", 1)
-	r.UIShader.SetVec4("uColor", color)
+	r.flushUI()
 	gl.ActiveTexture(gl.TEXTURE0)
-	gl.BindTexture(gl.TEXTURE_2D, texID)
-	r.drawRect(x, y, w, h)
+	gl.BindTexture(gl.TEXTURE_2D, tex)
+	r.uiBoundTex = tex
 }
 
-// DrawColorRect draws a solid color rectangle.
+// appendUIQuad pushes six vertices (two triangles) for an axis-aligned
+// rect. Each vertex carries pos.xy + uv.xy + color.rgba (8 floats =
+// 32 B). Hot path; no allocation if the capacity headroom holds.
+func (r *Renderer) appendUIQuad(x, y, w, h, u0, v0, u1, v1 float32, c mgl32.Vec4) {
+	x1, y1 := x+w, y+h
+	r.uiVerts = append(r.uiVerts,
+		x, y, u0, v0, c[0], c[1], c[2], c[3],
+		x1, y, u1, v0, c[0], c[1], c[2], c[3],
+		x1, y1, u1, v1, c[0], c[1], c[2], c[3],
+		x, y, u0, v0, c[0], c[1], c[2], c[3],
+		x1, y1, u1, v1, c[0], c[1], c[2], c[3],
+		x, y1, u0, v1, c[0], c[1], c[2], c[3],
+	)
+}
+
+// appendUITriangle pushes a single triangle with the given vertex
+// positions and a flat color. UVs are all (0.5, 0.5) so the white
+// fallback texture contributes neutral 1.0 — this is for the disc /
+// diamond primitives, which use the same shader path as rects.
+func (r *Renderer) appendUITriangle(x0, y0, x1, y1, x2, y2 float32, c mgl32.Vec4) {
+	r.uiVerts = append(r.uiVerts,
+		x0, y0, 0.5, 0.5, c[0], c[1], c[2], c[3],
+		x1, y1, 0.5, 0.5, c[0], c[1], c[2], c[3],
+		x2, y2, 0.5, 0.5, c[0], c[1], c[2], c[3],
+	)
+}
+
+// flushUI uploads the pending verts and emits one DrawArrays. No-op if
+// nothing is pending. Called automatically on texture changes and at
+// the end of DrawUI.
+func (r *Renderer) flushUI() {
+	if len(r.uiVerts) == 0 {
+		return
+	}
+	gl.BindVertexArray(r.uiVAO)
+	gl.BindBuffer(gl.ARRAY_BUFFER, r.uiVBO)
+	gl.BufferData(gl.ARRAY_BUFFER, len(r.uiVerts)*4, gl.Ptr(r.uiVerts), gl.DYNAMIC_DRAW)
+	gl.DrawArrays(gl.TRIANGLES, 0, int32(len(r.uiVerts)/8))
+	gl.BindVertexArray(0)
+	r.uiVerts = r.uiVerts[:0]
+}
+
+// DrawTexturedRect draws a textured rectangle. The texture is bound (and
+// any pending non-matching batch flushed) before the quad is appended.
+func (r *Renderer) DrawTexturedRect(x, y, w, h float32, texID uint32, color mgl32.Vec4) {
+	r.useUITexture(texID)
+	r.appendUIQuad(x, y, w, h, 0, 0, 1, 1, color)
+}
+
+// DrawColorRect draws a solid color rectangle. Uses the white fallback
+// texture so the fragment shader's `sample * vColor` reduces to vColor.
 func (r *Renderer) DrawColorRect(x, y, w, h float32, color mgl32.Vec4) {
-	r.UIShader.SetInt("uUseTexture", 0)
-	r.UIShader.SetVec4("uColor", color)
-	r.drawRect(x, y, w, h)
+	r.useUITexture(r.whiteTexID)
+	r.appendUIQuad(x, y, w, h, 0, 0, 1, 1, color)
 }
 
 // DrawColorDisc draws a filled circle centred at (cx, cy) with the
-// given radius. Built as a triangle fan; the UI shader path is used so
-// alpha blending and the same uProjection / uniforms apply.
+// given radius. Built from 24 triangles fanning out from the centre so
+// it batches alongside rects and glyphs in the same DrawArrays call.
 func (r *Renderer) DrawColorDisc(cx, cy, radius float32, color mgl32.Vec4) {
 	const segments = 24
-	r.UIShader.SetInt("uUseTexture", 0)
-	r.UIShader.SetVec4("uColor", color)
-	verts := make([]float32, 0, (segments+2)*4)
-	verts = append(verts, cx, cy, 0.5, 0.5)
-	for i := 0; i <= segments; i++ {
+	r.useUITexture(r.whiteTexID)
+	prevX := cx + radius
+	prevY := cy
+	for i := 1; i <= segments; i++ {
 		theta := float64(i) / float64(segments) * 2 * math.Pi
-		x := cx + radius*float32(math.Cos(theta))
-		y := cy + radius*float32(math.Sin(theta))
-		verts = append(verts, x, y, 0, 0)
+		nx := cx + radius*float32(math.Cos(theta))
+		ny := cy + radius*float32(math.Sin(theta))
+		r.appendUITriangle(cx, cy, prevX, prevY, nx, ny, color)
+		prevX, prevY = nx, ny
 	}
-	r.drawTriFan(verts)
 }
 
 // DrawColorDiamond draws a filled diamond (45-degree-rotated square)
 // inscribed in the bounding box (cx, cy, half-diagonal=radius).
 func (r *Renderer) DrawColorDiamond(cx, cy, radius float32, color mgl32.Vec4) {
-	r.UIShader.SetInt("uUseTexture", 0)
-	r.UIShader.SetVec4("uColor", color)
-	verts := []float32{
-		cx, cy, 0.5, 0.5,
-		cx, cy - radius, 0.5, 0,
-		cx + radius, cy, 1, 0.5,
-		cx, cy + radius, 0.5, 1,
-		cx - radius, cy, 0, 0.5,
-		cx, cy - radius, 0.5, 0,
-	}
-	r.drawTriFan(verts)
-}
-
-// drawTriFan uploads verts as a TRIANGLE_FAN, used by the disc/diamond
-// primitives above. Vertex layout matches drawRect: pos(2) + uv(2).
-// Uses BufferData (orphan + reallocate) rather than BufferSubData so
-// the uiVBO can hold fans larger than the 6-vertex quad it was sized
-// for at creation.
-func (r *Renderer) drawTriFan(verts []float32) {
-	gl.BindVertexArray(r.uiVAO)
-	gl.BindBuffer(gl.ARRAY_BUFFER, r.uiVBO)
-	gl.BufferData(gl.ARRAY_BUFFER, len(verts)*4, gl.Ptr(verts), gl.DYNAMIC_DRAW)
-	gl.DrawArrays(gl.TRIANGLE_FAN, 0, int32(len(verts)/4))
-	gl.BindVertexArray(0)
+	r.useUITexture(r.whiteTexID)
+	top := [2]float32{cx, cy - radius}
+	right := [2]float32{cx + radius, cy}
+	bot := [2]float32{cx, cy + radius}
+	left := [2]float32{cx - radius, cy}
+	r.appendUITriangle(cx, cy, top[0], top[1], right[0], right[1], color)
+	r.appendUITriangle(cx, cy, right[0], right[1], bot[0], bot[1], color)
+	r.appendUITriangle(cx, cy, bot[0], bot[1], left[0], left[1], color)
+	r.appendUITriangle(cx, cy, left[0], left[1], top[0], top[1], color)
 }
 
 // SetDebugLines uploads a fresh batch of debug line segments for the
