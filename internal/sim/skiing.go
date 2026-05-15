@@ -230,10 +230,48 @@ func (s *Simulation) tickSkier(a *world.Agent, target mgl32.Vec3, dt float64) bo
 		return false
 	}
 
+	prevPos := a.Pos
 	apply(s.World.Terrain, a, dec, perc, dt)
 	wearSnowUnderfoot(s.World.Terrain, a.Pos, dt)
+	splatSkierTrack(s.World.Terrain, a, prevPos)
 	recordFrame(s, a, target, dist, perc, dec)
 	return false
+}
+
+// splatSkierTrack writes the agent's segment from prevPos to a.Pos into
+// the surface-detail R channel. Gated on the same "actively skiing"
+// conditions tickSkier itself enforces — the dispatcher already routes
+// us here only when locomotion is live, but Fallen can flip mid-tick
+// and Speed can dip below the splat threshold during slow turns.
+//
+// minSplatSpeed is set so a stationary-but-twitching skier (e.g. holding
+// at the top of a queue spread) doesn't paint dots underfoot.
+const minSplatSpeed = float32(1.0) // m/s
+
+func splatSkierTrack(t *world.Terrain, a *world.Agent, prevPos mgl32.Vec3) {
+	if t == nil || t.Surface == nil {
+		return
+	}
+	if a.Fallen || a.OnLiftID != 0 || a.Queued || a.Speed < minSplatSpeed {
+		// State that breaks the "actively carving down the hill" rule —
+		// reset LastTrackPos so the next splat starts a fresh segment
+		// rather than drawing a line through the lift/queue.
+		a.LastTrackPos = mgl32.Vec3{}
+		return
+	}
+	// First splat after a state reset — anchor on current pos so the
+	// next substep extends a real segment.
+	if a.LastTrackPos == (mgl32.Vec3{}) {
+		a.LastTrackPos = prevPos
+	}
+	// Intensity 64 ≈ 25 % R per substep; with continuous skiing the
+	// 3×3 disks overlap into a saturated line within a few ticks.
+	const intensity = uint8(64)
+	t.Surface.SplatTrackSegment(
+		a.LastTrackPos[0], a.LastTrackPos[2],
+		a.Pos[0], a.Pos[2], intensity,
+	)
+	a.LastTrackPos = a.Pos
 }
 
 // wearSnowUnderfoot mutates the cell beneath the agent to model skier

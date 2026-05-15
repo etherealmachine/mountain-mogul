@@ -16,6 +16,17 @@ uniform float uTime;
 uniform float uTerrainMinY;
 uniform float uTerrainMaxY;
 
+// Sub-cell surface-detail texture, mirrored from world.SurfaceDetail.
+// Resolution = (Width*5, Height*5) pixels at 1 m per pixel. Channels:
+//   R = skier track intensity (decays in sim time)
+//   G = tree-well depth      (persistent until tree edits)
+//   B = groom-edge mask      (derived from per-cell Grooming)
+//   A = reserved
+// uWorldSize is the terrain extent in metres = cells × 5, so
+// vWorldPos.xz / uWorldSize is the texture's UV.
+uniform sampler2D uSnowSurface;
+uniform vec2      uWorldSize;
+
 out vec4 fragColor;
 
 // Cell-hash for the sparkle and mogul passes — cheap integer mixing in float space.
@@ -40,11 +51,38 @@ float valueNoise(vec2 p) {
     return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
 }
 
+// 3-octave FBM around valueNoise. Frequencies ×1, ×2, ×4; amplitudes
+// ×1, ×0.5, ×0.25 (normalised to sum = 1.75 → output stays in [0, 1]).
+// Pluggable replacement for the single-octave `valueNoise` calls in the
+// powder/mogul kicks — the extra octaves break up the flat patches that
+// a single-frequency noise leaves on close camera.
+float fbmNoise(vec2 p) {
+    float n = valueNoise(p);
+    n += 0.5  * valueNoise(p * 2.0);
+    n += 0.25 * valueNoise(p * 4.0);
+    return n / 1.75;
+}
+
 void main() {
     float grooming = clamp(vSnow.x, 0.0, 1.0);
     float packed   = clamp(vSnow.y, 0.0, 1.0);
     float ice      = clamp(vSnow.z, 0.0, 1.0);
     float mogul    = clamp(vSnow.w, 0.0, 1.0);
+
+    // Surface-detail sample — sub-cell features rendered from the
+    // 1 m-resolution texture written by the simulation. R = skier
+    // tracks (step 4), G = tree-well depth, B = groom-edge (step 3).
+    vec4 surf = texture(uSnowSurface, vWorldPos.xz / uWorldSize);
+    float track = surf.r;
+    float well  = surf.g;
+    float edge  = surf.b;
+
+    // Tree wells: each well drops the visible snow column by up to
+    // 0.5 m at the trunk so the surrounding ground starts showing
+    // through at the base — matches what real spruce/fir wells look
+    // like, where the canopy intercepts snow and the trunk radiates
+    // just enough warmth to keep a moat clear.
+    float effDepth = max(vSnowDepth - 0.5 * well, 0.0);
 
     // Smoothed per-corner normal across the whole surface. Snow reads as
     // continuous; cliffs (handled by the existing slope-based rocky tint
@@ -90,8 +128,14 @@ void main() {
     // raises Packed toward 1) starts to pick up the tint before full
     // grooming.
     vec3 packedTint = vec3(0.78, 0.82, 0.92);
-    float packedMix = smoothstep(0.30, 1.0, packed) * 0.75;
+    // Skier-track lanes read as compressed — bias `packed` toward 1 so
+    // the track band picks up the same cool tint as a groomed cell.
+    float effPacked = clamp(packed + track * 0.6, 0.0, 1.0);
+    float packedMix = smoothstep(0.30, 1.0, effPacked) * 0.75;
     snow            = mix(snow, snow * packedTint, packedMix);
+    // Plus a small absolute darken on the lane itself — real ski tracks
+    // are perceptibly darker than the surrounding untracked snow.
+    snow = snow * (1.0 - track * 0.03);
 
     // Powder character — two phases that together distinguish fresh
     // untracked snow from the cool, glassy-flat groomed lanes without
@@ -102,7 +146,7 @@ void main() {
     // surface had been displaced into low pillows. Both are gated on
     // (1-Packed) and SnowDepth so groomed cells and thin aprons stay
     // smooth.
-    float powderness = (1.0 - packed) * smoothstep(0.0, 0.5, vSnowDepth);
+    float powderness = (1.0 - packed) * smoothstep(0.0, 0.5, effDepth);
     if (powderness > 0.1) {
         float pgrain = valueNoise(vWorldPos.xz / 0.8) - 0.5;
         snow += vec3(pgrain * 0.04) * powderness;
@@ -113,8 +157,9 @@ void main() {
     // packed-apron SnowDepth so building / lift aprons read as snow,
     // not dirt). Below 5 cm, partial coverage reads as patchy snow over
     // rock/dirt. The depth field already zeroes on cliffs (auto-snow
-    // slope shed), so no second slope gate is needed here.
-    float snowness = smoothstep(0.0, 0.05, vSnowDepth);
+    // slope shed), so no second slope gate is needed here. Uses
+    // effDepth so tree wells expose bare ground at the trunk.
+    float snowness = smoothstep(0.0, 0.05, effDepth);
     vec3  base     = mix(ground, snow, snowness);
 
     // Procedural normal-map for sub-cell surface character. The terrain
@@ -138,9 +183,9 @@ void main() {
         vec3 kick = vec3(0);
         if (powderness > 0.05) {
             vec2 off = vec2(17.3, 91.7); // de-correlates from the mogul phase
-            float h0 = valueNoise(vWorldPos.xz / 5.0 + off);
-            float hx = valueNoise((vWorldPos.xz + vec2(bumpEps, 0)) / 5.0 + off);
-            float hz = valueNoise((vWorldPos.xz + vec2(0, bumpEps)) / 5.0 + off);
+            float h0 = fbmNoise(vWorldPos.xz / 5.0 + off);
+            float hx = fbmNoise((vWorldPos.xz + vec2(bumpEps, 0)) / 5.0 + off);
+            float hz = fbmNoise((vWorldPos.xz + vec2(0, bumpEps)) / 5.0 + off);
             const float powderAmp = 0.10; // metres — matches the prior VS disp
             kick.x -= (hx - h0) / bumpEps * powderAmp * powderness;
             kick.z -= (hz - h0) / bumpEps * powderAmp * powderness;
@@ -149,12 +194,40 @@ void main() {
             vec2 p0 = vWorldPos.xz;
             vec2 px = p0 + vec2(bumpEps, 0);
             vec2 pz = p0 + vec2(0, bumpEps);
-            float h0 = valueNoise(p0 / 3.0) * 0.6 + valueNoise(p0 * 2.1 / 3.0) * 0.4;
-            float hx = valueNoise(px / 3.0) * 0.6 + valueNoise(px * 2.1 / 3.0) * 0.4;
-            float hz = valueNoise(pz / 3.0) * 0.6 + valueNoise(pz * 2.1 / 3.0) * 0.4;
+            float h0 = fbmNoise(p0 / 3.0) * 0.6 + fbmNoise(p0 * 2.1 / 3.0) * 0.4;
+            float hx = fbmNoise(px / 3.0) * 0.6 + fbmNoise(px * 2.1 / 3.0) * 0.4;
+            float hz = fbmNoise(pz / 3.0) * 0.6 + fbmNoise(pz * 2.1 / 3.0) * 0.4;
             const float mogulAmp = 0.8;
             kick.x -= (hx - h0) / bumpEps * mogulAmp * mogul;
             kick.z -= (hz - h0) / bumpEps * mogulAmp * mogul;
+        }
+        if (well > 0.01) {
+            // ∇G via offset samples — the well texture is in metres of
+            // depth-loss at the trunk, so each unit of well gives ~0.5 m
+            // of displacement. Sample offsets are scaled into UV space.
+            vec2 uvEps = vec2(bumpEps, 0) / uWorldSize;
+            vec2 uvEpz = vec2(0, bumpEps) / uWorldSize;
+            vec2 uv = vWorldPos.xz / uWorldSize;
+            float g0 = well;
+            float gx = texture(uSnowSurface, uv + uvEps).g;
+            float gz = texture(uSnowSurface, uv + uvEpz).g;
+            const float wellAmp = 0.5; // metres of displacement at trunk
+            kick.x += (gx - g0) / bumpEps * wellAmp;
+            kick.z += (gz - g0) / bumpEps * wellAmp;
+        }
+        if (track > 0.01) {
+            // Skier-track ∇R — kick the normal along the carve direction
+            // so the lane reads as a shallow groove. Sampled by texture
+            // offset, same pattern as the well kick.
+            vec2 uvEps = vec2(bumpEps, 0) / uWorldSize;
+            vec2 uvEpz = vec2(0, bumpEps) / uWorldSize;
+            vec2 uv = vWorldPos.xz / uWorldSize;
+            float r0 = track;
+            float rx = texture(uSnowSurface, uv + uvEps).r;
+            float rz = texture(uSnowSurface, uv + uvEpz).r;
+            const float trackAmp = 0.08; // metres — shallower than wells
+            kick.x += (rx - r0) / bumpEps * trackAmp;
+            kick.z += (rz - r0) / bumpEps * trackAmp;
         }
         Nshading = normalize(N + kick);
     }
@@ -222,6 +295,27 @@ void main() {
         // stay quiet.
         lit  = mix(lit, lit * vec3(0.95, 0.97, 1.02), 0.15 * grooming);
         lit *= 1.0 + 0.04 * grooming;
+    }
+
+    // Groomed/ungroomed edge from the surface-detail B channel. The
+    // mask reads non-zero in the 1 m band on either side of any
+    // cell-to-cell grooming step. We split sides by the current
+    // fragment's grooming: on the powder side we lift toward white
+    // (the natural shoulder where un-tracked snow piles up against
+    // the cat's swath), and on the groomed side we deepen toward a
+    // cool grey (the compacted scrape line). Replaces the previous
+    // soft 2-cell colour ramp with a crisp line; the geometric step
+    // is still doing most of the depth work.
+    if (edge > 0.01 && snowness > 0.1) {
+        if (grooming < 0.5) {
+            // Powder shoulder — bright, warm white lip.
+            float lip = edge;
+            lit = mix(lit, vec3(1.02, 1.02, 1.00), lip * 0.30);
+        } else {
+            // Groomed scrape edge — cooler, slightly darker.
+            float scrape = edge;
+            lit = mix(lit, lit * vec3(0.80, 0.86, 0.95), scrape * 0.45);
+        }
     }
 
     // Per-fragment sparkle: high-freq world-cell hash gated by tight specular
@@ -316,6 +410,14 @@ void main() {
     // legible without other overlays bleeding through. Bound to `B`.
     if ((uOverlayMode & 128) != 0) {
         fragColor.rgb = Nshading * 0.5 + 0.5;
+    }
+
+    // Surface-detail debug — paint the raw uSnowSurface texture so the
+    // CPU→GPU pipeline is visible from the testbed. R=tracks, G=tree
+    // wells, B=groom edges. Replaces base shading like the bump-normal
+    // overlay so the channels are legible on their own. Bound to `N`.
+    if ((uOverlayMode & 256) != 0) {
+        fragColor.rgb = surf.rgb;
     }
 
     // Contour lines drawn last so they remain readable through any

@@ -86,6 +86,14 @@ type Agent struct {
 	// Populated by sim.tickSkier; read by the follow HUD and the renderer's
 	// perception-cone shader. Stale outside of skiing — gate on Activity.
 	Sense ai.Sense
+
+	// LastTrackPos is the agent's position at the most recent track-splat
+	// substep, used so the surface-detail R-channel splatter can draw a
+	// segment from previous→current rather than dot-stippling at high
+	// speed / TimeScale. Zero before the first splat or after a state
+	// reset (lift unload, fall recovery). Stored on Agent to keep the
+	// substep cost O(1) per skier.
+	LastTrackPos mgl32.Vec3
 }
 
 // Activity returns a short human-readable label describing what the agent is

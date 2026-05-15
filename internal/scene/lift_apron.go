@@ -81,6 +81,10 @@ func applyLiftPlacementEffects(t *world.Terrain, lift *world.Lift) {
 	if t.InBounds(top[0], top[1]) {
 		t.Cells[top[0]][top[1]].Passable = false
 	}
+	// Trees were zeroed under the corridor and apron; refresh the
+	// surface-detail G channel so the well texture matches the new
+	// (smaller) tree set.
+	t.RestampTreeWells()
 }
 
 // maxGroundIn returns the maximum GroundElevation across cells whose

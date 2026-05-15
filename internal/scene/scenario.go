@@ -219,6 +219,9 @@ func applyBuildingPlacementEffects(t *world.Terrain, b *world.Building) {
 	if t.InBounds(door[0], door[1]) {
 		t.Cells[door[0]][door[1]].Passable = false
 	}
+	// Trees inside the apron were zeroed above; refresh the surface-
+	// detail G channel so the well texture matches the new tree set.
+	t.RestampTreeWells()
 }
 
 // clearBuildingTrees zeros TreeDensity in cells inside the axis-aligned
@@ -522,6 +525,7 @@ type Scenario struct {
 	firstPerson     bool   // V: first-person camera at the followed skier's head
 	debugSteering   bool   // F3: render steering forces on the followed skier
 	debugPlanner    bool   // F4: show goal weights, full plan, snapshot anchors for the followed skier
+	debugTerrainIns bool   // F5: dump cell snow/terrain state under the mouse cursor
 	paused          bool
 	popup           *ui.Window
 	saveAllowed     bool   // false in testbed mode; gates the Save prompt
@@ -634,6 +638,7 @@ func (s *Scenario) RegenForest(seed int64) {
 		return
 	}
 	GenerateTreeCover(s.world.Terrain, 24, 0.55, 0.75, seed)
+	s.world.Terrain.RestampTreeWells()
 	if s.app != nil && s.app.Renderer != nil {
 		s.app.Renderer.RebuildStaticBatch(s.world)
 	}
@@ -848,6 +853,12 @@ func (s *Scenario) installWorld(w *world.World) {
 	// directly in the builder (no aprons by default). Either way the
 	// terrain is authoritative as loaded — no global re-stamp needed.
 	r.BuildTerrainMesh(w.Terrain)
+	// Stamp sub-cell features into the surface-detail buffer before the
+	// initial GPU upload, so tree wells + groom edges are already in
+	// the texture by the time the first frame samples it.
+	w.Terrain.RestampTreeWells()
+	w.Terrain.RecomputeGroomEdges()
+	r.BuildSnowSurfaceTex(w.Terrain)
 	r.RebuildStaticBatch(w)
 	r.RebuildRoads(w)
 	for _, lift := range w.Lifts {
@@ -1013,6 +1024,14 @@ func (s *Scenario) Update(dt float64) {
 		r.TerrainOverlayMode = s.overlayPanel.Mask()
 	}
 
+	// N: toggle the surface-detail debug overlay — paints the raw
+	// uSnowSurface texture (R=tracks, G=tree wells, B=groom edges) so
+	// the 1 m sub-cell buffer is directly visible.
+	if !typing && inp.Pressed[glfw.KeyN] {
+		s.overlayPanel.ToggleBit(render.OverlaySurfaceDetail)
+		r.TerrainOverlayMode = s.overlayPanel.Mask()
+	}
+
 	// F3: toggle steering debug overlay (visualises forces for followed skier).
 	if inp.Pressed[glfw.KeyF3] {
 		s.debugSteering = !s.debugSteering
@@ -1025,6 +1044,15 @@ func (s *Scenario) Update(dt float64) {
 	// anchors). Independent of F3 — the user can run either or both.
 	if inp.Pressed[glfw.KeyF4] {
 		s.debugPlanner = !s.debugPlanner
+	}
+
+	// F5: toggle terrain/snow inspector — reads the cell under the mouse
+	// cursor each frame and dumps GroundElevation, SnowAccumulation,
+	// Packed, derived VisibleSnowDepth, and the rest of the snow-state
+	// scalars. Used to verify save/load round-trips and to spot-check
+	// what the wear loop and grooming pass are doing to specific cells.
+	if inp.Pressed[glfw.KeyF5] {
+		s.debugTerrainIns = !s.debugTerrainIns
 	}
 
 	// L: toggle CSV log of the followed skier (debug instrumentation).
@@ -1321,7 +1349,20 @@ func (s *Scenario) Update(dt float64) {
 	// stalling the frame budget every time a cat groomed.
 	if s.world.Terrain.SnowDirty {
 		r.FlushSnowState(s.world.Terrain)
+		// Grooming may have changed (cat passes, brush apply) — recompute
+		// the groom-edge mask on the same dirty signal. Cheap enough to
+		// run on any SnowDirty flush; the alternative is a separate
+		// GroomingDirty flag and the savings aren't worth the bookkeeping.
+		s.world.Terrain.RecomputeGroomEdges()
 		s.world.Terrain.SnowDirty = false
+	}
+
+	// Sub-cell surface-detail texture — uploads only the dirty
+	// sub-region, so the per-frame cost is proportional to how much
+	// the sim actually touched (typically a handful of pixels per
+	// active skier).
+	if sd := s.world.Terrain.Surface; sd != nil && sd.Dirty {
+		r.FlushSnowSurface(s.world.Terrain)
 	}
 
 	// Camera follow: track the selected agent using the freshest positions.
@@ -1611,6 +1652,7 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		// holding does nothing further (see lastGladeCell gate in Update).
 		strength := s.gladeThinSlider.Value / 100
 		applyDensityBrush(w.Terrain, gx, gz, s.gladeBrushRadius(), -strength)
+		w.Terrain.RestampTreeWells()
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 	case toolLiftBase:
@@ -1874,6 +1916,14 @@ func (s *Scenario) Render(r *render.Renderer) {
 			}
 			break
 		}
+	}
+	if s.debugTerrainIns && s.world != nil && s.world.Terrain != nil &&
+		s.world.Terrain.InBounds(s.hoverCell[0], s.hoverCell[1]) {
+		drawables = append(drawables, &terrainInspectPanel{
+			terrain: s.world.Terrain,
+			cell:    s.hoverCell,
+			world:   s.hoverWorld,
+		})
 	}
 	if s.popup != nil && s.popup.Visible {
 		drawables = append(drawables, s.popup)
@@ -2628,6 +2678,40 @@ func ridenLiftsLine(w *world.World, rides []ai.RideCount) string {
 		out += fmt.Sprintf("%s×%d", e.label, e.count)
 	}
 	return out
+}
+
+// terrainInspectPanel is the F5-toggled per-cell readout. Renders the
+// stored fields (GroundElevation, SnowAccumulation, Packed, ...) plus
+// the derived VisibleSnowDepth / SurfaceElevation / SnowDensity so it's
+// easy to verify the SWE → visible-depth chain, spot-check save/load
+// round-trips, and see what skier wear / grooming is doing to a
+// specific cell.
+type terrainInspectPanel struct {
+	terrain *world.Terrain
+	cell    [2]int
+	world   mgl32.Vec3
+}
+
+func (p *terrainInspectPanel) Draw(r *render.Renderer) {
+	c := p.terrain.Cells[p.cell[0]][p.cell[1]]
+	density := world.SnowDensity(c.Packed)
+	rows := []string{
+		fmt.Sprintf("─── Cell (%d, %d) ───", p.cell[0], p.cell[1]),
+		fmt.Sprintf("world      = (%.1f, %.1f)", p.world[0], p.world[2]),
+		fmt.Sprintf("Ground     = %.3f m", c.GroundElevation),
+		fmt.Sprintf("Surface    = %.3f m", c.SurfaceElevation()),
+		fmt.Sprintf("VisDepth   = %.3f m  (derived)", c.VisibleSnowDepth()),
+		"",
+		fmt.Sprintf("Accumulate = %.3f m SWE", c.SnowAccumulation),
+		fmt.Sprintf("Packed     = %.3f  (density %.3f)", c.Packed, density),
+		fmt.Sprintf("Grooming   = %.3f", c.Grooming),
+		fmt.Sprintf("MogulSize  = %.3f", c.MogulSize),
+		fmt.Sprintf("Ice        = %.3f", c.Ice),
+		"",
+		fmt.Sprintf("TreeDens   = %.3f", c.TreeDensity),
+		fmt.Sprintf("Passable   = %v", c.Passable),
+	}
+	drawHUDBox(r, rows, 460, mgl32.Vec4{0.85, 0.95, 1, 1}, false)
 }
 
 func liftRef(w *world.World, id uint64) string {

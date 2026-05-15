@@ -94,11 +94,29 @@ func NewSimulationWithSeed(w *world.World, seed int64) *Simulation {
 // Euler physics integration on a small enough step to stay accurate.
 const maxSubstepSec = 1.0 / 30.0
 
+// maxWallDtSec caps the wall-clock dt the simulation will catch up on
+// in a single Tick. Without this, a load-screen hitch (scene Init does
+// BuildTerrainMesh / RebuildStaticBatch synchronously, then the next
+// frame's dt captures all that time) or an OS sleep / debugger pause
+// telescopes into many sim-seconds of one-shot advance — every chair on
+// every lift can then cross the unload threshold inside the same Tick
+// and a whole lift dumps its passengers at once. Clamping here keeps
+// chair unloads sequential regardless of TimeScale. 0.1 s × 50× = 5
+// sim-seconds, still well under the ~30-s chair-loop period.
+const maxWallDtSec = 0.1
+
 // Tick advances the simulation by dt real seconds. dt is scaled by
 // TimeScale then sliced into substeps of at most maxSubstepSec so the
 // continuous controllers never see a huge dt — necessary above ~10×
 // because position/heading integrators in L1 assume a small step.
+//
+// dt is first clamped to maxWallDtSec so any wall-clock hitch (load
+// screen, debugger pause, dropped frame) loses the excess time instead
+// of catching up in one telescoped Tick.
 func (s *Simulation) Tick(dt float64) {
+	if dt > maxWallDtSec {
+		dt = maxWallDtSec
+	}
 	// Refill the shared tower-position scratch once per Tick. Lifts
 	// don't move during a frame, so the L1 sampler in every substep /
 	// every agent can read the same slice.

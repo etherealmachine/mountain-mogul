@@ -1,5 +1,7 @@
 package render
 
+import "github.com/go-gl/gl/v4.1-core/gl"
+
 // SceneResources owns GPU-side state coupled to a particular World — meshes
 // keyed by entity ID and other per-scene previews. Replaced wholesale on every
 // scene transition by Renderer.ResetSceneState so resources from a previous
@@ -15,6 +17,14 @@ type SceneResources struct {
 	terrainHeight int
 	terrainMinY   float32 // surface min/max Y (skirts excluded), drives topo shader
 	terrainMaxY   float32
+
+	// snowSurfaceTex is the GPU mirror of Terrain.Surface — a 1 m
+	// resolution RGBA8 texture sampled by terrain.frag for sub-cell
+	// features (skier tracks, tree wells, groom edges). Sized to
+	// (Width*PxPerCell, Height*PxPerCell).
+	snowSurfaceTex      uint32
+	snowSurfaceTexW     int32
+	snowSurfaceTexH     int32
 
 	// Cached CPU-side terrain vertex array. Held so the snow-state
 	// flush path can rewrite a few floats per vertex and re-upload
@@ -53,6 +63,12 @@ func (s *SceneResources) Delete() {
 	if s.terrainMesh != nil {
 		s.terrainMesh.Delete()
 		s.terrainMesh = nil
+	}
+	if s.snowSurfaceTex != 0 {
+		gl.DeleteTextures(1, &s.snowSurfaceTex)
+		s.snowSurfaceTex = 0
+		s.snowSurfaceTexW = 0
+		s.snowSurfaceTexH = 0
 	}
 	for id, m := range s.liftUpCables {
 		m.Delete()

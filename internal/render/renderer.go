@@ -22,14 +22,15 @@ type UIDrawable interface {
 // base terrain shading; bits are independent so any combination can stack.
 // Kept in sync with the bitand checks in assets/shaders/terrain.frag.
 const (
-	OverlayContour    = 1 << 0
-	OverlaySlope      = 1 << 1
-	OverlaySnowDepth  = 1 << 2
-	OverlayGrooming   = 1 << 3
-	OverlayPacked     = 1 << 4
-	OverlayIce        = 1 << 5
-	OverlayMoguls     = 1 << 6
-	OverlayBumpNormal = 1 << 7 // debug: render the perturbed shading normal as RGB
+	OverlayContour       = 1 << 0
+	OverlaySlope         = 1 << 1
+	OverlaySnowDepth     = 1 << 2
+	OverlayGrooming      = 1 << 3
+	OverlayPacked        = 1 << 4
+	OverlayIce           = 1 << 5
+	OverlayMoguls        = 1 << 6
+	OverlayBumpNormal    = 1 << 7 // debug: render the perturbed shading normal as RGB
+	OverlaySurfaceDetail = 1 << 8 // debug: render the surface-detail RGBA texture directly
 )
 
 // DebugLine is a single world-space line segment for tuning overlays.
@@ -1074,6 +1075,79 @@ func (r *Renderer) FlushSnowState(t *world.Terrain) {
 	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
 }
 
+// BuildSnowSurfaceTex (re)allocates the GPU mirror of Terrain.Surface and
+// uploads its current contents. Called at scene install time after
+// BuildTerrainMesh. Subsequent edits go through FlushSnowSurface, which
+// uploads only the dirty sub-region.
+func (r *Renderer) BuildSnowSurfaceTex(t *world.Terrain) {
+	if t == nil || t.Surface == nil {
+		return
+	}
+	sd := t.Surface
+
+	if r.scene.snowSurfaceTex != 0 {
+		gl.DeleteTextures(1, &r.scene.snowSurfaceTex)
+		r.scene.snowSurfaceTex = 0
+	}
+
+	var tex uint32
+	gl.GenTextures(1, &tex)
+	gl.BindTexture(gl.TEXTURE_2D, tex)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
+	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA8,
+		int32(sd.PxWidth), int32(sd.PxHeight), 0,
+		gl.RGBA, gl.UNSIGNED_BYTE, gl.Ptr(sd.Pixels))
+	gl.BindTexture(gl.TEXTURE_2D, 0)
+
+	r.scene.snowSurfaceTex = tex
+	r.scene.snowSurfaceTexW = int32(sd.PxWidth)
+	r.scene.snowSurfaceTexH = int32(sd.PxHeight)
+	sd.Dirty = false
+	sd.DirtyBox = image.Rectangle{}
+}
+
+// FlushSnowSurface uploads the dirty sub-region of Terrain.Surface to the
+// GPU texture and clears the buffer's dirty flag. No-op if the texture
+// hasn't been built yet or nothing is dirty. Coalesced to once per frame
+// by the caller.
+func (r *Renderer) FlushSnowSurface(t *world.Terrain) {
+	if t == nil || t.Surface == nil || r.scene.snowSurfaceTex == 0 {
+		return
+	}
+	sd := t.Surface
+	if !sd.Dirty || sd.DirtyBox.Empty() {
+		return
+	}
+	x0, y0 := sd.DirtyBox.Min.X, sd.DirtyBox.Min.Y
+	w := sd.DirtyBox.Dx()
+	h := sd.DirtyBox.Dy()
+	if w <= 0 || h <= 0 {
+		sd.Dirty = false
+		sd.DirtyBox = image.Rectangle{}
+		return
+	}
+	// Sub-row uploads need UNPACK_ROW_LENGTH so glTexSubImage2D walks
+	// the buffer's full stride (PxWidth × 4) while only reading the
+	// dirty sub-region. ALIGNMENT=1 because we're feeding tightly packed
+	// uint8s, not 4-aligned floats.
+	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
+	gl.PixelStorei(gl.UNPACK_ROW_LENGTH, int32(sd.PxWidth))
+	offset := (y0*sd.PxWidth + x0) * 4
+	gl.BindTexture(gl.TEXTURE_2D, r.scene.snowSurfaceTex)
+	gl.TexSubImage2D(gl.TEXTURE_2D, 0,
+		int32(x0), int32(y0), int32(w), int32(h),
+		gl.RGBA, gl.UNSIGNED_BYTE, gl.Ptr(sd.Pixels[offset:]))
+	gl.PixelStorei(gl.UNPACK_ROW_LENGTH, 0)
+	gl.BindTexture(gl.TEXTURE_2D, 0)
+
+	sd.Dirty = false
+	sd.DirtyBox = image.Rectangle{}
+}
+
 // RebuildStaticBatch rebuilds all static instance buffers from world state.
 func (r *Renderer) RebuildStaticBatch(w *world.World) {
 	// Clear all static batches
@@ -1083,57 +1157,35 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 
 	const cellSize = float32(5.0)
 
-	// Forest layer — derive tree instances from terrain cell TreeDensity.
-	// Cells[Width-1][*] / Cells[*][Height-1] sit past the right/back mesh edge
-	// (the visible terrain is (W-1)×(H-1) quads), so we skip them here.
-	for z := 0; z < w.Terrain.Height-1; z++ {
-		for x := 0; x < w.Terrain.Width-1; x++ {
-			density := w.Terrain.Cells[x][z].TreeDensity
-			count := treeCountFromDensity(density, treeInstanceHash(x, z, -1))
-			if count == 0 {
-				continue
-			}
-			// Trees root in the ground, then poke through the snow above.
-			// We anchor the rendered mesh just above ground (capped by
-			// the visible snow column so light snow lets the full trunk
-			// show; deeper snow raises the visible anchor and the lower
-			// trunk disappears below the surface mesh).
-			elev := w.Terrain.GroundElevationAt(x, z)
-			if snow := w.Terrain.Cells[x][z].VisibleSnowDepth(); snow > 0 {
-				const maxBury = float32(1.5)
-				if snow < maxBury {
-					elev += snow
-				} else {
-					elev += maxBury
-				}
-			}
-			for i := 0; i < count; i++ {
-				h := treeInstanceHash(x, z, i)
-				// Offset stays well inside the cell so the auto-forest's
-				// cell-level pattern (drainage corridors, ridge bare-outs)
-				// reads cleanly instead of being smeared by per-tree jitter.
-				offsetX := (float32(h&0xFF)/127.5 - 1.0) * 1.2
-				offsetZ := (float32((h>>8)&0xFF)/127.5 - 1.0) * 1.2
-				rotation := float32((h>>16)&0xFFFF) / 65535.0 * 2 * math.Pi
-				// Mesh trees are ~7 m tall in model units; scale to ~11–14 m
-				// world-tall — a tighter range than before (was 10–15 m) so
-				// stands look like a coherent species mix, not a random pile.
-				scale := 1.55 + float32((h>>32)&0xFF)/255.0*0.4
-				variant := MeshTree + uint32((h>>40)%3)
-
-				// Place tree relative to cell center, not corner.
-				wx := (float32(x)+0.5)*cellSize + offsetX
-				wz := (float32(z)+0.5)*cellSize + offsetZ
-				transform := mgl32.Translate3D(wx, elev, wz).
-					Mul4(mgl32.HomogRotate3DY(rotation)).
-					Mul4(mgl32.Scale3D(scale, scale, scale))
-
-				if batch, ok := r.staticBatches[variant]; ok {
-					batch.AddStatic(transform, treeTintForVariant(variant))
-				}
+	// Forest layer — derive tree instances from terrain cell TreeDensity
+	// via the shared world iterator so other passes (tree-well surface
+	// stamp, glade trip-hazard derivations) see the same positions.
+	w.Terrain.ForEachTree(MeshTree, func(ti world.TreeInstance) {
+		// Trees root in the ground, then poke through the snow above.
+		// We anchor the rendered mesh just above ground (capped by the
+		// visible snow column so light snow lets the full trunk show;
+		// deeper snow raises the visible anchor and the lower trunk
+		// disappears below the surface mesh).
+		elev := w.Terrain.GroundElevationAt(ti.X, ti.Z)
+		if snow := w.Terrain.Cells[ti.X][ti.Z].VisibleSnowDepth(); snow > 0 {
+			const maxBury = float32(1.5)
+			if snow < maxBury {
+				elev += snow
+			} else {
+				elev += maxBury
 			}
 		}
-	}
+		// Mesh trees are ~7 m tall in model units; the iterator scales
+		// them into ~11–14 m world-tall (a tighter range than legacy
+		// 10–15 m) so stands read as a coherent species mix.
+		transform := mgl32.Translate3D(ti.WX, elev, ti.WZ).
+			Mul4(mgl32.HomogRotate3DY(ti.Rotation)).
+			Mul4(mgl32.Scale3D(ti.Scale, ti.Scale, ti.Scale))
+
+		if batch, ok := r.staticBatches[ti.Variant]; ok {
+			batch.AddStatic(transform, treeTintForVariant(ti.Variant))
+		}
+	})
 
 	// Decorative placed objects (rocks, stumps, lone hand-placed trees).
 	for _, obj := range w.Objects {
@@ -1441,6 +1493,22 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		r.TerrainShader.SetFloat("uTime", time)
 		r.TerrainShader.SetFloat("uTerrainMinY", r.scene.terrainMinY)
 		r.TerrainShader.SetFloat("uTerrainMaxY", r.scene.terrainMaxY)
+
+		// Sub-cell surface-detail texture (skier tracks, tree wells,
+		// groom edges). Bound on unit 1 to leave unit 0 for the
+		// static / UI passes that follow. The texture lives in world
+		// metres × metres so the FS samples by vWorldPos.xz / uWorldSize.
+		// uWorldSize is the terrain extent in metres = cells × 5.
+		const cellSize = float32(5.0)
+		r.TerrainShader.SetInt("uSnowSurface", 1)
+		r.TerrainShader.SetVec2("uWorldSize", mgl32.Vec2{
+			float32(r.scene.terrainWidth) * cellSize,
+			float32(r.scene.terrainHeight) * cellSize,
+		})
+		gl.ActiveTexture(gl.TEXTURE1)
+		gl.BindTexture(gl.TEXTURE_2D, r.scene.snowSurfaceTex)
+		gl.ActiveTexture(gl.TEXTURE0)
+
 		r.scene.terrainMesh.Draw()
 	}
 
@@ -2044,32 +2112,6 @@ func setRoadLaneTransformAttribs() {
 	gl.VertexAttrib3f(7, 0.92, 0.88, 0.55) // warm cream — reads as faded yellow lane paint
 }
 
-// treeCountFromDensity maps a cell's TreeDensity to a per-cell tree count
-// in [0, maxTreesPerCell]. Density × max gives the expected count; we emit
-// the whole part deterministically and roll the fractional part against
-// cellHash so the slider scales smoothly through every count without dead
-// zones. Cap of 2 per 25 m² cell ≈ 800 trees/ha at d=1.0 — slightly under
-// the densest subalpine stands but a sensible ceiling given the player's
-// expected zoomed-out viewing distance and the GPU cost of every extra
-// tree at this density.
-func treeCountFromDensity(density float32, cellHash uint64) int {
-	const maxTreesPerCell = 2
-	if density <= 0 {
-		return 0
-	}
-	if density >= 1 {
-		return maxTreesPerCell
-	}
-	target := density * maxTreesPerCell
-	whole := int(target)
-	frac := target - float32(whole)
-	p := float32(cellHash&0xFFFF) / 65535.0
-	if p < frac {
-		whole++
-	}
-	return whole
-}
-
 // treeTintForVariant returns the per-instance ColorTint for a tree variant.
 // Foliage colour now lives in the .scad source per variant (medium pine /
 // dark spruce / blue-green fir) and flows through as per-vertex base
@@ -2079,12 +2121,3 @@ func treeTintForVariant(variant uint32) mgl32.Vec3 {
 	return mgl32.Vec3{1, 1, 1}
 }
 
-// treeInstanceHash returns a stable 64-bit hash for deriving per-tree visual properties.
-// Uses the same style as terrainJitter to keep hashing consistent across the package.
-func treeInstanceHash(x, z, i int) uint64 {
-	h := uint64(uint32(x)*2654435761 ^ uint32(z)*2246822519 ^ uint32(i)*2692343)
-	h ^= h >> 33
-	h *= 0xff51afd7ed558ccd
-	h ^= h >> 33
-	return h
-}

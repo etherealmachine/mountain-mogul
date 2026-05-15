@@ -69,6 +69,7 @@ func (e *Editor) Init(app *engine.App) error {
 	// was in effect at save time — no rebuild needed on load. New
 	// structures get their footprint stamped at placement time.
 	r.BuildTerrainMesh(w.Terrain)
+	r.BuildSnowSurfaceTex(w.Terrain)
 	r.RebuildStaticBatch(w)
 	r.RebuildRoads(w)
 	for _, lift := range w.Lifts {
@@ -745,10 +746,12 @@ func (e *Editor) applyEditorTool(gx, gz int, r *render.Renderer, dt float32) {
 	case toolPlantTrees:
 		target := e.densitySlider.Value / 100
 		applyDensityBrushUpTo(w.Terrain, gx, gz, e.brushRadius(), 0.3, target)
+		w.Terrain.RestampTreeWells()
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 	case toolGlade:
 		applyDensityBrush(w.Terrain, gx, gz, e.brushRadius(), -0.4)
+		w.Terrain.RestampTreeWells()
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 	case toolEditorRaise:
@@ -798,6 +801,7 @@ func (e *Editor) applyImportedTerrain(elevs [][]float32, r *render.Renderer) {
 
 	r.ResetSceneState()
 	r.BuildTerrainMesh(t)
+	r.BuildSnowSurfaceTex(t)
 	r.RebuildStaticBatch(e.world)
 }
 

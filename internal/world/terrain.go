@@ -95,6 +95,11 @@ type Terrain struct {
 	// rebuilds to one per frame max even when many cells change in a
 	// single tick — the whole-mesh upload is the same cost.
 	SnowDirty bool
+
+	// Surface is a 1 m-resolution RGBA8 buffer mirroring the cell grid,
+	// carrying sub-cell features the 5 m mesh can't (skier tracks,
+	// tree wells, groom edges). See world/surface_detail.go.
+	Surface *SurfaceDetail
 }
 
 // DefaultSnowAccumulation is the baseline SWE applied to fresh terrain
@@ -122,9 +127,10 @@ func NewTerrain(w, h int) *Terrain {
 		}
 	}
 	return &Terrain{
-		Width:  w,
-		Height: h,
-		Cells:  cells,
+		Width:   w,
+		Height:  h,
+		Cells:   cells,
+		Surface: NewSurfaceDetail(w, h),
 	}
 }
 

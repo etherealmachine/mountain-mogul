@@ -1,6 +1,7 @@
 package sim
 
 import (
+	"image"
 	"math"
 
 	"mountain-mogul/internal/world"
@@ -165,6 +166,18 @@ func groomCell(w *world.World, c [2]int) {
 	cell.Grooming = 1.0
 	cell.MogulSize *= groomMogulDecay
 	cell.Ice *= groomIceDecay
+
+	// Real grooming destroys tracks — zero the R channel inside the
+	// cell's pixel footprint. Matches the player expectation that a
+	// freshly groomed lane reads as untouched corduroy.
+	if w.Terrain.Surface != nil {
+		px0 := c[0] * world.PxPerCell
+		pz0 := c[1] * world.PxPerCell
+		w.Terrain.Surface.ClearTrackBox(image.Rect(
+			px0, pz0,
+			px0+world.PxPerCell, pz0+world.PxPerCell,
+		))
+	}
 
 	w.Terrain.SnowDirty = true
 }
