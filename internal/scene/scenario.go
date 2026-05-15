@@ -586,11 +586,12 @@ const (
 )
 
 // speedOptions lists the time-scale presets shown in the top bar.
-// 1× is real-time; 10× and 50× are the fast-forward steps. The
-// simulation substeps internally (see Simulation.Tick) so the L1
-// controller still sees a small dt at the upper preset. Pause is its
-// own button — not in this list.
-var speedOptions = []float64{1, 10, 50}
+// 4× is the default (~1 real hour per ~186-day ski season). 1× drags a
+// season out to ~4 hours for granular debugging; 20× compresses it to
+// ~12 minutes for fast-forward. The simulation substeps internally (see
+// Simulation.Tick) so the L1 controller still sees a small dt at the
+// upper preset. Pause is its own button — not in this list.
+var speedOptions = []float64{1, 4, 20}
 
 
 // NewScenarioFromFile creates a Scenario that loads its initial world from

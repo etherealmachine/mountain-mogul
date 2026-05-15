@@ -1,40 +1,73 @@
 package sim
 
-// Calendar / weather stubs for the top-bar HUD. Today these are decorative —
-// the simulation doesn't read them. They exist so the menu has something to
-// render and the eventual season/weather systems have a home to grow into.
+import "time"
+
+// Calendar drives the date HUD. The simulation itself doesn't read the
+// date yet — it's decorative — but season/weather systems will plug in
+// here when they grow up.
 
 // secondsPerSimDay sets how fast in-game days tick relative to sim seconds.
-// 1 sim minute = 1 in-game day at 5× TimeScale (the default), which feels
-// right for a tycoon's "watch the season unfold" pacing — fast enough to see
-// weather change in a session, slow enough that the date isn't a blur.
-const secondsPerSimDay = 60.0
+// 77 sim seconds per day at 4× TimeScale ≈ 19 real seconds per day, so a
+// ~186-day ski season (Nov 25 → Memorial Day) takes ~1 real hour. Pure
+// tuning knob — adjust freely.
+const secondsPerSimDay = 77.0
 
-// monthNames is the display-order list used for the date HUD.
-var monthNames = [12]string{
-	"Dec", "Jan", "Feb", "Mar", "Apr", "May",
-	"Jun", "Jul", "Aug", "Sep", "Oct", "Nov",
+// Ski-season window. Opens Nov 25 (post-Thanksgiving, traditional US
+// resort opening); closes Memorial Day (last Monday of May). Off-season
+// days are skipped — SimTime advances continuously, but the calendar
+// jumps from Memorial Day directly to the next Nov 25. Held as constants
+// for now; a future scenario format can override these per-resort.
+const (
+	seasonOpenMonth  = time.November
+	seasonOpenDay    = 25
+	seasonCloseMonth = time.May // last Monday of this month
+)
+
+// seasonEpochYear is the calendar year of the first season opening — i.e.
+// SimTime 0 maps to Nov 25 of this year. The "2026-27 season" opens here.
+const seasonEpochYear = 2026
+
+// SeasonOpenDate returns Nov 25 of the given year.
+func SeasonOpenDate(year int) time.Time {
+	return time.Date(year, seasonOpenMonth, seasonOpenDay, 0, 0, 0, 0, time.UTC)
 }
 
-// Date is a calendar position derived from SimTime. The season starts in
-// December (year 1) and rolls forward; months are uniform 30-day buckets so
-// the math stays trivial.
+// SeasonCloseDate returns Memorial Day (last Monday of May) for the given
+// calendar year — the final day of the season that opened the previous Nov.
+func SeasonCloseDate(year int) time.Time {
+	d := time.Date(year, seasonCloseMonth, 31, 0, 0, 0, 0, time.UTC)
+	back := (int(d.Weekday()) - int(time.Monday) + 7) % 7
+	return d.AddDate(0, 0, -back)
+}
+
+// Date is a calendar position derived from SimTime.
 type Date struct {
-	Day   int    // 1..30
-	Month string // "Dec", "Jan", ...
-	Year  int    // 1, 2, ...
+	Day   int    // 1..31
+	Month string // "Nov", "Dec", "Jan", ...
+	Year  int    // calendar year, e.g. 2026
 }
 
-// CalendarAt returns the in-game date for the given SimTime.
+// CalendarAt returns the in-game date for the given SimTime, walking
+// season-by-season and skipping the off-season gap each year. The loop
+// runs once per full season elapsed (cheap for any realistic session).
 func CalendarAt(simTime float64) Date {
 	totalDays := int(simTime / secondsPerSimDay)
-	day := totalDays%30 + 1
-	monthIdx := (totalDays / 30) % 12
-	year := 1 + totalDays/(30*12)
-	return Date{
-		Day:   day,
-		Month: monthNames[monthIdx],
-		Year:  year,
+	year := seasonEpochYear
+	cur := SeasonOpenDate(year)
+	for {
+		end := SeasonCloseDate(year + 1)
+		lenDays := int(end.Sub(cur).Hours()/24) + 1
+		if totalDays < lenDays {
+			d := cur.AddDate(0, 0, totalDays)
+			return Date{
+				Day:   d.Day(),
+				Month: d.Month().String()[:3],
+				Year:  d.Year(),
+			}
+		}
+		totalDays -= lenDays
+		year++
+		cur = SeasonOpenDate(year)
 	}
 }
 
@@ -68,9 +101,9 @@ func (w WeatherKind) String() string {
 // WeatherState is a snapshot of the current and upcoming weather plus the
 // current temperature. Decorative stub — see file header.
 type WeatherState struct {
-	Now      WeatherKind
-	Next     WeatherKind
-	TempF    int
+	Now   WeatherKind
+	Next  WeatherKind
+	TempF int
 }
 
 // WeatherAt returns a deterministic weather snapshot for the given SimTime.

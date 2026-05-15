@@ -20,7 +20,7 @@ const (
 type Simulation struct {
 	World      *world.World
 	Pathfinder *Pathfinder
-	TimeScale  float64    // simulation speed multiplier (default 5)
+	TimeScale  float64    // simulation speed multiplier (default 4 — ~1 hr per ski season)
 	SimTime    float64    // accumulated sim seconds (post-TimeScale)
 	Rng        *rand.Rand // single source for all gameplay randomness; testbeds seed this for determinism
 
@@ -73,7 +73,7 @@ func NewSimulationWithSeed(w *world.World, seed int64) *Simulation {
 	sim := &Simulation{
 		World:      w,
 		Pathfinder: NewPathfinder(w.Terrain),
-		TimeScale:  5.0,
+		TimeScale:  4.0,
 		Rng:        rand.New(rand.NewSource(seed)),
 		Planner:    goap.NewPlanner(),
 		Demand:     NewDemandSystem(),
