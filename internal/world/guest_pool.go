@@ -54,11 +54,11 @@ func SeedGuests(w *World, rng *rand.Rand, count int) {
 		skill := rollSkill(rng)
 		disc := rollDiscipline(rng)
 		traits := ai.TraitsFor(skill)
-		// LikesGlades is a minority taste — ~15 % of the catchment. Skews
-		// slightly higher for advanced skiers since gladiated terrain is
-		// effectively black-rated.
-		gladeProb := float32(0.10)
-		if skill == ai.SkillAdvanced {
+		// LikesGlades skews toward experienced skiers — beginners avoid trees.
+		gladeProb := float32(0.0)
+		if skill == ai.SkillIntermediate {
+			gladeProb = 0.10
+		} else if skill == ai.SkillAdvanced {
 			gladeProb = 0.30
 		}
 		traits.LikesGlades = rng.Float32() < gladeProb

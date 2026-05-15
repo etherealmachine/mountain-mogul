@@ -190,6 +190,128 @@ the four corners of its quad.
 Skirt walls and the floor face emit `aSnow = (0, 0, 0, 0)` so none of the
 snow effects bleed onto the cliff sides or the underside of the diorama.
 
+## Surface detail texture
+
+A 1 m-resolution RGBA8 texture mirroring the terrain, written by the
+simulation and sampled in `terrain.frag`, so we can render sub-cell
+features the 5 m mesh can't carry: skier tracks, tree wells, sharper
+groomed/ungroomed edges. Complements (not replaces) the per-vertex snow
+scalars above — the texture says *where* the special features are; FBM
+gives the high-frequency surface noise everywhere else.
+
+Resolution is **5× finer than the terrain cell grid**. For a 60×60
+terrain (300 m square) that's 300² pixels × 4 bytes ≈ 360 KB.
+
+`world.SurfaceDetail` lives on `Terrain`, alongside `Cells`:
+
+```go
+type SurfaceDetail struct {
+    PxWidth, PxHeight int     // = Width*5, Height*5
+    Pixels            []uint8 // flat RGBA8, row-major
+    Dirty             bool
+    DirtyBox          image.Rectangle // px-space; expanded by writers
+}
+```
+
+Channels:
+
+| ch | meaning          | written by                        | persistence           |
+|----|------------------|-----------------------------------|-----------------------|
+| R  | track intensity  | sim, per skiing guest per substep | decays in sim time    |
+| G  | tree-well depth  | world, on tree placement/removal  | persistent until edit |
+| B  | groom-edge mask  | derived from `Cells[*].Grooming`  | recomputed on dirty   |
+| A  | reserved         | —                                 | —                     |
+
+Not saved. `SurfaceDetail` is fully re-derivable on load: G is stamped from
+the saved `TreeDensity` field, B is recomputed from the saved `Grooming`
+field, and R resets to zero — equivalent to "morning after fresh snow."
+
+### Tree wells (G)
+
+`Terrain.RestampTreeWells()` iterates cells with `TreeDensity > 0`,
+writes a Gaussian-falloff radial disk (~2 m radius, peak 1.0) into G at
+each tree's world XZ. Called from `installWorld` after load,
+`GenerateTreeCover`, and `applyTool` for the Glade / Plant brushes.
+
+### Groom-edge mask (B)
+
+`Terrain.RecomputeGroomEdges()` single-pass scan over the buffer. For each
+1 m pixel, look up its parent cell's `Grooming`; if any 4-neighbour cell
+differs, write `B = 1 − distToEdge/1m`. Runs on the same dirty signal as
+`Terrain.SnowDirty`, set whenever grooming changes.
+
+### Skier tracks (R)
+
+`Terrain.SplatTrack(wx, wz, intensity)` — additive 3×3 disk, capped at 255.
+Hooked in `sim.tickSkier`: per-substep, only when the guest is actually
+skiing (`!Fallen && OnLiftID == 0 && !Queued && Speed > minSpeed`). Segments
+are interpolated between last and current positions so fast guests leave
+continuous lines instead of dotted ones.
+
+Decay piggybacks on the 30 s demand cadence — one linear pass over R
+multiplying by `0.985` (≈30-min half-life in sim time). Snowcat grooming
+zeros R inside the cat's footprint each tick.
+
+### GPU mirror
+
+```go
+SnowSurfaceTex uint32 // RGBA8, GL_LINEAR, GL_CLAMP_TO_EDGE
+```
+
+- `Renderer.BuildSnowSurfaceTex(t *world.Terrain)` — initial upload from
+  `installWorld` after `BuildTerrainMesh`.
+- `Renderer.FlushSnowSurface(t *world.Terrain)` — `glTexSubImage2D` over
+  `DirtyBox`; clears `Dirty`. Called from `Scenario.Update` next to the
+  existing `FlushSnowState` block.
+
+### Shader integration (`terrain.frag`)
+
+Sampler at texture unit 1:
+
+```glsl
+uniform sampler2D uSnowSurface;
+uniform vec2      uWorldSize; // (Width*5, Height*5) in metres
+
+vec4 surf = texture(uSnowSurface, vWorldPos.xz / uWorldSize);
+float track = surf.r;
+float well  = surf.g;
+float edge  = surf.b;
+```
+
+Effects per channel:
+
+- **Tracks (R):** increase local `packed` toward 1; darken snow colour ~3 %;
+  kick `Nshading` along ∇R (finite-difference 4-sample) to produce the
+  carved-groove silhouette without storing heading separately.
+- **Tree wells (G):** subtract `0.5 · well` metres from `vSnowDepth` so
+  `snowness` drops at the well centre; add a downward bump to `Nshading`
+  proportional to ∇G.
+- **Groom edge (B):** add a thin bright-white lip on the powder side and a
+  slightly darker line on the groomed side; replaces the current soft 2-cell
+  ramp with a crisper boundary.
+
+### FBM extension (independent)
+
+Replace each single `valueNoise` call in `terrain.frag`'s powder/mogul
+kicks with a 3-octave FBM (×1, ×2, ×4 frequency; amplitudes ×1, ×0.5,
+×0.25). ~6 extra `valueNoise()` calls per fragment. Pure shader change,
+ships independently of the surface-detail texture.
+
+### Implementation order
+
+1. **Infrastructure** — `SurfaceDetail` struct + accessors, GPU build/flush,
+   shader uniform, debug overlay (one channel per colour). No effects yet.
+2. **Tree wells** — validates the write→upload→sample loop; visible in the
+   overlay immediately.
+3. **Groom-edge mask + shader lip** — replaces the soft 2-cell ramp.
+4. **Skier tracks** — splat in `tickSkier`, decay on demand cadence, clear on
+   cat groom. Most exciting visually; hottest code path, so it's last.
+5. **FBM extension** — can ship at any point.
+
+Channel A is reserved for ice patches at lift bases, herringbone marks,
+footprints from non-skiing guests, and fresh-snow brightening over
+tracked-out regions.
+
 ## Physics
 
 `internal/sim/skiing.go::effectiveFriction` samples snow state at the

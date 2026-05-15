@@ -31,7 +31,7 @@ Movement is the heartbeat of the resort. Players must strategically place a hier
 *   **Specialty Transport:** CAT skiing for backcountry access and Heliskiing pads for the ultra-wealthy "whale" guests.
 
 #### C. The "Agentic Skier" System
-Each guest is a unique agent. See [SKIER_AI.md](SKIER_AI.md) for the full AI architecture (L0 GOAP planner + L1–L3 continuous controller).
+Each guest is a unique agent. See [GUESTS.md](GUESTS.md) for the full AI architecture (L0 GOAP planner + L1–L3 continuous controller).
 
 **Per-skier state:**
 *   **Energy:** Session-level fatigue budget. Drains while skiing, recovers on lifts and at lodges.
@@ -142,5 +142,6 @@ These should be "discoverable" by the player and not placeable, they're things t
 
 ### Related Documents
 
-*   [SKIER_AI.md](SKIER_AI.md) — agent AI architecture (planning + steering)
-*   [SNOW.md](SNOW.md) — snow surface model and friction multipliers
+*   [GUESTS.md](GUESTS.md) — guest AI architecture (GOAP planning + continuous controller)
+*   [SNOW.md](SNOW.md) — snow surface model, friction multipliers, surface detail texture
+*   [ARCHITECTURE.md](ARCHITECTURE.md) — package layout and major structs

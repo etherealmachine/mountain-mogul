@@ -1,6 +1,6 @@
-# Skier AI — pipeline overview
+# Guest AI — pipeline overview
 
-The skier AI is split into two layers:
+The guest AI is split into two layers:
 
 - **L0 — strategic layer**: a per-agent Goal-Oriented Action Planning
   (GOAP) loop in `internal/ai/goap/`. It picks goals and chains actions;
@@ -13,7 +13,7 @@ L0 is intentionally thin compared with L1; the per-tick controller never
 re-reads strategic state mid-tick. Replanning happens between ticks on
 explicit triggers — never as a fixed-interval poll, never per-frame.
 
-Persistent per-agent state on `world.Agent`: `Traits`, `Plan` (the L0
+Persistent per-guest state on `world.Guest`: `Traits`, `Plan` (the L0
 stored plan + L1 goal target), `Balance`, `TurnSide`, `TurnDwell`,
 `LastTactical`, `Energy`, `Fun`, `RidenLifts`, `RestTimer`, `Removed`,
 `Sense`. Per-tick types (`Perception`, `Decision`) are sim-internal and
@@ -113,9 +113,9 @@ flight runs to completion without re-electing), but it's the reason the
 periodic safety re-check was removed — a wall-clock re-check on a
 transient snapshot loops skiers back to the lift indefinitely.
 
-### Plan storage on `world.Agent`
+### Plan storage on `world.Guest`
 
-The plan lives on `agent.Plan` as plain data in the leaf `internal/ai`
+The plan lives on `guest.Plan` as plain data in the leaf `internal/ai`
 package (no goap import from `world`, avoiding a cycle):
 
 ```go
