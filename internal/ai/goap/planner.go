@@ -111,11 +111,11 @@ func (p *Planner) Plan(start WorldSnapshot, goal Goal, w *world.World) []Action 
 	return nil
 }
 
-// PlanForAgent is the convenience entry point used by sim: extract a
+// PlanForGuest is the convenience entry point used by sim: extract a
 // snapshot, pick the highest-weighted unsatisfied goal, and plan. Returns
 // (plan, goal, snapshot) — goal and snapshot are returned for HUD
 // display so callers don't repeat the Extract / SelectGoal calls.
-func (p *Planner) PlanForAgent(a *world.Agent, w *world.World) ([]Action, Goal, WorldSnapshot) {
+func (p *Planner) PlanForGuest(a *world.Guest, w *world.World) ([]Action, Goal, WorldSnapshot) {
 	snap := Extract(a, w)
 	goal := SelectGoal(&snap, w)
 	if goal == nil {
@@ -125,15 +125,15 @@ func (p *Planner) PlanForAgent(a *world.Agent, w *world.World) ([]Action, Goal, 
 }
 
 // StoredPlanFor returns a freshly computed ai.Plan ready to drop onto
-// world.Agent.Plan. The simulation's replan path uses this; the HUD
+// world.Guest.Plan. The simulation's replan path uses this; the HUD
 // reads the stored result instead of recomputing each frame.
 //
 // When no goal is selectable (everything satisfied) or the planner
 // returns no plan, the returned ai.Plan has empty Steps so Plan.Done()
 // is true. Callers should still set the Plan onto the agent so the
 // previous stale Steps don't survive.
-func (p *Planner) StoredPlanFor(a *world.Agent, w *world.World) ai.Plan {
-	actions, goal, snap := p.PlanForAgent(a, w)
+func (p *Planner) StoredPlanFor(a *world.Guest, w *world.World) ai.Plan {
+	actions, goal, snap := p.PlanForGuest(a, w)
 	out := ai.Plan{}
 	if goal != nil {
 		out.GoalName = goal.Name()

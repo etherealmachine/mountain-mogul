@@ -72,7 +72,7 @@ func (s WorldSnapshot) Clone() WorldSnapshot {
 // and short queues this is microseconds. A queued-lift back-pointer on
 // Agent would avoid the walk but adds a field that has to be kept in
 // sync with the queue mutations in tickLifts — not worth it yet.
-func Extract(a *world.Agent, w *world.World) WorldSnapshot {
+func Extract(a *world.Guest, w *world.World) WorldSnapshot {
 	snap := WorldSnapshot{
 		Pos:        a.Pos,
 		Energy:     a.Energy,

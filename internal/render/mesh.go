@@ -16,7 +16,7 @@ const (
 	MeshStump       uint32 = 4
 	MeshBuilding    uint32 = 5
 	MeshTower       uint32 = 6
-	MeshSkier       uint32 = 7 // skier figure; instanced per world.Agent
+	MeshSkier       uint32 = 7 // skier figure; instanced per world.Guest
 	MeshLiftStation uint32 = 8
 	MeshChair       uint32 = 9
 	MeshShed        uint32 = 10

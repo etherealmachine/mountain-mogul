@@ -389,7 +389,7 @@ func ApplicableActions(s *WorldSnapshot, w *world.World) []Action {
 
 // ToPlanActions translates a planner-emitted Action slice into the leaf
 // ai package's PlanAction records so the result can live on
-// world.Agent.Plan without forcing world to import goap. Walks the plan
+// world.Guest.Plan without forcing world to import goap. Walks the plan
 // applying each step to a snapshot copy so the per-step Cost reflects
 // the state it was costed against during search.
 func ToPlanActions(actions []Action, snap WorldSnapshot, w *world.World) []ai.PlanAction {

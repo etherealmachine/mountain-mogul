@@ -521,7 +521,7 @@ type Scenario struct {
 	hoverCell       [2]int     // terrain cell under the mouse — for cell-based tools
 	hoverWorld      mgl32.Vec3 // continuous terrain hit under the mouse — for placement
 	hoverValid      bool       // false when the mouse is off-terrain or over the menu bars
-	followAgentID   uint64 // 0 = free camera; >0 = ID of followed skier
+	followGuestID   uint64 // 0 = free camera; >0 = ID of followed skier
 	firstPerson     bool   // V: first-person camera at the followed skier's head
 	debugSteering   bool   // F3: render steering forces on the followed skier
 	debugPlanner    bool   // F4: show goal weights, full plan, snapshot anchors for the followed skier
@@ -574,7 +574,7 @@ type Scenario struct {
 	toastExpiry       float32 // s.time at which toast disappears
 
 	// Trail of world-space positions for the currently followed skier.
-	// Reset when followAgentID changes; appended when at least
+	// Reset when followGuestID changes; appended when at least
 	// trackMinSpacing metres past the last sample.
 	track       []mgl32.Vec3
 	trackOwner  uint64
@@ -732,7 +732,7 @@ func (s *Scenario) Init(app *engine.App) error {
 	const topBarH = float32(96)
 	s.topBar = ui.NewTopBar(topBarH)
 	s.topBar.GetCash = func() int { return s.world.Cash }
-	s.topBar.GetGuests = func() int { return len(s.world.Agents) }
+	s.topBar.GetGuests = func() int { return len(s.world.OnMountain) }
 	s.topBar.GetHappiness = func() float32 {
 		if s.sim == nil || s.sim.Demand == nil {
 			return 0
@@ -935,7 +935,7 @@ func (s *Scenario) restartWithSeed(seed int64) {
 	if s.popup != nil {
 		s.popup.Visible = false
 	}
-	s.followAgentID = 0
+	s.followGuestID = 0
 	s.app.Renderer.SetDebugLines(nil)
 	s.syncSpeedButtons()
 	s.setToast(fmt.Sprintf("Restarted with seed=%d", seed))
@@ -1023,7 +1023,7 @@ func (s *Scenario) Update(dt float64) {
 	// V: toggle first-person camera at the followed skier's head. No-op
 	// when nobody is followed — FPV without a target would have no
 	// anchor.
-	if !typing && inp.Pressed[glfw.KeyV] && s.followAgentID != 0 {
+	if !typing && inp.Pressed[glfw.KeyV] && s.followGuestID != 0 {
 		s.firstPerson = !s.firstPerson
 	}
 
@@ -1087,8 +1087,8 @@ func (s *Scenario) Update(dt float64) {
 
 	// Auto-stop CSV log if the followed skier changed or no longer exists.
 	if s.csvRecorder != nil {
-		a := s.findFollowedAgent()
-		if a == nil || a.ID != s.csvRecorder.AgentID() {
+		a := s.findFollowedGuest()
+		if a == nil || a.ID != s.csvRecorder.GuestID() {
 			s.stopSkierLog("Logging stopped: skier no longer followed")
 		}
 	}
@@ -1137,7 +1137,7 @@ func (s *Scenario) Update(dt float64) {
 	}
 	if s.rightDragging {
 		if inp.MouseDelta.Len() > 0 {
-			s.followAgentID = 0
+			s.followGuestID = 0
 			dx, dz := r.Camera.PanDelta(inp.MouseDelta)
 			r.Camera.Target[0] += dx
 			r.Camera.Target[2] += dz
@@ -1165,7 +1165,7 @@ func (s *Scenario) Update(dt float64) {
 		keyDelta[1] -= keyPanSpeed * float32(dt)
 	}
 	if keyDelta[0] != 0 || keyDelta[1] != 0 {
-		s.followAgentID = 0
+		s.followGuestID = 0
 		dx, dz := r.Camera.PanDelta(keyDelta)
 		r.Camera.Target[0] += dx
 		r.Camera.Target[2] += dz
@@ -1236,8 +1236,8 @@ func (s *Scenario) Update(dt float64) {
 	screenW := float32(r.ScreenWidth())
 	if !inp.LeftClickConsumed && inp.LeftClick && s.activeTool == toolNone && !s.uiCovers(inp.MousePos[0], inp.MousePos[1], screenW) {
 		// Skier pick takes priority over toolNone-level edits and popups.
-		if a := s.pickAgent(r.Camera, inp.MousePos); a != nil {
-			s.followAgentID = a.ID
+		if a := s.pickGuest(r.Camera, inp.MousePos); a != nil {
+			s.followGuestID = a.ID
 			if s.popup != nil {
 				s.popup.Visible = false
 			}
@@ -1385,18 +1385,18 @@ func (s *Scenario) Update(dt float64) {
 	// In first-person mode, drive the perspective camera to the skier's
 	// head and hide their mesh so the camera isn't sitting inside the
 	// torso; otherwise stay in the default isometric ortho follow.
-	r.HiddenAgentID = 0
+	r.HiddenGuestID = 0
 	r.HiddenRadius = 0
-	if s.followAgentID != 0 {
-		if agent := s.findFollowedAgent(); agent != nil {
+	if s.followGuestID != 0 {
+		if agent := s.findFollowedGuest(); agent != nil {
 			if s.firstPerson {
 				applyFirstPersonCamera(r.Camera, agent)
-				r.HiddenAgentID = agent.ID
+				r.HiddenGuestID = agent.ID
 				// Lift queues stack all queuers at the same cell, so a
 				// queued skier's neighbours sit right in the camera.
 				// Hide anyone within ~1.5 m of the followed skier so
 				// the FPV doesn't get a green box stuck to its face.
-				r.HiddenAgentPos = agent.Pos
+				r.HiddenGuestPos = agent.Pos
 				r.HiddenRadius = 1.5
 			} else {
 				if r.Camera.Perspective {
@@ -1406,12 +1406,12 @@ func (s *Scenario) Update(dt float64) {
 				r.Camera.Recalculate()
 			}
 		} else {
-			s.followAgentID = 0
+			s.followGuestID = 0
 		}
 	}
 	// Follow dropped (despawn / right-drag pan / etc.) — exit FPV so
 	// the free camera comes back in ortho.
-	if s.followAgentID == 0 && (s.firstPerson || r.Camera.Perspective) {
+	if s.followGuestID == 0 && (s.firstPerson || r.Camera.Perspective) {
 		s.firstPerson = false
 		r.Camera.Perspective = false
 		r.Camera.Recalculate()
@@ -1432,7 +1432,7 @@ func (s *Scenario) Update(dt float64) {
 // the skier track in the same batch so we keep one buffer upload per
 // frame.
 func (s *Scenario) updateOverlay(r *render.Renderer) {
-	a := s.findFollowedAgent()
+	a := s.findFollowedGuest()
 
 	// Reset the track when follow target changes (including dropped follow).
 	if a == nil || a.ID != s.trackOwner {
@@ -1553,7 +1553,7 @@ func (s *Scenario) routeOverlayLines() []render.DebugLine {
 }
 
 // steeringLines builds the F3 steering-debug visualisation for the agent.
-func steeringLines(w *world.World, a *world.Agent, target mgl32.Vec3) []render.DebugLine {
+func steeringLines(w *world.World, a *world.Guest, target mgl32.Vec3) []render.DebugLine {
 	d := sim.ComputeSteeringDebug(w, a, target)
 	origin := mgl32.Vec3{a.Pos[0], a.Pos[1] + 1.5, a.Pos[2]}
 	mk := func(dir mgl32.Vec2, length float32, color [3]float32) render.DebugLine {
@@ -1581,7 +1581,7 @@ func steeringLines(w *world.World, a *world.Agent, target mgl32.Vec3) []render.D
 // skierTarget returns the world-space target the agent is currently
 // steering toward, resolved from the agent's TargetID against either the
 // world's lifts or buildings.
-func skierTarget(w *world.World, a *world.Agent) (mgl32.Vec3, bool) {
+func skierTarget(w *world.World, a *world.Guest) (mgl32.Vec3, bool) {
 	if a.TargetID == 0 {
 		return mgl32.Vec3{}, false
 	}
@@ -1883,7 +1883,7 @@ func (s *Scenario) Render(r *render.Renderer) {
 		r.ClearBrush()
 	}
 
-	r.HighlightAgentID = s.followAgentID
+	r.HighlightGuestID = s.followGuestID
 	s.applyPerceptionCone(r)
 	r.DrawWorld(s.world, s.time)
 	r.ClearBrush()
@@ -1918,8 +1918,8 @@ func (s *Scenario) Render(r *render.Renderer) {
 	if cost, affordable, _, valid := s.placementCost(); valid {
 		drawables = append(drawables, &costLabel{cost: cost, affordable: affordable})
 	}
-	for _, a := range s.world.Agents {
-		if a.ID == s.followAgentID {
+	for _, a := range s.world.OnMountain {
+		if a.ID == s.followGuestID {
 			drawables = append(drawables, &followLabel{
 				world: s.world,
 				agent: a,
@@ -2073,7 +2073,7 @@ func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 	w := ui.NewWindow("Lodge", 0, 0)
 	w.AddLabel("Inbound", func() string {
 		count := 0
-		for _, a := range s.world.Agents {
+		for _, a := range s.world.OnMountain {
 			if a.TargetID == bldg.ID {
 				count++
 			}
@@ -2420,33 +2420,33 @@ func buildingInstance(pos mgl32.Vec2, t *world.Terrain, tint [3]float32) render.
 // cycleFollow jumps the camera to a random skier. When already following a
 // skier, the current one is excluded so each Tab press visibly changes target.
 func (s *Scenario) cycleFollow() {
-	agents := s.world.Agents
+	agents := s.world.OnMountain
 	if len(agents) == 0 {
-		s.followAgentID = 0
+		s.followGuestID = 0
 		return
 	}
-	current := s.followAgentID
+	current := s.followGuestID
 	candidates := agents
 	if current != 0 && len(agents) > 1 {
-		candidates = make([]*world.Agent, 0, len(agents)-1)
+		candidates = make([]*world.Guest, 0, len(agents)-1)
 		for _, a := range agents {
 			if a.ID != current {
 				candidates = append(candidates, a)
 			}
 		}
 	}
-	s.followAgentID = candidates[rand.Intn(len(candidates))].ID
+	s.followGuestID = candidates[rand.Intn(len(candidates))].ID
 }
 
-// pickAgent returns the front-most agent under the cursor, or nil if none.
+// pickGuest returns the front-most agent under the cursor, or nil if none.
 // Treats each skier as a sphere of pickRadius around its world position.
-func (s *Scenario) pickAgent(cam *render.Camera, mousePos mgl32.Vec2) *world.Agent {
+func (s *Scenario) pickGuest(cam *render.Camera, mousePos mgl32.Vec2) *world.Guest {
 	const pickRadius = float32(2.5)
 	const pickRadius2 = pickRadius * pickRadius
 	origin, dir := cam.ScreenToWorldRay(mousePos)
-	var best *world.Agent
+	var best *world.Guest
 	bestT := float32(math.Inf(1))
-	for _, a := range s.world.Agents {
+	for _, a := range s.world.OnMountain {
 		oc := a.Pos.Sub(origin)
 		t := oc.Dot(dir)
 		if t < 0 {
@@ -2466,7 +2466,7 @@ func (s *Scenario) pickAgent(cam *render.Camera, mousePos mgl32.Vec2) *world.Age
 // looking forward along Heading with a slight downward tilt so the
 // slope ahead fills more of the frame. Heading uses the
 // atan2(dx, dz) convention shared with the motor / sense code.
-func applyFirstPersonCamera(cam *render.Camera, a *world.Agent) {
+func applyFirstPersonCamera(cam *render.Camera, a *world.Guest) {
 	const (
 		headHeight = 1.6  // metres above the agent's foot position
 		lookDist   = 10.0 // metres ahead of the eye
@@ -2491,10 +2491,10 @@ func applyFirstPersonCamera(cam *render.Camera, a *world.Agent) {
 	cam.Recalculate()
 }
 
-// findFollowedAgent returns the agent being followed, or nil if it no longer exists.
-func (s *Scenario) findFollowedAgent() *world.Agent {
-	for _, a := range s.world.Agents {
-		if a.ID == s.followAgentID {
+// findFollowedGuest returns the agent being followed, or nil if it no longer exists.
+func (s *Scenario) findFollowedGuest() *world.Guest {
+	for _, a := range s.world.OnMountain {
+		if a.ID == s.followGuestID {
 			return a
 		}
 	}
@@ -2507,11 +2507,11 @@ func (s *Scenario) findFollowedAgent() *world.Agent {
 // hide the highlight. Match against Activity rather than introspecting Sense
 // because the snapshot has no "fresh" flag.
 func (s *Scenario) applyPerceptionCone(r *render.Renderer) {
-	if s.followAgentID == 0 {
+	if s.followGuestID == 0 {
 		r.ClearPerceptionCone()
 		return
 	}
-	a := s.findFollowedAgent()
+	a := s.findFollowedGuest()
 	if a == nil {
 		r.ClearPerceptionCone()
 		return
@@ -2544,7 +2544,7 @@ func (s *Scenario) applyPerceptionCone(r *render.Renderer) {
 // across frames.
 type followLabel struct {
 	world *world.World
-	agent *world.Agent
+	agent *world.Guest
 }
 
 func (f *followLabel) Draw(r *render.Renderer) {
@@ -2583,7 +2583,7 @@ func (f *followLabel) Draw(r *render.Renderer) {
 // reflect live state (one agent per frame is cheap).
 type plannerDebugPanel struct {
 	world *world.World
-	agent *world.Agent
+	agent *world.Guest
 }
 
 // debugPanelMaxPlan caps how many plan rows the panel shows. Plans can
@@ -2905,7 +2905,7 @@ func (s *Scenario) toggleSkierLog() {
 		s.stopSkierLog("Logging stopped")
 		return
 	}
-	a := s.findFollowedAgent()
+	a := s.findFollowedGuest()
 	if a == nil {
 		s.setToast("Press Tab to follow a skier first")
 		return

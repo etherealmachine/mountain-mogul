@@ -14,7 +14,7 @@ import (
 // after the fact.
 type RecorderFrame struct {
 	SimTime  float64
-	AgentID  uint64
+	GuestID  uint64
 	Activity string
 
 	Pos     mgl32.Vec3
@@ -44,7 +44,7 @@ type RecorderFrame struct {
 // Recorder consumes per-tick skiing frames. Implementations should be cheap —
 // Record runs inside the simulation hot path.
 type Recorder interface {
-	AgentID() uint64
+	GuestID() uint64
 	Record(RecorderFrame)
 	Close() error
 }
@@ -73,12 +73,12 @@ func NewCSVRecorder(path string, agentID uint64) (*CSVRecorder, error) {
 }
 
 func (c *CSVRecorder) Path() string    { return c.path }
-func (c *CSVRecorder) AgentID() uint64 { return c.agentID }
+func (c *CSVRecorder) GuestID() uint64 { return c.agentID }
 
 func (c *CSVRecorder) Record(fr RecorderFrame) {
 	row := []string{
 		strconv.FormatFloat(fr.SimTime, 'f', 4, 64),
-		strconv.FormatUint(fr.AgentID, 10),
+		strconv.FormatUint(fr.GuestID, 10),
 		fr.Activity,
 		f32(fr.Pos[0]), f32(fr.Pos[1]), f32(fr.Pos[2]),
 		f32(fr.Heading),

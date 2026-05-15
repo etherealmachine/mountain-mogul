@@ -51,6 +51,18 @@ type Date struct {
 // season-by-season and skipping the off-season gap each year. The loop
 // runs once per full season elapsed (cheap for any realistic session).
 func CalendarAt(simTime float64) Date {
+	t := DateAt(simTime)
+	return Date{
+		Day:   t.Day(),
+		Month: t.Month().String()[:3],
+		Year:  t.Year(),
+	}
+}
+
+// DateAt returns the underlying time.Time for the given SimTime — same
+// walk as CalendarAt but exposed for callers that need a Time directly
+// (e.g. stamping LastVisit on a Guest record).
+func DateAt(simTime float64) time.Time {
 	totalDays := int(simTime / secondsPerSimDay)
 	year := seasonEpochYear
 	cur := SeasonOpenDate(year)
@@ -58,12 +70,7 @@ func CalendarAt(simTime float64) Date {
 		end := SeasonCloseDate(year + 1)
 		lenDays := int(end.Sub(cur).Hours()/24) + 1
 		if totalDays < lenDays {
-			d := cur.AddDate(0, 0, totalDays)
-			return Date{
-				Day:   d.Day(),
-				Month: d.Month().String()[:3],
-				Year:  d.Year(),
-			}
+			return cur.AddDate(0, 0, totalDays)
 		}
 		totalDays -= lenDays
 		year++

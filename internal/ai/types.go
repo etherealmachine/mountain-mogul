@@ -1,5 +1,5 @@
-// Package ai holds the persistent skier-AI types — anything that must live
-// on world.Agent across ticks. Per-tick computation types (Perception,
+// Package ai holds the persistent guest-AI types — anything that must live
+// on world.Guest across ticks. Per-tick computation types (Perception,
 // Decision) stay in internal/sim because they're transient inputs/outputs
 // of the controller. Keeping persistent types in this leaf package breaks
 // the import cycle between world and sim.
@@ -41,8 +41,8 @@ func (l SkillLevel) String() string {
 	return "Unknown"
 }
 
-// SkierTraits captures the per-skier inputs the controller reads.
-type SkierTraits struct {
+// GuestTraits captures the per-guest inputs the controller reads.
+type GuestTraits struct {
 	Skill        SkillLevel
 	ComfortSpeed float32 // m/s; above ~comfort the brake controller engages
 	ComfortSlope float32 // radians; steeper than this is uncomfortable
@@ -51,24 +51,24 @@ type SkierTraits struct {
 
 // TraitsFor returns sensible defaults for a skill level. Callers can mutate
 // the returned struct for per-skier variation.
-func TraitsFor(level SkillLevel) SkierTraits {
+func TraitsFor(level SkillLevel) GuestTraits {
 	switch level {
 	case SkillBeginner:
-		return SkierTraits{
+		return GuestTraits{
 			Skill:        SkillBeginner,
 			ComfortSpeed: 5,
 			ComfortSlope: 10 * math.Pi / 180,
 			Aggression:   0.2,
 		}
 	case SkillIntermediate:
-		return SkierTraits{
+		return GuestTraits{
 			Skill:        SkillIntermediate,
 			ComfortSpeed: 10,
 			ComfortSlope: 20 * math.Pi / 180,
 			Aggression:   0.5,
 		}
 	default:
-		return SkierTraits{
+		return GuestTraits{
 			Skill:        SkillAdvanced,
 			ComfortSpeed: 16,
 			ComfortSlope: 30 * math.Pi / 180,
@@ -197,21 +197,21 @@ func AddRide(rides []RideCount, liftID uint64) []RideCount {
 // AGENT EVENTS
 // =============================================================================
 
-// AgentEventKind tags a recordable per-agent occurrence. The event log
+// GuestEventKind tags a recordable per-agent occurrence. The event log
 // is read at depart time by the demand system to feed the resort-rating
 // score (cleanness = function of falls vs runs).
-type AgentEventKind uint8
+type GuestEventKind uint8
 
 const (
-	EventFall AgentEventKind = iota // L1 controller detected Balance ≤ 0
+	EventFall GuestEventKind = iota // L1 controller detected Balance ≤ 0
 	EventRun                        // agent completed a descent (any ActSkiTo*)
 )
 
-// AgentEvent is one row in an agent's per-session log. Time is sim-time
+// GuestEvent is one row in an agent's per-session log. Time is sim-time
 // at emission. Storage is a flat slice on the agent — appended only,
 // inspected at depart, then garbage-collected with the agent.
-type AgentEvent struct {
-	Kind AgentEventKind
+type GuestEvent struct {
+	Kind GuestEventKind
 	Time float64
 }
 

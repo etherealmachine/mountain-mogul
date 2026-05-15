@@ -8,56 +8,58 @@ import (
 )
 
 // =============================================================================
-// Demand system — global skier pool + resort rating
+// Demand system — per-Guest visit poll + resort rating
 // =============================================================================
 //
-// The simulation holds a fixed-size pool of potential skiers partitioned
-// by skill level (the "catchment"). Every demandPollInterval sim-seconds
-// the system asks each group "do you visit right now?" via a Bernoulli
-// draw against
+// Every potential visitor lives as a *Guest in world.World.Guests with a
+// per-guest VisitsPerSeason drawn at world init. Every demandPollInterval
+// sim-seconds the system walks the catchment and rolls a Bernoulli per
+// AtHome guest:
 //
-//	P(visit) = clamp(ResortRating) × terrainMatch × clamp(1 − occupancy)
+//	p_per_poll(g) = (g.VisitsPerSeason / seasonDays) * pollFraction
+//	              * clamp(ResortRating) * terrainMatch(g.Skill) * (1 - occupancy)
 //
-// On success the system draws one carload (SkiersPerCar agents) from the
-// group's pool, spawns them at a uniform-random parking lot, and bumps
-// that lot's CurrentCars by 1 (visible-population bookkeeping).
+// On a hit the guest spawns at a uniform-random parking lot, moves into
+// w.OnMountain, and their State flips to OnMountain. On Depart the same
+// guest returns to AtHome (career stats incremented), ready to be
+// rolled again on a future poll.
 //
-// On Depart the agent's session is scored from (Fun, Energy, falls vs
-// runs) and EMA'd into ResortRating; the skier is returned to their
-// group's pool. The pool itself only ever shrinks via spawns and grows
-// via departs, so over the long run the catchment is conserved.
-//
-// Future hooks the shape leaves room for:
-//   - per-group preferences / loyalty (currently only skill partitions)
-//   - time-of-day / weather modulation of the poll interval and P(visit)
-//   - per-lot draw weighting (queue length, distance to lifts)
-//   - richer terrainMatch once trails are first-class
+// Once per in-game day, maybePollRating averages scoreGuest over every
+// on-mountain guest and sets ResortRating to that mean. The daily
+// cadence makes the rating read like a "guest survey" rather than a
+// continuous EMA — easier for the player to reason about — and
+// aggregating across the whole population (rather than a small sample)
+// crushes day-to-day variance without needing temporal smoothing. This
+// is what RCT2 / Parkitect / Planet Coaster all converged on.
 
-// SkiersPerCar matches the renderer's "one car ≈ four people" mental
-// model. Departures decrement CurrentCars by 1/SkiersPerCar each so a
-// full carload leaving the resort drops one car from the render pad.
-const SkiersPerCar = 4
+// GuestsPerCar matches the renderer's "one car ≈ four people" mental
+// model. Each spawn bumps CurrentCars by 1/GuestsPerCar (and each
+// departure decrements by the same) so the visible car count tracks
+// guest population at quarter resolution.
+const GuestsPerCar = 4
 
-// demandPollInterval is the sim-time cadence of the demand poll. The
-// time/weather system will eventually drive this instead of a fixed
-// interval; for now it's an unconditional 30 s tick.
+// demandPollInterval is the sim-time cadence of the per-Guest visit
+// poll. Short enough that arrivals spread continuously through the day
+// rather than landing all at once.
 const demandPollInterval = 30.0
 
-// ratingEMAλ controls how fast new departures move ResortRating. With
-// λ = 1/70 the EMA half-life is ~50 departures — slow enough that one
-// bad guest doesn't tank the score, fast enough that a player's edit
-// shows up in arrivals within a session.
-const ratingEMAλ = 1.0 / 70.0
+// ratingPollInterval is the sim-time cadence of the rating sample —
+// once per in-game day. Aliased to secondsPerSimDay so retuning the
+// calendar tempo automatically retunes the rating cadence.
+const ratingPollInterval = secondsPerSimDay
 
-// initialResortRating bootstraps the EMA — neutral, so an empty resort
-// gets some arrivals on opening day but only at 50% of the headline
-// rate.
+// initialResortRating bootstraps the score on opening day before any
+// guests have been polled — neutral, so demand picks up at 50% of the
+// headline rate until the first rating poll fires.
 const initialResortRating = 0.5
 
-// Capacity formula constant. avgSessionSec is how long a typical skier
-// occupies a lift seat across one cycle (queue + ride + descent). Tied
-// to the L1 controller's Energy budget so capacity grows alongside the
-// "skiers complete N descents before fatigue" calibration.
+// seasonDaysApprox is the constant divisor for per-day visit rates.
+// Real season length varies year-to-year as Memorial Day moves, but the
+// difference is ~2% — not worth a per-poll recompute.
+const seasonDaysApprox = 186.0
+
+// Capacity formula constant. avgSessionSec is how long a typical guest
+// occupies a lift seat across one cycle (queue + ride + descent).
 const avgSessionSec = 800.0
 
 // Score equation weights. α + β + γ should sum to 1 so a perfect
@@ -68,81 +70,78 @@ const (
 	scoreWeightClean  = 0.3
 )
 
-// SkierGroup is one partition of the global pool. Currently keyed by
-// skill level only.
-type SkierGroup struct {
-	Pool int
-}
-
-// DemandSystem owns the catchment and the resort rating. Lives on
-// Simulation; only its maybePoll method runs on the tick path.
+// DemandSystem owns the resort rating + poll timers. The catchment
+// itself lives on world.World.Guests; this struct only tracks the
+// scalar rating and the timers that gate the per-guest walks.
 type DemandSystem struct {
-	Groups       [3]SkierGroup // indexed by ai.SkillLevel (Beginner=0, ...)
-	ResortRating float32
-	LastPoll     float64
+	ResortRating   float32
+	LastPoll       float64
+	LastRatingPoll float64
 }
 
-// NewDemandSystem seeds the catchment with a beginner-heavy
-// distribution at thousand-skier scale and bootstraps the rating EMA.
+// NewDemandSystem bootstraps a fresh demand system with a neutral rating.
 func NewDemandSystem() *DemandSystem {
-	return &DemandSystem{
-		Groups: [3]SkierGroup{
-			{Pool: 6000}, // Beginner
-			{Pool: 3000}, // Intermediate
-			{Pool: 1000}, // Advanced
-		},
-		ResortRating: initialResortRating,
-	}
+	return &DemandSystem{ResortRating: initialResortRating}
 }
 
-// maybePoll fires one demand decision per group when at least
-// demandPollInterval sim-seconds have elapsed since the last poll.
+// maybePoll walks the catchment and rolls one Bernoulli per AtHome
+// guest, spawning the winners. Fires every demandPollInterval sim
+// seconds; cheap when called more often because the timer gates the
+// whole pass.
+//
+// The per-guest probability is calibrated so that a guest with
+// VisitsPerSeason = N hits roughly N times across the season (with
+// noise dominated by the rating and terrainMatch factors).
 func (d *DemandSystem) maybePoll(s *Simulation) {
 	if s.SimTime-d.LastPoll < demandPollInterval {
 		return
 	}
+	elapsed := s.SimTime - d.LastPoll
 	d.LastPoll = s.SimTime
 
 	// Piggyback the slow cadence with a one-pass linear decay of skier
 	// tracks in the surface-detail R channel. 0.985 per 30 s sim time
-	// ≈ 30-min half-life — tracks linger but don't accumulate forever,
-	// and we don't pay for a separate timer or a per-tick walk.
+	// ≈ 30-min half-life — tracks linger but don't accumulate forever.
 	if s.World != nil && s.World.Terrain != nil {
 		s.World.Terrain.Surface.DecayTracks(0.985)
 	}
 
 	cap := resortCapacity(s.World)
 	if cap <= 0 {
-		return // no lifts → no skiers want to come
+		return // no lifts → no guests want to come
 	}
-	occupancy := float32(len(s.World.Agents)) / cap
+	occupancy := float32(len(s.World.OnMountain)) / cap
+	if occupancy > 1 {
+		occupancy = 1
+	}
 
-	for skill := ai.SkillLevel(0); skill < 3; skill++ {
-		group := &d.Groups[skill]
-		if group.Pool < SkiersPerCar {
+	// Convert poll-window length into a per-day fraction. At
+	// demandPollInterval = 30s and secondsPerSimDay ≈ 77s, this is
+	// ~0.39 of a sim day per poll — most polls land inside one day.
+	pollFractionOfDay := float32(elapsed / secondsPerSimDay)
+
+	rating := clamp01(d.ResortRating)
+	occFactor := 1 - occupancy
+
+	for _, g := range s.World.Guests {
+		if g.State != world.AtHome {
 			continue
 		}
-		match := terrainMatch(s.World, skill)
+		match := terrainMatch(s.World, g.Traits.Skill)
 		if match == 0 {
 			continue
 		}
-		p := visitProbability(d.ResortRating, match, occupancy)
-		if s.Rng.Float32() >= p {
+		dailyRate := g.VisitsPerSeason / seasonDaysApprox
+		p := dailyRate * pollFractionOfDay * rating * match * occFactor
+		if p <= 0 || s.Rng.Float32() >= p {
 			continue
 		}
 		lot := uniformParking(s.World, s.Rng)
 		if lot == nil {
-			return // no lots at all — nothing to do for any group
+			return // no lots → no spawns this poll
 		}
-		spawned := 0
-		for i := 0; i < SkiersPerCar; i++ {
-			if s.spawnSkier(lot, skill) {
-				spawned++
-			}
-		}
-		if spawned > 0 {
-			group.Pool -= spawned
-			lot.CurrentCars += 1
+		if s.spawnGuest(lot, g) {
+			lot.CurrentCars += 1.0 / float32(GuestsPerCar)
 			if max := float32(lot.MaxCars); max > 0 && lot.CurrentCars > max {
 				lot.CurrentCars = max
 			}
@@ -150,13 +149,15 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 	}
 }
 
-// scoreDeparture computes the 0..1 rating contribution of one ending
-// session from its event log + final Fun/Energy. Cleanness penalises
-// falls per completed run — a session with zero falls scores 1 on
-// that axis regardless of how few runs; many falls per run scores 0.
-func scoreDeparture(a *world.Agent) float32 {
+// scoreGuest computes the 0..1 rating contribution of one guest from
+// their event log + current Fun/Energy. Used both mid-session by the
+// daily rating poll and at departure to capture LastScore on the
+// persistent record. Cleanness penalises falls per completed run — a
+// session with zero falls scores 1 on that axis regardless of how few
+// runs; many falls per run scores 0.
+func scoreGuest(g *world.Guest) float32 {
 	falls, runs := 0, 0
-	for _, e := range a.Events {
+	for _, e := range g.Events {
 		switch e.Kind {
 		case ai.EventFall:
 			falls++
@@ -172,8 +173,8 @@ func scoreDeparture(a *world.Agent) float32 {
 		}
 		clean = 1 - ratio
 	}
-	score := scoreWeightFun*a.Fun +
-		scoreWeightEnergy*a.Energy +
+	score := scoreWeightFun*g.Fun +
+		scoreWeightEnergy*g.Energy +
 		scoreWeightClean*clean
 	if score < 0 {
 		score = 0
@@ -185,23 +186,46 @@ func scoreDeparture(a *world.Agent) float32 {
 }
 
 // recordDeparture is called once at the moment of ActDepart, before the
-// agent's Removed flag is set. Updates the rating EMA and returns the
-// skier to their group's pool.
-func (d *DemandSystem) recordDeparture(a *world.Agent) {
-	score := scoreDeparture(a)
-	d.ResortRating = (1-ratingEMAλ)*d.ResortRating + ratingEMAλ*score
-	skill := int(a.Traits.Skill)
-	if skill < 0 || skill >= len(d.Groups) {
+// guest's Removed flag is set. Captures session score + bumps career
+// stats on the persistent Guest record. The resort rating itself is
+// sampled separately by maybePollRating.
+func (d *DemandSystem) recordDeparture(g *world.Guest, simTime float64) {
+	g.LastScore = scoreGuest(g)
+	g.LifetimeVisits++
+	g.VisitsThisSeason++
+	g.LastVisit = DateAt(simTime)
+}
+
+// maybePollRating sets ResortRating to the mean scoreGuest over every
+// on-mountain guest. Fires once per ratingPollInterval sim-seconds.
+// With zero on-mountain guests the rating is left at its previous
+// value.
+func (d *DemandSystem) maybePollRating(s *Simulation) {
+	if s.SimTime-d.LastRatingPoll < ratingPollInterval {
 		return
 	}
-	d.Groups[skill].Pool++
+	d.LastRatingPoll = s.SimTime
+
+	var sum float32
+	var n int
+	for _, g := range s.World.OnMountain {
+		if g.Removed {
+			continue
+		}
+		sum += scoreGuest(g)
+		n++
+	}
+	if n == 0 {
+		return
+	}
+	d.ResortRating = sum / float32(n)
 }
 
 // =============================================================================
-// Pure functions — easy to unit-test, no Simulation reference needed
+// Pure helpers
 // =============================================================================
 
-// resortCapacity is the "comfortable skiers-at-once" estimate used to
+// resortCapacity is the "comfortable guests-at-once" estimate used to
 // gate demand. Sum over lifts of (chairs × seats per chair) × session
 // length / loop time — i.e. how many skier-seats turn over within one
 // typical session.
@@ -229,9 +253,7 @@ func resortCapacity(w *world.World) float32 {
 }
 
 // terrainMatch is the binary skill-vs-lift-services check. Returns 1
-// if any lift in the resort serves the group's skill bit, else 0. A
-// smoother form (fraction of lifts matching) is the obvious next
-// iteration once `Services` becomes derived from trails.
+// if any lift in the resort serves the guest's skill bit, else 0.
 func terrainMatch(w *world.World, skill ai.SkillLevel) float32 {
 	want := skillToDifficulty(skill)
 	for _, l := range w.Lifts {
@@ -254,9 +276,8 @@ func skillToDifficulty(skill ai.SkillLevel) world.TerrainDifficulty {
 	return world.DiffGreen
 }
 
-// visitProbability is the Bernoulli p the poll draws against.
-// Multiplicative: any factor near zero kills demand. Rating and
-// occupancy are clamped to [0,1]; terrainMatch is already binary.
+// visitProbability is retained for the rating-vs-match-vs-occupancy
+// shape; callers compose with their own scalars on top.
 func visitProbability(rating, match, occupancy float32) float32 {
 	r := clamp01(rating)
 	o := clamp01(occupancy)
@@ -275,8 +296,7 @@ func clamp01(v float32) float32 {
 }
 
 // uniformParking returns a uniformly-chosen Parking building, or nil
-// if the world has none. Sheds and lodges are skipped — only parking
-// lots are valid drop-off points.
+// if the world has none.
 func uniformParking(w *world.World, rng *rand.Rand) *world.Building {
 	lots := make([]*world.Building, 0, len(w.Buildings))
 	for _, b := range w.Buildings {

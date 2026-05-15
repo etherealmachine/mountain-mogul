@@ -156,11 +156,11 @@ func runOnceForAggregate(tb *Testbed, seed int64, simSeconds float64, cx, cz flo
 
 	for i := 0; i < steps; i++ {
 		s.Tick(dt)
-		if len(w.Agents) == 0 {
+		if len(w.OnMountain) == 0 {
 			res.arrived = true
 			break
 		}
-		a := w.Agents[0]
+		a := w.OnMountain[0]
 
 		if a.Fallen && !prevFallen {
 			res.fellOnce = true
@@ -197,8 +197,8 @@ func runOnceForAggregate(tb *Testbed, seed int64, simSeconds float64, cx, cz flo
 		hasPrev = true
 	}
 
-	if !res.arrived && len(w.Agents) > 0 {
-		a := w.Agents[0]
+	if !res.arrived && len(w.OnMountain) > 0 {
+		a := w.OnMountain[0]
 		target := targetPos(w, a)
 		res.finalDist = dist3(a.Pos[0]-target[0], a.Pos[1]-target[1], a.Pos[2]-target[2])
 	}

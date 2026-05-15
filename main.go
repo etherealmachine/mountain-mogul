@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"math"
+	"math/rand"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
@@ -434,6 +435,10 @@ func runProfile(wallSeconds, scale float64) {
 	// Pathfind groomed corridors so skiers don't pile up at the lots.
 	// Simpler: leave terrain bare; the L1 controller handles it.
 
+	// Seed a default 10k catchment so the per-Guest demand poll has
+	// someone to draw from. Fixed seed for reproducible profile runs.
+	world.SeedGuests(wld, rand.New(rand.NewSource(1)), world.DefaultGuestPoolSize)
+
 	s := sim.NewSimulationWithSeed(wld, 1)
 	s.TimeScale = scale
 
@@ -482,7 +487,7 @@ func runProfile(wallSeconds, scale float64) {
 	}
 
 	// Summary stats.
-	activeAgents := len(wld.Agents)
+	activeGuests := len(wld.OnMountain)
 	totalAllocBytes := msEnd.TotalAlloc - msStart.TotalAlloc
 	totalAllocMB := float64(totalAllocBytes) / (1024 * 1024)
 	gcCount := msEnd.NumGC - msStart.NumGC
@@ -491,11 +496,24 @@ func runProfile(wallSeconds, scale float64) {
 	fmt.Printf("profile: ran in %.2fs wall (%.0fµs/frame)\n",
 		tElapsed.Seconds(), float64(tElapsed.Microseconds())/float64(frames))
 	fmt.Printf("profile: active agents at end=%d, resort rating=%.3f\n",
-		activeAgents, s.Demand.ResortRating)
-	fmt.Printf("profile: pool now=B%d I%d A%d (started 6000/3000/1000)\n",
-		s.Demand.Groups[ai.SkillBeginner].Pool,
-		s.Demand.Groups[ai.SkillIntermediate].Pool,
-		s.Demand.Groups[ai.SkillAdvanced].Pool)
+		activeGuests, s.Demand.ResortRating)
+	// Report catchment composition: who's currently dormant by skill bucket.
+	var atHomeB, atHomeI, atHomeA int
+	for _, g := range wld.Guests {
+		if g.State != world.AtHome {
+			continue
+		}
+		switch g.Traits.Skill {
+		case ai.SkillBeginner:
+			atHomeB++
+		case ai.SkillIntermediate:
+			atHomeI++
+		case ai.SkillAdvanced:
+			atHomeA++
+		}
+	}
+	fmt.Printf("profile: at-home now=B%d I%d A%d (pool=%d)\n",
+		atHomeB, atHomeI, atHomeA, len(wld.Guests))
 	fmt.Printf("profile: alloc=%.1f MB over run, %d GC cycles, heap=%.1f MB at end\n",
 		totalAllocMB, gcCount, heapMB)
 	fmt.Println("profile: wrote cpu.prof, mem.prof")

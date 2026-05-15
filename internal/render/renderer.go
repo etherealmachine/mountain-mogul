@@ -91,10 +91,10 @@ type Renderer struct {
 	perceptionCosHalfAngle float32
 	perceptionRadius       float32 // 0 disables
 
-	HighlightAgentID   uint64
-	HiddenAgentID      uint64     // skip this agent in the dynamic pass (used by first-person camera)
-	HiddenAgentPos     mgl32.Vec3 // anchor for HiddenRadius proximity culling
-	HiddenRadius       float32    // when >0, also skip agents within this XZ radius of HiddenAgentPos
+	HighlightGuestID   uint64
+	HiddenGuestID      uint64     // skip this agent in the dynamic pass (used by first-person camera)
+	HiddenGuestPos     mgl32.Vec3 // anchor for HiddenRadius proximity culling
+	HiddenRadius       float32    // when >0, also skip agents within this XZ radius of HiddenGuestPos
 	// TerrainOverlayMode is a bitmask of view overlays applied to the
 	// terrain mesh. Each enabled bit alpha-blends its overlay onto the
 	// base shading, so several can stack at once. Bits, in order:
@@ -266,7 +266,7 @@ func (r *Renderer) initStaticMeshes() {
 	// tint keeps the colour palette decision in the placement code.
 	r.staticBatches[MeshRoadNode] = NewStaticBatch(NewCylinderMesh(1.5, 0.15, 24), r.whiteTexID)
 
-	// Skier — dynamic batch. One instance per world.Agent, repositioned
+	// Skier — dynamic batch. One instance per world.Guest, repositioned
 	// each tick by the sim.
 	skierMesh, skierTexID := LoadOBJ(modelDir + "skier.obj")
 	r.dynamicBatch = NewDynamicBatch(skierMesh, skierTexID)
@@ -1601,15 +1601,15 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	r.DynamicShader.SetFloat("uTime", time)
 
 	if r.dynamicBatch != nil {
-		instances := make([]DynamicInstance, 0, len(w.Agents))
+		instances := make([]DynamicInstance, 0, len(w.OnMountain))
 		hr2 := r.HiddenRadius * r.HiddenRadius
-		for _, agent := range w.Agents {
-			if r.HiddenAgentID != 0 && agent.ID == r.HiddenAgentID {
+		for _, agent := range w.OnMountain {
+			if r.HiddenGuestID != 0 && agent.ID == r.HiddenGuestID {
 				continue
 			}
 			if hr2 > 0 {
-				dx := agent.Pos[0] - r.HiddenAgentPos[0]
-				dz := agent.Pos[2] - r.HiddenAgentPos[2]
+				dx := agent.Pos[0] - r.HiddenGuestPos[0]
+				dz := agent.Pos[2] - r.HiddenGuestPos[2]
 				if dx*dx+dz*dz < hr2 {
 					continue
 				}
@@ -1618,8 +1618,8 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 			if agent.OnLiftID == 0 {
 				posY = VisualElevationAt(w.Terrain, agent.Pos[0], agent.Pos[2])
 			}
-			color := agentColor(w, agent)
-			if r.HighlightAgentID != 0 && agent.ID == r.HighlightAgentID {
+			color := guestColor(w, agent)
+			if r.HighlightGuestID != 0 && agent.ID == r.HighlightGuestID {
 				color = [3]float32{1.0, 0.95, 0.1}
 			}
 			instances = append(instances, DynamicInstance{
@@ -1712,7 +1712,7 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	}
 }
 
-func agentColor(w *world.World, a *world.Agent) [3]float32 {
+func guestColor(w *world.World, a *world.Guest) [3]float32 {
 	switch world.Activity(w, a) {
 	case "Walking":
 		return [3]float32{0.2, 0.6, 0.9}
@@ -2059,7 +2059,7 @@ func (r *Renderer) ResetSceneState() {
 	r.perceptionForwardXZ = mgl32.Vec2{}
 	r.perceptionCosHalfAngle = 0
 	r.perceptionRadius = 0
-	r.HighlightAgentID = 0
+	r.HighlightGuestID = 0
 	r.TerrainOverlayMode = 0
 	r.debugVertCount = 0
 }

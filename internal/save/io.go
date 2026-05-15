@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"sort"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/go-gl/mathgl/mgl32"
 	"github.com/vmihailenco/msgpack/v5"
+	"mountain-mogul/internal/ai"
 	"mountain-mogul/internal/world"
 )
 
@@ -266,20 +268,38 @@ func worldToData(w *world.World) ScenarioData {
 		}
 	}
 
-	agents := make([]AgentData, len(w.Agents))
-	for i, a := range w.Agents {
-		agents[i] = AgentData{
-			ID:       a.ID,
-			Pos:      [3]float32{a.Pos[0], a.Pos[1], a.Pos[2]},
-			Heading:  a.Heading,
-			Path:     a.Path,
-			PathIdx:  a.PathIdx,
-			Speed:    a.Speed,
-			TargetID: a.TargetID,
-			OnLiftID: a.OnLiftID,
-			Queued:   a.Queued,
-			Energy:   a.Energy,
+	// Persist the full Guests master list so identity + career stats survive
+	// the round-trip. Sim-scratch fields are only populated for
+	// State==OnMountain rows; dormant rows serialise to a compact identity
+	// stub.
+	guests := make([]GuestData, len(w.Guests))
+	for i, g := range w.Guests {
+		gd := GuestData{
+			ID:               g.ID,
+			Name:             g.Name,
+			Discipline:       uint8(g.Discipline),
+			Skill:            uint8(g.Traits.Skill),
+			VisitsPerSeason:  g.VisitsPerSeason,
+			VisitsThisSeason: g.VisitsThisSeason,
+			LifetimeVisits:   g.LifetimeVisits,
+			LastScore:        g.LastScore,
+			State:            uint8(g.State),
 		}
+		if !g.LastVisit.IsZero() {
+			gd.LastVisitUnix = g.LastVisit.Unix()
+		}
+		if g.State == world.OnMountain {
+			gd.Pos = [3]float32{g.Pos[0], g.Pos[1], g.Pos[2]}
+			gd.Heading = g.Heading
+			gd.Path = g.Path
+			gd.PathIdx = g.PathIdx
+			gd.Speed = g.Speed
+			gd.TargetID = g.TargetID
+			gd.OnLiftID = g.OnLiftID
+			gd.Queued = g.Queued
+			gd.Energy = g.Energy
+		}
+		guests[i] = gd
 	}
 
 	roadNodes := make([]RoadNodeData, len(w.RoadNodes))
@@ -308,7 +328,7 @@ func worldToData(w *world.World) ScenarioData {
 		Objects:   objects,
 		Buildings: buildings,
 		Lifts:     lifts,
-		Agents:    agents,
+		Guests:    guests,
 		Snowcats:  snowcats,
 		RoadNodes: roadNodes,
 		RoadEdges: roadEdges,
@@ -442,42 +462,56 @@ func dataToWorld(data ScenarioData) *world.World {
 		}
 	}
 
-	// Restore agents, preserving IDs so chair / queue references resolve.
-	for _, ad := range data.Agents {
+	// Restore guests. Every row in data.Guests rehydrates into a *Guest in
+	// w.Guests (the master catchment, including dormant entries); rows with
+	// State==OnMountain also get a pointer into w.OnMountain so the sim
+	// ticks them. IDs are preserved so chair / queue references resolve.
+	for _, gd := range data.Guests {
 		var id uint64
-		if ad.ID != 0 {
-			id = ad.ID
+		if gd.ID != 0 {
+			id = gd.ID
 		} else {
 			id = w.NextID()
 		}
-		// Old saves (pre-Energy field) decode as 0; treat that as fresh so
-		// loaded agents don't immediately route home. The marginal case of
-		// a save captured at exactly Energy=0 just gets a second wind —
-		// acceptable trade for not needing a pointer-typed JSON field.
-		energy := ad.Energy
-		if energy <= 0 {
-			energy = 1.0
+		g := &world.Guest{
+			ID:               id,
+			Name:             gd.Name,
+			Discipline:       world.Discipline(gd.Discipline),
+			Traits:           ai.TraitsFor(ai.SkillLevel(gd.Skill)),
+			VisitsPerSeason:  gd.VisitsPerSeason,
+			VisitsThisSeason: gd.VisitsThisSeason,
+			LifetimeVisits:   gd.LifetimeVisits,
+			LastScore:        gd.LastScore,
+			State:            world.GuestState(gd.State),
 		}
-		agent := &world.Agent{
-			ID:       id,
-			Pos:      mgl32.Vec3{ad.Pos[0], ad.Pos[1], ad.Pos[2]},
-			Heading:  ad.Heading,
-			Path:     ad.Path,
-			PathIdx:  ad.PathIdx,
-			Speed:    ad.Speed,
-			TargetID: ad.TargetID,
-			OnLiftID: ad.OnLiftID,
-			Queued:   ad.Queued,
-			Energy:   energy,
+		if gd.LastVisitUnix != 0 {
+			g.LastVisit = time.Unix(gd.LastVisitUnix, 0).UTC()
 		}
-		w.Agents = append(w.Agents, agent)
+		if g.State == world.OnMountain {
+			g.Pos = mgl32.Vec3{gd.Pos[0], gd.Pos[1], gd.Pos[2]}
+			g.Heading = gd.Heading
+			g.Path = gd.Path
+			g.PathIdx = gd.PathIdx
+			g.Speed = gd.Speed
+			g.TargetID = gd.TargetID
+			g.OnLiftID = gd.OnLiftID
+			g.Queued = gd.Queued
+			energy := gd.Energy
+			if energy <= 0 {
+				energy = 1.0
+			}
+			g.Energy = energy
+			g.Balance = 1.0
+			w.OnMountain = append(w.OnMountain, g)
+		}
+		w.Guests = append(w.Guests, g)
 	}
 
 	// Build an ID lookup so we can resolve chair-passenger and queue
-	// references back to live *Agent pointers.
-	agentByID := make(map[uint64]*world.Agent, len(w.Agents))
-	for _, a := range w.Agents {
-		agentByID[a.ID] = a
+	// references back to live *Guest pointers.
+	guestByID := make(map[uint64]*world.Guest, len(w.OnMountain))
+	for _, a := range w.OnMountain {
+		guestByID[a.ID] = a
 	}
 
 	for li, ld := range data.Lifts {
@@ -491,14 +525,14 @@ func dataToWorld(data ScenarioData) *world.World {
 				if pid == 0 || pi >= len(lift.Chairs[ci].Passengers) {
 					continue
 				}
-				if a := agentByID[pid]; a != nil {
+				if a := guestByID[pid]; a != nil {
 					lift.Chairs[ci].Passengers[pi] = a
 				}
 			}
 		}
 		// Queue: rebuild in saved order, skipping unresolved IDs.
 		for _, qid := range ld.QueueIDs {
-			if a := agentByID[qid]; a != nil {
+			if a := guestByID[qid]; a != nil {
 				lift.Queue = append(lift.Queue, a)
 			}
 		}
@@ -545,7 +579,7 @@ func dataToWorld(data ScenarioData) *world.World {
 			maxID = l.ID
 		}
 	}
-	for _, a := range w.Agents {
+	for _, a := range w.OnMountain {
 		if a.ID > maxID {
 			maxID = a.ID
 		}
@@ -566,6 +600,14 @@ func dataToWorld(data ScenarioData) *world.World {
 		}
 	}
 	w.SetMinNextID(maxID)
+
+	// Fresh scenarios (and any pre-Guests save) land here with an empty
+	// catchment. Seed a default 10k pool so the demand poll has someone
+	// to draw from. Post-rewrite saves write their Guests slice and skip
+	// this branch.
+	if len(w.Guests) == 0 {
+		world.SeedGuests(w, rand.New(rand.NewSource(time.Now().UnixNano())), world.DefaultGuestPoolSize)
+	}
 
 	return w
 }

@@ -188,7 +188,7 @@ type Decision struct {
 // when the agent has arrived (within ArrivalThreshold). a.Plan is set
 // once at step-start by sim.onPlanStepStart; this function never re-reads
 // strategic state.
-func (s *Simulation) tickSkier(a *world.Agent, target mgl32.Vec3, dt float64) bool {
+func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bool {
 	delta := target.Sub(a.Pos)
 	dist := delta.Len()
 	if dist < ArrivalThreshold {
@@ -225,7 +225,7 @@ func (s *Simulation) tickSkier(a *world.Agent, target mgl32.Vec3, dt float64) bo
 		a.Fallen = true
 		a.FallTimer = float32(fallRecoverTime)
 		a.Speed = 0
-		a.Events = append(a.Events, ai.AgentEvent{Kind: ai.EventFall, Time: s.SimTime})
+		a.Events = append(a.Events, ai.GuestEvent{Kind: ai.EventFall, Time: s.SimTime})
 		recordFrame(s, a, target, dist, perc, dec)
 		return false
 	}
@@ -248,7 +248,7 @@ func (s *Simulation) tickSkier(a *world.Agent, target mgl32.Vec3, dt float64) bo
 // at the top of a queue spread) doesn't paint dots underfoot.
 const minSplatSpeed = float32(1.0) // m/s
 
-func splatSkierTrack(t *world.Terrain, a *world.Agent, prevPos mgl32.Vec3) {
+func splatSkierTrack(t *world.Terrain, a *world.Guest, prevPos mgl32.Vec3) {
 	if t == nil || t.Surface == nil {
 		return
 	}
@@ -317,7 +317,7 @@ func wearSnowUnderfoot(t *world.Terrain, pos mgl32.Vec3, dt float64) {
 }
 
 // tickFallen counts the agent down out of the fallen window and resumes.
-func (s *Simulation) tickFallen(a *world.Agent, dt float64) {
+func (s *Simulation) tickFallen(a *world.Guest, dt float64) {
 	a.FallTimer -= float32(dt)
 	if a.FallTimer <= 0 {
 		a.Fallen = false
@@ -331,7 +331,7 @@ func (s *Simulation) tickFallen(a *world.Agent, dt float64) {
 // SECTION 4 — Perception
 // =============================================================================
 
-func perceive(t *world.Terrain, a *world.Agent, target mgl32.Vec3) Perception {
+func perceive(t *world.Terrain, a *world.Guest, target mgl32.Vec3) Perception {
 	pos := a.Pos
 	n := t.NormalAt(pos[0]/CellSize, pos[2]/CellSize)
 	fall, fallScale := fallDirAndScale(n)
@@ -379,7 +379,7 @@ func perceive(t *world.Terrain, a *world.Agent, target mgl32.Vec3) Perception {
 // brakeAngle > 0 → desired heading is off the fall line → edge friction
 // scrubs speed → speed drops → brakeAngle shrinks → if heading has reached
 // the arc edge on the committed side, flip TurnSide and carve back.
-func decide(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, a *world.Agent, perc Perception, dt float32, rng *rand.Rand) Decision {
+func decide(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, a *world.Guest, perc Perception, dt float32, rng *rand.Rand) Decision {
 	axisHeading := composeAxis(perc)
 
 	tactical, obstacleSeen, probeC, probeR, probeL := sampleTactical(w, towers, grid, a, perc, axisHeading, a.LastTactical, rng)
@@ -483,7 +483,7 @@ func composeAxis(perc Perception) float32 {
 // desiredSpeed is the per-skier target speed before braking kicks in. Maps
 // ComfortSpeed × Aggression × arrival modulation. No confidence multiplier
 // (Plan A drops the drift state).
-func desiredSpeed(traits ai.SkierTraits, perc Perception) float32 {
+func desiredSpeed(traits ai.GuestTraits, perc Perception) float32 {
 	s := traits.ComfortSpeed * (0.7 + 0.6*traits.Aggression)
 	if perc.InArrival {
 		s *= 0.5
@@ -559,7 +559,7 @@ func hazardDensityAt(t *world.Terrain, towers []mgl32.Vec2, grid *spatialGrid, s
 
 	const skierR2 = skierHazardRadius * skierHazardRadius
 	if grid != nil {
-		grid.forEachNear(x, z, func(other *world.Agent) {
+		grid.forEachNear(x, z, func(other *world.Guest) {
 			if other.ID == selfID {
 				return
 			}
@@ -593,7 +593,7 @@ func hazardDensityAt(t *world.Terrain, towers []mgl32.Vec2, grid *spatialGrid, s
 // score equally — but it's gated on actually seeing an obstacle in the
 // fan. Without that gate the commit bonus would slowly drift the skier
 // off-axis even on a clear slope, since prevTactical is self-perpetuating.
-func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self *world.Agent, perc Perception, axisHeading, prevTactical float32, rng *rand.Rand) (offset float32, obstacleSeen bool, probeC, probeR, probeL float32) {
+func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self *world.Guest, perc Perception, axisHeading, prevTactical float32, rng *rand.Rand) (offset float32, obstacleSeen bool, probeC, probeR, probeL float32) {
 	t := w.Terrain
 	horizon := perc.Speed * float32(sampleHorizonSec)
 	if horizon < float32(sampleMinDist) {
@@ -771,7 +771,7 @@ func effectiveFriction(t *world.Terrain, wx, wz float32) (base, edge float64) {
 	return base, edge
 }
 
-func apply(t *world.Terrain, a *world.Agent, dec Decision, perc Perception, dt float64) {
+func apply(t *world.Terrain, a *world.Guest, dec Decision, perc Perception, dt float64) {
 	a.Heading = rotateToward(a.Heading, dec.DesiredHeading, float32(headingRateMax), dt)
 
 	hx := float32(math.Sin(float64(a.Heading)))
@@ -825,7 +825,7 @@ func apply(t *world.Terrain, a *world.Agent, dec Decision, perc Perception, dt f
 // stressDelta returns the rate of change of Balance per second. Negative
 // drains toward a fall, positive recovers. Clamped to keep numerical
 // excursions bounded.
-func stressDelta(traits ai.SkierTraits, perc Perception, dec Decision) float32 {
+func stressDelta(traits ai.GuestTraits, perc Perception, dec Decision) float32 {
 	d := float32(0.15) // base recovery
 
 	if traits.ComfortSpeed > 0 && perc.Speed > traits.ComfortSpeed*1.2 {
@@ -958,7 +958,7 @@ type SteeringDebug struct {
 
 // ComputeSteeringDebug runs a non-mutating perception + decide pass for
 // rendering. The TurnSide on the agent is read but not mutated.
-func ComputeSteeringDebug(w *world.World, a *world.Agent, target mgl32.Vec3) SteeringDebug {
+func ComputeSteeringDebug(w *world.World, a *world.Guest, target mgl32.Vec3) SteeringDebug {
 	t := w.Terrain
 	clone := *a
 	perc := perceive(t, &clone, target)
@@ -967,7 +967,7 @@ func ComputeSteeringDebug(w *world.World, a *world.Agent, target mgl32.Vec3) Ste
 	// fires for the followed agent so the construction cost is
 	// negligible compared with the per-frame Simulation grid.
 	grid := newSpatialGrid(float32(w.Terrain.Width)*CellSize, float32(w.Terrain.Height)*CellSize)
-	grid.rebuild(w.Agents)
+	grid.rebuild(w.OnMountain)
 	// nil rng → no jitter, debug shows the deterministic part of the score.
 	dec := decide(w, towers, grid, &clone, perc, 0, nil)
 
@@ -1004,16 +1004,16 @@ func ComputeSteeringDebug(w *world.World, a *world.Agent, target mgl32.Vec3) Ste
 // SECTION 11 — Recorder hook
 // =============================================================================
 
-func recordFrame(s *Simulation, a *world.Agent, target mgl32.Vec3, dist float32, perc Perception, dec Decision) {
+func recordFrame(s *Simulation, a *world.Guest, target mgl32.Vec3, dist float32, perc Perception, dec Decision) {
 	if s.Recorder == nil {
 		return
 	}
-	if id := s.Recorder.AgentID(); id != 0 && id != a.ID {
+	if id := s.Recorder.GuestID(); id != 0 && id != a.ID {
 		return
 	}
 	s.Recorder.Record(RecorderFrame{
 		SimTime:         s.SimTime,
-		AgentID:         a.ID,
+		GuestID:         a.ID,
 		Activity:        world.Activity(s.World, a),
 		Pos:             a.Pos,
 		Heading:         a.Heading,

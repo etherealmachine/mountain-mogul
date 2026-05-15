@@ -35,15 +35,27 @@ func BuildingCost(t BuildingType) int {
 
 // World owns all simulation state.
 type World struct {
-	Terrain    *Terrain
-	Objects    []*PlacedObject
-	Buildings  []*Building
-	Lifts      []*Lift
-	Agents     []*Agent
-	Snowcats   []*Snowcat
-	RoadNodes  []*RoadNode
-	RoadEdges  []*RoadEdge
-	nextID     uint64
+	Terrain   *Terrain
+	Objects   []*PlacedObject
+	Buildings []*Building
+	Lifts     []*Lift
+
+	// Guests is the master catchment — every potential visitor the resort
+	// could ever attract, ~10k entries seeded at world init. Identity +
+	// career stats live here forever; the slice header never shrinks. The
+	// demand poll walks this slice once per day deciding who shows up.
+	Guests []*Guest
+
+	// OnMountain is the hot-path active subset of Guests — the pointers
+	// the sim ticks every frame. A guest appears here from arrival until
+	// reapDeparted splices them out and flips State back to AtHome (the
+	// Guest itself stays in Guests).
+	OnMountain []*Guest
+
+	Snowcats  []*Snowcat
+	RoadNodes []*RoadNode
+	RoadEdges []*RoadEdge
+	nextID    uint64
 
 	// Cash is the resort's bank balance in dollars. PlaceBuilding /
 	// PlaceLift deduct from this and refuse the placement when the
@@ -217,7 +229,7 @@ func (w *World) PlaceLift(typ LiftType, bx, bz, tx, tz float32) *Lift {
 	for i := range lift.Chairs {
 		lift.Chairs[i] = Chair{
 			Progress:   float32(i) / float32(numChairs),
-			Passengers: make([]*Agent, cap),
+			Passengers: make([]*Guest, cap),
 		}
 	}
 
@@ -256,7 +268,7 @@ func (w *World) UpgradeLift(l *Lift, target LiftType) bool {
 	l.Type = target
 	cap := target.Capacity()
 	for i := range l.Chairs {
-		fresh := make([]*Agent, cap)
+		fresh := make([]*Guest, cap)
 		copy(fresh, l.Chairs[i].Passengers)
 		l.Chairs[i].Passengers = fresh
 	}
@@ -279,11 +291,15 @@ func (w *World) RemoveLift(id uint64) {
 	}
 }
 
-// RemoveAgent removes an agent by ID.
-func (w *World) RemoveAgent(id uint64) {
-	for i, a := range w.Agents {
-		if a.ID == id {
-			w.Agents = append(w.Agents[:i], w.Agents[i+1:]...)
+// RemoveFromOnMountain splices the guest with the given ID out of
+// w.OnMountain and clears their sim scratch fields. The Guest record
+// itself stays in w.Guests with State = AtHome — identity and career
+// stats persist for the next visit.
+func (w *World) RemoveFromOnMountain(id uint64) {
+	for i, g := range w.OnMountain {
+		if g.ID == id {
+			g.ResetForDeparture()
+			w.OnMountain = append(w.OnMountain[:i], w.OnMountain[i+1:]...)
 			return
 		}
 	}

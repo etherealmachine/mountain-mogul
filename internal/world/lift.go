@@ -111,7 +111,7 @@ func CableHeightAt(frac, length float32) float32 {
 // time; iterate it directly rather than assuming a fixed length.
 type Chair struct {
 	Progress   float32
-	Passengers []*Agent
+	Passengers []*Guest
 }
 
 // ChairPos returns the world-space position and heading for a chair at the given
@@ -176,7 +176,7 @@ type Lift struct {
 	// it yet.
 	Services TerrainDifficulty
 
-	Queue  []*Agent
+	Queue  []*Guest
 	Chairs []Chair
 
 	// towerCache memoises TowerXZs() — towers are immutable after

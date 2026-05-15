@@ -9,7 +9,7 @@ type ScenarioData struct {
 	Objects   []ObjectData   `json:"objects"`
 	Buildings []BuildingData `json:"buildings"`
 	Lifts     []LiftData     `json:"lifts"`
-	Agents    []AgentData    `json:"agents"`
+	Guests    []GuestData    `json:"guests"`
 	Snowcats  []SnowcatData  `json:"snowcats,omitempty"`
 	RoadNodes []RoadNodeData `json:"road_nodes,omitempty"`
 	RoadEdges []RoadEdgeData `json:"road_edges,omitempty"`
@@ -133,17 +133,36 @@ type LiftData struct {
 	QueueIDs    []uint64    `json:"queue,omitempty"`
 }
 
-// AgentData is a saved agent state. ID is preserved so that lift chair /
-// queue references resolve back to the same agent on load.
-type AgentData struct {
-	ID       uint64     `json:"id,omitempty"`
-	Pos      [3]float32 `json:"pos"`
-	Heading  float32    `json:"heading"`
+// GuestData is a saved guest record. Covers both dormant (AtHome) and
+// active (OnMountain) guests — the master Guests slice persists every
+// entry so identity + career stats round-trip. Sim-scratch fields are
+// only meaningful for State==OnMountain; they're omitted (zero) for
+// dormant rows so the on-wire footprint stays small.
+type GuestData struct {
+	// Identity.
+	ID              uint64  `json:"id,omitempty"`
+	Name            string  `json:"name,omitempty"`
+	Discipline      uint8   `json:"disc,omitempty"`
+	Skill           uint8   `json:"skill,omitempty"`
+	VisitsPerSeason float32 `json:"vps,omitempty"`
+
+	// Career stats.
+	VisitsThisSeason int     `json:"vts,omitempty"`
+	LifetimeVisits   int     `json:"lv,omitempty"`
+	LastVisitUnix    int64   `json:"lvu,omitempty"` // 0 = never visited
+	LastScore        float32 `json:"lsc,omitempty"`
+
+	// Visit state. 0 = AtHome (default), 1 = OnMountain.
+	State uint8 `json:"state,omitempty"`
+
+	// Sim scratch — only populated when State == OnMountain.
+	Pos      [3]float32 `json:"pos,omitempty"`
+	Heading  float32    `json:"heading,omitempty"`
 	Path     [][2]int   `json:"path,omitempty"`
 	PathIdx  int        `json:"path_idx,omitempty"`
 	Speed    float32    `json:"speed,omitempty"`
 	TargetID uint64     `json:"target_id,omitempty"`
 	OnLiftID uint64     `json:"on_lift_id,omitempty"`
 	Queued   bool       `json:"queued,omitempty"`
-	Energy   float32    `json:"energy,omitempty"` // 0 on load (incl. saves predating this field) → defaulted to 1.0
+	Energy   float32    `json:"energy,omitempty"`
 }

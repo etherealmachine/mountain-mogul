@@ -350,13 +350,15 @@ func (b *builder) skierAt(gx, gz int, skill ai.SkillLevel) *builder {
 	lz := b.lastLodge.Pos[1]
 	heading := float32(math.Atan2(float64(lx-pos[0]), float64(lz-pos[2])))
 
-	a := &world.Agent{
-		ID:      b.w.NextID(),
-		Pos:     pos,
-		Heading: heading,
-		Traits:  ai.TraitsFor(skill),
-		Balance: 1.0,
-		Energy:  1.0,
+	a := &world.Guest{
+		ID:         b.w.NextID(),
+		State:      world.OnMountain,
+		Discipline: world.Ski,
+		Pos:        pos,
+		Heading:    heading,
+		Traits:     ai.TraitsFor(skill),
+		Balance:    1.0,
+		Energy:     1.0,
 	}
 	// Seed a two-step plan: ski to the lodge, then despawn. The GOAP
 	// planner would never emit this from a no-lift testbed world
@@ -372,7 +374,7 @@ func (b *builder) skierAt(gx, gz int, skill ai.SkillLevel) *builder {
 			{Kind: ai.ActDepart, BldgID: b.lastLodge.ID},
 		},
 	}
-	b.w.Agents = append(b.w.Agents, a)
+	b.w.OnMountain = append(b.w.OnMountain, a)
 	return b
 }
 

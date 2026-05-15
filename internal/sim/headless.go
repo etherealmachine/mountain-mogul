@@ -42,10 +42,10 @@ func RunHeadless(out io.Writer, name string, opts HeadlessOptions) error {
 	}
 
 	w := tb.Build(rand.New(rand.NewSource(seed)))
-	if len(w.Agents) == 0 {
+	if len(w.OnMountain) == 0 {
 		return fmt.Errorf("testbed %q produced no agents", tb.Name)
 	}
-	agent := w.Agents[0]
+	agent := w.OnMountain[0]
 
 	sim := NewSimulationWithSeed(w, seed)
 	sim.TimeScale = 1.0 // headless ticks are real-time = sim-time so dt is exact
@@ -70,12 +70,12 @@ func RunHeadless(out io.Writer, name string, opts HeadlessOptions) error {
 
 	for i := 0; i < steps; i++ {
 		sim.Tick(dt)
-		if len(w.Agents) == 0 {
+		if len(w.OnMountain) == 0 {
 			arrived = true
 			arrivedAt = sim.SimTime
 			break
 		}
-		cur := world.Activity(w, w.Agents[0])
+		cur := world.Activity(w, w.OnMountain[0])
 		if cur != prevActivity {
 			fmt.Fprintf(out, "  ! t=%6.2f  %s → %s\n", sim.SimTime, prevActivity, cur)
 			prevActivity = cur
@@ -86,7 +86,7 @@ func RunHeadless(out io.Writer, name string, opts HeadlessOptions) error {
 	if arrived {
 		fmt.Fprintf(out, "arrived at t=%.2fs\n", arrivedAt)
 	} else {
-		a := w.Agents[0]
+		a := w.OnMountain[0]
 		d := dist3(a.Pos[0]-target[0], a.Pos[1]-target[1], a.Pos[2]-target[2])
 		fmt.Fprintf(out, "did NOT arrive within %.1fs (final pos=(%.1f,%.1f,%.1f) dist=%.1f activity=%s)\n",
 			opts.SimSeconds, a.Pos[0], a.Pos[1], a.Pos[2], d, world.Activity(w, a))
@@ -128,7 +128,7 @@ func newTraceRecorder(id uint64, out io.Writer, period float64) *traceRecorder {
 	}
 }
 
-func (r *traceRecorder) AgentID() uint64 { return r.id }
+func (r *traceRecorder) GuestID() uint64 { return r.id }
 func (r *traceRecorder) Close() error    { return nil }
 
 func (r *traceRecorder) writeHeader() {
@@ -225,7 +225,7 @@ func skillName(s ai.SkillLevel) string {
 // targetPos resolves where an agent is heading (lodge or lift base) so the
 // header can print a useful target. Returns the agent's own position if the
 // TargetID resolves to nothing.
-func targetPos(w *world.World, a *world.Agent) [3]float32 {
+func targetPos(w *world.World, a *world.Guest) [3]float32 {
 	if a.TargetID == 0 {
 		return [3]float32{a.Pos[0], a.Pos[1], a.Pos[2]}
 	}

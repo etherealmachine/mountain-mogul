@@ -9,7 +9,7 @@ import "mountain-mogul/internal/world"
 const spatialCellSize = 5.0
 
 // spatialGrid is a flat 2D bucket of agents keyed by world cell. Built
-// once per Tick from w.Agents; queried by hazardDensityAt for each
+// once per Tick from w.OnMountain; queried by hazardDensityAt for each
 // candidate-arc sample point. Replaces the O(N) full-agent iteration
 // inside the L1 sampler with O(neighbours) — the per-substep work
 // for sampleTactical drops from O(168 × N²) to O(168 × N × k) where k
@@ -20,7 +20,7 @@ const spatialCellSize = 5.0
 // [:0] resets, so steady-state usage is allocation-free.
 type spatialGrid struct {
 	width, height int
-	buckets       [][]*world.Agent
+	buckets       [][]*world.Guest
 }
 
 // newSpatialGrid sizes the grid to cover the given terrain extent in
@@ -32,7 +32,7 @@ func newSpatialGrid(widthM, heightM float32) *spatialGrid {
 	return &spatialGrid{
 		width:   w,
 		height:  h,
-		buckets: make([][]*world.Agent, w*h),
+		buckets: make([][]*world.Guest, w*h),
 	}
 }
 
@@ -46,7 +46,7 @@ func (g *spatialGrid) reset() {
 
 // insert buckets one agent by its XZ position. Out-of-bounds agents
 // (shouldn't exist post-spawn but guarded just in case) are dropped.
-func (g *spatialGrid) insert(a *world.Agent) {
+func (g *spatialGrid) insert(a *world.Guest) {
 	cx, cz, ok := g.cellOf(a.Pos[0], a.Pos[2])
 	if !ok {
 		return
@@ -56,7 +56,7 @@ func (g *spatialGrid) insert(a *world.Agent) {
 }
 
 // rebuild clears and refills the grid from agents. Convenience wrapper.
-func (g *spatialGrid) rebuild(agents []*world.Agent) {
+func (g *spatialGrid) rebuild(agents []*world.Guest) {
 	g.reset()
 	for _, a := range agents {
 		g.insert(a)
@@ -80,7 +80,7 @@ func (g *spatialGrid) cellOf(x, z float32) (int, int, bool) {
 // of world position (x, z). Skips out-of-bounds query points (no
 // neighbours to visit). Agents are visited at most once. Out-of-bounds
 // neighbour cells are skipped silently.
-func (g *spatialGrid) forEachNear(x, z float32, fn func(a *world.Agent)) {
+func (g *spatialGrid) forEachNear(x, z float32, fn func(a *world.Guest)) {
 	cx, cz, ok := g.cellOf(x, z)
 	if !ok {
 		return
