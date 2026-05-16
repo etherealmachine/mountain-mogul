@@ -1436,6 +1436,27 @@ func (s *Scenario) Update(dt float64) {
 			if !overSlider && s.world.Terrain.InBounds(gx, gz) {
 				if s.activeTool == toolNone && inp.LeftClick {
 					s.tryOpenPopup(s.hoverWorld, r.ScreenWidth(), r.ScreenHeight())
+				} else if s.activeTool == toolTrailPaint && inp.LeftClick && !trailDragged {
+					// Single click in paint mode: select the trail under the cursor
+					// (opening its popup), or start dragging to paint on empty terrain.
+					picked := false
+					for _, t := range s.world.Trails {
+						for _, cell := range t.Cells {
+							if cell[0] == gx && cell[1] == gz {
+								s.activeTrailID = t.ID
+								s.openTrailPopup(t, r.ScreenWidth(), r.ScreenHeight())
+								picked = true
+								break
+							}
+						}
+						if picked {
+							break
+						}
+					}
+					if !picked {
+						s.lastTrailPaintCell = s.hoverCell
+						s.applyTool(r)
+					}
 				} else {
 					if s.activeTool == toolGlade {
 						s.lastGladeCell = s.hoverCell
@@ -1910,32 +1931,19 @@ func (s *Scenario) applyRoutePaint(gx, gz int) {
 // trailPaintBrushRadius is the half-width of the trail-paint brush in cells.
 const trailPaintBrushRadius = 2
 
-// activateTrailTool creates a new trail and enters trail-paint mode. If the
-// player clicks the trail button again while already painting, it cycles the
-// difficulty of the active trail (Green → Blue → Black → Green).
+// activateTrailTool enters trail-paint mode for a new trail. Re-clicking
+// the Trail button while already in paint mode deactivates the tool.
 func (s *Scenario) activateTrailTool() {
-	if s.activeTool == toolTrailPaint && s.activeTrailID != 0 {
-		// Cycle difficulty on the active trail.
-		t := s.world.FindTrail(s.activeTrailID)
-		if t != nil {
-			switch t.Difficulty {
-			case world.DiffGreen:
-				t.Difficulty = world.DiffBlue
-			case world.DiffBlue:
-				t.Difficulty = world.DiffBlack
-			default:
-				t.Difficulty = world.DiffGreen
-			}
-		}
-		s.syncToolButtons()
+	if s.activeTool == toolTrailPaint {
+		s.cancelTool()
 		return
 	}
-	// Create a new trail.
 	t := s.world.PlaceTrail("", s.trailDifficulty)
 	s.activeTrailID = t.ID
 	s.lastTrailPaintCell = [2]int{-1, -1}
 	s.activeTool = toolTrailPaint
 	s.syncToolButtons()
+	s.setToast("Drag to paint trail. Right-drag to erase. Esc to finish.")
 }
 
 // applyTrailPaint adds cells under the brush to the active trail.
