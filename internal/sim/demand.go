@@ -213,7 +213,7 @@ func resortCapacity(w *world.World) float32 {
 func terrainMatch(w *world.World, skill ai.SkillLevel) float32 {
 	want := skillToDifficulty(skill)
 	for _, l := range w.Lifts {
-		if l.Services.Has(want) {
+		if w.ServicesForLift(l.ID).Has(want) {
 			return 1
 		}
 	}

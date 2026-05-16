@@ -28,6 +28,7 @@ type WorldSnapshot struct {
 	Pos    mgl32.Vec3
 	Energy float32 // 0..1; depletes while skiing, restored at lodge
 	Fun    float32 // 0..1; smoothed satisfaction signal
+	Skill  ai.SkillLevel
 
 	AtLiftBase uint64 // 0 or lift ID — at the base of this lift, not yet queued
 	AtLiftTop  uint64 // 0 or lift ID — just unloaded at the top
@@ -35,6 +36,7 @@ type WorldSnapshot struct {
 	OnLift     uint64 // 0 or lift ID — riding a chair
 	AtLodge    uint64 // 0 or lodge building ID
 	AtParking  uint64 // 0 or parking building ID
+	AtTrailEnd uint64 // 0 or trail ID — arrived at a trail-to-trail junction
 
 	// Removed flags a terminal state: agent has Departed. Planner treats
 	// this as the unique goal-state for GoHome.
@@ -77,7 +79,9 @@ func Extract(a *world.Guest, w *world.World) WorldSnapshot {
 		Pos:        a.Pos,
 		Energy:     a.Energy,
 		Fun:        a.Fun,
+		Skill:      a.Traits.Skill,
 		OnLift:     a.OnLiftID,
+		AtTrailEnd: a.AtTrailEnd,
 		RidenLifts: a.RidenLifts,
 	}
 	if a.Queued {

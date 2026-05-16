@@ -1,0 +1,155 @@
+package world
+
+import (
+	"fmt"
+
+	"github.com/go-gl/mathgl/mgl32"
+)
+
+// EdgeKind tags what kind of entity a TrailEdge endpoint refers to.
+type EdgeKind uint8
+
+const (
+	KindLiftTop  EdgeKind = iota // lift top station — guest just unloaded
+	KindLiftBase                 // lift queue — guest heads here to board
+	KindBuilding                 // lodge or parking lot
+	KindTrail                    // trail-to-trail junction
+)
+
+// Trail is a named ski run defined by the grid cells it covers. Players
+// paint cells interactively; the simulation derives connectivity from
+// whichever entity footprints overlap those cells.
+type Trail struct {
+	ID         uint64
+	Name       string
+	Difficulty TerrainDifficulty
+	Cells      [][2]int
+}
+
+// cellSet returns a map of the trail's cells for O(1) membership testing.
+func (t *Trail) cellSet() map[[2]int]bool {
+	m := make(map[[2]int]bool, len(t.Cells))
+	for _, c := range t.Cells {
+		m[c] = true
+	}
+	return m
+}
+
+// Centroid returns the average world-space XZ position of the trail's cells.
+func (t *Trail) Centroid() mgl32.Vec2 {
+	if len(t.Cells) == 0 {
+		return mgl32.Vec2{}
+	}
+	var sx, sz float64
+	for _, c := range t.Cells {
+		sx += float64(c[0])
+		sz += float64(c[1])
+	}
+	n := float64(len(t.Cells))
+	return mgl32.Vec2{
+		float32((sx/n + 0.5) * CellSize),
+		float32((sz/n + 0.5) * CellSize),
+	}
+}
+
+// PlaceTrail creates a new empty trail. Cells are added via AddTrailCells.
+// Callers should call RebuildTrailGraph after painting cells.
+func (w *World) PlaceTrail(name string, diff TerrainDifficulty) *Trail {
+	if name == "" {
+		name = w.nextTrailDefaultName()
+	}
+	t := &Trail{
+		ID:         w.NextID(),
+		Name:       name,
+		Difficulty: diff,
+	}
+	w.Trails = append(w.Trails, t)
+	return t
+}
+
+// DeleteTrail removes a trail by ID. Callers must call RebuildTrailGraph
+// and replan any guests whose current plan step references the deleted trail.
+func (w *World) DeleteTrail(id uint64) {
+	for i, t := range w.Trails {
+		if t.ID == id {
+			w.Trails = append(w.Trails[:i], w.Trails[i+1:]...)
+			return
+		}
+	}
+}
+
+// FindTrail returns the trail with the given ID, or nil.
+func (w *World) FindTrail(id uint64) *Trail {
+	for _, t := range w.Trails {
+		if t.ID == id {
+			return t
+		}
+	}
+	return nil
+}
+
+// AddTrailCells appends cells to a trail, silently ignoring duplicates.
+func (w *World) AddTrailCells(id uint64, cells [][2]int) {
+	t := w.FindTrail(id)
+	if t == nil {
+		return
+	}
+	existing := t.cellSet()
+	for _, c := range cells {
+		if !existing[c] {
+			t.Cells = append(t.Cells, c)
+			existing[c] = true
+		}
+	}
+}
+
+// RemoveTrailCells removes the given cells from a trail.
+func (w *World) RemoveTrailCells(id uint64, cells [][2]int) {
+	t := w.FindTrail(id)
+	if t == nil {
+		return
+	}
+	rm := make(map[[2]int]bool, len(cells))
+	for _, c := range cells {
+		rm[c] = true
+	}
+	out := t.Cells[:0]
+	for _, c := range t.Cells {
+		if !rm[c] {
+			out = append(out, c)
+		}
+	}
+	t.Cells = out
+}
+
+// RebuildTrailGraph recomputes the connectivity graph from current trail
+// cell data and stores it on the world. Called after any trail mutation.
+func (w *World) RebuildTrailGraph() {
+	w.TrailGraph = BuildTrailGraph(w)
+}
+
+// BrushCells returns all grid cells within a circular radius of (cx, cz).
+// Radius is in cells (1 cell = CellSize metres).
+func BrushCells(cx, cz, radius int) [][2]int {
+	var out [][2]int
+	r2 := radius * radius
+	for dx := -radius; dx <= radius; dx++ {
+		for dz := -radius; dz <= radius; dz++ {
+			if dx*dx+dz*dz <= r2 {
+				out = append(out, [2]int{cx + dx, cz + dz})
+			}
+		}
+	}
+	return out
+}
+
+func (w *World) nextTrailDefaultName() string {
+	max := 0
+	for _, t := range w.Trails {
+		var n int
+		if _, err := fmt.Sscanf(t.Name, "Run %d", &n); err == nil && n > max {
+			max = n
+		}
+	}
+	return fmt.Sprintf("Run %d", max+1)
+}

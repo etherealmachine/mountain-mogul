@@ -9,6 +9,7 @@ type ScenarioData struct {
 	Objects   []ObjectData   `json:"objects"`
 	Buildings []BuildingData `json:"buildings"`
 	Lifts     []LiftData     `json:"lifts"`
+	Trails    []TrailData    `json:"trails,omitempty"`
 	Guests    []GuestData    `json:"guests"`
 	Snowcats  []SnowcatData  `json:"snowcats,omitempty"`
 	RoadNodes []RoadNodeData `json:"road_nodes,omitempty"`
@@ -16,6 +17,16 @@ type ScenarioData struct {
 	Cash      int            `json:"cash,omitempty"`
 	Camera    *CameraData    `json:"camera,omitempty"`
 	History   *HistoryData   `json:"history,omitempty"`
+}
+
+// TrailData is a saved player-defined ski trail. Cells is the complete
+// list of grid cells the trail covers; connectivity is derived on load
+// and not persisted.
+type TrailData struct {
+	ID         uint64   `json:"id,omitempty"`
+	Name       string   `json:"name,omitempty"`
+	Difficulty uint8    `json:"diff,omitempty"`
+	Cells      [][2]int `json:"cells,omitempty"`
 }
 
 // HistoryData is the saved daily ring of resort stats — see

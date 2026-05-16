@@ -39,6 +39,12 @@ type World struct {
 	Objects   []*PlacedObject
 	Buildings []*Building
 	Lifts     []*Lift
+	Trails    []*Trail
+
+	// TrailGraph is the derived connectivity graph built from trail cell data.
+	// Rebuilt by RebuildTrailGraph whenever trails are added, removed, or edited.
+	// Nil until the first trail is placed.
+	TrailGraph *TrailGraph
 
 	// Guests is the master catchment — every potential visitor the resort
 	// could ever attract, ~10k entries seeded at world init. Identity +

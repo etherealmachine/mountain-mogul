@@ -119,17 +119,20 @@ const (
 	ActSkiToParking
 	ActRestAtLodge
 	ActDepart
+	ActSkiTrail // ski a player-defined trail from one entity to another
 )
 
 // PlanAction is one step in the stored L0 plan — plain data, no behaviour.
-// Either LiftID or BldgID is set depending on Kind; the runtime resolves
-// the entity at execute time. Cost is the planner's cost-at-emission for
-// HUD display.
+// For ActSkiTrail: TrailID is the via-trail (also the destination for
+// trail-to-trail steps); LiftID is the destination lift base (if any);
+// BldgID is the destination building (if any). At most one of LiftID /
+// BldgID is non-zero per step.
 type PlanAction struct {
-	Kind   PlanActionKind
-	LiftID uint64
-	BldgID uint64
-	Cost   float32
+	Kind    PlanActionKind
+	LiftID  uint64
+	BldgID  uint64
+	TrailID uint64 // ActSkiTrail: via trail (= destination for trail-to-trail)
+	Cost    float32
 }
 
 // Plan is the per-agent strategic layer state. Steps is the L0 plan
@@ -215,7 +218,7 @@ type GuestEventKind uint8
 
 const (
 	EventFall GuestEventKind = iota // L1 controller detected Balance ≤ 0
-	EventRun                        // agent completed a descent (any ActSkiTo*)
+	EventRun                        // agent completed a descent (any ActSkiTo* or ActSkiTrail)
 )
 
 // GuestEvent is one row in an agent's per-session log. Time is sim-time

@@ -497,6 +497,7 @@ const (
 	toolPlantTrees  toolMode = iota // increase TreeDensity (brush, editor only)
 	toolRemove      toolMode = iota // remove building at clicked cell
 	toolRoute       toolMode = iota // paint snowcat route cells onto a selected shed
+	toolTrailPaint  toolMode = iota // paint/erase cells on the active trail
 )
 
 // Scenario is the main gameplay scene.
@@ -558,6 +559,12 @@ type Scenario struct {
 	// no shed selected (the tool is a no-op).
 	routeShedID  uint64
 	lastRouteCell [2]int
+
+	// Trail-paint mode: while toolTrailPaint is active, the player
+	// drag-paints (left) or erases (right) cells on the active trail.
+	activeTrailID    uint64
+	trailDifficulty  world.TerrainDifficulty // difficulty for the next new trail
+	lastTrailPaintCell [2]int
 
 	// Click-to-edit road state. Active only while activeTool == toolNone:
 	// a toolNone left click on a road node/edge populates this and the
@@ -720,6 +727,7 @@ func (s *Scenario) Init(app *engine.App) error {
 	s.liftQuadBtn = s.toolBar.AddIconButton(render.IconCableCar, "Quad", func() { s.activateLiftTool(world.LiftFixedQuad) })
 	s.toolButtons[toolRoadStart] = s.toolBar.AddIconButton(render.IconRoad, "Road", func() { s.setTool(toolRoadStart) })
 	s.toolButtons[toolGlade] = s.toolBar.AddIconButton(render.IconAxe, "Glade", func() { s.setTool(toolGlade) })
+	s.toolButtons[toolTrailPaint] = s.toolBar.AddIconButton(render.IconFlag, "Trail", func() { s.activateTrailTool() })
 	s.toolButtons[toolRemove] = s.toolBar.AddIconButton(render.IconTrash, "Remove", func() { s.setTool(toolRemove) })
 	if s.rebuild != nil {
 		s.toolBar.AddButton("New Seed", func() {
@@ -823,6 +831,8 @@ func (s *Scenario) Init(app *engine.App) error {
 		s.chartWindow.Visible = !s.chartWindow.Visible
 		s.topBar.SetChartsActive(s.chartWindow.Visible)
 	})
+
+	s.trailDifficulty = world.DiffGreen
 
 	return nil
 }
@@ -1380,27 +1390,44 @@ func (s *Scenario) Update(dt float64) {
 		}
 	}
 
-	// End-of-stroke reset for glade and route drag-paint. As soon as
-	// the mouse is up, forget the last cell we applied to so the next
-	// click starts a fresh stroke (and won't drag-apply on its own
-	// initial frame).
+	// End-of-stroke reset for drag-paint tools. As soon as the mouse is
+	// up, forget the last cell so the next click starts a fresh stroke.
 	if !inp.LeftHeld {
-		s.lastGladeCell = [2]int{-1, -1}
-		s.lastRouteCell = [2]int{-1, -1}
+		if s.lastGladeCell != [2]int{-1, -1} {
+			s.lastGladeCell = [2]int{-1, -1}
+		}
+		if s.lastRouteCell != [2]int{-1, -1} {
+			s.lastRouteCell = [2]int{-1, -1}
+		}
+		if s.activeTool == toolTrailPaint && s.lastTrailPaintCell != [2]int{-1, -1} {
+			s.finishTrailPaintStroke()
+			s.lastTrailPaintCell = [2]int{-1, -1}
+		}
+	}
+
+	// Right-held erase for trail paint.
+	if s.activeTool == toolTrailPaint && inp.RightHeld && s.hoverValid {
+		gx, gz := s.hoverCell[0], s.hoverCell[1]
+		if s.world.Terrain.InBounds(gx, gz) {
+			s.applyTrailErase(gx, gz)
+			s.lastTrailPaintCell = [2]int{gx, gz}
+		}
 	}
 
 	if !inp.LeftClickConsumed && !sliderActive {
-		// Glade and route drag-painting: apply once when the cursor moves
-		// into a new cell while held. Requires a prior valid last*Cell —
-		// so holding LMB from a toolbar click doesn't auto-apply on
-		// entering terrain, only a real click on terrain starts a stroke.
+		// Drag-painting: apply once when the cursor moves into a new cell
+		// while held. Requires a prior valid last*Cell — so holding LMB
+		// from a toolbar click doesn't auto-apply on entering terrain.
 		gladeDragged := s.activeTool == toolGlade && inp.LeftHeld &&
 			s.lastGladeCell != [2]int{-1, -1} &&
 			s.hoverCell != s.lastGladeCell
 		routeDragged := s.activeTool == toolRoute && inp.LeftHeld &&
 			s.lastRouteCell != [2]int{-1, -1} &&
 			s.hoverCell != s.lastRouteCell
-		clickOrDrag := inp.LeftClick || gladeDragged || routeDragged
+		trailDragged := s.activeTool == toolTrailPaint && inp.LeftHeld &&
+			s.lastTrailPaintCell != [2]int{-1, -1} &&
+			s.hoverCell != s.lastTrailPaintCell
+		clickOrDrag := inp.LeftClick || gladeDragged || routeDragged || trailDragged
 		if clickOrDrag && !s.uiCovers(inp.MousePos[0], inp.MousePos[1], screenW) && s.hoverValid {
 			overSlider := s.activeTool == toolGlade &&
 				(s.gladeRadiusSlider.Contains(inp.MousePos[0], inp.MousePos[1]) ||
@@ -1415,6 +1442,9 @@ func (s *Scenario) Update(dt float64) {
 					}
 					if s.activeTool == toolRoute {
 						s.lastRouteCell = s.hoverCell
+					}
+					if s.activeTool == toolTrailPaint {
+						s.lastTrailPaintCell = s.hoverCell
 					}
 					s.applyTool(r)
 				}
@@ -1515,7 +1545,9 @@ func (s *Scenario) updateOverlay(r *render.Renderer) {
 	if a == nil {
 		// No skier followed — but route cells may still need drawing
 		// during route paint, so push just those.
-		r.SetDebugLines(s.routeOverlayLines())
+		lines := s.routeOverlayLines()
+		lines = append(lines, s.trailOverlayLines()...)
+		r.SetDebugLines(lines)
 		return
 	}
 	if s.trackOwner == 0 {
@@ -1562,6 +1594,7 @@ func (s *Scenario) updateOverlay(r *render.Renderer) {
 	}
 
 	lines = append(lines, s.routeOverlayLines()...)
+	lines = append(lines, s.trailOverlayLines()...)
 	r.SetDebugLines(lines)
 }
 
@@ -1821,6 +1854,9 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		s.removeAt(s.hoverWorld, r)
 	case toolRoute:
 		s.applyRoutePaint(gx, gz)
+	case toolTrailPaint:
+		s.applyTrailPaint(gx, gz)
+		s.lastTrailPaintCell = [2]int{gx, gz}
 	}
 }
 
@@ -1869,6 +1905,124 @@ func (s *Scenario) applyRoutePaint(gx, gz int) {
 			hit[cell] = true
 		}
 	}
+}
+
+// trailPaintBrushRadius is the half-width of the trail-paint brush in cells.
+const trailPaintBrushRadius = 2
+
+// activateTrailTool creates a new trail and enters trail-paint mode. If the
+// player clicks the trail button again while already painting, it cycles the
+// difficulty of the active trail (Green → Blue → Black → Green).
+func (s *Scenario) activateTrailTool() {
+	if s.activeTool == toolTrailPaint && s.activeTrailID != 0 {
+		// Cycle difficulty on the active trail.
+		t := s.world.FindTrail(s.activeTrailID)
+		if t != nil {
+			switch t.Difficulty {
+			case world.DiffGreen:
+				t.Difficulty = world.DiffBlue
+			case world.DiffBlue:
+				t.Difficulty = world.DiffBlack
+			default:
+				t.Difficulty = world.DiffGreen
+			}
+		}
+		s.syncToolButtons()
+		return
+	}
+	// Create a new trail.
+	t := s.world.PlaceTrail("", s.trailDifficulty)
+	s.activeTrailID = t.ID
+	s.lastTrailPaintCell = [2]int{-1, -1}
+	s.activeTool = toolTrailPaint
+	s.syncToolButtons()
+}
+
+// applyTrailPaint adds cells under the brush to the active trail.
+func (s *Scenario) applyTrailPaint(gx, gz int) {
+	if s.activeTrailID == 0 {
+		return
+	}
+	cells := world.BrushCells(gx, gz, trailPaintBrushRadius)
+	var valid [][2]int
+	for _, c := range cells {
+		if s.world.Terrain.InBounds(c[0], c[1]) {
+			valid = append(valid, c)
+		}
+	}
+	if len(valid) > 0 {
+		s.world.AddTrailCells(s.activeTrailID, valid)
+	}
+}
+
+// applyTrailErase removes cells under the brush from the active trail.
+func (s *Scenario) applyTrailErase(gx, gz int) {
+	if s.activeTrailID == 0 {
+		return
+	}
+	cells := world.BrushCells(gx, gz, trailPaintBrushRadius)
+	s.world.RemoveTrailCells(s.activeTrailID, cells)
+}
+
+// finishTrailPaintStroke rebuilds the TrailGraph after a drag-paint stroke ends.
+func (s *Scenario) finishTrailPaintStroke() {
+	s.world.RebuildTrailGraph()
+}
+
+// trailOverlayLines builds debug-line outlines for all painted trails.
+// The active trail is drawn bright; others are dim.
+func (s *Scenario) trailOverlayLines() []render.DebugLine {
+	if len(s.world.Trails) == 0 {
+		return nil
+	}
+	const hover = float32(2.0)
+	const cellSize = float32(5.0)
+	diffColor := func(d world.TerrainDifficulty, bright bool) [3]float32 {
+		alpha := float32(0.5)
+		if bright {
+			alpha = 1.0
+		}
+		switch d {
+		case world.DiffGreen:
+			return [3]float32{0.33 * alpha, 0.67 * alpha, 0.33 * alpha}
+		case world.DiffBlue:
+			return [3]float32{0.27 * alpha, 0.53 * alpha, 0.8 * alpha}
+		default: // DiffBlack
+			return [3]float32{0.2 * alpha, 0.2 * alpha, 0.2 * alpha}
+		}
+	}
+
+	var out []render.DebugLine
+	addCell := func(c [2]int, col [3]float32) {
+		x0 := float32(c[0]) * cellSize
+		x1 := x0 + cellSize
+		z0 := float32(c[1]) * cellSize
+		z1 := z0 + cellSize
+		y00 := s.world.Terrain.InterpolatedSurfaceElevationAt(x0, z0) + hover
+		y10 := s.world.Terrain.InterpolatedSurfaceElevationAt(x1, z0) + hover
+		y01 := s.world.Terrain.InterpolatedSurfaceElevationAt(x0, z1) + hover
+		y11 := s.world.Terrain.InterpolatedSurfaceElevationAt(x1, z1) + hover
+		p00 := mgl32.Vec3{x0, y00, z0}
+		p10 := mgl32.Vec3{x1, y10, z0}
+		p11 := mgl32.Vec3{x1, y11, z1}
+		p01 := mgl32.Vec3{x0, y01, z1}
+		out = append(out,
+			render.DebugLine{A: p00, B: p10, Color: col},
+			render.DebugLine{A: p10, B: p11, Color: col},
+			render.DebugLine{A: p11, B: p01, Color: col},
+			render.DebugLine{A: p01, B: p00, Color: col},
+			render.DebugLine{A: p00, B: p11, Color: col},
+			render.DebugLine{A: p10, B: p01, Color: col},
+		)
+	}
+	for _, t := range s.world.Trails {
+		bright := t.ID == s.activeTrailID
+		col := diffColor(t.Difficulty, bright)
+		for _, c := range t.Cells {
+			addCell(c, col)
+		}
+	}
+	return out
 }
 
 // findBuilding returns the building with the given ID, or nil.
@@ -2078,9 +2232,65 @@ func (s *Scenario) tryOpenPopup(clickPos mgl32.Vec3, screenW, screenH int) {
 			return
 		}
 	}
+	// Trail pick: check if click cell belongs to any trail.
+	cx := int(clickPos[0] / world.CellSize)
+	cz := int(clickPos[2] / world.CellSize)
+	for _, t := range s.world.Trails {
+		for _, cell := range t.Cells {
+			if cell[0] == cx && cell[1] == cz {
+				s.openTrailPopup(t, screenW, screenH)
+				return
+			}
+		}
+	}
 	if s.popup != nil {
 		s.popup.Visible = false
 	}
+}
+
+func (s *Scenario) openTrailPopup(trail *world.Trail, screenW, screenH int) {
+	t := trail
+	w := ui.NewWindow("Trail", 0, 0)
+	w.AddTextInput("Name", t.Name, func(text string) { t.Name = text })
+	// Difficulty: single-select (Green / Blue / Black).
+	w.AddDifficultyToggles("Difficulty",
+		func(bit uint8) bool { return t.Difficulty == world.TerrainDifficulty(bit) },
+		func(bit uint8) {
+			t.Difficulty = world.TerrainDifficulty(bit)
+			s.world.RebuildTrailGraph()
+		},
+	)
+	w.AddLabel("Cells", func() string { return fmt.Sprintf("%d", len(t.Cells)) })
+	w.AddActionButton("Edit", func() {
+		s.activeTrailID = t.ID
+		s.trailDifficulty = t.Difficulty
+		s.lastTrailPaintCell = [2]int{-1, -1}
+		s.activeTool = toolTrailPaint
+		s.syncToolButtons()
+		if s.popup != nil {
+			s.popup.Visible = false
+		}
+		s.setToast("Drag to paint trail. Right-drag to erase. Esc to finish.")
+	})
+	w.AddActionButton("Delete", func() {
+		// Replan any guest whose current plan step uses this trail.
+		for _, a := range s.world.OnMountain {
+			for _, step := range a.Plan.Steps {
+				if step.TrailID == t.ID {
+					a.Plan.Steps = nil
+					break
+				}
+			}
+		}
+		s.world.DeleteTrail(t.ID)
+		s.world.RebuildTrailGraph()
+		if s.popup != nil {
+			s.popup.Visible = false
+		}
+	})
+	w.Visible = true
+	w.Center(screenW, screenH)
+	s.popup = w
 }
 
 func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
@@ -2166,10 +2376,27 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 	l := lift
 	w := ui.NewWindow("Ski Lift", 0, 0)
 	w.AddTextInput("Name", l.Name, func(text string) { l.Name = text })
-	w.AddDifficultyToggles("Services",
-		func(bit uint8) bool { return l.Services.Has(world.TerrainDifficulty(bit)) },
-		func(bit uint8) { l.Services = l.Services.Toggle(world.TerrainDifficulty(bit)) },
-	)
+	w.AddLabel("Services", func() string {
+		svc := s.world.ServicesForLift(l.ID)
+		switch {
+		case svc.Has(world.DiffGreen) && svc.Has(world.DiffBlue) && svc.Has(world.DiffBlack):
+			return "Green / Blue / Black"
+		case svc.Has(world.DiffGreen) && svc.Has(world.DiffBlue):
+			return "Green / Blue"
+		case svc.Has(world.DiffGreen) && svc.Has(world.DiffBlack):
+			return "Green / Black"
+		case svc.Has(world.DiffBlue) && svc.Has(world.DiffBlack):
+			return "Blue / Black"
+		case svc.Has(world.DiffGreen):
+			return "Green"
+		case svc.Has(world.DiffBlue):
+			return "Blue"
+		case svc.Has(world.DiffBlack):
+			return "Black"
+		default:
+			return "None"
+		}
+	})
 	w.AddLabel("Type", func() string {
 		return l.Type.Label()
 	})
@@ -2260,6 +2487,10 @@ func (s *Scenario) cancelTool() {
 	if s.activeTool == toolRoute {
 		s.routeShedID = 0
 		s.lastRouteCell = [2]int{-1, -1}
+	}
+	if s.activeTool == toolTrailPaint {
+		s.activeTrailID = 0
+		s.lastTrailPaintCell = [2]int{-1, -1}
 	}
 	s.activeTool = toolNone
 	s.syncToolButtons()

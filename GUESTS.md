@@ -383,31 +383,30 @@ tick re-plans.
 
 - `EatLunch(B)` — `AtLodge == B` and lodge serves meals. Effect:
   `Hunger = 0`, `Mood += 0.3`. Cost: `mealTime`.
-- `SkiTrail(T)` — replaces the trail-free `SkiTo*` once trails are first-
-  class. Precondition: `AtLiftTop == T.FromLift`. Effect: `AtLiftBase =
-  T.ToLift` (or `AtParking = T.ToParking`); push `T.ID` onto a per-agent
-  `RecentRuns` ring. Cost includes difficulty / skill / boredom terms.
+- `SkiTrail(T)` ✅ — area-based trail from the TrailGraph. Precondition:
+  current anchor (lift top, trail junction, lodge, or parking) matches
+  `edge.FromID`. Effect: sets destination anchor (lift base, building, or
+  trail junction). Cost: `Distance / skiSpeedMps`. Off-trail free-roam
+  (`SkiTo*`) applies a skill-based time penalty when any trail edge exists
+  from the current anchor.
 
-### Trails as first-class entities
+### Trails as first-class entities ✅
 
 ```go
 type Trail struct {
     ID         uint64
     Name       string
-    Difficulty TerrainDifficulty   // DiffGreen / DiffBlue / DiffBlack
-    FromLift   uint64              // lift whose top this trail starts at
-    ToLift     uint64              // lift whose base it ends at (0 → parking)
-    ToParking  uint64              // alternative endpoint
-    Length     float32             // metres
+    Difficulty TerrainDifficulty   // DiffGreen | DiffBlue | DiffBlack
+    Cells      [][2]int            // grid cells painted by the player
 }
 ```
 
-Trails carry **no waypoints** — the L1 controller is path-free, terrain
-represents the physical corridor via Grooming + cleared trees. A trail is
-the *semantic* overlay. Placement is a future scenario-editor tool:
-click a lift top, then a lift base or parking lot; `Length` falls out of
-straight-line distance. `Lift.Services` becomes derived from trails
-(`∪ T.Difficulty : T.FromLift == lift.ID`).
+Trails are **area-based** — players paint grid cells. Connectivity is
+derived: the game finds which entity footprints (lift tops/bases, lodges,
+parking, other trails) overlap a trail's cells and builds a directed
+`TrailGraph`. `Lift.Services` is now derived from the TrailGraph
+(`∪ trail.Difficulty` for trails whose edges depart from that lift's top).
+When no trails cover a lift top, it serves all difficulties.
 
 ### Explicit replan event hooks
 
@@ -458,6 +457,6 @@ editor's affect-tuning panel.
 | 0 — design ✅ | This doc + Go skeleton types in `internal/ai/goap/` |
 | 1 — planner infrastructure ✅ | `goap` package, `Fun`/`RidenLifts` on Agent, F4 debug panel, lift auto-naming. Observe-only — `pickTopTarget` still drove behaviour. |
 | 2 — switchover ✅ | Planner authoritative. `pickTopTarget` / `routeHome` / `onArrive` deleted. Stored `ai.Plan` on Agent with `Steps`/`Step`. Three explicit replan triggers; no wall-clock poll. Save format breaks per `[[feedback_dev_phase_breaking_changes]]`. |
-| 3 — affect + costs | `Mood` / `Patience` / `Hunger` / `Boredom` drive weights and costs. Trail data model lands; `Lift.Services` becomes derived from trails. Stale-flag replan event hooks for lift closure / queue spikes. |
+| 3 — affect + costs | `Mood` / `Patience` / `Hunger` / `Boredom` drive weights and costs. ~~Trail data model~~ ✅. ~~`Lift.Services` derived from trails~~ ✅. Stale-flag replan event hooks for lift closure / queue spikes. |
 | 4 — lodges + rating | `EatLunch` wires to lodge buildings. Resort rating in top bar. Optional spawn-rate feedback. |
-| 5 — trail editor + telemetry | Player tool for trail placement. Per-action telemetry catches dead actions and over-weighted goals. |
+| 5 — trail editor + telemetry | ~~Player tool for trail placement~~ ✅ (cell-paint tool, popup, TrailGraph-driven `SkiTrail` action). Per-action telemetry catches dead actions and over-weighted goals. |

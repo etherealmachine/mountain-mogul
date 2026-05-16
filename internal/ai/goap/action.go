@@ -197,7 +197,8 @@ func (a *SkiToLift) Cost(s *WorldSnapshot, w *world.World) float32 {
 	if src == nil || dst == nil {
 		return math.MaxFloat32
 	}
-	return distXZ(mgl32.Vec3{src.Top[0], 0, src.Top[1]}, dst.Base[0], dst.Base[1]) / skiSpeedMps
+	base := distXZ(mgl32.Vec3{src.Top[0], 0, src.Top[1]}, dst.Base[0], dst.Base[1]) / skiSpeedMps
+	return base + offTrailPenaltySec(s.Skill, w, s.AtLiftTop)
 }
 
 // SkiToLodge descends from a lift top to a lodge. Used in plans that
@@ -236,7 +237,8 @@ func (a *SkiToLodge) Cost(s *WorldSnapshot, w *world.World) float32 {
 	if src == nil || dst == nil {
 		return math.MaxFloat32
 	}
-	return distXZ(mgl32.Vec3{src.Top[0], 0, src.Top[1]}, dst.Pos[0], dst.Pos[1]) / skiSpeedMps
+	base := distXZ(mgl32.Vec3{src.Top[0], 0, src.Top[1]}, dst.Pos[0], dst.Pos[1]) / skiSpeedMps
+	return base + offTrailPenaltySec(s.Skill, w, s.AtLiftTop)
 }
 
 // SkiToParking descends from a lift top to a parking lot. The terminal
@@ -275,7 +277,8 @@ func (a *SkiToParking) Cost(s *WorldSnapshot, w *world.World) float32 {
 	if src == nil || dst == nil {
 		return math.MaxFloat32
 	}
-	return distXZ(mgl32.Vec3{src.Top[0], 0, src.Top[1]}, dst.Pos[0], dst.Pos[1]) / skiSpeedMps
+	base := distXZ(mgl32.Vec3{src.Top[0], 0, src.Top[1]}, dst.Pos[0], dst.Pos[1]) / skiSpeedMps
+	return base + offTrailPenaltySec(s.Skill, w, s.AtLiftTop)
 }
 
 // RestAtLodge is an atomic recovery action — one application restores
@@ -327,8 +330,7 @@ func (a *Depart) Cost(s *WorldSnapshot, w *world.World) float32 {
 // ApplicableActions enumerates every action whose precondition holds at
 // snapshot s. The planner expands the current frontier by calling this
 // and applying each result's Apply to a Cloned snapshot. Action count is
-// O(lifts + lodges + parking) — fine for the small resort scales the
-// MVP targets.
+// O(lifts + lodges + parking + trail edges) — fine for small resort scales.
 func ApplicableActions(s *WorldSnapshot, w *world.World) []Action {
 	out := make([]Action, 0, 8)
 	// Walk to any lift base from a ground anchor.
@@ -350,7 +352,12 @@ func ApplicableActions(s *WorldSnapshot, w *world.World) []Action {
 	if s.OnLift != 0 {
 		out = append(out, &RideLift{LiftID: s.OnLift})
 	}
-	// Ski-down options from a lift top.
+
+	// Trail-based descents from any anchor that has trail edges.
+	out = trailActions(out, s, w)
+
+	// Free-roam ski-down from a lift top (fallback; penalised when trail
+	// alternatives exist from this anchor).
 	if s.AtLiftTop != 0 {
 		for _, l := range w.Lifts {
 			a := &SkiToLift{LiftID: l.ID}
@@ -373,6 +380,7 @@ func ApplicableActions(s *WorldSnapshot, w *world.World) []Action {
 			}
 		}
 	}
+
 	// At a lodge or parking — rest or depart.
 	if s.AtLodge != 0 {
 		out = append(out, &RestAtLodge{LodgeID: s.AtLodge})
@@ -425,6 +433,17 @@ func ToPlanActions(actions []Action, snap WorldSnapshot, w *world.World) []ai.Pl
 		case *Depart:
 			pa.Kind = ai.ActDepart
 			pa.BldgID = t.LotID
+		case *SkiTrail:
+			pa.Kind = ai.ActSkiTrail
+			pa.TrailID = t.TrailID // via trail (display); overridden for trail-to-trail
+			switch t.ToKind {
+			case world.KindLiftBase:
+				pa.LiftID = t.ToID
+			case world.KindBuilding:
+				pa.BldgID = t.ToID
+			case world.KindTrail:
+				pa.TrailID = t.ToID // destination trail — used by planActionComplete
+			}
 		}
 		out = append(out, pa)
 		a.Apply(&step, w)
@@ -454,6 +473,8 @@ func PlanActionLabel(pa ai.PlanAction, w *world.World) string {
 		return "RestAtLodge(" + buildingLabel(w, pa.BldgID) + ")"
 	case ai.ActDepart:
 		return "Depart(" + buildingLabel(w, pa.BldgID) + ")"
+	case ai.ActSkiTrail:
+		return skiTrailPlanActionLabel(pa, w)
 	}
 	return "—"
 }
@@ -485,6 +506,8 @@ func DisplayName(a Action, w *world.World) string {
 		return "RestAtLodge(" + buildingLabel(w, act.LodgeID) + ")"
 	case *Depart:
 		return "Depart(" + buildingLabel(w, act.LotID) + ")"
+	case *SkiTrail:
+		return skiTrailDisplayName(act, w)
 	}
 	return a.Name()
 }

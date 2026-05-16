@@ -194,10 +194,11 @@ func stateKey(s *WorldSnapshot) string {
 	for _, r := range s.RidenLifts {
 		ridden += r.Count
 	}
-	return fmt.Sprintf("E%dF%dB%dT%dQ%dL%dD%dP%dR%dX%v",
+	return fmt.Sprintf("E%dF%dB%dT%dQ%dL%dD%dP%dR%dX%vJ%d",
 		eb, fb,
 		s.AtLiftBase, s.AtLiftTop, s.Queued, s.OnLift,
 		s.AtLodge, s.AtParking,
 		ridden, s.Removed,
+		s.AtTrailEnd,
 	)
 }

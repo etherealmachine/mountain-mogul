@@ -171,11 +171,6 @@ type Lift struct {
 	// skier boards a chair. Set per-lift via the lift popup.
 	TicketPrice int
 
-	// Services is the bitfield of trail markers this lift advertises
-	// (green / blue / black). Pure metadata — no sim behaviour reads
-	// it yet.
-	Services TerrainDifficulty
-
 	Queue  []*Guest
 	Chairs []Chair
 

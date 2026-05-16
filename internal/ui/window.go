@@ -190,7 +190,7 @@ func (w *Window) AddTextInput(label, initial string, onCommit func(string)) {
 // buttons: a green circle, a blue square, and a black diamond, in that
 // order. Each toggle reads/writes the corresponding bit in `bits` via
 // the supplied has/toggle callbacks (so the row is reusable for any
-// uint8 bitfield, not just lift.Services).
+// uint8 bitfield, e.g. a trail's Difficulty).
 func (w *Window) AddDifficultyToggles(label string, has func(bit uint8) bool, toggle func(bit uint8)) {
 	row := &windowRow{
 		kind:  rowToggles,

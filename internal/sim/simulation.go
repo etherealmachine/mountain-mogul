@@ -413,6 +413,13 @@ func (s *Simulation) tickPlanning(a *world.Guest) {
 		if isDescentKind(head.Kind) {
 			a.Events = append(a.Events, ai.GuestEvent{Kind: ai.EventRun, Time: s.SimTime})
 		}
+		// For trail-to-trail steps, mark the arrival at the junction so the
+		// next step's precondition (AtTrailEnd == destTrailID) can fire.
+		if head.Kind == ai.ActSkiTrail && head.LiftID == 0 && head.BldgID == 0 {
+			a.AtTrailEnd = head.TrailID
+		} else {
+			a.AtTrailEnd = 0
+		}
 		s.advancePlan(a)
 		return
 	}
@@ -427,7 +434,7 @@ func (s *Simulation) tickPlanning(a *world.Guest) {
 // can score sessions by run count.
 func isDescentKind(k ai.PlanActionKind) bool {
 	switch k {
-	case ai.ActSkiToLift, ai.ActSkiToLodge, ai.ActSkiToParking:
+	case ai.ActSkiToLift, ai.ActSkiToLodge, ai.ActSkiToParking, ai.ActSkiTrail:
 		return true
 	}
 	return false
@@ -436,6 +443,7 @@ func isDescentKind(k ai.PlanActionKind) bool {
 // replan generates a fresh plan and starts its head step. Called at
 // spawn, when the plan exhausts, and when a precondition breaks.
 func (s *Simulation) replan(a *world.Guest) {
+	a.AtTrailEnd = 0 // clear any stale junction anchor before re-planning
 	a.Plan = s.Planner.StoredPlanFor(a, s.World)
 	if !a.Plan.Done() {
 		s.onPlanStepStart(a)
@@ -519,6 +527,41 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		a.Plan.Goal = ai.GoalDepart
 		a.Plan.GoalID = b.ID
 		a.Plan.Target = parkingWorldPos(w, b)
+	case ai.ActSkiTrail:
+		switch {
+		case step.LiftID != 0:
+			lift := findLiftByID(w, step.LiftID)
+			if lift == nil {
+				return
+			}
+			a.TargetID = lift.ID
+			a.Plan.Goal = ai.GoalLift
+			a.Plan.GoalID = lift.ID
+			a.Plan.Target = lift.BackOfQueueWorldPos(w.Terrain)
+		case step.BldgID != 0:
+			b := findBuildingByID(w, step.BldgID)
+			if b == nil {
+				return
+			}
+			a.TargetID = b.ID
+			if b.Type == world.BuildingParking {
+				a.Plan.Goal = ai.GoalDepart
+			} else {
+				a.Plan.Goal = ai.GoalNone
+			}
+			a.Plan.GoalID = b.ID
+			a.Plan.Target = parkingWorldPos(w, b)
+		default:
+			// Trail-to-trail: steer toward destination trail's centroid.
+			if t := w.FindTrail(step.TrailID); t != nil {
+				c := t.Centroid()
+				y := w.Terrain.InterpolatedSurfaceElevationAt(c[0], c[1])
+				a.Plan.Target = mgl32.Vec3{c[0], y, c[1]}
+				a.Plan.Goal = ai.GoalNone
+				a.Plan.GoalID = step.TrailID
+				a.TargetID = 0
+			}
+		}
 	case ai.ActRestAtLodge:
 		a.RestTimer = restAtLodgeSec
 		a.Speed = 0
@@ -561,6 +604,17 @@ func planActionComplete(step ai.PlanAction, a *world.Guest, snap goap.WorldSnaps
 		// Terminal — the Removed flag is the real signal; this is
 		// queried only when the agent hasn't been reaped yet.
 		return false
+	case ai.ActSkiTrail:
+		if step.LiftID != 0 {
+			return snap.AtLiftBase == step.LiftID
+		}
+		if step.BldgID != 0 {
+			return snap.AtLodge == step.BldgID || snap.AtParking == step.BldgID
+		}
+		// Trail-to-trail: proximity to Plan.Target (the destination trail centroid).
+		dx := a.Pos[0] - a.Plan.Target[0]
+		dz := a.Pos[2] - a.Plan.Target[2]
+		return dx*dx+dz*dz < ArrivalThreshold*ArrivalThreshold
 	}
 	return false
 }
@@ -575,6 +629,15 @@ func planActionPreconditionHolds(step ai.PlanAction, snap goap.WorldSnapshot, w 
 		return findLiftByID(w, step.LiftID) != nil
 	case ai.ActSkiToLodge, ai.ActSkiToParking, ai.ActRestAtLodge, ai.ActDepart:
 		return findBuildingByID(w, step.BldgID) != nil
+	case ai.ActSkiTrail:
+		// Destination entity must still exist.
+		if step.LiftID != 0 {
+			return findLiftByID(w, step.LiftID) != nil
+		}
+		if step.BldgID != 0 {
+			return findBuildingByID(w, step.BldgID) != nil
+		}
+		return w.FindTrail(step.TrailID) != nil
 	}
 	return true
 }
@@ -619,6 +682,8 @@ func planTargetWorldPos(w *world.World, a *world.Guest) (mgl32.Vec3, bool) {
 		if b := findBuildingByID(w, step.BldgID); b != nil {
 			return parkingWorldPos(w, b), true
 		}
+	case ai.ActSkiTrail:
+		return a.Plan.Target, a.Plan.Target != (mgl32.Vec3{})
 	}
 	return mgl32.Vec3{}, false
 }

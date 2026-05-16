@@ -256,7 +256,6 @@ func worldToData(w *world.World) ScenarioData {
 			ID:          l.ID,
 			Type:        uint8(l.Type),
 			Name:        l.Name,
-			Services:    uint8(l.Services),
 			BaseX:       l.Base[0],
 			BaseZ:       l.Base[1],
 			TopX:        l.Top[0],
@@ -324,6 +323,16 @@ func worldToData(w *world.World) ScenarioData {
 		}
 	}
 
+	trails := make([]TrailData, len(w.Trails))
+	for i, tr := range w.Trails {
+		trails[i] = TrailData{
+			ID:         tr.ID,
+			Name:       tr.Name,
+			Difficulty: uint8(tr.Difficulty),
+			Cells:      tr.Cells,
+		}
+	}
+
 	return ScenarioData{
 		Name:      "scenario",
 		Width:     t.Width,
@@ -332,6 +341,7 @@ func worldToData(w *world.World) ScenarioData {
 		Objects:   objects,
 		Buildings: buildings,
 		Lifts:     lifts,
+		Trails:    trails,
 		Guests:    guests,
 		Snowcats:  snowcats,
 		RoadNodes: roadNodes,
@@ -507,7 +517,6 @@ func dataToWorld(data ScenarioData) *world.World {
 		if ld.Name != "" {
 			lift.Name = ld.Name
 		}
-		lift.Services = world.TerrainDifficulty(ld.Services)
 		if ld.Speed >= 0.1 {
 			lift.Speed = ld.Speed
 		}
@@ -622,6 +631,18 @@ func dataToWorld(data ScenarioData) *world.World {
 		}
 	}
 
+	// Restore trails. TrailGraph is derived on load rather than persisted.
+	for _, td := range data.Trails {
+		t := w.PlaceTrail(td.Name, world.TerrainDifficulty(td.Difficulty))
+		if td.ID != 0 {
+			t.ID = td.ID
+		}
+		t.Cells = td.Cells
+	}
+	if len(w.Trails) > 0 {
+		w.RebuildTrailGraph()
+	}
+
 	// Validate parking driveways now that road nodes are in place.
 	// EnsureParkingDriveway is idempotent — a parking lot whose
 	// DrivewayNodeID resolves to an existing node is left alone; one
@@ -664,6 +685,11 @@ func dataToWorld(data ScenarioData) *world.World {
 	for _, e := range w.RoadEdges {
 		if e.ID > maxID {
 			maxID = e.ID
+		}
+	}
+	for _, tr := range w.Trails {
+		if tr.ID > maxID {
+			maxID = tr.ID
 		}
 	}
 	w.SetMinNextID(maxID)

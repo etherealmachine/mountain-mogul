@@ -423,14 +423,12 @@ func runProfile(wallSeconds, scale float64) {
 	lot := wld.PlaceBuildingType(world.BuildingParking, lotX, lotZ)
 	wld.EnsureParkingDriveway(lot)
 
-	liftA := wld.PlaceLift(world.LiftDouble,
+	wld.PlaceLift(world.LiftDouble,
 		float32(w/2-15)*cellSize, float32(h-5)*cellSize,
 		float32(w/2-15)*cellSize, float32(5)*cellSize)
-	liftA.Services = world.DiffGreen | world.DiffBlue
-	liftB := wld.PlaceLift(world.LiftDouble,
+	wld.PlaceLift(world.LiftDouble,
 		float32(w/2+15)*cellSize, float32(h-5)*cellSize,
 		float32(w/2+15)*cellSize, float32(5)*cellSize)
-	liftB.Services = world.DiffGreen | world.DiffBlue
 
 	// Pathfind groomed corridors so skiers don't pile up at the lots.
 	// Simpler: leave terrain bare; the L1 controller handles it.
