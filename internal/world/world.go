@@ -19,6 +19,10 @@ const (
 	StartingCash    = 250000 // 1× parking + 2× ~600 m lifts (40K + 2 × (50K + 60K) = 260K) — slight stretch on lift length
 
 	DefaultTicketPrice = 10 // dollars per lift ride; player adjusts via the lift popup
+
+	// Daily operational costs. Charged once per in-game day at rollover.
+	LiftAttendantDailyCost = 150 // per attendant; each lift requires one top + one bottom
+	SnowcatDailyCost       = 500 // per cat in operation
 )
 
 // BuildingCost returns the up-front cost of placing a building of the

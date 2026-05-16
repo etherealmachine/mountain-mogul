@@ -38,6 +38,7 @@ type HistoryData struct {
 	Samples         []DailySampleData `json:"s,omitempty"`
 	ArrivalsToday   int               `json:"a,omitempty"`
 	DeparturesToday int               `json:"d,omitempty"`
+	RevenueToday    int               `json:"r,omitempty"`
 }
 
 // DailySampleData mirrors world.DailySample with msgpack-compact field
@@ -48,6 +49,8 @@ type DailySampleData struct {
 	ArrivalsToday    int   `json:"a,omitempty"`
 	DeparturesToday  int   `json:"x,omitempty"`
 	Cash             int   `json:"c,omitempty"`
+	Revenue          int   `json:"r,omitempty"`
+	Costs            int   `json:"co,omitempty"`
 }
 
 // RoadNodeData is one vertex in the road graph. ID is preserved across

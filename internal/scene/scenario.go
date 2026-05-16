@@ -825,6 +825,17 @@ func (s *Scenario) Init(app *engine.App) error {
 			Series:  []ui.ChartSeries{{Name: "Cash", Color: mgl32.Vec4{1.0, 0.85, 0.30, 1}}},
 			GetData: func() []ui.ChartPoint { return historyToChart(s.world, cashField) },
 		},
+		{
+			Title: "Daily revenue & costs",
+			Icon:  render.IconChartLine,
+			Kind:  ui.ChartLine,
+			Series: []ui.ChartSeries{
+				{Name: "Revenue", Color: mgl32.Vec4{0.35, 0.85, 0.45, 1}},
+				{Name: "Costs", Color: mgl32.Vec4{0.95, 0.45, 0.35, 1}},
+				{Name: "Profit", Color: mgl32.Vec4{1.0, 0.85, 0.30, 1}},
+			},
+			GetData: func() []ui.ChartPoint { return historyToChart(s.world, pnlField) },
+		},
 	})
 	s.chartWindow.Center(app.Renderer.ScreenWidth(), app.Renderer.ScreenHeight())
 	s.topBar.SetChartsToggle(func() {
@@ -845,6 +856,7 @@ const (
 	guestsField historyField = iota
 	arrDepField
 	cashField
+	pnlField
 )
 
 // historyToChart turns world.History.Ordered() into []ui.ChartPoint with
@@ -864,6 +876,12 @@ func historyToChart(w *world.World, field historyField) []ui.ChartPoint {
 			out[i] = ui.ChartPoint{Day: s.Day, Values: []float64{float64(s.ArrivalsToday), float64(s.DeparturesToday)}}
 		case cashField:
 			out[i] = ui.ChartPoint{Day: s.Day, Values: []float64{float64(s.Cash)}}
+		case pnlField:
+			out[i] = ui.ChartPoint{Day: s.Day, Values: []float64{
+				float64(s.Revenue),
+				float64(s.Costs),
+				float64(s.Revenue - s.Costs),
+			}}
 		}
 	}
 	return out

@@ -380,6 +380,8 @@ func historyFromData(hd *HistoryData) *world.History {
 			ArrivalsToday:    s.ArrivalsToday,
 			DeparturesToday:  s.DeparturesToday,
 			Cash:             s.Cash,
+			Revenue:          s.Revenue,
+			Costs:            s.Costs,
 		}
 		if s.DayUnix != 0 {
 			sample.Day = time.Unix(s.DayUnix, 0).UTC()
@@ -391,6 +393,7 @@ func historyFromData(hd *HistoryData) *world.History {
 	}
 	h.ArrivalsToday = hd.ArrivalsToday
 	h.DeparturesToday = hd.DeparturesToday
+	h.RevenueToday = hd.RevenueToday
 	return h
 }
 
@@ -409,6 +412,8 @@ func historyToData(h *world.History) *HistoryData {
 			ArrivalsToday:    s.ArrivalsToday,
 			DeparturesToday:  s.DeparturesToday,
 			Cash:             s.Cash,
+			Revenue:          s.Revenue,
+			Costs:            s.Costs,
 		}
 		if !s.Day.IsZero() {
 			samples[i].DayUnix = s.Day.Unix()
@@ -418,6 +423,7 @@ func historyToData(h *world.History) *HistoryData {
 		Samples:         samples,
 		ArrivalsToday:   h.ArrivalsToday,
 		DeparturesToday: h.DeparturesToday,
+		RevenueToday:    h.RevenueToday,
 	}
 }
 

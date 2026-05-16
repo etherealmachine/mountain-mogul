@@ -17,6 +17,8 @@ type DailySample struct {
 	ArrivalsToday    int       // spawns during this day
 	DeparturesToday  int       // departures during this day
 	Cash             int       // resort cash balance at EOD
+	Revenue          int       // lift ticket income this day
+	Costs            int       // operational costs this day (attendants + snowcats)
 }
 
 // History is a per-world ring of DailySamples plus the day-in-progress
@@ -32,6 +34,7 @@ type History struct {
 	// Day-in-progress counters. Reset by Push.
 	ArrivalsToday   int
 	DeparturesToday int
+	RevenueToday    int
 }
 
 // NewHistory returns an empty History ready to start recording. The
@@ -58,6 +61,15 @@ func (h *History) RecordDeparture() {
 	h.DeparturesToday++
 }
 
+// RecordRevenue adds amount to the in-progress revenue counter. Safe to
+// call when h is nil — does nothing.
+func (h *History) RecordRevenue(amount int) {
+	if h == nil {
+		return
+	}
+	h.RevenueToday += amount
+}
+
 // Push writes one finalised DailySample into the ring and resets the
 // per-day counters. Caller has already populated sample.ArrivalsToday /
 // sample.DeparturesToday from h.ArrivalsToday / h.DeparturesToday (or
@@ -73,6 +85,7 @@ func (h *History) Push(sample DailySample) {
 	}
 	h.ArrivalsToday = 0
 	h.DeparturesToday = 0
+	h.RevenueToday = 0
 }
 
 // Ordered returns the samples in chronological order (oldest first).

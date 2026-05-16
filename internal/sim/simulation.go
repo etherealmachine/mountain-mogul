@@ -233,6 +233,7 @@ func (s *Simulation) tickLifts(dt float64) {
 					agent.OnLiftID = lift.ID
 					agent.Queued = false
 					w.Cash += lift.TicketPrice
+					w.History.RecordRevenue(lift.TicketPrice)
 				}
 			}
 		}
@@ -362,12 +363,21 @@ func (s *Simulation) maybeSampleHistory() {
 	today := int(s.SimTime / secondsPerSimDay)
 	for s.lastSampledDay < today {
 		dayIdx := s.lastSampledDay
-		s.World.History.Push(world.DailySample{
+		w := s.World
+
+		// Compute and debit operational costs for the day.
+		costs := len(w.Lifts) * 2 * world.LiftAttendantDailyCost
+		costs += len(w.Snowcats) * world.SnowcatDailyCost
+		w.Cash -= costs
+
+		w.History.Push(world.DailySample{
 			Day:              DateAt(float64(dayIdx) * secondsPerSimDay),
-			GuestsOnMountain: len(s.World.OnMountain),
-			ArrivalsToday:    s.World.History.ArrivalsToday,
-			DeparturesToday:  s.World.History.DeparturesToday,
-			Cash:             s.World.Cash,
+			GuestsOnMountain: len(w.OnMountain),
+			ArrivalsToday:    w.History.ArrivalsToday,
+			DeparturesToday:  w.History.DeparturesToday,
+			Cash:             w.Cash,
+			Revenue:          w.History.RevenueToday,
+			Costs:            costs,
 		})
 		s.lastSampledDay++
 	}
