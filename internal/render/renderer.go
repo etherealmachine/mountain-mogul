@@ -2127,6 +2127,25 @@ func (r *Renderer) ScreenWidth() int { return r.logicalW }
 // ScreenHeight returns the window's logical height in points (matches mouse coords).
 func (r *Renderer) ScreenHeight() int { return r.logicalH }
 
+// WorldToScreen projects a world-space position to logical screen coordinates
+// using the current camera ViewProj. Returns visible=false when the point is
+// behind the camera (clip.W ≤ 0) or outside the NDC cube.
+func (r *Renderer) WorldToScreen(pos mgl32.Vec3) (sx, sy float32, visible bool) {
+	clip := r.Camera.ViewProj().Mul4x1(mgl32.Vec4{pos[0], pos[1], pos[2], 1})
+	if clip[3] <= 0 {
+		return 0, 0, false
+	}
+	ndcX := clip[0] / clip[3]
+	ndcY := clip[1] / clip[3]
+	ndcZ := clip[2] / clip[3]
+	if ndcZ < -1 || ndcZ > 1 {
+		return 0, 0, false
+	}
+	sx = (ndcX + 1) * 0.5 * float32(r.logicalW)
+	sy = (1 - ndcY) * 0.5 * float32(r.logicalH)
+	return sx, sy, true
+}
+
 // SaveScreenshot reads the default framebuffer with glReadPixels and writes it
 // as a PNG to path. Must be called after rendering and before SwapBuffers (so
 // the back buffer still holds the freshly drawn frame). Creates parent dirs as

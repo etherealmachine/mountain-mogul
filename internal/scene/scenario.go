@@ -2165,6 +2165,15 @@ func (s *Scenario) Render(r *render.Renderer) {
 	if s.savePrompt != nil {
 		drawables = append(drawables, s.savePrompt)
 	}
+	if s.world != nil && len(s.world.Trails) > 0 {
+		showAll := s.overlayPanel != nil && (s.overlayPanel.Mask()&render.OverlayTrails) != 0
+		drawables = append(drawables, &trailLabels{
+			world:        s.world,
+			activeTrailID: s.activeTrailID,
+			paintMode:    s.activeTool == toolTrailPaint,
+			showAll:      showAll,
+		})
+	}
 	r.DrawUI(drawables)
 
 	// Screenshot is taken AFTER UI is drawn so the captured frame matches what
@@ -3199,6 +3208,64 @@ func (t *toastLabel) Draw(r *render.Renderer) {
 	r.DrawColorRect(x, y, boxW, boxH, mgl32.Vec4{0, 0, 0, 0.75})
 	if r.Font != nil {
 		r.Font.DrawText(r, t.text, x+10, textY, mgl32.Vec4{1, 1, 1, 1})
+	}
+}
+
+// trailLabels draws each trail's name as a floating world-space label.
+// Shown when showAll (overlay bit on) or, for the active trail, when in paint mode.
+type trailLabels struct {
+	world         *world.World
+	activeTrailID uint64
+	paintMode     bool
+	showAll       bool
+}
+
+func (tl *trailLabels) Draw(r *render.Renderer) {
+	if r.Font == nil {
+		return
+	}
+	for _, t := range tl.world.Trails {
+		if len(t.Cells) == 0 {
+			continue
+		}
+		isActive := t.ID == tl.activeTrailID && tl.paintMode
+		if !tl.showAll && !isActive {
+			continue
+		}
+
+		// Centroid world XZ → look up terrain Y for the label anchor.
+		c := t.Centroid()
+		terrainY := tl.world.Terrain.InterpolatedSurfaceElevationAt(c[0], c[1])
+		worldPos := mgl32.Vec3{c[0], terrainY + 8, c[1]} // 8 m above surface
+
+		sx, sy, visible := r.WorldToScreen(worldPos)
+		if !visible {
+			continue
+		}
+
+		label := t.Name
+		if label == "" {
+			label = "Unnamed"
+		}
+		tw := float32(len(label)*render.GlyphAdvance) + 14
+		th := float32(render.GlyphH) + 6
+		bx := sx - tw/2
+		by := sy - th/2
+
+		// Background pill.
+		r.DrawColorRect(bx, by, tw, th, mgl32.Vec4{0, 0, 0, 0.55})
+
+		// Text colour by difficulty.
+		var col mgl32.Vec4
+		switch t.Difficulty {
+		case world.DiffGreen:
+			col = mgl32.Vec4{0.55, 1.0, 0.55, 1}
+		case world.DiffBlue:
+			col = mgl32.Vec4{0.55, 0.75, 1.0, 1}
+		default: // DiffBlack — use light gray so it reads on dark backgrounds
+			col = mgl32.Vec4{0.85, 0.85, 0.85, 1}
+		}
+		r.Font.DrawText(r, label, bx+7, by+(th-float32(render.GlyphH))/2, col)
 	}
 }
 
