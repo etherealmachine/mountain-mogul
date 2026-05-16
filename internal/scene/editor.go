@@ -785,11 +785,22 @@ func (e *Editor) applyImportedTerrain(elevs [][]float32, r *render.Renderer) {
 	if rows == 0 || cols == 0 {
 		return
 	}
+
+	// Find the minimum elevation so we can normalise: terrain floor → Y=0.
+	minElev := elevs[0][0]
+	for _, row := range elevs {
+		for _, v := range row {
+			if v < minElev {
+				minElev = v
+			}
+		}
+	}
+
 	t := world.NewTerrain(cols, rows)
 	for row := 0; row < t.Height; row++ {
 		for col := 0; col < t.Width; col++ {
 			if row < len(elevs) && col < len(elevs[row]) {
-				t.Cells[col][row].GroundElevation = elevs[row][col]
+				t.Cells[col][row].GroundElevation = elevs[row][col] - minElev
 			}
 			t.Cells[col][row].SnowAccumulation = 0
 		}
@@ -803,6 +814,15 @@ func (e *Editor) applyImportedTerrain(elevs [][]float32, r *render.Renderer) {
 	r.BuildTerrainMesh(t)
 	r.BuildSnowSurfaceTex(t)
 	r.RebuildStaticBatch(e.world)
+
+	// Centre the camera on the imported terrain.
+	const cellSize = float32(5.0)
+	cx := float32(t.Width) * cellSize / 2
+	cz := float32(t.Height) * cellSize / 2
+	cy := t.SurfaceElevationAt(t.Width/2, t.Height/2)
+	r.Camera.Target = mgl32.Vec3{cx, cy, cz}
+	r.Camera.OrthoScale = float32(t.Width) * cellSize / 2
+	r.Camera.Recalculate()
 }
 
 func (e *Editor) Render(r *render.Renderer) {

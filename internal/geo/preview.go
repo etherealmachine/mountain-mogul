@@ -14,10 +14,24 @@ type PreviewResult struct {
 	MinLat, MaxLat, MinLon, MaxLon float64
 }
 
-// RenderPreviewAt downloads OSM tiles centred on the given point at the given
-// zoom level and renders to an image of w×h pixels.
+// esriImagery returns an ESRI World Imagery tile provider. Satellite/aerial
+// photography with clear terrain relief — useful for scouting ski terrain.
+// ESRI uses {z}/{y}/{x} tile addressing (y and x are swapped vs. standard).
+func esriImagery() *sm.TileProvider {
+	return &sm.TileProvider{
+		Name:        "ESRI World Imagery",
+		Attribution: "Tiles © Esri — Source: Esri, Maxar, GeoEye, Earthstar Geographics, CNES/Airbus DS, USDA, USGS, AeroGRID, IGN, and the GIS User Community",
+		TileSize:    256,
+		URLPattern:  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/%[2]d/%[4]d/%[3]d",
+		Shards:      []string{},
+	}
+}
+
+// RenderPreviewAt downloads CartoDB Voyager tiles centred on the given point
+// at the given zoom level and renders to an image of w×h pixels.
 func RenderPreviewAt(centerLat, centerLon float64, zoom, w, h int) (PreviewResult, error) {
 	ctx := sm.NewContext()
+	ctx.SetTileProvider(esriImagery())
 	ctx.SetSize(w, h)
 	ctx.SetMaxZoom(18)
 	ctx.SetCenter(s2.LatLngFromDegrees(centerLat, centerLon))
@@ -40,12 +54,13 @@ func RenderPreviewAt(centerLat, centerLon float64, zoom, w, h int) (PreviewResul
 	}, nil
 }
 
-// RenderPreview downloads OSM tiles and renders a map image for the bounding box.
-// w and h set the output image dimensions in pixels.
+// RenderPreview downloads CartoDB Voyager tiles and renders a map image for
+// the bounding box. w and h set the output image dimensions in pixels.
 func RenderPreview(minLat, maxLat, minLon, maxLon float64, w, h int) (PreviewResult, error) {
 	ctx := sm.NewContext()
+	ctx.SetTileProvider(esriImagery())
 	ctx.SetSize(w, h)
-	// OSM tile server only serves zoom 0–19; the go-staticmaps default cap is 30,
+	// Tile server only serves zoom 0–19; the go-staticmaps default cap is 30,
 	// which causes HTTP 400 errors for small bounding boxes.
 	ctx.SetMaxZoom(18)
 

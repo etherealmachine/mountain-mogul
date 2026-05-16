@@ -18,9 +18,10 @@ type SearchResult struct {
 // Search queries Nominatim for the given place name, returning up to 5 results.
 func Search(query string) ([]SearchResult, error) {
 	params := url.Values{
-		"q":      {query},
-		"format": {"json"},
-		"limit":  {"5"},
+		"q":               {query},
+		"format":          {"json"},
+		"limit":           {"5"},
+		"accept-language": {"en"},
 	}
 	apiURL := "https://nominatim.openstreetmap.org/search?" + params.Encode()
 
@@ -29,6 +30,7 @@ func Search(query string) ([]SearchResult, error) {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "mountain-mogul/1.0")
+	req.Header.Set("Accept-Language", "en")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -50,14 +52,23 @@ func Search(query string) ([]SearchResult, error) {
 	for _, item := range raw {
 		lat, _ := strconv.ParseFloat(item.Lat, 64)
 		lon, _ := strconv.ParseFloat(item.Lon, 64)
+		const minSpanDeg = 0.1 // ~10 km; expand pinpoint results (peaks, nodes) to be usable
 		var bbox [4]float64
 		if len(item.BoundingBox) == 4 {
 			for i, s := range item.BoundingBox {
 				bbox[i], _ = strconv.ParseFloat(s, 64)
 			}
+			// Nominatim returns a ~0.0001° pinpoint for peaks/nodes — expand it.
+			if bbox[1]-bbox[0] < minSpanDeg {
+				bbox[0] = lat - minSpanDeg/2
+				bbox[1] = lat + minSpanDeg/2
+			}
+			if bbox[3]-bbox[2] < minSpanDeg {
+				bbox[2] = lon - minSpanDeg/2
+				bbox[3] = lon + minSpanDeg/2
+			}
 		} else {
-			// Fallback: 0.05° box around the point
-			bbox = [4]float64{lat - 0.05, lat + 0.05, lon - 0.05, lon + 0.05}
+			bbox = [4]float64{lat - minSpanDeg/2, lat + minSpanDeg/2, lon - minSpanDeg/2, lon + minSpanDeg/2}
 		}
 		results = append(results, SearchResult{
 			DisplayName: item.DisplayName,

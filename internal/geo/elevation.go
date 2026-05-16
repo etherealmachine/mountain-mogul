@@ -86,7 +86,169 @@ func FetchGrid(ctx context.Context, minLat, maxLat, minLon, maxLon float64, _, _
 		out[row] = make([]float32, cropW)
 		copy(out[row], stitched[top+row][left:left+cropW])
 	}
-	return out, nil
+	return repairElevationArtifacts(out), nil
+}
+
+// maxRealisticElevStep is the maximum plausible elevation change between
+// adjacent raw pixels at zoom-14 resolution (~8 m/px). A near-vertical
+// cliff (85°) produces ~100 m/px; data errors are typically 500–3000 m off.
+const maxRealisticElevStep = float32(150)
+
+// seamBlendHalf is the number of pixels on each side of a detected seam
+// that get replaced with linearly interpolated values. 6 px × 8 m ≈ 48 m
+// blend zone — wide enough to be invisible at game scale.
+const seamBlendHalf = 6
+
+// repairElevationArtifacts fixes two classes of DEM error:
+//  1. Isolated spike pixels — value disagrees with majority of 4-neighbours.
+//  2. Full seam lines — a column or row where the majority of cross-boundary
+//     gradients exceed maxRealisticElevStep (data-source boundary mismatch).
+//
+// Both are applied at native tile resolution (~8 m/px) before resampling.
+func repairElevationArtifacts(grid [][]float32) [][]float32 {
+	grid = fixOutlierPixels(grid)
+	grid = repairSeamLines(grid)
+	return grid
+}
+
+func fixOutlierPixels(grid [][]float32) [][]float32 {
+	rows := len(grid)
+	if rows == 0 {
+		return grid
+	}
+	cols := len(grid[0])
+	out := make([][]float32, rows)
+	for r := range out {
+		out[r] = make([]float32, cols)
+		copy(out[r], grid[r])
+	}
+	dirs := [4][2]int{{-1, 0}, {1, 0}, {0, -1}, {0, 1}}
+	for r := 0; r < rows; r++ {
+		for c := 0; c < cols; c++ {
+			v := grid[r][c]
+			var sum float32
+			var n, bad int
+			for _, d := range dirs {
+				nr, nc := r+d[0], c+d[1]
+				if nr < 0 || nr >= rows || nc < 0 || nc >= cols {
+					continue
+				}
+				nv := grid[nr][nc]
+				sum += nv
+				n++
+				if absF(v-nv) > maxRealisticElevStep {
+					bad++
+				}
+			}
+			if n > 0 && bad*2 > n {
+				out[r][c] = sum / float32(n)
+			}
+		}
+	}
+	return out
+}
+
+// repairSeamLines detects column and row seams (where the majority of
+// cross-boundary gradients exceed the threshold) and linearly blends across
+// a window of seamBlendHalf pixels on each side.
+func repairSeamLines(grid [][]float32) [][]float32 {
+	rows := len(grid)
+	if rows == 0 {
+		return grid
+	}
+	cols := len(grid[0])
+
+	seamCols, seamRows := detectSeams(grid, rows, cols)
+	if len(seamCols) == 0 && len(seamRows) == 0 {
+		return grid
+	}
+
+	out := make([][]float32, rows)
+	for r := range out {
+		out[r] = make([]float32, cols)
+		copy(out[r], grid[r])
+	}
+
+	for _, c := range seamCols {
+		for r := 0; r < rows; r++ {
+			lo := c - seamBlendHalf
+			hi := c + seamBlendHalf
+			if lo < 0 {
+				lo = 0
+			}
+			if hi >= cols {
+				hi = cols - 1
+			}
+			vL := grid[r][lo]
+			vR := grid[r][hi]
+			span := float32(hi - lo)
+			if span <= 0 {
+				continue
+			}
+			for col := lo + 1; col < hi; col++ {
+				t := float32(col-lo) / span
+				out[r][col] = vL*(1-t) + vR*t
+			}
+		}
+	}
+
+	for _, sr := range seamRows {
+		for c := 0; c < cols; c++ {
+			lo := sr - seamBlendHalf
+			hi := sr + seamBlendHalf
+			if lo < 0 {
+				lo = 0
+			}
+			if hi >= rows {
+				hi = rows - 1
+			}
+			vT := out[lo][c]
+			vB := out[hi][c]
+			span := float32(hi - lo)
+			if span <= 0 {
+				continue
+			}
+			for row := lo + 1; row < hi; row++ {
+				t := float32(row-lo) / span
+				out[row][c] = vT*(1-t) + vB*t
+			}
+		}
+	}
+
+	return out
+}
+
+func detectSeams(grid [][]float32, rows, cols int) (seamCols, seamRows []int) {
+	for c := 1; c < cols; c++ {
+		var big int
+		for r := 0; r < rows; r++ {
+			if absF(grid[r][c]-grid[r][c-1]) > maxRealisticElevStep {
+				big++
+			}
+		}
+		if big*2 > rows {
+			seamCols = append(seamCols, c)
+		}
+	}
+	for r := 1; r < rows; r++ {
+		var big int
+		for c := 0; c < cols; c++ {
+			if absF(grid[r][c]-grid[r-1][c]) > maxRealisticElevStep {
+				big++
+			}
+		}
+		if big*2 > cols {
+			seamRows = append(seamRows, r)
+		}
+	}
+	return
+}
+
+func absF(x float32) float32 {
+	if x < 0 {
+		return -x
+	}
+	return x
 }
 
 // lonLatToTile converts a lon/lat coordinate to the tile XY at zoom z.

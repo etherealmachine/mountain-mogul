@@ -1,8 +1,7 @@
 package geo
 
 // ResampleToGrid bilinearly resamples src (any dimensions) to destCols×destRows.
-// Normalizes so the minimum elevation becomes 0, then divides by 10 so that
-// 1 game unit ≈ 10 metres of real-world elevation gain.
+// Zero-bases the result so the terrain floor is at elevation 0.
 func ResampleToGrid(src [][]float32, destCols, destRows int) [][]float32 {
 	srcRows := len(src)
 	if srcRows == 0 || destRows == 0 || destCols == 0 {
@@ -20,24 +19,17 @@ func ResampleToGrid(src [][]float32, destCols, destRows int) [][]float32 {
 		}
 	}
 
-	// Find min and max elevation across the output grid.
-	minE, maxE := out[0][0], out[0][0]
+	minE := out[0][0]
 	for _, row := range out {
 		for _, e := range row {
 			if e < minE {
 				minE = e
 			}
-			if e > maxE {
-				maxE = e
-			}
 		}
 	}
-
-	// Zero-base elevations. Now that horizontal scale is honest (5 m/cell)
-	// real DEM relief reads correctly without exaggeration.
 	for row := range out {
 		for col := range out[row] {
-			out[row][col] = out[row][col] - minE
+			out[row][col] -= minE
 		}
 	}
 	return out

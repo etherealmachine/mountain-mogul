@@ -307,6 +307,19 @@ func (t *TerrainImport) updateMap(inp *engine.Input, r *render.Renderer) {
 		if t.mapZoom <= 3 && t.mapScale < 0.33 {
 			t.mapScale = 0.33
 		}
+
+		// If the current tile no longer covers the viewport at the new scale
+		// (i.e. we zoomed out but haven't crossed the 0.5 threshold yet),
+		// reload at the same zoom level with an expanded request so the
+		// new tile fills the screen rather than leaving black edges.
+		if t.mapTexID != 0 && !t.mapLoading &&
+			(t.mapTexW*t.mapScale < sw || t.mapTexH*t.mapScale < sh-32) {
+			t.refreshMapCenter()
+			t.panAccum = mgl32.Vec2{}
+			reqW := int(math.Ceil(float64(sw) / float64(t.mapScale)))
+			reqH := int(math.Ceil(float64(sh-32) / float64(t.mapScale)))
+			t.startMapReload(reqW, reqH)
+		}
 	}
 
 	// ── Import button ────────────────────────────────────────────────────────

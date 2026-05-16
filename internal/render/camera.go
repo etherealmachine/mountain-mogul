@@ -56,7 +56,7 @@ func (c *Camera) Recalculate() {
 			fov = 70
 		}
 		c.View = mgl32.LookAtV(c.EyePos, c.LookAt, up)
-		c.Proj = mgl32.Perspective(mgl32.DegToRad(fov), aspect, 0.1, 5000)
+		c.Proj = mgl32.Perspective(mgl32.DegToRad(fov), aspect, 0.1, 20000)
 		return
 	}
 

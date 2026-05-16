@@ -7,22 +7,30 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 )
 
-// Cost constants. Tuned so a starting balance of StartingCash buys a
-// lodge plus two ~600 m lifts with no padding — players hit the wall
-// quickly and have to think about layout.
+// Cost constants.
+//
+// Starting cash is sized for a minimal resort: 1 parking + 1 lodge + 1 shed +
+// 1 lift (~500 m) = ~$220K, leaving ~$30K buffer.
+//
+// Operating costs are calibrated to the lift revenue ceiling. A 500 m double at
+// 2.5 m/s delivers at most ~12.7 rides per 77-second sim-day (33 chairs × 2
+// seats × 77s ÷ 400s loop). At $10/ride that's $127/day max. Daily costs for
+// 1 lift + 1 cat = 2×$20 + $40 = $80/day, so break-even sits at ~63% occupancy
+// and the resort earns ~$47/day at capacity — small but positive.
 const (
-	LodgeCost       = 50000  // single fixed cost per lodge (no spawn behavior yet — reserved)
-	ShedCost        = 30000  // grooming equipment storage; cheaper than a lodge — no plumbing, no kitchen, just bays
-	ParkingCost     = 40000  // base parking lot — capacity is fixed for now, scaling via multiple lots
-	LiftStationCost = 50000  // fixed cost for both stations of a lift (you always need two)
-	LiftPerMeter    = 100    // cost per metre of cable run, covers towers + cable
-	StartingCash    = 250000 // 1× parking + 2× ~600 m lifts (40K + 2 × (50K + 60K) = 260K) — slight stretch on lift length
+	LodgeCost       = 50000 // single fixed cost per lodge
+	ShedCost        = 30000 // grooming equipment storage; first cat included
+	ParkingCost     = 40000 // base parking lot
+	LiftStationCost = 50000 // fixed cost for both stations of a lift
+	LiftPerMeter    = 100   // cost per metre of cable run, covers towers + cable
+	StartingCash    = 250000
 
 	DefaultTicketPrice = 10 // dollars per lift ride; player adjusts via the lift popup
 
 	// Daily operational costs. Charged once per in-game day at rollover.
-	LiftAttendantDailyCost = 150 // per attendant; each lift requires one top + one bottom
-	SnowcatDailyCost       = 500 // per cat in operation
+	// Sized so a single lift + single cat breaks even at ~63% load ($80/day).
+	LiftAttendantDailyCost = 20 // per attendant; each lift requires one top + one bottom
+	SnowcatDailyCost       = 40 // per cat in operation
 )
 
 // BuildingCost returns the up-front cost of placing a building of the
