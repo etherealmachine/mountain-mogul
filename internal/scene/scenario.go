@@ -1611,8 +1611,9 @@ func (s *Scenario) updateOverlay(r *render.Renderer) {
 }
 
 // buildCellOverlay returns an RGBA8 pixel array (w×h, one texel per terrain
-// cell) encoding trail and grooming-route colours. Trails are always visible;
-// grooming routes are shown only while the route-paint tool is active.
+// cell) encoding trail and grooming-route colours. Trails are shown when the
+// Trails overlay bit is set, or always when actively painting a trail.
+// Grooming routes are shown only while the route-paint tool is active.
 // Returns nil when there is nothing to paint.
 func (s *Scenario) buildCellOverlay() (pixels []uint8, w, h int) {
 	if s.world == nil || s.world.Terrain == nil {
@@ -1621,7 +1622,9 @@ func (s *Scenario) buildCellOverlay() (pixels []uint8, w, h int) {
 	tw := s.world.Terrain.Width
 	th := s.world.Terrain.Height
 
-	hasTrails := len(s.world.Trails) > 0
+	trailOverlayOn := s.overlayPanel != nil && (s.overlayPanel.Mask()&render.OverlayTrails) != 0
+	paintingTrail := s.activeTool == toolTrailPaint
+	hasTrails := len(s.world.Trails) > 0 && (trailOverlayOn || paintingTrail)
 	hasRoutes := s.activeTool == toolRoute && func() bool {
 		for _, b := range s.world.Buildings {
 			if b.Type == world.BuildingShed && len(b.RouteCells) > 0 {
@@ -1654,9 +1657,12 @@ func (s *Scenario) buildCellOverlay() (pixels []uint8, w, h int) {
 		pix[i+3] = uint8(outA * 255)
 	}
 
-	// Trails — always visible.
+	// Trails — shown when overlay is on, or always for the trail being painted.
 	for _, t := range s.world.Trails {
-		active := t.ID == s.activeTrailID && s.activeTool == toolTrailPaint
+		active := t.ID == s.activeTrailID && paintingTrail
+		if !trailOverlayOn && !active {
+			continue
+		}
 		var r, g, b, a uint8
 		switch t.Difficulty {
 		case world.DiffGreen:

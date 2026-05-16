@@ -31,6 +31,7 @@ const (
 	OverlayMoguls        = 1 << 6
 	OverlayBumpNormal    = 1 << 7 // debug: render the perturbed shading normal as RGB
 	OverlaySurfaceDetail = 1 << 8 // debug: render the surface-detail RGBA texture directly
+	OverlayTrails        = 1 << 9 // show painted trail areas as semi-opaque colour patches
 )
 
 // DebugLine is a single world-space line segment for tuning overlays.
