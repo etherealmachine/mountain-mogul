@@ -26,6 +26,12 @@ type SceneResources struct {
 	snowSurfaceTexW     int32
 	snowSurfaceTexH     int32
 
+	// cellOverlayTex is a per-cell RGBA8 overlay texture (one texel per
+	// terrain cell). The terrain shader alpha-blends it over the surface.
+	// Used for trail and grooming-route highlights. Linear-filtered so
+	// cell edges feather naturally.
+	cellOverlayTex uint32
+
 	// Cached CPU-side terrain vertex array. Held so the snow-state
 	// flush path can rewrite a few floats per vertex and re-upload
 	// without rerunning the expensive AO/smoothY/jitter precompute.
@@ -69,6 +75,10 @@ func (s *SceneResources) Delete() {
 		s.snowSurfaceTex = 0
 		s.snowSurfaceTexW = 0
 		s.snowSurfaceTexH = 0
+	}
+	if s.cellOverlayTex != 0 {
+		gl.DeleteTextures(1, &s.cellOverlayTex)
+		s.cellOverlayTex = 0
 	}
 	for id, m := range s.liftUpCables {
 		m.Delete()

@@ -1546,16 +1546,13 @@ func (s *Scenario) Update(dt float64) {
 }
 
 // updateOverlay maintains the followed skier's track and (optionally) the
-// steering-debug visualisation, then pushes both to the renderer in a single
-// SetDebugLines batch. The track resets whenever the followed skier changes
-// or follow is disabled.
-//
-// Also draws route cell outlines for any shed whose route should be
-// visible — every shed while toolRoute is active, and just the
-// selected shed while in route-paint mode. Route lines run alongside
-// the skier track in the same batch so we keep one buffer upload per
-// frame.
+// steering-debug visualisation in the debug-line buffer, and separately
+// pushes the cell overlay texture (trails + grooming routes) to the renderer.
 func (s *Scenario) updateOverlay(r *render.Renderer) {
+	// Cell overlay texture (trails + grooming routes) — always updated.
+	pix, ow, oh := s.buildCellOverlay()
+	r.SetCellOverlay(pix, ow, oh)
+
 	a := s.findFollowedGuest()
 
 	// Reset the track when follow target changes (including dropped follow).
@@ -1564,11 +1561,7 @@ func (s *Scenario) updateOverlay(r *render.Renderer) {
 		s.trackOwner = 0
 	}
 	if a == nil {
-		// No skier followed — but route cells may still need drawing
-		// during route paint, so push just those.
-		lines := s.routeOverlayLines()
-		lines = append(lines, s.trailOverlayLines()...)
-		r.SetDebugLines(lines)
+		r.SetDebugLines(nil)
 		return
 	}
 	if s.trackOwner == 0 {
@@ -1614,70 +1607,96 @@ func (s *Scenario) updateOverlay(r *render.Renderer) {
 		}
 	}
 
-	lines = append(lines, s.routeOverlayLines()...)
-	lines = append(lines, s.trailOverlayLines()...)
 	r.SetDebugLines(lines)
 }
 
-// routeOverlayLines builds the cell-outline overlay for shed routes.
-// While the route-paint tool is active the selected shed's cells are
-// drawn in bright cyan; other sheds' routes are drawn in a dimmer
-// teal so the player can see how their resort's grooming coverage
-// distributes. Outside paint mode no route lines are drawn — the
-// terrain stays unobstructed for normal play.
-//
-// Each cell is drawn as a perimeter + diagonal cross so the marks read
-// as filled-ish cells rather than thin outlines that disappear against
-// busy terrain. The lines hover 2 m above the surface so vertex jitter
-// and snow piles don't clip them.
-func (s *Scenario) routeOverlayLines() []render.DebugLine {
-	if s.activeTool != toolRoute {
-		return nil
+// buildCellOverlay returns an RGBA8 pixel array (w×h, one texel per terrain
+// cell) encoding trail and grooming-route colours. Trails are always visible;
+// grooming routes are shown only while the route-paint tool is active.
+// Returns nil when there is nothing to paint.
+func (s *Scenario) buildCellOverlay() (pixels []uint8, w, h int) {
+	if s.world == nil || s.world.Terrain == nil {
+		return nil, 0, 0
 	}
-	const hover = float32(2.0)
-	const cellSize = float32(5.0)
-	bright := [3]float32{0.40, 1.00, 1.00}
-	dim := [3]float32{0.18, 0.55, 0.65}
+	tw := s.world.Terrain.Width
+	th := s.world.Terrain.Height
 
-	out := make([]render.DebugLine, 0, 64)
-	addCell := func(c [2]int, col [3]float32) {
-		x0 := float32(c[0]) * cellSize
-		x1 := x0 + cellSize
-		z0 := float32(c[1]) * cellSize
-		z1 := z0 + cellSize
-		y00 := s.world.Terrain.InterpolatedSurfaceElevationAt(x0, z0) + hover
-		y10 := s.world.Terrain.InterpolatedSurfaceElevationAt(x1, z0) + hover
-		y01 := s.world.Terrain.InterpolatedSurfaceElevationAt(x0, z1) + hover
-		y11 := s.world.Terrain.InterpolatedSurfaceElevationAt(x1, z1) + hover
-		p00 := mgl32.Vec3{x0, y00, z0}
-		p10 := mgl32.Vec3{x1, y10, z0}
-		p11 := mgl32.Vec3{x1, y11, z1}
-		p01 := mgl32.Vec3{x0, y01, z1}
-		out = append(out,
-			// perimeter
-			render.DebugLine{A: p00, B: p10, Color: col},
-			render.DebugLine{A: p10, B: p11, Color: col},
-			render.DebugLine{A: p11, B: p01, Color: col},
-			render.DebugLine{A: p01, B: p00, Color: col},
-			// diagonals — makes cells read as fills at a glance
-			render.DebugLine{A: p00, B: p11, Color: col},
-			render.DebugLine{A: p10, B: p01, Color: col},
-		)
+	hasTrails := len(s.world.Trails) > 0
+	hasRoutes := s.activeTool == toolRoute && func() bool {
+		for _, b := range s.world.Buildings {
+			if b.Type == world.BuildingShed && len(b.RouteCells) > 0 {
+				return true
+			}
+		}
+		return false
+	}()
+
+	if !hasTrails && !hasRoutes {
+		return nil, 0, 0
 	}
-	for _, b := range s.world.Buildings {
-		if b.Type != world.BuildingShed {
-			continue
+
+	pix := make([]uint8, tw*th*4)
+	set := func(cx, cz int, r, g, b, a uint8) {
+		if cx < 0 || cx >= tw || cz < 0 || cz >= th {
+			return
 		}
-		col := dim
-		if b.ID == s.routeShedID {
-			col = bright
+		i := (cz*tw + cx) * 4
+		// Blend on top of existing: simple alpha-over compositing.
+		srcA := float32(a) / 255.0
+		dstA := float32(pix[i+3]) / 255.0
+		outA := srcA + dstA*(1-srcA)
+		if outA < 1e-4 {
+			return
 		}
-		for _, c := range b.RouteCells {
-			addCell(c, col)
+		pix[i+0] = uint8((float32(r)/255.0*srcA + float32(pix[i+0])/255.0*dstA*(1-srcA)) / outA * 255)
+		pix[i+1] = uint8((float32(g)/255.0*srcA + float32(pix[i+1])/255.0*dstA*(1-srcA)) / outA * 255)
+		pix[i+2] = uint8((float32(b)/255.0*srcA + float32(pix[i+2])/255.0*dstA*(1-srcA)) / outA * 255)
+		pix[i+3] = uint8(outA * 255)
+	}
+
+	// Trails — always visible.
+	for _, t := range s.world.Trails {
+		active := t.ID == s.activeTrailID && s.activeTool == toolTrailPaint
+		var r, g, b, a uint8
+		switch t.Difficulty {
+		case world.DiffGreen:
+			r, g, b = 55, 160, 55
+		case world.DiffBlue:
+			r, g, b = 55, 120, 210
+		default: // DiffBlack
+			r, g, b = 60, 60, 60
+		}
+		if active {
+			a = 200 // brighter while editing
+		} else {
+			a = 130
+		}
+		for _, c := range t.Cells {
+			set(c[0], c[1], r, g, b, a)
 		}
 	}
-	return out
+
+	// Grooming routes — only during route-paint tool.
+	if s.activeTool == toolRoute {
+		for _, b := range s.world.Buildings {
+			if b.Type != world.BuildingShed {
+				continue
+			}
+			var cr, cg, cb, ca uint8
+			if b.ID == s.routeShedID {
+				cr, cg, cb, ca = 80, 230, 230, 170 // bright cyan
+			} else {
+				cr, cg, cb, ca = 40, 130, 155, 110 // dim teal
+			}
+			for _, c := range b.RouteCells {
+				set(c[0], c[1], cr, cg, cb, ca)
+			}
+		}
+	}
+
+	return pix, tw, th
 }
+
 
 // steeringLines builds the F3 steering-debug visualisation for the agent.
 func steeringLines(w *world.World, a *world.Guest, target mgl32.Vec3) []render.DebugLine {
@@ -1977,61 +1996,6 @@ func (s *Scenario) finishTrailPaintStroke() {
 	s.world.RebuildTrailGraph()
 }
 
-// trailOverlayLines builds debug-line outlines for all painted trails.
-// The active trail is drawn bright; others are dim.
-func (s *Scenario) trailOverlayLines() []render.DebugLine {
-	if len(s.world.Trails) == 0 {
-		return nil
-	}
-	const hover = float32(2.0)
-	const cellSize = float32(5.0)
-	diffColor := func(d world.TerrainDifficulty, bright bool) [3]float32 {
-		alpha := float32(0.5)
-		if bright {
-			alpha = 1.0
-		}
-		switch d {
-		case world.DiffGreen:
-			return [3]float32{0.33 * alpha, 0.67 * alpha, 0.33 * alpha}
-		case world.DiffBlue:
-			return [3]float32{0.27 * alpha, 0.53 * alpha, 0.8 * alpha}
-		default: // DiffBlack
-			return [3]float32{0.2 * alpha, 0.2 * alpha, 0.2 * alpha}
-		}
-	}
-
-	var out []render.DebugLine
-	addCell := func(c [2]int, col [3]float32) {
-		x0 := float32(c[0]) * cellSize
-		x1 := x0 + cellSize
-		z0 := float32(c[1]) * cellSize
-		z1 := z0 + cellSize
-		y00 := s.world.Terrain.InterpolatedSurfaceElevationAt(x0, z0) + hover
-		y10 := s.world.Terrain.InterpolatedSurfaceElevationAt(x1, z0) + hover
-		y01 := s.world.Terrain.InterpolatedSurfaceElevationAt(x0, z1) + hover
-		y11 := s.world.Terrain.InterpolatedSurfaceElevationAt(x1, z1) + hover
-		p00 := mgl32.Vec3{x0, y00, z0}
-		p10 := mgl32.Vec3{x1, y10, z0}
-		p11 := mgl32.Vec3{x1, y11, z1}
-		p01 := mgl32.Vec3{x0, y01, z1}
-		out = append(out,
-			render.DebugLine{A: p00, B: p10, Color: col},
-			render.DebugLine{A: p10, B: p11, Color: col},
-			render.DebugLine{A: p11, B: p01, Color: col},
-			render.DebugLine{A: p01, B: p00, Color: col},
-			render.DebugLine{A: p00, B: p11, Color: col},
-			render.DebugLine{A: p10, B: p01, Color: col},
-		)
-	}
-	for _, t := range s.world.Trails {
-		bright := t.ID == s.activeTrailID
-		col := diffColor(t.Difficulty, bright)
-		for _, c := range t.Cells {
-			addCell(c, col)
-		}
-	}
-	return out
-}
 
 // findBuilding returns the building with the given ID, or nil.
 func (s *Scenario) findBuilding(id uint64) *world.Building {

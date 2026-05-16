@@ -61,7 +61,8 @@ type Renderer struct {
 	carBatch       *Batch
 
 	uiVAO, uiVBO uint32
-	whiteTexID   uint32 // 1×1 white texture; always bound to unit 0 during UI pass
+	whiteTexID       uint32 // 1×1 white texture; always bound to unit 0 during UI pass
+	transparentTexID uint32 // 1×1 all-zero RGBA; fallback for uCellOverlay when no overlay is set
 
 	// uiVerts is the per-frame UI quad accumulator. Every UI primitive
 	// (text glyphs, coloured rects, textured rects, discs) appends 6 verts
@@ -170,6 +171,8 @@ func NewRenderer(w, h int, assetDir string) (*Renderer, error) {
 
 	// White fallback texture — always bound to unit 0 in the UI pass.
 	r.whiteTexID = whiteTexture()
+	// Transparent fallback — bound to the cell-overlay unit when no overlay is set.
+	r.transparentTexID = transparentTexture()
 
 	// Font atlas generated from basicfont.Face7x13.
 	r.Font = NewFont()
@@ -1166,6 +1169,33 @@ func (r *Renderer) FlushSnowSurface(t *world.Terrain) {
 	sd.DirtyBox = image.Rectangle{}
 }
 
+// SetCellOverlay uploads a per-cell RGBA8 overlay texture (w×h texels, one
+// per terrain cell). The terrain shader linearly interpolates and alpha-blends
+// this over the surface, so cell boundaries feather naturally. Pass nil pixels
+// (or w/h=0) to clear the overlay.
+func (r *Renderer) SetCellOverlay(pixels []uint8, w, h int) {
+	if r.scene.cellOverlayTex != 0 {
+		gl.DeleteTextures(1, &r.scene.cellOverlayTex)
+		r.scene.cellOverlayTex = 0
+	}
+	if len(pixels) == 0 || w == 0 || h == 0 {
+		return
+	}
+	var tex uint32
+	gl.GenTextures(1, &tex)
+	gl.BindTexture(gl.TEXTURE_2D, tex)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
+	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA8,
+		int32(w), int32(h), 0,
+		gl.RGBA, gl.UNSIGNED_BYTE, gl.Ptr(pixels))
+	gl.BindTexture(gl.TEXTURE_2D, 0)
+	r.scene.cellOverlayTex = tex
+}
+
 // RebuildStaticBatch rebuilds all static instance buffers from world state.
 func (r *Renderer) RebuildStaticBatch(w *world.World) {
 	// Clear all static batches
@@ -1525,6 +1555,13 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		})
 		gl.ActiveTexture(gl.TEXTURE1)
 		gl.BindTexture(gl.TEXTURE_2D, r.scene.snowSurfaceTex)
+		r.TerrainShader.SetInt("uCellOverlay", 2)
+		gl.ActiveTexture(gl.TEXTURE2)
+		if r.scene.cellOverlayTex != 0 {
+			gl.BindTexture(gl.TEXTURE_2D, r.scene.cellOverlayTex)
+		} else {
+			gl.BindTexture(gl.TEXTURE_2D, r.transparentTexID)
+		}
 		gl.ActiveTexture(gl.TEXTURE0)
 
 		r.scene.terrainMesh.Draw()

@@ -106,6 +106,18 @@ func whiteTexture() uint32 {
 	return texID
 }
 
+func transparentTexture() uint32 {
+	var texID uint32
+	gl.GenTextures(1, &texID)
+	gl.BindTexture(gl.TEXTURE_2D, texID)
+	pixels := []uint8{0, 0, 0, 0}
+	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, gl.Ptr(pixels))
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+	gl.BindTexture(gl.TEXTURE_2D, 0)
+	return texID
+}
+
 // toRGBA converts an image.Image to *image.RGBA.
 func toRGBA(img image.Image) *image.RGBA {
 	if rgba, ok := img.(*image.RGBA); ok {

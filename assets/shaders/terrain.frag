@@ -27,6 +27,11 @@ uniform float uTerrainMaxY;
 uniform sampler2D uSnowSurface;
 uniform vec2      uWorldSize;
 
+// Per-cell RGBA8 overlay: trails (green/blue/black) and grooming routes (cyan).
+// One texel per terrain cell; linear filtering feathers cell edges.
+// Alpha 0 = no overlay. UV = vWorldPos.xz / uWorldSize.
+uniform sampler2D uCellOverlay;
+
 out vec4 fragColor;
 
 // Cell-hash for the sparkle and mogul passes — cheap integer mixing in float space.
@@ -429,6 +434,14 @@ void main() {
         float line    = 1.0 - smoothstep(fw, fw * 3.0,
                                          min(elevMod, contourInterval - elevMod));
         fragColor.rgb = mix(fragColor.rgb, vec3(0.05, 0.05, 0.10), line * 0.85);
+    }
+
+    // Cell overlay (trail difficulty colours, grooming routes). One texel
+    // per cell; linear filtering feathers the edges between painted and
+    // unpainted cells. UV maps 0..1 across the full terrain in metres.
+    {
+        vec4 ov = texture(uCellOverlay, vWorldPos.xz / uWorldSize);
+        fragColor.rgb = mix(fragColor.rgb, ov.rgb, ov.a);
     }
 
     // Brush ring (unchanged behaviour).
