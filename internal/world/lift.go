@@ -171,6 +171,11 @@ type Lift struct {
 	// skier boards a chair. Set per-lift via the lift popup.
 	TicketPrice int
 
+	// Open controls whether guests may join the queue. Closed lifts still
+	// run (chairs keep moving, seated guests complete their ride) but no
+	// new guests board. Defaults to true on placement.
+	Open bool
+
 	Queue  []*Guest
 	Chairs []Chair
 

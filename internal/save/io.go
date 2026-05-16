@@ -262,6 +262,7 @@ func worldToData(w *world.World) ScenarioData {
 			TopZ:        l.Top[1],
 			Speed:       l.Speed,
 			TicketPrice: l.TicketPrice,
+			Open:        l.Open,
 			Chairs:      chairs,
 			QueueIDs:    queueIDs,
 		}
@@ -542,6 +543,7 @@ func dataToWorld(data ScenarioData) *world.World {
 		if ld.TicketPrice > 0 {
 			lift.TicketPrice = ld.TicketPrice
 		}
+		lift.Open = ld.Open
 		// Restore chair Progress where the saved length matches; if the
 		// chair count differs (e.g. a code change), keep the freshly
 		// initialised even-spacing for the unmatched chairs.

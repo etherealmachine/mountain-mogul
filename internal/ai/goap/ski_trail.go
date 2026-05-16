@@ -148,6 +148,20 @@ func offTrailPenaltySec(skill ai.SkillLevel, w *world.World, anchorID uint64) fl
 	}
 }
 
+// skillDiff maps a skill level to the terrain difficulty a guest requires.
+// Returns 0 for Advanced+ — they're willing to free-roam and don't filter on
+// difficulty when choosing a lift.
+func skillDiff(skill ai.SkillLevel) world.TerrainDifficulty {
+	switch skill {
+	case ai.SkillBeginner:
+		return world.DiffGreen
+	case ai.SkillIntermediate:
+		return world.DiffBlue
+	default:
+		return 0
+	}
+}
+
 // findAnyBuilding returns the building with the given ID regardless of type.
 func findAnyBuilding(w *world.World, id uint64) *world.Building {
 	for _, b := range w.Buildings {

@@ -214,12 +214,10 @@ func dist2D(a, b mgl32.Vec2) float32 {
 }
 
 // ServicesForLift returns the union of all trail difficulties whose edges
-// depart from liftID's top station. When no trails connect to this lift top
-// (including when TrailGraph is nil), it returns all three difficulties so
-// that a resort with no painted trails still admits guests of every skill.
+// depart from liftID's top station. Returns 0 when no trails connect.
 func (w *World) ServicesForLift(liftID uint64) TerrainDifficulty {
-	if w.TrailGraph == nil || len(w.TrailGraph.Edges) == 0 {
-		return DiffGreen | DiffBlue | DiffBlack
+	if w.TrailGraph == nil {
+		return 0
 	}
 	var services TerrainDifficulty
 	for _, e := range w.TrailGraph.Edges {
@@ -229,11 +227,6 @@ func (w *World) ServicesForLift(liftID uint64) TerrainDifficulty {
 				services |= t.Difficulty
 			}
 		}
-	}
-	if services == 0 {
-		// Lift top not covered by any trail — fall back to all difficulties
-		// so the lift remains accessible regardless of trail layout.
-		return DiffGreen | DiffBlue | DiffBlack
 	}
 	return services
 }

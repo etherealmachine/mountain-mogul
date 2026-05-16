@@ -176,10 +176,13 @@ func (s *Simulation) tickLifts(dt float64) {
 			continue
 		}
 		fracPerSec := float64(lift.Speed) / float64(loopLen)
+		moving := lift.Open || lift.PassengerCount() > 0
 		for i := range lift.Chairs {
 			chair := &lift.Chairs[i]
 			prev := chair.Progress
-			chair.Progress += float32(fracPerSec * dt)
+			if moving {
+				chair.Progress += float32(fracPerSec * dt)
+			}
 
 			// At top (progress crosses 0.5): unload passengers.
 			if prev < 0.5 && chair.Progress >= 0.5 {

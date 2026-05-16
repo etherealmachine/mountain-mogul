@@ -72,7 +72,17 @@ func (a *WalkToLift) Precondition(s *WorldSnapshot, w *world.World) bool {
 	if s.Removed || s.OnLift != 0 || s.Queued != 0 || s.AtLiftBase != 0 || s.AtLiftTop != 0 {
 		return false
 	}
-	return findLift(w, a.LiftID) != nil
+	if findLift(w, a.LiftID) == nil {
+		return false
+	}
+	// Beginners and intermediates won't walk to a lift that has no trails
+	// matching their ability. Advanced+ are willing to free-roam from any lift.
+	if diff := skillDiff(s.Skill); diff != 0 {
+		if !w.ServicesForLift(a.LiftID).Has(diff) {
+			return false
+		}
+	}
+	return true
 }
 
 func (a *WalkToLift) Apply(s *WorldSnapshot, w *world.World) {
@@ -104,7 +114,16 @@ func (a *JoinQueue) Name() string {
 }
 
 func (a *JoinQueue) Precondition(s *WorldSnapshot, w *world.World) bool {
-	return !s.Removed && s.AtLiftBase == a.LiftID
+	l := findLift(w, a.LiftID)
+	if !(!s.Removed && s.AtLiftBase == a.LiftID && l != nil && l.Open) {
+		return false
+	}
+	if diff := skillDiff(s.Skill); diff != 0 {
+		if !w.ServicesForLift(a.LiftID).Has(diff) {
+			return false
+		}
+	}
+	return true
 }
 
 func (a *JoinQueue) Apply(s *WorldSnapshot, w *world.World) {

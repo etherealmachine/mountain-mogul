@@ -165,6 +165,7 @@ type LiftData struct {
 	TopZ        float32     `json:"tz"`
 	Speed       float32     `json:"speed,omitempty"`
 	TicketPrice int         `json:"ticket,omitempty"`
+	Open        bool        `json:"open"`
 	Chairs      []ChairData `json:"chairs,omitempty"`
 	QueueIDs    []uint64    `json:"queue,omitempty"`
 }

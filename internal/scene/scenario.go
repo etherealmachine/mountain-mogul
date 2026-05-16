@@ -2416,6 +2416,21 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 	})
 	w.AddStepper("Speed (m/s)", &l.Speed, 0.5, 0.5, 8.0)
 	w.AddIntStepper("Ticket ($)", &l.TicketPrice, 5, 0, 200)
+	if l.Open {
+		w.AddActionButton("Close Lift", func() {
+			for _, g := range l.Queue {
+				g.Plan.Steps = nil
+			}
+			l.Queue = l.Queue[:0]
+			l.Open = false
+			s.openLiftPopup(l, screenW, screenH)
+		})
+	} else {
+		w.AddActionButton("Open Lift", func() {
+			l.Open = true
+			s.openLiftPopup(l, screenW, screenH)
+		})
+	}
 	if l.Type == world.LiftDouble {
 		label := fmt.Sprintf("Upgrade to Quad ($%d)", world.LiftUpgradeCost)
 		w.AddActionButton(label, func() {

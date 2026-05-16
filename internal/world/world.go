@@ -228,6 +228,7 @@ func (w *World) PlaceLift(typ LiftType, bx, bz, tx, tz float32) *Lift {
 		Top:         mgl32.Vec2{tx, tz},
 		Speed:       2.5, // m/s — realistic chairlift speed
 		TicketPrice: DefaultTicketPrice,
+		Open:        false,
 	}
 
 	// Initialise chairs evenly spaced around the loop, each pre-sized
