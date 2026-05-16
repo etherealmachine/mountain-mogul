@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-gl/mathgl/mgl32"
 	"mountain-mogul/internal/ai"
+	"mountain-mogul/internal/ai/goap"
 	"mountain-mogul/internal/world"
 )
 
@@ -1073,6 +1074,10 @@ func recordFrame(s *Simulation, a *world.Guest, target mgl32.Vec3, dist float32,
 		Target:          target,
 		Dist:            dist,
 		Speed:           a.Speed,
+		PlanStep:        goap.PlanActionLabel(a.Plan.Head(), s.World),
+		GoalName:        a.Plan.GoalName,
+		PathLen:         len(a.Path),
+		PathIdx:         a.PathIdx,
 		FallLine:        perc.FallDir,
 		AxisHeading:     dec.AxisHeading,
 		DesiredHeading:  dec.DesiredHeading,

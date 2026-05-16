@@ -301,6 +301,19 @@ func worldToData(w *world.World) ScenarioData {
 			gd.Energy = g.Energy
 			gd.Fear = g.Fear
 			gd.FearTarget = g.FearTarget
+			if !g.Plan.Done() {
+				gd.PlanStep = g.Plan.Step
+				gd.PlanSteps = make([]PlanActionData, len(g.Plan.Steps))
+				for si, pa := range g.Plan.Steps {
+					gd.PlanSteps[si] = PlanActionData{
+						Kind:    uint8(pa.Kind),
+						LiftID:  pa.LiftID,
+						BldgID:  pa.BldgID,
+						TrailID: pa.TrailID,
+						Cost:    pa.Cost,
+					}
+				}
+			}
 		}
 		guests[i] = gd
 	}
@@ -578,6 +591,20 @@ func dataToWorld(data ScenarioData) *world.World {
 			g.Balance = 1.0
 			g.Fear = gd.Fear
 			g.FearTarget = gd.FearTarget
+			if len(gd.PlanSteps) > 0 {
+				steps := make([]ai.PlanAction, len(gd.PlanSteps))
+				for si, pd := range gd.PlanSteps {
+					steps[si] = ai.PlanAction{
+						Kind:    ai.PlanActionKind(pd.Kind),
+						LiftID:  pd.LiftID,
+						BldgID:  pd.BldgID,
+						TrailID: pd.TrailID,
+						Cost:    pd.Cost,
+					}
+				}
+				g.Plan.Steps = steps
+				g.Plan.Step = gd.PlanStep
+			}
 			w.OnMountain = append(w.OnMountain, g)
 		}
 		w.Guests = append(w.Guests, g)

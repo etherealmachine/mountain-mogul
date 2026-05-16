@@ -166,6 +166,16 @@ type LiftData struct {
 	QueueIDs    []uint64    `json:"queue,omitempty"`
 }
 
+// PlanActionData is one serialised step in a guest's L0 plan. Fields map
+// 1:1 to ai.PlanAction; omitempty keeps dormant-skier rows compact.
+type PlanActionData struct {
+	Kind    uint8   `json:"k,omitempty"`
+	LiftID  uint64  `json:"l,omitempty"`
+	BldgID  uint64  `json:"b,omitempty"`
+	TrailID uint64  `json:"t,omitempty"`
+	Cost    float32 `json:"c,omitempty"`
+}
+
 // GuestData is a saved guest record. Covers both dormant (AtHome) and
 // active (OnMountain) guests — the master Guests slice persists every
 // entry so identity + career stats round-trip. Sim-scratch fields are
@@ -201,5 +211,10 @@ type GuestData struct {
 	Queued     bool       `json:"queued,omitempty"`
 	Energy     float32    `json:"energy,omitempty"`
 	Fear       float32    `json:"fear,omitempty"`
+	// Plan steps and cursor so agents resume mid-plan after load rather than
+	// replanning from an anchor-zero in-transit snapshot. GoalName and Target
+	// are re-derived by onPlanStepStart; only Steps+Step are stored.
+	PlanSteps []PlanActionData `json:"plan,omitempty"`
+	PlanStep  int              `json:"plan_step,omitempty"`
 	FearTarget float32    `json:"fear_target,omitempty"`
 }

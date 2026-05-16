@@ -8,10 +8,10 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 )
 
-// RecorderFrame is one tick of state for a skiing agent. Fields cover every
-// signal the controller produces (perception summary, axis/desired heading,
-// brake state) so a CSV log is enough to reason about the agent's behaviour
-// after the fact.
+// RecorderFrame is one tick of state for a guest. Skiing-physics fields
+// (probes, fall line, etc.) are populated only during tickSkier ticks and
+// are zero for walking/queuing rows — use the activity column to tell them
+// apart. Plan fields are populated for every activity type.
 type RecorderFrame struct {
 	SimTime  float64
 	GuestID  uint64
@@ -23,6 +23,13 @@ type RecorderFrame struct {
 	Dist    float32
 	Speed   float32
 
+	// Plan state — set for every activity, not just skiing.
+	PlanStep string // e.g. "WalkToLift(Lift1)"
+	GoalName string // e.g. "KeepSkiing"
+	PathLen  int    // len(agent.Path)
+	PathIdx  int    // agent.PathIdx
+
+	// Skiing-physics fields — zero for non-skiing rows.
 	FallLine       mgl32.Vec2
 	AxisHeading    float32
 	DesiredHeading float32
@@ -85,6 +92,10 @@ func (c *CSVRecorder) Record(fr RecorderFrame) {
 		f32(fr.Target[0]), f32(fr.Target[1]), f32(fr.Target[2]),
 		f32(fr.Dist),
 		f32(fr.Speed),
+		fr.PlanStep,
+		fr.GoalName,
+		strconv.Itoa(fr.PathLen),
+		strconv.Itoa(fr.PathIdx),
 		f32(fr.FallLine[0]), f32(fr.FallLine[1]),
 		f32(fr.AxisHeading),
 		f32(fr.DesiredHeading),
@@ -111,6 +122,7 @@ var csvHeader = []string{
 	"heading_rad",
 	"tgt_x", "tgt_y", "tgt_z",
 	"dist", "speed",
+	"plan_step", "goal", "path_len", "path_idx",
 	"fall_x", "fall_z",
 	"axis_head", "desired_head",
 	"target_speed", "brake_rad", "turn_side", "mode",

@@ -483,7 +483,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 			int(math.Floor(float64(a.Pos[0] / CellSize))),
 			int(math.Floor(float64(a.Pos[2] / CellSize))),
 		}
-		if path := s.Pathfinder.FindPath(startCell, lift.BackOfQueueCell()); path != nil {
+		if path := s.Pathfinder.FindPath(startCell, lift.QueueCell()); path != nil {
 			a.Path = path
 			a.PathIdx = 0
 		} else {
@@ -706,6 +706,36 @@ func findBuildingByID(w *world.World, id uint64) *world.Building {
 	return nil
 }
 
+// recordWalkTick emits one RecorderFrame for non-skiing activities (walking
+// a path or goal-based locomotion). Skiing rows come from recordFrame in
+// skiing.go; this covers the gaps so the CSV is complete for all activities.
+// target is the world-space point the agent is currently steering toward.
+func (s *Simulation) recordWalkTick(a *world.Guest, target mgl32.Vec3) {
+	if s.Recorder == nil {
+		return
+	}
+	if id := s.Recorder.GuestID(); id != 0 && id != a.ID {
+		return
+	}
+	dx := target[0] - a.Pos[0]
+	dz := target[2] - a.Pos[2]
+	dist := float32(math.Sqrt(float64(dx*dx + dz*dz)))
+	s.Recorder.Record(RecorderFrame{
+		SimTime:  s.SimTime,
+		GuestID:  a.ID,
+		Activity: world.Activity(s.World, a),
+		Pos:      a.Pos,
+		Heading:  a.Heading,
+		Target:   target,
+		Dist:     dist,
+		Speed:    a.Speed,
+		PlanStep: goap.PlanActionLabel(a.Plan.Head(), s.World),
+		GoalName: a.Plan.GoalName,
+		PathLen:  len(a.Path),
+		PathIdx:  a.PathIdx,
+	})
+}
+
 // tickPath walks the agent along their pathfinder route at WalkSpeed. When
 // the path ends and the target is a lift, they queue up; otherwise they fall
 // through to goal-based locomotion next tick.
@@ -716,6 +746,7 @@ func (s *Simulation) tickPath(agent *world.Guest, dt float64) {
 	tz := (float32(target[1]) + 0.5) * CellSize
 	ty := w.Terrain.SurfaceElevationAt(target[0], target[1])
 	targetPos := mgl32.Vec3{tx, ty, tz}
+	s.recordWalkTick(agent, targetPos)
 
 	dir := targetPos.Sub(agent.Pos)
 	dist := dir.Len()
@@ -847,6 +878,7 @@ func (s *Simulation) tickLocomote(agent *world.Guest, dt float64) {
 		s.tickSkier(agent, targetPos, dt)
 		return
 	}
+	s.recordWalkTick(agent, targetPos)
 	s.tickWalkToward(agent, targetPos, dt)
 }
 
