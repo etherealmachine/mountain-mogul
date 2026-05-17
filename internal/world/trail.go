@@ -176,6 +176,37 @@ func BrushCells(cx, cz, radius int) [][2]int {
 	return out
 }
 
+// PolylineCells returns all grid cells within radius of the polyline defined
+// by consecutive waypoints, with no gaps between stamps. Safe to pass
+// directly to AddTrailCells — duplicates are removed.
+func PolylineCells(waypoints [][2]int, radius int) [][2]int {
+	seen := make(map[[2]int]struct{})
+	var out [][2]int
+	stamp := func(cx, cz int) {
+		for _, c := range BrushCells(cx, cz, radius) {
+			if _, ok := seen[c]; !ok {
+				seen[c] = struct{}{}
+				out = append(out, c)
+			}
+		}
+	}
+	for i := 1; i < len(waypoints); i++ {
+		x0, z0 := float64(waypoints[i-1][0]), float64(waypoints[i-1][1])
+		x1, z1 := float64(waypoints[i][0]), float64(waypoints[i][1])
+		dx, dz := x1-x0, z1-z0
+		steps := int(math.Max(math.Abs(dx), math.Abs(dz)))
+		if steps == 0 {
+			stamp(int(math.Round(x0)), int(math.Round(z0)))
+			continue
+		}
+		for s := 0; s <= steps; s++ {
+			t := float64(s) / float64(steps)
+			stamp(int(math.Round(x0+t*dx)), int(math.Round(z0+t*dz)))
+		}
+	}
+	return out
+}
+
 func (w *World) nextTrailDefaultName() string {
 	max := 0
 	for _, t := range w.Trails {

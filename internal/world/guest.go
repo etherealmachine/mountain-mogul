@@ -99,7 +99,6 @@ type Guest struct {
 	Fallen     bool   // briefly immobilised after a fall; clears when FallTimer expires
 	FallTimer  float32
 	AtTrailEnd uint64 // nonzero ⇒ arrived at a trail-to-trail junction (ID = destination trail)
-	OnTrailID  uint64 // nonzero ⇒ skiing an ActSkiTrail step; ID of the via-trail the L1 controller must stay within
 
 	// AI state — populated by sim package.
 	Plan         ai.Plan
@@ -281,7 +280,6 @@ func (g *Guest) ResetForDeparture() {
 	g.PathIdx = 0
 	g.TargetID = 0
 	g.OnLiftID = 0
-	g.OnTrailID = 0
 	g.Queued = false
 	g.Fallen = false
 	g.FallTimer = 0

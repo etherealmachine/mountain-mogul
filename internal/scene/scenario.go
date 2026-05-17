@@ -2903,14 +2903,6 @@ func (f *followLabel) Draw(r *render.Renderer) {
 	if t := f.agent.CurrentThought(f.simTime); t != ai.ThoughtNone {
 		rows = append(rows, fmt.Sprintf("\"%s\"", t.Display()))
 	}
-	// Trail status — show OnTrailID so we can verify the field is being set.
-	if f.agent.OnTrailID != 0 {
-		trailName := fmt.Sprintf("#%d", f.agent.OnTrailID)
-		if t := f.world.FindTrail(f.agent.OnTrailID); t != nil && t.Name != "" {
-			trailName = t.Name
-		}
-		rows = append(rows, fmt.Sprintf("on trail: %s", trailName))
-	}
 	// Read the stored plan rather than running the planner per frame.
 	// Plan is updated by sim.tickPlanning at the four MD-spec replan
 	// triggers; HUD reads what the sim is actually executing.

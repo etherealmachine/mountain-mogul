@@ -445,8 +445,7 @@ func isDescentKind(k ai.PlanActionKind) bool {
 // spawn, when the plan exhausts, and when a precondition breaks.
 func (s *Simulation) replan(a *world.Guest) {
 	a.AtTrailEnd = 0 // clear any stale junction anchor before re-planning
-	a.OnTrailID = 0
-	a.Plan = s.Planner.StoredPlanFor(a, s.World)
+	a.Plan = s.Planner.StoredPlanFor(a, s.World, s.SimTime)
 	if !a.Plan.Done() {
 		s.onPlanStepStart(a)
 	}
@@ -471,9 +470,6 @@ func (s *Simulation) advancePlan(a *world.Guest) {
 func (s *Simulation) onPlanStepStart(a *world.Guest) {
 	w := s.World
 	step := a.Plan.Head()
-	// Clear trail context at every step start; ActSkiTrail sets it below.
-	a.OnTrailID = 0
-
 	switch step.Kind {
 	case ai.ActWalkToLift:
 		lift := findLiftByID(w, step.LiftID)
@@ -536,7 +532,6 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		a.Plan.GoalID = b.ID
 		a.Plan.Target = parkingWorldPos(w, b)
 	case ai.ActSkiTrail:
-		a.OnTrailID = step.TrailID
 		switch {
 		case step.LiftID != 0:
 			lift := findLiftByID(w, step.LiftID)

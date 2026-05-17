@@ -128,20 +128,31 @@ func (p *Planner) PlanForGuest(a *world.Guest, w *world.World) ([]Action, Goal, 
 // world.Guest.Plan. The simulation's replan path uses this; the HUD
 // reads the stored result instead of recomputing each frame.
 //
-// When no goal is selectable (everything satisfied) or the planner
-// returns no plan, the returned ai.Plan has empty Steps so Plan.Done()
-// is true. Callers should still set the Plan onto the agent so the
-// previous stale Steps don't survive.
-func (p *Planner) StoredPlanFor(a *world.Guest, w *world.World) ai.Plan {
-	actions, goal, snap := p.PlanForGuest(a, w)
-	out := ai.Plan{}
-	if goal != nil {
-		out.GoalName = goal.Name()
+// Goals are tried in descending weight order. If the highest-priority
+// unsatisfied goal yields no plan (e.g. Rest with no reachable lodge),
+// the next goal is attempted. A negative thought is emitted on the agent
+// when Rest is skipped this way. If no goal produces a plan, the returned
+// ai.Plan has empty Steps so Plan.Done() is true.
+func (p *Planner) StoredPlanFor(a *world.Guest, w *world.World, simTime float64) ai.Plan {
+	snap := Extract(a, w)
+	for _, gr := range RankedGoals(&snap, w) {
+		if gr.Satisfied {
+			continue
+		}
+		actions := p.Plan(snap, gr.Goal, w)
+		if actions == nil {
+			if _, ok := gr.Goal.(Rest); ok {
+				a.AddThought(ai.ThoughtNeedsLodge, simTime)
+			}
+			continue
+		}
+		out := ai.Plan{GoalName: gr.Goal.Name()}
+		if len(actions) > 0 {
+			out.Steps = ToPlanActions(actions, snap, w)
+		}
+		return out
 	}
-	if len(actions) > 0 {
-		out.Steps = ToPlanActions(actions, snap, w)
-	}
-	return out
+	return ai.Plan{}
 }
 
 // reconstruct walks the parent chain from a goal node back to the start

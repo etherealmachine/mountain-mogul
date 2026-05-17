@@ -117,6 +117,33 @@ var Testbeds = []Testbed{
 		},
 	},
 	{
+		// Single lift + curving trail, no lodge. Skier starts with Patience=0.5
+		// so KeepSkiing fires first (rides the lift), then at the top Patience
+		// is below restThreshold and the Rest goal fires. With no lodge the
+		// planner falls back to KeepSkiing, emitting a ThoughtNeedsLodge. The
+		// trail curves hard left away from the fall line.
+		//
+		// World: 40×100 cells (200m×500m), 15° slope.
+		// Lift base at (20,95), top at (20,5). Parking at (20,98).
+		// Trail: lift-top → curves left → lift-base.
+		Name: "Single lift, curving trail, no lodge",
+		Seed: 1,
+		Build: func(_ *rand.Rand) *world.World {
+			// Waypoints for the trail: starts at lift top, curves left (west),
+			// returns to lift base.
+			waypoints := [][2]int{
+				{20, 5}, {18, 12}, {12, 22}, {7, 35},
+				{5, 50}, {8, 65}, {14, 80}, {20, 95},
+			}
+			return scene(40, 100).slope(15).
+				parkingAt(20, 98).
+				liftFromTo(20, 95, 20, 5).
+				paintTrail(world.DiffBlue, world.PolylineCells(waypoints, 2)).
+				goapSkierAt(20, 98, ai.SkillAdvanced, 0.5).
+				build()
+		},
+	},
+	{
 		// Trail divergence: side walls channel the skier, a center patch
 		// blocks the straight line, and the skier spawns 1 cell east of
 		// the corridor centerline. The patch sits well below the spawn so
@@ -225,8 +252,9 @@ const testbedPowderAccumulation = float32(1.28)
 // number of skier() and obstacle steps. Calling build() returns the
 // finished *world.World.
 type builder struct {
-	w         *world.World
-	lastLodge *world.Building // most recently placed lodge; auto-target for skier()
+	w           *world.World
+	lastLodge   *world.Building // most recently placed lodge; auto-target for skier()
+	lastParking *world.Building // most recently placed parking lot
 }
 
 // scene starts a fresh testbed builder over a wCells × hCells terrain
@@ -511,6 +539,54 @@ func pointInPolygon(px, pz float32, pts [][2]float32) bool {
 		j = i
 	}
 	return inside
+}
+
+// parkingAt places a parking lot at the given grid cell.
+func (b *builder) parkingAt(gx, gz int) *builder {
+	const cs = float32(5.0)
+	p := b.w.PlaceBuildingType(world.BuildingParking, (float32(gx)+0.5)*cs, (float32(gz)+0.5)*cs)
+	b.lastParking = p
+	return b
+}
+
+// liftFromTo places an open double chairlift with its base at cell (bx, bz)
+// and its top at cell (tx, tz).
+func (b *builder) liftFromTo(bx, bz, tx, tz int) *builder {
+	const cs = float32(5.0)
+	lift := b.w.PlaceLift(world.LiftDouble,
+		(float32(bx)+0.5)*cs, (float32(bz)+0.5)*cs,
+		(float32(tx)+0.5)*cs, (float32(tz)+0.5)*cs,
+	)
+	lift.Open = true
+	return b
+}
+
+// paintTrail registers the given cells as a new trail of the given difficulty
+// and rebuilds the trail graph.
+func (b *builder) paintTrail(diff world.TerrainDifficulty, cells [][2]int) *builder {
+	t := b.w.PlaceTrail("", diff)
+	b.w.AddTrailCells(t.ID, cells)
+	b.w.RebuildTrailGraph()
+	return b
+}
+
+// goapSkierAt places a skier at the given grid cell with an empty plan so
+// GOAP takes over on the first tick. patience is the starting 0..1 value.
+func (b *builder) goapSkierAt(gx, gz int, skill ai.SkillLevel, patience float32) *builder {
+	const cs = float32(5.0)
+	elev := b.w.Terrain.SurfaceElevationAt(gx, gz)
+	pos := mgl32.Vec3{(float32(gx) + 0.5) * cs, elev, (float32(gz) + 0.5) * cs}
+	a := &world.Guest{
+		ID:         b.w.NextID(),
+		State:      world.OnMountain,
+		Discipline: world.Ski,
+		Pos:        pos,
+		Traits:     ai.TraitsFor(skill),
+		Balance:    1.0,
+		Patience:   patience,
+	}
+	b.w.OnMountain = append(b.w.OnMountain, a)
+	return b
 }
 
 // build returns the finished *world.World. The builder should not be used

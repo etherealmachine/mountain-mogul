@@ -256,6 +256,9 @@ const (
 
 	// Queue events.
 	ThoughtLongLine // Joining a queue whose estimated wait is long
+
+	// Planning events.
+	ThoughtNeedsLodge // Rest goal selected but no lodge reachable; fell back to next goal
 )
 
 // Display returns the short, player-readable phrasing of a thought.
@@ -275,6 +278,8 @@ func (k ThoughtKind) Display() string {
 		return "what a great lift!"
 	case ThoughtLongLine:
 		return "this line is way too long"
+	case ThoughtNeedsLodge:
+		return "this place needs a lodge"
 	}
 	return ""
 }

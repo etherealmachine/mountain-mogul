@@ -216,8 +216,7 @@ func (a *SkiToLift) Cost(s *WorldSnapshot, w *world.World) float32 {
 	if src == nil || dst == nil {
 		return math.MaxFloat32
 	}
-	base := distXZ(mgl32.Vec3{src.Top[0], 0, src.Top[1]}, dst.Base[0], dst.Base[1]) / skiSpeedMps
-	return base + offTrailPenaltySec(s.Skill, w, s.AtLiftTop)
+	return distXZ(mgl32.Vec3{src.Top[0], 0, src.Top[1]}, dst.Base[0], dst.Base[1]) / skiSpeedMps
 }
 
 // SkiToLodge descends from a lift top to a lodge. Used in plans that
@@ -256,8 +255,7 @@ func (a *SkiToLodge) Cost(s *WorldSnapshot, w *world.World) float32 {
 	if src == nil || dst == nil {
 		return math.MaxFloat32
 	}
-	base := distXZ(mgl32.Vec3{src.Top[0], 0, src.Top[1]}, dst.Pos[0], dst.Pos[1]) / skiSpeedMps
-	return base + offTrailPenaltySec(s.Skill, w, s.AtLiftTop)
+	return distXZ(mgl32.Vec3{src.Top[0], 0, src.Top[1]}, dst.Pos[0], dst.Pos[1]) / skiSpeedMps
 }
 
 // SkiToParking descends from a lift top to a parking lot. The terminal
@@ -296,8 +294,7 @@ func (a *SkiToParking) Cost(s *WorldSnapshot, w *world.World) float32 {
 	if src == nil || dst == nil {
 		return math.MaxFloat32
 	}
-	base := distXZ(mgl32.Vec3{src.Top[0], 0, src.Top[1]}, dst.Pos[0], dst.Pos[1]) / skiSpeedMps
-	return base + offTrailPenaltySec(s.Skill, w, s.AtLiftTop)
+	return distXZ(mgl32.Vec3{src.Top[0], 0, src.Top[1]}, dst.Pos[0], dst.Pos[1]) / skiSpeedMps
 }
 
 // RestAtLodge is an atomic recovery action — one application restores

@@ -136,24 +136,6 @@ func currentAnchorID(s *WorldSnapshot) uint64 {
 	return 0
 }
 
-// offTrailPenaltySec returns the extra cost (seconds) added to free-roam
-// SkiTo* actions when trail alternatives exist from the current anchor.
-// Encourages skiers to prefer defined trails; skill level controls how
-// much they're discouraged from going off-piste.
-func offTrailPenaltySec(skill ai.SkillLevel, w *world.World, anchorID uint64) float32 {
-	if w.TrailGraph == nil || len(w.TrailGraph.EdgesFrom(anchorID)) == 0 {
-		return 0
-	}
-	switch skill {
-	case ai.SkillBeginner:
-		return 120
-	case ai.SkillIntermediate:
-		return 45
-	default: // Advanced
-		return 10
-	}
-}
-
 // skillDiff maps a skill level to the terrain difficulty a guest requires.
 // Returns 0 for Advanced+ — they're willing to free-roam and don't filter on
 // difficulty when choosing a lift.
@@ -184,11 +166,6 @@ func trailLabel(w *world.World, id uint64) string {
 		return t.Name
 	}
 	return fmt.Sprintf("Trail#%d", id)
-}
-
-// trailEdgeCost computes the time cost of a SkiTrail edge.
-func trailEdgeCost(distance float32) float32 {
-	return distance / skiSpeedMps
 }
 
 // skiTrailPlanActionLabel returns the HUD label for an ActSkiTrail step.

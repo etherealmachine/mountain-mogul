@@ -90,7 +90,6 @@ const (
 	progressBonus    = 0.3 // weight on cos(offset) — small so wider clearances aren't outvoted by "stay on axis"
 	sideCommitBonus  = 0.4 // weight on sign(prevTactical)·sign(offset) — biases toward the side already chosen so symmetric obstacles don't flip-flop
 	groomingBonus    = 0.5 // weight on Σ grooming along the candidate path — pulls skiers toward corduroy on clear slopes, outvoted by trees when present
-	trailBonus       = 0.7 // weight on Σ on-trail segments — prefers arcs that stay within the assigned trail, comparable in strength to the tree penalty so it influences but doesn't override obstacle avoidance
 
 	// Width of the corridor the sampler treats as "the skier" when
 	// integrating tree density along a candidate path. Each segment reads
@@ -139,12 +138,6 @@ const (
 	// a guest who skis freely without long waits stays patient all day.
 	patienceGainPerSecSkiing = 1.0 / 1000.0
 
-	// trailAxisPull is the weight of the "toward nearest trail cell"
-	// correction vector blended into axisDir when the skier has drifted
-	// off their assigned trail. 0.35 rotates the axis ~19° toward the
-	// trail when the pull is perpendicular — enough to steer back without
-	// fighting the fall-line or overriding the destination heading.
-	trailAxisPull = 0.35
 )
 
 // =============================================================================
@@ -204,32 +197,6 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 	}
 
 	perc := perceive(s.World.Terrain, a, target)
-
-	// Trail axis pull: when the skier is off their assigned trail, blend a
-	// correction toward the nearest trail cell into axisDir before decide
-	// runs. Only fires when outside a trail cell — on-trail the axis is
-	// left alone and sampleTactical's trail bonus handles preference.
-	if a.OnTrailID != 0 {
-		if trail := s.World.FindTrail(a.OnTrailID); trail != nil {
-			cx := int(a.Pos[0] / CellSize)
-			cz := int(a.Pos[2] / CellSize)
-			if !trail.ContainsCell(cx, cz) {
-				if wx, wz, ok := trail.NearestCellCenter(a.Pos[0], a.Pos[2]); ok {
-					dx := wx - a.Pos[0]
-					dz := wz - a.Pos[2]
-					l := float32(math.Sqrt(float64(dx*dx + dz*dz)))
-					if l > 1e-4 {
-						ax := perc.AxisDir[0] + trailAxisPull*(dx/l)
-						az := perc.AxisDir[1] + trailAxisPull*(dz/l)
-						al := float32(math.Sqrt(float64(ax*ax + az*az)))
-						if al > 1e-4 {
-							perc.AxisDir = mgl32.Vec2{ax / al, az / al}
-						}
-					}
-				}
-			}
-		}
-	}
 
 	dec := decide(s.World, s.towersScratch, s.spatial, a, perc, float32(dt), s.Rng)
 	if dec.TurnSide != a.TurnSide {
@@ -677,21 +644,13 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 		selfID = self.ID
 	}
 
-	// Resolve the via-trail once for the trail-bonus scoring below.
-	// nil when the agent is not on a trail step.
-	var onTrail *world.Trail
-	if self != nil && self.OnTrailID != 0 {
-		onTrail = w.FindTrail(self.OnTrailID)
-	}
-
-	// Pass 1: integrate density, boundary hits, grooming, and trail
-	// coverage along each candidate. Grooming and trail read the centre
-	// point only — corridor sampling would double-count adjacent cells.
+	// Pass 1: integrate density, boundary hits, and grooming along each
+	// candidate. Grooming reads the centre point only — corridor sampling
+	// would double-count adjacent cells.
 	type sampleData struct {
 		ang           float32
 		totalDensity  float32
 		totalGrooming float32
-		totalTrail    int // segments whose centre cell is in the via-trail
 		boundaryHits  int
 	}
 	samples := make([]sampleData, sampleCount)
@@ -706,7 +665,7 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 		rx, rz := hz, -hx
 
 		var totalDensity, totalGrooming float32
-		var totalTrail, boundaryHits int
+		var boundaryHits int
 		for sIdx := 1; sIdx <= sampleSegments; sIdx++ {
 			d := horizon * float32(sIdx) / float32(sampleSegments)
 			x := perc.Pos[0] + hx*d
@@ -729,11 +688,8 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 			totalDensity += density
 			_, grooming, _, _, _ := t.SnowAt(x, z)
 			totalGrooming += grooming
-			if onTrail != nil && onTrail.ContainsCell(int(x/CellSize), int(z/CellSize)) {
-				totalTrail++
-			}
 		}
-		samples[i] = sampleData{ang, totalDensity, totalGrooming, totalTrail, boundaryHits}
+		samples[i] = sampleData{ang, totalDensity, totalGrooming, boundaryHits}
 		if totalDensity > maxDensity {
 			maxDensity = totalDensity
 		}
@@ -768,7 +724,6 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 		score -= float32(treePenalty) * sd.totalDensity
 		score -= float32(boundaryPenalty) * float32(sd.boundaryHits)
 		score += float32(groomingBonus) * sd.totalGrooming
-		score += float32(trailBonus) * float32(sd.totalTrail)
 		if prevSign != 0 && sd.ang != 0 {
 			angSign := float32(+1)
 			if sd.ang < 0 {
