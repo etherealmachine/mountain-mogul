@@ -869,8 +869,7 @@ func seatWorldPos(chairPos mgl32.Vec3, heading float32, slotIdx int, slots []wor
 }
 
 // tickLocomote moves the agent toward TargetID, choosing ski or walk based
-// on local slope and goal direction. Steep downhill toward the goal → ski;
-// flat or uphill → walk straight. Arrival is observed by tickPlanning on
+// on local slope and goal direction. Arrival is observed by tickPlanning on
 // the next frame via a snapshot extract — the implicit AtLiftBase /
 // AtLodge / AtParking signal is what tells the planning layer the head
 // step is done, so this function doesn't need an explicit on-arrival
@@ -895,7 +894,13 @@ func (s *Simulation) tickLocomote(agent *world.Guest, dt float64) {
 		return
 	}
 
-	if shouldSki(w.Terrain, agent.Pos, targetPos) {
+	// Ski when the goal is downhill, or when the agent is still carrying
+	// speed — momentum lets a real skier run uphill briefly (over a snow
+	// ridge, a compaction seam, a gentle rise) and gravity drains the excess.
+	// Only walk once speed has actually reached the walk floor, meaning the
+	// terrain truly stopped them rather than the terrain-normal check firing
+	// instantaneously on a single-cell artifact.
+	if shouldSki(w.Terrain, agent.Pos, targetPos) || agent.Speed > skiWalkSpeed {
 		s.tickSkier(agent, targetPos, dt)
 		return
 	}

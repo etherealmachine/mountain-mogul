@@ -46,6 +46,7 @@ type RecorderFrame struct {
 	ProbeL          float32
 	SlopeCos        float32
 	InArrivalRadius bool
+	TacticalOffset  float32 // rad; sampler's winning lateral offset from axis
 }
 
 // Recorder consumes per-tick skiing frames. Implementations should be cheap —

@@ -139,7 +139,8 @@ var Testbeds = []Testbed{
 				parkingAt(20, 98).
 				liftFromTo(20, 95, 20, 5).
 				paintTrail(world.DiffBlue, world.PolylineCells(waypoints, 2)).
-				goapSkierAt(20, 98, ai.SkillAdvanced, 0.5).
+				groomPolyline(waypoints, 2).
+				goapSkierAt(20, 98, ai.SkillIntermediate, 0.5).
 				build()
 		},
 	},
@@ -439,6 +440,23 @@ func (b *builder) treeRect(x1, z1, x2, z2 int, density float32) *builder {
 			}
 			t.Cells[x][z].TreeDensity = density
 		}
+	}
+	return b
+}
+
+// groomPolyline paints a fully-groomed, fully-packed lane on every cell
+// returned by world.PolylineCells(waypoints, radius). Mirrors the same
+// cell set that paintTrail uses, so a testbed can groom exactly the
+// painted trail by calling both with identical arguments.
+func (b *builder) groomPolyline(waypoints [][2]int, radius int) *builder {
+	t := b.w.Terrain
+	for _, c := range world.PolylineCells(waypoints, radius) {
+		if !t.InBounds(c[0], c[1]) {
+			continue
+		}
+		cell := &t.Cells[c[0]][c[1]]
+		cell.Grooming = 1.0
+		cell.Packed = 1.0
 	}
 	return b
 }

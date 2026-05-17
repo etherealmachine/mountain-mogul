@@ -90,6 +90,12 @@ const (
 	progressBonus    = 0.3 // weight on cos(offset) — small so wider clearances aren't outvoted by "stay on axis"
 	sideCommitBonus  = 0.4 // weight on sign(prevTactical)·sign(offset) — biases toward the side already chosen so symmetric obstacles don't flip-flop
 	groomingBonus    = 0.5 // weight on Σ grooming along the candidate path — pulls skiers toward corduroy on clear slopes, outvoted by trees when present
+	// groomEdgePenalty is added to a candidate's totalDensity (→ treePenalty
+	// multiplier) each time the sample transitions from groomed to ungroomed
+	// terrain. Only applied when self.Traits.PrefersGroomed is true. This
+	// treats the piste edge as a soft obstacle and prevents the progressBonus
+	// from pulling the skier off a curved groomed trail.
+	groomEdgePenalty = 1.5
 
 	// Width of the corridor the sampler treats as "the skier" when
 	// integrating tree density along a candidate path. Each segment reads
@@ -644,14 +650,23 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 		selfID = self.ID
 	}
 
+	// Current-cell grooming used as the starting point for groom-edge
+	// crossing detection. Only relevant when self.Traits.PrefersGroomed.
+	var startGrooming float32
+	prefersGroomed := self != nil && self.Traits.PrefersGroomed
+	if prefersGroomed && t.InBoundsWorld(perc.Pos[0], perc.Pos[2]) {
+		_, startGrooming, _, _, _ = t.SnowAt(perc.Pos[0], perc.Pos[2])
+	}
+
 	// Pass 1: integrate density, boundary hits, and grooming along each
 	// candidate. Grooming reads the centre point only — corridor sampling
 	// would double-count adjacent cells.
 	type sampleData struct {
-		ang           float32
-		totalDensity  float32
-		totalGrooming float32
-		boundaryHits  int
+		ang                float32
+		totalDensity       float32
+		totalGrooming      float32
+		boundaryHits       int
+		groomEdgeCrossings int // groomed→ungroomed transitions (PrefersGroomed only)
 	}
 	samples := make([]sampleData, sampleCount)
 	var maxDensity float32
@@ -665,7 +680,8 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 		rx, rz := hz, -hx
 
 		var totalDensity, totalGrooming float32
-		var boundaryHits int
+		var boundaryHits, groomEdgeCrossings int
+		prevGrooming := startGrooming
 		for sIdx := 1; sIdx <= sampleSegments; sIdx++ {
 			d := horizon * float32(sIdx) / float32(sampleSegments)
 			x := perc.Pos[0] + hx*d
@@ -687,9 +703,13 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 			}
 			totalDensity += density
 			_, grooming, _, _, _ := t.SnowAt(x, z)
+			if prefersGroomed && prevGrooming > 0.5 && grooming < 0.5 {
+				groomEdgeCrossings++
+			}
+			prevGrooming = grooming
 			totalGrooming += grooming
 		}
-		samples[i] = sampleData{ang, totalDensity, totalGrooming, boundaryHits}
+		samples[i] = sampleData{ang, totalDensity, totalGrooming, boundaryHits, groomEdgeCrossings}
 		if totalDensity > maxDensity {
 			maxDensity = totalDensity
 		}
@@ -718,12 +738,21 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 		}
 	}
 
+	// Groom-preferring skiers (beginner/intermediate) weight corduroy 4× more
+	// strongly than the default — enough to dominate direction choice on clear
+	// slopes without being overridden by tree avoidance when hazards are present.
+	groomWeight := float32(groomingBonus)
+	if self != nil && self.Traits.PrefersGroomed {
+		groomWeight *= 4
+	}
+
 	bestScore := float32(-1e9)
 	for _, sd := range samples {
 		score := float32(progressBonus) * float32(math.Cos(float64(sd.ang)))
 		score -= float32(treePenalty) * sd.totalDensity
 		score -= float32(boundaryPenalty) * float32(sd.boundaryHits)
-		score += float32(groomingBonus) * sd.totalGrooming
+		score += groomWeight * sd.totalGrooming
+		score -= float32(treePenalty) * float32(groomEdgePenalty) * float32(sd.groomEdgeCrossings)
 		if prevSign != 0 && sd.ang != 0 {
 			angSign := float32(+1)
 			if sd.ang < 0 {
@@ -1069,5 +1098,6 @@ func recordFrame(s *Simulation, a *world.Guest, target mgl32.Vec3, dist float32,
 		ProbeL:          dec.ProbeL,
 		SlopeCos:        perc.Normal[1],
 		InArrivalRadius: perc.InArrival,
+		TacticalOffset:  dec.TacticalOffset,
 	})
 }

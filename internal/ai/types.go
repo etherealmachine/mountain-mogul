@@ -65,17 +65,19 @@ func TraitsFor(level SkillLevel) GuestTraits {
 	switch level {
 	case SkillBeginner:
 		return GuestTraits{
-			Skill:        SkillBeginner,
-			ComfortSpeed: 5,
-			ComfortSlope: 10 * math.Pi / 180,
-			Aggression:   0.2,
+			Skill:          SkillBeginner,
+			ComfortSpeed:   5,
+			ComfortSlope:   10 * math.Pi / 180,
+			Aggression:     0.2,
+			PrefersGroomed: true,
 		}
 	case SkillIntermediate:
 		return GuestTraits{
-			Skill:        SkillIntermediate,
-			ComfortSpeed: 10,
-			ComfortSlope: 20 * math.Pi / 180,
-			Aggression:   0.5,
+			Skill:          SkillIntermediate,
+			ComfortSpeed:   10,
+			ComfortSlope:   20 * math.Pi / 180,
+			Aggression:     0.5,
+			PrefersGroomed: true,
 		}
 	default:
 		return GuestTraits{

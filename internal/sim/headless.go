@@ -132,9 +132,9 @@ func (r *traceRecorder) GuestID() uint64 { return r.id }
 func (r *traceRecorder) Close() error    { return nil }
 
 func (r *traceRecorder) writeHeader() {
-	fmt.Fprintf(r.out, "  %-7s %-12s %-22s %5s %9s %-8s %4s %5s %-14s %6s  %-5s\n",
-		"t", "activity", "pos(x,y,z)", "spd", "head→axis", "mode", "bal", "slope", "probe C/R/L", "dist",
-		"side")
+	fmt.Fprintf(r.out, "  %-7s %-12s %-22s %5s %9s %7s %-8s %4s %5s %-14s %6s  %-5s  %s\n",
+		"t", "activity", "pos(x,y,z)", "spd", "head→axis", "tactical", "mode", "bal", "slope", "probe C/R/L", "dist",
+		"side", "plan_step")
 }
 
 func (r *traceRecorder) Record(f RecorderFrame) {
@@ -180,18 +180,21 @@ func (r *traceRecorder) Record(f RecorderFrame) {
 	headDev := wrapAngle(f.Heading - f.AxisHeading)
 	slopeDeg := math.Acos(math.Min(1, math.Max(-1, float64(f.SlopeCos)))) * 180 / math.Pi
 
-	fmt.Fprintf(r.out, "  %6.2f  %-12s (%6.1f,%5.1f,%6.1f) %5.2f %+7.2f° %-8s %4.2f %4.1f° %4.2f/%4.2f/%4.2f %6.1f  %+d\n",
+	tacticalDeg := float64(f.TacticalOffset) * 180 / math.Pi
+	fmt.Fprintf(r.out, "  %6.2f  %-12s (%6.1f,%5.1f,%6.1f) %5.2f %+7.2f° %+6.1f° %-8s %4.2f %4.1f° %4.2f/%4.2f/%4.2f %6.1f  %+d  %s\n",
 		f.SimTime,
 		f.Activity,
 		f.Pos[0], f.Pos[1], f.Pos[2],
 		f.Speed,
 		headDev*180/math.Pi,
+		tacticalDeg,
 		f.Mode,
 		f.Balance,
 		slopeDeg,
 		f.ProbeC, f.ProbeR, f.ProbeL,
 		f.Dist,
 		f.TurnSide,
+		f.PlanStep,
 	)
 }
 
