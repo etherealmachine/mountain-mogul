@@ -216,7 +216,7 @@ func (s *Simulation) tickLifts(dt float64) {
 					// then update the ride tally so the planner's Explore
 					// goal prefers unridden lifts.
 					if ai.RideCountOf(agent.RidenLifts, lift.ID) == 0 {
-						agent.AddThought(ai.ThoughtLovingALift, s.SimTime)
+						s.addThought(agent, ai.ThoughtLovingALift)
 					}
 					agent.RidenLifts = ai.AddRide(agent.RidenLifts, lift.ID)
 					topCell := lift.TopCell()
@@ -342,6 +342,17 @@ func (s *Simulation) spawnGuest(lot *world.Building, g *world.Guest) bool {
 	return true
 }
 
+// addThought calls Guest.AddThought and, if the thought was not suppressed,
+// records it into the day's running tally so it appears in the same day's
+// history sample rather than waiting until the guest departs.
+func (s *Simulation) addThought(a *world.Guest, kind ai.ThoughtKind) {
+	prev := a.ThoughtCounts[kind]
+	a.AddThought(kind, s.SimTime)
+	if a.ThoughtCounts[kind] != prev {
+		s.World.History.RecordThought(kind)
+	}
+}
+
 // maybeSampleHistory pushes one DailySample per in-game day boundary
 // the sim has crossed since the last call. Snapshots GuestsOnMountain
 // + Cash at the moment of rollover, and consumes the per-day arrival/
@@ -446,7 +457,11 @@ func isDescentKind(k ai.PlanActionKind) bool {
 // spawn, when the plan exhausts, and when a precondition breaks.
 func (s *Simulation) replan(a *world.Guest) {
 	a.AtTrailEnd = 0 // clear any stale junction anchor before re-planning
+	prevNeedsLodge := a.ThoughtCounts[ai.ThoughtNeedsLodge]
 	a.Plan = s.Planner.StoredPlanFor(a, s.World, s.SimTime)
+	if a.ThoughtCounts[ai.ThoughtNeedsLodge] != prevNeedsLodge {
+		s.World.History.RecordThought(ai.ThoughtNeedsLodge)
+	}
 	if !a.Plan.Done() {
 		s.onPlanStepStart(a)
 	}
@@ -498,7 +513,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 			return
 		}
 		if len(lift.Queue) >= longQueuePersons {
-			a.AddThought(ai.ThoughtLongLine, s.SimTime)
+			s.addThought(a, ai.ThoughtLongLine)
 		}
 		lift.Queue = append(lift.Queue, a)
 		a.Queued = true
@@ -579,7 +594,6 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		// reapDeparted will splice this Guest out of OnMountain.
 		s.Demand.recordDeparture(a, s.SimTime)
 		w.History.RecordDeparture()
-		w.History.RecordThoughts(a.ThoughtCounts)
 		if b := findBuildingByID(w, step.BldgID); b != nil {
 			b.CurrentCars -= 1.0 / float32(GuestsPerCar)
 			if b.CurrentCars < 0 {

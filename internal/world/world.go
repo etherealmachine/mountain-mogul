@@ -94,6 +94,7 @@ func NewWorld(terrain *Terrain) *World {
 		Terrain: terrain,
 		nextID:  1,
 		Cash:    StartingCash,
+		History: NewHistory(),
 	}
 }
 

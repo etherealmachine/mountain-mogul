@@ -234,16 +234,16 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 
 	if inTrees {
 		if a.Traits.LikesGlades {
-			a.AddThought(ai.ThoughtLovingGlades, s.SimTime)
+			s.addThought(a, ai.ThoughtLovingGlades)
 		} else {
-			a.AddThought(ai.ThoughtScaredInTrees, s.SimTime)
+			s.addThought(a, ai.ThoughtScaredInTrees)
 		}
 	}
 	if a.Traits.PrefersGroomed {
 		if onGroomed {
-			a.AddThought(ai.ThoughtLovingCorduroy, s.SimTime)
+			s.addThought(a, ai.ThoughtLovingCorduroy)
 		} else {
-			a.AddThought(ai.ThoughtTiredOffPiste, s.SimTime)
+			s.addThought(a, ai.ThoughtTiredOffPiste)
 		}
 	}
 
@@ -264,7 +264,7 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 		a.FallTimer = float32(fallRecoverTime)
 		a.Speed = 0
 		a.Events = append(a.Events, ai.GuestEvent{Kind: ai.EventFall, Time: s.SimTime})
-		a.AddThought(ai.ThoughtFell, s.SimTime)
+		s.addThought(a, ai.ThoughtFell)
 		recordFrame(s, a, target, dist, perc, dec)
 		return false
 	}

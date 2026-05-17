@@ -76,15 +76,14 @@ func (h *History) RecordRevenue(amount int) {
 	h.RevenueToday += amount
 }
 
-// RecordThoughts accumulates a departing guest's per-kind thought counts
-// into ThoughtCountsToday. Safe to call when h is nil — does nothing.
-func (h *History) RecordThoughts(counts [ai.ThoughtKindCount]int) {
+// RecordThought increments ThoughtCountsToday for one kind. Called at the
+// moment a thought is emitted (not at departure) so the daily sample
+// reflects the day thoughts actually occurred. Safe to call when h is nil.
+func (h *History) RecordThought(kind ai.ThoughtKind) {
 	if h == nil {
 		return
 	}
-	for i, v := range counts {
-		h.ThoughtCountsToday[i] += v
-	}
+	h.ThoughtCountsToday[kind]++
 }
 
 // Push writes one finalised DailySample into the ring and resets the

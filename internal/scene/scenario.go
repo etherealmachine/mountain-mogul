@@ -832,7 +832,7 @@ func (s *Scenario) Init(app *engine.App) error {
 		{
 			Title: "Guest thoughts",
 			Icon:  render.IconHeart,
-			Kind:  ui.ChartGroupedBar,
+			Kind:  ui.ChartThoughtRank,
 			Series: []ui.ChartSeries{
 				{Name: "Loving glades", Color: mgl32.Vec4{0.30, 0.75, 0.40, 1}},
 				{Name: "Loving corduroy", Color: mgl32.Vec4{0.45, 0.85, 0.55, 1}},
@@ -843,7 +843,7 @@ func (s *Scenario) Init(app *engine.App) error {
 				{Name: "Long line", Color: mgl32.Vec4{0.80, 0.45, 0.70, 1}},
 				{Name: "Needs lodge", Color: mgl32.Vec4{0.60, 0.50, 0.80, 1}},
 			},
-			GetData: func() []ui.ChartPoint { return historyToChart(s.world, thoughtsField) },
+			GetData: func() []ui.ChartPoint { return thoughtsToDistribution(s.world) },
 		},
 	})
 	s.chartWindow.Center(app.Renderer.ScreenWidth(), app.Renderer.ScreenHeight())
@@ -866,7 +866,6 @@ const (
 	arrDepField
 	cashField
 	pnlField
-	thoughtsField
 )
 
 // historyToChart turns world.History.Ordered() into []ui.ChartPoint with
@@ -892,20 +891,35 @@ func historyToChart(w *world.World, field historyField) []ui.ChartPoint {
 				float64(s.Costs),
 				float64(s.Revenue - s.Costs),
 			}}
-		case thoughtsField:
-			out[i] = ui.ChartPoint{Day: s.Day, Values: []float64{
-				float64(s.ThoughtCounts[ai.ThoughtLovingGlades]),
-				float64(s.ThoughtCounts[ai.ThoughtLovingCorduroy]),
-				float64(s.ThoughtCounts[ai.ThoughtLovingALift]),
-				float64(s.ThoughtCounts[ai.ThoughtScaredInTrees]),
-				float64(s.ThoughtCounts[ai.ThoughtTiredOffPiste]),
-				float64(s.ThoughtCounts[ai.ThoughtFell]),
-				float64(s.ThoughtCounts[ai.ThoughtLongLine]),
-				float64(s.ThoughtCounts[ai.ThoughtNeedsLodge]),
-			}}
 		}
 	}
 	return out
+}
+
+// thoughtsToDistribution returns a single ChartPoint holding the most
+// recently completed day's thought counts, or today's in-progress counts
+// if no day has been pushed yet.
+func thoughtsToDistribution(w *world.World) []ui.ChartPoint {
+	if w == nil || w.History == nil {
+		return nil
+	}
+	build := func(counts [ai.ThoughtKindCount]int, day time.Time) []ui.ChartPoint {
+		return []ui.ChartPoint{{Day: day, Values: []float64{
+			float64(counts[ai.ThoughtLovingGlades]),
+			float64(counts[ai.ThoughtLovingCorduroy]),
+			float64(counts[ai.ThoughtLovingALift]),
+			float64(counts[ai.ThoughtScaredInTrees]),
+			float64(counts[ai.ThoughtTiredOffPiste]),
+			float64(counts[ai.ThoughtFell]),
+			float64(counts[ai.ThoughtLongLine]),
+			float64(counts[ai.ThoughtNeedsLodge]),
+		}}}
+	}
+	if samples := w.History.Ordered(); len(samples) > 0 {
+		last := samples[len(samples)-1]
+		return build(last.ThoughtCounts, last.Day)
+	}
+	return build(w.History.ThoughtCountsToday, time.Time{})
 }
 
 // weatherToUI maps the sim-side weather enum to the UI-side enum. The two

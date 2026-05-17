@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"math"
+	"sort"
 	"time"
 
 	"github.com/go-gl/mathgl/mgl32"
@@ -22,6 +23,11 @@ const (
 	// for "arrivals vs. departures per day" where the two columns invite
 	// direct comparison.
 	ChartGroupedBar
+
+	// ChartThoughtRank shows the last day's thought distribution as a
+	// ranked list: colour swatch + label | fill bar | percentage. Entries
+	// are sorted most-common first; zero-count entries are hidden.
+	ChartThoughtRank
 )
 
 // ChartSeries describes one named, coloured line/bar in a chart. Lines
@@ -224,6 +230,8 @@ func (cw *ChartWindow) Draw(r *render.Renderer) {
 		drawLineChart(r, bodyX, bodyY, bodyW, bodyH, c.Series, points)
 	case ChartGroupedBar:
 		drawGroupedBarChart(r, bodyX, bodyY, bodyW, bodyH, c.Series, points)
+	case ChartThoughtRank:
+		drawThoughtRankChart(r, bodyX, bodyY, bodyW, bodyH, c.Series, points)
 	}
 }
 
@@ -466,6 +474,101 @@ func drawGroupedBarChart(r *render.Renderer, x, y, w, h float32, series []ChartS
 		}
 	}
 	drawLegend(r, px, legendY+4, series)
+}
+
+func drawThoughtRankChart(r *render.Renderer, x, y, w, h float32, series []ChartSeries, points []ChartPoint) {
+	if len(points) == 0 {
+		drawNoData(r, x, y, w, h)
+		return
+	}
+	last := points[len(points)-1]
+
+	type entry struct {
+		name  string
+		color mgl32.Vec4
+		count float64
+	}
+	entries := make([]entry, 0, len(series))
+	total := 0.0
+	for i, s := range series {
+		v := 0.0
+		if i < len(last.Values) {
+			v = last.Values[i]
+		}
+		total += v
+		entries = append(entries, entry{s.Name, s.Color, v})
+	}
+	if total == 0 {
+		drawNoData(r, x, y, w, h)
+		return
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].count > entries[j].count })
+
+	// Optional date label top-right.
+	if r.Font != nil && !last.Day.IsZero() {
+		dateStr := "as of " + last.Day.Format("Jan 2")
+		dw := float32(len(dateStr) * render.GlyphAdvance)
+		r.Font.DrawText(r, dateStr, x+w-dw, y, defaultChrome.label)
+	}
+
+	const (
+		swatchSz  = float32(10)
+		swatchGap = float32(10)
+		rowH      = float32(22)
+		rowGap    = float32(8)
+		pctColW   = float32(48) // "100%" + margin
+		barGap    = float32(14)
+	)
+
+	// Label column width: longest name.
+	maxChars := 0
+	for _, e := range entries {
+		if len(e.name) > maxChars {
+			maxChars = len(e.name)
+		}
+	}
+	labelColW := float32(maxChars*render.GlyphAdvance) + 4
+
+	barX := x + swatchSz + swatchGap + labelColW + barGap
+	barMaxW := w - (swatchSz + swatchGap + labelColW + barGap + barGap + pctColW)
+	if barMaxW < 0 {
+		barMaxW = 0
+	}
+
+	// Leave a gap below the date label.
+	startY := y + float32(render.GlyphH) + 10
+
+	row := 0
+	for _, e := range entries {
+		if e.count == 0 {
+			continue
+		}
+		ry := startY + float32(row)*(rowH+rowGap)
+		pct := e.count / total
+
+		// Swatch.
+		r.DrawColorRect(x, ry+(rowH-swatchSz)/2, swatchSz, swatchSz, e.color)
+
+		// Label.
+		if r.Font != nil {
+			r.Font.DrawText(r, e.name, x+swatchSz+swatchGap, ry+(rowH-float32(render.GlyphH))/2, defaultChrome.label)
+		}
+
+		// Bar track + fill.
+		trackColor := mgl32.Vec4{e.color[0] * 0.20, e.color[1] * 0.20, e.color[2] * 0.20, 0.6}
+		barY := ry + (rowH-10)/2
+		r.DrawColorRect(barX, barY, barMaxW, 10, trackColor)
+		bw := float32(pct) * barMaxW
+		r.DrawColorRect(barX, barY, bw, 10, e.color)
+
+		// Percentage.
+		if r.Font != nil {
+			pctStr := fmt.Sprintf("%.0f%%", pct*100)
+			r.Font.DrawText(r, pctStr, barX+barMaxW+barGap, ry+(rowH-float32(render.GlyphH))/2, defaultChrome.label)
+		}
+
+		row++
+	}
 }
 
 // formatTick renders a y-axis tick value compactly. Large numbers get
