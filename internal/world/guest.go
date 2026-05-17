@@ -127,6 +127,11 @@ type Guest struct {
 	Thoughts     [thoughtsCap]ai.Thought
 	ThoughtsHead int // next write index
 
+	// ThoughtCounts tallies every AddThought call per kind for the session.
+	// Indexed by ai.ThoughtKind; accumulated into History.ThoughtCountsToday
+	// when the guest departs.
+	ThoughtCounts [ai.ThoughtKindCount]int
+
 	// RidenLifts is the per-guest ride tally. The MVP novelty mechanic:
 	// first ride of a lift is the biggest Fun bump, subsequent rides
 	// taper. The planner reads this through goap.WorldSnapshot to weight
@@ -242,6 +247,7 @@ func (g *Guest) AddThought(kind ai.ThoughtKind, simTime float64) {
 	}
 	g.Thoughts[g.ThoughtsHead] = ai.Thought{Kind: kind, Time: simTime}
 	g.ThoughtsHead = (g.ThoughtsHead + 1) % thoughtsCap
+	g.ThoughtCounts[kind]++
 	if kind.IsPositive() {
 		g.PositiveThoughts++
 	} else {
@@ -263,6 +269,18 @@ func (g *Guest) CurrentThought(simTime float64) ai.ThoughtKind {
 			continue
 		}
 		return t.Kind
+	}
+	return ai.ThoughtNone
+}
+
+// LastThought returns the most recently added thought regardless of TTL,
+// or ThoughtNone if no thought has been recorded this session.
+func (g *Guest) LastThought() ai.ThoughtKind {
+	for i := 0; i < thoughtsCap; i++ {
+		idx := (g.ThoughtsHead - 1 - i + thoughtsCap) % thoughtsCap
+		if g.Thoughts[idx].Kind != ai.ThoughtNone {
+			return g.Thoughts[idx].Kind
+		}
 	}
 	return ai.ThoughtNone
 }

@@ -261,7 +261,13 @@ const (
 
 	// Planning events.
 	ThoughtNeedsLodge // Rest goal selected but no lodge reachable; fell back to next goal
+
+	thoughtKindSentinel // must stay last; equals the total count
 )
+
+// ThoughtKindCount is the number of distinct ThoughtKind values (including
+// ThoughtNone). Use this to size arrays indexed by ThoughtKind.
+const ThoughtKindCount = int(thoughtKindSentinel)
 
 // Display returns the short, player-readable phrasing of a thought.
 func (k ThoughtKind) Display() string {

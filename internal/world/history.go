@@ -1,6 +1,10 @@
 package world
 
-import "time"
+import (
+	"time"
+
+	"mountain-mogul/internal/ai"
+)
 
 // HistoryCapacity is the ring-buffer length, in days. 376 ≈ 2 ski
 // seasons (~188 days each), matching Planet Coaster's "last two years"
@@ -19,6 +23,7 @@ type DailySample struct {
 	Cash             int       // resort cash balance at EOD
 	Revenue          int       // lift ticket income this day
 	Costs            int       // operational costs this day (attendants + snowcats)
+	ThoughtCounts    [ai.ThoughtKindCount]int // per-kind thought totals from departing guests
 }
 
 // History is a per-world ring of DailySamples plus the day-in-progress
@@ -32,9 +37,10 @@ type History struct {
 	Filled  bool // false until the ring has wrapped at least once
 
 	// Day-in-progress counters. Reset by Push.
-	ArrivalsToday   int
-	DeparturesToday int
-	RevenueToday    int
+	ArrivalsToday      int
+	DeparturesToday    int
+	RevenueToday       int
+	ThoughtCountsToday [ai.ThoughtKindCount]int
 }
 
 // NewHistory returns an empty History ready to start recording. The
@@ -70,6 +76,17 @@ func (h *History) RecordRevenue(amount int) {
 	h.RevenueToday += amount
 }
 
+// RecordThoughts accumulates a departing guest's per-kind thought counts
+// into ThoughtCountsToday. Safe to call when h is nil — does nothing.
+func (h *History) RecordThoughts(counts [ai.ThoughtKindCount]int) {
+	if h == nil {
+		return
+	}
+	for i, v := range counts {
+		h.ThoughtCountsToday[i] += v
+	}
+}
+
 // Push writes one finalised DailySample into the ring and resets the
 // per-day counters. Caller has already populated sample.ArrivalsToday /
 // sample.DeparturesToday from h.ArrivalsToday / h.DeparturesToday (or
@@ -86,6 +103,7 @@ func (h *History) Push(sample DailySample) {
 	h.ArrivalsToday = 0
 	h.DeparturesToday = 0
 	h.RevenueToday = 0
+	h.ThoughtCountsToday = [ai.ThoughtKindCount]int{}
 }
 
 // Ordered returns the samples in chronological order (oldest first).
