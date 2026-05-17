@@ -213,7 +213,6 @@ func worldToData(w *world.World) ScenarioData {
 			Z:               b.Pos[1],
 			Rotation:        b.Rotation,
 			Cats:            b.Cats,
-			RouteCells:      b.RouteCells,
 			MaxCars:         b.MaxCars,
 			CurrentCars:     b.CurrentCars,
 			DrivewayNodeIDs: b.DrivewayNodeIDs,
@@ -341,6 +340,7 @@ func worldToData(w *world.World) ScenarioData {
 			ID:         tr.ID,
 			Name:       tr.Name,
 			Difficulty: uint8(tr.Difficulty),
+			Groomed:    tr.Groomed,
 			Cells:      tr.Cells,
 		}
 	}
@@ -472,15 +472,11 @@ func dataToWorld(data ScenarioData) *world.World {
 			b.ID = bd.ID
 		}
 		b.Rotation = bd.Rotation
-		// Shed-only state. Cats and RouteCells default to zero if the
-		// save predates the snowcat work — that's fine, the shed just
-		// loads with an empty fleet/route until the player buys cats
-		// via the popup.
-		if b.Type == world.BuildingShed {
-			if bd.Cats > 0 {
-				b.Cats = bd.Cats
-			}
-			b.RouteCells = bd.RouteCells
+		// Shed-only state. Cats defaults to zero on older saves; the shed
+		// loads with one cat (the default from PlaceBuildingType) until
+		// the player adjusts via the popup.
+		if b.Type == world.BuildingShed && bd.Cats > 0 {
+			b.Cats = bd.Cats
 		}
 		// Parking-only state. MaxCars/CurrentCars default to zero on
 		// older saves; the placement defaults from PlaceBuildingType
@@ -668,6 +664,7 @@ func dataToWorld(data ScenarioData) *world.World {
 		if td.ID != 0 {
 			t.ID = td.ID
 		}
+		t.Groomed = td.Groomed
 		t.Cells = td.Cells
 	}
 	if len(w.Trails) > 0 {

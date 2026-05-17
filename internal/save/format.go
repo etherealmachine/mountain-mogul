@@ -26,6 +26,7 @@ type TrailData struct {
 	ID         uint64   `json:"id,omitempty"`
 	Name       string   `json:"name,omitempty"`
 	Difficulty uint8    `json:"diff,omitempty"`
+	Groomed    bool     `json:"groomed,omitempty"`
 	Cells      [][2]int `json:"cells,omitempty"`
 }
 
@@ -120,8 +121,7 @@ type BuildingData struct {
 	Rotation float32 `json:"r,omitempty"`
 
 	// Shed-only state.
-	Cats       int      `json:"cats,omitempty"`
-	RouteCells [][2]int `json:"route,omitempty"`
+	Cats int `json:"cats,omitempty"`
 
 	// Parking-only state. CurrentCars is the visible population
 	// (rendered as car meshes); MaxCars is the cap. Spawn timing /

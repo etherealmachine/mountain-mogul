@@ -495,9 +495,8 @@ const (
 	toolEdgeConnect toolMode = iota // place a map-edge road connection node (editor only)
 	toolGlade       toolMode = iota // reduce TreeDensity (brush)
 	toolPlantTrees  toolMode = iota // increase TreeDensity (brush, editor only)
-	toolRemove      toolMode = iota // remove building at clicked cell
-	toolRoute       toolMode = iota // paint snowcat route cells onto a selected shed
-	toolTrailPaint  toolMode = iota // paint/erase cells on the active trail
+	toolRemove     toolMode = iota // remove building at clicked cell
+	toolTrailPaint toolMode = iota // paint/erase cells on the active trail
 )
 
 // Scenario is the main gameplay scene.
@@ -553,12 +552,6 @@ type Scenario struct {
 	gladeRadiusSlider *ui.VSlider
 	gladeThinSlider   *ui.VSlider
 	lastGladeCell     [2]int
-
-	// Route-paint mode: while toolRoute is active, the player drag-
-	// paints route cells onto the shed identified by routeShedID. 0 =
-	// no shed selected (the tool is a no-op).
-	routeShedID  uint64
-	lastRouteCell [2]int
 
 	// Trail-paint mode: while toolTrailPaint is active, the player
 	// drag-paints (left) or erases (right) cells on the active trail.
@@ -1414,9 +1407,6 @@ func (s *Scenario) Update(dt float64) {
 		if s.lastGladeCell != [2]int{-1, -1} {
 			s.lastGladeCell = [2]int{-1, -1}
 		}
-		if s.lastRouteCell != [2]int{-1, -1} {
-			s.lastRouteCell = [2]int{-1, -1}
-		}
 		if s.activeTool == toolTrailPaint && s.lastTrailPaintCell != [2]int{-1, -1} {
 			s.finishTrailPaintStroke()
 			s.lastTrailPaintCell = [2]int{-1, -1}
@@ -1439,13 +1429,10 @@ func (s *Scenario) Update(dt float64) {
 		gladeDragged := s.activeTool == toolGlade && inp.LeftHeld &&
 			s.lastGladeCell != [2]int{-1, -1} &&
 			s.hoverCell != s.lastGladeCell
-		routeDragged := s.activeTool == toolRoute && inp.LeftHeld &&
-			s.lastRouteCell != [2]int{-1, -1} &&
-			s.hoverCell != s.lastRouteCell
 		trailDragged := s.activeTool == toolTrailPaint && inp.LeftHeld &&
 			s.lastTrailPaintCell != [2]int{-1, -1} &&
 			s.hoverCell != s.lastTrailPaintCell
-		clickOrDrag := inp.LeftClick || gladeDragged || routeDragged || trailDragged
+		clickOrDrag := inp.LeftClick || gladeDragged || trailDragged
 		if clickOrDrag && !s.uiCovers(inp.MousePos[0], inp.MousePos[1], screenW) && s.hoverValid {
 			overSlider := s.activeTool == toolGlade &&
 				(s.gladeRadiusSlider.Contains(inp.MousePos[0], inp.MousePos[1]) ||
@@ -1478,9 +1465,6 @@ func (s *Scenario) Update(dt float64) {
 				} else {
 					if s.activeTool == toolGlade {
 						s.lastGladeCell = s.hoverCell
-					}
-					if s.activeTool == toolRoute {
-						s.lastRouteCell = s.hoverCell
 					}
 					if s.activeTool == toolTrailPaint {
 						s.lastTrailPaintCell = s.hoverCell
@@ -1643,16 +1627,7 @@ func (s *Scenario) buildCellOverlay() (pixels []uint8, w, h int) {
 	trailOverlayOn := s.overlayPanel != nil && (s.overlayPanel.Mask()&render.OverlayTrails) != 0
 	paintingTrail := s.activeTool == toolTrailPaint
 	hasTrails := len(s.world.Trails) > 0 && (trailOverlayOn || paintingTrail)
-	hasRoutes := s.activeTool == toolRoute && func() bool {
-		for _, b := range s.world.Buildings {
-			if b.Type == world.BuildingShed && len(b.RouteCells) > 0 {
-				return true
-			}
-		}
-		return false
-	}()
-
-	if !hasTrails && !hasRoutes {
+	if !hasTrails {
 		return nil, 0, 0
 	}
 
@@ -1698,22 +1673,9 @@ func (s *Scenario) buildCellOverlay() (pixels []uint8, w, h int) {
 		for _, c := range t.Cells {
 			set(c[0], c[1], r, g, b, a)
 		}
-	}
-
-	// Grooming routes — only during route-paint tool.
-	if s.activeTool == toolRoute {
-		for _, b := range s.world.Buildings {
-			if b.Type != world.BuildingShed {
-				continue
-			}
-			var cr, cg, cb, ca uint8
-			if b.ID == s.routeShedID {
-				cr, cg, cb, ca = 80, 230, 230, 170 // bright cyan
-			} else {
-				cr, cg, cb, ca = 40, 130, 155, 110 // dim teal
-			}
-			for _, c := range b.RouteCells {
-				set(c[0], c[1], cr, cg, cb, ca)
+		if t.Groomed && !active {
+			for _, c := range t.Cells {
+				set(c[0], c[1], 255, 255, 255, 40)
 			}
 		}
 	}
@@ -1916,58 +1878,9 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		s.roadStart = end.pos
 	case toolRemove:
 		s.removeAt(s.hoverWorld, r)
-	case toolRoute:
-		s.applyRoutePaint(gx, gz)
 	case toolTrailPaint:
 		s.applyTrailPaint(gx, gz)
 		s.lastTrailPaintCell = [2]int{gx, gz}
-	}
-}
-
-// routeBrushRadius is the half-width of the route-paint brush in cells.
-// At radius 2 the brush is a 5×5-cell disc; the player drag-paints
-// roughly 5 m wide strips per stroke. Matches the cat's tiller width
-// (one cell) but lets a single stroke cover more ground.
-const routeBrushRadius = 2
-
-// applyRoutePaint adds every in-bounds cell within `routeBrushRadius`
-// of (gx, gz) to the route owned by s.routeShedID, up to the per-shed
-// cap. Idempotent on already-painted cells; stops mid-brush if the cap
-// is hit so the player gets a clear "ran out of capacity" toast.
-func (s *Scenario) applyRoutePaint(gx, gz int) {
-	if s.routeShedID == 0 {
-		return
-	}
-	shed := s.findBuilding(s.routeShedID)
-	if shed == nil || shed.Type != world.BuildingShed {
-		return
-	}
-	cap := world.MaxRouteCells(shed.Cats)
-	hit := make(map[[2]int]bool, len(shed.RouteCells))
-	for _, c := range shed.RouteCells {
-		hit[c] = true
-	}
-	r2 := routeBrushRadius * routeBrushRadius
-	for dz := -routeBrushRadius; dz <= routeBrushRadius; dz++ {
-		for dx := -routeBrushRadius; dx <= routeBrushRadius; dx++ {
-			if dx*dx+dz*dz > r2 {
-				continue
-			}
-			x, z := gx+dx, gz+dz
-			if !s.world.Terrain.InBounds(x, z) {
-				continue
-			}
-			cell := [2]int{x, z}
-			if hit[cell] {
-				continue
-			}
-			if len(shed.RouteCells) >= cap {
-				s.setToast(fmt.Sprintf("Route is full (%d cells). Add a cat to extend.", cap))
-				return
-			}
-			shed.RouteCells = append(shed.RouteCells, cell)
-			hit[cell] = true
-		}
 	}
 }
 
@@ -2098,10 +2011,6 @@ func (s *Scenario) Render(r *render.Renderer) {
 		gx, gz := s.hoverCell[0], s.hoverCell[1]
 		center := mgl32.Vec2{float32(gx)*cellSize + cellSize/2, float32(gz)*cellSize + cellSize/2}
 		r.SetBrush(center, (float32(s.gladeBrushRadius())+0.5)*cellSize)
-	case s.activeTool == toolRoute && t.InBounds(s.hoverCell[0], s.hoverCell[1]):
-		gx, gz := s.hoverCell[0], s.hoverCell[1]
-		center := mgl32.Vec2{float32(gx)*cellSize + cellSize/2, float32(gz)*cellSize + cellSize/2}
-		r.SetBrush(center, (float32(routeBrushRadius)+0.5)*cellSize)
 	default:
 		r.ClearBrush()
 	}
@@ -2127,16 +2036,6 @@ func (s *Scenario) Render(r *render.Renderer) {
 	}
 	if s.activeTool == toolLiftTop {
 		drawables = append(drawables, &hintLabel{text: "Click to set lift top"})
-	}
-	if s.activeTool == toolRoute {
-		if shed := s.findBuilding(s.routeShedID); shed != nil {
-			cap := world.MaxRouteCells(shed.Cats)
-			used := len(shed.RouteCells)
-			drawables = append(drawables, &hintLabel{
-				text: fmt.Sprintf("Route: %d / %d cells (%d cats) — drag to paint, Esc to finish",
-					used, cap, shed.Cats),
-			})
-		}
 	}
 	if cost, affordable, _, valid := s.placementCost(); valid {
 		drawables = append(drawables, &costLabel{cost: cost, affordable: affordable})
@@ -2265,6 +2164,7 @@ func (s *Scenario) openTrailPopup(trail *world.Trail, screenW, screenH int) {
 			s.world.RebuildTrailGraph()
 		},
 	)
+	w.AddBoolToggle("Groomed", func() bool { return t.Groomed }, func(v bool) { t.Groomed = v })
 	w.AddLabel("Cells", func() string { return fmt.Sprintf("%d", len(t.Cells)) })
 	w.AddActionButton("Edit", func() {
 		s.activeTrailID = t.ID
@@ -2332,22 +2232,6 @@ func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 				s.world.SpawnSnowcat(bldg)
 				bldg.Cats++
 			})
-		w.AddLabel("Route", func() string {
-			return fmt.Sprintf("%d / %d cells", len(bldg.RouteCells), world.MaxRouteCells(bldg.Cats))
-		})
-		w.AddActionButton("Paint Route", func() {
-			s.routeShedID = bldg.ID
-			s.lastRouteCell = [2]int{-1, -1}
-			s.activeTool = toolRoute
-			s.syncToolButtons()
-			if s.popup != nil {
-				s.popup.Visible = false
-			}
-			s.setToast("Drag to paint route. Press Esc to finish.")
-		})
-		w.AddActionButton("Clear Route", func() {
-			bldg.RouteCells = nil
-		})
 		w.Visible = true
 		w.Center(screenW, screenH)
 		s.popup = w
@@ -2504,10 +2388,6 @@ func (s *Scenario) cancelTool() {
 	s.app.Renderer.ClearAllGhosts()
 	s.app.Renderer.ClearGhostCable()
 	s.app.Renderer.ClearGhostRoad()
-	if s.activeTool == toolRoute {
-		s.routeShedID = 0
-		s.lastRouteCell = [2]int{-1, -1}
-	}
 	if s.activeTool == toolTrailPaint {
 		s.activeTrailID = 0
 		s.lastTrailPaintCell = [2]int{-1, -1}

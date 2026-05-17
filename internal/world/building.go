@@ -48,13 +48,9 @@ type Building struct {
 	DrivewayNodeIDs []uint64
 
 	// Shed-only state. Cats is the number of grooming machines this
-	// shed dispatches (1..MaxCatsPerShed). RouteCells holds the cells
-	// the player painted as this shed's grooming route — cats pick the
-	// least-groomed cell in the list, drive to it, and corduroy it.
-	// The route is a *set* of cells (drag-painted), not an ordered
-	// path; the cat picks a next target each time it arrives.
-	Cats       int
-	RouteCells [][2]int
+	// shed dispatches (1..MaxCatsPerShed). Cats auto-service the groomed
+	// trails nearest to this shed.
+	Cats int
 }
 
 // DoorCell returns the grid cell containing the building's anchor — the

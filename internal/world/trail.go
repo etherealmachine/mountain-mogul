@@ -24,6 +24,7 @@ type Trail struct {
 	ID         uint64
 	Name       string
 	Difficulty TerrainDifficulty
+	Groomed    bool     // true ⇒ nearest shed services this trail automatically
 	Cells      [][2]int
 }
 

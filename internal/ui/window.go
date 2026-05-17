@@ -217,6 +217,21 @@ func (w *Window) AddDifficultyToggles(label string, has func(bit uint8) bool, to
 	w.rebuildLayout()
 }
 
+// AddBoolToggle adds a single-button toggle row. The button renders as a
+// green square when active (get returns true) and dims when inactive.
+// Clicking flips the value via set(!get()).
+func (w *Window) AddBoolToggle(label string, get func() bool, set func(bool)) {
+	row := &windowRow{kind: rowToggles, label: label}
+	row.toggles = append(row.toggles, &toggleEntry{
+		shape:   toggleSquare,
+		color:   [3]float32{0.18, 0.78, 0.30},
+		active:  get,
+		onClick: func() { set(!get()) },
+	})
+	w.rows = append(w.rows, row)
+	w.rebuildLayout()
+}
+
 // AddIntStepper adds a row with [−] value [+] controls for an int value.
 // Same look and behaviour as AddStepper but the value displays as a bare
 // integer (no decimals) and clamps in int space.
