@@ -106,7 +106,7 @@ func (a *WalkToLift) Cost(s *WorldSnapshot, w *world.World) float32 {
 
 // JoinQueue transitions the agent from AtLiftBase to Queued. Cost grows
 // with queue length so the planner avoids long lines when alternatives
-// exist; per-agent Patience would multiply this once Affect lands.
+// exist
 type JoinQueue struct{ LiftID uint64 }
 
 func (a *JoinQueue) Name() string {
@@ -315,7 +315,7 @@ func (a *RestAtLodge) Precondition(s *WorldSnapshot, w *world.World) bool {
 }
 
 func (a *RestAtLodge) Apply(s *WorldSnapshot, w *world.World) {
-	s.Energy = 1
+	s.Patience = 1
 }
 
 func (a *RestAtLodge) Cost(s *WorldSnapshot, w *world.World) float32 {

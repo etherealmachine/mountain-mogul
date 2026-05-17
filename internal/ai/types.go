@@ -50,13 +50,12 @@ type GuestTraits struct {
 	ComfortSlope float32 // radians; steeper than this is uncomfortable
 	Aggression   float32 // 0..1; scales target speed up
 
-	// LikesGlades: true ⇒ time spent in trees boosts Fun. False
-	// (the default) ⇒ time spent in trees drives FearTarget up.
+	// LikesGlades: true ⇒ time in trees emits ThoughtLovingGlades
+	// (positive). False ⇒ emits ThoughtScaredInTrees (negative).
 	LikesGlades bool
 
-	// PrefersGroomed: true ⇒ time on groomed snow boosts Fun, time
-	// off-piste burns Energy faster. False ⇒ grooming state is
-	// irrelevant to this guest's experience.
+	// PrefersGroomed: true ⇒ groomed snow emits ThoughtLovingCorduroy
+	// (positive); off-piste emits ThoughtTiredOffPiste (negative).
 	PrefersGroomed bool
 }
 
@@ -249,17 +248,17 @@ const (
 
 	// Grooming-trait reactions to cell Grooming.
 	ThoughtLovingCorduroy // PrefersGroomed = true, on groomed snow
-	ThoughtTiredOffPiste  // PrefersGroomed = true, off-piste (extra fatigue)
+	ThoughtTiredOffPiste  // PrefersGroomed = true, off-piste
 
-	// Generic events.
-	ThoughtFell         // Balance went to 0
-	ThoughtLowEnergy    // Energy drained below the low threshold
-	ThoughtLovingALift  // First ride of a previously-unridden lift
+	// Skill events.
+	ThoughtFell        // Balance went to 0; fall recovery
+	ThoughtLovingALift // First ride of a previously-unridden lift
+
+	// Queue events.
+	ThoughtLongLine // Joining a queue whose estimated wait is long
 )
 
 // Display returns the short, player-readable phrasing of a thought.
-// Keep these conversational and present-tense ("loving these glades")
-// so a stack of them in the HUD reads like a peep talking to themselves.
 func (k ThoughtKind) Display() string {
 	switch k {
 	case ThoughtLovingGlades:
@@ -272,12 +271,23 @@ func (k ThoughtKind) Display() string {
 		return "this snow is exhausting"
 	case ThoughtFell:
 		return "ouch, that hurt"
-	case ThoughtLowEnergy:
-		return "I need a break"
 	case ThoughtLovingALift:
 		return "what a great lift!"
+	case ThoughtLongLine:
+		return "this line is way too long"
 	}
 	return ""
+}
+
+// IsPositive reports whether this thought contributes positively to a
+// guest's session rating. Negative thoughts (ThoughtNone counts neither
+// way) are the complement.
+func (k ThoughtKind) IsPositive() bool {
+	switch k {
+	case ThoughtLovingGlades, ThoughtLovingCorduroy, ThoughtLovingALift:
+		return true
+	}
+	return false
 }
 
 // Thought is one entry in a Guest's bounded thoughts ring. Persists in

@@ -2881,9 +2881,7 @@ type followLabel struct {
 
 func (f *followLabel) Draw(r *render.Renderer) {
 	activity := world.Activity(f.world, f.agent)
-	energyPct := int(f.agent.Energy*100 + 0.5)
-	funPct := int(f.agent.Fun*100 + 0.5)
-	fearPct := int(f.agent.Fear*100 + 0.5)
+	patiencePct := int(f.agent.Patience*100 + 0.5)
 	mode := f.agent.Sense.Mode
 	if mode == "" {
 		mode = "—"
@@ -2897,12 +2895,21 @@ func (f *followLabel) Draw(r *render.Renderer) {
 	if f.agent.Traits.PrefersGroomed {
 		badges += " · corduroy"
 	}
+	pos, neg := f.agent.PositiveThoughts, f.agent.NegativeThoughts
 	rows := []string{
 		fmt.Sprintf("%s #%d (%s)  |  %s  |  %s", f.agent.Name, f.agent.ID, badges, activity, mode),
-		fmt.Sprintf("%.1f m/s    energy %d%%    fun %d%%    fear %d%%", f.agent.Speed, energyPct, funPct, fearPct),
+		fmt.Sprintf("%.1f m/s    patience %d%%    +%d/-%d thoughts", f.agent.Speed, patiencePct, pos, neg),
 	}
 	if t := f.agent.CurrentThought(f.simTime); t != ai.ThoughtNone {
 		rows = append(rows, fmt.Sprintf("\"%s\"", t.Display()))
+	}
+	// Trail status — show OnTrailID so we can verify the field is being set.
+	if f.agent.OnTrailID != 0 {
+		trailName := fmt.Sprintf("#%d", f.agent.OnTrailID)
+		if t := f.world.FindTrail(f.agent.OnTrailID); t != nil && t.Name != "" {
+			trailName = t.Name
+		}
+		rows = append(rows, fmt.Sprintf("on trail: %s", trailName))
 	}
 	// Read the stored plan rather than running the planner per frame.
 	// Plan is updated by sim.tickPlanning at the four MD-spec replan
@@ -2971,6 +2978,25 @@ func (p *plannerDebugPanel) Draw(r *render.Renderer) {
 		liftRef(p.world, snap.OnLift),
 		buildingRef(p.world, snap.AtLodge),
 		buildingRef(p.world, snap.AtParking)))
+
+	// Trail graph summary — anchor edges + total edge count.
+	rows = append(rows, "Trail graph:")
+	if p.world.TrailGraph == nil || len(p.world.TrailGraph.Edges) == 0 {
+		rows = append(rows, "  (no edges — paint trails over stations)")
+	} else {
+		anchorID := goap.CurrentAnchorID(&snap)
+		edges := p.world.TrailGraph.EdgesFrom(anchorID)
+		rows = append(rows, fmt.Sprintf("  total=%d  anchor=%d  from-anchor=%d",
+			len(p.world.TrailGraph.Edges), anchorID, len(edges)))
+		for _, e := range edges {
+			t := p.world.FindTrail(e.TrailID)
+			tName := fmt.Sprintf("#%d", e.TrailID)
+			if t != nil && t.Name != "" {
+				tName = t.Name
+			}
+			rows = append(rows, fmt.Sprintf("  via %s → #%d (%.0fm)", tName, e.ToID, e.Distance))
+		}
+	}
 
 	// Per-lift ride counts driving Explore + RideLift.Cost.
 	rows = append(rows, "RidenLifts:")

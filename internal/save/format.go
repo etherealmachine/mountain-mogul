@@ -213,12 +213,10 @@ type GuestData struct {
 	TargetID   uint64     `json:"target_id,omitempty"`
 	OnLiftID   uint64     `json:"on_lift_id,omitempty"`
 	Queued     bool       `json:"queued,omitempty"`
-	Energy     float32    `json:"energy,omitempty"`
-	Fear       float32    `json:"fear,omitempty"`
+	Patience float32 `json:"patience,omitempty"`
 	// Plan steps and cursor so agents resume mid-plan after load rather than
 	// replanning from an anchor-zero in-transit snapshot. GoalName and Target
 	// are re-derived by onPlanStepStart; only Steps+Step are stored.
 	PlanSteps []PlanActionData `json:"plan,omitempty"`
 	PlanStep  int              `json:"plan_step,omitempty"`
-	FearTarget float32    `json:"fear_target,omitempty"`
 }

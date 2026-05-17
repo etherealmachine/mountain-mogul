@@ -30,11 +30,9 @@ var AllGoals = []Goal{
 	GoHome{},
 }
 
-// KeepSkiing is the baseline drive: ride one more lift. Always weighted
-// proportional to Energy so a fresh skier wants to ski; a depleted one
-// loses to Rest or GoHome. The IsSatisfied predicate looks for "rode any
-// lift" — the planner's terminal state will have at least one lift in
-// RidenLifts with a positive count above whatever it started with.
+// KeepSkiing is the baseline drive: ride one more lift. Weighted
+// proportional to Patience so a patient skier wants to keep going; an
+// impatient one loses to Rest or GoHome.
 type KeepSkiing struct{}
 
 func (KeepSkiing) Name() string { return "KeepSkiing" }
@@ -46,14 +44,14 @@ func (KeepSkiing) IsSatisfied(s *WorldSnapshot, w *world.World) bool {
 }
 
 func (KeepSkiing) Weight(s *WorldSnapshot, w *world.World) float32 {
-	if s.Energy < 0.2 {
-		return s.Energy * 0.5
+	if s.Patience < 0.2 {
+		return s.Patience * 0.5
 	}
-	return s.Energy
+	return s.Patience
 }
 
-// Rest is satisfied at Energy ≥ restThreshold. Weight is quadratic in
-// (1 − Energy) so it only fires when the skier is genuinely tired —
+// Rest is satisfied at Patience ≥ restThreshold. Weight is quadratic in
+// (1 − Patience) so it only fires when the skier is genuinely frustrated —
 // otherwise KeepSkiing dominates and the skier keeps cycling lifts.
 type Rest struct{}
 
@@ -62,14 +60,14 @@ const restThreshold = 0.85
 func (Rest) Name() string { return "Rest" }
 
 func (Rest) IsSatisfied(s *WorldSnapshot, w *world.World) bool {
-	return s.Energy >= restThreshold
+	return s.Patience >= restThreshold
 }
 
 func (Rest) Weight(s *WorldSnapshot, w *world.World) float32 {
-	if s.Energy >= restThreshold {
+	if s.Patience >= restThreshold {
 		return 0
 	}
-	d := 1 - s.Energy
+	d := 1 - s.Patience
 	return d * d
 }
 
@@ -103,13 +101,10 @@ func (Explore) Weight(s *WorldSnapshot, w *world.World) float32 {
 			unridden++
 		}
 	}
-	// Gate on Energy — a worn-out skier shouldn't keep "exploring" past
-	// the point of exhaustion. Without this, Explore stays at 1.0 for an
-	// agent who hasn't ridden anything, and dominates Rest at low energy
-	// even though the skier physically can't keep skiing. Once Boredom
-	// lands as a real affect signal it replaces this stand-in.
+	// Gate on Patience — a frustrated skier shouldn't keep exploring
+	// past the point they want to go home.
 	frac := float32(unridden) / float32(len(w.Lifts))
-	return frac * s.Energy
+	return frac * s.Patience
 }
 
 // GoHome is satisfied when the agent has Departed (terminal Removed
@@ -126,12 +121,9 @@ func (GoHome) IsSatisfied(s *WorldSnapshot, w *world.World) bool {
 }
 
 func (GoHome) Weight(s *WorldSnapshot, w *world.World) float32 {
-	// MVP scope: GoHome only fires at critically low Energy (below 0.05
-	// the L1 controller's energyLowThreshold). Rest is preferred for any
-	// recoverable fatigue level. The "I've ridden everything, time to
-	// leave" pathway needs a richer signal — Boredom or a session-time
-	// counter — and lands with the affect work.
-	if s.Energy < 0.05 {
+	// GoHome fires when Patience is critically low. Rest handles the
+	// recoverable range; zero patience means the guest has had enough.
+	if s.Patience < 0.05 {
 		return 1.0
 	}
 	return 0

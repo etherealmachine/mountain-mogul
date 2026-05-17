@@ -78,7 +78,14 @@ func (t *Terrain) RecomputeGroomEdges() {
 		return
 	}
 	sd := t.Surface
-	const groomDiffThreshold = float32(0.20)
+	// groomedSide returns true when a cell is clearly on the groomed side
+	// of the groomed/ungroomed boundary. Using a threshold of 0.5 means
+	// wear-variation within an active route (all cells typically 0.6–1.0)
+	// never triggers internal edges — only true groomed↔ungroomed crossings
+	// produce the lip/scrape band.
+	const groomedSide = float32(0.5)
+	groomedAt := func(g float32) bool { return g >= groomedSide }
+
 	// 1 m band in pixel units.
 	bandPx := PxPerMeter()
 	bandLen := PxPerCell // worst case minD horizon (anything > bandPx → 0)
@@ -100,16 +107,16 @@ func (t *Terrain) RecomputeGroomEdges() {
 			g0 := t.Cells[cx][cz].Grooming
 			var diffL, diffR, diffD, diffU bool
 			if cx > 0 {
-				diffL = absDiff(g0, t.Cells[cx-1][cz].Grooming) > groomDiffThreshold
+				diffL = groomedAt(g0) != groomedAt(t.Cells[cx-1][cz].Grooming)
 			}
 			if cx < t.Width-1 {
-				diffR = absDiff(g0, t.Cells[cx+1][cz].Grooming) > groomDiffThreshold
+				diffR = groomedAt(g0) != groomedAt(t.Cells[cx+1][cz].Grooming)
 			}
 			if cz > 0 {
-				diffD = absDiff(g0, t.Cells[cx][cz-1].Grooming) > groomDiffThreshold
+				diffD = groomedAt(g0) != groomedAt(t.Cells[cx][cz-1].Grooming)
 			}
 			if cz < t.Height-1 {
-				diffU = absDiff(g0, t.Cells[cx][cz+1].Grooming) > groomDiffThreshold
+				diffU = groomedAt(g0) != groomedAt(t.Cells[cx][cz+1].Grooming)
 			}
 			hasEdge := diffL || diffR || diffD || diffU
 			ci := cx*t.Height + cz

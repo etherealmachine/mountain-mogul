@@ -99,6 +99,7 @@ type Guest struct {
 	Fallen     bool   // briefly immobilised after a fall; clears when FallTimer expires
 	FallTimer  float32
 	AtTrailEnd uint64 // nonzero ⇒ arrived at a trail-to-trail junction (ID = destination trail)
+	OnTrailID  uint64 // nonzero ⇒ skiing an ActSkiTrail step; ID of the via-trail the L1 controller must stay within
 
 	// AI state — populated by sim package.
 	Plan         ai.Plan
@@ -107,27 +108,18 @@ type Guest struct {
 	TurnDwell    float32 // seconds since the last TurnSide flip
 	LastTactical float32 // rad; previous tick's tactical lateral offset
 
-	// Energy is the session fatigue budget. 1.0 fresh; depletes only while
-	// skiing (drained per-tick in tickSkier). When it falls below
-	// energyLowThreshold (~one descent's worth) the next decision boundary
-	// reroutes the guest to a lodge or out. Calibrated so a fresh skier
-	// completes roughly 20 descents before heading home.
-	Energy float32
+	// Patience is the guest's tolerance budget. 1.0 on arrival; drains
+	// while queuing, restored by active skiing and riding lifts. A lodge
+	// rest restores it to 1. When it reaches 0 the GoHome goal fires and
+	// the guest leaves. The demand system's daily rating poll reads this
+	// via Guest.Rating().
+	Patience float32
 
-	// Fun is the smoothed satisfaction signal the L0 GOAP planner reads
-	// to weight goals. Rises on a fresh lift ride (novelty bonus on
-	// unridden lifts, smaller bonus on repeats), decays slowly otherwise.
-	// 0..1; clamped on writeback. The demand system's daily rating poll
-	// reads this via Guest.Rating().
-	Fun float32
-
-	// Fear / FearTarget use the RCT2 "target & current" smoothing
-	// pattern: per-tick stat events bump FearTarget; Fear itself eases
-	// toward FearTarget so single bad moments don't whiplash Rating().
-	// FearTarget decays toward 0 on its own; sustained scary input is
-	// what keeps Fear elevated. Both 0..1.
-	Fear       float32
-	FearTarget float32
+	// PositiveThoughts and NegativeThoughts count how many times each
+	// kind of thought fired during the session. Rating is derived from
+	// their ratio at departure.
+	PositiveThoughts int
+	NegativeThoughts int
 
 	// Thoughts is a small ring of recent ai.Thought entries — the
 	// player-visible "what's this guest thinking" surface. The newest
@@ -214,49 +206,18 @@ func Activity(w *World, g *Guest) string {
 // without crowding out the oldest of the bunch within ai.ThoughtTTL.
 const thoughtsCap = 6
 
-// Score-equation weights for Guest.Rating(). α + β + γ + δ should sum
-// to 1 so a perfect session lands at 1 and a disastrous one at 0. Fear
-// enters as a (1 - Fear) factor on its weight — terrified guests rate
-// poorly even if Fun/Energy are high.
-const (
-	ratingWeightFun    = 0.35
-	ratingWeightEnergy = 0.25
-	ratingWeightClean  = 0.20
-	ratingWeightCalm   = 0.20 // (1 - Fear) contribution
-)
-
-// Rating computes the 0..1 "how is this guest doing" score from the
-// session log + current Fun/Energy/Fear. Read mid-session by the demand
-// system's daily rating poll and at departure to stamp LastScore on the
-// persistent record. Cleanness penalises falls per completed run — a
-// session with zero falls scores 1 on that axis regardless of how few
-// runs; many falls per run scores 0. Calmness = (1 - Fear).
+// Rating computes the 0..1 guest satisfaction score from the session's
+// thought counts. Positive thoughts (loving glades, great lift, etc.)
+// push toward 1; negative thoughts (scared in trees, long lines, falls)
+// push toward 0. A session with no thoughts at all returns 0.5.
+// Read mid-session by the demand system's daily rating poll and stamped
+// on LastScore at departure.
 func (g *Guest) Rating() float32 {
-	falls, runs := 0, 0
-	for _, e := range g.Events {
-		switch e.Kind {
-		case ai.EventFall:
-			falls++
-		case ai.EventRun:
-			runs++
-		}
+	total := g.PositiveThoughts + g.NegativeThoughts
+	if total == 0 {
+		return 0.5
 	}
-	clean := float32(1)
-	if runs > 0 {
-		ratio := float32(falls) / float32(runs)
-		if ratio > 1 {
-			ratio = 1
-		}
-		clean = 1 - ratio
-	}
-	calm := 1 - g.Fear
-	if calm < 0 {
-		calm = 0
-	}
-	score := ratingWeightFun*g.Fun +
-		ratingWeightEnergy*g.Energy +
-		ratingWeightClean*clean +
-		ratingWeightCalm*calm
+	score := float32(g.PositiveThoughts) / float32(total)
 	if score < 0 {
 		score = 0
 	}
@@ -266,9 +227,10 @@ func (g *Guest) Rating() float32 {
 	return score
 }
 
-// AddThought pushes a new Thought onto the ring at simTime. Duplicates
-// within the TTL window are suppressed so a guest standing in the same
-// patch of trees doesn't spam ScaredInTrees every tick.
+// AddThought pushes a new Thought onto the ring at simTime and
+// increments PositiveThoughts or NegativeThoughts. Duplicates within
+// the TTL window are suppressed so a guest in the same patch of trees
+// doesn't spam ScaredInTrees every tick.
 func (g *Guest) AddThought(kind ai.ThoughtKind, simTime float64) {
 	if kind == ai.ThoughtNone {
 		return
@@ -281,6 +243,11 @@ func (g *Guest) AddThought(kind ai.ThoughtKind, simTime float64) {
 	}
 	g.Thoughts[g.ThoughtsHead] = ai.Thought{Kind: kind, Time: simTime}
 	g.ThoughtsHead = (g.ThoughtsHead + 1) % thoughtsCap
+	if kind.IsPositive() {
+		g.PositiveThoughts++
+	} else {
+		g.NegativeThoughts++
+	}
 }
 
 // CurrentThought returns the most-recent unexpired thought (relative to
@@ -301,49 +268,6 @@ func (g *Guest) CurrentThought(simTime float64) ai.ThoughtKind {
 	return ai.ThoughtNone
 }
 
-// fearDecayPerSec is how fast FearTarget bleeds back toward 0 without
-// fresh scary input. Fear (current) eases toward FearTarget at the same
-// rate, giving Fear a roughly fearDecayPerSec half-life when the input
-// goes quiet.
-const fearDecayPerSec = 0.15
-
-// fearEasePerSec is the rate at which Fear (current) lerps toward
-// FearTarget. Slightly faster than the target's decay so the visible
-// stat keeps pace with bumps without overshooting.
-const fearEasePerSec = 0.25
-
-// TickStats advances the per-guest stat smoothers by dt sim-seconds.
-// Discipline-agnostic — runs every tick for every OnMountain guest
-// regardless of where the dispatcher sent them.
-func (g *Guest) TickStats(dt float64) {
-	if dt <= 0 {
-		return
-	}
-	// FearTarget decays toward 0; sustained scary input is what keeps
-	// it elevated. Per-tick stimuli (in skiing.go) bump it back up.
-	d := float32(dt * fearDecayPerSec)
-	if g.FearTarget > d {
-		g.FearTarget -= d
-	} else {
-		g.FearTarget = 0
-	}
-	// Fear eases toward FearTarget at fearEasePerSec.
-	step := float32(dt * fearEasePerSec)
-	switch {
-	case g.Fear < g.FearTarget-step:
-		g.Fear += step
-	case g.Fear > g.FearTarget+step:
-		g.Fear -= step
-	default:
-		g.Fear = g.FearTarget
-	}
-	if g.Fear < 0 {
-		g.Fear = 0
-	}
-	if g.Fear > 1 {
-		g.Fear = 1
-	}
-}
 
 // ResetForDeparture clears every transient sim field on g so the same
 // pointer can be re-used by a future arrival. Identity + career stats are
@@ -357,6 +281,7 @@ func (g *Guest) ResetForDeparture() {
 	g.PathIdx = 0
 	g.TargetID = 0
 	g.OnLiftID = 0
+	g.OnTrailID = 0
 	g.Queued = false
 	g.Fallen = false
 	g.FallTimer = 0
@@ -365,10 +290,9 @@ func (g *Guest) ResetForDeparture() {
 	g.TurnSide = 0
 	g.TurnDwell = 0
 	g.LastTactical = 0
-	g.Energy = 0
-	g.Fun = 0
-	g.Fear = 0
-	g.FearTarget = 0
+	g.Patience = 0
+	g.PositiveThoughts = 0
+	g.NegativeThoughts = 0
 	for i := range g.Thoughts {
 		g.Thoughts[i] = ai.Thought{}
 	}

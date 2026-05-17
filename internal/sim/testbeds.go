@@ -357,8 +357,8 @@ func (b *builder) skierAt(gx, gz int, skill ai.SkillLevel) *builder {
 		Pos:        pos,
 		Heading:    heading,
 		Traits:     ai.TraitsFor(skill),
-		Balance:    1.0,
-		Energy:     1.0,
+		Balance:  1.0,
+		Patience: 1.0,
 	}
 	// Seed a two-step plan: ski to the lodge, then despawn. The GOAP
 	// planner would never emit this from a no-lift testbed world

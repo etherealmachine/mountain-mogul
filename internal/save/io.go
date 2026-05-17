@@ -299,9 +299,7 @@ func worldToData(w *world.World) ScenarioData {
 			gd.TargetID = g.TargetID
 			gd.OnLiftID = g.OnLiftID
 			gd.Queued = g.Queued
-			gd.Energy = g.Energy
-			gd.Fear = g.Fear
-			gd.FearTarget = g.FearTarget
+			gd.Patience = g.Patience
 			if !g.Plan.Done() {
 				gd.PlanStep = g.Plan.Step
 				gd.PlanSteps = make([]PlanActionData, len(g.Plan.Steps))
@@ -591,14 +589,12 @@ func dataToWorld(data ScenarioData) *world.World {
 			g.TargetID = gd.TargetID
 			g.OnLiftID = gd.OnLiftID
 			g.Queued = gd.Queued
-			energy := gd.Energy
-			if energy <= 0 {
-				energy = 1.0
+			patience := gd.Patience
+			if patience <= 0 {
+				patience = 1.0
 			}
-			g.Energy = energy
+			g.Patience = patience
 			g.Balance = 1.0
-			g.Fear = gd.Fear
-			g.FearTarget = gd.FearTarget
 			if len(gd.PlanSteps) > 0 {
 				steps := make([]ai.PlanAction, len(gd.PlanSteps))
 				for si, pd := range gd.PlanSteps {

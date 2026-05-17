@@ -185,17 +185,16 @@ func (h *nodeHeap) Pop() any {
 // all anchor IDs and stat values are equivalent for planning purposes
 // (the L1 controller handles the spatial detail), and including Pos
 // would force re-expansion of essentially-the-same state every time
-// Apply slightly nudges Pos. Energy/Fun are bucketed to 0.01 to keep
+// Apply slightly nudges Pos. Patience is bucketed to 0.01 to keep
 // the closed set finite.
 func stateKey(s *WorldSnapshot) string {
-	eb := int(s.Energy * 100)
-	fb := int(s.Fun * 100)
+	pb := int(s.Patience * 100)
 	ridden := 0
 	for _, r := range s.RidenLifts {
 		ridden += r.Count
 	}
-	return fmt.Sprintf("E%dF%dB%dT%dQ%dL%dD%dP%dR%dX%vJ%d",
-		eb, fb,
+	return fmt.Sprintf("P%dB%dT%dQ%dL%dD%dPt%dR%dX%vJ%d",
+		pb,
 		s.AtLiftBase, s.AtLiftTop, s.Queued, s.OnLift,
 		s.AtLodge, s.AtParking,
 		ridden, s.Removed,

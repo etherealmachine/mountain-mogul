@@ -112,6 +112,12 @@ func trailActions(out []Action, s *WorldSnapshot, w *world.World) []Action {
 	return out
 }
 
+// CurrentAnchorID returns the entity ID the guest is currently anchored at,
+// or 0 if in transit. Checks all At* fields in priority order.
+func CurrentAnchorID(s *WorldSnapshot) uint64 {
+	return currentAnchorID(s)
+}
+
 // currentAnchorID returns the entity ID the guest is currently anchored at,
 // or 0 if in transit. Checks all At* fields in priority order.
 func currentAnchorID(s *WorldSnapshot) uint64 {

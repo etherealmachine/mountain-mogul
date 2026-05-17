@@ -15,9 +15,9 @@ explicit triggers — never as a fixed-interval poll, never per-frame.
 
 Persistent per-guest state on `world.Guest`: `Traits`, `Plan` (the L0
 stored plan + L1 goal target), `Balance`, `TurnSide`, `TurnDwell`,
-`LastTactical`, `Energy`, `Fun`, `RidenLifts`, `RestTimer`, `Removed`,
-`Sense`. Per-tick types (`Perception`, `Decision`) are sim-internal and
-never stored.
+`LastTactical`, `Patience`, `PositiveThoughts`, `NegativeThoughts`,
+`RidenLifts`, `RestTimer`, `Removed`, `Sense`. Per-tick types
+(`Perception`, `Decision`) are sim-internal and never stored.
 
 ---
 
@@ -43,8 +43,7 @@ ID-valued where the field is categorical; numeric where natural.
 ```go
 type WorldSnapshot struct {
     Pos        mgl32.Vec3
-    Energy     float32          // 0..1 — session fatigue budget
-    Fun        float32          // 0..1 — smoothed satisfaction signal
+    Patience   float32          // 0..1 — drains queuing, restored by skiing/riding/lodge
     AtLiftBase uint64           // 0 or lift ID
     AtLiftTop  uint64           // 0 or lift ID
     Queued     uint64           // 0 or lift ID
@@ -73,7 +72,7 @@ assignment.
 | `SkiToLift(L)` | `AtLiftTop != 0`; ≥20 m descent to `L.Base` | `AtLiftBase = L`; `AtLiftTop = 0` | `dist / skiSpeedMps` |
 | `SkiToLodge(B)` | `AtLiftTop != 0`; ≥20 m descent to `B` | `AtLodge = B`; `AtLiftTop = 0` | `dist / skiSpeedMps` |
 | `SkiToParking(B)` | `AtLiftTop != 0`; ≥20 m descent to `B` | `AtParking = B`; `AtLiftTop = 0` | `dist / skiSpeedMps` |
-| `RestAtLodge(B)` | `AtLodge == B` | `Energy = 1` | `restDurationSec` (≈60 s) |
+| `RestAtLodge(B)` | `AtLodge == B` | `Patience = 1` | `restDurationSec` (≈60 s) |
 | `Depart(B)` | `AtParking == B` | `Removed = true` | `0` (terminal) |
 
 Boarding the chair is folded into `RideLift` — no separate `BoardChair`
@@ -88,21 +87,21 @@ actual path through terrain.
 
 **Novelty mechanic.** `RideLift.Cost` adds a linear repeat penalty
 (`repeatPenaltyPerRide × prior_count`, capped at `repeatPenaltyCap`) so
-unridden lifts plan as cheaper. On unload `bumpFunAndRideCount` mirrors
-this on the agent: `Fun += 0.15 × 0.55^count`, then `RidenLifts[L]++`.
-The two surfaces are kept in sync so the planner's preference matches
-the actual Fun outcome.
+unridden lifts plan as cheaper. On unload `RidenLifts[L]++` is
+incremented, and on the first-ever ride of a lift `ThoughtLovingALift`
+(positive) is emitted — so the planner's preference for unridden lifts
+matches the actual rating outcome.
 
 ### Goals (4)
 
 | Goal | Satisfied when | Weight |
 |---|---|---|
-| `KeepSkiing` | `AtLiftTop != 0` | `Energy` (or `Energy × 0.5` if `Energy < 0.2`) |
-| `Rest` | `Energy ≥ 0.85` | `(1 − Energy)²` |
-| `Explore` | every lift in `RidenLifts` with count > 0 | `unridden_frac × Energy` |
-| `GoHome` | `Removed` | `1.0` if `Energy < 0.05`, else `0` |
+| `KeepSkiing` | `AtLiftTop != 0` | `Patience` (or `Patience × 0.5` if `Patience < 0.2`) |
+| `Rest` | `Patience ≥ 0.85` | `(1 − Patience)²` |
+| `Explore` | every lift in `RidenLifts` with count > 0 | `unridden_frac × Patience` |
+| `GoHome` | `Removed` | `1.0` if `Patience < 0.05`, else `0` |
 
-`SelectGoal` returns the highest-weighted unsatisfied goal. Energy-low
+`SelectGoal` returns the highest-weighted unsatisfied goal. Low-patience
 routing falls out of standard weight evaluation — no special-case branch.
 
 **Note on `KeepSkiing.IsSatisfied = (AtLiftTop != 0)`.** This is a
@@ -333,130 +332,74 @@ flowchart TB
 - **Balance + fall** runs every tick orthogonally to L1–L3. Drains from
   speed/slope overshoot, hard scrub under load, and underfoot tree density
   above 0.3. Recovers at +0.15/s baseline, clamped to [-1, 0.4]/s.
-- **Energy** is a session-level fatigue budget. Drains at a flat rate per
-  sim-second only while `tickSkier` is on the dispatch path (lift rides,
-  queues, walks, and rests don't drain). Fresh = 1.0; budget covers
-  `energyBudgetSec` (~800 s, calibrated for ~20 descents). Recovery is
-  via the L0 `Rest` goal: `Rest.Weight = (1 − Energy)²` dominates the
-  other goals as Energy drops below ~0.38, producing a `SkiToLodge +
-  RestAtLodge` plan; `RestAtLodge` restores `Energy = 1`. The skier
-  pipeline never reads Energy itself.
+- **Patience** is the session frustration budget. Drains only while
+  queuing (`−1/600` per sim-second); restored by active skiing
+  (`+1/1000` per sim-second), riding (`+1/800` per sim-second), and
+  instantly by `RestAtLodge`. The L0 `Rest` goal fires at low patience
+  (`Rest.Weight = (1 − Patience)²`), producing a `SkiToLodge +
+  RestAtLodge` plan. `GoHome` fires when Patience < 0.05. The skier
+  physics pipeline never reads Patience itself.
 
 ---
 
-## Future extensions
+## Per-session stats, rating, and thoughts
 
-Everything below this line is **not implemented** — kept as design notes
-so the surface stays predictable when the next slice lands.
+### Patience
 
-### Affect
+`Patience` (0..1) is the guest's tolerance budget for the session. It starts
+at 1.0 on arrival and is the sole stat the L0 planner reads to weight goals.
+When it reaches 0, `GoHome` fires and the guest leaves.
 
-```go
-type Affect struct {
-    Mood     float32  // 0..1 — smoothed outcome signal; resort rating reads on Depart
-    Patience float32  // 0..1 — drains in queues, recovers otherwise
-    Hunger   float32  // 0..1 — grows steadily over a session
-    Boredom  float32  // 0..1 — grows steadily, spikes on repeated trail
-}
+**Write sites:**
+
+| Source | Rate | Activity |
+|---|---|---|
+| Queuing in a lift queue | `−1/600` per sim-second | drains: ~10 min of pure queuing exhausts budget |
+| Active skiing (`tickSkier`) | `+1/1000` per sim-second | restores slowly from fun descents |
+| Riding a lift chair (`tickRiding`) | `+1/800` per sim-second | restores: chair ride offsets earlier wait |
+| Lodge rest (`tickResting`) | instant `= 1` | full restore on `RestAtLodge` completion |
+
+Patience is clamped to `[0, 1]` on every write.
+
+### Rating
+
+`Guest.Rating()` returns a 0..1 score derived from the session thought counts.
+Read mid-session by the demand system's daily poll and stamped on `LastScore`
+at departure.
+
+```
+score = PositiveThoughts / (PositiveThoughts + NegativeThoughts)
 ```
 
-Outcome writebacks at action completion (matched difficulty → +Mood,
-mismatch → −Mood / −Patience; queue overrun → −Patience; fall →
-−Mood / −Patience). Goal weights and action costs read these once they
-exist:
+Returns 0.5 when no thoughts have fired yet. A session full of positive
+terrain moments and novel lift rides scores near 1; a session dominated by
+falls and long queues scores near 0.
 
-| System | Goes into | How |
-|---|---|---|
-| Skiers angry at lift lines | `JoinQueue` cost | `× (2 − Patience)` |
-| Skiers want appropriate runs | `SkiTrail` cost | `+= skillMismatch(Skill, Difficulty)` |
-| Beginners avoid black diamonds | `SkiTrail` cost | `+= fearCost(Skill, Difficulty)` |
-| Skiers want novelty | `SkiTrail` cost | `+= boredomCost(Trail, RecentRuns, Boredom)` |
-| Hunger drives lunch | `Refuel` weight | `Hunger²` |
-| Tired skiers go home | `GoHome` weight | `(1 − Energy − Mood) + lateDayBias` |
-| Resort rating | EMA of Mood at Depart | top-bar metric |
+### Thoughts
 
-Affect thresholds (Hunger > 0.7, Patience < 0.1, etc) become explicit
-event-driven replan triggers — they mark the agent `Stale` so the next
-tick re-plans.
+The thoughts ring is the player-visible "what's this guest thinking" surface.
+It holds up to 6 entries (`thoughtsCap`) in a fixed-size ring buffer; the
+oldest slot is recycled when full.
 
-### New actions
+**`AddThought(kind, simTime)`** suppresses duplicates: if the same `ThoughtKind`
+is already in the ring and its timestamp is within `ThoughtTTL = 12 s`, the
+new push is dropped. Each push that isn't suppressed increments
+`PositiveThoughts` or `NegativeThoughts` on the guest.
 
-- `EatLunch(B)` — `AtLodge == B` and lodge serves meals. Effect:
-  `Hunger = 0`, `Mood += 0.3`. Cost: `mealTime`.
-- `SkiTrail(T)` ✅ — area-based trail from the TrailGraph. Precondition:
-  current anchor (lift top, trail junction, lodge, or parking) matches
-  `edge.FromID`. Effect: sets destination anchor (lift base, building, or
-  trail junction). Cost: `Distance / skiSpeedMps`. Off-trail free-roam
-  (`SkiTo*`) applies a skill-based time penalty when any trail edge exists
-  from the current anchor.
+**`CurrentThought(simTime)`** returns the most-recent unexpired thought by
+walking the ring backwards from the write head. Returns `ThoughtNone` when
+the ring is empty or all entries are older than 12 s.
 
-### Trails as first-class entities ✅
+**Emitted thoughts:**
 
-```go
-type Trail struct {
-    ID         uint64
-    Name       string
-    Difficulty TerrainDifficulty   // DiffGreen | DiffBlue | DiffBlack
-    Cells      [][2]int            // grid cells painted by the player
-}
-```
-
-Trails are **area-based** — players paint grid cells. Connectivity is
-derived: the game finds which entity footprints (lift tops/bases, lodges,
-parking, other trails) overlap a trail's cells and builds a directed
-`TrailGraph`. `Lift.Services` is now derived from the TrailGraph
-(`∪ trail.Difficulty` for trails whose edges depart from that lift's top).
-When no trails cover a lift top, it serves all difficulties.
-
-### Explicit replan event hooks
-
-Two categories worth implementing when the underlying systems land:
-
-- **World change events.** Lift closed / opened, queue length crossed a
-  five-skier threshold, snowcat groomed a run. Mark agents whose plan
-  references the affected entity as `Stale`; they replan on their next
-  tick (one tick of latency avoids a thundering-herd replan inside the
-  event handler).
-- **Affect threshold crossings.** Hunger across 0.7, Patience below 0.1,
-  Energy across thresholds the smooth weight functions don't already
-  catch. Set `Stale` per the same mechanism.
-
-The shared `Stale` flag lets every event source share one replan path.
-
-### Personality traits
-
-Decoupled from `SkillLevel` — personality, not ability.
-
-| Trait | Effect | Layer |
-|---|---|---|
-| `GroomingPreference` | per-skier weight on the grooming bonus in `sampleTactical` | L1 |
-| `GladeTolerance` | shifts the corridor/density penalty per-skier | L1 |
-| `PreferredSide` | replaces the symmetric-tie coin-flip in `pickInitialSide` | L1 |
-| `Curiosity` | multiplier on `Explore.Weight` | L0 |
-| `TiredBias` | multiplier on `Rest.Weight` | L0 |
-
-### Resort rating
-
-`Mood` captured on `Depart`, rolling EMA across the last ~50 departures
-(half-life α ≈ 0.05). Surfaced in the top bar alongside cash and guest
-count. Optional feedback: low rating modulates parking spawn rate
-downward so the player has to actually run a good resort.
-
-### Per-action telemetry
-
-Counters per action — execute / fail-precondition / replaced-by-replan.
-Catches dead actions, over-weighted goals, and replan storms in the
-editor's affect-tuning panel.
+| Kind | Polarity | Display | When emitted |
+|---|---|---|---|
+| `ThoughtLovingGlades` | ✅ positive | "loving these glades" | `LikesGlades` + in trees (per tick, TTL-gated) |
+| `ThoughtScaredInTrees` | ❌ negative | "too many trees!" | non-glade guest in trees (per tick, TTL-gated) |
+| `ThoughtLovingCorduroy` | ✅ positive | "this corduroy is perfect" | `PrefersGroomed` + on groomed (per tick, TTL-gated) |
+| `ThoughtTiredOffPiste` | ❌ negative | "this snow is exhausting" | `PrefersGroomed` + off-piste (per tick, TTL-gated) |
+| `ThoughtFell` | ❌ negative | "ouch, that hurt" | balance reaches 0 (per fall, TTL-gated) |
+| `ThoughtLovingALift` | ✅ positive | "what a great lift!" | first ride of a previously-unridden lift |
+| `ThoughtLongLine` | ❌ negative | "this line is way too long" | joining a queue of ≥ 15 people |
 
 ---
-
-## Phased plan
-
-| Phase | Output |
-|---|---|
-| 0 — design ✅ | This doc + Go skeleton types in `internal/ai/goap/` |
-| 1 — planner infrastructure ✅ | `goap` package, `Fun`/`RidenLifts` on Agent, F4 debug panel, lift auto-naming. Observe-only — `pickTopTarget` still drove behaviour. |
-| 2 — switchover ✅ | Planner authoritative. `pickTopTarget` / `routeHome` / `onArrive` deleted. Stored `ai.Plan` on Agent with `Steps`/`Step`. Three explicit replan triggers; no wall-clock poll. Save format breaks per `[[feedback_dev_phase_breaking_changes]]`. |
-| 3 — affect + costs | `Mood` / `Patience` / `Hunger` / `Boredom` drive weights and costs. ~~Trail data model~~ ✅. ~~`Lift.Services` derived from trails~~ ✅. Stale-flag replan event hooks for lift closure / queue spikes. |
-| 4 — lodges + rating | `EatLunch` wires to lodge buildings. Resort rating in top bar. Optional spawn-rate feedback. |
-| 5 — trail editor + telemetry | ~~Player tool for trail placement~~ ✅ (cell-paint tool, popup, TrailGraph-driven `SkiTrail` action). Per-action telemetry catches dead actions and over-weighted goals. |

@@ -90,6 +90,7 @@ const (
 	progressBonus    = 0.3 // weight on cos(offset) — small so wider clearances aren't outvoted by "stay on axis"
 	sideCommitBonus  = 0.4 // weight on sign(prevTactical)·sign(offset) — biases toward the side already chosen so symmetric obstacles don't flip-flop
 	groomingBonus    = 0.5 // weight on Σ grooming along the candidate path — pulls skiers toward corduroy on clear slopes, outvoted by trees when present
+	trailBonus       = 0.7 // weight on Σ on-trail segments — prefers arcs that stay within the assigned trail, comparable in strength to the tree penalty so it influences but doesn't override obstacle avoidance
 
 	// Width of the corridor the sampler treats as "the skier" when
 	// integrating tree density along a candidate path. Each segment reads
@@ -133,12 +134,17 @@ const (
 	mogulFormRate     = 0.005
 	mogulMinSnowDepth = 0.3
 
-	// Energy budget. Drains at a flat rate per sim-second of active skiing
-	// (lift rides + walks don't count). Below energyLowThreshold, decision
-	// boundaries (lift unload, lift base arrival) reroute to a lodge.
-	// Calibrated for ~20 descents at ~40 s each.
-	energyBudgetSec    = 800.0
-	energyLowThreshold = 0.05
+	// patienceGainPerSecSkiing is patience restored per sim-second of
+	// active downhill skiing. Offset against the drain from queuing —
+	// a guest who skis freely without long waits stays patient all day.
+	patienceGainPerSecSkiing = 1.0 / 1000.0
+
+	// trailAxisPull is the weight of the "toward nearest trail cell"
+	// correction vector blended into axisDir when the skier has drifted
+	// off their assigned trail. 0.35 rotates the axis ~19° toward the
+	// trail when the pull is perpendicular — enough to steer back without
+	// fighting the fall-line or overriding the destination heading.
+	trailAxisPull = 0.35
 )
 
 // =============================================================================
@@ -198,6 +204,33 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 	}
 
 	perc := perceive(s.World.Terrain, a, target)
+
+	// Trail axis pull: when the skier is off their assigned trail, blend a
+	// correction toward the nearest trail cell into axisDir before decide
+	// runs. Only fires when outside a trail cell — on-trail the axis is
+	// left alone and sampleTactical's trail bonus handles preference.
+	if a.OnTrailID != 0 {
+		if trail := s.World.FindTrail(a.OnTrailID); trail != nil {
+			cx := int(a.Pos[0] / CellSize)
+			cz := int(a.Pos[2] / CellSize)
+			if !trail.ContainsCell(cx, cz) {
+				if wx, wz, ok := trail.NearestCellCenter(a.Pos[0], a.Pos[2]); ok {
+					dx := wx - a.Pos[0]
+					dz := wz - a.Pos[2]
+					l := float32(math.Sqrt(float64(dx*dx + dz*dz)))
+					if l > 1e-4 {
+						ax := perc.AxisDir[0] + trailAxisPull*(dx/l)
+						az := perc.AxisDir[1] + trailAxisPull*(dz/l)
+						al := float32(math.Sqrt(float64(ax*ax + az*az)))
+						if al > 1e-4 {
+							perc.AxisDir = mgl32.Vec2{ax / al, az / al}
+						}
+					}
+				}
+			}
+		}
+	}
+
 	dec := decide(s.World, s.towersScratch, s.spatial, a, perc, float32(dt), s.Rng)
 	if dec.TurnSide != a.TurnSide {
 		a.TurnDwell = 0
@@ -208,12 +241,9 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 	a.LastTactical = dec.TacticalOffset
 	a.Sense = senseFrom(perc, dec)
 
-	// Trait-driven terrain effects. Reads the cell under the guest and
-	// applies the four rules: glade preference → Fun vs. FearTarget on
-	// in-trees cells; grooming preference → Fun on-piste, Energy
-	// penalty off-piste. Pushes a Thought for each firing so the
-	// player-visible "what's this guest thinking" surface tracks the
-	// reason a stat moved.
+	// Trait-driven terrain thoughts. Reads the cell under the guest and
+	// emits thoughts based on glade and grooming preferences — these
+	// thoughts count toward the session rating.
 	cx := int(a.Pos[0] / CellSize)
 	cz := int(a.Pos[2] / CellSize)
 	var treeDensity, grooming float32
@@ -225,48 +255,29 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 	const (
 		treeDensityThreshold = 0.30
 		groomingThreshold    = 0.50
-		funBumpPerSec        = 0.05 // per-second boost to Fun when in a loved zone
-		fearBumpPerSec       = 0.40 // FearTarget add per sec for non-glade in trees
-		offPisteFatigueMult  = 1.50 // extra Energy drain multiplier for PrefersGroomed off-piste
 	)
-	dtF := float32(dt)
 	inTrees := treeDensity >= treeDensityThreshold
 	onGroomed := grooming >= groomingThreshold
 
-	energyMult := float32(1)
 	if inTrees {
 		if a.Traits.LikesGlades {
-			a.Fun += funBumpPerSec * dtF
 			a.AddThought(ai.ThoughtLovingGlades, s.SimTime)
 		} else {
-			a.FearTarget += fearBumpPerSec * dtF
-			if a.FearTarget > 1 {
-				a.FearTarget = 1
-			}
 			a.AddThought(ai.ThoughtScaredInTrees, s.SimTime)
 		}
 	}
 	if a.Traits.PrefersGroomed {
 		if onGroomed {
-			a.Fun += funBumpPerSec * dtF
 			a.AddThought(ai.ThoughtLovingCorduroy, s.SimTime)
 		} else {
-			energyMult = offPisteFatigueMult
 			a.AddThought(ai.ThoughtTiredOffPiste, s.SimTime)
 		}
 	}
-	if a.Fun > 1 {
-		a.Fun = 1
-	}
 
-	// Energy drain (active skiing only). Grooming preference can
-	// inflate the drain when this guest is off-piste against their
-	// taste — sustained powder-bashing tires them out faster.
-	if a.Energy > 0 {
-		a.Energy -= float32(dt/energyBudgetSec) * energyMult
-		if a.Energy < 0 {
-			a.Energy = 0
-		}
+	// Patience gain from active skiing.
+	a.Patience += float32(dt * patienceGainPerSecSkiing)
+	if a.Patience > 1 {
+		a.Patience = 1
 	}
 
 	// Balance + fall.
@@ -280,6 +291,7 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 		a.FallTimer = float32(fallRecoverTime)
 		a.Speed = 0
 		a.Events = append(a.Events, ai.GuestEvent{Kind: ai.EventFall, Time: s.SimTime})
+		a.AddThought(ai.ThoughtFell, s.SimTime)
 		recordFrame(s, a, target, dist, perc, dec)
 		return false
 	}
@@ -665,14 +677,21 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 		selfID = self.ID
 	}
 
-	// Pass 1: integrate density, boundary hits, and grooming along each
-	// candidate. Grooming reads the centre point only — the edge of a
-	// groomed strip is still groomed, so corridor sampling would just
-	// double-count adjacent cells without adding signal.
+	// Resolve the via-trail once for the trail-bonus scoring below.
+	// nil when the agent is not on a trail step.
+	var onTrail *world.Trail
+	if self != nil && self.OnTrailID != 0 {
+		onTrail = w.FindTrail(self.OnTrailID)
+	}
+
+	// Pass 1: integrate density, boundary hits, grooming, and trail
+	// coverage along each candidate. Grooming and trail read the centre
+	// point only — corridor sampling would double-count adjacent cells.
 	type sampleData struct {
 		ang           float32
 		totalDensity  float32
 		totalGrooming float32
+		totalTrail    int // segments whose centre cell is in the via-trail
 		boundaryHits  int
 	}
 	samples := make([]sampleData, sampleCount)
@@ -687,7 +706,7 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 		rx, rz := hz, -hx
 
 		var totalDensity, totalGrooming float32
-		var boundaryHits int
+		var totalTrail, boundaryHits int
 		for sIdx := 1; sIdx <= sampleSegments; sIdx++ {
 			d := horizon * float32(sIdx) / float32(sampleSegments)
 			x := perc.Pos[0] + hx*d
@@ -710,8 +729,11 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 			totalDensity += density
 			_, grooming, _, _, _ := t.SnowAt(x, z)
 			totalGrooming += grooming
+			if onTrail != nil && onTrail.ContainsCell(int(x/CellSize), int(z/CellSize)) {
+				totalTrail++
+			}
 		}
-		samples[i] = sampleData{ang, totalDensity, totalGrooming, boundaryHits}
+		samples[i] = sampleData{ang, totalDensity, totalGrooming, totalTrail, boundaryHits}
 		if totalDensity > maxDensity {
 			maxDensity = totalDensity
 		}
@@ -746,6 +768,7 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 		score -= float32(treePenalty) * sd.totalDensity
 		score -= float32(boundaryPenalty) * float32(sd.boundaryHits)
 		score += float32(groomingBonus) * sd.totalGrooming
+		score += float32(trailBonus) * float32(sd.totalTrail)
 		if prevSign != 0 && sd.ang != 0 {
 			angSign := float32(+1)
 			if sd.ang < 0 {

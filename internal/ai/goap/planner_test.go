@@ -41,7 +41,7 @@ func raiseCell(t *world.Terrain, x, z int, dh float32) {
 }
 
 // TestPlanFromParking is the end-to-end smoke: agent at parking with
-// fresh Energy. Selected goal should be KeepSkiing or Explore (both
+// fresh Patience. Selected goal should be KeepSkiing or Explore (both
 // satisfiable by riding a lift), and the plan should chain WalkToLift
 // → JoinQueue → RideLift.
 func TestPlanFromParking(t *testing.T) {
@@ -49,18 +49,15 @@ func TestPlanFromParking(t *testing.T) {
 
 	snap := WorldSnapshot{
 		Pos:       mgl32.Vec3{parking.Pos[0], 0, parking.Pos[1]},
-		Energy:    1.0,
+		Patience:    1.0,
 		AtParking: parking.ID,
 	}
 	goal := SelectGoal(&snap, w)
 	if goal == nil {
 		t.Fatal("SelectGoal returned nil at full energy with unridden lifts")
 	}
-	// At full energy + no rides yet, weight order: Explore (1.0) >
-	// KeepSkiing (1.0) > GoHome (0.4 satiation only) > Rest (0).
-	// The tie between Explore and KeepSkiing is broken by iteration
-	// order in AllGoals — KeepSkiing comes first so it wins on equal
-	// weight. Both produce a valid "ride a lift" plan, so accept either.
+	// At full patience + no rides yet, both Explore and KeepSkiing
+	// have weight 1.0 (satisfied by riding any lift). Accept either.
 	if goal.Name() != "KeepSkiing" && goal.Name() != "Explore" {
 		t.Errorf("expected KeepSkiing or Explore, got %q", goal.Name())
 	}
@@ -90,7 +87,7 @@ func TestExplorePrefersUnridden(t *testing.T) {
 	// Agent at top of A (just unloaded), already rode A once.
 	snap := WorldSnapshot{
 		Pos:        mgl32.Vec3{liftA.Top[0], 0, liftA.Top[1]},
-		Energy:     0.7,
+		Patience:     0.7,
 		AtLiftTop:  liftA.ID,
 		RidenLifts: []ai.RideCount{{LiftID: liftA.ID, Count: 1}},
 	}
@@ -113,19 +110,19 @@ func TestExplorePrefersUnridden(t *testing.T) {
 	}
 }
 
-// TestRestAtLowEnergy: low Energy makes Rest dominate, and the planner
+// TestRestAtLowPatience: low Patience makes Rest dominate, and the planner
 // should produce a plan that ends in RestAtLodge.
-func TestRestAtLowEnergy(t *testing.T) {
+func TestRestAtLowPatience(t *testing.T) {
 	w, _, liftA, _ := buildSmokeWorld(t)
 
 	snap := WorldSnapshot{
 		Pos:       mgl32.Vec3{liftA.Top[0], 0, liftA.Top[1]},
-		Energy:    0.1,
+		Patience:    0.1,
 		AtLiftTop: liftA.ID,
 	}
 	goal := SelectGoal(&snap, w)
 	if goal.Name() != "Rest" {
-		t.Fatalf("expected Rest at Energy=0.1, got %s", goal.Name())
+		t.Fatalf("expected Rest at Patience=0.1, got %s", goal.Name())
 	}
 	p := NewPlanner()
 	plan := p.Plan(snap, goal, w)

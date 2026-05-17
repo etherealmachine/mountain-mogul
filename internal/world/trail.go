@@ -2,6 +2,7 @@ package world
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/go-gl/mathgl/mgl32"
 )
@@ -24,6 +25,38 @@ type Trail struct {
 	Name       string
 	Difficulty TerrainDifficulty
 	Cells      [][2]int
+}
+
+// ContainsCell reports whether grid cell (cx, cz) belongs to this trail.
+// O(n) linear scan — suitable for per-tick use given typical trail sizes.
+func (t *Trail) ContainsCell(cx, cz int) bool {
+	for _, c := range t.Cells {
+		if c[0] == cx && c[1] == cz {
+			return true
+		}
+	}
+	return false
+}
+
+// NearestCellCenter returns the world-space XZ centre of the trail cell
+// closest to (x, z), and true. Returns zero vector and false when the
+// trail has no cells.
+func (t *Trail) NearestCellCenter(x, z float32) (wx, wz float32, ok bool) {
+	if len(t.Cells) == 0 {
+		return 0, 0, false
+	}
+	best := float32(math.MaxFloat32)
+	for _, c := range t.Cells {
+		cx := (float32(c[0]) + 0.5) * CellSize
+		cz := (float32(c[1]) + 0.5) * CellSize
+		dx := cx - x
+		dz := cz - z
+		if d2 := dx*dx + dz*dz; d2 < best {
+			best = d2
+			wx, wz = cx, cz
+		}
+	}
+	return wx, wz, true
 }
 
 // cellSet returns a map of the trail's cells for O(1) membership testing.

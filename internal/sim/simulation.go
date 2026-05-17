@@ -12,8 +12,21 @@ import (
 )
 
 const (
-	WalkSpeed = 2.0  // m/s
+	WalkSpeed = 2.0 // m/s
 	CellSize  = 5.0 // metres per grid cell
+
+	// patienceDrainPerSecQueuing is patience drained per sim-second
+	// while standing in a lift queue. 600 sim-seconds (10 min) of pure
+	// queuing exhausts a full patience budget.
+	patienceDrainPerSecQueuing = 1.0 / 600.0
+
+	// patienceGainPerSecRiding is patience restored per sim-second
+	// while riding a lift chair.
+	patienceGainPerSecRiding = 1.0 / 800.0
+
+	// longQueuePersons is the queue depth at which a guest considers
+	// the line "long." At ~8 s/person this is ~120 s of expected wait.
+	longQueuePersons = 15
 )
 
 // Simulation drives all agent and building behaviour.
@@ -199,11 +212,13 @@ func (s *Simulation) tickLifts(dt float64) {
 						agent.Balance = 1.0 // ride up restored balance
 					}
 
-					// Novelty-driven Fun bump. First ride of this lift is the
-					// biggest gain; subsequent rides taper geometrically so
-					// the planner's Explore goal naturally drives skiers to
-					// unridden lifts before everything else.
-					bumpFunAndRideCount(agent, lift)
+					// Emit a positive thought on the first ride of this lift;
+					// then update the ride tally so the planner's Explore
+					// goal prefers unridden lifts.
+					if ai.RideCountOf(agent.RidenLifts, lift.ID) == 0 {
+						agent.AddThought(ai.ThoughtLovingALift, s.SimTime)
+					}
+					agent.RidenLifts = ai.AddRide(agent.RidenLifts, lift.ID)
 					topCell := lift.TopCell()
 					ty := w.Terrain.SurfaceElevationAt(topCell[0], topCell[1])
 					agent.Pos = mgl32.Vec3{lift.Top[0], ty, lift.Top[1]}
@@ -243,27 +258,6 @@ func (s *Simulation) tickLifts(dt float64) {
 	}
 }
 
-// bumpFunAndRideCount applies the per-agent novelty bonus at lift unload:
-// first ride of this lift is the biggest Fun gain (≈0.15), subsequent
-// rides taper geometrically with factor 0.55 so a 4th repeat is barely
-// rewarded. RidenLifts is incremented after the bonus so count=0 maps
-// to the unridden case.
-//
-// Mirrored shape in goap.RideLift.Cost — keep the two in sync if the
-// constants move so the planner's preference for unridden lifts matches
-// the actual Fun outcome.
-func bumpFunAndRideCount(agent *world.Guest, lift *world.Lift) {
-	count := ai.RideCountOf(agent.RidenLifts, lift.ID)
-	bonus := float32(0.15)
-	for i := 0; i < count; i++ {
-		bonus *= 0.55
-	}
-	agent.Fun += bonus
-	if agent.Fun > 1 {
-		agent.Fun = 1
-	}
-	agent.RidenLifts = ai.AddRide(agent.RidenLifts, lift.ID)
-}
 
 // parkingWorldPos returns the parking lot's anchor as a world-space Vec3,
 // with Y from the terrain mesh under the lot's door cell. Centralised so
@@ -293,11 +287,6 @@ func (s *Simulation) tickGuests(dt float64) {
 		if agent.Removed {
 			continue
 		}
-		// Stat smoothing runs unconditionally — Fear (and future
-		// Warmth / Hunger) drift while queuing, riding, walking, etc.
-		// Trait-driven stimuli (in-trees, off-piste) are applied
-		// separately in tickSkier.
-		agent.TickStats(dt)
 		s.tickPlanning(agent)
 		if agent.Removed {
 			continue
@@ -336,8 +325,7 @@ func (s *Simulation) spawnGuest(lot *world.Building, g *world.Guest) bool {
 	g.Heading = 0
 	g.Speed = 0
 	g.Balance = 1.0
-	g.Energy = 1.0
-	g.Fun = 0
+	g.Patience = 1.0
 	g.Removed = false
 	w.OnMountain = append(w.OnMountain, g)
 	s.replan(g)
@@ -457,6 +445,7 @@ func isDescentKind(k ai.PlanActionKind) bool {
 // spawn, when the plan exhausts, and when a precondition breaks.
 func (s *Simulation) replan(a *world.Guest) {
 	a.AtTrailEnd = 0 // clear any stale junction anchor before re-planning
+	a.OnTrailID = 0
 	a.Plan = s.Planner.StoredPlanFor(a, s.World)
 	if !a.Plan.Done() {
 		s.onPlanStepStart(a)
@@ -482,6 +471,9 @@ func (s *Simulation) advancePlan(a *world.Guest) {
 func (s *Simulation) onPlanStepStart(a *world.Guest) {
 	w := s.World
 	step := a.Plan.Head()
+	// Clear trail context at every step start; ActSkiTrail sets it below.
+	a.OnTrailID = 0
+
 	switch step.Kind {
 	case ai.ActWalkToLift:
 		lift := findLiftByID(w, step.LiftID)
@@ -507,6 +499,9 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		lift := findLiftByID(w, step.LiftID)
 		if lift == nil {
 			return
+		}
+		if len(lift.Queue) >= longQueuePersons {
+			a.AddThought(ai.ThoughtLongLine, s.SimTime)
 		}
 		lift.Queue = append(lift.Queue, a)
 		a.Queued = true
@@ -541,6 +536,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		a.Plan.GoalID = b.ID
 		a.Plan.Target = parkingWorldPos(w, b)
 	case ai.ActSkiTrail:
+		a.OnTrailID = step.TrailID
 		switch {
 		case step.LiftID != 0:
 			lift := findLiftByID(w, step.LiftID)
@@ -656,7 +652,7 @@ func planActionPreconditionHolds(step ai.PlanAction, snap goap.WorldSnapshot, w 
 }
 
 // tickResting counts down the atomic RestAtLodge timer. On expiry
-// Energy resets to 1; tickPlanning on the next frame advances the plan.
+// Patience resets to 1; tickPlanning on the next frame advances the plan.
 func (s *Simulation) tickResting(a *world.Guest, dt float64) {
 	if a.RestTimer <= 0 {
 		return
@@ -664,7 +660,7 @@ func (s *Simulation) tickResting(a *world.Guest, dt float64) {
 	a.RestTimer -= float32(dt)
 	if a.RestTimer <= 0 {
 		a.RestTimer = 0
-		a.Energy = 1
+		a.Patience = 1
 	}
 }
 
@@ -788,8 +784,13 @@ func (s *Simulation) tickPath(agent *world.Guest, dt float64) {
 // is at the base, so the front-of-line skier holds station there; deeper
 // slots are further downhill of the base axis. As skiers board off the
 // front and lift.Queue shrinks, each remaining agent's index drops by one
-// and they shuffle forward on subsequent ticks.
+// and they shuffle forward on subsequent ticks. Patience drains while
+// queuing — long waits make guests want to rest or leave.
 func (s *Simulation) tickQueued(agent *world.Guest, dt float64) {
+	agent.Patience -= float32(dt * patienceDrainPerSecQueuing)
+	if agent.Patience < 0 {
+		agent.Patience = 0
+	}
 	w := s.World
 	for _, lift := range w.Lifts {
 		idx := -1
@@ -822,8 +823,13 @@ func (s *Simulation) tickQueued(agent *world.Guest, dt float64) {
 // scad2obj baked into chair.obj / chair_quad.obj from echo()
 // declarations in the .scad source. The slot Pos is in the chair-local
 // game frame; we rotate by heading and offset from the chair's cable
-// anchor.
+// anchor. Patience recovers while riding — a pleasant lift ride offsets
+// earlier queue frustration.
 func (s *Simulation) tickRiding(agent *world.Guest, dt float64) {
+	agent.Patience += float32(dt * patienceGainPerSecRiding)
+	if agent.Patience > 1 {
+		agent.Patience = 1
+	}
 	w := s.World
 	for _, lift := range w.Lifts {
 		if lift.ID != agent.OnLiftID {
@@ -876,14 +882,21 @@ func seatWorldPos(chairPos mgl32.Vec3, heading float32, slotIdx int, slots []wor
 // callback.
 func (s *Simulation) tickLocomote(agent *world.Guest, dt float64) {
 	w := s.World
-	if agent.TargetID == 0 {
-		return
-	}
-	targetPos, ok := resolveTarget(w, agent.TargetID)
-	if !ok {
-		// Target vanished — drop it; tickPlanning's precondition check
-		// will re-plan on the next tick.
-		agent.TargetID = 0
+	var targetPos mgl32.Vec3
+	if agent.TargetID != 0 {
+		var ok bool
+		targetPos, ok = resolveTarget(w, agent.TargetID)
+		if !ok {
+			// Target vanished — drop it; tickPlanning's precondition check
+			// will re-plan on the next tick.
+			agent.TargetID = 0
+			return
+		}
+	} else if agent.Plan.Target != (mgl32.Vec3{}) {
+		// Trail-to-trail steps set TargetID=0 and steer via Plan.Target
+		// (the destination trail centroid). Use it directly.
+		targetPos = agent.Plan.Target
+	} else {
 		return
 	}
 

@@ -25,10 +25,9 @@ import (
 // (0 means "not there") — booleans like "at a lift base" are implicit in
 // AtLiftBase != 0.
 type WorldSnapshot struct {
-	Pos    mgl32.Vec3
-	Energy float32 // 0..1; depletes while skiing, restored at lodge
-	Fun    float32 // 0..1; smoothed satisfaction signal
-	Skill  ai.SkillLevel
+	Pos      mgl32.Vec3
+	Patience float32 // 0..1; drains while queuing, restored by skiing/riding/lodge
+	Skill    ai.SkillLevel
 
 	AtLiftBase uint64 // 0 or lift ID — at the base of this lift, not yet queued
 	AtLiftTop  uint64 // 0 or lift ID — just unloaded at the top
@@ -77,8 +76,7 @@ func (s WorldSnapshot) Clone() WorldSnapshot {
 func Extract(a *world.Guest, w *world.World) WorldSnapshot {
 	snap := WorldSnapshot{
 		Pos:        a.Pos,
-		Energy:     a.Energy,
-		Fun:        a.Fun,
+		Patience:   a.Patience,
 		Skill:      a.Traits.Skill,
 		OnLift:     a.OnLiftID,
 		AtTrailEnd: a.AtTrailEnd,
