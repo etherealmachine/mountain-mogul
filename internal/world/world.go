@@ -85,6 +85,10 @@ type World struct {
 	// PlaceLift deduct from this and refuse the placement when the
 	// balance can't cover the cost.
 	Cash int
+
+	// Seed is the RNG seed used when this world's Simulation was created.
+	// Saved and reloaded so SeedGuests on load produces the same guest pool.
+	Seed int64
 }
 
 // NewWorld creates a World with the given terrain and the default

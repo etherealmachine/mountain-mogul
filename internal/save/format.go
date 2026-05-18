@@ -5,6 +5,7 @@ type ScenarioData struct {
 	Name      string         `json:"name"`
 	Width     int            `json:"width"`
 	Height    int            `json:"height"`
+	Seed      int64          `json:"seed,omitempty"`
 	Cells     []CellData     `json:"cells"` // flat array, row-major (x-major)
 	Objects   []ObjectData   `json:"objects"`
 	Buildings []BuildingData `json:"buildings"`

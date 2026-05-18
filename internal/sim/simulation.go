@@ -47,6 +47,10 @@ type Simulation struct {
 	// for every agent in the world.
 	Planner *goap.Planner
 
+	// Weather is the daily Markov-chain weather generator. Advance is called
+	// once per in-game day rollover in maybeSampleHistory.
+	Weather *Chain
+
 	// Demand owns the global skier pool and resort rating. The
 	// per-30-sim-seconds poll fires from Tick.
 	Demand *DemandSystem
@@ -89,11 +93,14 @@ func NewSimulation(w *world.World) *Simulation {
 func NewSimulationWithSeed(w *world.World, seed int64) *Simulation {
 	widthM := float32(w.Terrain.Width) * CellSize
 	heightM := float32(w.Terrain.Height) * CellSize
+	w.Seed = seed
+	rng := rand.New(rand.NewSource(seed))
 	sim := &Simulation{
 		World:          w,
 		Pathfinder:     NewPathfinder(w.Terrain),
 		TimeScale:      4.0,
-		Rng:            rand.New(rand.NewSource(seed)),
+		Rng:            rng,
+		Weather:        NewChain(),
 		Planner:        goap.NewPlanner(),
 		Demand:         NewDemandSystem(),
 		spatial:        newSpatialGrid(widthM, heightM),
@@ -383,7 +390,33 @@ func (s *Simulation) maybeSampleHistory() {
 			ThoughtCounts:    w.History.ThoughtCountsToday,
 		})
 		s.lastSampledDay++
+
+		// Advance weather for the new day and apply snowfall to terrain.
+		newDay := DateAt(float64(s.lastSampledDay) * secondsPerSimDay)
+		dw := s.Weather.Advance(s.Rng, newDay)
+		if dw.AccumSWE > 0 {
+			s.applySnowfall(dw.AccumSWE)
+		}
 	}
+}
+
+// applySnowfall adds accumSWE metres of snow-water-equivalent to every
+// terrain cell and dilutes Packed toward fresh powder density (0.2).
+func (s *Simulation) applySnowfall(accumSWE float32) {
+	t := s.World.Terrain
+	for x := range t.Cells {
+		for z := range t.Cells[x] {
+			c := &t.Cells[x][z]
+			oldSWE := c.SnowAccumulation
+			newSWE := oldSWE + accumSWE
+			// Dilute packing: fresh snow pulls density toward powder (Packed=0.2).
+			if newSWE > 0 {
+				c.Packed = (oldSWE*c.Packed + accumSWE*0.2) / newSWE
+			}
+			c.SnowAccumulation = newSWE
+		}
+	}
+	t.SnowDirty = true
 }
 
 // =============================================================================

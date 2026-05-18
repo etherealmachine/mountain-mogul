@@ -746,8 +746,10 @@ func (s *Scenario) Init(app *engine.App) error {
 		return d.Day, d.Month, d.Year
 	}
 	s.topBar.GetWeather = func() (ui.WeatherKind, ui.WeatherKind, int) {
-		ws := sim.WeatherAt(s.sim.SimTime)
-		return weatherToUI(ws.Now), weatherToUI(ws.Next), ws.TempF
+		today := s.sim.Weather.Today()
+		forecast := s.sim.Weather.Forecast(sim.DateAt(s.sim.SimTime), 1)
+		tempF := int(today.TempC*9/5 + 32)
+		return weatherToUI(today.State), weatherToUI(forecast[0].State), tempF
 	}
 
 	// Glade-tool sliders. Default radius matches the previous fixed
@@ -922,18 +924,19 @@ func thoughtsToDistribution(w *world.World) []ui.ChartPoint {
 	return build(w.History.ThoughtCountsToday, time.Time{})
 }
 
-// weatherToUI maps the sim-side weather enum to the UI-side enum. The two
-// packages can't import each other so the scene does the translation.
-func weatherToUI(w sim.WeatherKind) ui.WeatherKind {
-	switch w {
-	case sim.WeatherSunny:
+// weatherToUI maps sim.WeatherState to the UI icon enum.
+func weatherToUI(s sim.WeatherState) ui.WeatherKind {
+	switch s {
+	case sim.WeatherClear:
 		return ui.WKSunny
-	case sim.WeatherCloudy:
+	case sim.WeatherOvercast:
 		return ui.WKCloudy
-	case sim.WeatherSnowing:
+	case sim.WeatherLightSnow:
 		return ui.WKSnow
-	case sim.WeatherStormy:
+	case sim.WeatherHeavySnow:
 		return ui.WKStorm
+	case sim.WeatherRain:
+		return ui.WKRain
 	}
 	return ui.WKSunny
 }

@@ -401,5 +401,6 @@ the ring is empty or all entries are older than 12 s.
 | `ThoughtFell` | ❌ negative | "ouch, that hurt" | balance reaches 0 (per fall, TTL-gated) |
 | `ThoughtLovingALift` | ✅ positive | "what a great lift!" | first ride of a previously-unridden lift |
 | `ThoughtLongLine` | ❌ negative | "this line is way too long" | joining a queue of ≥ 15 people |
+| `ThoughtNeedsLodge` | ❌ negative | "this place needs a lodge" | `Rest` goal selected but no lodge is reachable; planner falls back to next goal |
 
 ---

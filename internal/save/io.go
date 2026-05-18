@@ -347,6 +347,7 @@ func worldToData(w *world.World) ScenarioData {
 
 	return ScenarioData{
 		Name:      "scenario",
+		Seed:      w.Seed,
 		Width:     t.Width,
 		Height:    t.Height,
 		Cells:     cells,
@@ -448,6 +449,7 @@ func dataToWorld(data ScenarioData) *world.World {
 	}
 
 	w := world.NewWorld(t)
+	w.Seed = data.Seed
 	if data.Cash != 0 {
 		w.Cash = data.Cash
 	}
@@ -727,7 +729,11 @@ func dataToWorld(data ScenarioData) *world.World {
 	// to draw from. Post-rewrite saves write their Guests slice and skip
 	// this branch.
 	if len(w.Guests) == 0 {
-		world.SeedGuests(w, rand.New(rand.NewSource(time.Now().UnixNano())), world.DefaultGuestPoolSize)
+		guestSeed := w.Seed
+		if guestSeed == 0 {
+			guestSeed = 1 // legacy saves with no seed: stable fallback
+		}
+		world.SeedGuests(w, rand.New(rand.NewSource(guestSeed)), world.DefaultGuestPoolSize)
 	}
 
 	// Rehydrate the history ring. Absent in the save → allocate an

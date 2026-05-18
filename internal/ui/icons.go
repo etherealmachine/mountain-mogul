@@ -44,8 +44,8 @@ func IconArrow(r *render.Renderer, x, y, size float32, color mgl32.Vec4) {
 	r.DrawIcon(render.IconArrowRight, x, y, size, color)
 }
 
-// WeatherKind is the UI-side enum mirroring sim.WeatherKind. The two
-// packages can't import each other so the scenario does the translation.
+// WeatherKind is the UI-side enum for weather icon selection. The scenario
+// translates from sim.WeatherState; the two packages can't import each other.
 type WeatherKind int
 
 const (
@@ -53,6 +53,7 @@ const (
 	WKCloudy
 	WKSnow
 	WKStorm
+	WKRain
 )
 
 // DrawWeatherIcon picks a phosphor icon per weather kind. Tints lean toward
@@ -68,5 +69,7 @@ func DrawWeatherIcon(r *render.Renderer, kind WeatherKind, x, y, size float32) {
 		r.DrawIcon(render.IconCloudSnow, x, y, size, mgl32.Vec4{0.85, 0.92, 1.0, 1})
 	case WKStorm:
 		r.DrawIcon(render.IconCloudLightning, x, y, size, mgl32.Vec4{0.75, 0.78, 0.88, 1})
+	case WKRain:
+		r.DrawIcon(render.IconDrop, x, y, size, mgl32.Vec4{0.55, 0.75, 0.95, 1})
 	}
 }
