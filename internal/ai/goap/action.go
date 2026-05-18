@@ -34,6 +34,13 @@ const (
 	// L1 controller ultimately decides actual speed
 	queueSlotSec = 8.0 // average wait per slot in line
 
+	// MaxQueuePersons is the hard cap on queue depth a guest will tolerate
+	// when planning. Queues longer than this cause JoinQueue's precondition
+	// to fail, forcing the planner to seek an alternative lift. The cap is
+	// bypassed when Patience < 0.05 so that GoHome routing can still ride
+	// up and exit a lift base.
+	MaxQueuePersons = 20
+
 	// Lift-novelty bonus. First ride of a lift is "free"; each repeat ride
 	// adds repeatPenaltyPerRide to RideLift's cost, capped so a much-ridden
 	// lift never becomes prohibitive. Geometric decay would also work and
@@ -122,6 +129,12 @@ func (a *JoinQueue) Precondition(s *WorldSnapshot, w *world.World) bool {
 		if !w.ServicesForLift(a.LiftID).Has(diff) {
 			return false
 		}
+	}
+	// Reject if the queue is too long, unless patience is already exhausted.
+	// The exhausted exception keeps GoHome routing functional: a guest leaving
+	// the mountain still needs to join a queue and ride up to exit a lift base.
+	if s.Patience >= 0.05 && len(l.Queue) > MaxQueuePersons {
+		return false
 	}
 	return true
 }

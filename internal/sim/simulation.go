@@ -582,14 +582,11 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		if lift == nil {
 			return
 		}
-		// Predict patience drain from waiting in this queue. Only bail if
-		// Patience is currently above the GoHome threshold (> 0.05) — if
-		// it's already exhausted, the GoHome plan routes through JoinQueue
-		// (the only exit from a lift base) and bailing again would recurse
-		// infinitely. In the exhausted case just join and ride up; replanOnBoard
-		// at board time will build a [SkiToParking, Depart] post-ride plan.
-		estimatedDrain := float32(len(lift.Queue)) * queueSlotSec * patienceDrainPerSecQueuing
-		if a.Patience > 0.05 && a.Patience-estimatedDrain < 0.05 {
+		// Safety-net: queue grew past the threshold since this plan was built.
+		// Zero patience first (same as the original pattern) so that when
+		// replan calls onPlanStepStart for the GoHome JoinQueue step the
+		// bail guard (Patience >= 0.05) is false — preventing recursion.
+		if a.Patience >= 0.05 && len(lift.Queue) > goap.MaxQueuePersons {
 			s.addThought(a, ai.ThoughtLineTooLong, lift.ID)
 			a.Satisfaction = clamp32(a.Satisfaction-0.08, 0, 1)
 			a.Patience = 0

@@ -195,6 +195,9 @@ func defaultLapPlan(snap WorldSnapshot, a *world.Guest, w *world.World) ai.Plan 
 		if liftTopElev(w, src)-liftBaseElev(w, l) < minDescentMeters {
 			continue
 		}
+		if len(l.Queue) > MaxQueuePersons {
+			continue
+		}
 		rides := ai.RideCountOf(snap.RidenLifts, l.ID)
 		if rides < bestRides {
 			bestRides = rides

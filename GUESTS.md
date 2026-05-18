@@ -156,11 +156,21 @@ is the runtime entry point — extract snapshot, select goal, plan, translate.
    state (`WalkToLift` complete when `snap.AtLiftBase == L`, etc).
 3. **Head action precondition broken** — entity referenced by the head
    step no longer exists.
-4. **Queue patience bail** — at `ActJoinQueue` start, the estimated wait
-   (`len(Queue) × queueSlotSec × patienceDrainRate`) would bring Patience
-   below 0.05. The guest emits `ThoughtLineTooLong` (−0.08 Satisfaction),
-   Patience is zeroed, and `replan` fires — which now sees `GoHome` with
-   weight 1.0 and departs.
+4. **Queue cap reject** — `JoinQueue.Precondition` fails when
+   `len(Queue) > MaxQueuePersons (20)` and `Patience ≥ 0.05`. The planner
+   therefore never builds a plan through a full queue; it tries other
+   accessible lifts instead. If all lifts are over the cap the planner
+   returns empty, `replan` detects the empty plan while the guest is
+   anchored at a lift base or top, exhausts Patience, and retries —
+   `GoHome` now wins and the guest departs. The `Patience < 0.05`
+   exception preserves the GoHome routing invariant: a departing guest
+   still needs to join a queue and ride up to exit a lift base; the cap
+   must not block that escape path.
+   An execution-time safety-net in `onPlanStepStart` catches the race
+   where the queue grew past the cap between plan time and arrival:
+   it emits `ThoughtLineTooLong` (−0.08 Satisfaction), zeroes Patience,
+   and calls `replan` — the same zero-then-replan pattern as the original
+   bail, so GoHome routing through JoinQueue doesn't re-trigger the check.
 
 **Mid-ride lookahead replanning**: when an agent boards a chair,
 `replanOnBoard` calls `StoredPlanForLookahead` with an `ExtractLookahead`
@@ -405,7 +415,7 @@ always have room to push above or below the ambient baseline.
 | Fall (balance → 0) | −0.10 | `skiing.go` | `ThoughtFell` — "ouch, that hurt" |
 | First ride of a lift | +0.10 | `simulation.go` — lift unload | `ThoughtLovingALift` — "what a great lift!" |
 | Joining a long queue (≥ 15) | −0.08 | `simulation.go` — `ActJoinQueue` | `ThoughtLongLine` — "this line is way too long" |
-| Queue wait would exhaust patience | −0.08 | `simulation.go` — `ActJoinQueue` | `ThoughtLineTooLong` — "that line will take forever" |
+| Queue grew past cap since plan time (`len(Queue) > 20` on arrival at base) | −0.08 | `simulation.go` — `ActJoinQueue` | `ThoughtLineTooLong` — "that line will take forever" |
 | Rest goal but no lodge reachable | −0.06 | `goap/planner.go` — `planFromSnap` | `ThoughtNeedsLodge` — "this place needs a lodge" |
 
 **Thoughts ring mechanics.** The ring holds up to 6 entries (`thoughtsCap`);
