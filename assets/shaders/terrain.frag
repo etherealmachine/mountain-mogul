@@ -78,7 +78,11 @@ void main() {
     // 1 m-resolution texture written by the simulation. R = skier
     // tracks (step 4), G = tree-well depth, B = groom-edge (step 3).
     vec4 surf = texture(uSnowSurface, vWorldPos.xz / uWorldSize);
-    float track = surf.r;
+    // Normalise raw R (additive splats, 0.25 per pass) so one pass reads
+    // as half-intensity and two saturate. This caps the crossing peak at
+    // the same visual level as a single pass, fixing the blobby gradient
+    // artifact where ∇R → 0 at a local maximum.
+    float track = smoothstep(0.0, 0.5, surf.r);
     float well  = surf.g;
     float edge  = surf.b;
 
@@ -228,8 +232,8 @@ void main() {
             vec2 uvEpz = vec2(0, bumpEps) / uWorldSize;
             vec2 uv = vWorldPos.xz / uWorldSize;
             float r0 = track;
-            float rx = texture(uSnowSurface, uv + uvEps).r;
-            float rz = texture(uSnowSurface, uv + uvEpz).r;
+            float rx = smoothstep(0.0, 0.5, texture(uSnowSurface, uv + uvEps).r);
+            float rz = smoothstep(0.0, 0.5, texture(uSnowSurface, uv + uvEpz).r);
             const float trackAmp = 0.08; // metres — shallower than wells
             kick.x += (rx - r0) / bumpEps * trackAmp;
             kick.z += (rz - r0) / bumpEps * trackAmp;
