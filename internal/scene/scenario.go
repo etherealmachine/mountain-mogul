@@ -990,6 +990,9 @@ func (s *Scenario) installWorld(w *world.World) {
 	} else {
 		s.sim = sim.NewSimulation(w)
 	}
+	// Plow roads and parking lots at each day rollover so freshly-fallen
+	// snow doesn't accumulate on asphalt.
+	s.sim.OnDayRollover = applyRoadCellState
 	// Saved cells already carry every apron / road / corridor stamp that
 	// was in effect at save time. Testbeds set their own cell state
 	// directly in the builder (no aprons by default). Either way the
@@ -2211,6 +2214,16 @@ func (s *Scenario) openTrailPopup(trail *world.Trail, screenW, screenH int) {
 	)
 	w.AddBoolToggle("Groomed", func() bool { return t.Groomed }, func(v bool) { t.Groomed = v })
 	w.AddLabel("Cells", func() string { return fmt.Sprintf("%d", len(t.Cells)) })
+	w.AddLabel("Groom", func() string {
+		if len(t.Cells) == 0 {
+			return "—"
+		}
+		var sum float32
+		for _, c := range t.Cells {
+			sum += s.world.Terrain.Cells[c[0]][c[1]].Grooming
+		}
+		return fmt.Sprintf("%.0f%%", sum/float32(len(t.Cells))*100)
+	})
 	w.AddActionButton("Edit", func() {
 		s.activeTrailID = t.ID
 		s.trailDifficulty = t.Difficulty

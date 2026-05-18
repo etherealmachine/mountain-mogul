@@ -77,6 +77,11 @@ type Simulation struct {
 	// thread for seconds at a time. The grid is rebuilt once per Tick
 	// alongside towersScratch.
 	spatial *spatialGrid
+
+	// OnDayRollover, if non-nil, is called once per in-game day after
+	// weather and snowfall have been applied. Used by the scene layer to
+	// plow roads without creating an import cycle (scene→sim→scene).
+	OnDayRollover func(w *world.World)
 }
 
 // NewSimulation creates a Simulation wrapping the given world, seeded from
@@ -403,11 +408,15 @@ func (s *Simulation) maybeSampleHistory() {
 		if dw.AccumSWE > 0 {
 			s.applySnowfall(dw.AccumSWE)
 		}
+		if s.OnDayRollover != nil {
+			s.OnDayRollover(s.World)
+		}
 	}
 }
 
 // applySnowfall adds accumSWE metres of snow-water-equivalent to every
-// terrain cell and dilutes Packed toward fresh powder density (0.2).
+// terrain cell, dilutes Packed toward fresh powder density (0.2), and
+// buries skier tracks proportionally to the snowfall depth.
 func (s *Simulation) applySnowfall(accumSWE float32) {
 	t := s.World.Terrain
 	for x := range t.Cells {
@@ -423,6 +432,14 @@ func (s *Simulation) applySnowfall(accumSWE float32) {
 		}
 	}
 	t.SnowDirty = true
+
+	// Bury skier tracks under new snow. 2 cm SWE fully covers any track;
+	// light snow (0.3–1.2 cm) fades them proportionally.
+	const fullBurialSWE = float32(0.02)
+	trackFactor := float32(1.0) - clamp01(accumSWE/fullBurialSWE)
+	if trackFactor < 1.0 {
+		t.Surface.DecayTracks(trackFactor)
+	}
 }
 
 // =============================================================================
