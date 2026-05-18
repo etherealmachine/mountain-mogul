@@ -226,7 +226,7 @@ func (s *Simulation) tickLifts(dt float64) {
 					// and spike Satisfaction; then update the ride tally so
 					// the planner's Explore goal prefers unridden lifts.
 					if ai.RideCountOf(agent.RidenLifts, lift.ID) == 0 {
-						s.addThought(agent, ai.ThoughtLovingALift)
+						s.addThought(agent, ai.ThoughtLovingALift, lift.ID)
 						agent.Satisfaction = clamp32(agent.Satisfaction+0.10, 0, 1)
 					}
 					agent.RidenLifts = ai.AddRide(agent.RidenLifts, lift.ID)
@@ -358,9 +358,9 @@ func (s *Simulation) spawnGuest(lot *world.Building, g *world.Guest) bool {
 // addThought calls Guest.AddThought and, if the thought was not suppressed,
 // records it into the day's running tally so it appears in the same day's
 // history sample rather than waiting until the guest departs.
-func (s *Simulation) addThought(a *world.Guest, kind ai.ThoughtKind) {
+func (s *Simulation) addThought(a *world.Guest, kind ai.ThoughtKind, context ...uint64) {
 	prev := a.ThoughtCounts[kind]
-	a.AddThought(kind, s.SimTime)
+	a.AddThought(kind, s.SimTime, context...)
 	if a.ThoughtCounts[kind] != prev {
 		s.World.History.RecordThought(kind)
 	}
@@ -573,14 +573,14 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		// at board time will build a [SkiToParking, Depart] post-ride plan.
 		estimatedDrain := float32(len(lift.Queue)) * queueSlotSec * patienceDrainPerSecQueuing
 		if a.Patience > 0.05 && a.Patience-estimatedDrain < 0.05 {
-			s.addThought(a, ai.ThoughtLineTooLong)
+			s.addThought(a, ai.ThoughtLineTooLong, lift.ID)
 			a.Satisfaction = clamp32(a.Satisfaction-0.08, 0, 1)
 			a.Patience = 0
 			s.replan(a)
 			return
 		}
 		if len(lift.Queue) >= longQueuePersons {
-			s.addThought(a, ai.ThoughtLongLine)
+			s.addThought(a, ai.ThoughtLongLine, lift.ID)
 			a.Satisfaction = clamp32(a.Satisfaction-0.08, 0, 1)
 		}
 		lift.Queue = append(lift.Queue, a)

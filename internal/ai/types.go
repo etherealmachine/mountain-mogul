@@ -270,9 +270,29 @@ const (
 // ThoughtNone). Use this to size arrays indexed by ThoughtKind.
 const ThoughtKindCount = int(thoughtKindSentinel)
 
-// Display returns the short, player-readable phrasing of a thought.
-func (k ThoughtKind) Display() string {
-	switch k {
+// Thought is one entry in a Guest's bounded thoughts ring. Persists in
+// the ring until either ThoughtTTL expires it or another thought
+// displaces it past the ring's capacity.
+type Thought struct {
+	Kind    ThoughtKind
+	Time    float64  // sim-time at emission; for TTL + display ordering
+	Context []uint64 // entity IDs for format-string substitution (lift, trail, etc.)
+}
+
+// Display returns the player-readable phrasing of the thought with entity
+// names substituted in. resolve maps an entity ID to a human-readable name
+// (e.g. lift name, trail name); it is called once per Context slot. If an
+// ID resolves to an empty string the slot is omitted from the output.
+func (t Thought) Display(resolve func(uint64) string) string {
+	name := func(i int) string {
+		if i < len(t.Context) && t.Context[i] != 0 {
+			if s := resolve(t.Context[i]); s != "" {
+				return s
+			}
+		}
+		return ""
+	}
+	switch t.Kind {
 	case ThoughtLovingGlades:
 		return "loving these glades"
 	case ThoughtScaredInTrees:
@@ -282,25 +302,29 @@ func (k ThoughtKind) Display() string {
 	case ThoughtTiredOffPiste:
 		return "this snow is exhausting"
 	case ThoughtFell:
+		if n := name(0); n != "" {
+			return "ouch, that hurt on " + n
+		}
 		return "ouch, that hurt"
 	case ThoughtLovingALift:
+		if n := name(0); n != "" {
+			return "what a great ride on " + n + "!"
+		}
 		return "what a great lift!"
 	case ThoughtLongLine:
+		if n := name(0); n != "" {
+			return "the " + n + " line is way too long"
+		}
 		return "this line is way too long"
 	case ThoughtLineTooLong:
+		if n := name(0); n != "" {
+			return "the " + n + " line will take forever"
+		}
 		return "that line will take forever"
 	case ThoughtNeedsLodge:
 		return "this place needs a lodge"
 	}
 	return ""
-}
-
-// Thought is one entry in a Guest's bounded thoughts ring. Persists in
-// the ring until either ThoughtTTL expires it or another thought
-// displaces it past the ring's capacity.
-type Thought struct {
-	Kind ThoughtKind
-	Time float64 // sim-time at emission; for TTL + display ordering
 }
 
 // ThoughtTTL is the sim-time window during which a thought counts as

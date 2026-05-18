@@ -219,9 +219,10 @@ func (g *Guest) Rating() float32 {
 }
 
 // AddThought pushes a new Thought onto the ring at simTime for display.
-// Duplicates within the TTL window are suppressed. Thoughts are
-// display-only; Satisfaction is updated separately by the caller.
-func (g *Guest) AddThought(kind ai.ThoughtKind, simTime float64) {
+// Duplicates within the TTL window are suppressed. context is an optional
+// list of entity IDs (lift, trail, etc.) used to format the display string.
+// Thoughts are display-only; Satisfaction is updated separately by the caller.
+func (g *Guest) AddThought(kind ai.ThoughtKind, simTime float64, context ...uint64) {
 	if kind == ai.ThoughtNone {
 		return
 	}
@@ -231,15 +232,19 @@ func (g *Guest) AddThought(kind ai.ThoughtKind, simTime float64) {
 			return
 		}
 	}
-	g.Thoughts[g.ThoughtsHead] = ai.Thought{Kind: kind, Time: simTime}
+	var ctx []uint64
+	if len(context) > 0 {
+		ctx = append([]uint64(nil), context...)
+	}
+	g.Thoughts[g.ThoughtsHead] = ai.Thought{Kind: kind, Time: simTime, Context: ctx}
 	g.ThoughtsHead = (g.ThoughtsHead + 1) % thoughtsCap
 	g.ThoughtCounts[kind]++
 }
 
 // CurrentThought returns the most-recent unexpired thought (relative to
-// simTime), or ThoughtNone when the ring is empty / all expired. Walks
-// the ring backwards from the head so the latest push wins.
-func (g *Guest) CurrentThought(simTime float64) ai.ThoughtKind {
+// simTime), or a zero Thought when the ring is empty / all expired.
+// Check t.Kind != ai.ThoughtNone to distinguish the "no thought" case.
+func (g *Guest) CurrentThought(simTime float64) ai.Thought {
 	for i := 0; i < thoughtsCap; i++ {
 		idx := (g.ThoughtsHead - 1 - i + thoughtsCap) % thoughtsCap
 		t := g.Thoughts[idx]
@@ -249,21 +254,21 @@ func (g *Guest) CurrentThought(simTime float64) ai.ThoughtKind {
 		if simTime-t.Time > ai.ThoughtTTL {
 			continue
 		}
-		return t.Kind
+		return t
 	}
-	return ai.ThoughtNone
+	return ai.Thought{}
 }
 
 // LastThought returns the most recently added thought regardless of TTL,
-// or ThoughtNone if no thought has been recorded this session.
-func (g *Guest) LastThought() ai.ThoughtKind {
+// or a zero Thought if no thought has been recorded this session.
+func (g *Guest) LastThought() ai.Thought {
 	for i := 0; i < thoughtsCap; i++ {
 		idx := (g.ThoughtsHead - 1 - i + thoughtsCap) % thoughtsCap
 		if g.Thoughts[idx].Kind != ai.ThoughtNone {
-			return g.Thoughts[idx].Kind
+			return g.Thoughts[idx]
 		}
 	}
-	return ai.ThoughtNone
+	return ai.Thought{}
 }
 
 

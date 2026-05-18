@@ -289,7 +289,11 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 		a.FallTimer = float32(fallRecoverTime)
 		a.Speed = 0
 		a.Events = append(a.Events, ai.GuestEvent{Kind: ai.EventFall, Time: s.SimTime})
-		s.addThought(a, ai.ThoughtFell)
+		if step := a.Plan.Head(); step.Kind == ai.ActSkiTrail {
+			s.addThought(a, ai.ThoughtFell, step.TrailID)
+		} else {
+			s.addThought(a, ai.ThoughtFell)
+		}
 		a.Satisfaction = clamp32(a.Satisfaction-0.10, 0, 1)
 		recordFrame(s, a, target, dist, perc, dec)
 		return false

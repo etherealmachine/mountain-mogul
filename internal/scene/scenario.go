@@ -2825,10 +2825,11 @@ func (f *followLabel) Draw(r *render.Renderer) {
 		fmt.Sprintf("%s #%d (%s)  |  %s  |  %s", f.agent.Name, f.agent.ID, badges, activity, mode),
 		fmt.Sprintf("%.1f m/s    patience %d%%    satisfaction %d%%", f.agent.Speed, patiencePct, satisfactionPct),
 	}
-	if t := f.agent.CurrentThought(f.simTime); t != ai.ThoughtNone {
-		rows = append(rows, fmt.Sprintf("\"%s\"", t.Display()))
-	} else if t := f.agent.LastThought(); t != ai.ThoughtNone {
-		rows = append(rows, fmt.Sprintf("(earlier: \"%s\")", t.Display()))
+	resolve := entityName(f.world)
+	if t := f.agent.CurrentThought(f.simTime); t.Kind != ai.ThoughtNone {
+		rows = append(rows, fmt.Sprintf("\"%s\"", t.Display(resolve)))
+	} else if t := f.agent.LastThought(); t.Kind != ai.ThoughtNone {
+		rows = append(rows, fmt.Sprintf("(earlier: \"%s\")", t.Display(resolve)))
 	}
 	// Read the stored plan rather than running the planner per frame.
 	// Plan is updated by sim.tickPlanning at the four MD-spec replan
@@ -3370,4 +3371,31 @@ func (p *savePrompt) Draw(r *render.Renderer) {
 	p.input.Draw(r)
 	p.okBtn.Draw(r)
 	p.cancelBtn.Draw(r)
+}
+
+// entityName returns a closure that resolves an entity ID to a human-readable
+// name for use in Thought.Display. Checks lifts, then trails, then buildings.
+func entityName(w *world.World) func(uint64) string {
+	return func(id uint64) string {
+		for _, l := range w.Lifts {
+			if l.ID == id {
+				if l.Name != "" {
+					return l.Name
+				}
+				return fmt.Sprintf("Lift #%d", id)
+			}
+		}
+		if t := w.FindTrail(id); t != nil {
+			if t.Name != "" {
+				return t.Name
+			}
+			return fmt.Sprintf("trail #%d", id)
+		}
+		for _, b := range w.Buildings {
+			if b.ID == id {
+				return fmt.Sprintf("#%d", id)
+			}
+		}
+		return ""
+	}
 }
