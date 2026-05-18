@@ -2820,10 +2820,10 @@ func (f *followLabel) Draw(r *render.Renderer) {
 	if f.agent.Traits.PrefersGroomed {
 		badges += " · corduroy"
 	}
-	pos, neg := f.agent.PositiveThoughts, f.agent.NegativeThoughts
+	satisfactionPct := int(f.agent.Satisfaction * 100)
 	rows := []string{
 		fmt.Sprintf("%s #%d (%s)  |  %s  |  %s", f.agent.Name, f.agent.ID, badges, activity, mode),
-		fmt.Sprintf("%.1f m/s    patience %d%%    +%d/-%d thoughts", f.agent.Speed, patiencePct, pos, neg),
+		fmt.Sprintf("%.1f m/s    patience %d%%    satisfaction %d%%", f.agent.Speed, patiencePct, satisfactionPct),
 	}
 	if t := f.agent.CurrentThought(f.simTime); t != ai.ThoughtNone {
 		rows = append(rows, fmt.Sprintf("\"%s\"", t.Display()))

@@ -143,6 +143,10 @@ func (p *Planner) StoredPlanFor(a *world.Guest, w *world.World, simTime float64)
 		if actions == nil {
 			if _, ok := gr.Goal.(Rest); ok {
 				a.AddThought(ai.ThoughtNeedsLodge, simTime)
+				a.Satisfaction -= 0.06
+				if a.Satisfaction < 0 {
+					a.Satisfaction = 0
+				}
 			}
 			continue
 		}

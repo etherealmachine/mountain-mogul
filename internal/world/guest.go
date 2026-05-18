@@ -110,15 +110,16 @@ type Guest struct {
 	// Patience is the guest's tolerance budget. 1.0 on arrival; drains
 	// while queuing, restored by active skiing and riding lifts. A lodge
 	// rest restores it to 1. When it reaches 0 the GoHome goal fires and
-	// the guest leaves. The demand system's daily rating poll reads this
-	// via Guest.Rating().
+	// the guest leaves.
 	Patience float32
 
-	// PositiveThoughts and NegativeThoughts count how many times each
-	// kind of thought fired during the session. Rating is derived from
-	// their ratio at departure.
-	PositiveThoughts int
-	NegativeThoughts int
+	// Satisfaction is the 0..1 session quality score. Initialised to 0.6
+	// on arrival; drifts continuously toward a terrain-quality target each
+	// skiing tick; spikes up or down on discrete events (novel lift ride,
+	// fall, long queue, no lodge). Rating() returns it directly; at
+	// departure it is captured as LastScore and folded into ResortRating
+	// via EMA. Thoughts are display-only and no longer drive this value.
+	Satisfaction float32
 
 	// Thoughts is a small ring of recent ai.Thought entries — the
 	// player-visible "what's this guest thinking" surface. The newest
@@ -210,31 +211,16 @@ func Activity(w *World, g *Guest) string {
 // without crowding out the oldest of the bunch within ai.ThoughtTTL.
 const thoughtsCap = 6
 
-// Rating computes the 0..1 guest satisfaction score from the session's
-// thought counts. Positive thoughts (loving glades, great lift, etc.)
-// push toward 1; negative thoughts (scared in trees, long lines, falls)
-// push toward 0. A session with no thoughts at all returns 0.5.
-// Read mid-session by the demand system's daily rating poll and stamped
-// on LastScore at departure.
+// Rating returns the guest's current 0..1 session satisfaction score.
+// Backed by the Satisfaction float, which drifts toward terrain quality
+// each tick and spikes on events. Captured as LastScore at departure.
 func (g *Guest) Rating() float32 {
-	total := g.PositiveThoughts + g.NegativeThoughts
-	if total == 0 {
-		return 0.5
-	}
-	score := float32(g.PositiveThoughts) / float32(total)
-	if score < 0 {
-		score = 0
-	}
-	if score > 1 {
-		score = 1
-	}
-	return score
+	return g.Satisfaction
 }
 
-// AddThought pushes a new Thought onto the ring at simTime and
-// increments PositiveThoughts or NegativeThoughts. Duplicates within
-// the TTL window are suppressed so a guest in the same patch of trees
-// doesn't spam ScaredInTrees every tick.
+// AddThought pushes a new Thought onto the ring at simTime for display.
+// Duplicates within the TTL window are suppressed. Thoughts are
+// display-only; Satisfaction is updated separately by the caller.
 func (g *Guest) AddThought(kind ai.ThoughtKind, simTime float64) {
 	if kind == ai.ThoughtNone {
 		return
@@ -248,11 +234,6 @@ func (g *Guest) AddThought(kind ai.ThoughtKind, simTime float64) {
 	g.Thoughts[g.ThoughtsHead] = ai.Thought{Kind: kind, Time: simTime}
 	g.ThoughtsHead = (g.ThoughtsHead + 1) % thoughtsCap
 	g.ThoughtCounts[kind]++
-	if kind.IsPositive() {
-		g.PositiveThoughts++
-	} else {
-		g.NegativeThoughts++
-	}
 }
 
 // CurrentThought returns the most-recent unexpired thought (relative to
@@ -307,8 +288,7 @@ func (g *Guest) ResetForDeparture() {
 	g.TurnDwell = 0
 	g.LastTactical = 0
 	g.Patience = 0
-	g.PositiveThoughts = 0
-	g.NegativeThoughts = 0
+	g.Satisfaction = 0
 	for i := range g.Thoughts {
 		g.Thoughts[i] = ai.Thought{}
 	}

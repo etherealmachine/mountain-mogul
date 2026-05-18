@@ -292,17 +292,6 @@ func (k ThoughtKind) Display() string {
 	return ""
 }
 
-// IsPositive reports whether this thought contributes positively to a
-// guest's session rating. Negative thoughts (ThoughtNone counts neither
-// way) are the complement.
-func (k ThoughtKind) IsPositive() bool {
-	switch k {
-	case ThoughtLovingGlades, ThoughtLovingCorduroy, ThoughtLovingALift:
-		return true
-	}
-	return false
-}
-
 // Thought is one entry in a Guest's bounded thoughts ring. Persists in
 // the ring until either ThoughtTTL expires it or another thought
 // displaces it past the ring's capacity.

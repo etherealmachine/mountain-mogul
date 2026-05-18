@@ -247,6 +247,31 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 		}
 	}
 
+	// Satisfaction drift toward a terrain-quality target. The target is
+	// derived from trait/terrain combinations; the drift rate is slow
+	// enough that a brief bad patch doesn't tank the score but sustained
+	// poor conditions (long tree run for a non-glade skier) do matter.
+	{
+		target := float32(0.5)
+		if inTrees {
+			if a.Traits.LikesGlades {
+				target += 0.12
+			} else {
+				target -= 0.18
+			}
+		}
+		if a.Traits.PrefersGroomed {
+			if onGroomed {
+				target += 0.15
+			} else {
+				target -= 0.08
+			}
+		}
+		target = clamp32(target, 0.25, 0.80)
+		const driftRate = float32(0.006)
+		a.Satisfaction += (target - a.Satisfaction) * driftRate * float32(dt)
+	}
+
 	// Patience gain from active skiing.
 	a.Patience += float32(dt * patienceGainPerSecSkiing)
 	if a.Patience > 1 {
@@ -265,6 +290,7 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 		a.Speed = 0
 		a.Events = append(a.Events, ai.GuestEvent{Kind: ai.EventFall, Time: s.SimTime})
 		s.addThought(a, ai.ThoughtFell)
+		a.Satisfaction = clamp32(a.Satisfaction-0.10, 0, 1)
 		recordFrame(s, a, target, dist, perc, dec)
 		return false
 	}

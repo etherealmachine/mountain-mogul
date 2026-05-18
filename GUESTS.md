@@ -15,9 +15,9 @@ explicit triggers — never as a fixed-interval poll, never per-frame.
 
 Persistent per-guest state on `world.Guest`: `Traits`, `Plan` (the L0
 stored plan + L1 goal target), `Balance`, `TurnSide`, `TurnDwell`,
-`LastTactical`, `Patience`, `PositiveThoughts`, `NegativeThoughts`,
-`RidenLifts`, `RestTimer`, `Removed`, `Sense`. Per-tick types
-(`Perception`, `Decision`) are sim-internal and never stored.
+`LastTactical`, `Patience`, `Satisfaction`, `RidenLifts`, `RestTimer`,
+`Removed`, `Sense`. Per-tick types (`Perception`, `Decision`) are
+sim-internal and never stored.
 
 ---
 
@@ -361,46 +361,45 @@ When it reaches 0, `GoHome` fires and the guest leaves.
 
 Patience is clamped to `[0, 1]` on every write.
 
-### Rating
+### Satisfaction, Rating, and Thoughts
 
-`Guest.Rating()` returns a 0..1 score derived from the session thought counts.
-Read mid-session by the demand system's daily poll and stamped on `LastScore`
-at departure.
+`Guest.Satisfaction` (0..1) is the running session quality score. `Guest.Rating()`
+returns it directly. At departure it is captured as `LastScore` and folded into
+`DemandSystem.ResortRating` via EMA (α = 1/70, ~50-departure half-life).
+Initialised to 0.6 at spawn (neutral-positive); zeroed in `ResetForDeparture`.
 
-```
-score = PositiveThoughts / (PositiveThoughts + NegativeThoughts)
-```
+The system has two update paths. Every thought emitted is the player-visible
+signal for whichever path fired — the tables below are the single source of
+truth for both the satisfaction mechanics and the thought catalogue.
 
-Returns 0.5 when no thoughts have fired yet. A session full of positive
-terrain moments and novel lift rides scores near 1; a session dominated by
-falls and long queues scores near 0.
+**Continuous drift** (every `tickSkier` tick): Satisfaction drifts toward a
+`terrainTarget` at rate 0.6%/s, clamped to [0.25, 0.80] so discrete events
+always have room to push above or below the ambient baseline.
 
-### Thoughts
-
-The thoughts ring is the player-visible "what's this guest thinking" surface.
-It holds up to 6 entries (`thoughtsCap`) in a fixed-size ring buffer; the
-oldest slot is recycled when full.
-
-**`AddThought(kind, simTime)`** suppresses duplicates: if the same `ThoughtKind`
-is already in the ring and its timestamp is within `ThoughtTTL = 12 s`, the
-new push is dropped. Each push that isn't suppressed increments
-`PositiveThoughts` or `NegativeThoughts` on the guest.
-
-**`CurrentThought(simTime)`** returns the most-recent unexpired thought by
-walking the ring backwards from the write head. Returns `ThoughtNone` when
-the ring is empty or all entries are older than 12 s.
-
-**Emitted thoughts:**
-
-| Kind | Polarity | Display | When emitted |
+| Terrain condition | Trait required | Target shift | Thought emitted |
 |---|---|---|---|
-| `ThoughtLovingGlades` | ✅ positive | "loving these glades" | `LikesGlades` + in trees (per tick, TTL-gated) |
-| `ThoughtScaredInTrees` | ❌ negative | "too many trees!" | non-glade guest in trees (per tick, TTL-gated) |
-| `ThoughtLovingCorduroy` | ✅ positive | "this corduroy is perfect" | `PrefersGroomed` + on groomed (per tick, TTL-gated) |
-| `ThoughtTiredOffPiste` | ❌ negative | "this snow is exhausting" | `PrefersGroomed` + off-piste (per tick, TTL-gated) |
-| `ThoughtFell` | ❌ negative | "ouch, that hurt" | balance reaches 0 (per fall, TTL-gated) |
-| `ThoughtLovingALift` | ✅ positive | "what a great lift!" | first ride of a previously-unridden lift |
-| `ThoughtLongLine` | ❌ negative | "this line is way too long" | joining a queue of ≥ 15 people |
-| `ThoughtNeedsLodge` | ❌ negative | "this place needs a lodge" | `Rest` goal selected but no lodge is reachable; planner falls back to next goal |
+| In trees | `LikesGlades = true` | +0.12 | `ThoughtLovingGlades` — "loving these glades" |
+| In trees | `LikesGlades = false` | −0.18 | `ThoughtScaredInTrees` — "too many trees!" |
+| On groomed | `PrefersGroomed = true` | +0.15 | `ThoughtLovingCorduroy` — "this corduroy is perfect" |
+| Off-piste | `PrefersGroomed = true` | −0.08 | `ThoughtTiredOffPiste` — "this snow is exhausting" |
+| (none of the above) | — | drifts toward 0.5 | — |
+
+**Discrete spikes** (one-shot events, clamped to [0, 1]):
+
+| Event | Delta | Where | Thought emitted |
+|---|---|---|---|
+| Fall (balance → 0) | −0.10 | `skiing.go` | `ThoughtFell` — "ouch, that hurt" |
+| First ride of a lift | +0.10 | `simulation.go` — lift unload | `ThoughtLovingALift` — "what a great lift!" |
+| Joining a long queue (≥ 15) | −0.08 | `simulation.go` — `ActJoinQueue` | `ThoughtLongLine` — "this line is way too long" |
+| Rest goal but no lodge reachable | −0.06 | `goap/planner.go` — `StoredPlanFor` | `ThoughtNeedsLodge` — "this place needs a lodge" |
+
+**Thoughts ring mechanics.** The ring holds up to 6 entries (`thoughtsCap`);
+the oldest slot is recycled when full. `AddThought(kind, simTime)` suppresses
+duplicates within `ThoughtTTL = 12 s` — so a guest skiing through trees for
+a minute emits `ThoughtScaredInTrees` once per 12 s, not every tick.
+`ThoughtCounts[kind]` is incremented per unsuppressed push and feeds the daily
+history tally and the thoughts breakdown chart. `CurrentThought(simTime)`
+returns the most-recent unexpired thought; `LastThought()` returns the
+most-recent regardless of TTL (HUD fallback when no thought is currently live).
 
 ---

@@ -24,13 +24,11 @@ import (
 // guest returns to AtHome (career stats incremented), ready to be
 // rolled again on a future poll.
 //
-// Once per in-game day, maybePollRating averages Guest.Rating over every
-// on-mountain guest and sets ResortRating to that mean. The daily
-// cadence makes the rating read like a "guest survey" rather than a
-// continuous EMA — easier for the player to reason about — and
-// aggregating across the whole population (rather than a small sample)
-// crushes day-to-day variance without needing temporal smoothing. This
-// is what RCT2 / Parkitect / Planet Coaster all converged on.
+// When a guest departs, their final Satisfaction score is folded into
+// ResortRating via an exponential moving average (α = 1/70, ~50-departure
+// half-life). Rating therefore reflects completed sessions — word-of-mouth
+// from guests who finished their day — rather than a snapshot of whoever
+// happens to be mid-run at poll time.
 
 // GuestsPerCar matches the renderer's "one car ≈ four people" mental
 // model. Each spawn bumps CurrentCars by 1/GuestsPerCar (and each
@@ -43,15 +41,17 @@ const GuestsPerCar = 4
 // rather than landing all at once.
 const demandPollInterval = 30.0
 
-// ratingPollInterval is the sim-time cadence of the rating sample —
-// once per in-game day. Aliased to secondsPerSimDay so retuning the
-// calendar tempo automatically retunes the rating cadence.
-const ratingPollInterval = secondsPerSimDay
-
 // initialResortRating bootstraps the score on opening day before any
-// guests have been polled — neutral, so demand picks up at 50% of the
-// headline rate until the first rating poll fires.
+// guests have departed — neutral, so demand picks up at 50% of the
+// headline rate until real departures start folding in.
 const initialResortRating = 0.5
+
+// ratingEMAAlpha is the blend weight for folding each departing guest's
+// Satisfaction into ResortRating. 1/70 gives a ~50-departure half-life:
+// slow enough that one grumpy guest can't tank the score, fast enough
+// that a player's improvements (better terrain, shorter queues) show up
+// in arrivals within a session.
+const ratingEMAAlpha = float32(1.0 / 70.0)
 
 // seasonDaysApprox is the constant divisor for per-day visit rates.
 // Real season length varies year-to-year as Memorial Day moves, but the
@@ -66,9 +66,8 @@ const avgSessionSec = 800.0
 // itself lives on world.World.Guests; this struct only tracks the
 // scalar rating and the timers that gate the per-guest walks.
 type DemandSystem struct {
-	ResortRating   float32
-	LastPoll       float64
-	LastRatingPoll float64
+	ResortRating float32
+	LastPoll     float64
 }
 
 // NewDemandSystem bootstraps a fresh demand system with a neutral rating.
@@ -142,39 +141,14 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 }
 
 // recordDeparture is called once at the moment of ActDepart, before the
-// guest's Removed flag is set. Captures session score + bumps career
-// stats on the persistent Guest record. The resort rating itself is
-// sampled separately by maybePollRating.
+// guest's Removed flag is set. Captures the session Satisfaction as
+// LastScore, folds it into ResortRating via EMA, and bumps career stats.
 func (d *DemandSystem) recordDeparture(g *world.Guest, simTime float64) {
-	g.LastScore = g.Rating()
+	g.LastScore = g.Satisfaction
+	d.ResortRating += ratingEMAAlpha * (g.Satisfaction - d.ResortRating)
 	g.LifetimeVisits++
 	g.VisitsThisSeason++
 	g.LastVisit = DateAt(simTime)
-}
-
-// maybePollRating sets ResortRating to the mean Guest.Rating over every
-// on-mountain guest. Fires once per ratingPollInterval sim-seconds.
-// With zero on-mountain guests the rating is left at its previous
-// value.
-func (d *DemandSystem) maybePollRating(s *Simulation) {
-	if s.SimTime-d.LastRatingPoll < ratingPollInterval {
-		return
-	}
-	d.LastRatingPoll = s.SimTime
-
-	var sum float32
-	var n int
-	for _, g := range s.World.OnMountain {
-		if g.Removed {
-			continue
-		}
-		sum += g.Rating()
-		n++
-	}
-	if n == 0 {
-		return
-	}
-	d.ResortRating = sum / float32(n)
 }
 
 // =============================================================================

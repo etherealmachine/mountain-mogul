@@ -181,7 +181,6 @@ func (s *Simulation) refillTowersScratch() {
 func (s *Simulation) subTick(dt float64) {
 	s.SimTime += dt
 	s.Demand.maybePoll(s)
-	s.Demand.maybePollRating(s)
 	s.maybeSampleHistory()
 	s.tickLifts(dt)
 	s.tickGuests(dt)
@@ -219,11 +218,12 @@ func (s *Simulation) tickLifts(dt float64) {
 						agent.Balance = 1.0 // ride up restored balance
 					}
 
-					// Emit a positive thought on the first ride of this lift;
-					// then update the ride tally so the planner's Explore
-					// goal prefers unridden lifts.
+					// Emit a positive thought on the first ride of this lift
+					// and spike Satisfaction; then update the ride tally so
+					// the planner's Explore goal prefers unridden lifts.
 					if ai.RideCountOf(agent.RidenLifts, lift.ID) == 0 {
 						s.addThought(agent, ai.ThoughtLovingALift)
+						agent.Satisfaction = clamp32(agent.Satisfaction+0.10, 0, 1)
 					}
 					agent.RidenLifts = ai.AddRide(agent.RidenLifts, lift.ID)
 					topCell := lift.TopCell()
@@ -333,6 +333,7 @@ func (s *Simulation) spawnGuest(lot *world.Building, g *world.Guest) bool {
 	g.Speed = 0
 	g.Balance = 1.0
 	g.Patience = 1.0
+	g.Satisfaction = 0.6
 	g.Removed = false
 	w.OnMountain = append(w.OnMountain, g)
 	s.replan(g)
@@ -547,6 +548,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		}
 		if len(lift.Queue) >= longQueuePersons {
 			s.addThought(a, ai.ThoughtLongLine)
+			a.Satisfaction = clamp32(a.Satisfaction-0.08, 0, 1)
 		}
 		lift.Queue = append(lift.Queue, a)
 		a.Queued = true
