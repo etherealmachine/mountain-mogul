@@ -94,23 +94,32 @@ matches the actual rating outcome.
 
 ### Goals (4)
 
-| Goal | Satisfied when | Weight |
-|---|---|---|
-| `KeepSkiing` | `AtLiftTop != 0` | `Patience` (or `Patience × 0.5` if `Patience < 0.2`) |
-| `Rest` | `Patience ≥ 0.85` | `(1 − Patience)²` |
-| `Explore` | every lift in `RidenLifts` with count > 0 | `unridden_frac × Patience` |
-| `GoHome` | `Removed` | `1.0` if `Patience < 0.05`, else `0` |
+| Goal | Satisfied when | Weight | Notes |
+|---|---|---|---|
+| `KeepSkiing` | `AtLiftTop != 0` | `Patience` (×0.5 if `Patience < 0.2`) | lapping fallback when Explore done |
+| `Rest` | `Patience ≥ 0.85` | `(1 − Patience)²` | fires a `SkiToLodge + RestAtLodge` plan |
+| `Explore` | every **accessible** lift ridden once | `unridden_accessible_frac × Patience` | filtered by guest skill level |
+| `GoHome` | `Removed` | `1.0` if `Patience < 0.05`, else `0` | only fires on explicit low-patience trigger |
 
-`SelectGoal` returns the highest-weighted unsatisfied goal. Low-patience
-routing falls out of standard weight evaluation — no special-case branch.
+**Goal priority**: `SelectGoal` picks the highest-weighted *unsatisfied* goal
+whose weight is **> 0**. Zero-weight goals are skipped — `GoHome` at full
+patience never wins by default fallthrough.
+
+**Explore skill filter**: `Explore.IsSatisfied` and `Explore.Weight` only
+count lifts accessible to the guest's skill level (`liftAccessible` helper,
+same filter as `WalkToLift` / `JoinQueue` preconditions).
+
+**Default lap plan**: when no unsatisfied goal has positive weight (Explore
+done, Rest not needed, GoHome not triggered), `planFromSnap` calls
+`defaultLapPlan` which directly builds `[SkiToLift, JoinQueue, RideLift]`
+targeting the skill-accessible lift with the fewest prior rides. This keeps
+skiers lapping indefinitely rather than stopping after the first visit.
 
 **Note on `KeepSkiing.IsSatisfied = (AtLiftTop != 0)`.** This is a
 planner-terminal predicate — "the plan must end at a lift top." It's
-transient at runtime: as soon as the skier leaves the top, KeepSkiing
-goes unsatisfied. That's intentional given current triggers (the plan in
-flight runs to completion without re-electing), but it's the reason the
-periodic safety re-check was removed — a wall-clock re-check on a
-transient snapshot loops skiers back to the lift indefinitely.
+satisfied in any lookahead snapshot (`ExtractLookahead` sets `AtLiftTop`),
+so `defaultLapPlan` handles the "keep going" case directly rather than
+relying on KeepSkiing to produce a new plan after every unload.
 
 ### Plan storage on `world.Guest`
 
@@ -146,17 +155,22 @@ is the runtime entry point — extract snapshot, select goal, plan, translate.
 2. **Head action complete** — fresh snapshot matches the action's post-
    state (`WalkToLift` complete when `snap.AtLiftBase == L`, etc).
 3. **Head action precondition broken** — entity referenced by the head
-   step no longer exists. Runtime check is laxer than the planner's
-   GOAP precondition (just "entity exists"); the stricter GOAP form
-   would constantly fail during transit (`SkiToLodge` wants `AtLiftTop != 0`
-   which is gone as soon as the skier moves off the top), forcing
-   constant replanning.
+   step no longer exists.
+4. **Queue patience bail** — at `ActJoinQueue` start, the estimated wait
+   (`len(Queue) × queueSlotSec × patienceDrainRate`) would bring Patience
+   below 0.05. The guest emits `ThoughtLineTooLong` (−0.08 Satisfaction),
+   Patience is zeroed, and `replan` fires — which now sees `GoHome` with
+   weight 1.0 and departs.
 
-There is **no periodic safety re-check.** Future "world changed under
-the agent" coverage — lift closure, queue spike crossing a threshold,
-affect threshold — should land as explicit event hooks that mark
-affected agents `Stale` so their next tick replans. A wall-clock poll
-collides with transient snapshot predicates and is worse than nothing.
+**Mid-ride lookahead replanning**: when an agent boards a chair,
+`replanOnBoard` calls `StoredPlanForLookahead` with an `ExtractLookahead`
+snapshot (simulates post-ride state, pre-records the ride). The result is
+stored with a prepended `RideLift` step so `advancePlan` at unload lands
+directly on the first post-ride action. Guests always have a plan visible
+while riding; the player sees intent the whole time.
+
+There is **no periodic safety re-check.** Future coverage (lift closure,
+queue spike) should land as explicit event hooks, not a wall-clock poll.
 
 ### Pipeline diagram (L0)
 
@@ -391,7 +405,8 @@ always have room to push above or below the ambient baseline.
 | Fall (balance → 0) | −0.10 | `skiing.go` | `ThoughtFell` — "ouch, that hurt" |
 | First ride of a lift | +0.10 | `simulation.go` — lift unload | `ThoughtLovingALift` — "what a great lift!" |
 | Joining a long queue (≥ 15) | −0.08 | `simulation.go` — `ActJoinQueue` | `ThoughtLongLine` — "this line is way too long" |
-| Rest goal but no lodge reachable | −0.06 | `goap/planner.go` — `StoredPlanFor` | `ThoughtNeedsLodge` — "this place needs a lodge" |
+| Queue wait would exhaust patience | −0.08 | `simulation.go` — `ActJoinQueue` | `ThoughtLineTooLong` — "that line will take forever" |
+| Rest goal but no lodge reachable | −0.06 | `goap/planner.go` — `planFromSnap` | `ThoughtNeedsLodge` — "this place needs a lodge" |
 
 **Thoughts ring mechanics.** The ring holds up to 6 entries (`thoughtsCap`);
 the oldest slot is recycled when full. `AddThought(kind, simTime)` suppresses

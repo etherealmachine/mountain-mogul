@@ -71,19 +71,19 @@ func (Rest) Weight(s *WorldSnapshot, w *world.World) float32 {
 	return d * d
 }
 
-// Explore is satisfied once every lift in the world has been ridden at
-// least once. Weight is the fraction of lifts still unridden — drops to
-// zero when the skier has sampled the whole resort, which naturally
-// hands off to GoHome via the rising GoHome weight.
+// Explore is satisfied once every skill-accessible lift has been ridden at
+// least once. Weight is the fraction of accessible lifts still unridden —
+// drops to zero when the skier has sampled every lift they can ride, which
+// hands off to KeepSkiing (lapping) or GoHome.
 type Explore struct{}
 
 func (Explore) Name() string { return "Explore" }
 
 func (Explore) IsSatisfied(s *WorldSnapshot, w *world.World) bool {
-	if len(w.Lifts) == 0 {
-		return true
-	}
 	for _, l := range w.Lifts {
+		if !liftAccessible(l, s.Skill, w) {
+			continue
+		}
 		if ai.RideCountOf(s.RidenLifts, l.ID) == 0 {
 			return false
 		}
@@ -92,19 +92,33 @@ func (Explore) IsSatisfied(s *WorldSnapshot, w *world.World) bool {
 }
 
 func (Explore) Weight(s *WorldSnapshot, w *world.World) float32 {
-	if len(w.Lifts) == 0 {
-		return 0
-	}
-	unridden := 0
+	total, unridden := 0, 0
 	for _, l := range w.Lifts {
+		if !liftAccessible(l, s.Skill, w) {
+			continue
+		}
+		total++
 		if ai.RideCountOf(s.RidenLifts, l.ID) == 0 {
 			unridden++
 		}
 	}
-	// Gate on Patience — a frustrated skier shouldn't keep exploring
-	// past the point they want to go home.
-	frac := float32(unridden) / float32(len(w.Lifts))
+	if total == 0 || unridden == 0 {
+		return 0
+	}
+	// Gate on Patience — a frustrated skier shouldn't keep exploring.
+	frac := float32(unridden) / float32(total)
 	return frac * s.Patience
+}
+
+// liftAccessible reports whether a guest at skill level can ride lift l.
+// Advanced guests ride any lift; beginners/intermediates need a matching
+// difficulty service on the lift.
+func liftAccessible(l *world.Lift, skill ai.SkillLevel, w *world.World) bool {
+	diff := skillDiff(skill)
+	if diff == 0 {
+		return true // Advanced: no filter
+	}
+	return w.ServicesForLift(l.ID).Has(diff)
 }
 
 // GoHome is satisfied when the agent has Departed (terminal Removed
@@ -134,7 +148,7 @@ func (GoHome) Weight(s *WorldSnapshot, w *world.World) float32 {
 // is satisfiable but the planner picks a new ride afterward).
 func SelectGoal(s *WorldSnapshot, w *world.World) Goal {
 	var best Goal
-	bestW := float32(-1)
+	bestW := float32(0)
 	for _, g := range AllGoals {
 		if g.IsSatisfied(s, w) {
 			continue

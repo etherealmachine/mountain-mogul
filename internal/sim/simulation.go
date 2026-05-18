@@ -27,6 +27,10 @@ const (
 	// longQueuePersons is the queue depth at which a guest considers
 	// the line "long." At ~8 s/person this is ~120 s of expected wait.
 	longQueuePersons = 15
+
+	// queueSlotSec mirrors goap.queueSlotSec: expected wait per person in
+	// line. Used here for the patience-prediction check at JoinQueue time.
+	queueSlotSec = 8.0
 )
 
 // Simulation drives all agent and building behaviour.
@@ -259,6 +263,7 @@ func (s *Simulation) tickLifts(dt float64) {
 					agent.Queued = false
 					w.Cash += lift.TicketPrice
 					w.History.RecordRevenue(lift.TicketPrice)
+					s.replanOnBoard(agent, lift)
 				}
 			}
 		}
@@ -501,6 +506,20 @@ func (s *Simulation) replan(a *world.Guest) {
 	}
 }
 
+// replanOnBoard builds a post-ride plan while the agent is still on the
+// chair. StoredPlanForLookahead plans from a simulated "just unloaded"
+// snapshot; we then prepend the in-flight RideLift so advancePlan at
+// unload steps past it and lands on the first post-ride action.
+func (s *Simulation) replanOnBoard(agent *world.Guest, lift *world.Lift) {
+	lookahead := s.Planner.StoredPlanForLookahead(agent, lift.ID, s.World, s.SimTime)
+	if lookahead.Done() {
+		return
+	}
+	rideLiftStep := ai.PlanAction{Kind: ai.ActRideLift, LiftID: lift.ID}
+	lookahead.Steps = append([]ai.PlanAction{rideLiftStep}, lookahead.Steps...)
+	agent.Plan = lookahead
+}
+
 // advancePlan moves the cursor to the next step and starts it; if the
 // cursor walks off the end, the plan is done and we re-plan instead.
 func (s *Simulation) advancePlan(a *world.Guest) {
@@ -544,6 +563,16 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 	case ai.ActJoinQueue:
 		lift := findLiftByID(w, step.LiftID)
 		if lift == nil {
+			return
+		}
+		// Predict patience drain from waiting in this queue. If the wait
+		// would exhaust patience, bail out rather than joining.
+		estimatedDrain := float32(len(lift.Queue)) * queueSlotSec * patienceDrainPerSecQueuing
+		if a.Patience-estimatedDrain < 0.05 {
+			s.addThought(a, ai.ThoughtLineTooLong)
+			a.Satisfaction = clamp32(a.Satisfaction-0.08, 0, 1)
+			a.Patience = 0
+			s.replan(a)
 			return
 		}
 		if len(lift.Queue) >= longQueuePersons {

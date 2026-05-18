@@ -134,6 +134,23 @@ func Extract(a *world.Guest, w *world.World) WorldSnapshot {
 	return snap
 }
 
+// ExtractLookahead returns a WorldSnapshot as if agent a has just unloaded
+// from liftID: AtLiftTop is set, OnLift/Queued are cleared, and the ride is
+// pre-recorded in a copy of RidenLifts. Called at chair-load time so the
+// planner can build a post-ride plan while the agent is still airborne.
+func ExtractLookahead(a *world.Guest, liftID uint64, w *world.World) WorldSnapshot {
+	rides := append(make([]ai.RideCount, 0, len(a.RidenLifts)), a.RidenLifts...)
+	rides = ai.AddRide(rides, liftID)
+	return WorldSnapshot{
+		Pos:        a.Pos,
+		Patience:   a.Patience,
+		Skill:      a.Traits.Skill,
+		AtLiftTop:  liftID,
+		AtTrailEnd: a.AtTrailEnd,
+		RidenLifts: rides,
+	}
+}
+
 // proximityRadius is the radius (m) within which an agent counts as "at"
 // an anchor for snapshot extraction. ArrivalThreshold (2 m) is too tight
 // — the agent may stop walking a few metres short of the canonical anchor

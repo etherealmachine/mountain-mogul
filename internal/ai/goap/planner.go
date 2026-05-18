@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/go-gl/mathgl/mgl32"
+
 	"mountain-mogul/internal/ai"
 	"mountain-mogul/internal/world"
 )
@@ -127,16 +129,27 @@ func (p *Planner) PlanForGuest(a *world.Guest, w *world.World) ([]Action, Goal, 
 // StoredPlanFor returns a freshly computed ai.Plan ready to drop onto
 // world.Guest.Plan. The simulation's replan path uses this; the HUD
 // reads the stored result instead of recomputing each frame.
-//
-// Goals are tried in descending weight order. If the highest-priority
-// unsatisfied goal yields no plan (e.g. Rest with no reachable lodge),
-// the next goal is attempted. A negative thought is emitted on the agent
-// when Rest is skipped this way. If no goal produces a plan, the returned
-// ai.Plan has empty Steps so Plan.Done() is true.
 func (p *Planner) StoredPlanFor(a *world.Guest, w *world.World, simTime float64) ai.Plan {
 	snap := Extract(a, w)
+	return p.planFromSnap(snap, a, w, simTime)
+}
+
+// StoredPlanForLookahead plans as if agent a has just unloaded from liftID.
+// Called at chair-load time so the guest has a complete post-ride plan before
+// reaching the top. The returned ai.Plan does NOT include the in-flight
+// RideLift step — callers prepend it.
+func (p *Planner) StoredPlanForLookahead(a *world.Guest, liftID uint64, w *world.World, simTime float64) ai.Plan {
+	snap := ExtractLookahead(a, liftID, w)
+	return p.planFromSnap(snap, a, w, simTime)
+}
+
+// planFromSnap runs goal-selection and A* from snap. Goals with weight ≤ 0
+// are skipped — zero-weight goals (GoHome at full patience) must not win
+// by default. If Rest is unreachable a thought is emitted and the next
+// goal is tried. Falls back to defaultLapPlan when no goal produces a plan.
+func (p *Planner) planFromSnap(snap WorldSnapshot, a *world.Guest, w *world.World, simTime float64) ai.Plan {
 	for _, gr := range RankedGoals(&snap, w) {
-		if gr.Satisfied {
+		if gr.Satisfied || gr.Weight <= 0 {
 			continue
 		}
 		actions := p.Plan(snap, gr.Goal, w)
@@ -156,7 +169,52 @@ func (p *Planner) StoredPlanFor(a *world.Guest, w *world.World, simTime float64)
 		}
 		return out
 	}
-	return ai.Plan{}
+	// No unsatisfied goal with positive weight — keep lapping.
+	return defaultLapPlan(snap, a, w)
+}
+
+// defaultLapPlan builds a minimal [SkiToLift, JoinQueue, RideLift] plan
+// directly when no goal has positive unsatisfied weight. Picks the
+// skill-accessible lift reachable from snap.AtLiftTop with the fewest
+// prior rides (preferring novelty even when Explore is satisfied).
+// Returns an empty plan if no lap is possible.
+func defaultLapPlan(snap WorldSnapshot, a *world.Guest, w *world.World) ai.Plan {
+	if snap.AtLiftTop == 0 {
+		return ai.Plan{}
+	}
+	src := findLift(w, snap.AtLiftTop)
+	if src == nil {
+		return ai.Plan{}
+	}
+	var best *world.Lift
+	bestRides := int(^uint(0) >> 1)
+	for _, l := range w.Lifts {
+		if !liftAccessible(l, snap.Skill, w) {
+			continue
+		}
+		if liftTopElev(w, src)-liftBaseElev(w, l) < minDescentMeters {
+			continue
+		}
+		rides := ai.RideCountOf(snap.RidenLifts, l.ID)
+		if rides < bestRides {
+			bestRides = rides
+			best = l
+		}
+	}
+	if best == nil {
+		return ai.Plan{}
+	}
+	skiCost := distXZ(mgl32.Vec3{src.Top[0], 0, src.Top[1]}, best.Base[0], best.Base[1]) / skiSpeedMps
+	qCost := float32(len(best.Queue)) * queueSlotSec
+	rideCost := best.LoopLength() / (2 * best.Speed)
+	return ai.Plan{
+		GoalName: "KeepSkiing",
+		Steps: []ai.PlanAction{
+			{Kind: ai.ActSkiToLift, LiftID: best.ID, Cost: skiCost},
+			{Kind: ai.ActJoinQueue, LiftID: best.ID, Cost: qCost},
+			{Kind: ai.ActRideLift, LiftID: best.ID, Cost: rideCost},
+		},
+	}
 }
 
 // reconstruct walks the parent chain from a goal node back to the start

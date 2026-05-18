@@ -257,7 +257,8 @@ const (
 	ThoughtLovingALift // First ride of a previously-unridden lift
 
 	// Queue events.
-	ThoughtLongLine // Joining a queue whose estimated wait is long
+	ThoughtLongLine    // Joining a queue whose estimated wait is long
+	ThoughtLineTooLong // Queue wait would exhaust patience; guest departs instead
 
 	// Planning events.
 	ThoughtNeedsLodge // Rest goal selected but no lodge reachable; fell back to next goal
@@ -286,6 +287,8 @@ func (k ThoughtKind) Display() string {
 		return "what a great lift!"
 	case ThoughtLongLine:
 		return "this line is way too long"
+	case ThoughtLineTooLong:
+		return "that line will take forever"
 	case ThoughtNeedsLodge:
 		return "this place needs a lodge"
 	}

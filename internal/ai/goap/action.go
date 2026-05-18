@@ -194,7 +194,7 @@ func (a *SkiToLift) Precondition(s *WorldSnapshot, w *world.World) bool {
 	}
 	src := findLift(w, s.AtLiftTop)
 	dst := findLift(w, a.LiftID)
-	if src == nil || dst == nil || src.ID == dst.ID {
+	if src == nil || dst == nil {
 		return false
 	}
 	return liftTopElev(w, src)-liftBaseElev(w, dst) >= minDescentMeters
