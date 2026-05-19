@@ -4,8 +4,6 @@ import (
 	"image"
 	"math"
 
-	"github.com/go-gl/mathgl/mgl32"
-
 	"mountain-mogul/internal/world"
 )
 
@@ -33,19 +31,24 @@ const (
 	fullyGroomed = 0.99
 )
 
-// tickSnowcats runs the grooming fleet one step. Each cat picks the
-// least-groomed cell among the groomed trails nearest its shed, drives
-// toward it at SnowcatSpeed, and corduroys the cell on arrival. When no
-// qualifying cell exists the cat parks at its shed's door.
+// tickSnowcats runs the grooming fleet one step. Each cat independently
+// picks the least-groomed cell from the shared pool of all groomed-trail
+// cells, drives toward it at SnowcatSpeed, and corduroys the cell on
+// arrival. Multiple cats from different sheds can work the same trail;
+// the distance tiebreaker in pickNextRouteCell causes them to spread
+// naturally. When no qualifying cell exists the cat parks at its shed door.
 func (s *Simulation) tickSnowcats(dt float64) {
 	w := s.World
 
-	// Pre-compute groomed trail cells per shed once per tick so every
-	// cat owned by the same shed shares the same assignment slice.
-	shedCells := make(map[uint64][][2]int)
-	for _, b := range w.Buildings {
-		if b.Type == world.BuildingShed {
-			shedCells[b.ID] = groomedCellsForShed(b.ID, w)
+	// All cells from every groomed trail — shared pool for all cats.
+	cells := allGroomedTrailCells(w)
+
+	// Reserved tracks which cells are already claimed as targets so cats
+	// don't pile up on the same destination.
+	reserved := make(map[[2]int]struct{}, len(w.Snowcats))
+	for _, c := range w.Snowcats {
+		if c.TargetCell != world.NoCellTarget {
+			reserved[c.TargetCell] = struct{}{}
 		}
 	}
 
@@ -54,13 +57,16 @@ func (s *Simulation) tickSnowcats(dt float64) {
 		if shed == nil {
 			continue
 		}
-		cells := shedCells[cat.ShedID]
 
 		needPick := cat.TargetCell == world.NoCellTarget ||
 			!cellInSlice(cells, cat.TargetCell) ||
 			cellGrooming(w, cat.TargetCell) >= fullyGroomed
 		if needPick {
-			cat.TargetCell = pickNextRouteCell(w, cells, cat.Pos)
+			delete(reserved, cat.TargetCell)
+			cat.TargetCell = pickNextRouteCell(w, cells, cat.Pos, reserved)
+			if cat.TargetCell != world.NoCellTarget {
+				reserved[cat.TargetCell] = struct{}{}
+			}
 		}
 
 		// Compute world-space target. No cell available → park at the
@@ -87,52 +93,31 @@ func (s *Simulation) tickSnowcats(dt float64) {
 	}
 }
 
-// groomedCellsForShed returns all cells from trails marked Groomed whose
-// centroid is closer to shed shedID than to any other shed.
-func groomedCellsForShed(shedID uint64, w *world.World) [][2]int {
-	var sheds []*world.Building
-	for _, b := range w.Buildings {
-		if b.Type == world.BuildingShed {
-			sheds = append(sheds, b)
-		}
-	}
-	if len(sheds) == 0 {
-		return nil
-	}
+// allGroomedTrailCells returns all cells from every trail marked Groomed.
+// Every cat draws from this shared pool — no shed-to-trail assignment.
+func allGroomedTrailCells(w *world.World) [][2]int {
 	var out [][2]int
 	for _, trail := range w.Trails {
 		if !trail.Groomed || len(trail.Cells) == 0 {
 			continue
 		}
-		c := trail.Centroid()
-		nearest := sheds[0]
-		bestDist := shedSqDist(c, nearest.Pos)
-		for _, sh := range sheds[1:] {
-			if d := shedSqDist(c, sh.Pos); d < bestDist {
-				bestDist = d
-				nearest = sh
-			}
-		}
-		if nearest.ID == shedID {
-			out = append(out, trail.Cells...)
-		}
+		out = append(out, trail.Cells...)
 	}
 	return out
 }
 
-func shedSqDist(a, b mgl32.Vec2) float32 {
-	dx, dz := a[0]-b[0], a[1]-b[1]
-	return dx*dx + dz*dz
-}
-
 // pickNextRouteCell scans cells for the worst-groomed one, breaking ties
 // with distance from pos so a cat sweeps a region rather than darting
-// randomly. Returns NoCellTarget if no cell qualifies.
-func pickNextRouteCell(w *world.World, cells [][2]int, pos [3]float32) [2]int {
+// randomly. Skips cells in reserved (already claimed by another cat).
+// Returns NoCellTarget if no cell qualifies.
+func pickNextRouteCell(w *world.World, cells [][2]int, pos [3]float32, reserved map[[2]int]struct{}) [2]int {
 	bestCell := world.NoCellTarget
 	bestScore := float32(math.MaxFloat32)
 	for _, c := range cells {
 		if !w.Terrain.InBounds(c[0], c[1]) {
+			continue
+		}
+		if _, ok := reserved[c]; ok {
 			continue
 		}
 		g := w.Terrain.Cells[c[0]][c[1]].Grooming
