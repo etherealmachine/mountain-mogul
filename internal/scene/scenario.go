@@ -865,7 +865,7 @@ func (s *Scenario) Init(app *engine.App) error {
 			GetData: func() []ui.ChartPoint { return historyToChart(s.world, pnlField) },
 		},
 		{
-			Title: "Guest thoughts",
+			Title: "Guest thoughts (at resort)",
 			Icon:  render.IconHeart,
 			Kind:  ui.ChartThoughtRank,
 			Series: []ui.ChartSeries{
@@ -879,6 +879,22 @@ func (s *Scenario) Init(app *engine.App) error {
 				{Name: "Needs lodge", Color: mgl32.Vec4{0.60, 0.50, 0.80, 1}},
 			},
 			GetData: func() []ui.ChartPoint { return thoughtsToDistribution(s.world) },
+		},
+		{
+			Title: "Exit thoughts",
+			Icon:  render.IconFlag,
+			Kind:  ui.ChartThoughtRank,
+			Series: []ui.ChartSeries{
+				{Name: "Loving glades", Color: mgl32.Vec4{0.30, 0.75, 0.40, 1}},
+				{Name: "Loving corduroy", Color: mgl32.Vec4{0.45, 0.85, 0.55, 1}},
+				{Name: "Loving a lift", Color: mgl32.Vec4{0.60, 0.90, 0.65, 1}},
+				{Name: "Scared in trees", Color: mgl32.Vec4{0.90, 0.35, 0.30, 1}},
+				{Name: "Tired off-piste", Color: mgl32.Vec4{0.95, 0.55, 0.20, 1}},
+				{Name: "Fell", Color: mgl32.Vec4{0.85, 0.20, 0.20, 1}},
+				{Name: "Long line", Color: mgl32.Vec4{0.80, 0.45, 0.70, 1}},
+				{Name: "Needs lodge", Color: mgl32.Vec4{0.60, 0.50, 0.80, 1}},
+			},
+			GetData: func() []ui.ChartPoint { return exitThoughtsToDistribution(s.world) },
 		},
 	})
 	s.chartWindow.Center(app.Renderer.ScreenWidth(), app.Renderer.ScreenHeight())
@@ -962,6 +978,38 @@ func thoughtsToDistribution(w *world.World) []ui.ChartPoint {
 		return build(last.ThoughtCounts, last.Day)
 	}
 	return build(w.History.ThoughtCountsToday, time.Time{})
+}
+
+// exitThoughtsToDistribution returns a ChartPoint weighted by satisfaction
+// impact for exit thoughts — the last thought each departing guest had.
+func exitThoughtsToDistribution(w *world.World) []ui.ChartPoint {
+	if w == nil || w.History == nil {
+		return nil
+	}
+	weighted := func(kind ai.ThoughtKind, counts [ai.ThoughtKindCount]int) float64 {
+		wt := ai.ThoughtSatisfactionWeight[kind]
+		if wt < 0 {
+			wt = -wt
+		}
+		return float64(counts[kind]) * wt
+	}
+	build := func(counts [ai.ThoughtKindCount]int, day time.Time) []ui.ChartPoint {
+		return []ui.ChartPoint{{Day: day, Values: []float64{
+			weighted(ai.ThoughtLovingGlades, counts),
+			weighted(ai.ThoughtLovingCorduroy, counts),
+			weighted(ai.ThoughtLovingALift, counts),
+			weighted(ai.ThoughtScaredInTrees, counts),
+			weighted(ai.ThoughtTiredOffPiste, counts),
+			weighted(ai.ThoughtFell, counts),
+			weighted(ai.ThoughtLongLine, counts),
+			weighted(ai.ThoughtNeedsLodge, counts),
+		}}}
+	}
+	if samples := w.History.Ordered(); len(samples) > 0 {
+		last := samples[len(samples)-1]
+		return build(last.ExitThoughtCounts, last.Day)
+	}
+	return build(w.History.ExitThoughtCountsToday, time.Time{})
 }
 
 // weatherToUI maps sim.WeatherState to the UI icon enum.

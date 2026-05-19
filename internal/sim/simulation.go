@@ -398,7 +398,8 @@ func (s *Simulation) maybeSampleHistory() {
 			Cash:             w.Cash,
 			Revenue:          w.History.RevenueToday,
 			Costs:            costs,
-			ThoughtCounts:    w.History.ThoughtCountsToday,
+			ThoughtCounts:     w.History.ThoughtCountsToday,
+			ExitThoughtCounts: w.History.ExitThoughtCountsToday,
 		})
 		s.lastSampledDay++
 
@@ -685,6 +686,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		// reapDeparted will splice this Guest out of OnMountain.
 		s.Demand.recordDeparture(a, s.SimTime)
 		w.History.RecordDeparture()
+		w.History.RecordExitThought(a.LastThought().Kind)
 		if b := findBuildingByID(w, step.BldgID); b != nil {
 			b.CurrentCars -= 1.0 / float32(GuestsPerCar)
 			if b.CurrentCars < 0 {

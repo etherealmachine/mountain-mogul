@@ -23,7 +23,8 @@ type DailySample struct {
 	Cash             int       // resort cash balance at EOD
 	Revenue          int       // lift ticket income this day
 	Costs            int       // operational costs this day (attendants + snowcats)
-	ThoughtCounts    [ai.ThoughtKindCount]int // per-kind thought totals from departing guests
+	ThoughtCounts     [ai.ThoughtKindCount]int // per-kind thought totals emitted during the day
+	ExitThoughtCounts [ai.ThoughtKindCount]int // last thought of each departing guest, by kind
 }
 
 // History is a per-world ring of DailySamples plus the day-in-progress
@@ -40,7 +41,8 @@ type History struct {
 	ArrivalsToday      int
 	DeparturesToday    int
 	RevenueToday       int
-	ThoughtCountsToday [ai.ThoughtKindCount]int
+	ThoughtCountsToday     [ai.ThoughtKindCount]int
+	ExitThoughtCountsToday [ai.ThoughtKindCount]int
 }
 
 // NewHistory returns an empty History ready to start recording. The
@@ -86,6 +88,16 @@ func (h *History) RecordThought(kind ai.ThoughtKind) {
 	h.ThoughtCountsToday[kind]++
 }
 
+// RecordExitThought records the last thought of one departing guest.
+// ThoughtNone (zero value) is ignored — guests with no thoughts are skipped.
+// Safe to call when h is nil.
+func (h *History) RecordExitThought(kind ai.ThoughtKind) {
+	if h == nil || kind == ai.ThoughtNone {
+		return
+	}
+	h.ExitThoughtCountsToday[kind]++
+}
+
 // Push writes one finalised DailySample into the ring and resets the
 // per-day counters. Caller has already populated sample.ArrivalsToday /
 // sample.DeparturesToday from h.ArrivalsToday / h.DeparturesToday (or
@@ -103,6 +115,7 @@ func (h *History) Push(sample DailySample) {
 	h.DeparturesToday = 0
 	h.RevenueToday = 0
 	h.ThoughtCountsToday = [ai.ThoughtKindCount]int{}
+	h.ExitThoughtCountsToday = [ai.ThoughtKindCount]int{}
 }
 
 // Ordered returns the samples in chronological order (oldest first).
