@@ -30,6 +30,7 @@ type Editor struct {
 	scenarioPath      string
 	hoverCell         [2]int      // terrain cell currently under the mouse
 	hoverWorld        mgl32.Vec3  // continuous terrain hit under the mouse — for placement and ghost preview
+	hoverMouseScreen  mgl32.Vec2  // screen-space mouse position, updated with hoverValid
 	hoverValid        bool        // false when the cursor isn't on the terrain (or sits on chrome)
 	radiusSlider      *ui.VSlider // shown for any brush tool
 	densitySlider     *ui.VSlider // shown only for the plant tool — caps brush target density
@@ -381,6 +382,7 @@ func (e *Editor) Update(dt float64) {
 	if !overChrome {
 		if pos, ok := screenToWorld(r.Camera, e.world.Terrain, inp.MousePos); ok {
 			e.hoverWorld = pos
+			e.hoverMouseScreen = inp.MousePos
 			e.hoverValid = true
 			const cellSize = float32(5.0)
 			e.hoverCell = [2]int{int(pos[0] / cellSize), int(pos[2] / cellSize)}
@@ -940,6 +942,17 @@ func (e *Editor) Render(r *render.Renderer) {
 			edDrawables = append(edDrawables, s)
 		}
 		edDrawables = append(edDrawables, e.addStormBtn, e.clearLayersBtn)
+	}
+	if e.overlayPanel != nil && (e.overlayPanel.Mask()&render.OverlaySnowDepth) != 0 &&
+		e.hoverValid && e.world.Terrain.InBounds(e.hoverCell[0], e.hoverCell[1]) {
+		cell := e.world.Terrain.Cells[e.hoverCell[0]][e.hoverCell[1]]
+		edDrawables = append(edDrawables, &snowLayerTooltip{
+			layers:  cell.Layers,
+			mouseX:  e.hoverMouseScreen[0],
+			mouseY:  e.hoverMouseScreen[1],
+			screenW: r.ScreenWidth(),
+			screenH: r.ScreenHeight(),
+		})
 	}
 	if e.escapeMenu.Visible() {
 		edDrawables = append(edDrawables, e.escapeMenu)

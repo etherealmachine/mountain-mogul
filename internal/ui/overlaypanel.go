@@ -56,7 +56,7 @@ func NewOverlayPanel() *OverlayPanel {
 			tint: mgl32.Vec4{0.65, 0.70, 0.80, 1}},
 		{bit: render.OverlaySlope, label: "Slope", icon: render.IconTriangle,
 			tint: mgl32.Vec4{0.93, 0.80, 0.08, 1}},
-		{bit: render.OverlaySnowDepth, label: "Snow depth", icon: render.IconWaves,
+		{bit: render.OverlaySnowDepth, label: "Snow", icon: render.IconWaves,
 			tint: mgl32.Vec4{0.30, 0.55, 0.95, 1}},
 		{bit: render.OverlayGrooming, label: "Grooming", icon: render.IconBroom,
 			tint: mgl32.Vec4{0.30, 0.95, 0.55, 1}},

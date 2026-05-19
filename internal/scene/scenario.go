@@ -524,9 +524,10 @@ type Scenario struct {
 	scenarioPath    string
 	time            float32
 	rightDragging   bool
-	hoverCell       [2]int     // terrain cell under the mouse — for cell-based tools
-	hoverWorld      mgl32.Vec3 // continuous terrain hit under the mouse — for placement
-	hoverValid      bool       // false when the mouse is off-terrain or over the menu bars
+	hoverCell        [2]int     // terrain cell under the mouse — for cell-based tools
+	hoverWorld       mgl32.Vec3 // continuous terrain hit under the mouse — for placement
+	hoverMouseScreen mgl32.Vec2 // screen-space mouse position, updated with hoverValid
+	hoverValid       bool       // false when the mouse is off-terrain or over the menu bars
 	followGuestID   uint64 // 0 = free camera; >0 = ID of followed skier
 	firstPerson     bool   // V: first-person camera at the followed skier's head
 	debugSteering   bool   // F3: render steering forces on the followed skier
@@ -1333,6 +1334,7 @@ func (s *Scenario) Update(dt float64) {
 	if !s.barsContain(inp.MousePos[1]) {
 		if pos, ok := screenToWorld(r.Camera, s.world.Terrain, inp.MousePos); ok {
 			s.hoverWorld = pos
+			s.hoverMouseScreen = inp.MousePos
 			s.hoverValid = true
 			const cellSize = float32(5.0)
 			s.hoverCell = [2]int{int(pos[0] / cellSize), int(pos[2] / cellSize)}
@@ -2108,6 +2110,18 @@ func (s *Scenario) Render(r *render.Renderer) {
 			}
 			break
 		}
+	}
+	if s.overlayPanel != nil && (s.overlayPanel.Mask()&render.OverlaySnowDepth) != 0 &&
+		s.hoverValid && s.world != nil && s.world.Terrain != nil &&
+		s.world.Terrain.InBounds(s.hoverCell[0], s.hoverCell[1]) {
+		cell := s.world.Terrain.Cells[s.hoverCell[0]][s.hoverCell[1]]
+		drawables = append(drawables, &snowLayerTooltip{
+			layers:  cell.Layers,
+			mouseX:  s.hoverMouseScreen[0],
+			mouseY:  s.hoverMouseScreen[1],
+			screenW: r.ScreenWidth(),
+			screenH: r.ScreenHeight(),
+		})
 	}
 	if s.debugTerrainIns && s.world != nil && s.world.Terrain != nil &&
 		s.world.Terrain.InBounds(s.hoverCell[0], s.hoverCell[1]) {
@@ -3061,6 +3075,76 @@ func (p *terrainInspectPanel) Draw(r *render.Renderer) {
 		fmt.Sprintf("Passable   = %v", c.Passable),
 	)
 	drawHUDBox(r, rows, 460, mgl32.Vec4{0.85, 0.95, 1, 1}, false)
+}
+
+// snowLayerTooltip renders a hover tooltip showing the snow layer stack for
+// the cell under the cursor when the Snow overlay is active.
+type snowLayerTooltip struct {
+	layers  []world.SnowLayer
+	mouseX  float32
+	mouseY  float32
+	screenW int
+	screenH int
+}
+
+func (t *snowLayerTooltip) Draw(r *render.Renderer) {
+	const padX = float32(8)
+	const padY = float32(5)
+	const lineGap = float32(2)
+	lineH := float32(render.GlyphH) + lineGap
+
+	var rows []string
+	if len(t.layers) == 0 {
+		rows = []string{"No snow"}
+	} else {
+		rows = append(rows, fmt.Sprintf("Snow  %d layer(s)", len(t.layers)))
+		for i := len(t.layers) - 1; i >= 0; i-- {
+			l := t.layers[i]
+			visD := float32(0)
+			if d := world.SnowDensity(l.Packed); d > 0 {
+				visD = l.Accumulation / d
+			}
+			label := fmt.Sprintf("%-10s %.2fm", world.LayerKindName(l.Kind), visD)
+			if l.Ice > 0.05 {
+				label += fmt.Sprintf(" ice%.0f%%", l.Ice*100)
+			}
+			rows = append(rows, label)
+		}
+	}
+
+	maxLen := 0
+	for _, row := range rows {
+		if len(row) > maxLen {
+			maxLen = len(row)
+		}
+	}
+	bw := float32(maxLen*render.GlyphAdvance) + 2*padX
+	bh := lineH*float32(len(rows)) + 2*padY - lineGap
+
+	const offsetX = float32(14)
+	const offsetY = float32(14)
+	x := t.mouseX + offsetX
+	y := t.mouseY + offsetY
+	if x+bw > float32(t.screenW)-2 {
+		x = t.mouseX - bw - offsetX
+	}
+	if y+bh > float32(t.screenH)-2 {
+		y = t.mouseY - bh - offsetY
+	}
+
+	r.DrawColorRect(x, y, bw, bh, mgl32.Vec4{0.04, 0.08, 0.14, 0.90})
+	if r.Font == nil {
+		return
+	}
+	headerCol := mgl32.Vec4{0.55, 0.80, 1.0, 1}
+	layerCol := mgl32.Vec4{0.85, 0.93, 1.0, 1}
+	for i, row := range rows {
+		col := layerCol
+		if i == 0 {
+			col = headerCol
+		}
+		r.Font.DrawText(r, row, x+padX, y+padY+float32(i)*lineH, col)
+	}
 }
 
 func liftRef(w *world.World, id uint64) string {
