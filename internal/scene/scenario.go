@@ -118,6 +118,27 @@ func applyDensityBrush(t *world.Terrain, cx, cz, radius int, delta float32) {
 	}
 }
 
+// gladeStrokeCost returns the cost of one glade-brush application centred
+// at (cx, cz) with the given radius: GladeCostPerCell × number of in-radius
+// cells that currently have non-zero tree density. Zero when no trees are
+// present so the player isn't charged for brushing empty ground.
+func gladeStrokeCost(t *world.Terrain, cx, cz, radius int) int {
+	r2 := radius * radius
+	count := 0
+	for dz := -radius; dz <= radius; dz++ {
+		for dx := -radius; dx <= radius; dx++ {
+			if dx*dx+dz*dz > r2 {
+				continue
+			}
+			x, z := cx+dx, cz+dz
+			if t.InBounds(x, z) && t.Cells[x][z].TreeDensity > 0 {
+				count++
+			}
+		}
+	}
+	return count * world.GladeCostPerCell
+}
+
 // applyLiftPlacementEffects, applyLiftStationApron and clearLiftCorridor
 // live in lift_apron.go — lift terminal grading is its own concern and
 // we expect it to iterate.
@@ -1860,6 +1881,12 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		// or drag-into-new-cell event fires one application; stationary
 		// holding does nothing further (see lastGladeCell gate in Update).
 		strength := s.gladeThinSlider.Value / 100
+		cost := gladeStrokeCost(w.Terrain, gx, gz, s.gladeBrushRadius())
+		if cost > 0 && w.Cash < cost {
+			s.setToast(fmt.Sprintf("Need $%d to clear here — short by $%d", cost, cost-w.Cash))
+			return
+		}
+		w.Cash -= cost
 		applyDensityBrush(w.Terrain, gx, gz, s.gladeBrushRadius(), -strength)
 		w.Terrain.RestampTreeWells()
 		r.FlushTerrainVerts(w.Terrain)

@@ -25,6 +25,8 @@ const (
 	LiftPerMeter    = 100   // cost per metre of cable run, covers towers + cable
 	StartingCash    = 250000
 
+	GladeCostPerCell = 200 // cost per in-radius cell with trees cleared by the glade brush
+
 	DefaultTicketPrice = 10 // dollars per lift ride; player adjusts via the lift popup
 
 	// Daily operational costs. Charged once per in-game day at rollover.
