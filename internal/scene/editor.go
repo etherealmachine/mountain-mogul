@@ -110,8 +110,6 @@ func (e *Editor) Init(app *engine.App) error {
 	e.toolButtons[toolPlantTrees] = e.menuBar.AddIconButton(render.IconTreeEvergreen, "Plant", func() { e.setTool(toolPlantTrees) })
 	e.toolButtons[toolAuto] = e.menuBar.AddIconButton(render.IconSnowflake, "Auto", func() { e.setTool(toolAuto) })
 	e.toolButtons[toolGlade] = e.menuBar.AddIconButton(render.IconAxe, "Glade", func() { e.setTool(toolGlade) })
-	e.toolButtons[toolEditorRaise] = e.menuBar.AddIconButton(render.IconArrowFatUp, "Raise", func() { e.setTool(toolEditorRaise) })
-	e.toolButtons[toolEditorLower] = e.menuBar.AddIconButton(render.IconArrowFatDown, "Lower", func() { e.setTool(toolEditorLower) })
 	e.menuBar.AddIconButton(render.IconGlobe, "Import", func() {
 		app.PushScene(NewTerrainImport(
 			e.world.Terrain.Width,
@@ -161,7 +159,7 @@ func (e *Editor) Init(app *engine.App) error {
 	// other sliders each affect one of the two layers.
 	e.autoMaxSlider = ui.NewVSlider(0, 0, 18, 200, 0, 4, 2, "Max")
 	e.autoMaxSlider.ValueFormat = "%.1f m"
-	e.autoSnowlineSlider = ui.NewVSlider(0, 0, 18, 200, 0, 100, 30, "Snow")
+	e.autoSnowlineSlider = ui.NewVSlider(0, 0, 18, 200, 0, 100, 70, "Elev")
 	e.autoSnowlineSlider.ValueFormat = "%.0f%%"
 	e.autoTreelineSlider = ui.NewVSlider(0, 0, 18, 200, 0, 100, 70, "Tree")
 	e.autoTreelineSlider.ValueFormat = "%.0f%%"
@@ -181,9 +179,7 @@ func (e *Editor) Init(app *engine.App) error {
 }
 
 const (
-	toolEditorRaise = toolMode(100)
-	toolEditorLower = toolMode(101)
-	toolAuto        = toolMode(102)
+	toolAuto = toolMode(102)
 )
 
 // uiDrawFunc adapts a bare function to the render.UIDrawable interface.
@@ -679,7 +675,7 @@ func (e *Editor) pushSnowLayer(kind world.LayerKind, packed float32) {
 		e.world.Terrain,
 		kind, packed,
 		e.autoMaxSlider.Value,
-		e.autoSnowlineSlider.Value/100,
+		1.0-e.autoSnowlineSlider.Value/100,
 		e.autoTreelineSlider.Value/100,
 		e.autoWindSlider.Value,
 		e.autoSeed,
@@ -722,7 +718,7 @@ func (e *Editor) regenerateAuto() {
 	e.autoFields.generateSnowCover(
 		e.world.Terrain,
 		e.autoMaxSlider.Value,
-		e.autoSnowlineSlider.Value/100,
+		1.0-e.autoSnowlineSlider.Value/100,
 		treelineFrac,
 		e.autoWindSlider.Value,
 		e.autoSeed,
@@ -821,18 +817,6 @@ func (e *Editor) applyEditorTool(gx, gz int, r *render.Renderer, dt float32) {
 		w.Terrain.RestampTreeWells()
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
-	case toolEditorRaise:
-		w.Terrain.Cells[gx][gz].GroundElevation += 5.0 * dt
-		r.FlushTerrainVerts(w.Terrain)
-		e.autoFields = nil
-	case toolEditorLower:
-		newE := w.Terrain.Cells[gx][gz].GroundElevation - 5.0*dt
-		if newE < 0 {
-			newE = 0
-		}
-		w.Terrain.Cells[gx][gz].GroundElevation = newE
-		r.FlushTerrainVerts(w.Terrain)
-		e.autoFields = nil
 	}
 }
 
