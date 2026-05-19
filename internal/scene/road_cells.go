@@ -130,7 +130,7 @@ func applyChainCellState(t *world.Terrain, samples []mgl32.Vec2) {
 
 			switch {
 			case d2 <= snowInnerR2:
-				t.Cells[x][z].SnowAccumulation = 0
+				t.Cells[x][z].Layers = nil
 			case d2 <= snowOuterR2:
 				// Linear falloff between inner and outer — distance is
 				// the sqrt of d2, paid once per cell in the falloff band.
@@ -141,7 +141,9 @@ func applyChainCellState(t *world.Terrain, samples []mgl32.Vec2) {
 				} else if blend > 1 {
 					blend = 1
 				}
-				t.Cells[x][z].SnowAccumulation *= blend
+				for i := range t.Cells[x][z].Layers {
+					t.Cells[x][z].Layers[i].Accumulation *= blend
+				}
 			}
 		}
 	}

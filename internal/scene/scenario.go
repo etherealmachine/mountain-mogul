@@ -363,11 +363,14 @@ func buildStationApron(t *world.Terrain, station, axis mgl32.Vec2, side, halfWid
 			// VisibleSnowDepth then shrinks automatically (= SWE /
 			// density(Packed)), which is the visual the "thin apron snow"
 			// approximation used to fake before the packing model existed.
-			if w > t.Cells[x][z].Packed {
-				t.Cells[x][z].Packed = w
+			cell := &t.Cells[x][z]
+			if top := cell.TopLayer(); top != nil {
+				if w > top.Packed {
+					top.Packed = w
+				}
+				top.Ice *= 1 - w
 			}
-			t.Cells[x][z].MogulSize *= 1 - w
-			t.Cells[x][z].Ice *= 1 - w
+			cell.MogulSize *= 1 - w
 		}
 	}
 }
@@ -415,7 +418,9 @@ func plowApronSnow(t *world.Terrain, station, axis mgl32.Vec2, side, halfWidth, 
 				continue
 			}
 			// Blend toward 0 at the inner zone; outer edge keeps natural.
-			t.Cells[x][z].SnowAccumulation *= 1 - w
+			for i := range t.Cells[x][z].Layers {
+				t.Cells[x][z].Layers[i].Accumulation *= 1 - w
+			}
 		}
 	}
 }
@@ -3024,7 +3029,6 @@ type terrainInspectPanel struct {
 
 func (p *terrainInspectPanel) Draw(r *render.Renderer) {
 	c := p.terrain.Cells[p.cell[0]][p.cell[1]]
-	density := world.SnowDensity(c.Packed)
 	fpsRow := "FPS        = —"
 	if p.fps > 0 {
 		fpsRow = fmt.Sprintf("FPS        = %5.1f  (%.2f ms)", p.fps, 1000.0/p.fps)
@@ -3039,15 +3043,23 @@ func (p *terrainInspectPanel) Draw(r *render.Renderer) {
 		fmt.Sprintf("Surface    = %.3f m", c.SurfaceElevation()),
 		fmt.Sprintf("VisDepth   = %.3f m  (derived)", c.VisibleSnowDepth()),
 		"",
-		fmt.Sprintf("Accumulate = %.3f m SWE", c.SnowAccumulation),
-		fmt.Sprintf("Packed     = %.3f  (density %.3f)", c.Packed, density),
+		fmt.Sprintf("TotalSWE   = %.3f m  (%d layers)", c.TotalSWE(), len(c.Layers)),
 		fmt.Sprintf("Grooming   = %.3f", c.Grooming),
 		fmt.Sprintf("MogulSize  = %.3f", c.MogulSize),
-		fmt.Sprintf("Ice        = %.3f", c.Ice),
-		"",
+	}
+	for i := len(c.Layers) - 1; i >= 0; i-- {
+		l := c.Layers[i]
+		visD := float32(0)
+		if d := world.SnowDensity(l.Packed); d > 0 {
+			visD = l.Accumulation / d
+		}
+		rows = append(rows, fmt.Sprintf("  [%d] %-11s %.2fm pk%.2f ic%.2f",
+			i, world.LayerKindName(l.Kind), visD, l.Packed, l.Ice))
+	}
+	rows = append(rows, "",
 		fmt.Sprintf("TreeDens   = %.3f", c.TreeDensity),
 		fmt.Sprintf("Passable   = %v", c.Passable),
-	}
+	)
 	drawHUDBox(r, rows, 460, mgl32.Vec4{0.85, 0.95, 1, 1}, false)
 }
 

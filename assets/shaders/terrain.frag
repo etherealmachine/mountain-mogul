@@ -372,15 +372,20 @@ void main() {
         fragColor.rgb = mix(fragColor.rgb, slopeCol, 0.65);
     }
 
-    // Snow depth heatmap — light cyan at 0, deep navy at saturated.
-    // Typical depths run 0–4 m; saturate at 5 m so the colour scale spans
-    // the meaningful range. Drawn over bare cells too so "no snow here"
-    // reads directly from the overlay instead of looking like the
-    // overlay is just off.
+    // Snow quality overlay — encodes depth, surface condition, and layer
+    // history in one view. Depth drives the base blue scale; grooming shifts
+    // toward green; ice shifts toward silver. The combined colour gives a
+    // quick read of where the good snow is without toggling five overlays.
     if ((uOverlayMode & 4) != 0) {
         float d = clamp(vSnowDepth / 5.0, 0.0, 1.0);
+        float snowPresent = min(d * 4.0, 1.0); // fade effects on bare ground
+        // Base: light cyan (shallow) → deep navy (deep powder).
         vec3 col = mix(vec3(0.85, 0.94, 1.00), vec3(0.10, 0.18, 0.45), d);
-        fragColor.rgb = mix(fragColor.rgb, col, 0.55);
+        // Grooming shift: pull toward bright green on freshly groomed snow.
+        col = mix(col, vec3(0.20, 0.90, 0.45), grooming * 0.55 * snowPresent);
+        // Ice shift: pull toward silver as surface ice rises.
+        col = mix(col, vec3(0.82, 0.88, 0.95), ice * 0.70 * snowPresent);
+        fragColor.rgb = mix(fragColor.rgb, col, 0.65);
     }
 
     // Grooming heatmap — bright green where corduroy lives. Heavy

@@ -422,13 +422,22 @@ func (s *Simulation) applySnowfall(accumSWE float32) {
 	for x := range t.Cells {
 		for z := range t.Cells[x] {
 			c := &t.Cells[x][z]
-			oldSWE := c.SnowAccumulation
-			newSWE := oldSWE + accumSWE
-			// Dilute packing: fresh snow pulls density toward powder (Packed=0.2).
-			if newSWE > 0 {
-				c.Packed = (oldSWE*c.Packed + accumSWE*0.2) / newSWE
+			if top := c.TopLayer(); top != nil && top.Kind == world.LayerFreshSnow {
+				// Merge into existing fresh-snow surface layer; dilute packing.
+				oldSWE := top.Accumulation
+				newSWE := oldSWE + accumSWE
+				if newSWE > 0 {
+					top.Packed = (oldSWE*top.Packed + accumSWE*0.2) / newSWE
+				}
+				top.Accumulation = newSWE
+			} else {
+				// New snow on top of a different layer type — push a distinct layer.
+				c.Layers = append(c.Layers, world.SnowLayer{
+					Kind:         world.LayerFreshSnow,
+					Accumulation: accumSWE,
+					Packed:       0.2,
+				})
 			}
-			c.SnowAccumulation = newSWE
 		}
 	}
 	t.SnowDirty = true

@@ -276,8 +276,7 @@ func (b *builder) flat(elev float32) *builder {
 	for x := 0; x < t.Width; x++ {
 		for z := 0; z < t.Height; z++ {
 			t.Cells[x][z].GroundElevation = elev
-			t.Cells[x][z].SnowAccumulation = testbedPowderAccumulation
-			t.Cells[x][z].Packed = 0.2
+			t.Cells[x][z].Layers = []world.SnowLayer{{Accumulation: testbedPowderAccumulation, Packed: 0.2, Kind: world.LayerFreshSnow}}
 			t.Cells[x][z].Passable = true
 		}
 	}
@@ -294,8 +293,7 @@ func (b *builder) slope(slopeDeg float64) *builder {
 	for x := 0; x < t.Width; x++ {
 		for z := 0; z < t.Height; z++ {
 			t.Cells[x][z].GroundElevation = float32(t.Height-z) * CellSize * rate
-			t.Cells[x][z].SnowAccumulation = testbedPowderAccumulation
-			t.Cells[x][z].Packed = 0.2
+			t.Cells[x][z].Layers = []world.SnowLayer{{Accumulation: testbedPowderAccumulation, Packed: 0.2, Kind: world.LayerFreshSnow}}
 			t.Cells[x][z].Passable = true
 		}
 	}
@@ -322,8 +320,7 @@ func (b *builder) runout(upperEndZ int, upperDeg, runoutDeg float64) *builder {
 		}
 		for x := 0; x < t.Width; x++ {
 			t.Cells[x][z].GroundElevation = elev
-			t.Cells[x][z].SnowAccumulation = testbedPowderAccumulation
-			t.Cells[x][z].Packed = 0.2
+			t.Cells[x][z].Layers = []world.SnowLayer{{Accumulation: testbedPowderAccumulation, Packed: 0.2, Kind: world.LayerFreshSnow}}
 			t.Cells[x][z].Passable = true
 		}
 	}
@@ -456,21 +453,17 @@ func (b *builder) groomPolyline(waypoints [][2]int, radius int) *builder {
 		}
 		cell := &t.Cells[c[0]][c[1]]
 		cell.Grooming = 1.0
-		cell.Packed = 1.0
+		if top := cell.TopLayer(); top != nil {
+			top.Packed = 1.0
+		}
 	}
 	return b
 }
 
 // groomRect paints a fully-groomed, fully-packed lane on every cell in
 // [x1, x2] × [z1, z2] (inclusive, clamped to terrain bounds): Grooming
-// = 1.0, Packed = 1.0. SnowAccumulation (SWE) is left alone — it's
-// conserved by definition — but visible depth drops since
-// VisibleSnowDepth = SnowAccumulation / density(Packed), and the
-// density 0.32 → 1.0 jump makes the lane sit about 3× lower than the
-// fresh-powder shoulders left by flat / slope / runout. That's the
-// geometric step the renderer reads when comparing piste vs. powder.
-// Order vs. tree-placement calls doesn't matter; groomRect ignores
-// TreeDensity.
+// = 1.0, top-layer Packed = 1.0. SWE is conserved; visible depth drops
+// as density rises from 0.32 → 1.0.
 func (b *builder) groomRect(x1, z1, x2, z2 int) *builder {
 	t := b.w.Terrain
 	for x := x1; x <= x2; x++ {
@@ -480,9 +473,9 @@ func (b *builder) groomRect(x1, z1, x2, z2 int) *builder {
 			}
 			c := &t.Cells[x][z]
 			c.Grooming = 1.0
-			c.Packed = 1.0
-			// SnowAccumulation is conserved — visible depth drops on its
-			// own as Packed rises (depth = accumulation / density(packed)).
+			if top := c.TopLayer(); top != nil {
+				top.Packed = 1.0
+			}
 		}
 	}
 	return b
@@ -533,7 +526,9 @@ func (b *builder) groomPolygon(pts [][2]float32) *builder {
 			if pointInPolygon(float32(x)+0.5, float32(z)+0.5, pts) {
 				c := &t.Cells[x][z]
 				c.Grooming = 1.0
-				c.Packed = 1.0
+				if top := c.TopLayer(); top != nil {
+					top.Packed = 1.0
+				}
 			}
 		}
 	}

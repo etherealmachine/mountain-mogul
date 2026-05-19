@@ -182,12 +182,14 @@ func worldToData(w *world.World) ScenarioData {
 	for x := 0; x < t.Width; x++ {
 		for z := 0; z < t.Height; z++ {
 			c := t.Cells[x][z]
+			var layers []LayerData
+			for _, l := range c.Layers {
+				layers = append(layers, LayerData{A: l.Accumulation, P: l.Packed, I: l.Ice, K: uint8(l.Kind)})
+			}
 			cells = append(cells, CellData{
 				Ground:      c.GroundElevation,
-				Snow:        c.SnowAccumulation,
+				Layers:      layers,
 				Grooming:    c.Grooming,
-				Packed:      c.Packed,
-				Ice:         c.Ice,
 				MogulSize:   c.MogulSize,
 				TreeDensity: c.TreeDensity,
 			})
@@ -436,11 +438,13 @@ func dataToWorld(data ScenarioData) *world.World {
 		for z := 0; z < data.Height; z++ {
 			if idx < len(data.Cells) {
 				c := data.Cells[idx]
+				layers := make([]world.SnowLayer, len(c.Layers))
+				for i, l := range c.Layers {
+					layers[i] = world.SnowLayer{Accumulation: l.A, Packed: l.P, Ice: l.I, Kind: world.LayerKind(l.K)}
+				}
 				t.Cells[x][z].GroundElevation = c.Ground
-				t.Cells[x][z].SnowAccumulation = c.Snow
+				t.Cells[x][z].Layers = layers
 				t.Cells[x][z].Grooming = c.Grooming
-				t.Cells[x][z].Packed = c.Packed
-				t.Cells[x][z].Ice = c.Ice
 				t.Cells[x][z].MogulSize = c.MogulSize
 				t.Cells[x][z].TreeDensity = c.TreeDensity
 			}

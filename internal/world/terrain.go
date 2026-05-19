@@ -4,70 +4,116 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 )
 
+// LayerKind describes how a snow layer was deposited.
+type LayerKind uint8
+
+const (
+	LayerFreshSnow LayerKind = iota // dry cold storm; low initial density
+	LayerWetSnow                    // warm storm or rain-on-snow; higher density
+	LayerIceRain                    // rain + freeze cycle; high ice fraction
+	LayerWindSlab                   // wind-packed / consolidated slab
+)
+
+// LayerKindName returns a display name for a layer kind.
+func LayerKindName(k LayerKind) string {
+	switch k {
+	case LayerFreshSnow:
+		return "Fresh Snow"
+	case LayerWetSnow:
+		return "Wet Snow"
+	case LayerIceRain:
+		return "Ice Rain"
+	case LayerWindSlab:
+		return "Wind Slab"
+	default:
+		return "Snow"
+	}
+}
+
+// SnowLayer is one depositional event in a cell's snow column.
+// Layers are stored oldest-first (index 0 = deepest/oldest; last = surface).
+// Each layer conserves its own SWE under packing: visible depth = Accumulation / density(Packed).
+type SnowLayer struct {
+	Accumulation float32   // SWE metres, conserved under packing
+	Packed       float32   // 0..1 column density (0=fluffy powder, 1=bulletproof)
+	Ice          float32   // 0..1 ice fraction in this layer
+	Kind         LayerKind
+}
+
 // Cell represents a single grid cell in the terrain.
 //
-// The terrain is two layers stacked: ground (rock/dirt the player almost
-// never edits) and a snow column on top whose accumulation and packing
-// state evolve over time and which the player manipulates via grooming,
-// snowmaking, etc.
+// Snow is stored as a stack of SnowLayer values, oldest at index 0, newest
+// (surface) last. This represents the depositional history: one layer per
+// storm or weather event. Skier traffic and grooming affect only the surface
+// (top) layer. Snowfall pushes new layers.
 //
-// SnowAccumulation is the snow-water-equivalent of the column — the
-// conserved quantity. Packing changes the density of that column but
-// doesn't change how much "snow material" is there. The visible depth
-// of the snow surface is therefore a derived quantity:
+// Grooming and MogulSize are cell-level surface modifiers that sit above the
+// layer stack: Grooming is set by the snowcat fleet and decays under skier
+// traffic; MogulSize grows from ungroomed traffic.
 //
-//	VisibleSnowDepth = SnowAccumulation / density(Packed)
-//	SurfaceElevation = GroundElevation + VisibleSnowDepth
-//
-// where density runs from ~0.32 at fresh powder (Packed=0.2) to 1.0 at
-// fully compacted (Packed=1.0). So a snowcat passing over fresh powder
-// raises Packed without touching SnowAccumulation; the visible surface
-// drops on its own as density rises. Same SWE, less depth — exactly how
-// real snow compresses under traffic.
-//
-// Things that root in the earth (trees, building foundations) sit at
-// GroundElevation. Skiers, the visible terrain mesh, lift cables, and
-// snow-cat traffic operate on the snow surface.
-//
-// Snow type is represented by independent scalars rather than a discrete
-// enum so transitions and gradients are continuous. "Type" labels (powder,
-// corduroy, moguls, ice) are emergent from these fields:
-//
-//   - Grooming high + Packed moderate + MogulSize low → corduroy
-//   - SnowAccumulation high + Packed low              → powder
-//   - Grooming low + traffic over time                → MogulSize grows
-//   - Ice high + Accumulation low                     → boilerplate
+// Derived surface properties (SurfaceIce, SurfacePacked, VisibleSnowDepth)
+// are computed from the layer stack. All physics and rendering read these
+// derived values rather than individual layer fields.
 type Cell struct {
-	GroundElevation  float32 // metres; the rock/dirt under the snow
-	SnowAccumulation float32 // metres SWE; conserved under packing
-	Grooming         float32 // 0..1; 1 = freshly groomed corduroy
-	Packed           float32 // 0..1; density of the snow column (0 = fluffy powder, 1 = bulletproof packed)
-	Ice              float32 // 0..1; ice fraction at the surface
-	MogulSize        float32 // 0..1; mogul amplitude (visual + physics roughness)
+	GroundElevation float32
+	Layers          []SnowLayer // [0]=oldest/deepest, [len-1]=surface
+	Grooming        float32     // 0..1; 1 = freshly groomed corduroy
+	MogulSize       float32     // 0..1; mogul amplitude (visual + physics roughness)
 
 	Passable    bool    // hard structural block (buildings, lift endpoints)
 	TreeDensity float32 // 0.0 = clear, 1.0 = dense old-growth
 }
 
 // SnowDensity returns the relative density of a packed-snow column.
-// 0.15 at Packed=0 (fresh fluff floor — even unpacked snow has some
-// minimum cohesion) up to 1.0 at Packed=1.0 (bulletproof piste).
-// Used by VisibleSnowDepth and by anywhere that needs to convert
-// between SWE and visible depth.
+// 0.15 at Packed=0 (fresh fluff floor) up to 1.0 at Packed=1.0 (bulletproof piste).
 func SnowDensity(packed float32) float32 {
 	return 0.15 + 0.85*packed
 }
 
-// VisibleSnowDepth returns the height of the snow column above ground
-// in metres, derived from accumulation and packing. Read this anywhere
-// you need the physical depth on the surface (rendering, mogul-formation
-// gating, agent collision); write to SnowAccumulation / Packed instead.
+// TotalSWE returns the total snow-water-equivalent across all layers (metres).
+func (c Cell) TotalSWE() float32 {
+	var total float32
+	for _, l := range c.Layers {
+		total += l.Accumulation
+	}
+	return total
+}
+
+// VisibleSnowDepth returns the total visible snow column height in metres,
+// summing per-layer depth (each layer's accumulation / its density).
 func (c Cell) VisibleSnowDepth() float32 {
-	d := SnowDensity(c.Packed)
-	if d <= 0 {
+	var depth float32
+	for _, l := range c.Layers {
+		d := SnowDensity(l.Packed)
+		if d > 0 {
+			depth += l.Accumulation / d
+		}
+	}
+	return depth
+}
+
+// SurfacePacked returns the Packed value of the top (surface) layer, or 0 if there are no layers.
+func (c Cell) SurfacePacked() float32 {
+	if len(c.Layers) == 0 {
 		return 0
 	}
-	return c.SnowAccumulation / d
+	return c.Layers[len(c.Layers)-1].Packed
+}
+
+// SurfaceIce returns the Ice value of the top (surface) layer, or 0 if there are no layers.
+func (c Cell) SurfaceIce() float32 {
+	if len(c.Layers) == 0 {
+		return 0
+	}
+	return c.Layers[len(c.Layers)-1].Ice
+}
+
+// TopLayer returns a pointer to the surface layer, or nil if there are no layers.
+func (c *Cell) TopLayer() *SnowLayer {
+	if len(c.Layers) == 0 {
+		return nil
+	}
+	return &c.Layers[len(c.Layers)-1]
 }
 
 // SurfaceElevation returns the snow-surface elevation for this cell
@@ -89,11 +135,9 @@ type Terrain struct {
 	Cells         [][]Cell // [x][z]
 
 	// SnowDirty signals to the renderer that a cell's snow state
-	// (Grooming/Packed/Ice/MogulSize/SnowAccumulation) has changed and
-	// the terrain VBO needs a re-upload. The sim sets this; the scene
-	// flushes the mesh and clears the flag once per frame. We keep
-	// rebuilds to one per frame max even when many cells change in a
-	// single tick — the whole-mesh upload is the same cost.
+	// (Layers/Grooming/MogulSize) has changed and the terrain VBO needs
+	// a re-upload. The sim sets this; the scene flushes the mesh and
+	// clears the flag once per frame.
 	SnowDirty bool
 
 	// Surface is a 1 m-resolution RGBA8 buffer mirroring the cell grid,
@@ -108,10 +152,10 @@ type Terrain struct {
 // at a typical resort.
 const DefaultSnowAccumulation = float32(0.64)
 
-// NewTerrain creates a flat terrain with all cells passable, default
-// snow accumulation, and lightly-packed (fresh-powder) snow. Skier
-// traffic and snowcat grooming both raise Packed under conserved
-// accumulation, so starting near zero gives the most room for visible
+// NewTerrain creates a flat terrain with all cells passable and a single
+// default fresh-snow layer (SWE=DefaultSnowAccumulation, Packed=0.2).
+// Skier traffic and snowcat grooming raise the top layer's Packed under
+// conserved SWE, so starting near zero gives the most room for visible
 // compression as the resort gets tracked out.
 func NewTerrain(w, h int) *Terrain {
 	cells := make([][]Cell, w)
@@ -119,10 +163,12 @@ func NewTerrain(w, h int) *Terrain {
 		cells[x] = make([]Cell, h)
 		for z := 0; z < h; z++ {
 			cells[x][z] = Cell{
-				GroundElevation:  0,
-				SnowAccumulation: DefaultSnowAccumulation,
-				Packed:           0.2,
-				Passable:         true,
+				Layers: []SnowLayer{{
+					Accumulation: DefaultSnowAccumulation,
+					Packed:       0.2,
+					Kind:         LayerFreshSnow,
+				}},
+				Passable: true,
 			}
 		}
 	}
@@ -254,7 +300,7 @@ func (t *Terrain) SnowAt(wx, wz float32) (depth, grooming, packed, ice, mogul fl
 		return DefaultSnowAccumulation / SnowDensity(0.5), 1, 0.5, 0, 0
 	}
 	c := t.Cells[xi][zi]
-	return c.VisibleSnowDepth(), c.Grooming, c.Packed, c.Ice, c.MogulSize
+	return c.VisibleSnowDepth(), c.Grooming, c.SurfacePacked(), c.SurfaceIce(), c.MogulSize
 }
 
 // NormalAt returns the snow-surface normal at the given (continuous)

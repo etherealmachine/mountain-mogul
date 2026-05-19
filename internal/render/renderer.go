@@ -629,8 +629,8 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 				}
 				c := t.Cells[x][z]
 				g += c.Grooming
-				pk += c.Packed
-				ic += c.Ice
+				pk += c.SurfacePacked()
+				ic += c.SurfaceIce()
 				mg += c.MogulSize
 				dp += c.VisibleSnowDepth()
 				n++
@@ -1036,8 +1036,8 @@ func (r *Renderer) FlushSnowState(t *world.Terrain) {
 					}
 					c := t.Cells[x][z]
 					g += c.Grooming
-					pk += c.Packed
-					ic += c.Ice
+					pk += c.SurfacePacked()
+					ic += c.SurfaceIce()
 					mg += c.MogulSize
 					dp += c.VisibleSnowDepth()
 					surf += c.SurfaceElevation()

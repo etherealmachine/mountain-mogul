@@ -176,10 +176,12 @@ func groomCell(w *world.World, c [2]int) {
 		return
 	}
 	cell := &w.Terrain.Cells[c[0]][c[1]]
-	cell.Packed = 1.0
+	if top := cell.TopLayer(); top != nil {
+		top.Packed = 1.0
+		top.Ice *= groomIceDecay
+	}
 	cell.Grooming = 1.0
 	cell.MogulSize *= groomMogulDecay
-	cell.Ice *= groomIceDecay
 
 	if w.Terrain.Surface != nil {
 		px0 := c[0] * world.PxPerCell

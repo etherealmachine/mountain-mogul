@@ -366,10 +366,10 @@ func wearSnowUnderfoot(t *world.Terrain, pos mgl32.Vec3, dt float64) {
 		}
 		dirty = true
 	}
-	if c.Packed < 1 {
-		c.Packed += float32(packingRate * dt)
-		if c.Packed > 1 {
-			c.Packed = 1
+	if top := c.TopLayer(); top != nil && top.Packed < 1 {
+		top.Packed += float32(packingRate * dt)
+		if top.Packed > 1 {
+			top.Packed = 1
 		}
 		dirty = true
 	}

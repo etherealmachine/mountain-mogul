@@ -1,11 +1,15 @@
 # Snow system
 
-The terrain is two stacked layers — ground (rock/dirt) and a snow layer on top
-whose depth and state vary across the map and evolve over time. Most of the
-game reads the *surface* (ground + snow); only a few things care about the
-ground beneath. Snow type is represented as independent per-cell scalars, not
-a discrete enum, so transitions and gradients are continuous and "type" labels
-(corduroy, powder, moguls, ice) are emergent rather than authored.
+The terrain is two stacked structures — ground (rock/dirt) and a snow column
+on top whose depth and state vary across the map and evolve over time. The
+snow column is itself a **stack of layers**, one per depositional event (storm,
+rain, freeze cycle). Most of the game reads the *surface* (ground + total snow
+depth); only a few things care about the ground beneath.
+
+Snow type is represented as independent per-layer scalars plus two cell-level
+surface modifiers (Grooming, MogulSize), not a discrete enum, so transitions
+and gradients are continuous and "type" labels (corduroy, powder, moguls, ice)
+are emergent rather than authored.
 
 ## Elevation contract
 
@@ -37,32 +41,86 @@ tree visible.
 real lift stations, which sit on built-up benches rather than notched into the
 hillside.
 
-## Snow-state scalars
+## Snow-state model
 
-Each cell stores five floats describing the snow on top of it. All are in
-`[0, 1]` except `SnowDepth`, which is in metres. Defaults from
-`world.NewTerrain` seed loose, lightly-packed snow — close to fresh
-powder — so skier traffic and grooming have full compression range:
+### Layer stack
 
-| Field       | Range  | Meaning                              | Default |
-| ----------- | ------ | ------------------------------------ | ------- |
-| `SnowDepth` | metres | Thickness of the snow layer          | 2.0     |
-| `Grooming`  | 0..1   | Recency/intensity of cat-track passes | 0       |
-| `Packed`    | 0..1   | Column density (powder → bulletproof) | 0.2     |
-| `Ice`       | 0..1   | Ice fraction at the surface          | 0       |
-| `MogulSize` | 0..1   | Mogul amplitude                      | 0       |
+Each cell stores a `[]SnowLayer` — oldest (deepest) at index 0, surface at
+the end. A `SnowLayer` has:
+
+| Field         | Range  | Meaning                                  |
+| ------------- | ------ | ---------------------------------------- |
+| `Accumulation`| metres | SWE of this layer (conserved under pack) |
+| `Packed`      | 0..1   | Column density (0=fluffy, 1=bulletproof) |
+| `Ice`         | 0..1   | Ice fraction in this layer               |
+| `Kind`        | enum   | How the layer was deposited (see below)  |
+
+Layer kinds: `LayerFreshSnow`, `LayerWetSnow`, `LayerIceRain`, `LayerWindSlab`.
+
+### Cell-level surface modifiers
+
+Two scalars live on `Cell` (not in any layer) because they describe the
+current *surface state* rather than a depositional event:
+
+| Field       | Range | Meaning                               | Default |
+| ----------- | ----- | ------------------------------------- | ------- |
+| `Grooming`  | 0..1  | Recency/intensity of cat-track passes | 0       |
+| `MogulSize` | 0..1  | Mogul amplitude                       | 0       |
+
+### Derived surface properties
+
+All physics and rendering consume *derived* values from the layer stack:
+
+| Method              | Derived from                                         |
+| ------------------- | ---------------------------------------------------- |
+| `TotalSWE()`        | Sum of all layer Accumulations                       |
+| `VisibleSnowDepth()`| Sum of per-layer `Accumulation / SnowDensity(Packed)`|
+| `SurfacePacked()`   | Top layer's `Packed` (0 if no layers)                |
+| `SurfaceIce()`      | Top layer's `Ice` (0 if no layers)                   |
+| `SurfaceElevation()`| `GroundElevation + VisibleSnowDepth()`               |
 
 **Emergent "types":**
 
-- *Corduroy:* `Grooming` high, `MogulSize` low, `Packed` = 1 (fresh groom).
-- *Powder:* `SnowDepth` high, `Packed` low.
-- *Moguls:* `Grooming` low + skier traffic over time → `MogulSize` rises.
-- *Boilerplate ice:* `Ice` high + `SnowDepth` low + freeze cycle.
+- *Corduroy:* `Grooming` high, `MogulSize` low, top-layer `Packed` = 1.
+- *Powder:* `VisibleSnowDepth` high, top-layer `Packed` low.
+- *Moguls:* `Grooming` low + skier traffic → `MogulSize` rises.
+- *Boilerplate ice:* top-layer `Ice` high + `VisibleSnowDepth` low.
 
-`SnowDepth` and `Packed` are coupled by snow-water-equivalent conservation
-(see *Snow-water-equivalent coupling* below): as the column packs, the
-surface drops proportionally. Traffic packing, depth compression, and
-mogul formation are all live; freeze-thaw / precipitation are not.
+SWE is conserved per layer. When `Packed` rises (traffic or grooming), the
+layer's visible depth shrinks automatically:
+`depth = Accumulation / SnowDensity(Packed)`.
+
+`NewTerrain` seeds each cell with a single `LayerFreshSnow` layer at
+`Accumulation = 0.64 m SWE, Packed = 0.2` — ~2.0 m visible depth.
+
+## Scenario editor — snow layer management
+
+The editor's **Auto** tool manages the initial layer stack for a scenario.
+Two operations are available below the auto-gen sliders:
+
+**+ Add Storm** — runs the terrain-aware snowgen algorithm with the current
+slider settings and pushes a new `LayerFreshSnow` layer on top of every
+cell's existing stack. Existing layers are preserved underneath. Total
+visible depth increases. Use this to represent distinct storm events
+(e.g. "4 ft opening dump, then 2 ft follow-up").
+
+**Clear Snow** — removes all snow layers from every cell (bare ground).
+
+**Live preview (slider drag)** — adjusting any auto-gen slider calls
+`generateSnowCover`, which *replaces* all layers with a single fresh
+base layer. This is intentional: the live preview is for establishing
+the base snowpack distribution. Use "Add Storm" after landing on a base
+to stack additional events on top.
+
+**Hover tooltip** — when the Auto tool is active and the mouse is over
+the terrain, a HUD box in the top-right corner shows the hovered cell's
+layer breakdown (kind, visible depth, packed, ice for each layer, newest
+on top).
+
+### Scene code
+- `scene.AddSnowLayer` / `addSnowLayerCached` — push variant (used by "Add Storm")
+- `scene.GenerateSnowCover` / `generateSnowCover` — replace variant (used by live preview)
+- Both share `applySnowAccum` as the inner per-cell computation kernel
 
 ## Apron pass
 
@@ -93,70 +151,55 @@ function that picks footprint + axis + buildup and calls the helper.
 ## Skier traffic wear
 
 `internal/sim/skiing.go::wearSnowUnderfoot` runs once per skier per tick
-on the cell beneath the agent. It mutates four scalars at rates tuned
-to the average per-pass exposure (~0.5 s in a 5 m cell at 10 m/s):
+on the cell beneath the agent. It mutates the cell's **top layer and
+surface modifiers**:
 
-| Field       | Rate          | Effect                                   |
-| ----------- | ------------- | ---------------------------------------- |
-| `Grooming`  | −0.02/s       | Skis cut up the corduroy; ~100 passes wipe out fresh grooming |
-| `Packed`    | +0.05/s       | Boots and edges compact the column; ~40 passes saturate from 0.5 |
-| `SnowDepth` | coupled       | Column compresses as it packs (see *SWE coupling* below) |
-| `MogulSize` | +0.005·(1−Grooming)/s | Ungroomed cells slowly mogul up; corduroy resists bumps |
+| Target                  | Rate                  | Effect                                   |
+| ----------------------- | --------------------- | ---------------------------------------- |
+| `Grooming` (cell)       | −0.02/s               | Skis cut up the corduroy; ~100 passes wipe out fresh grooming |
+| `TopLayer().Packed`     | +0.05/s               | Boots and edges compact the top layer; ~40 passes saturate from 0.5 |
+| `VisibleSnowDepth`      | coupled               | Drops automatically as top-layer Packed rises (SWE conserved) |
+| `MogulSize` (cell)      | +0.005·(1−Grooming)/s | Ungroomed cells slowly mogul up; corduroy resists bumps |
 
-Mogul growth is gated on `SnowDepth > 0.3 m` so aprons (clamped to
-~5 cm) and scraped patches don't grow geometry-less bumps. Fallen,
+Mogul growth is gated on `VisibleSnowDepth() > 0.3 m`. Fallen,
 walking, queueing, and on-lift agents don't run this — only active
 skiing in `tickSkier`.
 
-The wear loop sets `Terrain.SnowDirty = true`; the renderer rebuilds
-the whole mesh at most once per frame regardless of how many cells
-changed. The snowcat fleet refreshes `Grooming` back to 1.0 (and
-compresses to `Packed = 1.0`) as cats arrive at cells, so a heavily-
-trafficked piste reaches a dynamic equilibrium between wear and
-grooming throughput.
+The snowcat fleet sets `Grooming = 1.0` and `TopLayer().Packed = 1.0`
+on each groomed cell, so a heavily-trafficked piste reaches a dynamic
+equilibrium between wear and grooming throughput.
 
 ### Snow-water-equivalent coupling
 
-`SnowDepth` and `Packed` are linked by a linear density model:
+Each layer uses a linear density model:
 
 ```
 density(Packed) = 0.15 + 0.85 × Packed
+VisibleDepth    = Accumulation / density(Packed)
 ```
 
-The 0.15→1.0 ratio (~6.7×) is exaggerated vs. real snow (real ratio is
-closer to 5–10× from fluff to corduroy, but real default-state snow is
-much firmer than our default Packed=0.2). The numbers are picked so the
-step at a groomed-lane boundary is readable in a near-top-down view,
-not just from a side angle.
+The 0.15→1.0 ratio (~6.7×) is exaggerated vs. real snow but picked so
+the groomed/powder boundary step is readable in a near-top-down view.
 
-When `Packed` changes — either gradually under skier traffic or in one
-step under a snowcat — `SnowDepth` is scaled to conserve SWE:
+When `Packed` changes (traffic or grooming), `Accumulation` stays the
+same — only the visible depth of that layer shrinks. The effective
+change is:
 
 ```
-SnowDepth_new = SnowDepth_old × density(Packed_old) / density(Packed_new)
+VisibleDepth_new = Accumulation / density(Packed_new)
 ```
 
-Concrete effects:
+Concrete effects on a single `LayerFreshSnow` layer starting at
+`Accumulation = 0.64, Packed = 0.2` (~2.0 m visible):
 
-- A fresh-powder cell (`Packed = 0`, 2 m deep) groomed by a cat in one
-  pass settles to ~0.30 m of corduroy. Compression ratio = 0.15 / 1.0.
-- A default cell (`Packed = 0.2`, 2 m) groomed settles to ~0.64 m.
-  Ratio = 0.32 / 1.0; the boundary step is ~1.36 m.
-- A handful of skier passes on a default-state cell drops it
-  noticeably: 4 passes (≈2 s in-cell exposure) takes Packed from 0.2
-  to 0.3, density 0.32 to 0.41, depth 2 m to ~1.56 m — a 44 cm
-  visible dimple from light traffic alone.
+- Groomed by a cat: Packed → 1.0, depth → 0.64 m. Step vs. ungroomed
+  shoulder = 1.36 m.
+- 4 skier passes (≈2 s): Packed 0.2 → 0.3, depth 2.0 → ~1.56 m —
+  a 44 cm visible dimple from light traffic alone.
 
-The compression is what the player sees: groomed and well-tracked lanes
-sit visibly lower than the adjacent untracked snow shoulder. The
-divergence-driven flat-normal lighting in `terrain.frag` accentuates
-the step at the boundary so the shadowed shelf reads clearly even
-without a side-on camera angle.
-
-Aprons (lift, lodge) write `Packed = 1.0` and `SnowDepth ≈ 0.05 m`
-directly as a one-shot structure-placement edit — they bypass the SWE
-formula because they represent graded earthwork, not a physical
-compression of pre-existing snow.
+Aprons (lift, lodge) write the top layer's `Packed = 1.0` and scale
+down `Accumulation` in the inner zone — they represent graded earthwork,
+not a groomed snow layer.
 
 ## Rendering
 
@@ -336,24 +379,26 @@ goals, and ice-avoidance traits are roadmap items.
 
 ## Save format
 
-Stable JSON tags in `internal/save/format.go` so the on-disk schema is
-robust to internal renames:
+`internal/save/format.go` defines `CellData` with compact JSON tags:
 
 ```
-e   → GroundElevation   (formerly Elevation)
-s   → SnowDepth
+e   → GroundElevation
+ls  → []LayerData (snow layer stack)
 gr  → Grooming
-pk  → Packed
-ic  → Ice
 mg  → MogulSize
 td  → TreeDensity
 ```
 
-The original `e` tag was preserved through the rename so saves that predate
-the snow system still load — their `e` field populates `GroundElevation`,
-their `s` field populates `SnowDepth`, and the new fields default to zero
-(behaving as flat ungroomed snow at whatever depth was saved). New saves
-fill in the full set.
+Each `LayerData` entry:
+```
+a   → Accumulation (SWE metres)
+p   → Packed 0..1  (omitempty; 0 if absent)
+i   → Ice 0..1     (omitempty; 0 if absent)
+k   → LayerKind    (omitempty; 0 = LayerFreshSnow if absent)
+```
+
+Old saves (predating the layer system) do not have `ls` and load with
+`Layers = nil` (bare ground). The old `s`/`pk`/`ic` fields are dropped.
 
 ## Future work
 

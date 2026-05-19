@@ -83,22 +83,24 @@ type CameraData struct {
 	OrthoScale                float32
 }
 
+// LayerData is one entry in a cell's snow-layer stack. Fields are
+// minimal-width for compact JSON on large maps.
+type LayerData struct {
+	A float32 `json:"a"`           // SWE metres (Accumulation)
+	P float32 `json:"p,omitempty"` // Packed 0..1
+	I float32 `json:"i,omitempty"` // Ice 0..1
+	K uint8   `json:"k,omitempty"` // LayerKind (0=FreshSnow, omitted = FreshSnow)
+}
+
 // CellData is the serialisable representation of a terrain cell. Schema
 // matches world.Cell; field names are short to keep the per-cell JSON
 // footprint reasonable on big maps.
-//
-// JSON tags are stable across the elevation-contract rename — `e` holds
-// ground elevation, `s` holds the snow column. `s` used to mean visible
-// depth-in-metres; it now means accumulation (SWE in metres). Old saves
-// fail to interpret this correctly, but pre-release this is fine.
 type CellData struct {
-	Ground      float32 `json:"e,omitempty"`  // ground elevation (rock/dirt)
-	Snow        float32 `json:"s,omitempty"`  // SWE in metres (Cell.SnowAccumulation)
-	Grooming    float32 `json:"gr,omitempty"`
-	Packed      float32 `json:"pk,omitempty"`
-	Ice         float32 `json:"ic,omitempty"`
-	MogulSize   float32 `json:"mg,omitempty"`
-	TreeDensity float32 `json:"td,omitempty"`
+	Ground      float32     `json:"e,omitempty"`
+	Layers      []LayerData `json:"ls,omitempty"`
+	Grooming    float32     `json:"gr,omitempty"`
+	MogulSize   float32     `json:"mg,omitempty"`
+	TreeDensity float32     `json:"td,omitempty"`
 }
 
 // ObjectData is a placed natural object.

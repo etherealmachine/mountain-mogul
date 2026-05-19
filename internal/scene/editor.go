@@ -44,6 +44,8 @@ type Editor struct {
 	roadStart         mgl32.Vec2  // toolRoadStart → toolRoadEnd two-click state: first click stored here (post-snap)
 	roadEdit          roadEditSelection // toolNone click-to-edit road handle / dragged node
 	structureEdit     structureEditSelection // toolNone click-to-edit building / lift handle
+	addStormBtn       *ui.Button  // shown in toolAuto: push a fresh-snow layer onto the stack
+	clearLayersBtn    *ui.Button  // shown in toolAuto: remove all snow layers
 	pendingScreenshot bool        // captured at end of Render so the PNG matches what's on screen
 }
 
@@ -158,14 +160,21 @@ func (e *Editor) Init(app *engine.App) error {
 	// other sliders each affect one of the two layers.
 	e.autoMaxSlider = ui.NewVSlider(0, 0, 18, 200, 0, 4, 2, "Max")
 	e.autoMaxSlider.ValueFormat = "%.1f m"
-	e.autoSnowlineSlider = ui.NewVSlider(0, 0, 18, 200, 0, 100, 30, "Snowline")
+	e.autoSnowlineSlider = ui.NewVSlider(0, 0, 18, 200, 0, 100, 30, "Snow")
 	e.autoSnowlineSlider.ValueFormat = "%.0f%%"
-	e.autoTreelineSlider = ui.NewVSlider(0, 0, 18, 200, 0, 100, 70, "Treeline")
+	e.autoTreelineSlider = ui.NewVSlider(0, 0, 18, 200, 0, 100, 70, "Tree")
 	e.autoTreelineSlider.ValueFormat = "%.0f%%"
 	e.autoCoverageSlider = ui.NewVSlider(0, 0, 18, 200, 0, 100, 55, "Cover")
 	e.autoCoverageSlider.ValueFormat = "%.0f%%"
 	e.autoWindSlider = ui.NewVSlider(0, 0, 18, 200, 0, 360, 270, "Wind")
 	e.autoWindSlider.ValueFormat = "%.0fdeg"
+
+	e.addStormBtn = ui.NewButton(0, 0, 120, 28, "+ Add Storm", func() {
+		e.pushSnowLayer(world.LayerFreshSnow, 0.2)
+	})
+	e.clearLayersBtn = ui.NewButton(0, 0, 100, 28, "Clear Snow", func() {
+		e.clearAllLayers()
+	})
 
 	return nil
 }
@@ -175,6 +184,11 @@ const (
 	toolEditorLower = toolMode(101)
 	toolAuto        = toolMode(102)
 )
+
+// uiDrawFunc adapts a bare function to the render.UIDrawable interface.
+type uiDrawFunc func(*render.Renderer)
+
+func (f uiDrawFunc) Draw(r *render.Renderer) { f(r) }
 
 func (e *Editor) Update(dt float64) {
 	inp := e.app.Input
@@ -342,6 +356,18 @@ func (e *Editor) Update(dt float64) {
 		}
 		if changed {
 			e.regenerateAuto()
+		}
+		// Layer management buttons — positioned below the sliders.
+		e.layoutLayerButtons(r)
+		mx, my := inp.MousePos[0], inp.MousePos[1]
+		e.addStormBtn.SetHovered(e.addStormBtn.Contains(mx, my))
+		e.clearLayersBtn.SetHovered(e.clearLayersBtn.Contains(mx, my))
+		if inp.LeftClick {
+			if e.addStormBtn.Contains(mx, my) {
+				e.addStormBtn.Click()
+			} else if e.clearLayersBtn.Contains(mx, my) {
+				e.clearLayersBtn.Click()
+			}
 		}
 	}
 
@@ -636,6 +662,45 @@ func (e *Editor) autoSliders() []*ui.VSlider {
 	}
 }
 
+// pushSnowLayer adds a new snow layer to every cell using the current
+// auto-gen slider settings. Unlike regenerateAuto, this does not
+// replace existing layers — it stacks on top of them.
+func (e *Editor) pushSnowLayer(kind world.LayerKind, packed float32) {
+	if e.world == nil || e.world.Terrain == nil {
+		return
+	}
+	if e.autoFields == nil {
+		e.autoFields = computeElevFields(e.world.Terrain)
+	}
+	addSnowLayerCached(
+		e.autoFields,
+		e.world.Terrain,
+		kind, packed,
+		e.autoMaxSlider.Value,
+		e.autoSnowlineSlider.Value/100,
+		e.autoTreelineSlider.Value/100,
+		e.autoWindSlider.Value,
+		e.autoSeed,
+	)
+	if e.app != nil && e.app.Renderer != nil {
+		e.app.Renderer.FlushTerrainVerts(e.world.Terrain)
+	}
+}
+
+// clearAllLayers removes all snow layers from every terrain cell.
+func (e *Editor) clearAllLayers() {
+	if e.world == nil || e.world.Terrain == nil {
+		return
+	}
+	t := e.world.Terrain
+	for x := range t.Cells {
+		for z := range t.Cells[x] {
+			t.Cells[x][z].Layers = nil
+		}
+	}
+	t.SnowDirty = true
+}
+
 // regenerateAuto runs the snow and forest generators with the current slider
 // values and pushes the results to the GPU. Snow goes via Terrain.SnowDirty
 // (flushed at the top of Update), forest goes via RebuildStaticBatch.
@@ -802,7 +867,7 @@ func (e *Editor) applyImportedTerrain(elevs [][]float32, r *render.Renderer) {
 			if row < len(elevs) && col < len(elevs[row]) {
 				t.Cells[col][row].GroundElevation = elevs[row][col] - minElev
 			}
-			t.Cells[col][row].SnowAccumulation = 0
+			t.Cells[col][row].Layers = nil
 		}
 	}
 	e.world = world.NewWorld(t)
@@ -852,9 +917,29 @@ func (e *Editor) Render(r *render.Renderer) {
 	}
 	if e.activeTool == toolAuto {
 		e.layoutAutoSliders(r)
-		for _, s := range e.autoSliders() {
+		e.layoutLayerButtons(r)
+		sliders := e.autoSliders()
+		first := sliders[0]
+		last := sliders[len(sliders)-1]
+		const panelPad = float32(10)
+		panelX := first.X - panelPad
+		panelY := first.Y - float32(render.GlyphH) - 4 - float32(render.GlyphH) - 8
+		panelW := (last.X + last.W + panelPad) - panelX
+		btnBottom := e.addStormBtn.Y + e.addStormBtn.H
+		panelH := (btnBottom + 8) - panelY
+		panel := uiDrawFunc(func(r *render.Renderer) {
+			r.DrawColorRect(panelX, panelY, panelW, panelH, mgl32.Vec4{0.08, 0.10, 0.14, 0.95})
+			titleH := float32(render.GlyphH + 8)
+			r.DrawColorRect(panelX, panelY, panelW, titleH, mgl32.Vec4{0.15, 0.20, 0.35, 1.0})
+			if r.Font != nil {
+				r.Font.DrawText(r, "Snow Setup", panelX+8, panelY+4, mgl32.Vec4{0.9, 0.95, 1, 1})
+			}
+		})
+		edDrawables = append(edDrawables, panel)
+		for _, s := range sliders {
 			edDrawables = append(edDrawables, s)
 		}
+		edDrawables = append(edDrawables, e.addStormBtn, e.clearLayersBtn)
 	}
 	if e.escapeMenu.Visible() {
 		edDrawables = append(edDrawables, e.escapeMenu)
@@ -890,22 +975,36 @@ func (e *Editor) layoutBrushSliders(r *render.Renderer) {
 	e.densitySlider.H = trackH
 }
 
-// layoutAutoSliders positions the auto-gen sliders along the left edge,
-// vertically centred. Wider column spacing than the brush sliders so the
-// longer suffixes ("Snowline", "180deg") have room to read.
+// layoutAutoSliders positions the auto-gen sliders inside the snow panel.
+// col=80 gives each slider 80 px of horizontal space; the widest label
+// ("Cover", 5 chars × 15 px = 75 px) fits with a 5 px gap on each side.
 func (e *Editor) layoutAutoSliders(r *render.Renderer) {
 	const trackW = float32(18)
 	const trackH = float32(200)
-	const col = float32(60)
+	const col = float32(80)
 	sh := float32(r.ScreenHeight())
 	y := (sh-trackH)/2 + 20
 	for i, s := range e.autoSliders() {
-		s.X = 28 + float32(i)*col
+		s.X = 20 + float32(i)*col
 		s.Y = y
 		s.W = trackW
 		s.H = trackH
 	}
 }
+
+// layoutLayerButtons positions the Add Storm and Clear Snow buttons below
+// the auto-gen sliders. The gap includes one glyph height to clear the
+// value text that VSlider draws at track_bottom+4.
+func (e *Editor) layoutLayerButtons(r *render.Renderer) {
+	const trackH = float32(200)
+	sh := float32(r.ScreenHeight())
+	btnY := (sh-trackH)/2 + 20 + trackH + float32(render.GlyphH) + 12
+	e.addStormBtn.X = 20
+	e.addStormBtn.Y = btnY
+	e.clearLayersBtn.X = 20 + e.addStormBtn.W + 8
+	e.clearLayersBtn.Y = btnY
+}
+
 
 func (e *Editor) Destroy() {
 	if e.app != nil && e.app.Renderer != nil {
