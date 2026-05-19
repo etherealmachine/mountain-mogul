@@ -144,7 +144,13 @@ func stationGroundElev(t *world.Terrain, pos mgl32.Vec2) float32 {
 // half-extents just match that cube.
 func buildingFootprint(typ world.BuildingType) (halfX, halfZ float32) {
 	if fp, ok := world.FootprintFor(typ.MeshID()); ok {
-		return fp.HalfX, fp.HalfZ
+		halfX, halfZ = fp.HalfX, fp.HalfZ
+		if typ == world.BuildingParking {
+			const cellSize = float32(5.0)
+			halfX += cellSize
+			halfZ += cellSize
+		}
+		return halfX, halfZ
 	}
 	return 1, 1 // matches the 2 m magenta fallback cube
 }
