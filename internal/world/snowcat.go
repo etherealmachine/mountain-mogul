@@ -41,14 +41,15 @@ type Snowcat struct {
 	Pos     mgl32.Vec3
 	Heading float32
 
-	// TargetCell is the cell the cat is currently driving toward. The
-	// "no target" sentinel is [-1, -1]; in that state the cat is parked
-	// at its shed door waiting for a new pick.
-	TargetCell [2]int
+	// Route state — set by the grooming sim when the cat claims a set of
+	// vertical slices to groom. All zero means "no active route"; the cat
+	// drives back to its shed in that state.
+	TrailID   uint64 // trail being groomed; 0 = no active route
+	SliceXs   []int  // reserved x-column indices within the trail
+	SliceIdx  int    // which SliceXs element is currently being worked
+	CellIdx   int    // which cell in the current slice is the next target
+	GoingDown bool   // true = traversing slice top→bottom
 }
-
-// NoCellTarget is the sentinel for "no current target cell" on a Snowcat.
-var NoCellTarget = [2]int{-1, -1}
 
 // DriveToward advances the cat one tick (`dt` seconds) toward
 // `targetWX, targetWZ`. Returns true if the cat is within `arriveDist`
@@ -97,10 +98,9 @@ func (w *World) SpawnSnowcat(shed *Building) *Snowcat {
 	cz := (float32(cell[1]) + 0.5) * CellSize
 	cy := w.Terrain.SurfaceElevationAt(cell[0], cell[1])
 	cat := &Snowcat{
-		ID:         w.NextID(),
-		ShedID:     shed.ID,
-		Pos:        mgl32.Vec3{cx, cy, cz},
-		TargetCell: NoCellTarget,
+		ID:     w.NextID(),
+		ShedID: shed.ID,
+		Pos:    mgl32.Vec3{cx, cy, cz},
 	}
 	w.Snowcats = append(w.Snowcats, cat)
 	return cat

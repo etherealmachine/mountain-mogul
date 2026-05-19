@@ -224,11 +224,10 @@ func worldToData(w *world.World) ScenarioData {
 	snowcats := make([]SnowcatData, len(w.Snowcats))
 	for i, c := range w.Snowcats {
 		snowcats[i] = SnowcatData{
-			ID:         c.ID,
-			ShedID:     c.ShedID,
-			Pos:        [3]float32{c.Pos[0], c.Pos[1], c.Pos[2]},
-			Heading:    c.Heading,
-			TargetCell: c.TargetCell,
+			ID:      c.ID,
+			ShedID:  c.ShedID,
+			Pos:     [3]float32{c.Pos[0], c.Pos[1], c.Pos[2]},
+			Heading: c.Heading,
 		}
 	}
 
@@ -519,7 +518,6 @@ func dataToWorld(data ScenarioData) *world.World {
 		}
 		cat.Pos = mgl32.Vec3{cd.Pos[0], cd.Pos[1], cd.Pos[2]}
 		cat.Heading = cd.Heading
-		cat.TargetCell = cd.TargetCell
 	}
 
 	// Restore lifts. Chair count is computed from cable length so it's

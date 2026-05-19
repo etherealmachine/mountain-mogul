@@ -138,11 +138,10 @@ type BuildingData struct {
 // IDs survive save/load so the cat → shed → route chain rehydrates
 // correctly.
 type SnowcatData struct {
-	ID         uint64     `json:"id,omitempty"`
-	ShedID     uint64     `json:"shed,omitempty"`
-	Pos        [3]float32 `json:"pos"`
-	Heading    float32    `json:"heading,omitempty"`
-	TargetCell [2]int     `json:"tc,omitempty"`
+	ID      uint64     `json:"id,omitempty"`
+	ShedID  uint64     `json:"shed,omitempty"`
+	Pos     [3]float32 `json:"pos"`
+	Heading float32    `json:"heading,omitempty"`
 }
 
 // ChairData is one chair on a lift loop — its position around the loop and
