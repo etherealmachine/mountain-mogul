@@ -938,16 +938,23 @@ func thoughtsToDistribution(w *world.World) []ui.ChartPoint {
 	if w == nil || w.History == nil {
 		return nil
 	}
+	weighted := func(kind ai.ThoughtKind, counts [ai.ThoughtKindCount]int) float64 {
+		wt := ai.ThoughtSatisfactionWeight[kind]
+		if wt < 0 {
+			wt = -wt
+		}
+		return float64(counts[kind]) * wt
+	}
 	build := func(counts [ai.ThoughtKindCount]int, day time.Time) []ui.ChartPoint {
 		return []ui.ChartPoint{{Day: day, Values: []float64{
-			float64(counts[ai.ThoughtLovingGlades]),
-			float64(counts[ai.ThoughtLovingCorduroy]),
-			float64(counts[ai.ThoughtLovingALift]),
-			float64(counts[ai.ThoughtScaredInTrees]),
-			float64(counts[ai.ThoughtTiredOffPiste]),
-			float64(counts[ai.ThoughtFell]),
-			float64(counts[ai.ThoughtLongLine]),
-			float64(counts[ai.ThoughtNeedsLodge]),
+			weighted(ai.ThoughtLovingGlades, counts),
+			weighted(ai.ThoughtLovingCorduroy, counts),
+			weighted(ai.ThoughtLovingALift, counts),
+			weighted(ai.ThoughtScaredInTrees, counts),
+			weighted(ai.ThoughtTiredOffPiste, counts),
+			weighted(ai.ThoughtFell, counts),
+			weighted(ai.ThoughtLongLine, counts),
+			weighted(ai.ThoughtNeedsLodge, counts),
 		}}}
 	}
 	if samples := w.History.Ordered(); len(samples) > 0 {

@@ -270,6 +270,22 @@ const (
 // ThoughtNone). Use this to size arrays indexed by ThoughtKind.
 const ThoughtKindCount = int(thoughtKindSentinel)
 
+// ThoughtSatisfactionWeight is the signed satisfaction impact of each thought
+// kind. Positive = improves guest satisfaction, negative = reduces it.
+// Terrain thoughts use the drift-target deviation from the neutral 0.5 baseline;
+// discrete events use the exact delta applied at the moment the thought fires.
+var ThoughtSatisfactionWeight = [ThoughtKindCount]float64{
+	ThoughtLovingGlades:   +0.12,
+	ThoughtScaredInTrees:  -0.18,
+	ThoughtLovingCorduroy: +0.15,
+	ThoughtTiredOffPiste:  -0.08,
+	ThoughtFell:           -0.10,
+	ThoughtLovingALift:    +0.10,
+	ThoughtLongLine:       -0.08,
+	ThoughtLineTooLong:    -0.08,
+	ThoughtNeedsLodge:     -0.06,
+}
+
 // Thought is one entry in a Guest's bounded thoughts ring. Persists in
 // the ring until either ThoughtTTL expires it or another thought
 // displaces it past the ring's capacity.
