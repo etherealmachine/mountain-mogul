@@ -136,17 +136,17 @@ func currentAnchorID(s *WorldSnapshot) uint64 {
 	return 0
 }
 
-// skillDiff maps a skill level to the terrain difficulty a guest requires.
-// Returns 0 for Advanced+ — they're willing to free-roam and don't filter on
-// difficulty when choosing a lift.
-func skillDiff(skill ai.SkillLevel) world.TerrainDifficulty {
-	switch skill {
-	case ai.SkillBeginner:
-		return world.DiffGreen
-	case ai.SkillIntermediate:
+// skillDiff maps a skill value to the terrain difficulty a guest requires.
+// Returns 0 for advanced (>= SkillAdvancedThreshold) — they're willing to
+// free-roam and don't filter on difficulty when choosing a lift.
+func skillDiff(skill float32) world.TerrainDifficulty {
+	switch {
+	case skill >= ai.SkillAdvancedThreshold:
+		return 0
+	case skill >= ai.SkillIntermediateThreshold:
 		return world.DiffBlue
 	default:
-		return 0
+		return world.DiffGreen
 	}
 }
 

@@ -193,7 +193,7 @@ type GuestData struct {
 	ID              uint64  `json:"id,omitempty"`
 	Name            string  `json:"name,omitempty"`
 	Discipline      uint8   `json:"disc,omitempty"`
-	Skill           uint8   `json:"skill,omitempty"`
+	Skill           float32 `json:"skill,omitempty"`
 	VisitsPerSeason float32 `json:"vps,omitempty"`
 	LikesGlades     bool    `json:"glades,omitempty"`
 	PrefersGroomed  bool    `json:"groomed,omitempty"`

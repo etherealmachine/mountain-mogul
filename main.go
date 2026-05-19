@@ -502,12 +502,12 @@ func runProfile(wallSeconds, scale float64) {
 		if g.State != world.AtHome {
 			continue
 		}
-		switch g.Traits.Skill {
-		case ai.SkillBeginner:
+		switch {
+		case g.Traits.Skill < ai.SkillIntermediateThreshold:
 			atHomeB++
-		case ai.SkillIntermediate:
+		case g.Traits.Skill < ai.SkillAdvancedThreshold:
 			atHomeI++
-		case ai.SkillAdvanced:
+		default:
 			atHomeA++
 		}
 	}

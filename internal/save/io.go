@@ -279,7 +279,7 @@ func worldToData(w *world.World) ScenarioData {
 			ID:               g.ID,
 			Name:             g.Name,
 			Discipline:       uint8(g.Discipline),
-			Skill:            uint8(g.Traits.Skill),
+			Skill:            g.Traits.Skill,
 			LikesGlades:      g.Traits.LikesGlades,
 			PrefersGroomed:   g.Traits.PrefersGroomed,
 			VisitsPerSeason:  g.VisitsPerSeason,
@@ -565,7 +565,7 @@ func dataToWorld(data ScenarioData) *world.World {
 		} else {
 			id = w.NextID()
 		}
-		traits := ai.TraitsFor(ai.SkillLevel(gd.Skill))
+		traits := ai.TraitsFor(gd.Skill)
 		traits.LikesGlades = gd.LikesGlades
 		traits.PrefersGroomed = gd.PrefersGroomed
 		g := &world.Guest{

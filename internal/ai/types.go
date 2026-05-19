@@ -15,37 +15,30 @@ import (
 // SKILL & TRAITS
 // =============================================================================
 
-// SkillLevel is the gross category of a skier's ability. The Plan-A
-// controller is the same shape for every skier; skill differentiates only
-// through ComfortSpeed / ComfortSlope / Aggression. There is no per-skill
-// technique whitelist anymore — the same controller produces straight,
-// carved, and brake-heavy outputs as the situation demands.
-type SkillLevel int
-
+// Skill tier boundaries. 0..SkillAdvancedThreshold is beginner or
+// intermediate; SkillAdvancedThreshold..1 is advanced.
 const (
-	SkillBeginner SkillLevel = iota
-	SkillIntermediate
-	SkillAdvanced
+	SkillIntermediateThreshold = float32(0.33)
+	SkillAdvancedThreshold     = float32(0.66)
 )
 
-// String returns a human-readable label for HUD / debug overlays.
-func (l SkillLevel) String() string {
-	switch l {
-	case SkillBeginner:
+// SkillTierName returns a human-readable tier label for HUD / debug overlays.
+func SkillTierName(skill float32) string {
+	switch {
+	case skill < SkillIntermediateThreshold:
 		return "Beginner"
-	case SkillIntermediate:
+	case skill < SkillAdvancedThreshold:
 		return "Intermediate"
-	case SkillAdvanced:
+	default:
 		return "Advanced"
 	}
-	return "Unknown"
 }
 
 // GuestTraits captures the per-guest inputs the controller reads.
 // Boolean preferences are coarse-grained for now (likes / doesn't);
 // fractional or per-axis preferences land if we need finer behaviour.
 type GuestTraits struct {
-	Skill        SkillLevel
+	Skill        float32 // 0..1; 0–0.33 beginner, 0.33–0.66 intermediate, 0.66+ advanced
 	ComfortSpeed float32 // m/s; above ~comfort the brake controller engages
 	ComfortSlope float32 // radians; steeper than this is uncomfortable
 	Aggression   float32 // 0..1; scales target speed up
@@ -59,21 +52,21 @@ type GuestTraits struct {
 	PrefersGroomed bool
 }
 
-// TraitsFor returns sensible defaults for a skill level. Callers can mutate
-// the returned struct for per-skier variation.
-func TraitsFor(level SkillLevel) GuestTraits {
-	switch level {
-	case SkillBeginner:
+// TraitsFor returns sensible defaults for a skill value in [0, 1]. Callers
+// can mutate the returned struct for per-skier variation.
+func TraitsFor(skill float32) GuestTraits {
+	switch {
+	case skill < SkillIntermediateThreshold:
 		return GuestTraits{
-			Skill:          SkillBeginner,
+			Skill:          skill,
 			ComfortSpeed:   5,
 			ComfortSlope:   10 * math.Pi / 180,
 			Aggression:     0.2,
 			PrefersGroomed: true,
 		}
-	case SkillIntermediate:
+	case skill < SkillAdvancedThreshold:
 		return GuestTraits{
-			Skill:          SkillIntermediate,
+			Skill:          skill,
 			ComfortSpeed:   10,
 			ComfortSlope:   20 * math.Pi / 180,
 			Aggression:     0.5,
@@ -81,7 +74,7 @@ func TraitsFor(level SkillLevel) GuestTraits {
 		}
 	default:
 		return GuestTraits{
-			Skill:        SkillAdvanced,
+			Skill:        skill,
 			ComfortSpeed: 16,
 			ComfortSlope: 30 * math.Pi / 180,
 			Aggression:   0.8,

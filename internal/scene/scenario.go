@@ -2933,7 +2933,7 @@ func (f *followLabel) Draw(r *render.Renderer) {
 	}
 	// Trait badges — short flags that show the player which preferences
 	// are driving this guest's terrain reactions.
-	badges := f.agent.Traits.Skill.String()
+	badges := ai.SkillTierName(f.agent.Traits.Skill)
 	if f.agent.Traits.LikesGlades {
 		badges += " · glades"
 	}

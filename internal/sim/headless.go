@@ -6,7 +6,6 @@ import (
 	"math"
 	"math/rand"
 
-	"mountain-mogul/internal/ai"
 	"mountain-mogul/internal/world"
 )
 
@@ -213,16 +212,15 @@ func (r *traceRecorder) writeSummary() {
 // helpers
 // =============================================================================
 
-func skillName(s ai.SkillLevel) string {
-	switch s {
-	case ai.SkillBeginner:
-		return "beginner"
-	case ai.SkillIntermediate:
-		return "intermediate"
-	case ai.SkillAdvanced:
+func skillName(s float32) string {
+	switch {
+	case s >= 0.66:
 		return "advanced"
+	case s >= 0.33:
+		return "intermediate"
+	default:
+		return "beginner"
 	}
-	return fmt.Sprintf("?%d", s)
 }
 
 // targetPos resolves where an agent is heading (lodge or lift base) so the

@@ -54,11 +54,10 @@ func SeedGuests(w *World, rng *rand.Rand, count int) {
 		skill := rollSkill(rng)
 		disc := rollDiscipline(rng)
 		traits := ai.TraitsFor(skill)
-		// LikesGlades skews toward experienced skiers — beginners avoid trees.
+		// LikesGlades is an advanced-only preference — beginners and
+		// intermediates avoid trees.
 		gladeProb := float32(0.0)
-		if skill == ai.SkillIntermediate {
-			gladeProb = 0.10
-		} else if skill == ai.SkillAdvanced {
+		if skill >= ai.SkillAdvancedThreshold {
 			gladeProb = 0.30
 		}
 		traits.LikesGlades = rng.Float32() < gladeProb
@@ -78,17 +77,17 @@ func SeedGuests(w *World, rng *rand.Rand, count int) {
 }
 
 // rollSkill biases toward beginners — the real-world resort split is
-// roughly 60/30/10 beginner/intermediate/advanced. Tunable as we get
-// more design clarity.
-func rollSkill(rng *rand.Rand) ai.SkillLevel {
+// roughly 60/30/10 beginner/intermediate/advanced. Returns a continuous
+// value in [0, 1] drawn uniformly within the appropriate tier band.
+func rollSkill(rng *rand.Rand) float32 {
 	r := rng.Float32()
 	switch {
 	case r < 0.6:
-		return ai.SkillBeginner
+		return rng.Float32() * ai.SkillIntermediateThreshold
 	case r < 0.9:
-		return ai.SkillIntermediate
+		return ai.SkillIntermediateThreshold + rng.Float32()*(ai.SkillAdvancedThreshold-ai.SkillIntermediateThreshold)
 	default:
-		return ai.SkillAdvanced
+		return ai.SkillAdvancedThreshold + rng.Float32()*(1-ai.SkillAdvancedThreshold)
 	}
 }
 

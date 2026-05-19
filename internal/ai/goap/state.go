@@ -27,7 +27,7 @@ import (
 type WorldSnapshot struct {
 	Pos      mgl32.Vec3
 	Patience float32 // 0..1; drains while queuing, restored by skiing/riding/lodge
-	Skill    ai.SkillLevel
+	Skill    float32
 
 	AtLiftBase uint64 // 0 or lift ID — at the base of this lift, not yet queued
 	AtLiftTop  uint64 // 0 or lift ID — just unloaded at the top

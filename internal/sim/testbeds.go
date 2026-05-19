@@ -37,7 +37,7 @@ var Testbeds = []Testbed{
 		Build: func(_ *rand.Rand) *world.World {
 			return scene(60, 40).flat(100).
 				groomRect(0, 13, 59, 26). // centre third along z (trail runs x: 1→30 at z=20)
-				lodgeAt(30, 20).skierAt(1, 20, ai.SkillBeginner).build()
+				lodgeAt(30, 20).skierAt(1, 20, 0.2).build()
 		},
 	},
 	{
@@ -46,7 +46,7 @@ var Testbeds = []Testbed{
 		Build: func(_ *rand.Rand) *world.World {
 			return scene(40, 60).slope(10).
 				groomRect(13, 0, 26, 59). // centre third of slope width
-				lodge().skier(ai.SkillIntermediate).build()
+				lodge().skier(0.5).build()
 		},
 	},
 	{
@@ -55,7 +55,7 @@ var Testbeds = []Testbed{
 		Build: func(_ *rand.Rand) *world.World {
 			return scene(40, 60).slope(15).
 				groomRect(13, 0, 26, 59).
-				lodge().skier(ai.SkillIntermediate).build()
+				lodge().skier(0.5).build()
 		},
 	},
 	{
@@ -64,7 +64,7 @@ var Testbeds = []Testbed{
 		Build: func(_ *rand.Rand) *world.World {
 			return scene(40, 60).slope(20).
 				groomRect(13, 0, 26, 59).
-				lodge().skier(ai.SkillAdvanced).build()
+				lodge().skier(0.8).build()
 		},
 	},
 	{
@@ -75,7 +75,7 @@ var Testbeds = []Testbed{
 		Build: func(_ *rand.Rand) *world.World {
 			return scene(40, 80).runout(50, 18, 3).
 				groomRect(13, 0, 26, 79).
-				lodge().skier(ai.SkillAdvanced).build()
+				lodge().skier(0.8).build()
 		},
 	},
 	{
@@ -112,7 +112,7 @@ var Testbeds = []Testbed{
 			return scene(40, 60).slope(15).
 				groomPolygon(westBranch).
 				groomPolygon(eastBranch).
-				lodge().skier(ai.SkillIntermediate).
+				lodge().skier(0.5).
 				treePatch(20, 30, 6, 0.8).build()
 		},
 	},
@@ -140,7 +140,7 @@ var Testbeds = []Testbed{
 				liftFromTo(20, 95, 20, 5).
 				paintTrail(world.DiffBlue, world.PolylineCells(waypoints, 2)).
 				groomPolyline(waypoints, 2).
-				goapSkierAt(20, 98, ai.SkillIntermediate, 0.5).
+				goapSkierAt(20, 98, 0.5, 0.5).
 				build()
 		},
 	},
@@ -189,7 +189,7 @@ var Testbeds = []Testbed{
 				treePatch(15, 50, 6, 0.8).     // center obstacle (off-axis west)
 				groomPolygon(westBranch).
 				groomPolygon(eastBranch).
-				skierAt(21, 1, ai.SkillIntermediate).
+				skierAt(21, 1, 0.5).
 				build()
 		},
 	},
@@ -349,7 +349,7 @@ func (b *builder) lodgeAt(gx, gz int) *builder {
 
 // skier spawns a single skier at the top centre of the grid (z = 1,
 // x = W/2) targeting the most recently placed lodge.
-func (b *builder) skier(skill ai.SkillLevel) *builder {
+func (b *builder) skier(skill float32) *builder {
 	t := b.w.Terrain
 	return b.skierAt(t.Width/2, 1, skill)
 }
@@ -363,7 +363,7 @@ func (b *builder) skier(skill ai.SkillLevel) *builder {
 // asymmetry, not a behavioural bias. Cell-center spawn aligns the axis with
 // the patch's world center (also cell-center based) so drift up to ½ cell
 // either direction stays in the same probe-cell pair.
-func (b *builder) skierAt(gx, gz int, skill ai.SkillLevel) *builder {
+func (b *builder) skierAt(gx, gz int, skill float32) *builder {
 	if b.lastLodge == nil {
 		panic("skierAt: no lodge placed; call lodge() or lodgeAt() first")
 	}
@@ -585,7 +585,7 @@ func (b *builder) paintTrail(diff world.TerrainDifficulty, cells [][2]int) *buil
 
 // goapSkierAt places a skier at the given grid cell with an empty plan so
 // GOAP takes over on the first tick. patience is the starting 0..1 value.
-func (b *builder) goapSkierAt(gx, gz int, skill ai.SkillLevel, patience float32) *builder {
+func (b *builder) goapSkierAt(gx, gz int, skill float32, patience float32) *builder {
 	const cs = float32(5.0)
 	elev := b.w.Terrain.SurfaceElevationAt(gx, gz)
 	pos := mgl32.Vec3{(float32(gx) + 0.5) * cs, elev, (float32(gz) + 0.5) * cs}

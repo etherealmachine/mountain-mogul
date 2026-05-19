@@ -183,8 +183,8 @@ func resortCapacity(w *world.World) float32 {
 }
 
 // terrainMatch is the binary skill-vs-lift-services check. Returns 1
-// if any lift in the resort serves the guest's skill bit, else 0.
-func terrainMatch(w *world.World, skill ai.SkillLevel) float32 {
+// if any lift in the resort serves the guest's skill tier, else 0.
+func terrainMatch(w *world.World, skill float32) float32 {
 	want := skillToDifficulty(skill)
 	for _, l := range w.Lifts {
 		if w.ServicesForLift(l.ID).Has(want) {
@@ -194,16 +194,15 @@ func terrainMatch(w *world.World, skill ai.SkillLevel) float32 {
 	return 0
 }
 
-func skillToDifficulty(skill ai.SkillLevel) world.TerrainDifficulty {
-	switch skill {
-	case ai.SkillBeginner:
-		return world.DiffGreen
-	case ai.SkillIntermediate:
-		return world.DiffBlue
-	case ai.SkillAdvanced:
+func skillToDifficulty(skill float32) world.TerrainDifficulty {
+	switch {
+	case skill >= ai.SkillAdvancedThreshold:
 		return world.DiffBlack
+	case skill >= ai.SkillIntermediateThreshold:
+		return world.DiffBlue
+	default:
+		return world.DiffGreen
 	}
-	return world.DiffGreen
 }
 
 // visitProbability is retained for the rating-vs-match-vs-occupancy
