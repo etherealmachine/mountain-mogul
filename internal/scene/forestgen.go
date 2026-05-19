@@ -181,6 +181,9 @@ func (f *elevFields) generateTreeCover(t *world.Terrain, patchScale, coverage, t
 			} else if d > 1 {
 				d = 1
 			}
+			if !t.Cells[x][z].Passable {
+				d = 0
+			}
 			t.Cells[x][z].TreeDensity = d
 		}
 	}

@@ -730,6 +730,7 @@ func (e *Editor) regenerateAuto() {
 		treelineFrac,
 		e.autoSeed,
 	)
+	applyRoadCellState(e.world)
 	if e.app != nil && e.app.Renderer != nil {
 		e.app.Renderer.FlushTerrainVerts(e.world.Terrain)
 		e.app.Renderer.RebuildStaticBatch(e.world)
