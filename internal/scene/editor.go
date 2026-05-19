@@ -730,6 +730,14 @@ func (e *Editor) regenerateAuto() {
 		treelineFrac,
 		e.autoSeed,
 	)
+	// Re-stamp clearances that generateTreeCover would otherwise overwrite.
+	for _, b := range e.world.Buildings {
+		halfX, halfZ := buildingFootprint(b.Type)
+		clearBuildingTrees(e.world.Terrain, b.Pos, halfX, halfZ)
+	}
+	for _, lift := range e.world.Lifts {
+		clearLiftCorridor(e.world.Terrain, lift.Base, lift.Top, liftCorridorHalfWidth)
+	}
 	applyRoadCellState(e.world)
 	if e.app != nil && e.app.Renderer != nil {
 		e.app.Renderer.FlushTerrainVerts(e.world.Terrain)
