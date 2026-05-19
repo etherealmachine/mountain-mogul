@@ -47,6 +47,7 @@ type Renderer struct {
 	DynamicShader *Shader
 	UIShader      *Shader
 	DebugShader   *Shader
+	WeatherShader *Shader
 	Camera        *Camera
 	Font          *Font // may be nil; gracefully skip text
 
@@ -80,6 +81,14 @@ type Renderer struct {
 
 	debugVAO, debugVBO uint32
 	debugVertCount     int32 // number of debug vertices currently in the VBO
+
+	weatherVAO uint32 // empty VAO for the full-screen-triangle weather pass
+
+	// WeatherOverlay controls the precipitation/sky overlay drawn after the
+	// 3D passes. Values mirror sim.WeatherState: 0=clear, 1=overcast,
+	// 2=lightSnow, 3=heavySnow, 4=rain. Set by the scene each frame before
+	// calling DrawWorld; defaults to 0 (no overlay).
+	WeatherOverlay int
 
 	brushCenter mgl32.Vec2
 	brushRadius float32
@@ -169,6 +178,14 @@ func NewRenderer(w, h int, assetDir string) (*Renderer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("debug shader: %w", err)
 	}
+
+	r.WeatherShader, err = LoadShader(shaderDir+"weather.vert", shaderDir+"weather.frag")
+	if err != nil {
+		return nil, fmt.Errorf("weather shader: %w", err)
+	}
+	// Empty VAO required by OpenGL 4.1 core even when gl_VertexID supplies
+	// all geometry — no attributes are enabled on this array object.
+	gl.GenVertexArrays(1, &r.weatherVAO)
 
 	// White fallback texture — always bound to unit 0 in the UI pass.
 	r.whiteTexID = whiteTexture()
@@ -1524,9 +1541,27 @@ func generateCableMesh(lift *world.Lift, t *world.Terrain, perpOff float32) *Mes
 	return NewMesh(verts, indices, []int{3, 3, 2}, nil)
 }
 
+// skyColor returns the ClearColor components for the current WeatherOverlay.
+// Matches sim.WeatherState indices.
+func (r *Renderer) skyColor() (float32, float32, float32) {
+	switch r.WeatherOverlay {
+	case 1: // overcast
+		return 0.62, 0.63, 0.68
+	case 2: // light snow
+		return 0.72, 0.74, 0.80
+	case 3: // heavy snow
+		return 0.58, 0.60, 0.64
+	case 4: // rain
+		return 0.45, 0.50, 0.58
+	default: // clear
+		return 0.635, 0.682, 0.918
+	}
+}
+
 // DrawWorld renders the full 3D world.
 func (r *Renderer) DrawWorld(w *world.World, time float32) {
-	gl.ClearColor(0.635, 0.682, 0.918, 1.0)
+	sr, sg, sb := r.skyColor()
+	gl.ClearColor(sr, sg, sb, 1.0)
 	gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
 	vp := r.Camera.ViewProj()
@@ -1748,6 +1783,34 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 			r.chairQuadBatch.Draw()
 		}
 	}
+
+	r.drawWeatherOverlay(time)
+}
+
+// drawWeatherOverlay draws a full-screen precipitation/atmosphere effect after
+// all 3D geometry. It uses a single large triangle (no VBO; gl_VertexID only)
+// with a procedural GLSL shader that animates falling snow or rain.
+func (r *Renderer) drawWeatherOverlay(time float32) {
+	if r.WeatherShader == nil || r.WeatherOverlay == 0 {
+		return
+	}
+	gl.Disable(gl.DEPTH_TEST)
+	gl.Enable(gl.BLEND)
+	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+	defer func() {
+		gl.Disable(gl.BLEND)
+		gl.Enable(gl.DEPTH_TEST)
+	}()
+
+	aspect := float32(r.frameW) / float32(r.frameH)
+	r.WeatherShader.Use()
+	r.WeatherShader.SetFloat("uTime", time)
+	r.WeatherShader.SetInt("uWeather", r.WeatherOverlay)
+	r.WeatherShader.SetFloat("uAspect", aspect)
+
+	gl.BindVertexArray(r.weatherVAO)
+	gl.DrawArrays(gl.TRIANGLES, 0, 3)
+	gl.BindVertexArray(0)
 }
 
 func guestColor(w *world.World, a *world.Guest) [3]float32 {

@@ -2160,6 +2160,7 @@ func (s *Scenario) Render(r *render.Renderer) {
 
 	r.HighlightGuestID = s.followGuestID
 	s.applyPerceptionCone(r)
+	r.WeatherOverlay = int(s.sim.Weather.Today().State)
 	r.DrawWorld(s.world, s.time)
 	r.ClearBrush()
 	r.ClearPerceptionCone()
