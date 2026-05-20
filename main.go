@@ -20,11 +20,15 @@ import (
 	"mountain-mogul/internal/render"
 	"mountain-mogul/internal/save"
 	"mountain-mogul/internal/scene"
+	"mountain-mogul/internal/settings"
 	"mountain-mogul/internal/sim"
 	"mountain-mogul/internal/world"
 )
 
-func init() { runtime.LockOSThread() }
+func init() {
+	runtime.LockOSThread()
+	settings.Init()
+}
 
 func main() {
 	testbed := flag.String("testbed", "", "load a registered testbed by name prefix (e.g. \"10 degree slope\", or 'list'). Default: open in the UI. Pair with -headless to drive the trace runner, or -screenshot to capture a PNG.")

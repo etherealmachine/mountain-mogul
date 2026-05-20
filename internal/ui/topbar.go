@@ -6,6 +6,7 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 	"mountain-mogul/internal/engine"
 	"mountain-mogul/internal/render"
+	"mountain-mogul/internal/settings"
 )
 
 // TopBar is the resort-management HUD strip across the top of the screen.
@@ -41,7 +42,7 @@ type TopBar struct {
 // ForecastDay is one slot in the 5-day forecast strip.
 type ForecastDay struct {
 	Weather WeatherKind
-	TempF   int
+	TempC   float32 // always in °C; the bar formats per the active unit system
 }
 
 // NewTopBar creates a top bar at (y=0, h=h). The bar fills the full screen
@@ -348,7 +349,7 @@ func (t *TopBar) drawCenter(r *render.Renderer, screenW float32) {
 		DrawWeatherIcon(r, d.Weather, cx+(colW-iconSize)/2, iconY, iconSize)
 
 		// Temperature centred in the column.
-		tempText := fmt.Sprintf("%d", d.TempF)
+		tempText := settings.FormatTemp(d.TempC)
 		tempW := float32(len(tempText) * render.GlyphAdvance)
 		r.Font.DrawText(r, tempText, cx+(colW-tempW)/2, tempY, dim)
 	}

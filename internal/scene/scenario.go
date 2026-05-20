@@ -17,6 +17,7 @@ import (
 	"mountain-mogul/internal/engine"
 	"mountain-mogul/internal/render"
 	"mountain-mogul/internal/save"
+	"mountain-mogul/internal/settings"
 	"mountain-mogul/internal/sim"
 	"mountain-mogul/internal/ui"
 	"mountain-mogul/internal/world"
@@ -537,6 +538,7 @@ type Scenario struct {
 	overlayPanel    *ui.OverlayPanel // right-side terrain-overlay toggles
 	chartWindow     *ui.ChartWindow  // resort-stats charts (line + grouped bar)
 	escapeMenu      *EscapeMenu
+	settingsMenu    *SettingsMenu
 	toolButtons     map[toolMode]*ui.Button
 	liftDoubleBtn   *ui.Button // toolbar button for the double-chair lift variant
 	liftQuadBtn     *ui.Button // toolbar button for the fixed-quad lift variant
@@ -729,10 +731,15 @@ func (s *Scenario) Init(app *engine.App) error {
 		applyCameraSnapshot(app.Renderer.Camera, cam)
 	}
 
+	s.settingsMenu = NewSettingsMenu(app, func() { s.escapeMenu.Show() })
+	openSettings := func() {
+		s.escapeMenu.Hide()
+		s.settingsMenu.Show()
+	}
 	if s.saveAllowed {
-		s.escapeMenu = NewEscapeMenu(app, s.openSavePrompt, s.gotoLoadMenu)
+		s.escapeMenu = NewEscapeMenu(app, s.openSavePrompt, s.gotoLoadMenu, openSettings)
 	} else {
-		s.escapeMenu = NewEscapeMenu(app, nil, nil)
+		s.escapeMenu = NewEscapeMenu(app, nil, nil, openSettings)
 	}
 
 	// Bottom tool bar — palette of construction tools, centred along the
@@ -781,12 +788,12 @@ func (s *Scenario) Init(app *engine.App) error {
 		days := make([]ui.ForecastDay, 1+len(forecast))
 		days[0] = ui.ForecastDay{
 			Weather: weatherToUI(today.State),
-			TempF:   int(today.TempC*9/5 + 32),
+			TempC:   today.TempC,
 		}
 		for i, d := range forecast {
 			days[i+1] = ui.ForecastDay{
 				Weather: weatherToUI(d.State),
-				TempF:   int(d.TempC*9/5 + 32),
+				TempC:   d.TempC,
 			}
 		}
 		return days
@@ -1226,6 +1233,9 @@ func (s *Scenario) Update(dt float64) {
 
 	if inp.Pressed[glfw.KeyEscape] {
 		switch {
+		case s.settingsMenu.Visible():
+			s.settingsMenu.Hide()
+			s.escapeMenu.Show()
 		case s.roadEdit.active() || s.structureEdit.active():
 			s.roadEdit.clear()
 			s.structureEdit.clear()
@@ -1242,6 +1252,10 @@ func (s *Scenario) Update(dt float64) {
 		case s.structureEdit.active():
 			deleteSelectedStructure(r, s.world, &s.structureEdit)
 		}
+	}
+	if s.settingsMenu.Visible() {
+		s.settingsMenu.HandleInput(inp)
+		return
 	}
 	if s.escapeMenu.Visible() {
 		s.escapeMenu.HandleInput(inp)
@@ -2236,6 +2250,9 @@ func (s *Scenario) Render(r *render.Renderer) {
 	if s.chartWindow != nil && s.chartWindow.Visible {
 		drawables = append(drawables, s.chartWindow)
 	}
+	if s.settingsMenu.Visible() {
+		drawables = append(drawables, s.settingsMenu)
+	}
 	if s.escapeMenu.Visible() {
 		drawables = append(drawables, s.escapeMenu)
 	}
@@ -2951,7 +2968,7 @@ func (f *followLabel) Draw(r *render.Renderer) {
 	satisfactionPct := int(f.agent.Satisfaction * 100)
 	rows := []string{
 		fmt.Sprintf("%s #%d (%s)  |  %s  |  %s", f.agent.Name, f.agent.ID, badges, activity, mode),
-		fmt.Sprintf("%.1f m/s    patience %d%%    satisfaction %d%%", f.agent.Speed, patiencePct, satisfactionPct),
+		fmt.Sprintf("%s    patience %d%%    satisfaction %d%%", settings.FormatSpeed(f.agent.Speed), patiencePct, satisfactionPct),
 	}
 	resolve := entityName(f.world)
 	if t := f.agent.CurrentThought(f.simTime); t.Kind != ai.ThoughtNone {
@@ -3194,7 +3211,7 @@ func (t *snowLayerTooltip) Draw(r *render.Renderer) {
 		for i := len(t.layers) - 1; i >= 0; i-- {
 			l := t.layers[i]
 			visD := l.Accumulation / world.KindDensity(l.Kind)
-			rows = append(rows, fmt.Sprintf("%-13s %.2fm", world.KindName(l.Kind), visD))
+			rows = append(rows, fmt.Sprintf("%-13s %s", world.KindName(l.Kind), settings.FormatDepth(visD)))
 		}
 	}
 

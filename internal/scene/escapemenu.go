@@ -15,10 +15,9 @@ type EscapeMenu struct {
 	app     *engine.App
 }
 
-// NewEscapeMenu constructs the menu. saveFunc is called when the player clicks
-// Save; loadFunc is called when the player clicks Load. Either may be nil to
-// disable that action (button still draws but does nothing).
-func NewEscapeMenu(app *engine.App, saveFunc, loadFunc func()) *EscapeMenu {
+// NewEscapeMenu constructs the menu. saveFunc and loadFunc may be nil to
+// disable those actions. settingsFunc opens the settings panel.
+func NewEscapeMenu(app *engine.App, saveFunc, loadFunc, settingsFunc func()) *EscapeMenu {
 	m := &EscapeMenu{app: app}
 
 	type def struct {
@@ -41,6 +40,9 @@ func NewEscapeMenu(app *engine.App, saveFunc, loadFunc func()) *EscapeMenu {
 		}},
 		{"Settings", func() {
 			m.visible = false
+			if settingsFunc != nil {
+				settingsFunc()
+			}
 		}},
 		{"Exit Game", func() { app.Window.SetShouldClose(true) }},
 	}

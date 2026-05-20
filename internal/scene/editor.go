@@ -22,6 +22,7 @@ type Editor struct {
 	topBar            *ui.TopBar       // editor-mode bar: just overlay + settings buttons
 	overlayPanel      *ui.OverlayPanel // right-edge terrain-overlay toggles
 	escapeMenu        *EscapeMenu
+	settingsMenu      *SettingsMenu
 	toolButtons       map[toolMode]*ui.Button
 	liftDoubleBtn     *ui.Button     // toolbar button for the double-chair lift variant
 	liftQuadBtn       *ui.Button     // toolbar button for the fixed-quad lift variant
@@ -124,13 +125,18 @@ func (e *Editor) Init(app *engine.App) error {
 		}
 	})
 
+	e.settingsMenu = NewSettingsMenu(app, func() { e.escapeMenu.Show() })
+	openSettings := func() {
+		e.escapeMenu.Hide()
+		e.settingsMenu.Show()
+	}
 	e.escapeMenu = NewEscapeMenu(app, func() {
 		if err := save.SaveScenario(e.scenarioPath, e.world, editorCameraSnapshot(e)); err != nil {
 			fmt.Println("Save error:", err)
 		} else {
 			fmt.Println("Saved to", e.scenarioPath)
 		}
-	}, nil)
+	}, nil, openSettings)
 
 	// Top bar — editor-mode only has overlay-panel toggle + settings (gear).
 	// No stats, no date/weather, no time controls, so the centre and left
@@ -202,6 +208,9 @@ func (e *Editor) Update(dt float64) {
 
 	if inp.Pressed[glfw.KeyEscape] {
 		switch {
+		case e.settingsMenu.Visible():
+			e.settingsMenu.Hide()
+			e.escapeMenu.Show()
 		case e.roadEdit.active() || e.structureEdit.active():
 			e.roadEdit.clear()
 			e.structureEdit.clear()
@@ -221,6 +230,10 @@ func (e *Editor) Update(dt float64) {
 			deleteSelectedStructure(r, e.world, &e.structureEdit)
 			e.autoFields = nil
 		}
+	}
+	if e.settingsMenu.Visible() {
+		e.settingsMenu.HandleInput(inp)
+		return
 	}
 	if e.escapeMenu.Visible() {
 		e.escapeMenu.HandleInput(inp)
@@ -946,6 +959,9 @@ func (e *Editor) Render(r *render.Renderer) {
 			screenW: r.ScreenWidth(),
 			screenH: r.ScreenHeight(),
 		})
+	}
+	if e.settingsMenu.Visible() {
+		edDrawables = append(edDrawables, e.settingsMenu)
 	}
 	if e.escapeMenu.Visible() {
 		edDrawables = append(edDrawables, e.escapeMenu)
