@@ -3,7 +3,6 @@ package sim
 import (
 	"fmt"
 	"math"
-	"math/rand"
 	"strings"
 
 	"github.com/go-gl/mathgl/mgl32"
@@ -18,7 +17,7 @@ import (
 // user write `-testbed "10 degree slope"`.
 type Testbed struct {
 	Name  string
-	Build func(rng *rand.Rand) *world.World
+	Build func() *world.World
 	Seed  int64
 }
 
@@ -34,7 +33,7 @@ var Testbeds = []Testbed{
 	{
 		Name: "Flat plane, beginner skier",
 		Seed: 1,
-		Build: func(_ *rand.Rand) *world.World {
+		Build: func() *world.World {
 			return scene(60, 40).flat(100).
 				groomRect(0, 13, 59, 26). // centre third along z (trail runs x: 1→30 at z=20)
 				lodgeAt(30, 20).skierAt(1, 20, 0.2).build()
@@ -43,7 +42,7 @@ var Testbeds = []Testbed{
 	{
 		Name: "10 degree slope, intermediate skier",
 		Seed: 1,
-		Build: func(_ *rand.Rand) *world.World {
+		Build: func() *world.World {
 			return scene(40, 60).slope(10).
 				groomRect(13, 0, 26, 59). // centre third of slope width
 				lodge().skier(0.5).build()
@@ -52,7 +51,7 @@ var Testbeds = []Testbed{
 	{
 		Name: "15 degree slope, intermediate skier",
 		Seed: 1,
-		Build: func(_ *rand.Rand) *world.World {
+		Build: func() *world.World {
 			return scene(40, 60).slope(15).
 				groomRect(13, 0, 26, 59).
 				lodge().skier(0.5).build()
@@ -61,7 +60,7 @@ var Testbeds = []Testbed{
 	{
 		Name: "20 degree slope, advanced skier",
 		Seed: 1,
-		Build: func(_ *rand.Rand) *world.World {
+		Build: func() *world.World {
 			return scene(40, 60).slope(20).
 				groomRect(13, 0, 26, 59).
 				lodge().skier(0.8).build()
@@ -72,7 +71,7 @@ var Testbeds = []Testbed{
 		// transition from linked turns into point-and-shoot on flats.
 		Name: "Slope with flat runout, advanced skier",
 		Seed: 1,
-		Build: func(_ *rand.Rand) *world.World {
+		Build: func() *world.World {
 			return scene(40, 80).runout(50, 18, 3).
 				groomRect(13, 0, 26, 79).
 				lodge().skier(0.8).build()
@@ -92,7 +91,7 @@ var Testbeds = []Testbed{
 		// Tree patch: (cx=20, cz=30, r=6) covers x=[14,26], z=[24,36].
 		Name: "15 degree slope with tree patch, intermediate skier",
 		Seed: 1,
-		Build: func(_ *rand.Rand) *world.World {
+		Build: func() *world.World {
 			westBranch := [][2]float32{
 				// Outer (west) boundary: top-left down through arm to bottom-left.
 				{13, 0}, {11, 20}, {5, 24}, {5, 36}, {11, 40}, {13, 59},
@@ -128,7 +127,7 @@ var Testbeds = []Testbed{
 		// Trail: lift-top → curves left → lift-base.
 		Name: "Single lift, curving trail, no lodge",
 		Seed: 1,
-		Build: func(_ *rand.Rand) *world.World {
+		Build: func() *world.World {
 			// Waypoints for the trail: starts at lift top, curves left (west),
 			// returns to lift base.
 			waypoints := [][2]int{
@@ -167,7 +166,7 @@ var Testbeds = []Testbed{
 		// splits around the patch, and rejoins below.
 		Name: "Trail diverge, offset skier east, intermediate",
 		Seed: 1,
-		Build: func(_ *rand.Rand) *world.World {
+		Build: func() *world.World {
 			westBranch := [][2]float32{
 				// Outer (west) boundary, top → arm → bottom.
 				{14, 0}, {11, 36}, {5, 44}, {5, 58}, {11, 64}, {14, 79},
@@ -276,7 +275,7 @@ func (b *builder) flat(elev float32) *builder {
 	for x := 0; x < t.Width; x++ {
 		for z := 0; z < t.Height; z++ {
 			t.Cells[x][z].GroundElevation = elev
-			t.Cells[x][z].Layers = []world.SnowLayer{{Accumulation: testbedPowderAccumulation, Packed: 0.2, Kind: world.LayerFreshSnow}}
+			t.Cells[x][z].Layers = []world.SnowLayer{{Accumulation: testbedPowderAccumulation, Kind: world.KindPowder}}
 			t.Cells[x][z].Passable = true
 		}
 	}
@@ -293,7 +292,7 @@ func (b *builder) slope(slopeDeg float64) *builder {
 	for x := 0; x < t.Width; x++ {
 		for z := 0; z < t.Height; z++ {
 			t.Cells[x][z].GroundElevation = float32(t.Height-z) * CellSize * rate
-			t.Cells[x][z].Layers = []world.SnowLayer{{Accumulation: testbedPowderAccumulation, Packed: 0.2, Kind: world.LayerFreshSnow}}
+			t.Cells[x][z].Layers = []world.SnowLayer{{Accumulation: testbedPowderAccumulation, Kind: world.KindPowder}}
 			t.Cells[x][z].Passable = true
 		}
 	}
@@ -320,7 +319,7 @@ func (b *builder) runout(upperEndZ int, upperDeg, runoutDeg float64) *builder {
 		}
 		for x := 0; x < t.Width; x++ {
 			t.Cells[x][z].GroundElevation = elev
-			t.Cells[x][z].Layers = []world.SnowLayer{{Accumulation: testbedPowderAccumulation, Packed: 0.2, Kind: world.LayerFreshSnow}}
+			t.Cells[x][z].Layers = []world.SnowLayer{{Accumulation: testbedPowderAccumulation, Kind: world.KindPowder}}
 			t.Cells[x][z].Passable = true
 		}
 	}
@@ -454,16 +453,14 @@ func (b *builder) groomPolyline(waypoints [][2]int, radius int) *builder {
 		cell := &t.Cells[c[0]][c[1]]
 		cell.Grooming = 1.0
 		if top := cell.TopLayer(); top != nil {
-			top.Packed = 1.0
+			top.Kind = world.KindPackedPowder
 		}
 	}
 	return b
 }
 
-// groomRect paints a fully-groomed, fully-packed lane on every cell in
-// [x1, x2] × [z1, z2] (inclusive, clamped to terrain bounds): Grooming
-// = 1.0, top-layer Packed = 1.0. SWE is conserved; visible depth drops
-// as density rises from 0.32 → 1.0.
+// groomRect paints a fully-groomed Packed Powder lane on every cell in
+// [x1, x2] × [z1, z2] (inclusive, clamped to terrain bounds).
 func (b *builder) groomRect(x1, z1, x2, z2 int) *builder {
 	t := b.w.Terrain
 	for x := x1; x <= x2; x++ {
@@ -474,17 +471,15 @@ func (b *builder) groomRect(x1, z1, x2, z2 int) *builder {
 			c := &t.Cells[x][z]
 			c.Grooming = 1.0
 			if top := c.TopLayer(); top != nil {
-				top.Packed = 1.0
+				top.Kind = world.KindPackedPowder
 			}
 		}
 	}
 	return b
 }
 
-// groomPolygon paints a fully-groomed, fully-packed lane on every cell
-// whose centre lies inside the closed polygon defined by `pts`. Same
-// Packed=1 treatment as groomRect; visible depth drops automatically
-// from the density change. Points are in grid coordinates (cell indices,
+// groomPolygon paints a fully-groomed Packed Powder lane on every cell
+// whose centre lies inside the closed polygon defined by `pts`. Points are in grid coordinates (cell indices,
 // fractional allowed); the polygon is implicitly closed from the last
 // point back to the first. Winding order doesn't matter — uses the
 // even-odd rule via horizontal-ray casting. Out-of-bounds cells are
@@ -527,7 +522,7 @@ func (b *builder) groomPolygon(pts [][2]float32) *builder {
 				c := &t.Cells[x][z]
 				c.Grooming = 1.0
 				if top := c.TopLayer(); top != nil {
-					top.Packed = 1.0
+					top.Kind = world.KindPackedPowder
 				}
 			}
 		}

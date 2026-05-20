@@ -5,7 +5,6 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"sort"
@@ -184,14 +183,15 @@ func worldToData(w *world.World) ScenarioData {
 			c := t.Cells[x][z]
 			var layers []LayerData
 			for _, l := range c.Layers {
-				layers = append(layers, LayerData{A: l.Accumulation, P: l.Packed, I: l.Ice, K: uint8(l.Kind)})
+				layers = append(layers, LayerData{A: l.Accumulation, K: uint8(l.Kind)})
 			}
 			cells = append(cells, CellData{
-				Ground:      c.GroundElevation,
-				Layers:      layers,
-				Grooming:    c.Grooming,
-				MogulSize:   c.MogulSize,
-				TreeDensity: c.TreeDensity,
+				Ground:       c.GroundElevation,
+				Layers:       layers,
+				Grooming:     c.Grooming,
+				MogulSize:    c.MogulSize,
+				SkierTraffic: c.SkierTraffic,
+				TreeDensity:  c.TreeDensity,
 			})
 		}
 	}
@@ -439,12 +439,13 @@ func dataToWorld(data ScenarioData) *world.World {
 				c := data.Cells[idx]
 				layers := make([]world.SnowLayer, len(c.Layers))
 				for i, l := range c.Layers {
-					layers[i] = world.SnowLayer{Accumulation: l.A, Packed: l.P, Ice: l.I, Kind: world.LayerKind(l.K)}
+					layers[i] = world.SnowLayer{Accumulation: l.A, Kind: world.SnowKind(l.K)}
 				}
 				t.Cells[x][z].GroundElevation = c.Ground
 				t.Cells[x][z].Layers = layers
 				t.Cells[x][z].Grooming = c.Grooming
 				t.Cells[x][z].MogulSize = c.MogulSize
+				t.Cells[x][z].SkierTraffic = c.SkierTraffic
 				t.Cells[x][z].TreeDensity = c.TreeDensity
 			}
 			idx++
@@ -735,7 +736,7 @@ func dataToWorld(data ScenarioData) *world.World {
 		if guestSeed == 0 {
 			guestSeed = 1 // legacy saves with no seed: stable fallback
 		}
-		world.SeedGuests(w, rand.New(rand.NewSource(guestSeed)), world.DefaultGuestPoolSize)
+		world.SeedGuests(w, guestSeed, world.DefaultGuestPoolSize)
 	}
 
 	// Rehydrate the history ring. Absent in the save → allocate an

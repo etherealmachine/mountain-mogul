@@ -1,9 +1,8 @@
 package sim
 
 import (
-	"math/rand"
-
 	"mountain-mogul/internal/ai"
+	"mountain-mogul/internal/rng"
 	"mountain-mogul/internal/world"
 )
 
@@ -124,10 +123,10 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 		}
 		dailyRate := g.VisitsPerSeason / seasonDaysApprox
 		p := dailyRate * pollFractionOfDay * rating * match * occFactor
-		if p <= 0 || s.Rng.Float32() >= p {
+		if p <= 0 || rng.Global().Float32() >= p {
 			continue
 		}
-		lot := uniformParking(s.World, s.Rng)
+		lot := uniformParking(s.World)
 		if lot == nil {
 			return // no lots → no spawns this poll
 		}
@@ -226,7 +225,7 @@ func clamp01(v float32) float32 {
 
 // uniformParking returns a uniformly-chosen Parking building, or nil
 // if the world has none.
-func uniformParking(w *world.World, rng *rand.Rand) *world.Building {
+func uniformParking(w *world.World) *world.Building {
 	lots := make([]*world.Building, 0, len(w.Buildings))
 	for _, b := range w.Buildings {
 		if b.Type == world.BuildingParking {
@@ -236,5 +235,5 @@ func uniformParking(w *world.World, rng *rand.Rand) *world.Building {
 	if len(lots) == 0 {
 		return nil
 	}
-	return lots[rng.Intn(len(lots))]
+	return lots[rng.Global().Intn(len(lots))]
 }

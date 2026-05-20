@@ -45,82 +45,66 @@ func splitNames(raw string) []string {
 //
 // Called by scene/scenario load paths for fresh worlds. Saved worlds
 // rehydrate Guests from disk and skip this entirely.
-func SeedGuests(w *World, rng *rand.Rand, count int) {
-	if w == nil || rng == nil || count <= 0 {
+func SeedGuests(w *World, seed int64, count int) {
+	if w == nil || count <= 0 {
 		return
 	}
+	g := rand.New(rand.NewSource(seed))
 	w.Guests = make([]*Guest, 0, count)
 	for i := 0; i < count; i++ {
-		skill := rollSkill(rng)
-		disc := rollDiscipline(rng)
+		skill := rollSkill(g)
+		disc := rollDiscipline(g)
 		traits := ai.TraitsFor(skill)
-		// LikesGlades is an advanced-only preference — beginners and
-		// intermediates avoid trees.
 		gladeProb := float32(0.0)
 		if skill >= ai.SkillAdvancedThreshold {
 			gladeProb = 0.30
 		}
-		traits.LikesGlades = rng.Float32() < gladeProb
-		// PrefersGroomed is the modal preference at a real resort — most
-		// visitors want corduroy. ~60 %.
-		traits.PrefersGroomed = rng.Float32() < 0.60
-		g := &Guest{
+		traits.LikesGlades = g.Float32() < gladeProb
+		traits.PrefersGroomed = g.Float32() < 0.60
+		guest := &Guest{
 			ID:              w.NextID(),
-			Name:            firstNames[rng.Intn(len(firstNames))] + " " + lastNames[rng.Intn(len(lastNames))],
+			Name:            firstNames[g.Intn(len(firstNames))] + " " + lastNames[g.Intn(len(lastNames))],
 			Discipline:      disc,
 			Traits:          traits,
-			VisitsPerSeason: rollVisitsPerSeason(rng),
+			VisitsPerSeason: rollVisitsPerSeason(g),
 			State:           AtHome,
 		}
-		w.Guests = append(w.Guests, g)
+		w.Guests = append(w.Guests, guest)
 	}
 }
 
 // rollSkill biases toward beginners — the real-world resort split is
 // roughly 60/30/10 beginner/intermediate/advanced. Returns a continuous
 // value in [0, 1] drawn uniformly within the appropriate tier band.
-func rollSkill(rng *rand.Rand) float32 {
-	r := rng.Float32()
+func rollSkill(g *rand.Rand) float32 {
+	r := g.Float32()
 	switch {
 	case r < 0.6:
-		return rng.Float32() * ai.SkillIntermediateThreshold
+		return g.Float32() * ai.SkillIntermediateThreshold
 	case r < 0.9:
-		return ai.SkillIntermediateThreshold + rng.Float32()*(ai.SkillAdvancedThreshold-ai.SkillIntermediateThreshold)
+		return ai.SkillIntermediateThreshold + g.Float32()*(ai.SkillAdvancedThreshold-ai.SkillIntermediateThreshold)
 	default:
-		return ai.SkillAdvancedThreshold + rng.Float32()*(1-ai.SkillAdvancedThreshold)
+		return ai.SkillAdvancedThreshold + g.Float32()*(1-ai.SkillAdvancedThreshold)
 	}
 }
 
-// rollDiscipline returns Ski 80% of the time, Snowboard 20%. Matches
-// rough industry averages. (Once snowboard physics ships we can split
-// the trait distribution per-discipline.)
-func rollDiscipline(rng *rand.Rand) Discipline {
-	if rng.Float32() < 0.2 {
+func rollDiscipline(g *rand.Rand) Discipline {
+	if g.Float32() < 0.2 {
 		return Snowboard
 	}
 	return Ski
 }
 
-// rollVisitsPerSeason draws from a long-tail distribution:
-//
-//   - 70% casual:   1–3 visits/season (Uniform[1, 3])
-//   - 20% tourist:  3–8 visits/season
-//   - 9%  enthusiast: 8–30 visits/season
-//   - 1%  regular:  ~90–180 visits/season (every day or two)
-//
-// Drives the demand poll's per-guest Bernoulli rate. Edge cases like
-// "casual who happens to be an expert" fall out naturally — skill and
-// frequency are sampled independently.
-func rollVisitsPerSeason(rng *rand.Rand) float32 {
-	r := rng.Float32()
+func rollVisitsPerSeason(g *rand.Rand) float32 {
+	r := g.Float32()
 	switch {
 	case r < 0.70:
-		return 1 + rng.Float32()*2 // 1–3
+		return 1 + g.Float32()*2
 	case r < 0.90:
-		return 3 + rng.Float32()*5 // 3–8
+		return 3 + g.Float32()*5
 	case r < 0.99:
-		return 8 + rng.Float32()*22 // 8–30
+		return 8 + g.Float32()*22
 	default:
-		return 90 + rng.Float32()*90 // 90–180
+		return 90 + g.Float32()*90
 	}
 }

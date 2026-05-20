@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"math/rand"
 
 	"mountain-mogul/internal/world"
 )
@@ -40,7 +39,7 @@ func RunHeadless(out io.Writer, name string, opts HeadlessOptions) error {
 		seed = opts.Seed
 	}
 
-	w := tb.Build(rand.New(rand.NewSource(seed)))
+	w := tb.Build()
 	if len(w.OnMountain) == 0 {
 		return fmt.Errorf("testbed %q produced no agents", tb.Name)
 	}

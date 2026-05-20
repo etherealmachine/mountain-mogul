@@ -4,70 +4,178 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 )
 
-// LayerKind describes how a snow layer was deposited.
-type LayerKind uint8
+// SnowKind describes the physical character of a snow layer.
+type SnowKind uint8
 
 const (
-	LayerFreshSnow LayerKind = iota // dry cold storm; low initial density
-	LayerWetSnow                    // warm storm or rain-on-snow; higher density
-	LayerIceRain                    // rain + freeze cycle; high ice fraction
-	LayerWindSlab                   // wind-packed / consolidated slab
+	KindPowder       SnowKind = iota // cold dry storm; light, deep, floaty
+	KindPackedPowder                  // groomed or skied-in; fast and predictable
+	KindCement                        // warm storm; dense, wet, heavy
+	KindWindSlab                      // wind-consolidated; hollow feel, can shatter
+	KindCrust                         // sun/wind surface glaze; breakable, edge-catching
+	KindBoilerplate                   // hard frozen surface; very fast, no edge
+	KindSlushCorn                     // saturated or freeze-thaw; slow when warm
 )
 
-// LayerKindName returns a display name for a layer kind.
-func LayerKindName(k LayerKind) string {
+// KindName returns a display name for a snow kind.
+func KindName(k SnowKind) string {
 	switch k {
-	case LayerFreshSnow:
-		return "Fresh Snow"
-	case LayerWetSnow:
-		return "Wet Snow"
-	case LayerIceRain:
-		return "Ice Rain"
-	case LayerWindSlab:
+	case KindPowder:
+		return "Powder"
+	case KindPackedPowder:
+		return "Packed Powder"
+	case KindCement:
+		return "Cement"
+	case KindWindSlab:
 		return "Wind Slab"
+	case KindCrust:
+		return "Crust"
+	case KindBoilerplate:
+		return "Boilerplate"
+	case KindSlushCorn:
+		return "Slush/Corn"
 	default:
 		return "Snow"
 	}
 }
 
+// KindDensity returns the relative density for a snow kind.
+// Used to convert SWE (accumulation) to visible depth: depth = acc / density.
+func KindDensity(k SnowKind) float32 {
+	switch k {
+	case KindPowder:
+		return 0.15
+	case KindPackedPowder:
+		return 0.50
+	case KindCement:
+		return 0.65
+	case KindWindSlab:
+		return 0.55
+	case KindCrust:
+		return 0.60
+	case KindBoilerplate:
+		return 0.90
+	case KindSlushCorn:
+		return 0.55
+	default:
+		return 0.50
+	}
+}
+
+// KindShaderPacked returns the value written into the terrain vertex's packed
+// slot for a snow kind. Used by the renderer; not for physics.
+func KindShaderPacked(k SnowKind) float32 {
+	switch k {
+	case KindPowder:
+		return 0.05
+	case KindPackedPowder:
+		return 0.85
+	case KindCement:
+		return 0.55
+	case KindWindSlab:
+		return 0.50
+	case KindCrust:
+		return 0.65
+	case KindBoilerplate:
+		return 0.95
+	case KindSlushCorn:
+		return 0.45
+	default:
+		return 0.50
+	}
+}
+
+// KindShaderIce returns the value written into the terrain vertex's ice slot
+// for a snow kind. Drives specular sparkle in the shader.
+func KindShaderIce(k SnowKind) float32 {
+	switch k {
+	case KindWindSlab:
+		return 0.10
+	case KindCrust:
+		return 0.40
+	case KindBoilerplate:
+		return 0.90
+	default:
+		return 0.00
+	}
+}
+
+// KindBaseMult returns the base-friction multiplier for a snow kind, applied
+// on top of the groomed-corduroy baseline in effectiveFriction.
+// Values > 1 mean more drag (slower); < 1 mean less drag (faster).
+func KindBaseMult(k SnowKind) float32 {
+	switch k {
+	case KindPowder:
+		return 1.00 // depth gate in effectiveFriction adds drag proportional to depth
+	case KindPackedPowder:
+		return 1.00
+	case KindCement:
+		return 1.30
+	case KindWindSlab:
+		return 0.90
+	case KindCrust:
+		return 0.80
+	case KindBoilerplate:
+		return 0.50
+	case KindSlushCorn:
+		return 1.40
+	default:
+		return 1.00
+	}
+}
+
+// KindEdgeMult returns the edge-friction multiplier for a snow kind.
+// Values < 1 mean less grip; > 1 mean more grip.
+func KindEdgeMult(k SnowKind) float32 {
+	switch k {
+	case KindPowder:
+		return 0.60
+	case KindPackedPowder:
+		return 1.00
+	case KindCement:
+		return 0.90
+	case KindWindSlab:
+		return 0.80
+	case KindCrust:
+		return 0.50
+	case KindBoilerplate:
+		return 0.15
+	case KindSlushCorn:
+		return 0.90
+	default:
+		return 1.00
+	}
+}
+
 // SnowLayer is one depositional event in a cell's snow column.
 // Layers are stored oldest-first (index 0 = deepest/oldest; last = surface).
-// Each layer conserves its own SWE under packing: visible depth = Accumulation / density(Packed).
+// Each layer conserves its own SWE: visible depth = Accumulation / KindDensity(Kind).
 type SnowLayer struct {
-	Accumulation float32   // SWE metres, conserved under packing
-	Packed       float32   // 0..1 column density (0=fluffy powder, 1=bulletproof)
-	Ice          float32   // 0..1 ice fraction in this layer
-	Kind         LayerKind
+	Accumulation float32  // SWE metres, conserved under kind transitions
+	Kind         SnowKind
 }
 
 // Cell represents a single grid cell in the terrain.
 //
 // Snow is stored as a stack of SnowLayer values, oldest at index 0, newest
-// (surface) last. This represents the depositional history: one layer per
-// storm or weather event. Skier traffic and grooming affect only the surface
-// (top) layer. Snowfall pushes new layers.
+// (surface) last. Skier traffic and grooming affect only the surface (top)
+// layer. Snowfall pushes new layers.
 //
-// Grooming and MogulSize are cell-level surface modifiers that sit above the
-// layer stack: Grooming is set by the snowcat fleet and decays under skier
-// traffic; MogulSize grows from ungroomed traffic.
+// Grooming and MogulSize are cell-level surface modifiers above the layer
+// stack: Grooming is set by the snowcat fleet and decays under skier traffic;
+// MogulSize grows from ungroomed traffic.
 //
-// Derived surface properties (SurfaceIce, SurfacePacked, VisibleSnowDepth)
-// are computed from the layer stack. All physics and rendering read these
-// derived values rather than individual layer fields.
+// SkierTraffic accumulates while skiers cross the cell and resets after a
+// kind transition (e.g. Powder → Packed Powder). Decays daily.
 type Cell struct {
 	GroundElevation float32
 	Layers          []SnowLayer // [0]=oldest/deepest, [len-1]=surface
 	Grooming        float32     // 0..1; 1 = freshly groomed corduroy
 	MogulSize       float32     // 0..1; mogul amplitude (visual + physics roughness)
+	SkierTraffic    float32     // accumulated traffic; drives kind transitions
 
 	Passable    bool    // hard structural block (buildings, lift endpoints)
 	TreeDensity float32 // 0.0 = clear, 1.0 = dense old-growth
-}
-
-// SnowDensity returns the relative density of a packed-snow column.
-// 0.15 at Packed=0 (fresh fluff floor) up to 1.0 at Packed=1.0 (bulletproof piste).
-func SnowDensity(packed float32) float32 {
-	return 0.15 + 0.85*packed
 }
 
 // TotalSWE returns the total snow-water-equivalent across all layers (metres).
@@ -80,11 +188,11 @@ func (c Cell) TotalSWE() float32 {
 }
 
 // VisibleSnowDepth returns the total visible snow column height in metres,
-// summing per-layer depth (each layer's accumulation / its density).
+// summing per-layer depth (each layer's accumulation / its kind density).
 func (c Cell) VisibleSnowDepth() float32 {
 	var depth float32
 	for _, l := range c.Layers {
-		d := SnowDensity(l.Packed)
+		d := KindDensity(l.Kind)
 		if d > 0 {
 			depth += l.Accumulation / d
 		}
@@ -92,20 +200,22 @@ func (c Cell) VisibleSnowDepth() float32 {
 	return depth
 }
 
-// SurfacePacked returns the Packed value of the top (surface) layer, or 0 if there are no layers.
+// SurfacePacked returns the shader packed value for the top layer, derived
+// from its Kind. Returns 0 if there are no layers.
 func (c Cell) SurfacePacked() float32 {
 	if len(c.Layers) == 0 {
 		return 0
 	}
-	return c.Layers[len(c.Layers)-1].Packed
+	return KindShaderPacked(c.Layers[len(c.Layers)-1].Kind)
 }
 
-// SurfaceIce returns the Ice value of the top (surface) layer, or 0 if there are no layers.
+// SurfaceIce returns the shader ice value for the top layer, derived from
+// its Kind. Returns 0 if there are no layers.
 func (c Cell) SurfaceIce() float32 {
 	if len(c.Layers) == 0 {
 		return 0
 	}
-	return c.Layers[len(c.Layers)-1].Ice
+	return KindShaderIce(c.Layers[len(c.Layers)-1].Kind)
 }
 
 // TopLayer returns a pointer to the surface layer, or nil if there are no layers.
@@ -147,16 +257,12 @@ type Terrain struct {
 }
 
 // DefaultSnowAccumulation is the baseline SWE applied to fresh terrain
-// (NewTerrain). At the also-default Packed=0.2 (fresh powder density
-// ~0.32) it yields ~2.0 m of visible snow depth — roughly mid-season
-// at a typical resort.
+// (NewTerrain). At KindPowder density (0.15) it yields ~4.3 m of visible
+// snow depth — deep mid-season powder. Traffic and grooming compact it.
 const DefaultSnowAccumulation = float32(0.64)
 
 // NewTerrain creates a flat terrain with all cells passable and a single
-// default fresh-snow layer (SWE=DefaultSnowAccumulation, Packed=0.2).
-// Skier traffic and snowcat grooming raise the top layer's Packed under
-// conserved SWE, so starting near zero gives the most room for visible
-// compression as the resort gets tracked out.
+// default Powder layer (SWE=DefaultSnowAccumulation).
 func NewTerrain(w, h int) *Terrain {
 	cells := make([][]Cell, w)
 	for x := 0; x < w; x++ {
@@ -165,8 +271,7 @@ func NewTerrain(w, h int) *Terrain {
 			cells[x][z] = Cell{
 				Layers: []SnowLayer{{
 					Accumulation: DefaultSnowAccumulation,
-					Packed:       0.2,
-					Kind:         LayerFreshSnow,
+					Kind:         KindPowder,
 				}},
 				Passable: true,
 			}
@@ -186,8 +291,7 @@ func (t *Terrain) InBounds(x, z int) bool {
 }
 
 // InBoundsWorld returns true if the given world-space XZ point falls within
-// the terrain grid. Used by the skier controller to apply a boundary penalty
-// to candidate trajectories that would leave the map.
+// the terrain grid.
 func (t *Terrain) InBoundsWorld(wx, wz float32) bool {
 	const cellSize = float32(5.0)
 	maxX := float32(t.Width) * cellSize
@@ -205,8 +309,7 @@ func (t *Terrain) GroundElevationAt(x, z int) float32 {
 }
 
 // SurfaceElevationAt returns the snow-surface elevation (ground + snow)
-// at the given grid cell. Use for skiers, visible mesh, lift cable
-// endpoints, lift station meshes.
+// at the given grid cell.
 func (t *Terrain) SurfaceElevationAt(x, z int) float32 {
 	if !t.InBounds(x, z) {
 		return 0
@@ -215,8 +318,7 @@ func (t *Terrain) SurfaceElevationAt(x, z int) float32 {
 }
 
 // InterpolatedSurfaceElevationAt returns the bilinearly-interpolated
-// snow-surface elevation at a world-space position. Smoother than the
-// per-cell lookup for continuous motion (skier physics).
+// snow-surface elevation at a world-space position.
 func (t *Terrain) InterpolatedSurfaceElevationAt(wx, wz float32) float32 {
 	const cellSize = float32(5.0)
 	xi, zi, fx, fz := t.bilinearIndices(wx, wz, cellSize)
@@ -228,9 +330,7 @@ func (t *Terrain) InterpolatedSurfaceElevationAt(wx, wz float32) float32 {
 }
 
 // InterpolatedGroundElevationAt returns the bilinearly-interpolated
-// ground elevation (no snow) at a world-space position. Currently only
-// used by lift cable layout if/when the cable should clear ground rather
-// than the snow surface; tree placement uses cell-aligned ground lookup.
+// ground elevation (no snow) at a world-space position.
 func (t *Terrain) InterpolatedGroundElevationAt(wx, wz float32) float32 {
 	const cellSize = float32(5.0)
 	xi, zi, fx, fz := t.bilinearIndices(wx, wz, cellSize)
@@ -285,35 +385,33 @@ func (t *Terrain) TreeDensityAt(wx, wz float32) float32 {
 	return t.Cells[xi][zi].TreeDensity
 }
 
-// SnowAt returns the snow-state scalars at the given world-space XZ
-// point. `depth` is the visible snow-column height (derived from
-// accumulation and packing), not the raw SWE. Used by skier physics
-// to derive effective friction. Out-of-bounds returns groomed-corduroy
-// defaults.
-func (t *Terrain) SnowAt(wx, wz float32) (depth, grooming, packed, ice, mogul float32) {
+// SnowAt returns the snow-state at the given world-space XZ point.
+// depth is the visible snow column height (metres). kind is the top layer's
+// snow kind. Out-of-bounds returns groomed-PackedPowder defaults.
+func (t *Terrain) SnowAt(wx, wz float32) (depth, grooming float32, kind SnowKind, mogul float32) {
 	const cellSize = float32(5.0)
 	xi := int(wx / cellSize)
 	zi := int(wz / cellSize)
 	if !t.InBounds(xi, zi) {
-		// At-bounds default mirrors a freshly-groomed apron: full SWE
-		// converted to depth at Packed=0.5 density.
-		return DefaultSnowAccumulation / SnowDensity(0.5), 1, 0.5, 0, 0
+		return DefaultSnowAccumulation / KindDensity(KindPackedPowder), 1, KindPackedPowder, 0
 	}
 	c := t.Cells[xi][zi]
-	return c.VisibleSnowDepth(), c.Grooming, c.SurfacePacked(), c.SurfaceIce(), c.MogulSize
+	k := KindPowder
+	if top := c.TopLayer(); top != nil {
+		k = top.Kind
+	}
+	return c.VisibleSnowDepth(), c.Grooming, k, c.MogulSize
 }
 
 // NormalAt returns the snow-surface normal at the given (continuous)
 // grid position by bilinear-sampling the surface elevation of neighbouring
-// cells. Skiers ski on the snow, so the surface normal — not the ground
-// normal — is what drives gravity-along-fall-line and the carving terms.
+// cells.
 func (t *Terrain) NormalAt(x, z float32) mgl32.Vec3 {
 	const cellSize = float32(5.0)
 
 	xi := int(x)
 	zi := int(z)
 
-	// clamp to valid range
 	if xi < 0 {
 		xi = 0
 	}
@@ -327,14 +425,10 @@ func (t *Terrain) NormalAt(x, z float32) mgl32.Vec3 {
 		zi = t.Height - 2
 	}
 
-	// sample surface elevations around the point
 	e00 := t.SurfaceElevationAt(xi, zi)
 	e10 := t.SurfaceElevationAt(xi+1, zi)
 	e01 := t.SurfaceElevationAt(xi, zi+1)
 
-	// approximate normal using cross products of grid tangents.
-	// Horizontal step is one cell = cellSize world units; using anything else
-	// distorts the slope angle returned to skier physics.
 	tx := mgl32.Vec3{cellSize, e10 - e00, 0.0}
 	tz := mgl32.Vec3{0.0, e01 - e00, cellSize}
 

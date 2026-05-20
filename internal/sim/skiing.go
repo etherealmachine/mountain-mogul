@@ -2,11 +2,11 @@ package sim
 
 import (
 	"math"
-	"math/rand"
 
 	"github.com/go-gl/mathgl/mgl32"
 	"mountain-mogul/internal/ai"
 	"mountain-mogul/internal/ai/goap"
+	"mountain-mogul/internal/rng"
 	"mountain-mogul/internal/world"
 )
 
@@ -126,18 +126,19 @@ const (
 	// Tree underfoot signal (display-only — controller doesn't branch on it)
 	inTreesThreshold = 0.3
 
-	// Snow wear from skier traffic. Each rate is per-second-of-time-in-cell;
-	// a typical 5 m cell at 10 m/s sees ~0.5 s of traffic per pass, so a
-	// rate of R/s gives ~R/2 per pass. Calibration:
-	//   - grooming wears off in ~100 passes (snowcats refresh on their cycle)
-	//   - default-packed (0.5) saturates to fully packed in ~40 passes
-	//   - mogul fields take ~400 passes to fully form on ungroomed terrain
-	// Mogul growth scales with (1 − Grooming) so fresh corduroy resists
-	// bumps; gated on visible snow depth so aprons and scraped patches stay smooth.
-	groomingWearRate  = 0.02
-	packingRate       = 0.05
-	mogulFormRate     = 0.005
-	mogulMinSnowDepth = 0.3
+	// Snow wear from skier traffic.
+	//   groomingWearRate: Grooming decays at this rate (1/s). ~100 passes wipe
+	//     fresh corduroy; a 5 m cell at 10 m/s sees ~0.5 s per pass.
+	//   trafficRate: SkierTraffic units accumulated per second while skiing.
+	//   trafficThresh*: SkierTraffic thresholds that trigger a kind transition.
+	//   mogulFormRate: mogul growth rate, scaled by (1 − Grooming).
+	groomingWearRate    = 0.02
+	trafficRate         = 1.0  // units/s; ~0.5 units per pass at 10 m/s
+	trafficThreshPowder  = float32(40)  // ~40 passes
+	trafficThreshWindSlab = float32(60)
+	trafficThreshCrust   = float32(20)  // crust shatters quickly
+	mogulFormRate        = 0.005
+	mogulMinSnowDepth    = 0.3
 
 	// patienceGainPerSecSkiing is patience restored per sim-second of
 	// active downhill skiing. Offset against the drain from queuing —
@@ -204,7 +205,7 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 
 	perc := perceive(s.World.Terrain, a, target)
 
-	dec := decide(s.World, s.towersScratch, s.spatial, a, perc, float32(dt), s.Rng)
+	dec := decide(s.World, s.towersScratch, s.spatial, a, perc, float32(dt))
 	if dec.TurnSide != a.TurnSide {
 		a.TurnDwell = 0
 	} else {
@@ -366,12 +367,23 @@ func wearSnowUnderfoot(t *world.Terrain, pos mgl32.Vec3, dt float64) {
 		}
 		dirty = true
 	}
-	if top := c.TopLayer(); top != nil && top.Packed < 1 {
-		top.Packed += float32(packingRate * dt)
-		if top.Packed > 1 {
-			top.Packed = 1
+	// Accumulate traffic and trigger kind transitions at thresholds.
+	c.SkierTraffic += float32(trafficRate * dt)
+	if top := c.TopLayer(); top != nil {
+		var thresh float32
+		switch top.Kind {
+		case world.KindPowder:
+			thresh = trafficThreshPowder
+		case world.KindWindSlab:
+			thresh = trafficThreshWindSlab
+		case world.KindCrust:
+			thresh = trafficThreshCrust
 		}
-		dirty = true
+		if thresh > 0 && c.SkierTraffic >= thresh {
+			top.Kind = world.KindPackedPowder
+			c.SkierTraffic = 0
+			dirty = true
+		}
 	}
 	if c.VisibleSnowDepth() > mogulMinSnowDepth && c.MogulSize < 1 {
 		c.MogulSize += float32(mogulFormRate*dt) * (1 - c.Grooming)
@@ -448,10 +460,10 @@ func perceive(t *world.Terrain, a *world.Guest, target mgl32.Vec3) Perception {
 // brakeAngle > 0 → desired heading is off the fall line → edge friction
 // scrubs speed → speed drops → brakeAngle shrinks → if heading has reached
 // the arc edge on the committed side, flip TurnSide and carve back.
-func decide(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, a *world.Guest, perc Perception, dt float32, rng *rand.Rand) Decision {
+func decide(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, a *world.Guest, perc Perception, dt float32) Decision {
 	axisHeading := composeAxis(perc)
 
-	tactical, obstacleSeen, probeC, probeR, probeL := sampleTactical(w, towers, grid, a, perc, axisHeading, a.LastTactical, rng)
+	tactical, obstacleSeen, probeC, probeR, probeL := sampleTactical(w, towers, grid, a, perc, axisHeading, a.LastTactical)
 
 	// Speed control. Base target from skill/traits, then reduce when trees
 	// are visible in the forward fan — real skiers back off in glades to
@@ -491,7 +503,7 @@ func decide(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, a *world.Gue
 	case brakeAngle < float32(brakeMinForCommit):
 		side = 0
 	case side == 0:
-		side = pickInitialSide(perc, deviation, rng)
+		side = pickInitialSide(perc, deviation)
 	case side > 0 && deviation > brakeAngle*0.85 && dwellSatisfied:
 		side = -1
 	case side < 0 && deviation < -brakeAngle*0.85 && dwellSatisfied:
@@ -566,7 +578,7 @@ func desiredSpeed(traits ai.GuestTraits, perc Perception) float32 {
 // pickInitialSide chooses which way to start a carve when entering the brake
 // regime. Coin-flipped — neither side is privileged. Future work could bias
 // away from terrain boundaries or worse-scoring tactical samples.
-func pickInitialSide(perc Perception, deviation float32, rng *rand.Rand) int8 {
+func pickInitialSide(perc Perception, deviation float32) int8 {
 	// If heading already favours a side, commit to that — avoids an ugly
 	// 180° flip in the first tick of the carve.
 	if deviation > 0.05 {
@@ -575,7 +587,7 @@ func pickInitialSide(perc Perception, deviation float32, rng *rand.Rand) int8 {
 	if deviation < -0.05 {
 		return -1
 	}
-	if rng != nil && rng.Float32() < 0.5 {
+	if rng.Global().Float32() < 0.5 {
 		return -1
 	}
 	return +1
@@ -662,7 +674,7 @@ func hazardDensityAt(t *world.Terrain, towers []mgl32.Vec2, grid *spatialGrid, s
 // score equally — but it's gated on actually seeing an obstacle in the
 // fan. Without that gate the commit bonus would slowly drift the skier
 // off-axis even on a clear slope, since prevTactical is self-perpetuating.
-func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self *world.Guest, perc Perception, axisHeading, prevTactical float32, rng *rand.Rand) (offset float32, obstacleSeen bool, probeC, probeR, probeL float32) {
+func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self *world.Guest, perc Perception, axisHeading, prevTactical float32) (offset float32, obstacleSeen bool, probeC, probeR, probeL float32) {
 	t := w.Terrain
 	horizon := perc.Speed * float32(sampleHorizonSec)
 	if horizon < float32(sampleMinDist) {
@@ -685,7 +697,7 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 	var startGrooming float32
 	prefersGroomed := self != nil && self.Traits.PrefersGroomed
 	if prefersGroomed && t.InBoundsWorld(perc.Pos[0], perc.Pos[2]) {
-		_, startGrooming, _, _, _ = t.SnowAt(perc.Pos[0], perc.Pos[2])
+		_, startGrooming, _, _ = t.SnowAt(perc.Pos[0], perc.Pos[2])
 	}
 
 	// Pass 1: integrate density, boundary hits, and grooming along each
@@ -732,7 +744,7 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 				density = dr
 			}
 			totalDensity += density
-			_, grooming, _, _, _ := t.SnowAt(x, z)
+			_, grooming, _, _ := t.SnowAt(x, z)
 			if prefersGroomed && prevGrooming > 0.5 && grooming < 0.5 {
 				groomEdgeCrossings++
 			}
@@ -794,9 +806,7 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 		// scores either side) gets resolved by the simulation's RNG instead
 		// of by iteration order — otherwise the "first encountered tie wins"
 		// rule biases every run to the same side regardless of seed.
-		if rng != nil {
-			score += (rng.Float32() - 0.5) * 0.001
-		}
+		score += (rng.Global().Float32() - 0.5) * 0.001
 		if score > bestScore {
 			bestScore = score
 			offset = sd.ang
@@ -810,15 +820,13 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 // =============================================================================
 
 // effectiveFriction returns the (base, edge) kinetic friction coefficients
-// at world position (wx, wz), modulated by snow state. The defaults
-// (muBase, muEdge) describe groomed corduroy; each snow scalar shifts the
-// pair toward the real-world feel of that surface.
+// at world position (wx, wz), modulated by snow kind, grooming, and moguls.
+// (muBase, muEdge) are the groomed-corduroy baseline; each modifier shifts
+// them toward the feel of the actual surface.
 //
-// Out-of-bounds positions return groomed defaults (the skier is treated
-// as if standing on corduroy off-map, which is a benign overestimate of
-// control compared with the alternative of zero friction).
+// Out-of-bounds positions return groomed PackedPowder defaults.
 func effectiveFriction(t *world.Terrain, wx, wz float32) (base, edge float64) {
-	_, grooming, packed, ice, mogul := t.SnowAt(wx, wz)
+	depth, grooming, kind, mogul := t.SnowAt(wx, wz)
 	base = muBase
 	edge = muEdge
 
@@ -826,33 +834,24 @@ func effectiveFriction(t *world.Terrain, wx, wz float32) (base, edge float64) {
 	base *= 1 - 0.30*float64(grooming)
 	edge *= 1 + 0.20*float64(grooming)
 
-	// Packed snow: small base reduction, mild edge increase.
-	base *= 1 - 0.10*float64(packed)
-	edge *= 1 + 0.10*float64(packed)
+	// Kind-based friction: each snow type has its own speed and grip character.
+	base *= float64(world.KindBaseMult(kind))
+	edge *= float64(world.KindEdgeMult(kind))
 
-	// Powder (high snow + low packed) is captured via base bump driven by
-	// (1 - packed). True powder also has very low edge hold — you can't
-	// carve, you skid. Gate on having actual snow underfoot.
-	depth, _, pk, _, _ := t.SnowAt(wx, wz)
-	if depth > 0.5 {
-		powderiness := (1 - pk) * clamp32(depth/2.5, 0, 1)
-		base *= 1 + 0.80*float64(powderiness)
-		edge *= 1 - 0.50*float64(powderiness)
+	// Powder: depth-dependent extra drag — shallow powder is floaty but
+	// manageable; deep powder is slow and tiring. Gated on KindPowder so
+	// Cement/Slush drag comes purely from their kind multipliers.
+	if kind == world.KindPowder && depth > 0.5 {
+		depthFactor := float64(clamp32(depth/2.5, 0, 1))
+		base *= 1 + 0.80*depthFactor
+		edge *= 1 - 0.50*depthFactor
 	}
 
-	// Moguls: each bump impact bleeds energy. Modelled as added base
-	// friction (uniform decel) since geometric moguls aren't represented.
+	// Moguls: each bump bleeds energy (uniform decel; geometric moguls not modelled).
 	base *= 1 + 0.60*float64(mogul)
 	edge *= 1 + 0.10*float64(mogul)
 
-	// Ice: tank both — no grip at all. The low edge is what makes ice
-	// scary; the brake angle stops working, so the controller's speed
-	// regulation breaks down on a steep icy face.
-	base *= 1 - 0.50*float64(ice)
-	edge *= 1 - 0.85*float64(ice)
-
-	// Numerical floors so a chain of multiplicative reductions can't go
-	// negative on extreme inputs.
+	// Numerical floors so multiplicative chain can't go negative.
 	if base < 0.005 {
 		base = 0.005
 	}
@@ -1059,8 +1058,7 @@ func ComputeSteeringDebug(w *world.World, a *world.Guest, target mgl32.Vec3) Ste
 	// negligible compared with the per-frame Simulation grid.
 	grid := newSpatialGrid(float32(w.Terrain.Width)*CellSize, float32(w.Terrain.Height)*CellSize)
 	grid.rebuild(w.OnMountain)
-	// nil rng → no jitter, debug shows the deterministic part of the score.
-	dec := decide(w, towers, grid, &clone, perc, 0, nil)
+	dec := decide(w, towers, grid, &clone, perc, 0)
 
 	horizon := perc.Speed * float32(sampleHorizonSec)
 	if horizon < float32(sampleMinDist) {

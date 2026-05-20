@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"math"
-	"math/rand"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
@@ -435,7 +434,7 @@ func runProfile(wallSeconds, scale float64) {
 
 	// Seed a default 10k catchment so the per-Guest demand poll has
 	// someone to draw from. Fixed seed for reproducible profile runs.
-	world.SeedGuests(wld, rand.New(rand.NewSource(1)), world.DefaultGuestPoolSize)
+	world.SeedGuests(wld, 1, world.DefaultGuestPoolSize)
 	wld.History = world.NewHistory()
 
 	s := sim.NewSimulationWithSeed(wld, 1)

@@ -2,12 +2,12 @@ package sim
 
 import (
 	"math"
-	"math/rand"
 	"time"
 
 	"github.com/go-gl/mathgl/mgl32"
 	"mountain-mogul/internal/ai"
 	"mountain-mogul/internal/ai/goap"
+	"mountain-mogul/internal/rng"
 	"mountain-mogul/internal/world"
 )
 
@@ -39,8 +39,6 @@ type Simulation struct {
 	Pathfinder *Pathfinder
 	TimeScale  float64    // simulation speed multiplier (default 4 — ~1 hr per ski season)
 	SimTime    float64    // accumulated sim seconds (post-TimeScale)
-	Rng        *rand.Rand // single source for all gameplay randomness; testbeds seed this for determinism
-
 	// lastSampledDay is the most recent in-game day index whose end has
 	// been written to World.History. Initialised to int(SimTime /
 	// secondsPerSimDay) so a sim loaded mid-day starts recording from
@@ -103,12 +101,11 @@ func NewSimulationWithSeed(w *world.World, seed int64) *Simulation {
 	widthM := float32(w.Terrain.Width) * CellSize
 	heightM := float32(w.Terrain.Height) * CellSize
 	w.Seed = seed
-	rng := rand.New(rand.NewSource(seed))
+	rng.Init(seed)
 	sim := &Simulation{
 		World:          w,
 		Pathfinder:     NewPathfinder(w.Terrain),
 		TimeScale:      4.0,
-		Rng:            rng,
 		Weather:        NewChain(),
 		Planner:        goap.NewPlanner(),
 		Demand:         NewDemandSystem(),
@@ -403,52 +400,304 @@ func (s *Simulation) maybeSampleHistory() {
 		})
 		s.lastSampledDay++
 
-		// Advance weather for the new day and apply snowfall to terrain.
+		// Advance weather for the new day and apply terrain effects.
 		newDay := DateAt(float64(s.lastSampledDay) * secondsPerSimDay)
-		dw := s.Weather.Advance(s.Rng, newDay)
-		if dw.AccumSWE > 0 {
-			s.applySnowfall(dw.AccumSWE)
-		}
+		dw := s.Weather.Advance(newDay)
+		s.applyDailyWeather(dw)
 		if s.OnDayRollover != nil {
 			s.OnDayRollover(s.World)
 		}
 	}
 }
 
-// applySnowfall adds accumSWE metres of snow-water-equivalent to every
-// terrain cell, dilutes Packed toward fresh powder density (0.2), and
-// buries skier tracks proportionally to the snowfall depth.
-func (s *Simulation) applySnowfall(accumSWE float32) {
+// maxLayerStack is the maximum number of snow layers per cell. When a new
+// layer would exceed this, the two oldest are merged (SWE-conserving, keeps
+// the older kind).
+const maxLayerStack = 10
+
+// snowKindForTemp returns the kind of a newly deposited snow layer based on
+// the storm temperature.
+func snowKindForTemp(tempC float32) world.SnowKind {
+	if tempC < -5 {
+		return world.KindPowder
+	}
+	if tempC < -1 {
+		return world.KindPackedPowder
+	}
+	return world.KindCement
+}
+
+// windProbForTemp returns the probability that wind fires on a Clear or
+// Overcast day, driven by temperature as a proxy for winter storminess.
+func windProbForTemp(tempC float32) float32 {
+	if tempC < -5 {
+		return 0.20
+	}
+	if tempC < 0 {
+		return 0.12
+	}
+	return 0.05
+}
+
+// weatherEvent classifies a non-precipitation day into the snow transition
+// events defined in SNOW_IMPROVEMENTS.md.
+type weatherEvent int
+
+const (
+	weatherEventNone      weatherEvent = iota
+	weatherEventRain
+	weatherEventColdClear
+	weatherEventWarmClear
+	weatherEventWind
+)
+
+// kindTransition returns the new snow kind after a non-precipitation event,
+// per the transition matrix in SNOW_IMPROVEMENTS.md.
+func kindTransition(current world.SnowKind, evt weatherEvent) world.SnowKind {
+	switch evt {
+	case weatherEventRain:
+		if current == world.KindSlushCorn {
+			return world.KindSlushCorn
+		}
+		return world.KindCement
+	case weatherEventColdClear:
+		switch current {
+		case world.KindPowder:
+			return world.KindPowder
+		case world.KindPackedPowder:
+			return world.KindCrust
+		default:
+			return world.KindBoilerplate
+		}
+	case weatherEventWarmClear:
+		switch current {
+		case world.KindSlushCorn:
+			return world.KindSlushCorn
+		case world.KindPowder:
+			return world.KindPackedPowder
+		default:
+			return world.KindSlushCorn
+		}
+	case weatherEventWind:
+		if current == world.KindBoilerplate {
+			return world.KindBoilerplate
+		}
+		return world.KindWindSlab
+	}
+	return current
+}
+
+// applyDailyWeather runs all terrain snow effects for one day rollover:
+// snowfall (push new layer), non-precipitation kind transitions, melt, and
+// daily traffic decay.
+func (s *Simulation) applyDailyWeather(dw DayWeather) {
+	t := s.World.Terrain
+
+	// Compute base elevation for lapse-rate melt (minimum ground elevation
+	// = warmest point on the map).
+	baseElev := t.Cells[0][0].GroundElevation
+	for x := range t.Cells {
+		for z := range t.Cells[x] {
+			if e := t.Cells[x][z].GroundElevation; e < baseElev {
+				baseElev = e
+			}
+		}
+	}
+
+	// Stochastic wind roll for Clear and Overcast days.
+	windFired := false
+	if dw.State == WeatherClear || dw.State == WeatherOvercast {
+		windFired = rng.Global().Float32() < windProbForTemp(dw.TempC)
+	}
+
+	switch dw.State {
+	case WeatherLightSnow, WeatherHeavySnow:
+		s.pushSnowLayer(dw)
+	default:
+		// Determine the non-precipitation event type.
+		var evt weatherEvent
+		switch dw.State {
+		case WeatherRain:
+			evt = weatherEventRain
+		case WeatherClear:
+			if windFired {
+				evt = weatherEventWind
+			} else if dw.TempC < 0 {
+				evt = weatherEventColdClear
+			} else {
+				evt = weatherEventWarmClear
+			}
+		case WeatherOvercast:
+			if windFired {
+				evt = weatherEventWind
+			}
+		}
+		if evt != weatherEventNone {
+			s.applyKindTransition(evt)
+		}
+		s.applyMelt(dw, baseElev)
+	}
+
+	// Freeze buried wet layers on any sub-freezing day. Cold penetrates through
+	// the top layer and solidifies saturated snow beneath — slush becomes
+	// boilerplate, cement becomes crust.
+	if dw.TempC < 0 {
+		s.applyBuriedFreeze(dw.TempC, baseElev)
+	}
+
+	// Decay skier traffic on all cells once per day (~4 day half-life).
+	for x := range t.Cells {
+		for z := range t.Cells[x] {
+			t.Cells[x][z].SkierTraffic *= 0.85
+		}
+	}
+
+	t.SnowDirty = true
+}
+
+// pushSnowLayer adds a new snow layer on top of every terrain cell. The
+// layer kind is determined by storm temperature. Grooming is diluted
+// proportionally to the snowfall depth, and skier tracks are buried.
+func (s *Simulation) pushSnowLayer(dw DayWeather) {
+	t := s.World.Terrain
+	kind := snowKindForTemp(dw.TempC)
+	accumSWE := dw.AccumSWE
+
+	// Grooming burial factor: 2 cm SWE fully covers fresh corduroy.
+	const fullBurialSWE = float32(0.02)
+	burialFactor := clamp01(accumSWE / fullBurialSWE)
+
+	for x := range t.Cells {
+		for z := range t.Cells[x] {
+			c := &t.Cells[x][z]
+
+			// If the top layer is the same kind (powder on powder), grow it
+			// in place rather than fragmenting the stack.
+			if top := c.TopLayer(); top != nil && top.Kind == kind {
+				top.Accumulation += accumSWE
+			} else {
+				c.Layers = append(c.Layers, world.SnowLayer{
+					Kind:         kind,
+					Accumulation: accumSWE,
+				})
+				// Enforce stack cap: merge oldest two when over limit.
+				if len(c.Layers) > maxLayerStack {
+					c.Layers[0].Accumulation += c.Layers[1].Accumulation
+					c.Layers = append(c.Layers[:1], c.Layers[2:]...)
+				}
+			}
+
+			c.Grooming *= 1 - burialFactor
+		}
+	}
+
+	// Bury skier tracks. 2 cm SWE fully covers any track.
+	trackFactor := float32(1.0) - burialFactor
+	if trackFactor < 1.0 {
+		t.Surface.DecayTracks(trackFactor)
+	}
+}
+
+// applyKindTransition modifies the top layer's Kind on every terrain cell
+// according to the given non-precipitation weather event.
+func (s *Simulation) applyKindTransition(evt weatherEvent) {
 	t := s.World.Terrain
 	for x := range t.Cells {
 		for z := range t.Cells[x] {
 			c := &t.Cells[x][z]
-			if top := c.TopLayer(); top != nil && top.Kind == world.LayerFreshSnow {
-				// Merge into existing fresh-snow surface layer; dilute packing.
-				oldSWE := top.Accumulation
-				newSWE := oldSWE + accumSWE
-				if newSWE > 0 {
-					top.Packed = (oldSWE*top.Packed + accumSWE*0.2) / newSWE
-				}
-				top.Accumulation = newSWE
-			} else {
-				// New snow on top of a different layer type — push a distinct layer.
-				c.Layers = append(c.Layers, world.SnowLayer{
-					Kind:         world.LayerFreshSnow,
-					Accumulation: accumSWE,
-					Packed:       0.2,
-				})
+			if top := c.TopLayer(); top != nil {
+				top.Kind = kindTransition(top.Kind, evt)
 			}
 		}
 	}
-	t.SnowDirty = true
+}
 
-	// Bury skier tracks under new snow. 2 cm SWE fully covers any track;
-	// light snow (0.3–1.2 cm) fades them proportionally.
-	const fullBurialSWE = float32(0.02)
-	trackFactor := float32(1.0) - clamp01(accumSWE/fullBurialSWE)
-	if trackFactor < 1.0 {
-		t.Surface.DecayTracks(trackFactor)
+// applyBuriedFreeze converts wet snow kinds in the sub-surface layer to their
+// frozen equivalents when the lapse-rate-adjusted temperature is below freezing.
+// Only the layer immediately below the surface is affected — the top layer acts
+// as insulation, but cold still penetrates and solidifies saturated snow beneath.
+//
+//   SlushCorn  → Boilerplate  (liquid-saturated slush freezes to hard ice)
+//   Cement     → Crust        (dense wet snow hardens into a surface glaze)
+func (s *Simulation) applyBuriedFreeze(tempC, baseElev float32) {
+	t := s.World.Terrain
+	for x := range t.Cells {
+		for z := range t.Cells[x] {
+			c := &t.Cells[x][z]
+			n := len(c.Layers)
+			if n < 2 {
+				continue
+			}
+			localTemp := tempC - lapseRate*(c.GroundElevation-baseElev)
+			if localTemp >= 0 {
+				continue
+			}
+			buried := &c.Layers[n-2]
+			switch buried.Kind {
+			case world.KindSlushCorn:
+				buried.Kind = world.KindBoilerplate
+			case world.KindCement:
+				buried.Kind = world.KindCrust
+			}
+		}
+	}
+}
+
+const (
+	// lapseRate is the temperature drop per metre of elevation gain (°C/m).
+	lapseRate = float32(0.0065)
+	// meltRate is metres SWE melted per °C above 0 per day.
+	meltRate = float32(0.02)
+	// rainMeltPerMM is additional melt per millimetre of rain (m SWE/mm).
+	rainMeltPerMM = float32(0.001)
+)
+
+// applyMelt reduces snow accumulation on warm days using a per-cell
+// effective temperature derived from the standard atmospheric lapse rate.
+// Low-elevation cells melt first; high peaks persist into late spring.
+// When a layer fully melts, it is popped; grooming and moguls clear when
+// the surface layer is lost.
+func (s *Simulation) applyMelt(dw DayWeather, baseElev float32) {
+	rainMelt := dw.RainMM * rainMeltPerMM
+	t := s.World.Terrain
+
+	for x := range t.Cells {
+		for z := range t.Cells[x] {
+			c := &t.Cells[x][z]
+			if len(c.Layers) == 0 {
+				continue
+			}
+
+			// Effective temperature at this cell's elevation.
+			effTemp := dw.TempC - lapseRate*(c.GroundElevation-baseElev)
+
+			totalMelt := rainMelt
+			if effTemp > 0 {
+				totalMelt += meltRate * effTemp
+			}
+			if totalMelt <= 0 {
+				continue
+			}
+
+			origLen := len(c.Layers)
+			melt := totalMelt
+			for melt > 0 && len(c.Layers) > 0 {
+				top := &c.Layers[len(c.Layers)-1]
+				if top.Accumulation <= melt {
+					melt -= top.Accumulation
+					c.Layers = c.Layers[:len(c.Layers)-1]
+				} else {
+					top.Accumulation -= melt
+					melt = 0
+				}
+			}
+
+			// Surface layer changed — grooming and moguls belong to it.
+			if len(c.Layers) < origLen {
+				c.Grooming = 0
+				c.MogulSize = 0
+			}
+		}
 	}
 }
 

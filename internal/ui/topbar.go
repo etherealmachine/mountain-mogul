@@ -24,7 +24,7 @@ type TopBar struct {
 	// Date + weather snapshot. Same callback pattern as stats so the bar
 	// doesn't hold any simulation state of its own.
 	GetDate    func() (day int, month string, year int)
-	GetWeather func() (now, next WeatherKind, tempF int)
+	GetWeather func() []ForecastDay
 
 	// Speed-control buttons — index-aligned with SpeedOptions in the
 	// scenario. The scenario sets active state through SetSpeedActive /
@@ -36,6 +36,12 @@ type TopBar struct {
 	chartsBtn  *iconButton // chart-window toggle; sits next to overlay
 
 	bgColor mgl32.Vec4
+}
+
+// ForecastDay is one slot in the 5-day forecast strip.
+type ForecastDay struct {
+	Weather WeatherKind
+	TempF   int
 }
 
 // NewTopBar creates a top bar at (y=0, h=h). The bar fills the full screen
@@ -286,8 +292,9 @@ func (t *TopBar) drawStats(r *render.Renderer) {
 	}
 }
 
-// drawCenter renders the date stacked above the weather strip in the
-// horizontal middle of the bar.
+// drawCenter renders the date above a 5-day forecast strip in the horizontal
+// middle of the bar. Each day shows a weather icon with its temperature below.
+// Today's column is highlighted.
 func (t *TopBar) drawCenter(r *render.Renderer, screenW float32) {
 	if r.Font == nil {
 		return
@@ -306,25 +313,45 @@ func (t *TopBar) drawCenter(r *render.Renderer, screenW float32) {
 		r.Font.DrawText(r, dateText, dateX, dateY, col)
 	}
 
-	// Weather row: temp text   [iconNow]  →  [iconNext]
 	if t.GetWeather == nil {
 		return
 	}
-	const iconSize = float32(22)
-	now, next, tempF := t.GetWeather()
-	tempText := fmt.Sprintf("%d F", tempF)
-	tempW := float32(len(tempText) * render.GlyphAdvance)
-	gap := float32(8)
-	rowW := tempW + gap + iconSize + gap + iconSize + gap + iconSize
-	rowX := (screenW - rowW) / 2
-	rowY := t.Y + t.H*0.55
-	r.Font.DrawText(r, tempText, rowX, rowY+(iconSize-float32(render.GlyphH))/2, dim)
-	cur := rowX + tempW + gap
-	DrawWeatherIcon(r, now, cur, rowY, iconSize)
-	cur += iconSize + gap
-	IconArrow(r, cur, rowY, iconSize, dim)
-	cur += iconSize + gap
-	DrawWeatherIcon(r, next, cur, rowY, iconSize)
+	days := t.GetWeather()
+	n := len(days)
+	if n == 0 {
+		return
+	}
+	if n > 5 {
+		n = 5
+	}
+
+	const (
+		iconSize = float32(20)
+		colW     = float32(44)
+		colGap   = float32(6)
+	)
+	stripW := float32(n)*colW + float32(n-1)*colGap
+	startX := (screenW - stripW) / 2
+	iconY := t.Y + t.H*0.46
+	tempY := t.Y + t.H*0.72
+
+	for i := 0; i < n; i++ {
+		d := days[i]
+		cx := startX + float32(i)*(colW+colGap)
+
+		// Subtle background highlight on today.
+		if i == 0 {
+			r.DrawColorRect(cx-1, t.Y+2, colW+2, t.H-4, mgl32.Vec4{0.16, 0.20, 0.32, 0.85})
+		}
+
+		// Weather icon, centred horizontally in the column.
+		DrawWeatherIcon(r, d.Weather, cx+(colW-iconSize)/2, iconY, iconSize)
+
+		// Temperature centred in the column.
+		tempText := fmt.Sprintf("%d", d.TempF)
+		tempW := float32(len(tempText) * render.GlyphAdvance)
+		r.Font.DrawText(r, tempText, cx+(colW-tempW)/2, tempY, dim)
+	}
 }
 
 // drawRight renders the speed/pause/gear icon row.
@@ -384,11 +411,11 @@ func (t *TopBar) drawIconButton(r *render.Renderer, b *iconButton) {
 // paths here are different enough that subclassing ui.Button would be more
 // confusing than a parallel type.
 type iconButton struct {
-	kind          string // "pause", "play", "ff2", "ff4", "gear"
-	x, y, w, h    float32
-	hovered       bool
-	active        bool
-	onClick       func()
+	kind       string // "pause", "play", "ff2", "ff4", "gear"
+	x, y, w, h float32
+	hovered    bool
+	active     bool
+	onClick    func()
 }
 
 func newIconButton(kind string, onClick func()) *iconButton {

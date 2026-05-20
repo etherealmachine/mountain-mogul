@@ -1,15 +1,6 @@
-# Snow system
+# Snow System
 
-The terrain is two stacked structures — ground (rock/dirt) and a snow column
-on top whose depth and state vary across the map and evolve over time. The
-snow column is itself a **stack of layers**, one per depositional event (storm,
-rain, freeze cycle). Most of the game reads the *surface* (ground + total snow
-depth); only a few things care about the ground beneath.
-
-Snow type is represented as independent per-layer scalars plus two cell-level
-surface modifiers (Grooming, MogulSize), not a discrete enum, so transitions
-and gradients are continuous and "type" labels (corduroy, powder, moguls, ice)
-are emergent rather than authored.
+The terrain is two stacked structures — ground (rock/dirt) and a snow column on top whose depth and character vary across the map and evolve over time. The snow column is a **stack of layers**, one per depositional event or major transition. Most of the game reads the *surface* (ground + total snow depth); only a few things care about what is buried beneath.
 
 ## Elevation contract
 
@@ -17,404 +8,259 @@ are emergent rather than authored.
 SurfaceElevation = GroundElevation + SnowDepth
 ```
 
-| Reader                                       | Reads    |
-| -------------------------------------------- | -------- |
-| Visible terrain mesh (`buildTerrainVerts`)   | Surface  |
-| Skier physics — `apply` integrator           | Surface  |
-| Skier perception — `NormalAt`                | Surface  |
-| Skier targets — lift base, lodge door        | Surface  |
-| Lift cable, lift towers, lift station meshes | Surface  |
-| Lodge mesh                                   | Surface  |
-| Pathfinder agent position during walking     | Surface  |
-| Decorative objects (trees, rocks, stumps)    | Ground † |
-| Editor "raise/lower terrain" brush           | Ground   |
-| Apron pass (lift, lodge)                     | Ground ‡ |
-| Real-world heightmap import                  | Ground   |
+| Reader | Reads |
+|--------|-------|
+| Visible terrain mesh | Surface |
+| Skier physics integrator | Surface |
+| Skier perception (`NormalAt`) | Surface |
+| Skier targets (lift base, lodge door) | Surface |
+| Lift cable, towers, stations | Surface |
+| Lodge mesh | Surface |
+| Pathfinder (walking agents) | Surface |
+| Decorative objects (trees, rocks) | Ground † |
+| Editor raise/lower brush | Ground |
+| Apron pass (lift, lodge) | Ground ‡ |
+| Heightmap import | Ground |
 
-† Trees and decorative objects anchor at `min(SnowDepth, 1.5 m)` above ground.
-The terrain mesh, which sits at `Ground + SnowDepth`, occludes the buried
-portion of the trunk via the depth buffer. Capping the anchor at 1.5 m means
-deep snow buries more of the trunk visually while still leaving most of the
-tree visible.
+† Trees anchor at `min(SnowDepth, 1.5 m)` above ground so deep snow visually buries the trunk without fully hiding the tree.
 
-‡ The apron raises ground to make a graded earthwork pad — same convention as
-real lift stations, which sit on built-up benches rather than notched into the
-hillside.
+‡ The apron raises ground to form a graded earthwork pad, matching how real lift stations sit on built-up benches.
 
-## Snow-state model
+---
 
-### Layer stack
+## Snow kinds
 
-Each cell stores a `[]SnowLayer` — oldest (deepest) at index 0, surface at
-the end. A `SnowLayer` has:
+Seven named kinds are the sole discriminator for density, physics, and rendering behaviour. Continuous `Packed` and `Ice` scalars are gone; each Kind carries fixed constants instead.
 
-| Field         | Range  | Meaning                                  |
-| ------------- | ------ | ---------------------------------------- |
-| `Accumulation`| metres | SWE of this layer (conserved under pack) |
-| `Packed`      | 0..1   | Column density (0=fluffy, 1=bulletproof) |
-| `Ice`         | 0..1   | Ice fraction in this layer               |
-| `Kind`        | enum   | How the layer was deposited (see below)  |
+| Kind | Density | Base friction | Edge grip | Shader packed | Shader ice |
+|------|---------|---------------|-----------|---------------|------------|
+| Powder | 0.15 | +80 % drag | −50 % | 0.05 | 0.00 |
+| Packed Powder | 0.50 | baseline | baseline | 0.85 | 0.00 |
+| Cement | 0.65 | +30 % drag | −10 % | 0.55 | 0.00 |
+| Wind Slab | 0.55 | −10 % (fast) | −20 % | 0.50 | 0.10 |
+| Crust | 0.60 | −20 % (fast) | −50 % | 0.65 | 0.40 |
+| Boilerplate | 0.90 | −50 % (very fast) | −85 % | 0.95 | 0.90 |
+| Slush/Corn | 0.55 | +40 % drag | −10 % | 0.45 | 0.00 |
 
-Layer kinds: `LayerFreshSnow`, `LayerWetSnow`, `LayerIceRain`, `LayerWindSlab`.
+"Shader packed" and "Shader ice" are written into the `aSnow` vertex attribute `(Grooming, Packed, Ice, MogulSize)` via `KindShaderPacked(k)` and `KindShaderIce(k)`. The terrain shader is unchanged — it still reads those two slots, but they are now kind-derived constants rather than per-layer scalars.
 
-### Cell-level surface modifiers
+`Grooming` modifies the baseline regardless of Kind:
+- Base friction × (1 − 0.30 × Grooming)
+- Edge grip × (1 + 0.20 × Grooming)
 
-Two scalars live on `Cell` (not in any layer) because they describe the
-current *surface state* rather than a depositional event:
+---
 
-| Field       | Range | Meaning                               | Default |
-| ----------- | ----- | ------------------------------------- | ------- |
-| `Grooming`  | 0..1  | Recency/intensity of cat-track passes | 0       |
-| `MogulSize` | 0..1  | Mogul amplitude                       | 0       |
+## Layer stack
 
-### Derived surface properties
-
-All physics and rendering consume *derived* values from the layer stack:
-
-| Method              | Derived from                                         |
-| ------------------- | ---------------------------------------------------- |
-| `TotalSWE()`        | Sum of all layer Accumulations                       |
-| `VisibleSnowDepth()`| Sum of per-layer `Accumulation / SnowDensity(Packed)`|
-| `SurfacePacked()`   | Top layer's `Packed` (0 if no layers)                |
-| `SurfaceIce()`      | Top layer's `Ice` (0 if no layers)                   |
-| `SurfaceElevation()`| `GroundElevation + VisibleSnowDepth()`               |
-
-**Emergent "types":**
-
-- *Corduroy:* `Grooming` high, `MogulSize` low, top-layer `Packed` = 1.
-- *Powder:* `VisibleSnowDepth` high, top-layer `Packed` low.
-- *Moguls:* `Grooming` low + skier traffic → `MogulSize` rises.
-- *Boilerplate ice:* top-layer `Ice` high + `VisibleSnowDepth` low.
-
-SWE is conserved per layer. When `Packed` rises (traffic or grooming), the
-layer's visible depth shrinks automatically:
-`depth = Accumulation / SnowDensity(Packed)`.
-
-`NewTerrain` seeds each cell with a single `LayerFreshSnow` layer at
-`Accumulation = 0.64 m SWE, Packed = 0.2` — ~2.0 m visible depth.
-
-## Scenario editor — snow layer management
-
-The editor's **Auto** tool manages the initial layer stack for a scenario.
-Two operations are available below the auto-gen sliders:
-
-**+ Add Storm** — runs the terrain-aware snowgen algorithm with the current
-slider settings and pushes a new `LayerFreshSnow` layer on top of every
-cell's existing stack. Existing layers are preserved underneath. Total
-visible depth increases. Use this to represent distinct storm events
-(e.g. "4 ft opening dump, then 2 ft follow-up").
-
-**Clear Snow** — removes all snow layers from every cell (bare ground).
-
-**Live preview (slider drag)** — adjusting any auto-gen slider calls
-`generateSnowCover`, which *replaces* all layers with a single fresh
-base layer. This is intentional: the live preview is for establishing
-the base snowpack distribution. Use "Add Storm" after landing on a base
-to stack additional events on top.
-
-**Hover tooltip** — when the Auto tool is active and the mouse is over
-the terrain, a HUD box in the top-right corner shows the hovered cell's
-layer breakdown (kind, visible depth, packed, ice for each layer, newest
-on top).
-
-### Scene code
-- `scene.AddSnowLayer` / `addSnowLayerCached` — push variant (used by "Add Storm")
-- `scene.GenerateSnowCover` / `generateSnowCover` — replace variant (used by live preview)
-- Both share `applySnowAccum` as the inner per-cell computation kernel
-
-## Apron pass
-
-When a lift or a lodge is placed, an apron pass runs once over the cells
-within a structure-specific footprint. The apron:
-
-1. Raises `GroundElevation` toward a target (station footing + buildup),
-   raise-only, with smoothstep falloff on the outer edges. Lifts get a
-   40 × 24 m rectangle aligned with the cable axis; lodges get a 24 × 24 m
-   square.
-2. Clamps `SnowDepth` to ~5 cm (a thin packed pad). This is what the
-   renderer keys off to suppress vertex jitter — thin snow → smooth-read
-   terrain.
-3. Raises `Packed` to the falloff weight (full inside, fading to zero at
-   the edge). Aprons are foot-tracked and machine-compacted, so they read
-   as packed flat snow — not corduroyed. `Grooming` is deliberately NOT
-   raised; if the player grooms over the apron later, that's their choice.
-4. Zeros `MogulSize` and `Ice` proportionally to the weight.
-
-The apron is a one-shot terrain edit at placement time. Save loading does
-*not* re-apply it — the apron-edited cell state is what's serialised, so
-loading a save reconstructs the apron faithfully without re-mutating.
-
-Both pass through a shared `buildStationApron` helper in `internal/scene/
-scenario.go`. Adding a new structure type means: add a placement-effects
-function that picks footprint + axis + buildup and calls the helper.
-
-## Skier traffic wear
-
-`internal/sim/skiing.go::wearSnowUnderfoot` runs once per skier per tick
-on the cell beneath the agent. It mutates the cell's **top layer and
-surface modifiers**:
-
-| Target                  | Rate                  | Effect                                   |
-| ----------------------- | --------------------- | ---------------------------------------- |
-| `Grooming` (cell)       | −0.02/s               | Skis cut up the corduroy; ~100 passes wipe out fresh grooming |
-| `TopLayer().Packed`     | +0.05/s               | Boots and edges compact the top layer; ~40 passes saturate from 0.5 |
-| `VisibleSnowDepth`      | coupled               | Drops automatically as top-layer Packed rises (SWE conserved) |
-| `MogulSize` (cell)      | +0.005·(1−Grooming)/s | Ungroomed cells slowly mogul up; corduroy resists bumps |
-
-Mogul growth is gated on `VisibleSnowDepth() > 0.3 m`. Fallen,
-walking, queueing, and on-lift agents don't run this — only active
-skiing in `tickSkier`.
-
-The snowcat fleet sets `Grooming = 1.0` and `TopLayer().Packed = 1.0`
-on each groomed cell, so a heavily-trafficked piste reaches a dynamic
-equilibrium between wear and grooming throughput.
-
-### Snow-water-equivalent coupling
-
-Each layer uses a linear density model:
-
-```
-density(Packed) = 0.15 + 0.85 × Packed
-VisibleDepth    = Accumulation / density(Packed)
-```
-
-The 0.15→1.0 ratio (~6.7×) is exaggerated vs. real snow but picked so
-the groomed/powder boundary step is readable in a near-top-down view.
-
-When `Packed` changes (traffic or grooming), `Accumulation` stays the
-same — only the visible depth of that layer shrinks. The effective
-change is:
-
-```
-VisibleDepth_new = Accumulation / density(Packed_new)
-```
-
-Concrete effects on a single `LayerFreshSnow` layer starting at
-`Accumulation = 0.64, Packed = 0.2` (~2.0 m visible):
-
-- Groomed by a cat: Packed → 1.0, depth → 0.64 m. Step vs. ungroomed
-  shoulder = 1.36 m.
-- 4 skier passes (≈2 s): Packed 0.2 → 0.3, depth 2.0 → ~1.56 m —
-  a 44 cm visible dimple from light traffic alone.
-
-Aprons (lift, lodge) write the top layer's `Packed = 1.0` and scale
-down `Accumulation` in the inner zone — they represent graded earthwork,
-not a groomed snow layer.
-
-## Rendering
-
-The terrain mesh's vertex layout carries four snow-state scalars per vertex,
-packed as `vec4 aSnow = (Grooming, Packed, Ice, MogulSize)` at attribute 4
-(stride 12 floats per vertex). Per-corner sampling: vertex at grid corner
-`(x, z)` reads the cell at the same indices (clamped to the visible mesh's
-`(W-1)×(H-1)` interior cells), so each cell contributes its snow state to
-the four corners of its quad.
-
-`assets/shaders/terrain.frag` consumes them:
-
-- **Grooming** drives a 4-stripes-per-metre corduroy sine oriented along
-  the contour (perpendicular to the local fall line). The fall direction
-  comes from the heavily filtered per-vertex `smoothNormal` (5-tap
-  binomial × 2 passes on the elevation grid, then central differences),
-  interpolated per fragment — so the stripes smoothly curve with the
-  terrain instead of fragmenting at triangle edges. Faded in over the
-  slope range `|N.xz| ∈ [0.05, 0.15]` (~3° to ~9°) so flat aprons don't
-  pick up noise-rotated direction from near-zero gradients. Amplitude
-  scales with `Grooming`; gated off on cliffs and skirts. A subtle
-  value-noise grain and a cool tint also key off `Grooming` to mark
-  groomed surfaces beyond the cords themselves.
-- **Packed** mixes a bluer cool tint into the base color (~20 % at full).
-- **MogulSize** modulates brightness via a two-octave value-noise at ~3 m
-  feature size, simulating the highlight/shadow pattern of bumps without
-  actually displacing geometry.
-- **Ice** boosts the existing sparkle gate, adds a broader specular lobe
-  with a silver-blue tint, and dramatically raises overall specular intensity.
-
-Skirt walls and the floor face emit `aSnow = (0, 0, 0, 0)` so none of the
-snow effects bleed onto the cliff sides or the underside of the diorama.
-
-## Surface detail texture
-
-A 1 m-resolution RGBA8 texture mirroring the terrain, written by the
-simulation and sampled in `terrain.frag`, so we can render sub-cell
-features the 5 m mesh can't carry: skier tracks, tree wells, sharper
-groomed/ungroomed edges. Complements (not replaces) the per-vertex snow
-scalars above — the texture says *where* the special features are; FBM
-gives the high-frequency surface noise everywhere else.
-
-Resolution is **5× finer than the terrain cell grid**. For a 60×60
-terrain (300 m square) that's 300² pixels × 4 bytes ≈ 360 KB.
-
-`world.SurfaceDetail` lives on `Terrain`, alongside `Cells`:
+Each cell (`world.Cell`) stores `[]SnowLayer` — oldest (deepest) at index 0, surface at the end.
 
 ```go
-type SurfaceDetail struct {
-    PxWidth, PxHeight int     // = Width*5, Height*5
-    Pixels            []uint8 // flat RGBA8, row-major
-    Dirty             bool
-    DirtyBox          image.Rectangle // px-space; expanded by writers
+type SnowLayer struct {
+    Accumulation float32  // metres SWE; conserved as kind transitions
+    Kind         SnowKind
 }
 ```
 
-Channels:
+`Packed` and `Ice` are gone. `Accumulation` is SWE (snow-water-equivalent in metres); visible depth is `Accumulation / KindDensity(Kind)`.
 
-| ch | meaning          | written by                        | persistence           |
-|----|------------------|-----------------------------------|-----------------------|
-| R  | track intensity  | sim, per skiing guest per substep | decays in sim time    |
-| G  | tree-well depth  | world, on tree placement/removal  | persistent until edit |
-| B  | groom-edge mask  | derived from `Cells[*].Grooming`  | recomputed on dirty   |
-| A  | reserved         | —                                 | —                     |
+### Cell-level surface modifiers
 
-Not saved. `SurfaceDetail` is fully re-derivable on load: G is stamped from
-the saved `TreeDensity` field, B is recomputed from the saved `Grooming`
-field, and R resets to zero — equivalent to "morning after fresh snow."
+Two scalars live on `Cell` rather than in any layer because they describe the current surface state, not a depositional event:
 
-### Tree wells (G)
+| Field | Range | Meaning | Default |
+|-------|-------|---------|---------|
+| `Grooming` | 0..1 | Recency/intensity of snowcat passes | 0 |
+| `MogulSize` | 0..1 | Mogul amplitude | 0 |
+| `SkierTraffic` | float32 | Accumulated skier passes; drives kind transitions | 0 |
 
-`Terrain.RestampTreeWells()` iterates cells with `TreeDensity > 0`,
-writes a Gaussian-falloff radial disk (~2 m radius, peak 1.0) into G at
-each tree's world XZ. Called from `installWorld` after load,
-`GenerateTreeCover`, and `applyTool` for the Glade / Plant brushes.
+### Derived surface properties
 
-### Groom-edge mask (B)
+| Method | Derived from |
+|--------|--------------|
+| `TotalSWE()` | Sum of all layer Accumulations |
+| `VisibleSnowDepth()` | Σ `Accumulation / KindDensity(Kind)` per layer |
+| `SurfacePacked()` | `KindShaderPacked(top.Kind)` |
+| `SurfaceIce()` | `KindShaderIce(top.Kind)` |
+| `SurfaceElevation()` | `GroundElevation + VisibleSnowDepth()` |
+| `SnowAt(x, z)` | `(depth, grooming, kind, mogulSize)` — one-call surface query |
 
-`Terrain.RecomputeGroomEdges()` single-pass scan over the buffer. For each
-1 m pixel, look up its parent cell's `Grooming`; if any 4-neighbour cell
-differs, write `B = 1 − distToEdge/1m`. Runs on the same dirty signal as
-`Terrain.SnowDirty`, set whenever grooming changes.
+### Stack cap
 
-### Skier tracks (R)
+The stack is capped at 10 layers. When a push would exceed this, the two oldest layers are merged (SWE-conserving, keeping the older layer's Kind).
 
-`Terrain.SplatTrack(wx, wz, intensity)` — additive 3×3 disk, capped at 255.
-Hooked in `sim.tickSkier`: per-substep, only when the guest is actually
-skiing (`!Fallen && OnLiftID == 0 && !Queued && Speed > minSpeed`). Segments
-are interpolated between last and current positions so fast guests leave
-continuous lines instead of dotted ones.
+---
 
-Decay piggybacks on the 30 s demand cadence — one linear pass over R
-multiplying by `0.985` (≈30-min half-life in sim time). Snowcat grooming
-zeros R inside the cat's footprint each tick.
+## Weather-driven transitions
 
-### GPU mirror
+See WEATHER.md for the full daily rollover sequence. Snow-relevant effects:
 
-```go
-SnowSurfaceTex uint32 // RGBA8, GL_LINEAR, GL_CLAMP_TO_EDGE
+### Snowfall — push a new layer
+
+A new layer is pushed on top; its Kind depends on storm temperature:
+
+| Storm TempC | Kind |
+|-------------|------|
+| < −5 °C | Powder |
+| −5 to −1 °C | Packed Powder |
+| −1 to 0 °C (clamped) | Cement |
+
+If the top layer already matches the incoming Kind, accumulation is added in-place (no new entry) — consecutive powder storms build one deep powder layer.
+
+Grooming is diluted: `Grooming *= 1 − min(1, accumSWE / 0.02)`. Two centimetres SWE fully buries any groomed surface.
+
+### Non-precipitation — transition matrix
+
+The **top layer's Kind** changes based on a weather event. The layer below is untouched (unless buried freeze fires — see below).
+
+| Current Kind | Rain | Cold Clear | Warm Clear | Wind |
+|--------------|------|------------|------------|------|
+| Powder | Cement | Powder | Packed Powder | Wind Slab |
+| Packed Powder | Cement | Crust | Slush/Corn | Wind Slab |
+| Cement | Cement | Boilerplate | Slush/Corn | Wind Slab |
+| Wind Slab | Cement | Boilerplate | Slush/Corn | Wind Slab |
+| Crust | Cement | Boilerplate | Slush/Corn | Wind Slab |
+| Boilerplate | Cement | Boilerplate | Slush/Corn | Boilerplate |
+| Slush/Corn | Slush/Corn | Boilerplate | Slush/Corn | Wind Slab |
+
+Key patterns:
+- **Rain** saturates everything → Cement. Slush/Corn stays (already saturated).
+- **Cold Clear** hardens → Crust or Boilerplate.
+- **Warm Clear** softens → Slush/Corn.
+- **Wind** consolidates → Wind Slab. Boilerplate is too hard to reorganise.
+- **Overcast** (no wind) → no change.
+
+### Buried freeze
+
+On any day with `TempC < 0`, the layer **immediately below the surface** is checked on every cell. If that buried layer is wet or saturated, it freezes:
+
+- **Slush/Corn → Boilerplate** — liquid-saturated snow solidifies to hard ice.
+- **Cement → Crust** — dense wet snow hardens into a breakable glaze.
+
+The freeze threshold is lapse-rate adjusted per cell: higher-elevation cells freeze more aggressively under the same forecast temperature. This naturally models the "powder on top, boilerplate underneath" condition that develops after a warm spell followed by a cold storm.
+
+### Melt
+
+On days with locally positive temperature (after lapse-rate adjustment), the top layer loses SWE:
+
+```
+meltSWE = 0.02 m/°C/day × effectiveTempC
 ```
 
-- `Renderer.BuildSnowSurfaceTex(t *world.Terrain)` — initial upload from
-  `installWorld` after `BuildTerrainMesh`.
-- `Renderer.FlushSnowSurface(t *world.Terrain)` — `glTexSubImage2D` over
-  `DirtyBox`; clears `Dirty`. Called from `Scenario.Update` next to the
-  existing `FlushSnowState` block.
+Rain days add `0.001 m SWE / mm` of rainfall. Melt cascades through layers if the top layer is exhausted, popping empty layers and exposing older snow or bare ground. Grooming and MogulSize on a popped layer are cleared proportionally.
 
-### Shader integration (`terrain.frag`)
+---
 
-Sampler at texture unit 1:
+## Skier traffic — kind transitions
 
-```glsl
-uniform sampler2D uSnowSurface;
-uniform vec2      uWorldSize; // (Width*5, Height*5) in metres
+Each active-skiing tick accumulates `SkierTraffic` on the cell underfoot. When the counter crosses a per-kind threshold, the top layer transitions and the counter resets:
 
-vec4 surf = texture(uSnowSurface, vWorldPos.xz / uWorldSize);
-float track = surf.r;
-float well  = surf.g;
-float edge  = surf.b;
-```
+| Current Kind | Threshold | Transitions to |
+|--------------|-----------|----------------|
+| Powder | ~40 passes | Packed Powder |
+| Wind Slab | ~60 passes | Packed Powder |
+| Crust | ~20 passes | Packed Powder |
+| Packed Powder, Cement, Boilerplate, Slush/Corn | — | (no traffic transition) |
 
-Effects per channel:
+`SkierTraffic` decays 15 % per in-game day (~4-day half-life) so untrafficked runs reset between busy periods.
 
-- **Tracks (R):** increase local `packed` toward 1; darken snow colour ~3 %;
-  kick `Nshading` along ∇R (finite-difference 4-sample) to produce the
-  carved-groove silhouette without storing heading separately.
-- **Tree wells (G):** subtract `0.5 · well` metres from `vSnowDepth` so
-  `snowness` drops at the well centre; add a downward bump to `Nshading`
-  proportional to ∇G.
-- **Groom edge (B):** add a thin bright-white lip on the powder side and a
-  slightly darker line on the groomed side; replaces the current soft 2-cell
-  ramp with a crisper boundary.
+`Grooming` decays at −0.02/s from skier passes (unchanged). `MogulSize` grows +0.005·(1−Grooming)/s when `VisibleSnowDepth > 0.3 m` (unchanged).
 
-### FBM extension (independent)
+---
 
-Replace each single `valueNoise` call in `terrain.frag`'s powder/mogul
-kicks with a 3-octave FBM (×1, ×2, ×4 frequency; amplitudes ×1, ×0.5,
-×0.25). ~6 extra `valueNoise()` calls per fragment. Pure shader change,
-ships independently of the surface-detail texture.
+## Snowcat grooming
 
-### Implementation order
+When a snowcat grooms a cell (`sim/snowcats.go`):
 
-1. **Infrastructure** — `SurfaceDetail` struct + accessors, GPU build/flush,
-   shader uniform, debug overlay (one channel per colour). No effects yet.
-2. **Tree wells** — validates the write→upload→sample loop; visible in the
-   overlay immediately.
-3. **Groom-edge mask + shader lip** — replaces the soft 2-cell ramp.
-4. **Skier tracks** — splat in `tickSkier`, decay on demand cadence, clear on
-   cat groom. Most exciting visually; hottest code path, so it's last.
-5. **FBM extension** — can ship at any point.
+- Top layer Kind → **Packed Powder**
+- `Grooming` → 1.0
+- `SkierTraffic` → 0
 
-Channel A is reserved for ice patches at lift bases, herringbone marks,
-footprints from non-skiing guests, and fresh-snow brightening over
-tracked-out regions.
+Grooming sets Kind rather than raising a Packed scalar. A freshly groomed run is definitively Packed Powder regardless of what Kind it was before.
 
-## Physics
+---
 
-`internal/sim/skiing.go::effectiveFriction` samples snow state at the
-skier's position and modulates the base/edge friction coefficients used by
-the integrator. Effects, expressed as multipliers on the corduroy baseline
-`(muBase, muEdge)`:
+## Apron pass
 
-| Field       | Base friction | Edge friction | Notes                                   |
-| ----------- | ------------- | ------------- | --------------------------------------- |
-| `Grooming`  | × (1 − 0.30g) | × (1 + 0.20g) | Glide + grip — clean carves             |
-| `Packed`    | × (1 − 0.10p) | × (1 + 0.10p) | Mild glide + grip                       |
-| Powder gate | × (1 + 0.80w) | × (1 − 0.50w) | `w = (1−packed)·clamp(depth/2.5)`; depth>0.5 only |
-| `MogulSize` | × (1 + 0.60m) | × (1 + 0.10m) | Uniform bleed (geometric moguls not yet there) |
-| `Ice`       | × (1 − 0.50i) | × (1 − 0.85i) | Both tank — the brake angle stops working |
+When a lift or lodge is placed, a one-shot apron pass runs over the structure's footprint:
 
-Numerical floors prevent extreme inputs from driving friction to zero.
+1. Raises `GroundElevation` toward a target with smoothstep falloff at the edges.
+2. Clamps snow depth to ~5 cm (thin packed pad).
+3. Sets top layer Kind → **Packed Powder**, weight-scaled by the falloff.
+4. Zeros `MogulSize` proportionally.
 
-Skier perception (`NormalAt`) reads the snow surface, so steep snow drifts
-deflect the perceived fall line correctly. There are no other snow-aware
-hooks in perception or behavior yet — glade tolerance, "powder hunting"
-goals, and ice-avoidance traits are roadmap items.
+The apron is a terrain edit; it is serialised into the save and not re-applied on load.
+
+---
+
+## Rendering
+
+The terrain vertex carries `aSnow = (Grooming, Packed, Ice, MogulSize)` at attribute 4. `Packed` and `Ice` are derived from the top layer's Kind via `SurfacePacked()` and `SurfaceIce()`. The terrain shader (`terrain.frag`) is unchanged and reads these slots as before:
+
+- **Grooming** — corduroy stripes + cool tint.
+- **Packed** — blue tint mix.
+- **MogulSize** — brightness modulation via value-noise (bump simulation without geometry displacement).
+- **Ice** — specular lobe boost + silver-blue tint.
+
+---
 
 ## Save format
 
-`internal/save/format.go` defines `CellData` with compact JSON tags:
+`CellData` in `internal/save/format.go`:
 
 ```
 e   → GroundElevation
 ls  → []LayerData (snow layer stack)
 gr  → Grooming
 mg  → MogulSize
+st  → SkierTraffic
 td  → TreeDensity
 ```
 
-Each `LayerData` entry:
+Each `LayerData`:
 ```
 a   → Accumulation (SWE metres)
-p   → Packed 0..1  (omitempty; 0 if absent)
-i   → Ice 0..1     (omitempty; 0 if absent)
-k   → LayerKind    (omitempty; 0 = LayerFreshSnow if absent)
+k   → SnowKind uint8 (omitempty; 0 = Powder if absent)
 ```
 
-Old saves (predating the layer system) do not have `ls` and load with
-`Layers = nil` (bare ground). The old `s`/`pk`/`ic` fields are dropped.
+Old `p` (Packed) and `i` (Ice) fields are dropped. Old saves without `ls` load with `Layers = nil` (bare ground).
+
+---
+
+## Surface detail texture
+
+A 1 m-resolution RGBA8 texture mirroring the terrain, written by the simulation and sampled in `terrain.frag` for sub-cell features the 5 m mesh can't carry: skier tracks, tree wells, groom-edge sharpening.
+
+`world.SurfaceDetail` lives on `Terrain`:
+
+```go
+type SurfaceDetail struct {
+    PxWidth, PxHeight int
+    Pixels            []uint8  // flat RGBA8, row-major
+    Dirty             bool
+    DirtyBox          image.Rectangle
+}
+```
+
+| Channel | Meaning | Written by | Persistence |
+|---------|---------|------------|-------------|
+| R | Track intensity | sim (per skiing tick) | Decays in sim time |
+| G | Tree-well depth | world (on tree edit) | Persistent until edit |
+| B | Groom-edge mask | derived from `Grooming` | Recomputed on dirty |
+| A | Reserved | — | — |
+
+Not saved. Fully re-derivable on load: G stamped from saved `TreeDensity`, B recomputed from saved `Grooming`, R resets to zero.
+
+---
+
+## Physics
+
+`effectiveFriction` in `sim/skiing.go` applies Kind multipliers to the base/edge friction coefficients used by the integrator. For Powder, an additional depth-gated drag kicks in when `VisibleSnowDepth > 0.5 m`. `Grooming` and `MogulSize` modifiers apply on top of Kind, unchanged from before.
+
+---
 
 ## Future work
 
-- **Snow brushes.** Player-facing tools to paint `SnowDepth`, `Grooming`,
-  spray snowmaking, etc. The data model supports them; UI is the remaining
-  work.
-- **Snowfall and freeze cycles.** Each tick: snowfall adds `SnowDepth`
-  (typically as low-`Packed`, low-`Ice` accumulation, lifting the surface
-  back up); thin-snow + traffic + freeze cycles raise `Ice`. Skier wear
-  (Grooming decay, Packed rise, SWE-conserving depth compression, Mogul
-  growth) and snowcat grooming (full pack + compression + corduroy) are
-  already implemented; precipitation and freeze-thaw are not.
-- **Glade tolerance trait.** Per-skier willingness to enter trees;
-  currently all skiers avoid trees equally. Already on the roadmap.
-- **Lift cable clearance over ground.** Cables currently sit at `Surface +
-  CableHeight`. In deep snow the cable lifts proportionally with snow
-  depth; physically the cable should clear the *ground* at a constant
-  height regardless of snow accumulation, but the visual difference is
-  small at typical depths so this is a deferred polish item.
+- **Glade tolerance trait** — per-skier willingness to enter trees; currently all skiers avoid trees equally.
+- **Weather-driven demand** — bad weather suppressing arrivals or guest satisfaction.
+- **Wind field** — daily wind direction as a simulation variable rather than a static scenario parameter.
+- **Lift cable clearance** — cables currently sit at `Surface + CableHeight`; physically they should clear ground regardless of snow depth.

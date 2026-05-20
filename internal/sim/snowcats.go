@@ -10,7 +10,6 @@ import (
 // Grooming impact a single cat arrival applies to a cell.
 const (
 	groomMogulDecay = 0.5
-	groomIceDecay   = 0.5
 
 	// arriveCellSlack: how close the cat must get to count as arrived.
 	arriveCellSlack = world.CellSize * 0.5
@@ -240,10 +239,10 @@ func groomCell(w *world.World, c [2]int) {
 	}
 	cell := &w.Terrain.Cells[c[0]][c[1]]
 	if top := cell.TopLayer(); top != nil {
-		top.Packed = 1.0
-		top.Ice *= groomIceDecay
+		top.Kind = world.KindPackedPowder
 	}
 	cell.Grooming = 1.0
+	cell.SkierTraffic = 0
 	cell.MogulSize *= groomMogulDecay
 
 	if w.Terrain.Surface != nil {

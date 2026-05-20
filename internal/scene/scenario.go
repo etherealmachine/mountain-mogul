@@ -385,17 +385,13 @@ func buildStationApron(t *world.Terrain, station, axis mgl32.Vec2, side, halfWid
 			// can also lower cells above the target, producing a true
 			// flat platform.
 			t.Cells[x][z].GroundElevation = cur + (target-cur)*w
-			// Raise Packed in the inner zone — boarding pads, building
-			// approaches and lift queues are foot-traffic compacted.
-			// VisibleSnowDepth then shrinks automatically (= SWE /
-			// density(Packed)), which is the visual the "thin apron snow"
-			// approximation used to fake before the packing model existed.
+			// Set the top layer to Packed Powder in the inner zone —
+			// boarding pads, building approaches, and lift queues are
+			// foot-traffic compacted. KindPackedPowder has higher density
+			// (0.50 vs 0.15 for powder), so visible depth drops automatically.
 			cell := &t.Cells[x][z]
-			if top := cell.TopLayer(); top != nil {
-				if w > top.Packed {
-					top.Packed = w
-				}
-				top.Ice *= 1 - w
+			if top := cell.TopLayer(); top != nil && w > 0.5 {
+				top.Kind = world.KindPackedPowder
 			}
 			cell.MogulSize *= 1 - w
 		}
@@ -701,7 +697,7 @@ func NewScenarioFromWorld(w *world.World, seed int64) *Scenario {
 // "New Seed" button that re-rolls the run without leaving the scene.
 func NewScenarioFromTestbed(tb *sim.Testbed) *Scenario {
 	rebuild := func(seed int64) *world.World {
-		return tb.Build(rand.New(rand.NewSource(seed)))
+		return tb.Build()
 	}
 	return &Scenario{
 		prebuiltWorld: rebuild(tb.Seed),
@@ -778,11 +774,22 @@ func (s *Scenario) Init(app *engine.App) error {
 		d := sim.CalendarAt(s.sim.SimTime)
 		return d.Day, d.Month, d.Year
 	}
-	s.topBar.GetWeather = func() (ui.WeatherKind, ui.WeatherKind, int) {
+	s.topBar.GetWeather = func() []ui.ForecastDay {
 		today := s.sim.Weather.Today()
-		forecast := s.sim.Weather.Forecast(sim.DateAt(s.sim.SimTime), 1)
-		tempF := int(today.TempC*9/5 + 32)
-		return weatherToUI(today.State), weatherToUI(forecast[0].State), tempF
+		from := sim.DateAt(s.sim.SimTime)
+		forecast := s.sim.Weather.Forecast(from, 4)
+		days := make([]ui.ForecastDay, 1+len(forecast))
+		days[0] = ui.ForecastDay{
+			Weather: weatherToUI(today.State),
+			TempF:   int(today.TempC*9/5 + 32),
+		}
+		for i, d := range forecast {
+			days[i+1] = ui.ForecastDay{
+				Weather: weatherToUI(d.State),
+				TempF:   int(d.TempC*9/5 + 32),
+			}
+		}
+		return days
 	}
 
 	// Glade-tool sliders. Default radius matches the previous fixed
@@ -3152,12 +3159,9 @@ func (p *terrainInspectPanel) Draw(r *render.Renderer) {
 	}
 	for i := len(c.Layers) - 1; i >= 0; i-- {
 		l := c.Layers[i]
-		visD := float32(0)
-		if d := world.SnowDensity(l.Packed); d > 0 {
-			visD = l.Accumulation / d
-		}
-		rows = append(rows, fmt.Sprintf("  [%d] %-11s %.2fm pk%.2f ic%.2f",
-			i, world.LayerKindName(l.Kind), visD, l.Packed, l.Ice))
+		visD := l.Accumulation / world.KindDensity(l.Kind)
+		rows = append(rows, fmt.Sprintf("  [%d] %-13s %.2fm",
+			i, world.KindName(l.Kind), visD))
 	}
 	rows = append(rows, "",
 		fmt.Sprintf("TreeDens   = %.3f", c.TreeDensity),
@@ -3189,15 +3193,8 @@ func (t *snowLayerTooltip) Draw(r *render.Renderer) {
 		rows = append(rows, fmt.Sprintf("Snow  %d layer(s)", len(t.layers)))
 		for i := len(t.layers) - 1; i >= 0; i-- {
 			l := t.layers[i]
-			visD := float32(0)
-			if d := world.SnowDensity(l.Packed); d > 0 {
-				visD = l.Accumulation / d
-			}
-			label := fmt.Sprintf("%-10s %.2fm", world.LayerKindName(l.Kind), visD)
-			if l.Ice > 0.05 {
-				label += fmt.Sprintf(" ice%.0f%%", l.Ice*100)
-			}
-			rows = append(rows, label)
+			visD := l.Accumulation / world.KindDensity(l.Kind)
+			rows = append(rows, fmt.Sprintf("%-13s %.2fm", world.KindName(l.Kind), visD))
 		}
 	}
 

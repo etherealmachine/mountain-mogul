@@ -49,27 +49,27 @@ func GenerateSnowCover(t *world.Terrain, maxDepth, snowlineFrac, treelineFrac, w
 // AddSnowLayer is like GenerateSnowCover but pushes a new layer onto the
 // existing stack rather than replacing it. Used by the editor's "Add Storm"
 // button to build up a multi-layer snowpack.
-func AddSnowLayer(t *world.Terrain, kind world.LayerKind, packed, maxDepth, snowlineFrac, treelineFrac, windDeg float32, seed int64) {
-	computeElevFields(t).addSnowLayer(t, kind, packed, maxDepth, snowlineFrac, treelineFrac, windDeg, seed)
+func AddSnowLayer(t *world.Terrain, kind world.SnowKind, maxDepth, snowlineFrac, treelineFrac, windDeg float32, seed int64) {
+	computeElevFields(t).addSnowLayer(t, kind, maxDepth, snowlineFrac, treelineFrac, windDeg, seed)
 }
 
 // addSnowLayerCached is the cached-fields variant for the editor's hot path
 // (avoids recomputing flow accumulation on every "Add Storm" click).
-func addSnowLayerCached(f *elevFields, t *world.Terrain, kind world.LayerKind, packed, maxDepth, snowlineFrac, treelineFrac, windDeg float32, seed int64) {
-	f.addSnowLayer(t, kind, packed, maxDepth, snowlineFrac, treelineFrac, windDeg, seed)
+func addSnowLayerCached(f *elevFields, t *world.Terrain, kind world.SnowKind, maxDepth, snowlineFrac, treelineFrac, windDeg float32, seed int64) {
+	f.addSnowLayer(t, kind, maxDepth, snowlineFrac, treelineFrac, windDeg, seed)
 }
 
 // generateSnowCover is the cached-fields variant.
 func (f *elevFields) generateSnowCover(t *world.Terrain, maxDepth, snowlineFrac, treelineFrac, windDeg float32, seed int64) {
 	f.applySnowAccum(t, maxDepth, snowlineFrac, treelineFrac, windDeg, seed, func(x, z int, acc float32) {
-		t.Cells[x][z].Layers = []world.SnowLayer{{Accumulation: acc, Packed: 0.2, Kind: world.LayerFreshSnow}}
+		t.Cells[x][z].Layers = []world.SnowLayer{{Accumulation: acc, Kind: world.KindPowder}}
 	})
 }
 
 // addSnowLayer is the cached-fields push variant.
-func (f *elevFields) addSnowLayer(t *world.Terrain, kind world.LayerKind, packed, maxDepth, snowlineFrac, treelineFrac, windDeg float32, seed int64) {
+func (f *elevFields) addSnowLayer(t *world.Terrain, kind world.SnowKind, maxDepth, snowlineFrac, treelineFrac, windDeg float32, seed int64) {
 	f.applySnowAccum(t, maxDepth, snowlineFrac, treelineFrac, windDeg, seed, func(x, z int, acc float32) {
-		t.Cells[x][z].Layers = append(t.Cells[x][z].Layers, world.SnowLayer{Accumulation: acc, Packed: packed, Kind: kind})
+		t.Cells[x][z].Layers = append(t.Cells[x][z].Layers, world.SnowLayer{Accumulation: acc, Kind: kind})
 	})
 }
 
@@ -243,8 +243,8 @@ func (f *elevFields) applySnowAccum(t *world.Terrain, maxDepth, snowlineFrac, tr
 			} else if d > 1 {
 				d = 1
 			}
-			// Convert visible-metres at fresh-powder density to SWE.
-			acc := maxDepth * d * world.SnowDensity(0.2)
+			// Convert visible-metres at Powder density to SWE.
+			acc := maxDepth * d * world.KindDensity(world.KindPowder)
 			apply(x, z, acc)
 		}
 	}

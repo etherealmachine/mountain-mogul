@@ -73,27 +73,38 @@ func NewChain() *Chain {
 // Today returns the most recently generated day's weather without advancing.
 func (c *Chain) Today() DayWeather { return c.today }
 
-// Advance steps to the next day and returns its weather. Pass the simulation's
-// shared Rng so weather draws are part of the single deterministic sequence.
-func (c *Chain) Advance(rng *rand.Rand, t time.Time) DayWeather {
+// Advance steps to the next day and returns its weather. It uses a
+// deterministic per-day seed derived from the current chain state and the
+// target calendar date, so Forecast called before this day will have
+// predicted the same result.
+func (c *Chain) Advance(t time.Time) DayWeather {
+	rng := rand.New(rand.NewSource(c.daySeed(t)))
 	c.today = c.sample(rng, t.Month())
 	return c.today
 }
 
-// Forecast returns plausible weather for the next n days without mutating c
-// or consuming from the shared Rng. The speculative RNG is seeded from the
-// current chain state and the starting date, so the same (state, date) always
-// produces the same forecast — stable across HUD frames without any shared
-// state mutation.
+// Forecast returns the predicted weather for the next n days without mutating
+// c. Each day is seeded identically to Advance, so the forecast matches what
+// will actually happen when those days arrive.
 func (c *Chain) Forecast(from time.Time, n int) []DayWeather {
-	seed := int64(c.state)*1_000_000_007 + from.Unix()
-	rng := rand.New(rand.NewSource(seed))
 	clone := *c
 	out := make([]DayWeather, n)
 	for i := range out {
-		out[i] = clone.sample(rng, from.AddDate(0, 0, i+1).Month())
+		t := from.AddDate(0, 0, i+1)
+		rng := rand.New(rand.NewSource(clone.daySeed(t)))
+		out[i] = clone.sample(rng, t.Month())
 	}
 	return out
+}
+
+// daySeed returns the deterministic RNG seed for advancing to day t.
+// Keyed on the current chain state and the calendar date (not wall-clock
+// seconds) so the seed is stable throughout a day and identical between
+// Advance and Forecast for the same step.
+func (c *Chain) daySeed(t time.Time) int64 {
+	y, m, d := t.Date()
+	dateKey := int64(y)*10000 + int64(m)*100 + int64(d)
+	return int64(c.state)*1_000_000_007 + dateKey
 }
 
 // =============================================================================

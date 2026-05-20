@@ -68,7 +68,11 @@ func DrawWeatherIcon(r *render.Renderer, kind WeatherKind, x, y, size float32) {
 	case WKSnow:
 		r.DrawIcon(render.IconCloudSnow, x, y, size, mgl32.Vec4{0.85, 0.92, 1.0, 1})
 	case WKStorm:
-		r.DrawIcon(render.IconCloudLightning, x, y, size, mgl32.Vec4{0.75, 0.78, 0.88, 1})
+		// Two cloud-snow icons side by side at reduced size to read as heavy snow.
+		half := size * 0.62
+		gap := size * 0.08
+		r.DrawIcon(render.IconCloudSnow, x, y+size-half, half, mgl32.Vec4{0.70, 0.82, 1.0, 1})
+		r.DrawIcon(render.IconCloudSnow, x+half+gap, y+size-half, half, mgl32.Vec4{0.70, 0.82, 1.0, 1})
 	case WKRain:
 		r.DrawIcon(render.IconDrop, x, y, size, mgl32.Vec4{0.55, 0.75, 0.95, 1})
 	}

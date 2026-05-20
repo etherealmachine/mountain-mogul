@@ -87,20 +87,19 @@ type CameraData struct {
 // minimal-width for compact JSON on large maps.
 type LayerData struct {
 	A float32 `json:"a"`           // SWE metres (Accumulation)
-	P float32 `json:"p,omitempty"` // Packed 0..1
-	I float32 `json:"i,omitempty"` // Ice 0..1
-	K uint8   `json:"k,omitempty"` // LayerKind (0=FreshSnow, omitted = FreshSnow)
+	K uint8   `json:"k,omitempty"` // SnowKind (0=Powder if omitted)
 }
 
 // CellData is the serialisable representation of a terrain cell. Schema
 // matches world.Cell; field names are short to keep the per-cell JSON
 // footprint reasonable on big maps.
 type CellData struct {
-	Ground      float32     `json:"e,omitempty"`
-	Layers      []LayerData `json:"ls,omitempty"`
-	Grooming    float32     `json:"gr,omitempty"`
-	MogulSize   float32     `json:"mg,omitempty"`
-	TreeDensity float32     `json:"td,omitempty"`
+	Ground       float32     `json:"e,omitempty"`
+	Layers       []LayerData `json:"ls,omitempty"`
+	Grooming     float32     `json:"gr,omitempty"`
+	MogulSize    float32     `json:"mg,omitempty"`
+	SkierTraffic float32     `json:"st,omitempty"`
+	TreeDensity  float32     `json:"td,omitempty"`
 }
 
 // ObjectData is a placed natural object.

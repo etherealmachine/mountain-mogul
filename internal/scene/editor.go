@@ -169,7 +169,7 @@ func (e *Editor) Init(app *engine.App) error {
 	e.autoWindSlider.ValueFormat = "%.0fdeg"
 
 	e.addStormBtn = ui.NewButton(0, 0, 120, 28, "+ Add Storm", func() {
-		e.pushSnowLayer(world.LayerFreshSnow, 0.2)
+		e.pushSnowLayer(world.KindPowder)
 	})
 	e.clearLayersBtn = ui.NewButton(0, 0, 100, 28, "Clear Snow", func() {
 		e.clearAllLayers()
@@ -663,7 +663,7 @@ func (e *Editor) autoSliders() []*ui.VSlider {
 // pushSnowLayer adds a new snow layer to every cell using the current
 // auto-gen slider settings. Unlike regenerateAuto, this does not
 // replace existing layers — it stacks on top of them.
-func (e *Editor) pushSnowLayer(kind world.LayerKind, packed float32) {
+func (e *Editor) pushSnowLayer(kind world.SnowKind) {
 	if e.world == nil || e.world.Terrain == nil {
 		return
 	}
@@ -673,7 +673,7 @@ func (e *Editor) pushSnowLayer(kind world.LayerKind, packed float32) {
 	addSnowLayerCached(
 		e.autoFields,
 		e.world.Terrain,
-		kind, packed,
+		kind,
 		e.autoMaxSlider.Value,
 		1.0-e.autoSnowlineSlider.Value/100,
 		e.autoTreelineSlider.Value/100,
