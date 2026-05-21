@@ -47,8 +47,7 @@ type GuestTraits struct {
 	// (positive). False ⇒ emits ThoughtScaredInTrees (negative).
 	LikesGlades bool
 
-	// PrefersGroomed: true ⇒ groomed snow emits ThoughtLovingCorduroy
-	// (positive); off-piste emits ThoughtTiredOffPiste (negative).
+	// PrefersGroomed: true ⇒ groomed snow emits ThoughtLovingCorduroy (positive).
 	PrefersGroomed bool
 }
 
@@ -243,7 +242,6 @@ const (
 
 	// Grooming-trait reactions to cell Grooming.
 	ThoughtLovingCorduroy // PrefersGroomed = true, on groomed snow
-	ThoughtTiredOffPiste  // PrefersGroomed = true, off-piste
 
 	// Skill events.
 	ThoughtFell        // Balance went to 0; fall recovery
@@ -271,7 +269,6 @@ var ThoughtSatisfactionWeight = [ThoughtKindCount]float64{
 	ThoughtLovingGlades:   +0.12,
 	ThoughtScaredInTrees:  -0.18,
 	ThoughtLovingCorduroy: +0.15,
-	ThoughtTiredOffPiste:  -0.08,
 	ThoughtFell:           -0.10,
 	ThoughtLovingALift:    +0.10,
 	ThoughtLongLine:       -0.08,
@@ -308,8 +305,6 @@ func (t Thought) Display(resolve func(uint64) string) string {
 		return "too many trees!"
 	case ThoughtLovingCorduroy:
 		return "this corduroy is perfect"
-	case ThoughtTiredOffPiste:
-		return "this snow is exhausting"
 	case ThoughtFell:
 		if n := name(0); n != "" {
 			return "ouch, that hurt on " + n

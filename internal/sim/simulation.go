@@ -451,38 +451,51 @@ const (
 	weatherEventWind
 )
 
-// kindTransition returns the new snow kind after a non-precipitation event,
-// per the transition matrix in SNOW_IMPROVEMENTS.md.
+// kindTransition returns the new snow kind after a non-precipitation event.
 func kindTransition(current world.SnowKind, evt weatherEvent) world.SnowKind {
 	switch evt {
 	case weatherEventRain:
-		if current == world.KindSlushCorn {
-			return world.KindSlushCorn
+		switch current {
+		case world.KindSlush, world.KindCorn:
+			return world.KindSlush
+		default:
+			return world.KindCement
 		}
-		return world.KindCement
 	case weatherEventColdClear:
 		switch current {
 		case world.KindPowder:
 			return world.KindPowder
 		case world.KindPackedPowder:
 			return world.KindCrust
-		default:
+		case world.KindBase:
+			return world.KindBase // base doesn't ice up from cold alone
+		case world.KindCement, world.KindSlush, world.KindCorn:
+			return world.KindFrozenGranular // first freeze of wet snow
+		default: // Crust, WindSlab, FrozenGranular
 			return world.KindBoilerplate
 		}
 	case weatherEventWarmClear:
 		switch current {
-		case world.KindSlushCorn:
-			return world.KindSlushCorn
+		case world.KindSlush:
+			return world.KindSlush
 		case world.KindPowder:
 			return world.KindPackedPowder
-		default:
-			return world.KindSlushCorn
+		case world.KindPackedPowder:
+			return world.KindCement // first warm day wets packed surface; needs a second to slush
+		case world.KindFrozenGranular, world.KindBase:
+			return world.KindCorn // freeze-thaw granulation; warm day activates base surface
+		case world.KindCorn:
+			return world.KindSlush // over-saturates with continued warmth
+		default: // Cement, WindSlab, Crust, Boilerplate
+			return world.KindSlush
 		}
 	case weatherEventWind:
-		if current == world.KindBoilerplate {
-			return world.KindBoilerplate
+		switch current {
+		case world.KindBoilerplate, world.KindBase:
+			return current // too dense to reorganise
+		default:
+			return world.KindWindSlab
 		}
-		return world.KindWindSlab
 	}
 	return current
 }
@@ -612,13 +625,14 @@ func (s *Simulation) applyKindTransition(evt weatherEvent) {
 	}
 }
 
-// applyBuriedFreeze converts wet snow kinds in the sub-surface layer to their
-// frozen equivalents when the lapse-rate-adjusted temperature is below freezing.
-// Only the layer immediately below the surface is affected — the top layer acts
-// as insulation, but cold still penetrates and solidifies saturated snow beneath.
+// applyBuriedFreeze converts wet and soft snow kinds in all buried layers to
+// their frozen or compacted equivalents when the lapse-rate-adjusted temperature
+// is below freezing. Cold penetrates the full stack — the surface layer insulates
+// but does not block freezing of deeper layers over time.
 //
-//   SlushCorn  → Boilerplate  (liquid-saturated slush freezes to hard ice)
-//   Cement     → Crust        (dense wet snow hardens into a surface glaze)
+//   Slush         → FrozenGranular  (liquid-saturated slush solidifies)
+//   Cement        → Crust           (dense wet snow hardens)
+//   PackedPowder  → Base            (buried packed snow cold-compacts into season base)
 func (s *Simulation) applyBuriedFreeze(tempC, baseElev float32) {
 	t := s.World.Terrain
 	for x := range t.Cells {
@@ -632,12 +646,15 @@ func (s *Simulation) applyBuriedFreeze(tempC, baseElev float32) {
 			if localTemp >= 0 {
 				continue
 			}
-			buried := &c.Layers[n-2]
-			switch buried.Kind {
-			case world.KindSlushCorn:
-				buried.Kind = world.KindBoilerplate
-			case world.KindCement:
-				buried.Kind = world.KindCrust
+			for i := n - 2; i >= 0; i-- {
+				switch c.Layers[i].Kind {
+				case world.KindSlush:
+					c.Layers[i].Kind = world.KindFrozenGranular
+				case world.KindCement:
+					c.Layers[i].Kind = world.KindCrust
+				case world.KindPackedPowder:
+					c.Layers[i].Kind = world.KindBase
+				}
 			}
 		}
 	}

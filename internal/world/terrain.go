@@ -8,13 +8,16 @@ import (
 type SnowKind uint8
 
 const (
-	KindPowder       SnowKind = iota // cold dry storm; light, deep, floaty
-	KindPackedPowder                  // groomed or skied-in; fast and predictable
-	KindCement                        // warm storm; dense, wet, heavy
-	KindWindSlab                      // wind-consolidated; hollow feel, can shatter
-	KindCrust                         // sun/wind surface glaze; breakable, edge-catching
-	KindBoilerplate                   // hard frozen surface; very fast, no edge
-	KindSlushCorn                     // saturated or freeze-thaw; slow when warm
+	KindPowder         SnowKind = iota // cold dry storm; light, deep, floaty
+	KindPackedPowder                   // groomed or skied-in; fast and predictable
+	KindCement                         // warm storm; dense, wet, heavy
+	KindWindSlab                       // wind-consolidated; hollow feel, can shatter
+	KindCrust                          // sun/wind surface glaze; breakable, edge-catching
+	KindBoilerplate                    // hard frozen surface; very fast, no edge
+	KindSlush                          // saturated wet snow; slow, heavy, poor edge
+	KindFrozenGranular                 // refrozen slush; icy grains, some texture
+	KindCorn                           // spring granular; buttery, fast, great grip
+	KindBase                           // compacted season base; firm, dense, not icy
 )
 
 // KindName returns a display name for a snow kind.
@@ -32,8 +35,14 @@ func KindName(k SnowKind) string {
 		return "Crust"
 	case KindBoilerplate:
 		return "Boilerplate"
-	case KindSlushCorn:
-		return "Slush/Corn"
+	case KindSlush:
+		return "Slush"
+	case KindFrozenGranular:
+		return "Frozen Granular"
+	case KindCorn:
+		return "Corn"
+	case KindBase:
+		return "Base"
 	default:
 		return "Snow"
 	}
@@ -55,8 +64,14 @@ func KindDensity(k SnowKind) float32 {
 		return 0.60
 	case KindBoilerplate:
 		return 0.90
-	case KindSlushCorn:
+	case KindSlush:
 		return 0.55
+	case KindFrozenGranular:
+		return 0.80
+	case KindCorn:
+		return 0.52
+	case KindBase:
+		return 0.75
 	default:
 		return 0.50
 	}
@@ -78,8 +93,14 @@ func KindShaderPacked(k SnowKind) float32 {
 		return 0.65
 	case KindBoilerplate:
 		return 0.95
-	case KindSlushCorn:
-		return 0.45
+	case KindSlush:
+		return 0.40
+	case KindFrozenGranular:
+		return 0.80
+	case KindCorn:
+		return 0.70
+	case KindBase:
+		return 0.90
 	default:
 		return 0.50
 	}
@@ -95,6 +116,12 @@ func KindShaderIce(k SnowKind) float32 {
 		return 0.40
 	case KindBoilerplate:
 		return 0.90
+	case KindFrozenGranular:
+		return 0.55
+	case KindCorn:
+		return 0.05
+	case KindBase:
+		return 0.00
 	default:
 		return 0.00
 	}
@@ -117,8 +144,14 @@ func KindBaseMult(k SnowKind) float32 {
 		return 0.80
 	case KindBoilerplate:
 		return 0.50
-	case KindSlushCorn:
-		return 1.40
+	case KindSlush:
+		return 1.50
+	case KindFrozenGranular:
+		return 0.65
+	case KindCorn:
+		return 0.82
+	case KindBase:
+		return 0.90
 	default:
 		return 1.00
 	}
@@ -140,8 +173,14 @@ func KindEdgeMult(k SnowKind) float32 {
 		return 0.50
 	case KindBoilerplate:
 		return 0.15
-	case KindSlushCorn:
-		return 0.90
+	case KindSlush:
+		return 0.75
+	case KindFrozenGranular:
+		return 0.35
+	case KindCorn:
+		return 0.95
+	case KindBase:
+		return 1.10
 	default:
 		return 1.00
 	}

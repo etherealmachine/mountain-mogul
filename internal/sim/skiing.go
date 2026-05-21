@@ -240,12 +240,8 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 			s.addThought(a, ai.ThoughtScaredInTrees)
 		}
 	}
-	if a.Traits.PrefersGroomed {
-		if onGroomed {
-			s.addThought(a, ai.ThoughtLovingCorduroy)
-		} else {
-			s.addThought(a, ai.ThoughtTiredOffPiste)
-		}
+	if a.Traits.PrefersGroomed && onGroomed {
+		s.addThought(a, ai.ThoughtLovingCorduroy)
 	}
 
 	// Satisfaction drift toward a terrain-quality target. The target is
