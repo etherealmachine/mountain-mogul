@@ -326,6 +326,7 @@ func (a *RestAtLodge) Precondition(s *WorldSnapshot, w *world.World) bool {
 
 func (a *RestAtLodge) Apply(s *WorldSnapshot, w *world.World) {
 	s.Patience = 1
+	s.Energy = 1
 }
 
 func (a *RestAtLodge) Cost(s *WorldSnapshot, w *world.World) float32 {

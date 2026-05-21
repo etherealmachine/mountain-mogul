@@ -145,6 +145,13 @@ const (
 	// a guest who skis freely without long waits stays patient all day.
 	patienceGainPerSecSkiing = 1.0 / 1000.0
 
+	// Energy drain rates. Normal skiing drains in ~2 hours of continuous
+	// skiing; overmatched terrain (slope above skill) drains 3× faster.
+	// Falls cause a large one-shot hit.
+	energyDrainPerSecSkiing     = 1.0 / 7200.0
+	energyDrainPerSecOvermatched = 1.0 / 2400.0
+	energyFallDrain              = 0.12
+
 )
 
 // =============================================================================
@@ -275,6 +282,18 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 		a.Patience = 1
 	}
 
+	// Energy drain from skiing. Overmatched terrain (slope above comfort)
+	// drains 3× faster; otherwise normal drain applies.
+	overmatched := a.Traits.ComfortSlope > 0 && perc.SlopeAngle > a.Traits.ComfortSlope*1.2
+	drain := float32(energyDrainPerSecSkiing)
+	if overmatched {
+		drain = float32(energyDrainPerSecOvermatched)
+	}
+	a.Energy -= drain * float32(dt)
+	if a.Energy < 0 {
+		a.Energy = 0
+	}
+
 	// Balance + fall.
 	a.Balance += stressDelta(a.Traits, perc, dec) * float32(dt)
 	if a.Balance > 1 {
@@ -285,6 +304,7 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 		a.Fallen = true
 		a.FallTimer = float32(fallRecoverTime)
 		a.Speed = 0
+		a.Energy = clamp32(a.Energy-energyFallDrain, 0, 1)
 		a.Events = append(a.Events, ai.GuestEvent{Kind: ai.EventFall, Time: s.SimTime})
 		if step := a.Plan.Head(); step.Kind == ai.ActSkiTrail {
 			s.addThought(a, ai.ThoughtFell, step.TrailID)

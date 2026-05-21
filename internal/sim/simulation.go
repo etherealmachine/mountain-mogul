@@ -340,6 +340,7 @@ func (s *Simulation) spawnGuest(lot *world.Building, g *world.Guest) bool {
 	g.Speed = 0
 	g.Balance = 1.0
 	g.Patience = 1.0
+	g.Energy = 1.0
 	g.Satisfaction = 0.6
 	g.Removed = false
 	w.OnMountain = append(w.OnMountain, g)
@@ -1031,6 +1032,7 @@ func (s *Simulation) tickResting(a *world.Guest, dt float64) {
 	if a.RestTimer <= 0 {
 		a.RestTimer = 0
 		a.Patience = 1
+		a.Energy = 1
 	}
 }
 

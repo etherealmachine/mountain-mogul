@@ -300,6 +300,7 @@ func worldToData(w *world.World) ScenarioData {
 			gd.OnLiftID = g.OnLiftID
 			gd.Queued = g.Queued
 			gd.Patience = g.Patience
+			gd.Energy = g.Energy
 			if !g.Plan.Done() {
 				gd.PlanStep = g.Plan.Step
 				gd.PlanSteps = make([]PlanActionData, len(g.Plan.Steps))
@@ -595,6 +596,11 @@ func dataToWorld(data ScenarioData) *world.World {
 				patience = 1.0
 			}
 			g.Patience = patience
+			energy := gd.Energy
+			if energy <= 0 {
+				energy = 1.0
+			}
+			g.Energy = energy
 			g.Balance = 1.0
 			if len(gd.PlanSteps) > 0 {
 				steps := make([]ai.PlanAction, len(gd.PlanSteps))

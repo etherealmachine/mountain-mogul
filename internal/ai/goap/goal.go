@@ -44,10 +44,14 @@ func (KeepSkiing) IsSatisfied(s *WorldSnapshot, w *world.World) bool {
 }
 
 func (KeepSkiing) Weight(s *WorldSnapshot, w *world.World) float32 {
-	if s.Patience < 0.2 {
-		return s.Patience * 0.5
+	combined := s.Patience
+	if s.Energy < combined {
+		combined = s.Energy
 	}
-	return s.Patience
+	if combined < 0.2 {
+		return combined * 0.5
+	}
+	return combined
 }
 
 // Rest is satisfied at Patience ≥ restThreshold. Weight is quadratic in
@@ -55,20 +59,39 @@ func (KeepSkiing) Weight(s *WorldSnapshot, w *world.World) float32 {
 // otherwise KeepSkiing dominates and the skier keeps cycling lifts.
 type Rest struct{}
 
-const restThreshold = 0.85
+const (
+	// restSatisfiedThreshold is the minimum combined (Patience, Energy) level
+	// at which the Rest goal considers itself done. Kept high so a lodge rest
+	// runs to completion rather than stopping at the first tick above the
+	// fire threshold.
+	restSatisfiedThreshold = 0.85
+	// restTriggerThreshold is the level below which the Rest goal activates.
+	// At 0.15 the guest is nearly exhausted before they look for a lodge.
+	restTriggerThreshold = 0.15
+)
 
 func (Rest) Name() string { return "Rest" }
 
 func (Rest) IsSatisfied(s *WorldSnapshot, w *world.World) bool {
-	return s.Patience >= restThreshold
+	return s.Patience >= restSatisfiedThreshold && s.Energy >= restSatisfiedThreshold
 }
 
 func (Rest) Weight(s *WorldSnapshot, w *world.World) float32 {
-	if s.Patience >= restThreshold {
+	combined := s.Patience
+	if s.Energy < combined {
+		combined = s.Energy
+	}
+	if combined >= restTriggerThreshold {
 		return 0
 	}
-	d := 1 - s.Patience
-	return d * d
+	d := 1 - combined
+	w2 := d * d
+	// Boost weight above KeepSkiing's max when critically low so Rest is
+	// tried before GoHome and ThoughtNeedsLodge can fire if no lodge exists.
+	if combined < 0.05 {
+		w2 = 1.5
+	}
+	return w2
 }
 
 // Explore is satisfied once every skill-accessible lift has been ridden at
@@ -105,9 +128,14 @@ func (Explore) Weight(s *WorldSnapshot, w *world.World) float32 {
 	if total == 0 || unridden == 0 {
 		return 0
 	}
-	// Gate on Patience — a frustrated skier shouldn't keep exploring.
+	// Gate on the worse of Patience and Energy — a frustrated or exhausted
+	// skier shouldn't keep exploring new runs.
+	gate := s.Patience
+	if s.Energy < gate {
+		gate = s.Energy
+	}
 	frac := float32(unridden) / float32(total)
-	return frac * s.Patience
+	return frac * gate
 }
 
 // liftAccessible reports whether a guest at the given skill can ride lift l.
@@ -135,9 +163,14 @@ func (GoHome) IsSatisfied(s *WorldSnapshot, w *world.World) bool {
 }
 
 func (GoHome) Weight(s *WorldSnapshot, w *world.World) float32 {
-	// GoHome fires when Patience is critically low. Rest handles the
-	// recoverable range; zero patience means the guest has had enough.
-	if s.Patience < 0.05 {
+	// GoHome fires when Patience or Energy is critically low. Rest handles
+	// the recoverable range; when both resources are exhausted and the Rest
+	// goal can't find a lodge, this goal provides the fallback exit path.
+	combined := s.Patience
+	if s.Energy < combined {
+		combined = s.Energy
+	}
+	if combined < 0.05 {
 		return 1.0
 	}
 	return 0

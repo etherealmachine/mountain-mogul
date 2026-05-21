@@ -2199,6 +2199,13 @@ func (s *Scenario) Render(r *render.Renderer) {
 	}
 	if s.activeTool == toolLiftTop {
 		drawables = append(drawables, &hintLabel{text: "Click to set lift top"})
+		if s.hoverValid {
+			drawables = append(drawables, &liftDropLabel{
+				terrain: s.world.Terrain,
+				base:    s.liftBase,
+				hover:   mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]},
+			})
+		}
 	}
 	if cost, affordable, _, valid := s.placementCost(); valid {
 		drawables = append(drawables, &costLabel{cost: cost, affordable: affordable})
@@ -3379,6 +3386,42 @@ func (h *hintLabel) Draw(r *render.Renderer) {
 	if r.Font != nil {
 		r.Font.DrawText(r, h.text, 8+4, textY, mgl32.Vec4{1, 1, 0.5, 1})
 	}
+}
+
+// liftDropLabel draws the vertical rise of a lift-in-progress as a floating
+// pill at the cable midpoint. Shown during the toolLiftTop placement step.
+type liftDropLabel struct {
+	terrain *world.Terrain
+	base    mgl32.Vec2 // XZ of the first-click base station
+	hover   mgl32.Vec2 // XZ of the cursor (future top station)
+}
+
+func (l *liftDropLabel) Draw(r *render.Renderer) {
+	if r.Font == nil {
+		return
+	}
+	baseY := l.terrain.InterpolatedSurfaceElevationAt(l.base[0], l.base[1])
+	topY := l.terrain.InterpolatedSurfaceElevationAt(l.hover[0], l.hover[1])
+	dx := l.hover[0] - l.base[0]
+	dz := l.hover[1] - l.base[1]
+	dy := topY - baseY
+	cableLenM := float32(math.Sqrt(float64(dx*dx + dz*dz + dy*dy)))
+
+	midX := (l.base[0] + l.hover[0]) * 0.5
+	midZ := (l.base[1] + l.hover[1]) * 0.5
+	midY := (baseY + topY) * 0.5
+	sx, sy, visible := r.WorldToScreen(mgl32.Vec3{midX, midY, midZ})
+	if !visible {
+		return
+	}
+
+	text := settings.FormatElevation(cableLenM)
+	tw := float32(len(text)*render.GlyphAdvance) + 14
+	th := float32(render.GlyphH) + 6
+	bx := sx - tw/2
+	by := sy - th/2
+	r.DrawColorRect(bx, by, tw, th, mgl32.Vec4{0, 0, 0, 0.55})
+	r.Font.DrawText(r, text, bx+7, by+(th-float32(render.GlyphH))/2, mgl32.Vec4{1, 1, 1, 1})
 }
 
 // toastLabel draws a transient status message near the bottom-centre of the

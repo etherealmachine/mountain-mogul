@@ -113,6 +113,13 @@ type Guest struct {
 	// the guest leaves.
 	Patience float32
 
+	// Energy is the guest's physical fatigue budget. 1.0 on arrival;
+	// drains while skiing (faster on terrain above their skill level, big
+	// spike on falls). RestAtLodge restores it to 1. When it hits 0 the
+	// Rest goal fires; if no lodge is reachable the guest goes home with
+	// a ThoughtNeedsLodge thought.
+	Energy float32
+
 	// Satisfaction is the 0..1 session quality score. Initialised to 0.6
 	// on arrival; drifts continuously toward a terrain-quality target each
 	// skiing tick; spikes up or down on discrete events (novel lift ride,
@@ -293,6 +300,7 @@ func (g *Guest) ResetForDeparture() {
 	g.TurnDwell = 0
 	g.LastTactical = 0
 	g.Patience = 0
+	g.Energy = 0
 	g.Satisfaction = 0
 	for i := range g.Thoughts {
 		g.Thoughts[i] = ai.Thought{}

@@ -10,6 +10,7 @@ import (
 	"mountain-mogul/internal/engine"
 	"mountain-mogul/internal/render"
 	"mountain-mogul/internal/save"
+	"mountain-mogul/internal/settings"
 	"mountain-mogul/internal/ui"
 	"mountain-mogul/internal/world"
 )
@@ -164,7 +165,7 @@ func (e *Editor) Init(app *engine.App) error {
 	// Treeline is shared (forest cap + snow wind-exposure threshold); the
 	// other sliders each affect one of the two layers.
 	e.autoMaxSlider = ui.NewVSlider(0, 0, 18, 200, 0, 4, 2, "Max")
-	e.autoMaxSlider.ValueFormat = "%.1f m"
+	e.autoMaxSlider.DisplayFunc = func(v float32) string { return settings.FormatDepth(v) }
 	e.autoSnowlineSlider = ui.NewVSlider(0, 0, 18, 200, 0, 100, 70, "Elev")
 	e.autoSnowlineSlider.ValueFormat = "%.0f%%"
 	e.autoTreelineSlider = ui.NewVSlider(0, 0, 18, 200, 0, 100, 70, "Tree")
@@ -916,6 +917,13 @@ func (e *Editor) Render(r *render.Renderer) {
 	e.menuBar.Y = float32(r.ScreenHeight()) - e.menuBar.H
 	e.overlayPanel.Bottom = float32(r.ScreenHeight()) - e.menuBar.H
 	edDrawables := []render.UIDrawable{e.topBar, e.menuBar, e.overlayPanel}
+	if e.activeTool == toolLiftTop && e.hoverValid {
+		edDrawables = append(edDrawables, &liftDropLabel{
+			terrain: e.world.Terrain,
+			base:    e.liftBase,
+			hover:   mgl32.Vec2{e.hoverWorld[0], e.hoverWorld[2]},
+		})
+	}
 	if e.toolUsesRadiusSlider() {
 		e.layoutBrushSliders(r)
 		edDrawables = append(edDrawables, e.radiusSlider)

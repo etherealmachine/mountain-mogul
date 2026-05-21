@@ -62,7 +62,7 @@ func addSnowLayerCached(f *elevFields, t *world.Terrain, kind world.SnowKind, ma
 // generateSnowCover is the cached-fields variant.
 func (f *elevFields) generateSnowCover(t *world.Terrain, maxDepth, snowlineFrac, treelineFrac, windDeg float32, seed int64) {
 	f.applySnowAccum(t, maxDepth, snowlineFrac, treelineFrac, windDeg, seed, func(x, z int, acc float32) {
-		t.Cells[x][z].Layers = []world.SnowLayer{{Accumulation: acc, Kind: world.KindPowder}}
+		t.Cells[x][z].Layers = []world.SnowLayer{{Accumulation: acc, Kind: world.KindBase}}
 	})
 }
 

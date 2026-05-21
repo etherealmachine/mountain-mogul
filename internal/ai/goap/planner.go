@@ -265,12 +265,13 @@ func (h *nodeHeap) Pop() any {
 // the closed set finite.
 func stateKey(s *WorldSnapshot) string {
 	pb := int(s.Patience * 100)
+	eb := int(s.Energy * 100)
 	ridden := 0
 	for _, r := range s.RidenLifts {
 		ridden += r.Count
 	}
-	return fmt.Sprintf("P%dB%dT%dQ%dL%dD%dPt%dR%dX%vJ%d",
-		pb,
+	return fmt.Sprintf("P%dE%dB%dT%dQ%dL%dD%dPt%dR%dX%vJ%d",
+		pb, eb,
 		s.AtLiftBase, s.AtLiftTop, s.Queued, s.OnLift,
 		s.AtLodge, s.AtParking,
 		ridden, s.Removed,

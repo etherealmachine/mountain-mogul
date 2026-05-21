@@ -20,6 +20,10 @@ type VSlider struct {
 	// track. Empty defaults to "%.0f". Set to e.g. "%.1f m", "%.0f°", or
 	// "%.0f%%" to attach units.
 	ValueFormat string
+	// DisplayFunc, if non-nil, formats Value for the readout and takes
+	// precedence over ValueFormat. Use when the display unit differs from
+	// the stored unit (e.g. storing metres, showing feet).
+	DisplayFunc func(float32) string
 
 	dragging bool
 }
@@ -97,11 +101,16 @@ func (s *VSlider) Draw(r *render.Renderer) {
 		r.Font.DrawText(r, s.Label, lx, s.Y-float32(render.GlyphH)-4, mgl32.Vec4{1, 1, 1, 1})
 	}
 	// Numeric value below the track.
-	format := s.ValueFormat
-	if format == "" {
-		format = "%.0f"
+	var val string
+	if s.DisplayFunc != nil {
+		val = s.DisplayFunc(s.Value)
+	} else {
+		format := s.ValueFormat
+		if format == "" {
+			format = "%.0f"
+		}
+		val = fmt.Sprintf(format, s.Value)
 	}
-	val := fmt.Sprintf(format, s.Value)
 	valW := float32(len(val) * render.GlyphAdvance)
 	vx := s.X + (s.W-valW)/2
 	r.Font.DrawText(r, val, vx, s.Y+s.H+4, mgl32.Vec4{1, 1, 1, 1})
