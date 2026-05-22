@@ -245,7 +245,6 @@ const (
 
 	// Skill events.
 	ThoughtFell        // Balance went to 0; fall recovery
-	ThoughtLovingALift // First ride of a previously-unridden lift
 
 	// Queue events.
 	ThoughtLongLine    // Joining a queue whose estimated wait is long
@@ -270,10 +269,35 @@ var ThoughtSatisfactionWeight = [ThoughtKindCount]float64{
 	ThoughtScaredInTrees:  -0.18,
 	ThoughtLovingCorduroy: +0.15,
 	ThoughtFell:           -0.10,
-	ThoughtLovingALift:    +0.10,
 	ThoughtLongLine:       -0.08,
 	ThoughtLineTooLong:    -0.08,
-	ThoughtNeedsLodge:     -0.06,
+	ThoughtNeedsLodge: -0.06,
+}
+
+// ThoughtLabel is the short chart label for each thought kind. An empty
+// string means the thought is intentionally excluded from charts (only
+// ThoughtNone). Any new ThoughtKind MUST get a non-empty label here so
+// it automatically appears in both the in-resort and exit-thought charts.
+var ThoughtLabel = [ThoughtKindCount]string{
+	ThoughtLovingGlades:   "Loving glades",
+	ThoughtScaredInTrees:  "Scared in trees",
+	ThoughtLovingCorduroy: "Loving corduroy",
+	ThoughtFell:           "Fell",
+	ThoughtLongLine:       "Long line",
+	ThoughtLineTooLong:    "Line too long",
+	ThoughtNeedsLodge: "Needs lodge",
+}
+
+// ThoughtChartColor is the RGBA bar colour for each thought kind in charts.
+// Must match ThoughtLabel: every entry with a non-empty label needs a colour.
+var ThoughtChartColor = [ThoughtKindCount][4]float32{
+	ThoughtLovingGlades:   {0.30, 0.75, 0.40, 1},
+	ThoughtScaredInTrees:  {0.90, 0.35, 0.30, 1},
+	ThoughtLovingCorduroy: {0.45, 0.85, 0.55, 1},
+	ThoughtFell:           {0.85, 0.20, 0.20, 1},
+	ThoughtLongLine:       {0.80, 0.45, 0.70, 1},
+	ThoughtLineTooLong:    {0.70, 0.30, 0.60, 1},
+	ThoughtNeedsLodge: {0.60, 0.50, 0.80, 1},
 }
 
 // Thought is one entry in a Guest's bounded thoughts ring. Persists in
@@ -310,11 +334,6 @@ func (t Thought) Display(resolve func(uint64) string) string {
 			return "ouch, that hurt on " + n
 		}
 		return "ouch, that hurt"
-	case ThoughtLovingALift:
-		if n := name(0); n != "" {
-			return "what a great ride on " + n + "!"
-		}
-		return "what a great lift!"
 	case ThoughtLongLine:
 		if n := name(0); n != "" {
 			return "the " + n + " line is way too long"

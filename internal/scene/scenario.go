@@ -119,25 +119,35 @@ func applyDensityBrush(t *world.Terrain, cx, cz, radius int, delta float32) {
 	}
 }
 
-// gladeStrokeCost returns the cost of one glade-brush application centred
-// at (cx, cz) with the given radius: GladeCostPerCell × number of in-radius
-// cells that currently have non-zero tree density. Zero when no trees are
-// present so the player isn't charged for brushing empty ground.
-func gladeStrokeCost(t *world.Terrain, cx, cz, radius int) int {
+// gladeStrokeCost returns the cost of one glade-brush application centred at
+// (cx, cz) with the given radius and removal strength. Charges
+// GladeCostPerCell × density_actually_removed per cell, so the total cost
+// across all strokes to fully clear a cell equals exactly GladeCostPerCell
+// regardless of how many strokes it takes. Zero when no trees are in range.
+func gladeStrokeCost(t *world.Terrain, cx, cz, radius int, strength float32) int {
 	r2 := radius * radius
-	count := 0
+	var total float32
 	for dz := -radius; dz <= radius; dz++ {
 		for dx := -radius; dx <= radius; dx++ {
 			if dx*dx+dz*dz > r2 {
 				continue
 			}
 			x, z := cx+dx, cz+dz
-			if t.InBounds(x, z) && t.Cells[x][z].TreeDensity > 0 {
-				count++
+			if !t.InBounds(x, z) {
+				continue
 			}
+			d := t.Cells[x][z].TreeDensity
+			if d <= 0 {
+				continue
+			}
+			removed := strength
+			if removed > d {
+				removed = d
+			}
+			total += removed
 		}
 	}
-	return count * world.GladeCostPerCell
+	return int(total*float32(world.GladeCostPerCell) + 0.5)
 }
 
 // applyLiftPlacementEffects, applyLiftStationApron and clearLiftCorridor
@@ -589,6 +599,7 @@ type Scenario struct {
 	activeTrailID    uint64
 	trailDifficulty  world.TerrainDifficulty // difficulty for the next new trail
 	lastTrailPaintCell [2]int
+	trailEraseMode   bool // true = left-drag removes cells; false = left-drag adds cells
 
 	// Click-to-edit road state. Active only while activeTool == toolNone:
 	// a toolNone left click on a road node/edge populates this and the
@@ -879,35 +890,17 @@ func (s *Scenario) Init(app *engine.App) error {
 			GetData: func() []ui.ChartPoint { return historyToChart(s.world, pnlField) },
 		},
 		{
-			Title: "Guest thoughts (at resort)",
-			Icon:  render.IconHeart,
-			Kind:  ui.ChartThoughtRank,
-			Series: []ui.ChartSeries{
-				{Name: "Loving glades", Color: mgl32.Vec4{0.30, 0.75, 0.40, 1}},
-				{Name: "Loving corduroy", Color: mgl32.Vec4{0.45, 0.85, 0.55, 1}},
-				{Name: "Loving a lift", Color: mgl32.Vec4{0.60, 0.90, 0.65, 1}},
-				{Name: "Scared in trees", Color: mgl32.Vec4{0.90, 0.35, 0.30, 1}},
-				{Name: "Tired off-piste", Color: mgl32.Vec4{0.95, 0.55, 0.20, 1}},
-				{Name: "Fell", Color: mgl32.Vec4{0.85, 0.20, 0.20, 1}},
-				{Name: "Long line", Color: mgl32.Vec4{0.80, 0.45, 0.70, 1}},
-				{Name: "Needs lodge", Color: mgl32.Vec4{0.60, 0.50, 0.80, 1}},
-			},
+			Title:   "Guest thoughts (at resort)",
+			Icon:    render.IconHeart,
+			Kind:    ui.ChartThoughtRank,
+			Series:  thoughtChartSeries(),
 			GetData: func() []ui.ChartPoint { return thoughtsToDistribution(s.world) },
 		},
 		{
-			Title: "Exit thoughts",
-			Icon:  render.IconFlag,
-			Kind:  ui.ChartThoughtRank,
-			Series: []ui.ChartSeries{
-				{Name: "Loving glades", Color: mgl32.Vec4{0.30, 0.75, 0.40, 1}},
-				{Name: "Loving corduroy", Color: mgl32.Vec4{0.45, 0.85, 0.55, 1}},
-				{Name: "Loving a lift", Color: mgl32.Vec4{0.60, 0.90, 0.65, 1}},
-				{Name: "Scared in trees", Color: mgl32.Vec4{0.90, 0.35, 0.30, 1}},
-				{Name: "Tired off-piste", Color: mgl32.Vec4{0.95, 0.55, 0.20, 1}},
-				{Name: "Fell", Color: mgl32.Vec4{0.85, 0.20, 0.20, 1}},
-				{Name: "Long line", Color: mgl32.Vec4{0.80, 0.45, 0.70, 1}},
-				{Name: "Needs lodge", Color: mgl32.Vec4{0.60, 0.50, 0.80, 1}},
-			},
+			Title:   "Exit thoughts",
+			Icon:    render.IconFlag,
+			Kind:    ui.ChartThoughtRank,
+			Series:  thoughtChartSeries(),
 			GetData: func() []ui.ChartPoint { return exitThoughtsToDistribution(s.world) },
 		},
 	})
@@ -961,6 +954,42 @@ func historyToChart(w *world.World, field historyField) []ui.ChartPoint {
 	return out
 }
 
+// thoughtChartSeries builds the ChartSeries slice for thought charts by
+// iterating over ai.ThoughtLabel in enum order. Any ThoughtKind with a
+// non-empty label is included automatically — adding a new thought type
+// only requires filling in ThoughtLabel and ThoughtChartColor in ai/types.go.
+func thoughtChartSeries() []ui.ChartSeries {
+	var out []ui.ChartSeries
+	for k := ai.ThoughtKind(1); int(k) < ai.ThoughtKindCount; k++ {
+		if ai.ThoughtLabel[k] == "" {
+			continue
+		}
+		c := ai.ThoughtChartColor[k]
+		out = append(out, ui.ChartSeries{
+			Name:  ai.ThoughtLabel[k],
+			Color: mgl32.Vec4{c[0], c[1], c[2], c[3]},
+		})
+	}
+	return out
+}
+
+// thoughtValuesFor builds the Values slice for a single ChartPoint from
+// counts, iterating in the same order as thoughtChartSeries.
+func thoughtValuesFor(counts [ai.ThoughtKindCount]int) []float64 {
+	var vals []float64
+	for k := ai.ThoughtKind(1); int(k) < ai.ThoughtKindCount; k++ {
+		if ai.ThoughtLabel[k] == "" {
+			continue
+		}
+		wt := ai.ThoughtSatisfactionWeight[k]
+		if wt < 0 {
+			wt = -wt
+		}
+		vals = append(vals, float64(counts[k])*wt)
+	}
+	return vals
+}
+
 // thoughtsToDistribution returns a single ChartPoint holding the most
 // recently completed day's thought counts, or today's in-progress counts
 // if no day has been pushed yet.
@@ -968,29 +997,11 @@ func thoughtsToDistribution(w *world.World) []ui.ChartPoint {
 	if w == nil || w.History == nil {
 		return nil
 	}
-	weighted := func(kind ai.ThoughtKind, counts [ai.ThoughtKindCount]int) float64 {
-		wt := ai.ThoughtSatisfactionWeight[kind]
-		if wt < 0 {
-			wt = -wt
-		}
-		return float64(counts[kind]) * wt
-	}
-	build := func(counts [ai.ThoughtKindCount]int, day time.Time) []ui.ChartPoint {
-		return []ui.ChartPoint{{Day: day, Values: []float64{
-			weighted(ai.ThoughtLovingGlades, counts),
-			weighted(ai.ThoughtLovingCorduroy, counts),
-			weighted(ai.ThoughtLovingALift, counts),
-			weighted(ai.ThoughtScaredInTrees, counts),
-			weighted(ai.ThoughtFell, counts),
-			weighted(ai.ThoughtLongLine, counts),
-			weighted(ai.ThoughtNeedsLodge, counts),
-		}}}
-	}
 	if samples := w.History.Ordered(); len(samples) > 0 {
 		last := samples[len(samples)-1]
-		return build(last.ThoughtCounts, last.Day)
+		return []ui.ChartPoint{{Day: last.Day, Values: thoughtValuesFor(last.ThoughtCounts)}}
 	}
-	return build(w.History.ThoughtCountsToday, time.Time{})
+	return []ui.ChartPoint{{Values: thoughtValuesFor(w.History.ThoughtCountsToday)}}
 }
 
 // exitThoughtsToDistribution returns a ChartPoint weighted by satisfaction
@@ -999,29 +1010,11 @@ func exitThoughtsToDistribution(w *world.World) []ui.ChartPoint {
 	if w == nil || w.History == nil {
 		return nil
 	}
-	weighted := func(kind ai.ThoughtKind, counts [ai.ThoughtKindCount]int) float64 {
-		wt := ai.ThoughtSatisfactionWeight[kind]
-		if wt < 0 {
-			wt = -wt
-		}
-		return float64(counts[kind]) * wt
-	}
-	build := func(counts [ai.ThoughtKindCount]int, day time.Time) []ui.ChartPoint {
-		return []ui.ChartPoint{{Day: day, Values: []float64{
-			weighted(ai.ThoughtLovingGlades, counts),
-			weighted(ai.ThoughtLovingCorduroy, counts),
-			weighted(ai.ThoughtLovingALift, counts),
-			weighted(ai.ThoughtScaredInTrees, counts),
-			weighted(ai.ThoughtFell, counts),
-			weighted(ai.ThoughtLongLine, counts),
-			weighted(ai.ThoughtNeedsLodge, counts),
-		}}}
-	}
 	if samples := w.History.Ordered(); len(samples) > 0 {
 		last := samples[len(samples)-1]
-		return build(last.ExitThoughtCounts, last.Day)
+		return []ui.ChartPoint{{Day: last.Day, Values: thoughtValuesFor(last.ExitThoughtCounts)}}
 	}
-	return build(w.History.ExitThoughtCountsToday, time.Time{})
+	return []ui.ChartPoint{{Values: thoughtValuesFor(w.History.ExitThoughtCountsToday)}}
 }
 
 // weatherToUI maps sim.WeatherState to the UI icon enum.
@@ -1488,6 +1481,7 @@ func (s *Scenario) Update(dt float64) {
 		// Skier pick takes priority over toolNone-level edits and popups.
 		if a := s.pickGuest(r.Camera, inp.MousePos); a != nil {
 			s.followGuestID = a.ID
+			s.activeTrailID = 0
 			if s.popup != nil {
 				s.popup.Visible = false
 			}
@@ -1598,26 +1592,9 @@ func (s *Scenario) Update(dt float64) {
 				if s.activeTool == toolNone && inp.LeftClick {
 					s.tryOpenPopup(s.hoverWorld, r.ScreenWidth(), r.ScreenHeight())
 				} else if s.activeTool == toolTrailPaint && inp.LeftClick && !trailDragged {
-					// Single click in paint mode: select the trail under the cursor
-					// (opening its popup), or start dragging to paint on empty terrain.
-					picked := false
-					for _, t := range s.world.Trails {
-						for _, cell := range t.Cells {
-							if cell[0] == gx && cell[1] == gz {
-								s.activeTrailID = t.ID
-								s.openTrailPopup(t, r.ScreenWidth(), r.ScreenHeight())
-								picked = true
-								break
-							}
-						}
-						if picked {
-							break
-						}
-					}
-					if !picked {
-						s.lastTrailPaintCell = s.hoverCell
-						s.applyTool(r)
-					}
+					// In edit mode the active tool captures clicks; no trail-picking.
+					s.lastTrailPaintCell = s.hoverCell
+					s.applyTool(r)
 				} else {
 					if s.activeTool == toolGlade {
 						s.lastGladeCell = s.hoverCell
@@ -1781,8 +1758,8 @@ func (s *Scenario) buildCellOverlay() (pixels []uint8, w, h int) {
 	th := s.world.Terrain.Height
 
 	trailOverlayOn := s.overlayPanel != nil && (s.overlayPanel.Mask()&render.OverlayTrails) != 0
-	paintingTrail := s.activeTool == toolTrailPaint
-	hasTrails := len(s.world.Trails) > 0 && (trailOverlayOn || paintingTrail)
+	hasActiveTrail := s.activeTrailID != 0
+	hasTrails := len(s.world.Trails) > 0 && (trailOverlayOn || hasActiveTrail)
 	if !hasTrails {
 		return nil, 0, 0
 	}
@@ -1806,9 +1783,9 @@ func (s *Scenario) buildCellOverlay() (pixels []uint8, w, h int) {
 		pix[i+3] = uint8(outA * 255)
 	}
 
-	// Trails — shown when overlay is on, or always for the trail being painted.
+	// Trails — shown when overlay is on, or always for the selected/active trail.
 	for _, t := range s.world.Trails {
-		active := t.ID == s.activeTrailID && paintingTrail
+		active := t.ID == s.activeTrailID
 		if !trailOverlayOn && !active {
 			continue
 		}
@@ -1955,7 +1932,7 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		// or drag-into-new-cell event fires one application; stationary
 		// holding does nothing further (see lastGladeCell gate in Update).
 		strength := s.gladeThinSlider.Value / 100
-		cost := gladeStrokeCost(w.Terrain, gx, gz, s.gladeBrushRadius())
+		cost := gladeStrokeCost(w.Terrain, gx, gz, s.gladeBrushRadius(), strength)
 		if cost > 0 && w.Cash < cost {
 			s.setToast(fmt.Sprintf("Need $%d to clear here — short by $%d", cost, cost-w.Cash))
 			return
@@ -2041,7 +2018,11 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 	case toolRemove:
 		s.removeAt(s.hoverWorld, r)
 	case toolTrailPaint:
-		s.applyTrailPaint(gx, gz)
+		if s.trailEraseMode {
+			s.applyTrailErase(gx, gz)
+		} else {
+			s.applyTrailPaint(gx, gz)
+		}
 		s.lastTrailPaintCell = [2]int{gx, gz}
 	}
 }
@@ -2058,10 +2039,11 @@ func (s *Scenario) activateTrailTool() {
 	}
 	t := s.world.PlaceTrail("", s.trailDifficulty)
 	s.activeTrailID = t.ID
+	s.trailEraseMode = false
 	s.lastTrailPaintCell = [2]int{-1, -1}
 	s.activeTool = toolTrailPaint
 	s.syncToolButtons()
-	s.setToast("Drag to paint trail. Right-drag to erase. Esc to finish.")
+	s.setToast("Drag to add cells. Right-drag to remove. Esc to finish.")
 }
 
 // applyTrailPaint adds cells under the brush to the active trail.
@@ -2238,6 +2220,18 @@ func (s *Scenario) Render(r *render.Renderer) {
 			screenH: r.ScreenHeight(),
 		})
 	}
+	if s.overlayPanel != nil && (s.overlayPanel.Mask()&render.OverlayGrooming) != 0 &&
+		s.hoverValid && s.world != nil && s.world.Terrain != nil &&
+		s.world.Terrain.InBounds(s.hoverCell[0], s.hoverCell[1]) {
+		cell := s.world.Terrain.Cells[s.hoverCell[0]][s.hoverCell[1]]
+		drawables = append(drawables, &groomingTooltip{
+			grooming: cell.Grooming,
+			mouseX:   s.hoverMouseScreen[0],
+			mouseY:   s.hoverMouseScreen[1],
+			screenW:  r.ScreenWidth(),
+			screenH:  r.ScreenHeight(),
+		})
+	}
 	if s.debugTerrainIns && s.world != nil && s.world.Terrain != nil &&
 		s.world.Terrain.InBounds(s.hoverCell[0], s.hoverCell[1]) {
 		drawables = append(drawables, &terrainInspectPanel{
@@ -2270,10 +2264,9 @@ func (s *Scenario) Render(r *render.Renderer) {
 	if s.world != nil && len(s.world.Trails) > 0 {
 		showAll := s.overlayPanel != nil && (s.overlayPanel.Mask()&render.OverlayTrails) != 0
 		drawables = append(drawables, &trailLabels{
-			world:        s.world,
+			world:         s.world,
 			activeTrailID: s.activeTrailID,
-			paintMode:    s.activeTool == toolTrailPaint,
-			showAll:      showAll,
+			showAll:       showAll,
 		})
 	}
 	r.DrawUI(drawables)
@@ -2332,16 +2325,26 @@ func (s *Scenario) tryOpenPopup(clickPos mgl32.Vec3, screenW, screenH int) {
 			}
 		}
 	}
+	// Nothing matched — clear trail selection since user clicked on empty ground.
+	if s.activeTool != toolTrailPaint {
+		s.activeTrailID = 0
+	}
 	if s.popup != nil {
 		s.popup.Visible = false
 	}
 }
 
 func (s *Scenario) openTrailPopup(trail *world.Trail, screenW, screenH int) {
+	s.activeTrailID = trail.ID // show overlay for selected trail even without overlay panel
+	s.buildTrailPopup(trail, false, screenW, screenH)
+}
+
+// buildTrailPopup builds (or rebuilds) the trail popup. confirmClear true shows
+// Confirm/Cancel instead of the normal Clear button.
+func (s *Scenario) buildTrailPopup(trail *world.Trail, confirmClear bool, screenW, screenH int) {
 	t := trail
 	w := ui.NewWindow("Trail", 0, 0)
 	w.AddTextInput("Name", t.Name, func(text string) { t.Name = text })
-	// Difficulty: single-select (Green / Blue / Black).
 	w.AddDifficultyToggles("Difficulty",
 		func(bit uint8) bool { return t.Difficulty == world.TerrainDifficulty(bit) },
 		func(bit uint8) {
@@ -2361,7 +2364,9 @@ func (s *Scenario) openTrailPopup(trail *world.Trail, screenW, screenH int) {
 		}
 		return fmt.Sprintf("%.0f%%", sum/float32(len(t.Cells))*100)
 	})
-	w.AddActionButton("Edit", func() {
+
+	enterEdit := func(erase bool) {
+		s.trailEraseMode = erase
 		s.activeTrailID = t.ID
 		s.trailDifficulty = t.Difficulty
 		s.lastTrailPaintCell = [2]int{-1, -1}
@@ -2370,30 +2375,52 @@ func (s *Scenario) openTrailPopup(trail *world.Trail, screenW, screenH int) {
 		if s.popup != nil {
 			s.popup.Visible = false
 		}
-		s.setToast("Drag to paint trail. Right-drag to erase. Esc to finish.")
+	}
+	w.AddActionButton("Add", func() {
+		enterEdit(false)
+		s.setToast("Drag to add cells. Right-drag to remove. Esc to finish.")
 	})
-	w.AddActionButton("Delete", func() {
-		// Replan any guest whose current plan step uses this trail.
-		for _, a := range s.world.OnMountain {
-			for _, step := range a.Plan.Steps {
-				if step.TrailID == t.ID {
-					a.Plan.Steps = nil
-					break
+	w.AddActionButton("Remove", func() {
+		enterEdit(true)
+		s.setToast("Drag to remove cells. Esc to finish.")
+	})
+
+	if confirmClear {
+		w.AddLabel("Confirm", func() string { return "Delete this trail?" })
+		w.AddActionButton("Confirm", func() {
+			for _, a := range s.world.OnMountain {
+				for _, step := range a.Plan.Steps {
+					if step.TrailID == t.ID {
+						a.Plan.Steps = nil
+						break
+					}
 				}
 			}
-		}
-		s.world.DeleteTrail(t.ID)
-		s.world.RebuildTrailGraph()
-		if s.popup != nil {
-			s.popup.Visible = false
-		}
-	})
+			s.world.DeleteTrail(t.ID)
+			s.world.RebuildTrailGraph()
+			s.activeTrailID = 0
+			if s.popup != nil {
+				s.popup.Visible = false
+			}
+		})
+		w.AddActionButton("Cancel", func() {
+			s.buildTrailPopup(t, false, screenW, screenH)
+		})
+	} else {
+		w.AddActionButton("Clear", func() {
+			s.buildTrailPopup(t, true, screenW, screenH)
+		})
+	}
+
 	w.Visible = true
 	w.Center(screenW, screenH)
 	s.popup = w
 }
 
 func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
+	if s.activeTool != toolTrailPaint {
+		s.activeTrailID = 0
+	}
 	bldg := b
 	switch bldg.Type {
 	case world.BuildingShed:
@@ -2457,6 +2484,9 @@ func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 }
 
 func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
+	if s.activeTool != toolTrailPaint {
+		s.activeTrailID = 0
+	}
 	l := lift
 	w := ui.NewWindow("Ski Lift", 0, 0)
 	w.AddTextInput("Name", l.Name, func(text string) { l.Name = text })
@@ -2586,6 +2616,7 @@ func (s *Scenario) cancelTool() {
 	if s.activeTool == toolTrailPaint {
 		s.activeTrailID = 0
 		s.lastTrailPaintCell = [2]int{-1, -1}
+		s.trailEraseMode = false
 	}
 	s.activeTool = toolNone
 	s.syncToolButtons()
@@ -2957,6 +2988,7 @@ type followLabel struct {
 func (f *followLabel) Draw(r *render.Renderer) {
 	activity := world.Activity(f.world, f.agent)
 	patiencePct := int(f.agent.Patience*100 + 0.5)
+	energyPct := int(f.agent.Energy*100 + 0.5)
 	mode := f.agent.Sense.Mode
 	if mode == "" {
 		mode = "—"
@@ -2973,7 +3005,7 @@ func (f *followLabel) Draw(r *render.Renderer) {
 	satisfactionPct := int(f.agent.Satisfaction * 100)
 	rows := []string{
 		fmt.Sprintf("%s #%d (%s)  |  %s  |  %s", f.agent.Name, f.agent.ID, badges, activity, mode),
-		fmt.Sprintf("%s    patience %d%%    satisfaction %d%%", settings.FormatSpeed(f.agent.Speed), patiencePct, satisfactionPct),
+		fmt.Sprintf("%s    patience %d%%    energy %d%%    satisfaction %d%%", settings.FormatSpeed(f.agent.Speed), patiencePct, energyPct, satisfactionPct),
 	}
 	resolve := entityName(f.world)
 	if t := f.agent.CurrentThought(f.simTime); t.Kind != ai.ThoughtNone {
@@ -3255,6 +3287,41 @@ func (t *snowLayerTooltip) Draw(r *render.Renderer) {
 	}
 }
 
+type groomingTooltip struct {
+	grooming float32
+	mouseX   float32
+	mouseY   float32
+	screenW  int
+	screenH  int
+}
+
+func (t *groomingTooltip) Draw(r *render.Renderer) {
+	const padX = float32(8)
+	const padY = float32(5)
+	pct := int(t.grooming * 100)
+	text := fmt.Sprintf("Grooming  %d%%", pct)
+
+	bw := float32(len(text)*render.GlyphAdvance) + 2*padX
+	bh := float32(render.GlyphH) + 2*padY
+
+	const offsetX = float32(14)
+	const offsetY = float32(14)
+	x := t.mouseX + offsetX
+	y := t.mouseY + offsetY
+	if x+bw > float32(t.screenW)-2 {
+		x = t.mouseX - bw - offsetX
+	}
+	if y+bh > float32(t.screenH)-2 {
+		y = t.mouseY - bh - offsetY
+	}
+
+	r.DrawColorRect(x, y, bw, bh, mgl32.Vec4{0.04, 0.08, 0.14, 0.90})
+	if r.Font == nil {
+		return
+	}
+	r.Font.DrawText(r, text, x+padX, y+padY, mgl32.Vec4{0.55, 0.95, 0.65, 1})
+}
+
 func liftRef(w *world.World, id uint64) string {
 	if id == 0 {
 		return "—"
@@ -3444,11 +3511,10 @@ func (t *toastLabel) Draw(r *render.Renderer) {
 }
 
 // trailLabels draws each trail's name as a floating world-space label.
-// Shown when showAll (overlay bit on) or, for the active trail, when in paint mode.
+// Shown when showAll (overlay bit on) or for the selected/active trail.
 type trailLabels struct {
 	world         *world.World
 	activeTrailID uint64
-	paintMode     bool
 	showAll       bool
 }
 
@@ -3460,7 +3526,7 @@ func (tl *trailLabels) Draw(r *render.Renderer) {
 		if len(t.Cells) == 0 {
 			continue
 		}
-		isActive := t.ID == tl.activeTrailID && tl.paintMode
+		isActive := t.ID == tl.activeTrailID
 		if !tl.showAll && !isActive {
 			continue
 		}

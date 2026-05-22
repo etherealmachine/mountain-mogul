@@ -41,11 +41,17 @@ type Snowcat struct {
 	Pos     mgl32.Vec3
 	Heading float32
 
-	// Route state — set by the grooming sim when the cat claims a set of
-	// vertical slices to groom. All zero means "no active route"; the cat
-	// drives back to its shed in that state.
+	// Section assignment — persistent for the lifetime of the cat.
+	// The sim divides the nearest groomed trail's x-columns evenly among
+	// all cats from the same shed; each cat owns one section and re-grooms
+	// it whenever the average grooming drops below 50%.
+	SectionTrailID uint64 // trail this cat's section belongs to; 0 = unassigned
+	SectionXs      []int  // x-column indices in this cat's permanent section
+
+	// Route state — active only while the cat is out grooming its section.
+	// All zero means "no active route"; the cat drives back to its shed.
 	TrailID   uint64 // trail being groomed; 0 = no active route
-	SliceXs   []int  // reserved x-column indices within the trail
+	SliceXs   []int  // x-column indices for the current pass (= SectionXs when active)
 	SliceIdx  int    // which SliceXs element is currently being worked
 	CellIdx   int    // which cell in the current slice is the next target
 	GoingDown bool   // true = traversing slice top→bottom

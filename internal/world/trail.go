@@ -3,6 +3,7 @@ package world
 import (
 	"fmt"
 	"math"
+	"sort"
 
 	"github.com/go-gl/mathgl/mgl32"
 )
@@ -122,7 +123,20 @@ func (w *World) FindTrail(id uint64) *Trail {
 	return nil
 }
 
+// SortCells normalises Cells to (x asc, z asc) order so that all consumers
+// — routing, save diffs, rendering — see a deterministic sequence regardless
+// of the order cells were painted or loaded.
+func (t *Trail) SortCells() {
+	sort.Slice(t.Cells, func(i, j int) bool {
+		if t.Cells[i][0] != t.Cells[j][0] {
+			return t.Cells[i][0] < t.Cells[j][0]
+		}
+		return t.Cells[i][1] < t.Cells[j][1]
+	})
+}
+
 // AddTrailCells appends cells to a trail, silently ignoring duplicates.
+// Cells are kept in (x asc, z asc) order after every mutation.
 func (w *World) AddTrailCells(id uint64, cells [][2]int) {
 	t := w.FindTrail(id)
 	if t == nil {
@@ -135,9 +149,11 @@ func (w *World) AddTrailCells(id uint64, cells [][2]int) {
 			existing[c] = true
 		}
 	}
+	t.SortCells()
 }
 
 // RemoveTrailCells removes the given cells from a trail.
+// Order is preserved (already sorted from prior AddTrailCells calls).
 func (w *World) RemoveTrailCells(id uint64, cells [][2]int) {
 	t := w.FindTrail(id)
 	if t == nil {

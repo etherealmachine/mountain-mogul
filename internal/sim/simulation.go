@@ -15,11 +15,6 @@ const (
 	WalkSpeed = 2.0 // m/s
 	CellSize  = 5.0 // metres per grid cell
 
-	// patienceDrainPerSecQueuing is patience drained per sim-second
-	// while standing in a lift queue. 600 sim-seconds (10 min) of pure
-	// queuing exhausts a full patience budget.
-	patienceDrainPerSecQueuing = 1.0 / 600.0
-
 	// patienceGainPerSecRiding is patience restored per sim-second
 	// while riding a lift chair.
 	patienceGainPerSecRiding = 1.0 / 800.0
@@ -224,13 +219,7 @@ func (s *Simulation) tickLifts(dt float64) {
 						agent.Balance = 1.0 // ride up restored balance
 					}
 
-					// Emit a positive thought on the first ride of this lift
-					// and spike Satisfaction; then update the ride tally so
-					// the planner's Explore goal prefers unridden lifts.
-					if ai.RideCountOf(agent.RidenLifts, lift.ID) == 0 {
-						s.addThought(agent, ai.ThoughtLovingALift, lift.ID)
-						agent.Satisfaction = clamp32(agent.Satisfaction+0.10, 0, 1)
-					}
+					// Update ride tally so the planner's Explore goal prefers unridden lifts.
 					agent.RidenLifts = ai.AddRide(agent.RidenLifts, lift.ID)
 					topCell := lift.TopCell()
 					ty := w.Terrain.SurfaceElevationAt(topCell[0], topCell[1])
@@ -758,6 +747,14 @@ func (s *Simulation) tickPlanning(a *world.Guest) {
 	if planActionComplete(head, a, snap) {
 		if isDescentKind(head.Kind) {
 			a.Events = append(a.Events, ai.GuestEvent{Kind: ai.EventRun, Time: s.SimTime})
+			// Emit corduroy thought once per qualifying descent rather than
+			// per-tick — requires the full run to average ≥90% groomed.
+			if a.Traits.PrefersGroomed && a.RunGroomingSamples > 0 {
+				avg := a.RunGroomingSum / float32(a.RunGroomingSamples)
+				if avg >= 0.9 {
+					s.addThought(a, ai.ThoughtLovingCorduroy)
+				}
+			}
 		}
 		// For trail-to-trail steps, mark the arrival at the junction so the
 		// next step's precondition (AtTrailEnd == destTrailID) can fire.
@@ -880,6 +877,8 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 	case ai.ActRideLift:
 		// Boarding handled by tickLifts' chair-load branch.
 	case ai.ActSkiToLift:
+		a.RunGroomingSum = 0
+		a.RunGroomingSamples = 0
 		lift := findLiftByID(w, step.LiftID)
 		if lift == nil {
 			return
@@ -889,6 +888,8 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		a.Plan.GoalID = lift.ID
 		a.Plan.Target = lift.BackOfQueueWorldPos(w.Terrain)
 	case ai.ActSkiToLodge:
+		a.RunGroomingSum = 0
+		a.RunGroomingSamples = 0
 		b := findBuildingByID(w, step.BldgID)
 		if b == nil {
 			return
@@ -898,6 +899,8 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		a.Plan.GoalID = b.ID
 		a.Plan.Target = parkingWorldPos(w, b)
 	case ai.ActSkiToParking:
+		a.RunGroomingSum = 0
+		a.RunGroomingSamples = 0
 		b := findBuildingByID(w, step.BldgID)
 		if b == nil {
 			return
@@ -1156,13 +1159,8 @@ func (s *Simulation) tickPath(agent *world.Guest, dt float64) {
 // is at the base, so the front-of-line skier holds station there; deeper
 // slots are further downhill of the base axis. As skiers board off the
 // front and lift.Queue shrinks, each remaining agent's index drops by one
-// and they shuffle forward on subsequent ticks. Patience drains while
-// queuing — long waits make guests want to rest or leave.
+// and they shuffle forward on subsequent ticks.
 func (s *Simulation) tickQueued(agent *world.Guest, dt float64) {
-	agent.Patience -= float32(dt * patienceDrainPerSecQueuing)
-	if agent.Patience < 0 {
-		agent.Patience = 0
-	}
 	w := s.World
 	for _, lift := range w.Lifts {
 		idx := -1

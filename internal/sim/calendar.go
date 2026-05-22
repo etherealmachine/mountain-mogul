@@ -7,10 +7,10 @@ import "time"
 // here when they grow up.
 
 // secondsPerSimDay sets how fast in-game days tick relative to sim seconds.
-// 80 sim seconds per day at 4× TimeScale = 20 real seconds per day, so
-// 30 days = 10 real minutes and a ~186-day ski season ≈ 62 real minutes.
+// 240 sim seconds per day at 4× TimeScale = 60 real seconds per day (1 min),
+// so a ~186-day ski season ≈ 3 real hours.
 // Pure tuning knob — adjust freely.
-const secondsPerSimDay = 80.0
+const secondsPerSimDay = 240.0
 
 // Ski-season window. Opens Nov 25 (post-Thanksgiving, traditional US
 // resort opening); closes Memorial Day (last Monday of May). Off-season

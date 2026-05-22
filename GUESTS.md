@@ -378,7 +378,6 @@ When it reaches 0, `GoHome` fires and the guest leaves.
 
 | Source | Rate | Activity |
 |---|---|---|
-| Queuing in a lift queue | `−1/600` per sim-second | drains: ~10 min of pure queuing exhausts budget |
 | Active skiing (`tickSkier`) | `+1/1000` per sim-second | restores slowly from fun descents |
 | Riding a lift chair (`tickRiding`) | `+1/800` per sim-second | restores: chair ride offsets earlier wait |
 | Lodge rest (`tickResting`) | instant `= 1` | full restore on `RestAtLodge` completion |
@@ -428,3 +427,94 @@ returns the most-recent unexpired thought; `LastThought()` returns the
 most-recent regardless of TTL (HUD fallback when no thought is currently live).
 
 ---
+
+## Guest exit
+
+A guest exits in exactly one way: the `GoHome` goal wins the planner, producing
+a `[SkiToParking, Depart]` plan. The `Depart` step is terminal — no further
+replanning occurs after it starts.
+
+### What triggers GoHome
+
+`GoHome.Weight = 1.0` when `min(Patience, Energy) < 0.05`; otherwise 0.
+There are two distinct gameplay paths and it matters which one fired:
+
+**Happy path — Energy depletion.** The guest has had a full day of skiing and
+is physically spent. Skiing drains Energy at 1/7200 per sim-second (~2 h
+continuous to empty). Overmatched terrain (slope above skill comfort) drains
+3× faster; each fall takes a −0.12 one-shot hit. Energy is only restored by
+`RestAtLodge`. No negative exit thought is emitted — the player did nothing
+wrong.
+
+**Unhappy path — Queue cap rejection.** The guest is leaving frustrated.
+When all accessible lifts are at or above the 20-person cap, the planner
+returns empty and Patience is zeroed immediately. `ThoughtLineTooLong` —
+"that line will take forever" — is emitted at the moment of rejection,
+before `replan` fires. The `Patience < 0.05` carve-out in `JoinQueue`'s
+precondition keeps the departure route open so a guest at a lift base can
+still ride up to exit.
+
+**Spawn failure** (not a true GoHome path). If `tickBuildings` can't route the
+first step of a new guest's plan, the agent is rolled back immediately:
+`ResetForDeparture` is called and the guest never enters `OnMountain`.
+
+**Implementation note.** Every unhappy-path exit must carry a negative exit
+thought — it is the primary signal the player has for diagnosing why guests
+left. If a new unhappy GoHome trigger is added, emit its thought in `replan`
+before `onPlanStepStart`, guarded on `prevHeadKind != ActSkiToParking` so it
+fires once when GoHome first wins, not on every subsequent replan.
+
+### The departure sequence
+
+When `GoHome` wins, the plan is `[SkiToParking(P), Depart(P)]`:
+
+- **`SkiToParking`** — L1 steers the guest down to the parking-lot entrance,
+  same physics as any other ski step.
+- **`Depart`** (`onPlanStepStart`, `simulation.go`) — a single call that does
+  everything before the tick advances:
+  1. `Demand.recordDeparture` captures `Satisfaction` as `LastScore`, folds it
+     into `DemandSystem.ResortRating` via EMA (α = 1/70, ~50-departure half-
+     life), and increments `LifetimeVisits`, `VisitsThisSeason`, `LastVisit`.
+  2. `History.RecordDeparture()` increments `DeparturesToday`.
+  3. `History.RecordExitThought(a.LastThought().Kind)` records the guest's
+     last thought for the daily chart.
+  4. The parking lot's `CurrentCars` is decremented by `1/GuestsPerCar`
+     (4 departures = −1 visible car).
+  5. `a.Removed = true` — the agent is inert for the rest of the tick.
+
+### Reap and recycle
+
+`reapDeparted` runs at the end of `tickGuests`, iterating `OnMountain` in
+reverse and calling `w.RemoveFromOnMountain` for each flagged agent. Reverse
+iteration keeps index arithmetic correct as elements are spliced out.
+
+The `Guest` pointer itself is not freed. `ResetForDeparture` clears every
+transient field (Pos, Speed, Plan, Balance, Patience, Satisfaction, Thoughts,
+RidenLifts, …) while preserving identity and career stats (`LifetimeVisits`,
+`VisitsThisSeason`, `LastVisit`, `LastScore`). The same pointer can be reused
+by a future arrival without allocation.
+
+### Exit thoughts
+
+At the moment of `Depart`, `RecordExitThought(a.LastThought().Kind)` snapshots
+the guest's most-recent thought (regardless of TTL — `LastThought()` never
+returns stale). Counts accumulate in `History.ExitThoughtCountsToday` and roll
+into the per-day snapshot at midnight. The exit-thoughts distribution chart
+weights each kind by its absolute satisfaction impact.
+
+| Exit thought | Display text | Impact | Path |
+|---|---|---|---|
+| `ThoughtLineTooLong` | "that line will take forever" | −0.08 | unhappy: queue cap hit |
+| `ThoughtNeedsLodge` | "this place needs a lodge" | −0.06 | unhappy: rest goal, no lodge |
+| any positive thought | — | varies | happy: energy depletion leaves whatever was last in the ring |
+
+`ThoughtNone` (guest left without any thought ever emitted) counts as zero
+weight in the chart.
+
+### Departure's effect on demand
+
+`ResortRating` feeds the arrival-rate formula (see `demand.go`). A guest who
+departs frustrated (low `Satisfaction`) pulls the rating down and suppresses
+future arrivals; a happy guest does the reverse. The EMA weight (α = 1/70)
+means approximately the last 70 departures shape the current rating — short
+enough to respond to a bad day, long enough not to thrash on a single outlier.

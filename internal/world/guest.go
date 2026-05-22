@@ -147,6 +147,12 @@ type Guest struct {
 	// a map) so the planner's per-expansion Clone is a cheap slice copy.
 	RidenLifts []ai.RideCount
 
+	// RunGroomingSum / RunGroomingSamples accumulate per-tick grooming values
+	// during the current ski descent. Reset at descent start; evaluated at
+	// descent end to decide whether to emit ThoughtLovingCorduroy.
+	RunGroomingSum     float32
+	RunGroomingSamples int32
+
 	// RestTimer counts down the atomic RestAtLodge action. While >0 the
 	// guest is parked at a lodge recovering; on expiry Energy resets to
 	// 1 and the plan advances.
@@ -307,6 +313,8 @@ func (g *Guest) ResetForDeparture() {
 	}
 	g.ThoughtsHead = 0
 	g.RidenLifts = g.RidenLifts[:0]
+	g.RunGroomingSum = 0
+	g.RunGroomingSamples = 0
 	g.RestTimer = 0
 	g.Removed = false
 	g.Events = g.Events[:0]

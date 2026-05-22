@@ -1,9 +1,42 @@
 # Next Steps
 
+Bugs:
+  Cat routing still strange
+
 Fix multiple sheds and Cat routing
+  Need to figure out if we can make realistic cats that actually groom cells
+    Might have to simulate grooming with cats being UI only
+    Or accept a day/night cycle to give them time to groom
 Tune attracting guests
   Smaller pool at game start
   Pool grows over time with resort milestones
-Operational costs
-Lift attendants
-Wrap lift lines so they don't go through buildings
+  Demand determined by:
+    Skiable terrain (sum of all trail cells)
+      Breakdown terrain by ability level
+    Number of lifts plus each lift type
+    Rating
+    Need some way of visualizing the demand pool
+Lifts and attendants
+  Spawn skiers left and right of the lift
+  2 attendants required - one at top and bottom, for safety
+  3rd attendant boosts loading rate for multi-person lifts
+    Chair fill is a random variable, not always 100%
+    Beginner skiers increase probability chair doesn't fill
+  Wrap lift lines so they don't go through buildings
+
+Drain hunger and thirst so skiers leave without a lodge
+
+More lifts
+
+New features
+Ticket office and season passes
+Ski patrol
+Avalanches
+Snowmaking
+Limit land area and allow land purchases
+Loans
+New buildings - bar, restaurant, plus paths between buildings
+  Skiers remove skies and walk around pathed area
+  Ski racks to store skis
+
+Make the UI look better

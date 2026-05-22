@@ -677,6 +677,7 @@ func dataToWorld(data ScenarioData) *world.World {
 		}
 		t.Groomed = td.Groomed
 		t.Cells = td.Cells
+		t.SortCells()
 	}
 	if len(w.Trails) > 0 {
 		w.RebuildTrailGraph()

@@ -108,8 +108,18 @@ func Extract(a *world.Guest, w *world.World) WorldSnapshot {
 	// parking) within proximityRadius. Ties prefer lift bases over tops over
 	// buildings since base/top are tighter targets in practice.
 	const r2 = proximityRadius * proximityRadius
+	// qArrR2 matches sim.ArrivalThreshold (2 m) — the distance at which the
+	// L1 controller snaps a skier to their target. Used to fire AtLiftBase
+	// when a SkiToLift guest reaches the back of a long queue whose end is
+	// beyond the 8 m base proximity radius.
+	const qArrR2 = float32(2.0 * 2.0)
 	for _, l := range w.Lifts {
 		if sqDistXZ(a.Pos, l.Base[0], l.Base[1]) < r2 {
+			snap.AtLiftBase = l.ID
+			return snap
+		}
+		qback := l.BackOfQueueWorldPos(w.Terrain)
+		if sqDistXZ(a.Pos, qback[0], qback[2]) < qArrR2 {
 			snap.AtLiftBase = l.ID
 			return snap
 		}

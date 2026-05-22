@@ -26,8 +26,6 @@ const (
 	OverlaySlope         = 1 << 1
 	OverlaySnowDepth     = 1 << 2
 	OverlayGrooming      = 1 << 3
-	OverlayPacked        = 1 << 4
-	OverlayIce           = 1 << 5
 	OverlayMoguls        = 1 << 6
 	OverlayBumpNormal    = 1 << 7 // debug: render the perturbed shading normal as RGB
 	OverlaySurfaceDetail = 1 << 8 // debug: render the surface-detail RGBA texture directly

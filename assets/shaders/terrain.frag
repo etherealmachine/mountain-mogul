@@ -82,7 +82,9 @@ void main() {
     // as half-intensity and two saturate. This caps the crossing peak at
     // the same visual level as a single pass, fixing the blobby gradient
     // artifact where ∇R → 0 at a local maximum.
-    float track = smoothstep(0.0, 0.5, surf.r);
+    // Tracks are suppressed on groomed snow — fresh corduroy visually
+    // overpowers light ski marks, so scale them down proportionally.
+    float track = smoothstep(0.0, 0.5, surf.r) * (1.0 - grooming * 0.85);
     float well  = surf.g;
     float edge  = surf.b;
 
@@ -395,18 +397,6 @@ void main() {
     if ((uOverlayMode & 8) != 0 && snowness > 0.0) {
         vec3 col = mix(vec3(0.18, 0.20, 0.24), vec3(0.20, 0.95, 0.45), grooming);
         fragColor.rgb = mix(fragColor.rgb, col, 0.80 * snowness);
-    }
-
-    // Packed snow heatmap — cool-to-warm scale (loose powder → bulletproof).
-    if ((uOverlayMode & 16) != 0 && snowness > 0.0) {
-        vec3 col = mix(vec3(0.30, 0.50, 0.95), vec3(0.95, 0.55, 0.20), packed);
-        fragColor.rgb = mix(fragColor.rgb, col, 0.55 * snowness);
-    }
-
-    // Ice heatmap — neutral → bright cyan as ice rises.
-    if ((uOverlayMode & 32) != 0 && snowness > 0.0) {
-        vec3 col = mix(vec3(0.30, 0.30, 0.36), vec3(0.30, 0.95, 1.00), ice);
-        fragColor.rgb = mix(fragColor.rgb, col, 0.55 * snowness);
     }
 
     // Mogul heatmap — neutral → magenta as moguls rise.

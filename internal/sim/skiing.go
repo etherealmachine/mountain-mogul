@@ -132,7 +132,7 @@ const (
 	//   trafficRate: SkierTraffic units accumulated per second while skiing.
 	//   trafficThresh*: SkierTraffic thresholds that trigger a kind transition.
 	//   mogulFormRate: mogul growth rate, scaled by (1 − Grooming).
-	groomingWearRate    = 0.02
+	groomingWearRate    = 0.005
 	trafficRate         = 1.0  // units/s; ~0.5 units per pass at 10 m/s
 	trafficThreshPowder  = float32(40)  // ~40 passes
 	trafficThreshWindSlab = float32(60)
@@ -146,11 +146,10 @@ const (
 	patienceGainPerSecSkiing = 1.0 / 1000.0
 
 	// Energy drain rates. Normal skiing drains in ~2 hours of continuous
-	// skiing; overmatched terrain (slope above skill) drains 3× faster.
-	// Falls cause a large one-shot hit.
-	energyDrainPerSecSkiing     = 1.0 / 7200.0
-	energyDrainPerSecOvermatched = 1.0 / 2400.0
-	energyFallDrain              = 0.12
+	// skiing. Falls cause a large one-shot hit. Ungroomed-snow penalties
+	// are applied by energyDrainRate based on skill tier × snow kind.
+	energyDrainPerSecSkiing = 1.0 / 7200.0
+	energyFallDrain         = 0.12
 
 )
 
@@ -194,6 +193,36 @@ type Decision struct {
 	ProbeC, ProbeR, ProbeL float32
 }
 
+// energyDrainRate returns the per-second energy drain for a guest skiing at
+// the given skill level on the given surface. Groomed snow equalises all tiers
+// at the base rate. On ungroomed snow the rate scales with the mismatch between
+// skill and conditions:
+//
+//	               groomed   ungroomed   powder/boilerplate
+//	Beginner         1×         6×              6×
+//	Intermediate     1×         3×              6×
+//	Advanced         1×         1×              3×
+func energyDrainRate(skill float32, kind world.SnowKind, groomed bool) float32 {
+	if groomed {
+		return energyDrainPerSecSkiing
+	}
+	hard := kind == world.KindPowder || kind == world.KindBoilerplate
+	switch {
+	case skill >= ai.SkillAdvancedThreshold:
+		if hard {
+			return energyDrainPerSecSkiing * 3
+		}
+		return energyDrainPerSecSkiing
+	case skill >= ai.SkillIntermediateThreshold:
+		if hard {
+			return energyDrainPerSecSkiing * 6
+		}
+		return energyDrainPerSecSkiing * 3
+	default: // Beginner
+		return energyDrainPerSecSkiing * 6
+	}
+}
+
 // =============================================================================
 // SECTION 3 — Tick orchestration
 // =============================================================================
@@ -228,10 +257,14 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 	cx := int(a.Pos[0] / CellSize)
 	cz := int(a.Pos[2] / CellSize)
 	var treeDensity, grooming float32
+	var surfKind world.SnowKind
 	if s.World.Terrain.InBounds(cx, cz) {
 		cell := s.World.Terrain.Cells[cx][cz]
 		treeDensity = cell.TreeDensity
 		grooming = cell.Grooming
+		if top := cell.TopLayer(); top != nil {
+			surfKind = top.Kind
+		}
 	}
 	const (
 		treeDensityThreshold = 0.30
@@ -247,9 +280,9 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 			s.addThought(a, ai.ThoughtScaredInTrees)
 		}
 	}
-	if a.Traits.PrefersGroomed && onGroomed {
-		s.addThought(a, ai.ThoughtLovingCorduroy)
-	}
+	// Accumulate grooming for the run-end ThoughtLovingCorduroy check.
+	a.RunGroomingSum += grooming
+	a.RunGroomingSamples++
 
 	// Satisfaction drift toward a terrain-quality target. The target is
 	// derived from trait/terrain combinations; the drift rate is slow
@@ -282,14 +315,9 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 		a.Patience = 1
 	}
 
-	// Energy drain from skiing. Overmatched terrain (slope above comfort)
-	// drains 3× faster; otherwise normal drain applies.
-	overmatched := a.Traits.ComfortSlope > 0 && perc.SlopeAngle > a.Traits.ComfortSlope*1.2
-	drain := float32(energyDrainPerSecSkiing)
-	if overmatched {
-		drain = float32(energyDrainPerSecOvermatched)
-	}
-	a.Energy -= drain * float32(dt)
+	// Energy drain from skiing. Rate depends on skill tier × snow kind;
+	// see energyDrainRate for the full table.
+	a.Energy -= energyDrainRate(a.Traits.Skill, surfKind, onGroomed) * float32(dt)
 	if a.Energy < 0 {
 		a.Energy = 0
 	}
