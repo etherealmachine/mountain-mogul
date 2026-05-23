@@ -1749,11 +1749,13 @@ func (s *Scenario) updateOverlay(r *render.Renderer) {
 		}
 	}
 
-	if s.selectedCatID != 0 && s.showCatPath && s.popup != nil && s.popup.Visible {
-		lines = append(lines, s.catPathLines()...)
-	}
-
 	r.SetDebugLines(lines)
+
+	if s.selectedCatID != 0 && s.showCatPath && s.popup != nil && s.popup.Visible {
+		r.SetCatPathLines(s.catPathLines())
+	} else {
+		r.SetCatPathLines(nil)
+	}
 }
 
 // buildCellOverlay returns an RGBA8 pixel array (w×h, one texel per terrain
@@ -2712,8 +2714,8 @@ func (s *Scenario) catPathLines() []render.DebugLine {
 	}
 
 	const hover = float32(0.5)
-	routeColor := [3]float32{0.1, 0.95, 0.8}
-	transitColor := [3]float32{1.0, 0.9, 0.1}
+	routeColor := [3]float32{1.0, 0.4, 0.0}  // bright orange
+	transitColor := [3]float32{0.0, 0.9, 1.0} // bright cyan
 
 	var lines []render.DebugLine
 

@@ -80,6 +80,9 @@ type Renderer struct {
 	debugVAO, debugVBO uint32
 	debugVertCount     int32 // number of debug vertices currently in the VBO
 
+	catPathVAO, catPathVBO uint32
+	catPathVertCount       int32
+
 	weatherVAO uint32 // empty VAO for the full-screen-triangle weather pass
 
 	// WeatherOverlay controls the precipitation/sky overlay drawn after the
@@ -216,6 +219,17 @@ func NewRenderer(w, h int, assetDir string) (*Renderer, error) {
 	gl.GenBuffers(1, &r.debugVBO)
 	gl.BindVertexArray(r.debugVAO)
 	gl.BindBuffer(gl.ARRAY_BUFFER, r.debugVBO)
+	gl.EnableVertexAttribArray(0)
+	gl.VertexAttribPointerWithOffset(0, 3, gl.FLOAT, false, 24, 0)
+	gl.EnableVertexAttribArray(1)
+	gl.VertexAttribPointerWithOffset(1, 3, gl.FLOAT, false, 24, 12)
+	gl.BindVertexArray(0)
+
+	// Cat-path line VAO/VBO — same vertex layout, drawn thicker.
+	gl.GenVertexArrays(1, &r.catPathVAO)
+	gl.GenBuffers(1, &r.catPathVBO)
+	gl.BindVertexArray(r.catPathVAO)
+	gl.BindBuffer(gl.ARRAY_BUFFER, r.catPathVBO)
 	gl.EnableVertexAttribArray(0)
 	gl.VertexAttribPointerWithOffset(0, 3, gl.FLOAT, false, 24, 0)
 	gl.EnableVertexAttribArray(1)
@@ -1737,13 +1751,22 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	}
 
 	// Debug-line pass (steering overlay etc.) — runs before chairs so chairs draw over.
-	if r.debugVertCount > 0 && r.DebugShader != nil {
+	if r.DebugShader != nil {
 		r.DebugShader.Use()
 		r.DebugShader.SetMat4("uViewProj", vp)
-		gl.BindVertexArray(r.debugVAO)
-		gl.LineWidth(2.5)
-		gl.DrawArrays(gl.LINES, 0, r.debugVertCount)
-		gl.BindVertexArray(0)
+		if r.debugVertCount > 0 {
+			gl.BindVertexArray(r.debugVAO)
+			gl.LineWidth(2.5)
+			gl.DrawArrays(gl.LINES, 0, r.debugVertCount)
+			gl.BindVertexArray(0)
+		}
+		if r.catPathVertCount > 0 {
+			gl.BindVertexArray(r.catPathVAO)
+			gl.LineWidth(5.0)
+			gl.DrawArrays(gl.LINES, 0, r.catPathVertCount)
+			gl.BindVertexArray(0)
+			gl.LineWidth(1.0)
+		}
 	}
 
 	// Chair pass — one dynamic batch per chair mesh variant. Group lift
@@ -2005,6 +2028,25 @@ func (r *Renderer) SetDebugLines(lines []DebugLine) {
 	gl.BufferData(gl.ARRAY_BUFFER, len(verts)*4, gl.Ptr(verts), gl.DYNAMIC_DRAW)
 	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
 	r.debugVertCount = int32(len(lines) * 2)
+}
+
+// SetCatPathLines uploads cat-path line segments drawn thicker than debug lines.
+func (r *Renderer) SetCatPathLines(lines []DebugLine) {
+	if len(lines) == 0 {
+		r.catPathVertCount = 0
+		return
+	}
+	verts := make([]float32, 0, len(lines)*12)
+	for _, l := range lines {
+		verts = append(verts,
+			l.A[0], l.A[1], l.A[2], l.Color[0], l.Color[1], l.Color[2],
+			l.B[0], l.B[1], l.B[2], l.Color[0], l.Color[1], l.Color[2],
+		)
+	}
+	gl.BindBuffer(gl.ARRAY_BUFFER, r.catPathVBO)
+	gl.BufferData(gl.ARRAY_BUFFER, len(verts)*4, gl.Ptr(verts), gl.DYNAMIC_DRAW)
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+	r.catPathVertCount = int32(len(lines) * 2)
 }
 
 // SetBrush configures the terrain shader brush ring.
