@@ -101,6 +101,7 @@ type Renderer struct {
 	perceptionRadius       float32 // 0 disables
 
 	HighlightGuestID   uint64
+	HighlightCatID     uint64
 	HiddenGuestID      uint64     // skip this agent in the dynamic pass (used by first-person camera)
 	HiddenGuestPos     mgl32.Vec3 // anchor for HiddenRadius proximity culling
 	HiddenRadius       float32    // when >0, also skip agents within this XZ radius of HiddenGuestPos
@@ -1710,10 +1711,14 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		catInstances := make([]DynamicInstance, 0, len(w.Snowcats))
 		for _, cat := range w.Snowcats {
 			y := VisualElevationAt(w.Terrain, cat.Pos[0], cat.Pos[2])
+			color := [3]float32{1, 1, 1}
+			if r.HighlightCatID != 0 && cat.ID == r.HighlightCatID {
+				color = [3]float32{1.0, 0.95, 0.1} // yellow tint when selected
+			}
 			catInstances = append(catInstances, DynamicInstance{
 				Position: [3]float32{cat.Pos[0], y, cat.Pos[2]},
 				Heading:  cat.Heading,
-				Color:    [3]float32{1, 1, 1}, // model carries its own scad colours; tint stays neutral
+				Color:    color,
 			})
 		}
 		r.snowcatBatch.SetDynamic(catInstances)

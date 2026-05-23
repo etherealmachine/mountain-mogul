@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -600,6 +601,9 @@ type Scenario struct {
 	trailDifficulty  world.TerrainDifficulty // difficulty for the next new trail
 	lastTrailPaintCell [2]int
 	trailEraseMode   bool // true = left-drag removes cells; false = left-drag adds cells
+
+	selectedCatID uint64 // 0 = none; >0 = ID of cat whose popup is open
+	showCatPath   bool   // true = draw cat's route + transit as debug lines
 
 	// Click-to-edit road state. Active only while activeTool == toolNone:
 	// a toolNone left click on a road node/edge populates this and the
@@ -1482,6 +1486,8 @@ func (s *Scenario) Update(dt float64) {
 		if a := s.pickGuest(r.Camera, inp.MousePos); a != nil {
 			s.followGuestID = a.ID
 			s.activeTrailID = 0
+			s.selectedCatID = 0
+			s.showCatPath = false
 			if s.popup != nil {
 				s.popup.Visible = false
 			}
@@ -1695,51 +1701,56 @@ func (s *Scenario) updateOverlay(r *render.Renderer) {
 		s.track = s.track[:0]
 		s.trackOwner = 0
 	}
-	if a == nil {
-		r.SetDebugLines(nil)
-		return
-	}
-	if s.trackOwner == 0 {
-		s.trackOwner = a.ID
-	}
 
-	// Append the latest position when the skier has moved meaningfully and
-	// the sim is running. Skipping while paused avoids piling up duplicates.
-	if !s.paused {
-		add := len(s.track) == 0
-		if !add {
-			last := s.track[len(s.track)-1]
-			dx := a.Pos[0] - last[0]
-			dy := a.Pos[1] - last[1]
-			dz := a.Pos[2] - last[2]
-			if dx*dx+dy*dy+dz*dz >= trackMinSpacing*trackMinSpacing {
-				add = true
+	var lines []render.DebugLine
+
+	if a != nil {
+		if s.trackOwner == 0 {
+			s.trackOwner = a.ID
+		}
+
+		// Append the latest position when the skier has moved meaningfully and
+		// the sim is running. Skipping while paused avoids piling up duplicates.
+		if !s.paused {
+			add := len(s.track) == 0
+			if !add {
+				last := s.track[len(s.track)-1]
+				dx := a.Pos[0] - last[0]
+				dy := a.Pos[1] - last[1]
+				dz := a.Pos[2] - last[2]
+				if dx*dx+dy*dy+dz*dz >= trackMinSpacing*trackMinSpacing {
+					add = true
+				}
+			}
+			if add {
+				s.track = append(s.track, a.Pos)
+				if len(s.track) > trackMaxPoints {
+					s.track = s.track[len(s.track)-trackMaxPoints:]
+				}
 			}
 		}
-		if add {
-			s.track = append(s.track, a.Pos)
-			if len(s.track) > trackMaxPoints {
-				s.track = s.track[len(s.track)-trackMaxPoints:]
+
+		lines = make([]render.DebugLine, 0, len(s.track)+8)
+		const trackHover = 0.4 // m above terrain so the line is not buried
+		const trackR, trackG, trackB = 1.0, 0.55, 0.1 // warm orange
+		for i := 1; i < len(s.track); i++ {
+			p, q := s.track[i-1], s.track[i]
+			lines = append(lines, render.DebugLine{
+				A:     mgl32.Vec3{p[0], p[1] + trackHover, p[2]},
+				B:     mgl32.Vec3{q[0], q[1] + trackHover, q[2]},
+				Color: [3]float32{trackR, trackG, trackB},
+			})
+		}
+
+		if s.debugSteering && a.TargetID != 0 && !a.Fallen && a.OnLiftID == 0 && !a.Queued {
+			if target, ok := skierTarget(s.world, a); ok {
+				lines = append(lines, steeringLines(s.world, a, target)...)
 			}
 		}
 	}
 
-	lines := make([]render.DebugLine, 0, len(s.track)+8)
-	const trackHover = 0.4 // m above terrain so the line is not buried
-	const trackR, trackG, trackB = 1.0, 0.55, 0.1 // warm orange
-	for i := 1; i < len(s.track); i++ {
-		p, q := s.track[i-1], s.track[i]
-		lines = append(lines, render.DebugLine{
-			A:     mgl32.Vec3{p[0], p[1] + trackHover, p[2]},
-			B:     mgl32.Vec3{q[0], q[1] + trackHover, q[2]},
-			Color: [3]float32{trackR, trackG, trackB},
-		})
-	}
-
-	if s.debugSteering && a.TargetID != 0 && !a.Fallen && a.OnLiftID == 0 && !a.Queued {
-		if target, ok := skierTarget(s.world, a); ok {
-			lines = append(lines, steeringLines(s.world, a, target)...)
-		}
+	if s.selectedCatID != 0 && s.showCatPath && s.popup != nil && s.popup.Visible {
+		lines = append(lines, s.catPathLines()...)
 	}
 
 	r.SetDebugLines(lines)
@@ -2167,6 +2178,11 @@ func (s *Scenario) Render(r *render.Renderer) {
 	}
 
 	r.HighlightGuestID = s.followGuestID
+	if s.selectedCatID != 0 && s.popup != nil && s.popup.Visible {
+		r.HighlightCatID = s.selectedCatID
+	} else {
+		r.HighlightCatID = 0
+	}
 	s.applyPerceptionCone(r)
 	r.WeatherOverlay = int(s.sim.Weather.Today().State)
 	r.DrawWorld(s.world, s.time)
@@ -2306,6 +2322,15 @@ func (s *Scenario) Destroy() {
 // (which sit on the cable line) and stations are all selectable.
 func (s *Scenario) tryOpenPopup(clickPos mgl32.Vec3, screenW, screenH int) {
 	pick := mgl32.Vec2{clickPos[0], clickPos[2]}
+	const catPickRadius2 = float32(5.0 * 5.0)
+	for _, cat := range s.world.Snowcats {
+		dx := cat.Pos[0] - pick[0]
+		dz := cat.Pos[2] - pick[1]
+		if dx*dx+dz*dz <= catPickRadius2 {
+			s.openSnowcatPopup(cat, screenW, screenH)
+			return
+		}
+	}
 	for _, b := range s.world.Buildings {
 		if b.Pos.Sub(pick).Len() <= buildingPickRadius {
 			s.openBuildingPopup(b, screenW, screenH)
@@ -2342,6 +2367,8 @@ func (s *Scenario) tryOpenPopup(clickPos mgl32.Vec3, screenW, screenH int) {
 }
 
 func (s *Scenario) openTrailPopup(trail *world.Trail, screenW, screenH int) {
+	s.selectedCatID = 0
+	s.showCatPath = false
 	s.activeTrailID = trail.ID // show overlay for selected trail even without overlay panel
 	s.buildTrailPopup(trail, false, screenW, screenH)
 }
@@ -2431,6 +2458,8 @@ func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 	if s.activeTool != toolTrailPaint {
 		s.activeTrailID = 0
 	}
+	s.selectedCatID = 0
+	s.showCatPath = false
 	bldg := b
 	switch bldg.Type {
 	case world.BuildingShed:
@@ -2549,6 +2578,8 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 	if s.activeTool != toolTrailPaint {
 		s.activeTrailID = 0
 	}
+	s.selectedCatID = 0
+	s.showCatPath = false
 	l := lift
 	w := ui.NewWindow("Ski Lift", 0, 0)
 	w.AddTextInput("Name", l.Name, func(text string) { l.Name = text })
@@ -2620,6 +2651,129 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 	w.Visible = true
 	w.Center(screenW, screenH)
 	s.popup = w
+}
+
+func (s *Scenario) openSnowcatPopup(cat *world.Snowcat, screenW, screenH int) {
+	if s.activeTool != toolTrailPaint {
+		s.activeTrailID = 0
+	}
+	s.selectedCatID = cat.ID
+	s.showCatPath = false
+	s.followGuestID = 0
+	c := cat
+	w := ui.NewWindow("Snowcat", 0, 0)
+	w.AddLabel("Status", func() string {
+		if c.Status == world.CatActive {
+			return "Active"
+		}
+		return "Standby"
+	})
+	w.AddLabel("Section", func() string {
+		return fmt.Sprintf("%d columns", len(c.Section))
+	})
+	w.AddLabel("Route", func() string {
+		if len(c.Route) == 0 {
+			return "idle"
+		}
+		return fmt.Sprintf("%d / %d cols", c.RouteIdx+1, len(c.Route))
+	})
+	w.AddActionButton("Go to shed", func() {
+		r := s.app.Renderer
+		for _, b := range s.world.Buildings {
+			if b.ID == c.ShedID {
+				r.Camera.Target[0] = b.Pos[0]
+				r.Camera.Target[2] = b.Pos[1]
+				r.Camera.Recalculate()
+				return
+			}
+		}
+	})
+	w.AddActionButton("Show path", func() {
+		s.showCatPath = !s.showCatPath
+	})
+	w.Visible = true
+	w.Center(screenW, screenH)
+	s.popup = w
+}
+
+// catPathLines builds debug lines for the selected cat's route columns (teal)
+// and transit path (yellow), hovering slightly above the terrain surface.
+func (s *Scenario) catPathLines() []render.DebugLine {
+	var cat *world.Snowcat
+	for _, c := range s.world.Snowcats {
+		if c.ID == s.selectedCatID {
+			cat = c
+			break
+		}
+	}
+	if cat == nil {
+		s.selectedCatID = 0
+		return nil
+	}
+
+	const hover = float32(0.5)
+	routeColor := [3]float32{0.1, 0.95, 0.8}
+	transitColor := [3]float32{1.0, 0.9, 0.1}
+
+	var lines []render.DebugLine
+
+	// Remaining route columns in teal.
+	for i, col := range cat.Route {
+		if i < cat.RouteIdx {
+			continue
+		}
+		cells := s.columnCells(col)
+		for j := 1; j < len(cells); j++ {
+			ax := (float32(cells[j-1][0]) + 0.5) * world.CellSize
+			az := (float32(cells[j-1][1]) + 0.5) * world.CellSize
+			bx := (float32(cells[j][0]) + 0.5) * world.CellSize
+			bz := (float32(cells[j][1]) + 0.5) * world.CellSize
+			ay := s.world.Terrain.SurfaceElevationAt(cells[j-1][0], cells[j-1][1]) + hover
+			by := s.world.Terrain.SurfaceElevationAt(cells[j][0], cells[j][1]) + hover
+			lines = append(lines, render.DebugLine{
+				A:     mgl32.Vec3{ax, ay, az},
+				B:     mgl32.Vec3{bx, by, bz},
+				Color: routeColor,
+			})
+		}
+	}
+
+	// Active transit path in yellow.
+	for i := cat.TransitIdx; i+1 < len(cat.Transit); i++ {
+		a, b := cat.Transit[i], cat.Transit[i+1]
+		ax := (float32(a[0]) + 0.5) * world.CellSize
+		az := (float32(a[1]) + 0.5) * world.CellSize
+		bx := (float32(b[0]) + 0.5) * world.CellSize
+		bz := (float32(b[1]) + 0.5) * world.CellSize
+		ay := s.world.Terrain.SurfaceElevationAt(a[0], a[1]) + hover
+		by := s.world.Terrain.SurfaceElevationAt(b[0], b[1]) + hover
+		lines = append(lines, render.DebugLine{
+			A:     mgl32.Vec3{ax, ay, az},
+			B:     mgl32.Vec3{bx, by, bz},
+			Color: transitColor,
+		})
+	}
+
+	return lines
+}
+
+// columnCells returns all cells in the given trail that belong to the given
+// x-column, sorted top-to-bottom (ascending Z).
+func (s *Scenario) columnCells(col world.CatColumn) [][2]int {
+	for _, t := range s.world.Trails {
+		if t.ID != col.TrailID {
+			continue
+		}
+		var cells [][2]int
+		for _, c := range t.Cells {
+			if c[0] == col.X {
+				cells = append(cells, c)
+			}
+		}
+		sort.Slice(cells, func(i, j int) bool { return cells[i][1] < cells[j][1] })
+		return cells
+	}
+	return nil
 }
 
 // setTool toggles the given tool on; if it is already active, deactivates it.
