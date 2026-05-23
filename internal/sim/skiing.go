@@ -149,7 +149,7 @@ const (
 	// skiing. Falls cause a large one-shot hit. Ungroomed-snow penalties
 	// are applied by energyDrainRate based on skill tier × snow kind.
 	energyDrainPerSecSkiing = 1.0 / 7200.0
-	energyFallDrain         = 0.12
+	energyFallDrain         = 0.30
 
 )
 

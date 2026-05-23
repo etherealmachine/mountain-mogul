@@ -192,6 +192,44 @@ var Testbeds = []Testbed{
 				build()
 		},
 	},
+	{
+		// U-shaped groomed trail with one cat. The two arms are connected only
+		// at the top; the bottom of the U is ungroomed terrain. Without BFS
+		// transit the cat would cut straight across the gap when moving from the
+		// bottom of one arm to the bottom of the other. With BFS it should
+		// retrace up one arm, across the top bar, and down the other arm.
+		//
+		// Layout (40×40, 15° slope, z=0 is top/high):
+		//   Left arm:  x=8..12,  z=2..30
+		//   Top bar:   x=8..32,  z=2..6
+		//   Right arm: x=28..32, z=2..30
+		//   Open gap at bottom: z=31..38 (no trail cells)
+		//   Shed at (x=20, z=0) — equidistant from both arms at the top.
+		Name: "Snowcat U-shaped trail BFS transit",
+		Seed: 1,
+		Build: func() *world.World {
+			var cells [][2]int
+			for x := 8; x <= 12; x++ {
+				for z := 2; z <= 30; z++ {
+					cells = append(cells, [2]int{x, z})
+				}
+			}
+			for x := 13; x <= 27; x++ {
+				for z := 2; z <= 6; z++ {
+					cells = append(cells, [2]int{x, z})
+				}
+			}
+			for x := 28; x <= 32; x++ {
+				for z := 2; z <= 30; z++ {
+					cells = append(cells, [2]int{x, z})
+				}
+			}
+			return scene(40, 40).slope(15).
+				groomedTrail(world.DiffBlue, cells).
+				shedAt(20, 0).
+				build()
+		},
+	},
 }
 
 // FindTestbed returns the testbed whose Name starts with `prefix`
@@ -575,6 +613,26 @@ func (b *builder) paintTrail(diff world.TerrainDifficulty, cells [][2]int) *buil
 	t := b.w.PlaceTrail("", diff)
 	b.w.AddTrailCells(t.ID, cells)
 	b.w.RebuildTrailGraph()
+	return b
+}
+
+// groomedTrail registers the given cells as a groomed trail of the given
+// difficulty and rebuilds the trail graph. The cat fleet will pick it up on
+// the first reassignment tick.
+func (b *builder) groomedTrail(diff world.TerrainDifficulty, cells [][2]int) *builder {
+	t := b.w.PlaceTrail("", diff)
+	b.w.AddTrailCells(t.ID, cells)
+	t.Groomed = true
+	b.w.RebuildTrailGraph()
+	return b
+}
+
+// shedAt places an equipment shed (with its bundled first cat) at the given
+// grid cell. The cat will be assigned a section on the first sim tick via the
+// global reassignment pass (sectionsStale starts true on every new Simulation).
+func (b *builder) shedAt(gx, gz int) *builder {
+	const cs = float32(5.0)
+	b.w.PlaceBuildingType(world.BuildingShed, (float32(gx)+0.5)*cs, (float32(gz)+0.5)*cs)
 	return b
 }
 

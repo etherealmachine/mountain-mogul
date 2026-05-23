@@ -70,6 +70,12 @@ type Snowcat struct {
 	RouteIdx int  // current index in Route
 	CellIdx  int  // current cell within Route[RouteIdx]'s column
 	GoingDown bool // true = traversing column top→bottom
+
+	// Transit — BFS path of trail cells to follow when moving between columns.
+	// The cat drives these waypoints without grooming before starting the next
+	// column. Nil means no active transit (groom or drive straight to shed).
+	Transit    [][2]int
+	TransitIdx int
 }
 
 // DriveToward advances the cat one tick (`dt` seconds) toward

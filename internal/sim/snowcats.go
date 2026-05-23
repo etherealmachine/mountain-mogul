@@ -66,9 +66,31 @@ func (s *Simulation) tickSnowcats(dt float64) {
 	}
 }
 
-// advanceCat moves cat one step along its active Route. Clears the route
-// when all columns are done. Skips columns whose trail is gone or ungroomed.
+// advanceCat moves cat one step along its active Route. If the cat is in
+// transit between columns it follows the BFS trail path before grooming.
+// Clears the route when all columns are done.
 func advanceCat(w *world.World, cat *world.Snowcat, shed *world.Building, dt float64) {
+	// Drive along the BFS transit path between columns when one is active.
+	if len(cat.Transit) > 0 {
+		target := cat.Transit[cat.TransitIdx]
+		tx := (float32(target[0]) + 0.5) * world.CellSize
+		tz := (float32(target[1]) + 0.5) * world.CellSize
+		arrived := cat.DriveToward(tx, tz, dt, arriveCellSlack)
+		cat.Pos[1] = w.Terrain.InterpolatedSurfaceElevationAt(cat.Pos[0], cat.Pos[2])
+		if arrived {
+			cat.TransitIdx++
+			if cat.TransitIdx >= len(cat.Transit) {
+				cat.Transit = nil
+				cat.TransitIdx = 0
+				// Fall through to start grooming the current column.
+			} else {
+				return
+			}
+		} else {
+			return
+		}
+	}
+
 	for {
 		if cat.RouteIdx >= len(cat.Route) {
 			cat.Route = nil
@@ -96,10 +118,32 @@ func advanceCat(w *world.World, cat *world.Snowcat, shed *world.Building, dt flo
 				nextTrail := findTrail(w, nextCol.TrailID)
 				if nextTrail != nil {
 					next := sliceCellsSorted(w, nextTrail, nextCol.X)
+					var entryCell [2]int
 					if cat.GoingDown {
 						cat.CellIdx = 0
+						if len(next) > 0 {
+							entryCell = next[0]
+						}
 					} else {
 						cat.CellIdx = len(next) - 1
+						if len(next) > 0 {
+							entryCell = next[len(next)-1]
+						}
+					}
+					// BFS through trail cells to reach the next column's
+					// entry cell rather than driving straight across the gap.
+					if len(next) > 0 {
+						fromCell := [2]int{
+							int(cat.Pos[0] / world.CellSize),
+							int(cat.Pos[2] / world.CellSize),
+						}
+						if fromCell != entryCell {
+							if path := bfsTrailPath(w, fromCell, entryCell); len(path) > 1 {
+								cat.Transit = path[1:] // skip the cell we're already on
+								cat.TransitIdx = 0
+								return
+							}
+						}
 					}
 				}
 			}
@@ -123,6 +167,67 @@ func advanceCat(w *world.World, cat *world.Snowcat, shed *world.Building, dt flo
 	}
 }
 
+// bfsTrailPath returns a path of grid cells through groomed trail terrain from
+// from to to, using BFS on 4-connected neighbours. Returns nil if no path
+// exists through trail cells (cat falls back to straight-line transit).
+func bfsTrailPath(w *world.World, from, to [2]int) [][2]int {
+	// Build the walkable set: all cells belonging to any groomed trail.
+	walkable := map[[2]int]bool{}
+	for _, trail := range w.Trails {
+		if !trail.Groomed {
+			continue
+		}
+		for _, c := range trail.Cells {
+			walkable[c] = true
+		}
+	}
+	if !walkable[from] || !walkable[to] {
+		return nil
+	}
+	if from == to {
+		return [][2]int{from}
+	}
+
+	parent := map[[2]int][2]int{}
+	visited := map[[2]int]bool{from: true}
+	queue := [][2]int{from}
+	dirs := [4][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}
+	found := false
+
+outer:
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		for _, d := range dirs {
+			next := [2]int{cur[0] + d[0], cur[1] + d[1]}
+			if visited[next] || !walkable[next] {
+				continue
+			}
+			visited[next] = true
+			parent[next] = cur
+			if next == to {
+				found = true
+				break outer
+			}
+			queue = append(queue, next)
+		}
+	}
+
+	if !found {
+		return nil
+	}
+
+	var path [][2]int
+	for cur := to; cur != from; cur = parent[cur] {
+		path = append(path, cur)
+	}
+	path = append(path, from)
+	for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
+		path[i], path[j] = path[j], path[i]
+	}
+	return path
+}
+
 // driveToDoor steers cat toward its shed door cell.
 func driveToDoor(w *world.World, cat *world.Snowcat, shed *world.Building, dt float64) {
 	door := shed.DoorCell()
@@ -143,6 +248,8 @@ func reassignAllSections(w *world.World) {
 	for _, cat := range w.Snowcats {
 		cat.Section = nil
 		cat.Route = nil
+		cat.Transit = nil
+		cat.TransitIdx = 0
 	}
 
 	// Collect active cats and the set of sheds that have them.
