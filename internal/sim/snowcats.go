@@ -162,6 +162,24 @@ func advanceCat(w *world.World, cat *world.Snowcat, shed *world.Building, dt flo
 			} else {
 				cat.CellIdx--
 			}
+			// If the next cell in this column is non-adjacent (gap in the
+			// trail), use BFS to stay on groomed terrain rather than
+			// cutting straight across the gap off-trail.
+			nextIdx := cat.CellIdx
+			if nextIdx >= 0 && nextIdx < len(cells) {
+				next := cells[nextIdx]
+				dz := next[1] - target[1]
+				if dz < 0 {
+					dz = -dz
+				}
+				if dz > 1 {
+					fromCell := [2]int{int(cat.Pos[0] / world.CellSize), int(cat.Pos[2] / world.CellSize)}
+					if path := bfsTrailPath(w, fromCell, next); len(path) > 1 {
+						cat.Transit = path[1:]
+						cat.TransitIdx = 0
+					}
+				}
+			}
 		}
 		return
 	}
