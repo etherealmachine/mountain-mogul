@@ -104,7 +104,7 @@ func advanceCat(w *world.World, cat *world.Snowcat, shed *world.Building, dt flo
 			continue
 		}
 
-		cells := sliceCellsSorted(w, trail, col.X)
+		cells := sliceCellsSorted(trail, col.X)
 
 		sliceDone := len(cells) == 0 ||
 			(cat.GoingDown && cat.CellIdx >= len(cells)) ||
@@ -117,7 +117,7 @@ func advanceCat(w *world.World, cat *world.Snowcat, shed *world.Building, dt flo
 				nextCol := cat.Route[cat.RouteIdx]
 				nextTrail := findTrail(w, nextCol.TrailID)
 				if nextTrail != nil {
-					next := sliceCellsSorted(w, nextTrail, nextCol.X)
+					next := sliceCellsSorted(nextTrail, nextCol.X)
 					var entryCell [2]int
 					if cat.GoingDown {
 						cat.CellIdx = 0
@@ -468,7 +468,7 @@ func sectionAvgGrooming(w *world.World, cat *world.Snowcat) float32 {
 
 // sliceCellsSorted returns all cells in trail at x-column xCol, ordered
 // top-to-bottom (highest terrain elevation first).
-func sliceCellsSorted(w *world.World, trail *world.Trail, xCol int) [][2]int {
+func sliceCellsSorted(trail *world.Trail, xCol int) [][2]int {
 	var cells [][2]int
 	for _, c := range trail.Cells {
 		if c[0] == xCol {
@@ -476,8 +476,7 @@ func sliceCellsSorted(w *world.World, trail *world.Trail, xCol int) [][2]int {
 		}
 	}
 	sort.Slice(cells, func(i, j int) bool {
-		return w.Terrain.SurfaceElevationAt(cells[i][0], cells[i][1]) >
-			w.Terrain.SurfaceElevationAt(cells[j][0], cells[j][1])
+		return cells[i][1] < cells[j][1]
 	})
 	return cells
 }
