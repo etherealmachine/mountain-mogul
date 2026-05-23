@@ -2714,8 +2714,8 @@ func (s *Scenario) catPathLines() []render.DebugLine {
 	}
 
 	const hover = float32(0.5)
-	routeColor := [3]float32{1.0, 0.4, 0.0}  // bright orange
-	transitColor := [3]float32{0.0, 0.9, 1.0} // bright cyan
+	routeColor := [3]float32{0.0, 0.0, 0.0}
+	transitColor := [3]float32{0.0, 0.0, 0.0}
 
 	var lines []render.DebugLine
 
