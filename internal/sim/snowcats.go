@@ -43,7 +43,7 @@ func (s *Simulation) tickSnowcats(dt float64) {
 
 		// Active: follow the current route or decide what to do next.
 		if len(cat.Route) > 0 {
-			advanceCat(w, cat, shed, dt)
+			advanceCat(w, cat, dt)
 			continue
 		}
 
@@ -53,143 +53,122 @@ func (s *Simulation) tickSnowcats(dt float64) {
 		}
 
 		if sectionAvgGrooming(w, cat) < sectionGroomThreshold {
-			cat.Route = make([]world.CatColumn, len(cat.Section))
-			copy(cat.Route, cat.Section)
-			sortRouteNearestNeighbor(w, cat.Route, cat.Pos[0], cat.Pos[2])
-			cat.RouteIdx = 0
-			cat.GoingDown = true
-			cat.CellIdx = 0
-			advanceCat(w, cat, shed, dt)
+			planRoute(w, cat)
+			advanceCat(w, cat, dt)
 		} else {
 			driveToDoor(w, cat, shed, dt)
 		}
 	}
 }
 
-// advanceCat moves cat one step along its active Route. If the cat is in
-// transit between columns it follows the BFS trail path before grooming.
-// Clears the route when all columns are done.
-func advanceCat(w *world.World, cat *world.Snowcat, shed *world.Building, dt float64) {
-	// Drive along the BFS transit path between columns when one is active.
-	if len(cat.Transit) > 0 {
-		target := cat.Transit[cat.TransitIdx]
-		tx := (float32(target[0]) + 0.5) * world.CellSize
-		tz := (float32(target[1]) + 0.5) * world.CellSize
-		arrived := cat.DriveToward(tx, tz, dt, arriveCellSlack)
-		cat.Pos[1] = w.Terrain.InterpolatedSurfaceElevationAt(cat.Pos[0], cat.Pos[2])
-		if arrived {
-			cat.TransitIdx++
-			if cat.TransitIdx >= len(cat.Transit) {
-				cat.Transit = nil
-				cat.TransitIdx = 0
-				// Fall through to start grooming the current column.
-			} else {
-				return
-			}
-		} else {
-			return
-		}
+// advanceCat moves the cat one step along its pre-planned route.
+// Each cell in Route is already the correct next position — no BFS at
+// runtime. The cat grooms every cell it arrives at (column cells and
+// BFS connector cells alike).
+func advanceCat(w *world.World, cat *world.Snowcat, dt float64) {
+	if cat.RouteIdx >= len(cat.Route) {
+		cat.Route = nil
+		return
 	}
+	target := cat.Route[cat.RouteIdx]
+	tx := (float32(target[0]) + 0.5) * world.CellSize
+	tz := (float32(target[1]) + 0.5) * world.CellSize
+	arrived := cat.DriveToward(tx, tz, dt, arriveCellSlack)
+	cat.Pos[1] = w.Terrain.InterpolatedSurfaceElevationAt(cat.Pos[0], cat.Pos[2])
+	if arrived {
+		groomCell(w, target)
+		cat.RouteIdx++
+	}
+}
 
-	for {
-		if cat.RouteIdx >= len(cat.Route) {
-			cat.Route = nil
-			return
-		}
+// planRoute builds the full flat cell sequence for cat's next grooming
+// pass and stores it in cat.Route. The algorithm:
+//  1. Sort the cat's section columns by nearest-neighbour from its
+//     current position (minimises initial transit).
+//  2. Traverse columns in a serpentine (boustrophedon) pattern —
+//     odd columns top-to-bottom, even columns bottom-to-top.
+//  3. Between the last cell of one column and the first cell of the
+//     next, insert a BFS path through groomed trail cells so the cat
+//     never drives off-piste.
+//  4. For columns whose cells are non-adjacent in Z (diagonal trails),
+//     insert BFS bridges within the column too.
+//
+// All BFS uses a single walkable set built once for the whole plan.
+func planRoute(w *world.World, cat *world.Snowcat) {
+	cols := make([]world.CatColumn, len(cat.Section))
+	copy(cols, cat.Section)
+	sortRouteNearestNeighbor(w, cols, cat.Pos[0], cat.Pos[2])
 
-		col := cat.Route[cat.RouteIdx]
+	walkable := buildWalkable(w)
+
+	var route [][2]int
+	goingDown := true
+	var prev [2]int
+	hasPrev := false
+
+	for _, col := range cols {
 		trail := findTrail(w, col.TrailID)
 		if trail == nil || !trail.Groomed {
-			cat.RouteIdx++
 			continue
 		}
-
 		cells := sliceCellsSorted(trail, col.X)
-
-		sliceDone := len(cells) == 0 ||
-			(cat.GoingDown && cat.CellIdx >= len(cells)) ||
-			(!cat.GoingDown && cat.CellIdx < 0)
-
-		if sliceDone {
-			cat.RouteIdx++
-			cat.GoingDown = !cat.GoingDown
-			if cat.RouteIdx < len(cat.Route) {
-				nextCol := cat.Route[cat.RouteIdx]
-				nextTrail := findTrail(w, nextCol.TrailID)
-				if nextTrail != nil {
-					next := sliceCellsSorted(nextTrail, nextCol.X)
-					var entryCell [2]int
-					if cat.GoingDown {
-						cat.CellIdx = 0
-						if len(next) > 0 {
-							entryCell = next[0]
-						}
-					} else {
-						cat.CellIdx = len(next) - 1
-						if len(next) > 0 {
-							entryCell = next[len(next)-1]
-						}
-					}
-					// BFS through trail cells to reach the next column's
-					// entry cell rather than driving straight across the gap.
-					if len(next) > 0 {
-						fromCell := [2]int{
-							int(cat.Pos[0] / world.CellSize),
-							int(cat.Pos[2] / world.CellSize),
-						}
-						if fromCell != entryCell {
-							if path := bfsTrailPath(w, fromCell, entryCell); len(path) > 1 {
-								cat.Transit = path[1:] // skip the cell we're already on
-								cat.TransitIdx = 0
-								return
-							}
-						}
-					}
-				}
-			}
+		if len(cells) == 0 {
 			continue
 		}
 
-		target := cells[cat.CellIdx]
-		tx := (float32(target[0]) + 0.5) * world.CellSize
-		tz := (float32(target[1]) + 0.5) * world.CellSize
-		arrived := cat.DriveToward(tx, tz, dt, arriveCellSlack)
-		cat.Pos[1] = w.Terrain.InterpolatedSurfaceElevationAt(cat.Pos[0], cat.Pos[2])
-		if arrived {
-			groomCell(w, target)
-			if cat.GoingDown {
-				cat.CellIdx++
-			} else {
-				cat.CellIdx--
+		// Serpentine: alternate direction per column.
+		colCells := make([][2]int, len(cells))
+		copy(colCells, cells)
+		if !goingDown {
+			for i, j := 0, len(colCells)-1; i < j; i, j = i+1, j-1 {
+				colCells[i], colCells[j] = colCells[j], colCells[i]
 			}
-			// If the next cell in this column is non-adjacent (gap in the
-			// trail), use BFS to stay on groomed terrain rather than
-			// cutting straight across the gap off-trail.
-			nextIdx := cat.CellIdx
-			if nextIdx >= 0 && nextIdx < len(cells) {
-				next := cells[nextIdx]
-				dz := next[1] - target[1]
+		}
+		goingDown = !goingDown
+
+		entry := colCells[0]
+
+		// Connect from previous position to this column's entry via BFS.
+		from := prev
+		if !hasPrev {
+			from = [2]int{int(cat.Pos[0] / world.CellSize), int(cat.Pos[2] / world.CellSize)}
+		}
+		if from != entry {
+			if path := bfsPath(walkable, from, entry); len(path) > 1 {
+				route = append(route, path[1:]...) // omit 'from' (already in route)
+			}
+			// BFS failure: cat will drive straight to entry — acceptable
+			// for the initial approach from the shed.
+		}
+
+		// Append column cells, inserting BFS bridges across any gaps.
+		for i, cell := range colCells {
+			if i > 0 {
+				p := colCells[i-1]
+				dz := cell[1] - p[1]
 				if dz < 0 {
 					dz = -dz
 				}
 				if dz > 1 {
-					fromCell := [2]int{int(cat.Pos[0] / world.CellSize), int(cat.Pos[2] / world.CellSize)}
-					if path := bfsTrailPath(w, fromCell, next); len(path) > 1 {
-						cat.Transit = path[1:]
-						cat.TransitIdx = 0
+					if path := bfsPath(walkable, p, cell); len(path) > 1 {
+						route = append(route, path[1:]...)
+						continue
 					}
 				}
 			}
+			route = append(route, cell)
 		}
-		return
+
+		prev = colCells[len(colCells)-1]
+		hasPrev = true
 	}
+
+	cat.Route = route
+	cat.RouteIdx = 0
 }
 
-// bfsTrailPath returns a path of grid cells through groomed trail terrain from
-// from to to, using BFS on 4-connected neighbours. Returns nil if no path
-// exists through trail cells (cat falls back to straight-line transit).
-func bfsTrailPath(w *world.World, from, to [2]int) [][2]int {
-	// Build the walkable set: all cells belonging to any groomed trail.
+// buildWalkable returns the set of all cells belonging to any groomed trail.
+func buildWalkable(w *world.World) map[[2]int]bool {
 	walkable := map[[2]int]bool{}
 	for _, trail := range w.Trails {
 		if !trail.Groomed {
@@ -199,19 +178,24 @@ func bfsTrailPath(w *world.World, from, to [2]int) [][2]int {
 			walkable[c] = true
 		}
 	}
+	return walkable
+}
+
+// bfsPath returns a path through walkable cells from `from` to `to` using
+// 4-connected BFS. Returns nil if either endpoint is not walkable or no
+// path exists.
+func bfsPath(walkable map[[2]int]bool, from, to [2]int) [][2]int {
 	if !walkable[from] || !walkable[to] {
 		return nil
 	}
 	if from == to {
 		return [][2]int{from}
 	}
-
 	parent := map[[2]int][2]int{}
 	visited := map[[2]int]bool{from: true}
 	queue := [][2]int{from}
 	dirs := [4][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}
 	found := false
-
 outer:
 	for len(queue) > 0 {
 		cur := queue[0]
@@ -230,11 +214,9 @@ outer:
 			queue = append(queue, next)
 		}
 	}
-
 	if !found {
 		return nil
 	}
-
 	var path [][2]int
 	for cur := to; cur != from; cur = parent[cur] {
 		path = append(path, cur)
@@ -266,8 +248,7 @@ func reassignAllSections(w *world.World) {
 	for _, cat := range w.Snowcats {
 		cat.Section = nil
 		cat.Route = nil
-		cat.Transit = nil
-		cat.TransitIdx = 0
+		cat.RouteIdx = 0
 	}
 
 	// Collect active cats and the set of sheds that have them.

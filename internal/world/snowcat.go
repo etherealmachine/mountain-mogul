@@ -64,18 +64,12 @@ type Snowcat struct {
 	// Assigned globally by reassignAllSections; nil means unassigned.
 	Section []CatColumn
 
-	// Route — active pass through the section, copied from Section when a
-	// grooming run starts. Nil means idle (no active route).
-	Route    []CatColumn
-	RouteIdx int  // current index in Route
-	CellIdx  int  // current cell within Route[RouteIdx]'s column
-	GoingDown bool // true = traversing column top→bottom
-
-	// Transit — BFS path of trail cells to follow when moving between columns.
-	// The cat drives these waypoints without grooming before starting the next
-	// column. Nil means no active transit (groom or drive straight to shed).
-	Transit    [][2]int
-	TransitIdx int
+	// Route — pre-planned full sequence of terrain cells for the current
+	// grooming pass. BFS connectors between columns (and across intra-column
+	// gaps) are baked in at plan time, so advanceCat only needs to drive to
+	// the next cell and groom it. Nil means idle.
+	Route    [][2]int
+	RouteIdx int
 }
 
 // DriveToward advances the cat one tick (`dt` seconds) toward

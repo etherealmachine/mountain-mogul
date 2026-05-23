@@ -6,7 +6,6 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -2677,7 +2676,7 @@ func (s *Scenario) openSnowcatPopup(cat *world.Snowcat, screenW, screenH int) {
 		if len(c.Route) == 0 {
 			return "idle"
 		}
-		return fmt.Sprintf("%d / %d cols", c.RouteIdx+1, len(c.Route))
+		return fmt.Sprintf("%d / %d cells", c.RouteIdx, len(c.Route))
 	})
 	w.AddActionButton("Go to shed", func() {
 		r := s.app.Renderer
@@ -2698,8 +2697,8 @@ func (s *Scenario) openSnowcatPopup(cat *world.Snowcat, screenW, screenH int) {
 	s.popup = w
 }
 
-// catPathLines builds debug lines for the selected cat's route columns (teal)
-// and transit path (yellow), hovering slightly above the terrain surface.
+// catPathLines builds debug lines for the selected cat's remaining route,
+// hovering slightly above the terrain surface.
 func (s *Scenario) catPathLines() []render.DebugLine {
 	var cat *world.Snowcat
 	for _, c := range s.world.Snowcats {
@@ -2714,35 +2713,11 @@ func (s *Scenario) catPathLines() []render.DebugLine {
 	}
 
 	const hover = float32(0.5)
-	routeColor := [3]float32{0.0, 0.0, 0.0}
-	transitColor := [3]float32{0.0, 0.0, 0.0}
+	color := [3]float32{0.0, 0.0, 0.0}
 
 	var lines []render.DebugLine
-
-	// Remaining route columns in teal.
-	for i, col := range cat.Route {
-		if i < cat.RouteIdx {
-			continue
-		}
-		cells := s.columnCells(col)
-		for j := 1; j < len(cells); j++ {
-			ax := (float32(cells[j-1][0]) + 0.5) * world.CellSize
-			az := (float32(cells[j-1][1]) + 0.5) * world.CellSize
-			bx := (float32(cells[j][0]) + 0.5) * world.CellSize
-			bz := (float32(cells[j][1]) + 0.5) * world.CellSize
-			ay := s.world.Terrain.SurfaceElevationAt(cells[j-1][0], cells[j-1][1]) + hover
-			by := s.world.Terrain.SurfaceElevationAt(cells[j][0], cells[j][1]) + hover
-			lines = append(lines, render.DebugLine{
-				A:     mgl32.Vec3{ax, ay, az},
-				B:     mgl32.Vec3{bx, by, bz},
-				Color: routeColor,
-			})
-		}
-	}
-
-	// Active transit path in yellow.
-	for i := cat.TransitIdx; i+1 < len(cat.Transit); i++ {
-		a, b := cat.Transit[i], cat.Transit[i+1]
+	for i := cat.RouteIdx; i+1 < len(cat.Route); i++ {
+		a, b := cat.Route[i], cat.Route[i+1]
 		ax := (float32(a[0]) + 0.5) * world.CellSize
 		az := (float32(a[1]) + 0.5) * world.CellSize
 		bx := (float32(b[0]) + 0.5) * world.CellSize
@@ -2752,30 +2727,10 @@ func (s *Scenario) catPathLines() []render.DebugLine {
 		lines = append(lines, render.DebugLine{
 			A:     mgl32.Vec3{ax, ay, az},
 			B:     mgl32.Vec3{bx, by, bz},
-			Color: transitColor,
+			Color: color,
 		})
 	}
-
 	return lines
-}
-
-// columnCells returns all cells in the given trail that belong to the given
-// x-column, sorted top-to-bottom (ascending Z).
-func (s *Scenario) columnCells(col world.CatColumn) [][2]int {
-	for _, t := range s.world.Trails {
-		if t.ID != col.TrailID {
-			continue
-		}
-		var cells [][2]int
-		for _, c := range t.Cells {
-			if c[0] == col.X {
-				cells = append(cells, c)
-			}
-		}
-		sort.Slice(cells, func(i, j int) bool { return cells[i][1] < cells[j][1] })
-		return cells
-	}
-	return nil
 }
 
 // setTool toggles the given tool on; if it is already active, deactivates it.
