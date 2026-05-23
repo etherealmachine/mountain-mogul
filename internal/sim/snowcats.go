@@ -18,15 +18,17 @@ const (
 	sectionGroomThreshold = 0.5
 )
 
-// tickSnowcats advances the grooming fleet one step. Each cat either:
-//   - follows its active zig-zag route through its assigned section, or
-//   - starts a new pass when section average grooming drops below 50%, or
-//   - drives back to its shed and waits.
+// tickSnowcats advances the grooming fleet one step. Standby cats park at
+// their shed. Active cats follow their assigned section route, starting a
+// new pass whenever the section average drops below the grooming threshold.
 func (s *Simulation) tickSnowcats(dt float64) {
 	w := s.World
 
-	// Assign sections to sheds whose cats don't have one yet.
-	assignMissingSections(w)
+	if s.sectionsStale {
+		reassignAllSections(w)
+		s.sectionsStale = false
+	}
+
 
 	for _, cat := range w.Snowcats {
 		shed := findBuilding(w, cat.ShedID)
@@ -34,35 +36,27 @@ func (s *Simulation) tickSnowcats(dt float64) {
 			continue
 		}
 
-		// If the assigned trail is gone or no longer groomed, clear the section
-		// so it gets reassigned next tick.
-		if cat.SectionTrailID != 0 {
-			trail := findTrail(w, cat.SectionTrailID)
-			if trail == nil || !trail.Groomed {
-				cat.SectionTrailID = 0
-				cat.SectionXs = nil
-				cat.TrailID = 0
-				cat.SliceXs = nil
-			}
-		}
-
-		// No section yet — wait by the shed.
-		if cat.SectionTrailID == 0 {
+		if cat.Status == world.CatStandby {
 			driveToDoor(w, cat, shed, dt)
 			continue
 		}
 
-		// Actively routing: advance one step along the zig-zag.
-		if cat.TrailID != 0 {
+		// Active: follow the current route or decide what to do next.
+		if len(cat.Route) > 0 {
 			advanceCat(w, cat, shed, dt)
 			continue
 		}
 
-		// No active route. Start a new pass if section needs work.
+		if len(cat.Section) == 0 {
+			driveToDoor(w, cat, shed, dt)
+			continue
+		}
+
 		if sectionAvgGrooming(w, cat) < sectionGroomThreshold {
-			cat.TrailID = cat.SectionTrailID
-			cat.SliceXs = cat.SectionXs
-			cat.SliceIdx = 0
+			cat.Route = make([]world.CatColumn, len(cat.Section))
+			copy(cat.Route, cat.Section)
+			sortRouteNearestNeighbor(w, cat.Route, cat.Pos[0], cat.Pos[2])
+			cat.RouteIdx = 0
 			cat.GoingDown = true
 			cat.CellIdx = 0
 			advanceCat(w, cat, shed, dt)
@@ -72,38 +66,41 @@ func (s *Simulation) tickSnowcats(dt float64) {
 	}
 }
 
-// advanceCat moves cat one step along its current zig-zag route. Clears
-// the route when all slices are done.
+// advanceCat moves cat one step along its active Route. Clears the route
+// when all columns are done. Skips columns whose trail is gone or ungroomed.
 func advanceCat(w *world.World, cat *world.Snowcat, shed *world.Building, dt float64) {
-	trail := findTrail(w, cat.TrailID)
-	if trail == nil {
-		cat.TrailID = 0
-		cat.SliceXs = nil
-		return
-	}
-
 	for {
-		if cat.SliceIdx >= len(cat.SliceXs) {
-			cat.TrailID = 0
-			cat.SliceXs = nil
+		if cat.RouteIdx >= len(cat.Route) {
+			cat.Route = nil
 			return
 		}
 
-		cells := sliceCellsSorted(w, trail, cat.SliceXs[cat.SliceIdx])
+		col := cat.Route[cat.RouteIdx]
+		trail := findTrail(w, col.TrailID)
+		if trail == nil || !trail.Groomed {
+			cat.RouteIdx++
+			continue
+		}
+
+		cells := sliceCellsSorted(w, trail, col.X)
 
 		sliceDone := len(cells) == 0 ||
 			(cat.GoingDown && cat.CellIdx >= len(cells)) ||
 			(!cat.GoingDown && cat.CellIdx < 0)
 
 		if sliceDone {
-			cat.SliceIdx++
+			cat.RouteIdx++
 			cat.GoingDown = !cat.GoingDown
-			if cat.SliceIdx < len(cat.SliceXs) {
-				next := sliceCellsSorted(w, trail, cat.SliceXs[cat.SliceIdx])
-				if cat.GoingDown {
-					cat.CellIdx = 0
-				} else {
-					cat.CellIdx = len(next) - 1
+			if cat.RouteIdx < len(cat.Route) {
+				nextCol := cat.Route[cat.RouteIdx]
+				nextTrail := findTrail(w, nextCol.TrailID)
+				if nextTrail != nil {
+					next := sliceCellsSorted(w, nextTrail, nextCol.X)
+					if cat.GoingDown {
+						cat.CellIdx = 0
+					} else {
+						cat.CellIdx = len(next) - 1
+					}
 				}
 			}
 			continue
@@ -135,123 +132,226 @@ func driveToDoor(w *world.World, cat *world.Snowcat, shed *world.Building, dt fl
 	cat.Pos[1] = w.Terrain.InterpolatedSurfaceElevationAt(cat.Pos[0], cat.Pos[2])
 }
 
-// assignMissingSections assigns permanent section columns to every cat in
-// any shed where at least one cat has no section. All cats in a shed are
-// assigned atomically so sections are non-overlapping by construction.
-func assignMissingSections(w *world.World) {
-	// Group cats by shed.
-	shedCats := map[uint64][]*world.Snowcat{}
+// reassignAllSections performs a capacity-weighted Voronoi partition of groomed
+// trail columns across all active cats. Each (trail, x-column) pair is assigned
+// to the shed with the best score = distance² / catCount², so a shed with N
+// active cats has N× the effective pull radius of a single-cat shed. Within
+// each shed the assigned columns are divided evenly among the active cats.
+// Standby cats receive no section. Called when sectionsStale is set.
+func reassignAllSections(w *world.World) {
+	// Clear all existing assignments and routes.
 	for _, cat := range w.Snowcats {
-		shedCats[cat.ShedID] = append(shedCats[cat.ShedID], cat)
+		cat.Section = nil
+		cat.Route = nil
 	}
 
-	for shedID, cats := range shedCats {
-		needsAssign := false
-		for _, cat := range cats {
-			if cat.SectionXs == nil {
-				needsAssign = true
-				break
-			}
+	// Collect active cats and the set of sheds that have them.
+	var activeCats []*world.Snowcat
+	for _, cat := range w.Snowcats {
+		if cat.Status == world.CatActive {
+			activeCats = append(activeCats, cat)
 		}
-		if !needsAssign {
-			continue
-		}
+	}
+	if len(activeCats) == 0 {
+		return
+	}
 
-		shed := findBuilding(w, shedID)
+	// Count active cats per shed for capacity weighting.
+	shedCatCount := map[uint64]int{}
+	for _, cat := range activeCats {
+		shedCatCount[cat.ShedID]++
+	}
+
+	// Build shed door world-positions for sheds with active cats.
+	type shedSite struct {
+		id    uint64
+		wx    float32
+		wz    float32
+		nCats float32 // active cat count, precast to float for scoring
+	}
+	shedByID := map[uint64]*world.Building{}
+	for _, b := range w.Buildings {
+		if b.Type == world.BuildingShed {
+			shedByID[b.ID] = b
+		}
+	}
+	sites := make([]shedSite, 0, len(shedCatCount))
+	for shedID, n := range shedCatCount {
+		shed := shedByID[shedID]
 		if shed == nil {
 			continue
 		}
-		trail := nearestGroomedTrail(w, shed)
-		if trail == nil {
-			continue
-		}
-
-		// Collect unique x-columns sorted ascending.
-		xSet := map[int]bool{}
-		for _, c := range trail.Cells {
-			xSet[c[0]] = true
-		}
-		allCols := make([]int, 0, len(xSet))
-		for x := range xSet {
-			allCols = append(allCols, x)
-		}
-		sort.Ints(allCols)
-
-		if len(allCols) == 0 {
-			continue
-		}
-
-		// Sort cats by ID for stable, deterministic assignment.
-		sort.Slice(cats, func(i, j int) bool { return cats[i].ID < cats[j].ID })
-		n := len(cats)
-		for i, cat := range cats {
-			lo := i * len(allCols) / n
-			hi := (i + 1) * len(allCols) / n
-			if lo >= hi {
-				// Degenerate: more cats than columns — give this cat the last column.
-				hi = lo + 1
-				if hi > len(allCols) {
-					hi = len(allCols)
-					lo = hi - 1
-				}
-			}
-			section := make([]int, hi-lo)
-			copy(section, allCols[lo:hi])
-			cat.SectionTrailID = trail.ID
-			cat.SectionXs = section
-		}
+		door := shed.DoorCell()
+		sites = append(sites, shedSite{
+			id:    shedID,
+			wx:    (float32(door[0]) + 0.5) * world.CellSize,
+			wz:    (float32(door[1]) + 0.5) * world.CellSize,
+			nCats: float32(n),
+		})
 	}
-}
+	// Sort sites by ID for deterministic tie-breaking.
+	sort.Slice(sites, func(i, j int) bool { return sites[i].id < sites[j].id })
 
-// nearestGroomedTrail returns the groomed trail whose cell centroid is
-// closest to the shed's door cell. Returns nil if no groomed trail exists.
-func nearestGroomedTrail(w *world.World, shed *world.Building) *world.Trail {
-	door := shed.DoorCell()
-	doorX := (float32(door[0]) + 0.5) * world.CellSize
-	doorZ := (float32(door[1]) + 0.5) * world.CellSize
-
-	var best *world.Trail
-	var bestDist2 float32
+	// Precompute centroid Z per trail (all columns share the same trail centroid Z
+	// for the proximity metric; column X is used directly for the X distance).
+	trailCentZ := map[uint64]float32{}
 	for _, trail := range w.Trails {
 		if !trail.Groomed || len(trail.Cells) == 0 {
 			continue
 		}
-		var sumX, sumZ float32
+		var sumZ float32
 		for _, c := range trail.Cells {
-			sumX += (float32(c[0]) + 0.5) * world.CellSize
 			sumZ += (float32(c[1]) + 0.5) * world.CellSize
 		}
-		n := float32(len(trail.Cells))
-		cx, cz := sumX/n, sumZ/n
-		dx, dz := cx-doorX, cz-doorZ
-		d2 := dx*dx + dz*dz
-		if best == nil || d2 < bestDist2 {
-			best = trail
-			bestDist2 = d2
+		trailCentZ[trail.ID] = sumZ / float32(len(trail.Cells))
+	}
+
+	// Voronoi: assign each (trail, xCol) to the nearest shed site.
+	shedCols := map[uint64][]world.CatColumn{}
+	for _, trail := range w.Trails {
+		if !trail.Groomed || len(trail.Cells) == 0 {
+			continue
+		}
+		centZ := trailCentZ[trail.ID]
+		xSet := map[int]bool{}
+		for _, c := range trail.Cells {
+			xSet[c[0]] = true
+		}
+		for x := range xSet {
+			colWX := (float32(x) + 0.5) * world.CellSize
+			var bestID uint64
+			var bestScore float32
+			for _, site := range sites {
+				dx := colWX - site.wx
+				dz := centZ - site.wz
+				// score = d² / n²: a shed with N cats wins columns up to N×
+				// farther away than a single-cat shed at the same distance.
+				score := (dx*dx + dz*dz) / (site.nCats * site.nCats)
+				if bestID == 0 || score < bestScore {
+					bestID = site.id
+					bestScore = score
+				}
+			}
+			if bestID != 0 {
+				shedCols[bestID] = append(shedCols[bestID], world.CatColumn{TrailID: trail.ID, X: x})
+			}
 		}
 	}
-	return best
+
+	// Within each shed sort columns then divide evenly among active cats.
+	shedActiveCats := map[uint64][]*world.Snowcat{}
+	for _, cat := range activeCats {
+		shedActiveCats[cat.ShedID] = append(shedActiveCats[cat.ShedID], cat)
+	}
+
+	for shedID, cols := range shedCols {
+		cats := shedActiveCats[shedID]
+		if len(cats) == 0 {
+			continue
+		}
+		sort.Slice(cols, func(i, j int) bool {
+			if cols[i].TrailID != cols[j].TrailID {
+				return cols[i].TrailID < cols[j].TrailID
+			}
+			return cols[i].X < cols[j].X
+		})
+		sort.Slice(cats, func(i, j int) bool { return cats[i].ID < cats[j].ID })
+
+		n := len(cats)
+		for i, cat := range cats {
+			lo := i * len(cols) / n
+			hi := (i + 1) * len(cols) / n
+			if lo >= hi {
+				hi = lo + 1
+			}
+			if hi > len(cols) {
+				hi = len(cols)
+			}
+			if lo >= len(cols) {
+				continue // more cats than columns; this cat sits idle
+			}
+			section := make([]world.CatColumn, hi-lo)
+			copy(section, cols[lo:hi])
+			cat.Section = section
+		}
+	}
+
+}
+
+// sortRouteNearestNeighbor reorders cols in-place using a greedy
+// nearest-neighbor heuristic starting from (startWX, startWZ). Each column's
+// representative position is its world X centre and the Z centroid of its
+// trail's cells. This minimises transit distance between columns when the cat
+// begins a new grooming pass.
+func sortRouteNearestNeighbor(w *world.World, cols []world.CatColumn, startWX, startWZ float32) {
+	n := len(cols)
+	if n <= 1 {
+		return
+	}
+
+	// Precompute trail centroid Z for each unique trail in the route.
+	centZ := make(map[uint64]float32, n)
+	for _, col := range cols {
+		if _, ok := centZ[col.TrailID]; ok {
+			continue
+		}
+		trail := findTrail(w, col.TrailID)
+		if trail == nil || len(trail.Cells) == 0 {
+			continue
+		}
+		var sumZ float32
+		for _, c := range trail.Cells {
+			sumZ += (float32(c[1]) + 0.5) * world.CellSize
+		}
+		centZ[col.TrailID] = sumZ / float32(len(trail.Cells))
+	}
+
+	visited := make([]bool, n)
+	result := make([]world.CatColumn, 0, n)
+	curX, curZ := startWX, startWZ
+
+	for len(result) < n {
+		best, bestD2 := -1, float32(0)
+		for i, col := range cols {
+			if visited[i] {
+				continue
+			}
+			cx := (float32(col.X) + 0.5) * world.CellSize
+			cz := centZ[col.TrailID]
+			dx, dz := cx-curX, cz-curZ
+			d2 := dx*dx + dz*dz
+			if best < 0 || d2 < bestD2 {
+				best, bestD2 = i, d2
+			}
+		}
+		if best < 0 {
+			break
+		}
+		visited[best] = true
+		result = append(result, cols[best])
+		curX = (float32(cols[best].X) + 0.5) * world.CellSize
+		curZ = centZ[cols[best].TrailID]
+	}
+	copy(cols, result)
 }
 
 // sectionAvgGrooming returns the average Grooming value across all cells
 // in cat's assigned section. Returns 1.0 if the section is empty.
 func sectionAvgGrooming(w *world.World, cat *world.Snowcat) float32 {
-	trail := findTrail(w, cat.SectionTrailID)
-	if trail == nil {
-		return 1.0
-	}
-	sectionSet := make(map[int]bool, len(cat.SectionXs))
-	for _, x := range cat.SectionXs {
-		sectionSet[x] = true
-	}
 	var sum float32
 	var n int
-	for _, c := range trail.Cells {
-		if !sectionSet[c[0]] || !w.Terrain.InBounds(c[0], c[1]) {
+	for _, col := range cat.Section {
+		trail := findTrail(w, col.TrailID)
+		if trail == nil {
 			continue
 		}
-		sum += w.Terrain.Cells[c[0]][c[1]].Grooming
-		n++
+		for _, c := range trail.Cells {
+			if c[0] != col.X || !w.Terrain.InBounds(c[0], c[1]) {
+				continue
+			}
+			sum += w.Terrain.Cells[c[0]][c[1]].Grooming
+			n++
+		}
 	}
 	if n == 0 {
 		return 1.0

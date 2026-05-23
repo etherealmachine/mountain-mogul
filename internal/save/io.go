@@ -214,7 +214,6 @@ func worldToData(w *world.World) ScenarioData {
 			X:               b.Pos[0],
 			Z:               b.Pos[1],
 			Rotation:        b.Rotation,
-			Cats:            b.Cats,
 			MaxCars:         b.MaxCars,
 			CurrentCars:     b.CurrentCars,
 			DrivewayNodeIDs: b.DrivewayNodeIDs,
@@ -228,6 +227,7 @@ func worldToData(w *world.World) ScenarioData {
 			ShedID:  c.ShedID,
 			Pos:     [3]float32{c.Pos[0], c.Pos[1], c.Pos[2]},
 			Heading: c.Heading,
+			Status:  uint8(c.Status),
 		}
 	}
 
@@ -479,12 +479,6 @@ func dataToWorld(data ScenarioData) *world.World {
 			b.ID = bd.ID
 		}
 		b.Rotation = bd.Rotation
-		// Shed-only state. Cats defaults to zero on older saves; the shed
-		// loads with one cat (the default from PlaceBuildingType) until
-		// the player adjusts via the popup.
-		if b.Type == world.BuildingShed && bd.Cats > 0 {
-			b.Cats = bd.Cats
-		}
 		// Parking-only state. MaxCars/CurrentCars default to zero on
 		// older saves; the placement defaults from PlaceBuildingType
 		// already populated MaxCars to a reasonable value above. The
@@ -520,6 +514,7 @@ func dataToWorld(data ScenarioData) *world.World {
 		}
 		cat.Pos = mgl32.Vec3{cd.Pos[0], cd.Pos[1], cd.Pos[2]}
 		cat.Heading = cd.Heading
+		cat.Status = world.CatStatus(cd.Status)
 	}
 
 	// Restore lifts. Chair count is computed from cable length so it's

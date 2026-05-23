@@ -19,42 +19,57 @@ const (
 	// cell width so a cat grooms exactly the cell it stands in.
 	SnowcatTillerWidth = 5.0
 
-	// MaxCatsPerShed caps how many cats a single shed can dispatch.
-	// Sized to the shed model (two bays + circulation = three cats max).
-	MaxCatsPerShed = 3
+	// CatPurchasePrice is the one-time cost to add a cat to the global fleet.
+	// The first cat is bundled into ShedCost; every additional cat costs this.
+	CatPurchasePrice = 25_000
 
-	// CatCost is the up-front purchase price for each cat beyond the
-	// first (the first is included in ShedCost).
-	CatCost = 15000
+	// CatActiveCostDay is the daily operating cost for a cat actively grooming.
+	CatActiveCostDay = 500
+
+	// CatStandbyCostDay is the daily cost to keep a cat parked in standby.
+	CatStandbyCostDay = 75
 
 	// CellSize is one terrain cell in metres. Mirrored from a few places
 	// so snowcat helpers don't pull it from a constants package.
 	CellSize = 5.0
 )
 
-// Snowcat is a single grooming machine. Spawned in pairs with the
-// shed that owns it; lives in World.Snowcats with a persistent ID so
-// saves round-trip.
+// CatStatus indicates whether a cat is actively grooming or parked in standby.
+type CatStatus uint8
+
+const (
+	CatActive  CatStatus = 0 // grooming normally
+	CatStandby CatStatus = 1 // parked at shed, lower daily cost
+)
+
+// CatColumn is one (trail, x-column) pair in a cat's assigned section.
+// Cats own a slice of these; the slice may span columns from multiple trails.
+type CatColumn struct {
+	TrailID uint64
+	X       int
+}
+
+// Snowcat is a single grooming machine. Lives in World.Snowcats with a
+// persistent ID so saves round-trip. Each cat is assigned to exactly one shed
+// (its home base), but section assignments are computed globally across all
+// sheds and trails by reassignAllSections.
 type Snowcat struct {
 	ID      uint64
 	ShedID  uint64 // owning shed; cat despawns when shed is removed
 	Pos     mgl32.Vec3
 	Heading float32
+	Status  CatStatus // Active (grooming) or Standby (parked, cheaper)
 
-	// Section assignment — persistent for the lifetime of the cat.
-	// The sim divides the nearest groomed trail's x-columns evenly among
-	// all cats from the same shed; each cat owns one section and re-grooms
-	// it whenever the average grooming drops below 50%.
-	SectionTrailID uint64 // trail this cat's section belongs to; 0 = unassigned
-	SectionXs      []int  // x-column indices in this cat's permanent section
+	// Section — the (trail, x-column) pairs this cat is responsible for.
+	// Assigned globally by reassignAllSections; nil means unassigned.
+	Section []CatColumn
 
-	// Route state — active only while the cat is out grooming its section.
-	// All zero means "no active route"; the cat drives back to its shed.
-	TrailID   uint64 // trail being groomed; 0 = no active route
-	SliceXs   []int  // x-column indices for the current pass (= SectionXs when active)
-	SliceIdx  int    // which SliceXs element is currently being worked
-	CellIdx   int    // which cell in the current slice is the next target
-	GoingDown bool   // true = traversing slice top→bottom
+	// Route — active pass through the section, copied from Section when a
+	// grooming run starts. Nil means idle (no active route).
+	Route    []CatColumn
+	RouteIdx int  // current index in Route
+	CellIdx  int  // current cell within Route[RouteIdx]'s column
+	GoingDown bool // true = traversing column top→bottom
 }
 
 // DriveToward advances the cat one tick (`dt` seconds) toward

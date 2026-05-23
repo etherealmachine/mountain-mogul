@@ -75,6 +75,18 @@ type Simulation struct {
 	// weather and snowfall have been applied. Used by the scene layer to
 	// plow roads without creating an import cycle (scene→sim→scene).
 	OnDayRollover func(w *world.World)
+
+	// sectionsStale triggers a full global section recompute at the start
+	// of the next snowcat tick. Set by InvalidateSections whenever the
+	// fleet or trail configuration changes.
+	sectionsStale bool
+}
+
+// InvalidateSections signals that cat section assignments need a full
+// recompute. Call whenever cats are bought/released/toggled or trail
+// grooming is changed.
+func (s *Simulation) InvalidateSections() {
+	s.sectionsStale = true
 }
 
 // NewSimulation creates a Simulation wrapping the given world, seeded from
@@ -106,6 +118,7 @@ func NewSimulationWithSeed(w *world.World, seed int64) *Simulation {
 		Demand:         NewDemandSystem(),
 		spatial:        newSpatialGrid(widthM, heightM),
 		lastSampledDay: 0,
+		sectionsStale:  true, // run reassignment on first tick to pick up loaded cats
 	}
 	for _, a := range w.OnMountain {
 		if !a.Plan.Done() {
@@ -374,7 +387,13 @@ func (s *Simulation) maybeSampleHistory() {
 
 		// Compute and debit operational costs for the day.
 		costs := len(w.Lifts) * 2 * world.LiftAttendantDailyCost
-		costs += len(w.Snowcats) * world.SnowcatDailyCost
+		for _, cat := range w.Snowcats {
+			if cat.Status == world.CatActive {
+				costs += world.CatActiveCostDay
+			} else {
+				costs += world.CatStandbyCostDay
+			}
+		}
 		w.Cash -= costs
 
 		w.History.Push(world.DailySample{

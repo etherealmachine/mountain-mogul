@@ -1907,6 +1907,7 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		}
 		w.Cash -= world.ShedCost
 		b := w.PlaceBuildingType(world.BuildingShed, wx, wz)
+		s.sim.InvalidateSections()
 		applyBuildingPlacementEffects(w.Terrain, b)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
@@ -2072,9 +2073,11 @@ func (s *Scenario) applyTrailErase(gx, gz int) {
 	s.world.RemoveTrailCells(s.activeTrailID, cells)
 }
 
-// finishTrailPaintStroke rebuilds the TrailGraph after a drag-paint stroke ends.
+// finishTrailPaintStroke rebuilds the TrailGraph after a drag-paint stroke ends
+// and invalidates section assignments since column counts may have changed.
 func (s *Scenario) finishTrailPaintStroke() {
 	s.world.RebuildTrailGraph()
+	s.sim.InvalidateSections()
 }
 
 
@@ -2131,7 +2134,11 @@ func (s *Scenario) removeAt(clickPos mgl32.Vec3, r *render.Renderer) {
 			// edges; RemoveBuilding drops both, so the road mesh has to
 			// be regenerated when one comes out.
 			wasParking := b.Type == world.BuildingParking
+			wasShed := b.Type == world.BuildingShed
 			w.RemoveBuilding(b.ID)
+			if wasShed {
+				s.sim.InvalidateSections()
+			}
 			// RemoveBuilding restores Passable on the door cell; we
 			// intentionally do NOT revert the apron's ground / snow / tree
 			// effects (no Natural baseline to revert TO). The graded pad
@@ -2352,7 +2359,10 @@ func (s *Scenario) buildTrailPopup(trail *world.Trail, confirmClear bool, screen
 			s.world.RebuildTrailGraph()
 		},
 	)
-	w.AddBoolToggle("Groomed", func() bool { return t.Groomed }, func(v bool) { t.Groomed = v })
+	w.AddBoolToggle("Groomed", func() bool { return t.Groomed }, func(v bool) {
+		t.Groomed = v
+		s.sim.InvalidateSections()
+	})
 	w.AddLabel("Cells", func() string { return fmt.Sprintf("%d", len(t.Cells)) })
 	w.AddLabel("Groom", func() string {
 		if len(t.Cells) == 0 {
@@ -2425,35 +2435,87 @@ func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 	switch bldg.Type {
 	case world.BuildingShed:
 		w := ui.NewWindow("Equipment Shed", 0, 0)
-		// Cat count with side-effect spawning/despawning. +/- both clamp
-		// (1..MaxCatsPerShed); buying a cat deducts CatCost and spawns
-		// one at the shed door.
-		w.AddIntStepperFn("Cats",
-			func() string { return fmt.Sprintf("%d/%d", bldg.Cats, world.MaxCatsPerShed) },
-			func() { // minus: sell a cat (refund half its cost)
-				if bldg.Cats <= 1 {
-					return // never empty the shed; first cat is included
+		w.AddLabel("Fleet", func() string {
+			cats := s.world.CatsOwnedBy(bldg.ID)
+			active := 0
+			for _, c := range cats {
+				if c.Status == world.CatActive {
+					active++
 				}
+			}
+			return fmt.Sprintf("%d cats (%d active)", len(cats), active)
+		})
+		w.AddIntStepperFn("Active",
+			func() string {
 				cats := s.world.CatsOwnedBy(bldg.ID)
-				if len(cats) == 0 {
-					return
+				active := 0
+				for _, c := range cats {
+					if c.Status == world.CatActive {
+						active++
+					}
 				}
-				s.world.RemoveSnowcat(cats[len(cats)-1].ID)
-				bldg.Cats--
-				s.world.Cash += world.CatCost / 2
+				return fmt.Sprintf("%d / %d", active, len(cats))
 			},
-			func() { // plus: buy a cat
-				if bldg.Cats >= world.MaxCatsPerShed {
-					return
+			func() { // minus: put one active cat on standby
+				cats := s.world.CatsOwnedBy(bldg.ID)
+				for i := len(cats) - 1; i >= 0; i-- {
+					if cats[i].Status == world.CatActive {
+						cats[i].Status = world.CatStandby
+						s.sim.InvalidateSections()
+						return
+					}
 				}
-				if s.world.Cash < world.CatCost {
-					s.setToast(fmt.Sprintf("Need $%d for another cat", world.CatCost))
-					return
+			},
+			func() { // plus: activate one standby cat
+				cats := s.world.CatsOwnedBy(bldg.ID)
+				for _, c := range cats {
+					if c.Status == world.CatStandby {
+						c.Status = world.CatActive
+						s.sim.InvalidateSections()
+						return
+					}
 				}
-				s.world.Cash -= world.CatCost
-				s.world.SpawnSnowcat(bldg)
-				bldg.Cats++
 			})
+		w.AddLabel("Daily cost", func() string {
+			cats := s.world.CatsOwnedBy(bldg.ID)
+			cost := 0
+			for _, c := range cats {
+				if c.Status == world.CatActive {
+					cost += world.CatActiveCostDay
+				} else {
+					cost += world.CatStandbyCostDay
+				}
+			}
+			return fmt.Sprintf("$%d/day", cost)
+		})
+		w.AddActionButton(fmt.Sprintf("Buy cat  $%d", world.CatPurchasePrice), func() {
+			if s.world.Cash < world.CatPurchasePrice {
+				s.setToast(fmt.Sprintf("Need $%d for another cat", world.CatPurchasePrice))
+				return
+			}
+			s.world.Cash -= world.CatPurchasePrice
+			s.world.SpawnSnowcat(bldg)
+			s.sim.InvalidateSections()
+		})
+		w.AddActionButton("Release cat", func() {
+			cats := s.world.CatsOwnedBy(bldg.ID)
+			if len(cats) == 0 {
+				return
+			}
+			// Prefer releasing a standby cat; fall back to any.
+			var target *world.Snowcat
+			for _, c := range cats {
+				if c.Status == world.CatStandby {
+					target = c
+					break
+				}
+			}
+			if target == nil {
+				target = cats[len(cats)-1]
+			}
+			s.world.RemoveSnowcat(target.ID)
+			s.sim.InvalidateSections()
+		})
 		w.Visible = true
 		w.Center(screenW, screenH)
 		s.popup = w

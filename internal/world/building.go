@@ -47,10 +47,6 @@ type Building struct {
 	CurrentCars     float32
 	DrivewayNodeIDs []uint64
 
-	// Shed-only state. Cats is the number of grooming machines this
-	// shed dispatches (1..MaxCatsPerShed). Cats auto-service the groomed
-	// trails nearest to this shed.
-	Cats int
 }
 
 // DoorCell returns the grid cell containing the building's anchor — the

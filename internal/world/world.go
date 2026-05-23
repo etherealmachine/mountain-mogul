@@ -32,7 +32,7 @@ const (
 	// Daily operational costs. Charged once per in-game day at rollover.
 	// Sized so a single lift + single cat breaks even at ~63% load ($80/day).
 	LiftAttendantDailyCost = 20 // per attendant; each lift requires one top + one bottom
-	SnowcatDailyCost       = 40 // per cat in operation
+	// Snowcat daily costs live in world/snowcat.go (CatActiveCostDay, CatStandbyCostDay).
 )
 
 // BuildingCost returns the up-front cost of placing a building of the
@@ -180,11 +180,9 @@ func (w *World) PlaceBuildingType(typ BuildingType, x, z float32) *Building {
 	case BuildingLodge:
 		// Lodges are reserved for future rest/lunch features.
 	case BuildingShed:
-		// Sheds start with one cat included. Additional cats are
-		// purchased via the shed popup. SpawnSnowcat is called after
-		// the building is appended so the cat reads the shed's ID
-		// for ownership.
-		b.Cats = 1
+		// No per-shed state; cats are tracked globally in World.Snowcats.
+		// SpawnSnowcat is called after the building is appended so the
+		// first cat reads the shed's ID.
 	}
 	w.Buildings = append(w.Buildings, b)
 	cell := b.DoorCell()

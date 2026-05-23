@@ -122,9 +122,6 @@ type BuildingData struct {
 	Z        float32 `json:"z"`
 	Rotation float32 `json:"r,omitempty"`
 
-	// Shed-only state.
-	Cats int `json:"cats,omitempty"`
-
 	// Parking-only state. CurrentCars is the visible population
 	// (rendered as car meshes); MaxCars is the cap. Spawn timing /
 	// skier pool lives elsewhere (future demand system).
@@ -134,13 +131,14 @@ type BuildingData struct {
 }
 
 // SnowcatData is a saved cat. ShedID links it back to its shed; both
-// IDs survive save/load so the cat → shed → route chain rehydrates
-// correctly.
+// IDs survive save/load so the cat → shed chain rehydrates correctly.
+// Section assignments are recomputed on load and are not persisted.
 type SnowcatData struct {
 	ID      uint64     `json:"id,omitempty"`
 	ShedID  uint64     `json:"shed,omitempty"`
 	Pos     [3]float32 `json:"pos"`
 	Heading float32    `json:"heading,omitempty"`
+	Status  uint8      `json:"status,omitempty"` // 0=Active, 1=Standby
 }
 
 // ChairData is one chair on a lift loop — its position around the loop and
