@@ -15,9 +15,9 @@ explicit triggers — never as a fixed-interval poll, never per-frame.
 
 Persistent per-guest state on `world.Guest`: `Traits`, `Plan` (the L0
 stored plan + L1 goal target), `Balance`, `TurnSide`, `TurnDwell`,
-`LastTactical`, `Patience`, `Satisfaction`, `RidenLifts`, `RestTimer`,
-`Removed`, `Sense`. Per-tick types (`Perception`, `Decision`) are
-sim-internal and never stored.
+`LastTactical`, `Patience`, `Energy`, `Hunger`, `Thirst`, `Satisfaction`,
+`RidenLifts`, `RestTimer`, `Removed`, `Sense`. Per-tick types
+(`Perception`, `Decision`) are sim-internal and never stored.
 
 ---
 
@@ -44,6 +44,9 @@ ID-valued where the field is categorical; numeric where natural.
 type WorldSnapshot struct {
     Pos        mgl32.Vec3
     Patience   float32          // 0..1 — drains queuing, restored by skiing/riding/lodge
+    Energy     float32          // 0..1 — drains skiing, restored by RestAtLodge
+    Hunger     float32          // 0..1 — fixed drain, never restored; hits 0 → GoHome
+    Thirst     float32          // 0..1 — altitude+exertion drain, never restored; hits 0 → GoHome
     AtLiftBase uint64           // 0 or lift ID
     AtLiftTop  uint64           // 0 or lift ID
     Queued     uint64           // 0 or lift ID
@@ -99,7 +102,7 @@ matches the actual rating outcome.
 | `KeepSkiing` | `AtLiftTop != 0` | `Patience` (×0.5 if `Patience < 0.2`) | lapping fallback when Explore done |
 | `Rest` | `Patience ≥ 0.85` | `(1 − Patience)²` | fires a `SkiToLodge + RestAtLodge` plan |
 | `Explore` | every **accessible** lift ridden once | `unridden_accessible_frac × Patience` | filtered by guest skill level |
-| `GoHome` | `Removed` | `1.0` if `Patience < 0.05`, else `0` | only fires on explicit low-patience trigger |
+| `GoHome` | `Removed` | `1.0` if `min(Patience,Energy) < 0.05` or `Hunger < 0.05` or `Thirst < 0.05`, else `0` | fires on exhaustion, starvation, or dehydration |
 
 **Goal priority**: `SelectGoal` picks the highest-weighted *unsatisfied* goal
 whose weight is **> 0**. Zero-weight goals are skipped — `GoHome` at full
@@ -363,16 +366,32 @@ flowchart TB
   (`Rest.Weight = (1 − Patience)²`), producing a `SkiToLodge +
   RestAtLodge` plan. `GoHome` fires when Patience < 0.05. The skier
   physics pipeline never reads Patience itself.
+- **Hunger and Thirst** are one-way countdown timers. Both are
+  randomised to `[0.5, 1.0)` at spawn and drain continuously during
+  every skiing tick; neither is ever restored. Hunger drains at a fixed
+  `1/14400` per sim-second (~4 h full drain). Thirst drains at
+  `1/10800 × altitudeFactor × exertionMultiplier` — altitude adds
+  `+0.05%` per metre above sea level; the exertion table matches the
+  energy-drain skill×terrain tiers but is capped at 3×. When either
+  drops below 0.15, `ThoughtHungry` / `ThoughtThirsty` is emitted each
+  TTL window. When either hits 0.05, `GoHome` fires and the guest
+  departs. Lodges do not restore either stat.
 
 ---
 
 ## Per-session stats, rating, and thoughts
 
-### Patience
+### Patience, Energy, Hunger, Thirst
 
 `Patience` (0..1) is the guest's tolerance budget for the session. It starts
-at 1.0 on arrival and is the sole stat the L0 planner reads to weight goals.
-When it reaches 0, `GoHome` fires and the guest leaves.
+at 1.0 on arrival. When it reaches 0, `GoHome` fires and the guest leaves.
+
+`Energy` (0..1) is the physical fatigue budget. Drains while skiing; restored
+by `RestAtLodge`. When it reaches 0, `GoHome` fires.
+
+`Hunger` and `Thirst` (0..1) are one-way countdown timers — no mechanism
+restores them. Both start at a random value in `[0.5, 1.0)` at spawn. When
+either reaches 0, `GoHome` fires. See the L1–L3 notes above for drain rates.
 
 **Write sites:**
 
@@ -416,6 +435,8 @@ always have room to push above or below the ambient baseline.
 | Joining a long queue (≥ 15) | −0.08 | `simulation.go` — `ActJoinQueue` | `ThoughtLongLine` — "this line is way too long" |
 | Queue grew past cap since plan time (`len(Queue) > 20` on arrival at base) | −0.08 | `simulation.go` — `ActJoinQueue` | `ThoughtLineTooLong` — "that line will take forever" |
 | Rest goal but no lodge reachable | −0.06 | `goap/planner.go` — `planFromSnap` | `ThoughtNeedsLodge` — "this place needs a lodge" |
+| Hunger < 0.15 (continuous, TTL-gated) | — | `skiing.go` | `ThoughtHungry` — "I could really use a meal" |
+| Thirst < 0.15 (continuous, TTL-gated) | — | `skiing.go` | `ThoughtThirsty` — "I need something to drink" |
 
 **Thoughts ring mechanics.** The ring holds up to 6 entries (`thoughtsCap`);
 the oldest slot is recycled when full. `AddThought(kind, simTime)` suppresses
@@ -436,15 +457,19 @@ replanning occurs after it starts.
 
 ### What triggers GoHome
 
-`GoHome.Weight = 1.0` when `min(Patience, Energy) < 0.05`; otherwise 0.
-There are two distinct gameplay paths and it matters which one fired:
+`GoHome.Weight = 1.0` when `min(Patience, Energy) < 0.05`, or when
+`Hunger < 0.05`, or when `Thirst < 0.05`; otherwise 0. There are three
+distinct gameplay paths and it matters which one fired:
 
-**Happy path — Energy depletion.** The guest has had a full day of skiing and
-is physically spent. Skiing drains Energy at 1/7200 per sim-second (~2 h
-continuous to empty). Overmatched terrain (slope above skill comfort) drains
-3× faster; each fall takes a −0.12 one-shot hit. Energy is only restored by
-`RestAtLodge`. No negative exit thought is emitted — the player did nothing
-wrong.
+**Happy path — Energy or hunger/thirst depletion.** The guest has had a full
+day on the mountain and is physically spent or simply ran out of food and
+water. Energy drains at 1/7200 per sim-second (~2 h continuous to empty);
+falls add a −0.30 one-shot hit; overmatched terrain drains up to 6× faster.
+Hunger drains at 1/14400 per sim-second (~4 h); Thirst at 1/10800 × altitude
+× exertion. All three start at natural levels (Energy = 1.0; Hunger and
+Thirst randomised to 0.5–1.0 at spawn). `ThoughtHungry` / `ThoughtThirsty`
+appear in the ring as the guest gets low, so the departure thought reflects
+the cause. No guest satisfaction penalty — the player did nothing wrong.
 
 **Unhappy path — Queue cap rejection.** The guest is leaving frustrated.
 When all accessible lifts are at or above the 20-person cap, the planner
@@ -506,6 +531,8 @@ weights each kind by its absolute satisfaction impact.
 |---|---|---|---|
 | `ThoughtLineTooLong` | "that line will take forever" | −0.08 | unhappy: queue cap hit |
 | `ThoughtNeedsLodge` | "this place needs a lodge" | −0.06 | unhappy: rest goal, no lodge |
+| `ThoughtHungry` | "I could really use a meal" | −0.08 | natural: hunger ran out |
+| `ThoughtThirsty` | "I need something to drink" | −0.08 | natural: thirst ran out |
 | any positive thought | — | varies | happy: energy depletion leaves whatever was last in the ring |
 
 `ThoughtNone` (guest left without any thought ever emitted) counts as zero

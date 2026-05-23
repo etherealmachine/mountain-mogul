@@ -163,14 +163,17 @@ func (GoHome) IsSatisfied(s *WorldSnapshot, w *world.World) bool {
 }
 
 func (GoHome) Weight(s *WorldSnapshot, w *world.World) float32 {
-	// GoHome fires when Patience or Energy is critically low. Rest handles
-	// the recoverable range; when both resources are exhausted and the Rest
-	// goal can't find a lodge, this goal provides the fallback exit path.
+	// GoHome fires when Patience or Energy is critically low (Rest handles
+	// the recoverable range), or when Hunger or Thirst is exhausted (those
+	// can never be restored — they are a hard time limit on the visit).
 	combined := s.Patience
 	if s.Energy < combined {
 		combined = s.Energy
 	}
 	if combined < 0.05 {
+		return 1.0
+	}
+	if s.Hunger < 0.05 || s.Thirst < 0.05 {
 		return 1.0
 	}
 	return 0

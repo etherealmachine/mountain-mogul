@@ -120,6 +120,13 @@ type Guest struct {
 	// a ThoughtNeedsLodge thought.
 	Energy float32
 
+	// Hunger and Thirst are one-way countdowns: randomised at spawn,
+	// drain continuously, and cannot be restored. When either hits 0 the
+	// GoHome goal fires. Hunger drains at a fixed rate; Thirst drains
+	// faster at altitude and during harder skiing.
+	Hunger float32
+	Thirst float32
+
 	// Satisfaction is the 0..1 session quality score. Initialised to 0.6
 	// on arrival; drifts continuously toward a terrain-quality target each
 	// skiing tick; spikes up or down on discrete events (novel lift ride,
@@ -307,6 +314,8 @@ func (g *Guest) ResetForDeparture() {
 	g.LastTactical = 0
 	g.Patience = 0
 	g.Energy = 0
+	g.Hunger = 0
+	g.Thirst = 0
 	g.Satisfaction = 0
 	for i := range g.Thoughts {
 		g.Thoughts[i] = ai.Thought{}

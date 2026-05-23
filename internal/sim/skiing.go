@@ -151,6 +151,20 @@ const (
 	energyDrainPerSecSkiing = 1.0 / 7200.0
 	energyFallDrain         = 0.30
 
+	// Hunger drains at a fixed rate regardless of terrain.
+	// Full drain in 4 hours; with a 0.5–1.0 random start, guests get
+	// hungry after 1–3 simulated hours.
+	hungerDrainPerSec = 1.0 / 14400.0
+
+	// Thirst base rate (3-hour full drain) scaled by altitude and exertion.
+	thirstDrainPerSec      = 1.0 / 10800.0
+	thirstAltitudePerMetre = float32(0.0005) // +50% at 1000 m, ×2 at 2000 m
+
+	// criticalStatThreshold mirrors goap.restTriggerThreshold: below this
+	// level ThoughtHungry / ThoughtThirsty are emitted each tick (rate-
+	// limited by ThoughtTTL) so the departure thought reflects the cause.
+	criticalStatThreshold = float32(0.15)
+
 )
 
 // =============================================================================
@@ -220,6 +234,30 @@ func energyDrainRate(skill float32, kind world.SnowKind, groomed bool) float32 {
 		return energyDrainPerSecSkiing * 3
 	default: // Beginner
 		return energyDrainPerSecSkiing * 6
+	}
+}
+
+// thirstExertionMultiplier returns how much harder the skier is sweating
+// based on terrain difficulty. Uses the same tier logic as energyDrainRate
+// but capped at 3× (thirst from sweating, not exhaustion).
+func thirstExertionMultiplier(skill float32, kind world.SnowKind, groomed bool) float32 {
+	if groomed {
+		return 1.0
+	}
+	hard := kind == world.KindPowder || kind == world.KindBoilerplate
+	switch {
+	case skill >= ai.SkillAdvancedThreshold:
+		if hard {
+			return 2.0
+		}
+		return 1.0
+	case skill >= ai.SkillIntermediateThreshold:
+		if hard {
+			return 3.0
+		}
+		return 2.0
+	default: // Beginner
+		return 3.0
 	}
 }
 
@@ -320,6 +358,28 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 	a.Energy -= energyDrainRate(a.Traits.Skill, surfKind, onGroomed) * float32(dt)
 	if a.Energy < 0 {
 		a.Energy = 0
+	}
+
+	// Hunger: fixed-rate drain regardless of terrain.
+	a.Hunger -= hungerDrainPerSec * float32(dt)
+	if a.Hunger < 0 {
+		a.Hunger = 0
+	}
+
+	// Thirst: altitude × exertion scaled drain.
+	altFactor := 1 + a.Pos[1]*thirstAltitudePerMetre
+	a.Thirst -= thirstDrainPerSec * altFactor * thirstExertionMultiplier(a.Traits.Skill, surfKind, onGroomed) * float32(dt)
+	if a.Thirst < 0 {
+		a.Thirst = 0
+	}
+
+	// Emit thoughts when critically low so the departure log reflects cause.
+	// AddThought's TTL suppression prevents spam.
+	if a.Hunger < criticalStatThreshold {
+		s.addThought(a, ai.ThoughtHungry)
+	}
+	if a.Thirst < criticalStatThreshold {
+		s.addThought(a, ai.ThoughtThirsty)
 	}
 
 	// Balance + fall.

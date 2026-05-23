@@ -28,6 +28,8 @@ type WorldSnapshot struct {
 	Pos      mgl32.Vec3
 	Patience float32 // 0..1; drains while queuing, restored by skiing/riding/lodge
 	Energy   float32 // 0..1; drains while skiing, restored by RestAtLodge
+	Hunger   float32 // 0..1; fixed drain, cannot be restored; hits 0 → GoHome
+	Thirst   float32 // 0..1; drain scales with altitude and exertion; hits 0 → GoHome
 	Skill    float32
 
 	AtLiftBase uint64 // 0 or lift ID — at the base of this lift, not yet queued
@@ -79,6 +81,8 @@ func Extract(a *world.Guest, w *world.World) WorldSnapshot {
 		Pos:        a.Pos,
 		Patience:   a.Patience,
 		Energy:     a.Energy,
+		Hunger:     a.Hunger,
+		Thirst:     a.Thirst,
 		Skill:      a.Traits.Skill,
 		OnLift:     a.OnLiftID,
 		AtTrailEnd: a.AtTrailEnd,
@@ -157,6 +161,8 @@ func ExtractLookahead(a *world.Guest, liftID uint64, w *world.World) WorldSnapsh
 		Pos:        a.Pos,
 		Patience:   a.Patience,
 		Energy:     a.Energy,
+		Hunger:     a.Hunger,
+		Thirst:     a.Thirst,
 		Skill:      a.Traits.Skill,
 		AtLiftTop:  liftID,
 		AtTrailEnd: a.AtTrailEnd,

@@ -301,6 +301,8 @@ func worldToData(w *world.World) ScenarioData {
 			gd.Queued = g.Queued
 			gd.Patience = g.Patience
 			gd.Energy = g.Energy
+			gd.Hunger = g.Hunger
+			gd.Thirst = g.Thirst
 			if !g.Plan.Done() {
 				gd.PlanStep = g.Plan.Step
 				gd.PlanSteps = make([]PlanActionData, len(g.Plan.Steps))
@@ -596,6 +598,16 @@ func dataToWorld(data ScenarioData) *world.World {
 				energy = 1.0
 			}
 			g.Energy = energy
+			hunger := gd.Hunger
+			if hunger <= 0 {
+				hunger = 1.0
+			}
+			g.Hunger = hunger
+			thirst := gd.Thirst
+			if thirst <= 0 {
+				thirst = 1.0
+			}
+			g.Thirst = thirst
 			g.Balance = 1.0
 			if len(gd.PlanSteps) > 0 {
 				steps := make([]ai.PlanAction, len(gd.PlanSteps))

@@ -214,6 +214,8 @@ type GuestData struct {
 	Queued     bool       `json:"queued,omitempty"`
 	Patience float32 `json:"patience,omitempty"`
 	Energy   float32 `json:"energy,omitempty"`
+	Hunger   float32 `json:"hunger,omitempty"`
+	Thirst   float32 `json:"thirst,omitempty"`
 	// Plan steps and cursor so agents resume mid-plan after load rather than
 	// replanning from an anchor-zero in-transit snapshot. GoalName and Target
 	// are re-derived by onPlanStepStart; only Steps+Step are stored.

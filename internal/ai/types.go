@@ -253,6 +253,10 @@ const (
 	// Planning events.
 	ThoughtNeedsLodge // Rest goal selected but no lodge reachable; fell back to next goal
 
+	// Hunger / thirst events.
+	ThoughtHungry  // Hunger critically low; guest departs
+	ThoughtThirsty // Thirst critically low; guest departs
+
 	thoughtKindSentinel // must stay last; equals the total count
 )
 
@@ -272,6 +276,8 @@ var ThoughtSatisfactionWeight = [ThoughtKindCount]float64{
 	ThoughtLongLine:       -0.08,
 	ThoughtLineTooLong:    -0.08,
 	ThoughtNeedsLodge: -0.06,
+	ThoughtHungry:     -0.08,
+	ThoughtThirsty:    -0.08,
 }
 
 // ThoughtLabel is the short chart label for each thought kind. An empty
@@ -286,6 +292,8 @@ var ThoughtLabel = [ThoughtKindCount]string{
 	ThoughtLongLine:       "Long line",
 	ThoughtLineTooLong:    "Line too long",
 	ThoughtNeedsLodge: "Needs lodge",
+	ThoughtHungry:     "Hungry",
+	ThoughtThirsty:    "Thirsty",
 }
 
 // ThoughtChartColor is the RGBA bar colour for each thought kind in charts.
@@ -298,6 +306,8 @@ var ThoughtChartColor = [ThoughtKindCount][4]float32{
 	ThoughtLongLine:       {0.80, 0.45, 0.70, 1},
 	ThoughtLineTooLong:    {0.70, 0.30, 0.60, 1},
 	ThoughtNeedsLodge: {0.60, 0.50, 0.80, 1},
+	ThoughtHungry:     {0.95, 0.60, 0.20, 1},
+	ThoughtThirsty:    {0.25, 0.65, 0.90, 1},
 }
 
 // Thought is one entry in a Guest's bounded thoughts ring. Persists in
@@ -346,6 +356,10 @@ func (t Thought) Display(resolve func(uint64) string) string {
 		return "that line will take forever"
 	case ThoughtNeedsLodge:
 		return "this place needs a lodge"
+	case ThoughtHungry:
+		return "I could really use a meal"
+	case ThoughtThirsty:
+		return "I need something to drink"
 	}
 	return ""
 }

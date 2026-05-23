@@ -343,6 +343,8 @@ func (s *Simulation) spawnGuest(lot *world.Building, g *world.Guest) bool {
 	g.Balance = 1.0
 	g.Patience = 1.0
 	g.Energy = 1.0
+	g.Hunger = 0.5 + rng.Global().Float32()*0.5
+	g.Thirst = 0.5 + rng.Global().Float32()*0.5
 	g.Satisfaction = 0.6
 	g.Removed = false
 	w.OnMountain = append(w.OnMountain, g)

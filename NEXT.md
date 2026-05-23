@@ -1,12 +1,10 @@
 # Next Steps
 
 Bugs:
-  Cat routing still strange
+  Cat routing is still wrong
+  Cats drive on powder
+  Release cat is wrong
 
-Fix multiple sheds and Cat routing
-  Need to figure out if we can make realistic cats that actually groom cells
-    Might have to simulate grooming with cats being UI only
-    Or accept a day/night cycle to give them time to groom
 Tune attracting guests
   Smaller pool at game start
   Pool grows over time with resort milestones
