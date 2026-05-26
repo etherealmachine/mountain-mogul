@@ -81,151 +81,246 @@ func advanceCat(w *world.World, cat *world.Snowcat, dt float64) {
 	}
 }
 
-// planRoute builds the full flat cell sequence for cat's next grooming
-// pass and stores it in cat.Route. The algorithm:
-//  1. Sort the cat's section columns by nearest-neighbour from its
-//     current position (minimises initial transit).
-//  2. Traverse columns in a serpentine (boustrophedon) pattern —
-//     odd columns top-to-bottom, even columns bottom-to-top.
-//  3. Between the last cell of one column and the first cell of the
-//     next, insert a BFS path through groomed trail cells so the cat
-//     never drives off-piste.
-//  4. For columns whose cells are non-adjacent in Z (diagonal trails),
-//     insert BFS bridges within the column too.
-//
-// All BFS uses a single walkable set built once for the whole plan.
+// planRoute builds the full cell sequence for cat's next grooming pass.
+// Section trail cells form a graph; Prim's MST with straight=0/turn=1 edge
+// costs produces a spanning tree; DFS with explicit backtrack cells
+// serialises that into the route so every cell is groomed.
 func planRoute(w *world.World, cat *world.Snowcat) {
-	cols := make([]world.CatColumn, len(cat.Section))
-	copy(cols, cat.Section)
-	sortRouteNearestNeighbor(w, cols, cat.Pos[0], cat.Pos[2])
+	sectionCells := buildSectionCells(w, cat)
+	if len(sectionCells) == 0 {
+		return
+	}
 
-	walkable := buildWalkable(w)
+	catCX := int(cat.Pos[0] / world.CellSize)
+	catCZ := int(cat.Pos[2] / world.CellSize)
+
+	comps := sectionComponents(sectionCells)
+	comps = orderByNearest(comps, catCX, catCZ)
 
 	var route [][2]int
-	goingDown := true
-	var prev [2]int
-	hasPrev := false
-
-	for _, col := range cols {
-		trail := findTrail(w, col.TrailID)
-		if trail == nil || !trail.Groomed {
-			continue
+	curX, curZ := catCX, catCZ
+	for _, comp := range comps {
+		start := nearestCell(comp, curX, curZ)
+		par, parDir := mstPrim(comp, start)
+		seg := mstDFS(comp, par, parDir, start)
+		route = append(route, seg...)
+		if len(seg) > 0 {
+			last := seg[len(seg)-1]
+			curX, curZ = last[0], last[1]
 		}
-		cells := sliceCellsSorted(trail, col.X)
-		if len(cells) == 0 {
-			continue
-		}
-
-		// Serpentine: alternate direction per column.
-		colCells := make([][2]int, len(cells))
-		copy(colCells, cells)
-		if !goingDown {
-			for i, j := 0, len(colCells)-1; i < j; i, j = i+1, j-1 {
-				colCells[i], colCells[j] = colCells[j], colCells[i]
-			}
-		}
-		goingDown = !goingDown
-
-		entry := colCells[0]
-
-		// Connect from previous position to this column's entry via BFS.
-		from := prev
-		if !hasPrev {
-			from = [2]int{int(cat.Pos[0] / world.CellSize), int(cat.Pos[2] / world.CellSize)}
-		}
-		if from != entry {
-			if path := bfsPath(walkable, from, entry); len(path) > 1 {
-				route = append(route, path[1:]...) // omit 'from' (already in route)
-			}
-			// BFS failure: cat will drive straight to entry — acceptable
-			// for the initial approach from the shed.
-		}
-
-		// Append column cells, inserting BFS bridges across any gaps.
-		for i, cell := range colCells {
-			if i > 0 {
-				p := colCells[i-1]
-				dz := cell[1] - p[1]
-				if dz < 0 {
-					dz = -dz
-				}
-				if dz > 1 {
-					if path := bfsPath(walkable, p, cell); len(path) > 1 {
-						route = append(route, path[1:]...)
-						continue
-					}
-				}
-			}
-			route = append(route, cell)
-		}
-
-		prev = colCells[len(colCells)-1]
-		hasPrev = true
 	}
 
 	cat.Route = route
 	cat.RouteIdx = 0
 }
 
-// buildWalkable returns the set of all cells belonging to any groomed trail.
-func buildWalkable(w *world.World) map[[2]int]bool {
-	walkable := map[[2]int]bool{}
-	for _, trail := range w.Trails {
-		if !trail.Groomed {
+// buildSectionCells returns the set of all trail cells assigned to cat's section.
+func buildSectionCells(w *world.World, cat *world.Snowcat) map[[2]int]bool {
+	cells := map[[2]int]bool{}
+	for _, col := range cat.Section {
+		trail := findTrail(w, col.TrailID)
+		if trail == nil || !trail.Groomed {
 			continue
 		}
 		for _, c := range trail.Cells {
-			walkable[c] = true
+			if c[0] == col.X {
+				cells[c] = true
+			}
 		}
 	}
-	return walkable
+	return cells
 }
 
-// bfsPath returns a path through walkable cells from `from` to `to` using
-// 4-connected BFS. Returns nil if either endpoint is not walkable or no
-// path exists.
-func bfsPath(walkable map[[2]int]bool, from, to [2]int) [][2]int {
-	if !walkable[from] || !walkable[to] {
-		return nil
-	}
-	if from == to {
-		return [][2]int{from}
-	}
-	parent := map[[2]int][2]int{}
-	visited := map[[2]int]bool{from: true}
-	queue := [][2]int{from}
-	dirs := [4][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}
-	found := false
-outer:
-	for len(queue) > 0 {
-		cur := queue[0]
-		queue = queue[1:]
-		for _, d := range dirs {
-			next := [2]int{cur[0] + d[0], cur[1] + d[1]}
-			if visited[next] || !walkable[next] {
-				continue
-			}
-			visited[next] = true
-			parent[next] = cur
-			if next == to {
-				found = true
-				break outer
-			}
-			queue = append(queue, next)
+// nearestCell returns the cell in set with minimum Manhattan distance to (cx, cz).
+func nearestCell(cells map[[2]int]bool, cx, cz int) [2]int {
+	best, bestD, first := [2]int{}, int(^uint(0)>>1), true
+	for c := range cells {
+		dx, dz := c[0]-cx, c[1]-cz
+		if dx < 0 {
+			dx = -dx
+		}
+		if dz < 0 {
+			dz = -dz
+		}
+		if d := dx + dz; first || d < bestD {
+			best, bestD, first = c, d, false
 		}
 	}
-	if !found {
-		return nil
+	return best
+}
+
+// sectionComponents finds 4-connected components within the cell set.
+func sectionComponents(cells map[[2]int]bool) []map[[2]int]bool {
+	dirs := [4][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}
+	visited := map[[2]int]bool{}
+	var out []map[[2]int]bool
+	for seed := range cells {
+		if visited[seed] {
+			continue
+		}
+		comp := map[[2]int]bool{}
+		queue := [][2]int{seed}
+		for len(queue) > 0 {
+			c := queue[0]
+			queue = queue[1:]
+			if visited[c] {
+				continue
+			}
+			visited[c] = true
+			comp[c] = true
+			for _, d := range dirs {
+				nb := [2]int{c[0] + d[0], c[1] + d[1]}
+				if cells[nb] && !visited[nb] {
+					queue = append(queue, nb)
+				}
+			}
+		}
+		out = append(out, comp)
 	}
-	var path [][2]int
-	for cur := to; cur != from; cur = parent[cur] {
-		path = append(path, cur)
+	return out
+}
+
+// orderByNearest reorders components by greedy nearest-neighbour from (startX, startZ).
+func orderByNearest(comps []map[[2]int]bool, startX, startZ int) []map[[2]int]bool {
+	n := len(comps)
+	used := make([]bool, n)
+	ordered := make([]map[[2]int]bool, 0, n)
+	curX, curZ := startX, startZ
+	for len(ordered) < n {
+		best, bestD := -1, int(^uint(0)>>1)
+		for i, comp := range comps {
+			if used[i] {
+				continue
+			}
+			near := nearestCell(comp, curX, curZ)
+			dx, dz := near[0]-curX, near[1]-curZ
+			if dx < 0 {
+				dx = -dx
+			}
+			if dz < 0 {
+				dz = -dz
+			}
+			if d := dx + dz; best < 0 || d < bestD {
+				best, bestD = i, d
+			}
+		}
+		if best < 0 {
+			break
+		}
+		used[best] = true
+		ordered = append(ordered, comps[best])
+		near := nearestCell(comps[best], curX, curZ)
+		curX, curZ = near[0], near[1]
 	}
-	path = append(path, from)
-	for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
-		path[i], path[j] = path[j], path[i]
+	return ordered
+}
+
+// mstPrim builds a spanning tree over cells rooted at start using Prim's
+// algorithm. Edge cost is 0 for straight movement (same direction as arrival),
+// 1 for a turn. Returns parent and parentDir maps describing the tree.
+func mstPrim(cells map[[2]int]bool, start [2]int) (parent, parentDir map[[2]int][2]int) {
+	dirs := [4][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}
+	maxInt := int(^uint(0) >> 1)
+
+	parent = map[[2]int][2]int{}
+	parentDir = map[[2]int][2]int{}
+	arriveDir := map[[2]int][2]int{}
+	key := make(map[[2]int]int, len(cells))
+	for c := range cells {
+		key[c] = maxInt
 	}
-	return path
+	key[start] = 0
+
+	type entry struct {
+		cell [2]int
+		cost int
+	}
+	open := []entry{{start, 0}}
+	inMST := map[[2]int]bool{}
+
+	for len(open) > 0 {
+		bi := 0
+		for i := 1; i < len(open); i++ {
+			if open[i].cost < open[bi].cost {
+				bi = i
+			}
+		}
+		cur := open[bi]
+		open[bi] = open[len(open)-1]
+		open = open[:len(open)-1]
+
+		if inMST[cur.cell] {
+			continue
+		}
+		inMST[cur.cell] = true
+		from := arriveDir[cur.cell]
+
+		for _, d := range dirs {
+			nb := [2]int{cur.cell[0] + d[0], cur.cell[1] + d[1]}
+			if !cells[nb] || inMST[nb] {
+				continue
+			}
+			cost := 0
+			if from != ([2]int{}) && d != from {
+				cost = 1
+			}
+			if cost < key[nb] {
+				key[nb] = cost
+				parent[nb] = cur.cell
+				parentDir[nb] = d
+				arriveDir[nb] = d
+				open = append(open, entry{nb, cost})
+			}
+		}
+	}
+	return parent, parentDir
+}
+
+// mstDFS traverses the spanning tree depth-first and returns a flat cell
+// sequence. Children are ordered straight-ahead first to minimise turns.
+// When the DFS must backtrack to a fork after finishing a branch, it walks
+// back through the tree edges so every intermediate cell is included and
+// groomed by the cat.
+func mstDFS(cells map[[2]int]bool, parent, parentDir map[[2]int][2]int, start [2]int) [][2]int {
+	children := map[[2]int][][2]int{}
+	for node := range cells {
+		if node == start {
+			continue
+		}
+		p := parent[node]
+		children[p] = append(children[p], node)
+	}
+
+	route := make([][2]int, 0, len(cells))
+
+	var walk func(node [2]int, inDir [2]int)
+	walk = func(node [2]int, inDir [2]int) {
+		route = append(route, node)
+		kids := children[node]
+		sort.Slice(kids, func(i, j int) bool {
+			// straight-ahead children first
+			si := parentDir[kids[i]] == inDir
+			sj := parentDir[kids[j]] == inDir
+			if si != sj {
+				return si
+			}
+			return false
+		})
+		for i, kid := range kids {
+			walk(kid, parentDir[kid])
+			if i < len(kids)-1 {
+				// Backtrack from current position to node along tree edges.
+				cur := route[len(route)-1]
+				for cur != node {
+					cur = parent[cur]
+					route = append(route, cur)
+				}
+			}
+		}
+	}
+
+	walk(start, [2]int{})
+	return route
 }
 
 // driveToDoor steers cat toward its shed door cell.
@@ -384,62 +479,6 @@ func reassignAllSections(w *world.World) {
 
 }
 
-// sortRouteNearestNeighbor reorders cols in-place using a greedy
-// nearest-neighbor heuristic starting from (startWX, startWZ). Each column's
-// representative position is its world X centre and the Z centroid of its
-// trail's cells. This minimises transit distance between columns when the cat
-// begins a new grooming pass.
-func sortRouteNearestNeighbor(w *world.World, cols []world.CatColumn, startWX, startWZ float32) {
-	n := len(cols)
-	if n <= 1 {
-		return
-	}
-
-	// Precompute trail centroid Z for each unique trail in the route.
-	centZ := make(map[uint64]float32, n)
-	for _, col := range cols {
-		if _, ok := centZ[col.TrailID]; ok {
-			continue
-		}
-		trail := findTrail(w, col.TrailID)
-		if trail == nil || len(trail.Cells) == 0 {
-			continue
-		}
-		var sumZ float32
-		for _, c := range trail.Cells {
-			sumZ += (float32(c[1]) + 0.5) * world.CellSize
-		}
-		centZ[col.TrailID] = sumZ / float32(len(trail.Cells))
-	}
-
-	visited := make([]bool, n)
-	result := make([]world.CatColumn, 0, n)
-	curX, curZ := startWX, startWZ
-
-	for len(result) < n {
-		best, bestD2 := -1, float32(0)
-		for i, col := range cols {
-			if visited[i] {
-				continue
-			}
-			cx := (float32(col.X) + 0.5) * world.CellSize
-			cz := centZ[col.TrailID]
-			dx, dz := cx-curX, cz-curZ
-			d2 := dx*dx + dz*dz
-			if best < 0 || d2 < bestD2 {
-				best, bestD2 = i, d2
-			}
-		}
-		if best < 0 {
-			break
-		}
-		visited[best] = true
-		result = append(result, cols[best])
-		curX = (float32(cols[best].X) + 0.5) * world.CellSize
-		curZ = centZ[cols[best].TrailID]
-	}
-	copy(cols, result)
-}
 
 // sectionAvgGrooming returns the average Grooming value across all cells
 // in cat's assigned section. Returns 1.0 if the section is empty.
@@ -463,21 +502,6 @@ func sectionAvgGrooming(w *world.World, cat *world.Snowcat) float32 {
 		return 1.0
 	}
 	return sum / float32(n)
-}
-
-// sliceCellsSorted returns all cells in trail at x-column xCol, ordered
-// top-to-bottom (highest terrain elevation first).
-func sliceCellsSorted(trail *world.Trail, xCol int) [][2]int {
-	var cells [][2]int
-	for _, c := range trail.Cells {
-		if c[0] == xCol {
-			cells = append(cells, c)
-		}
-	}
-	sort.Slice(cells, func(i, j int) bool {
-		return cells[i][1] < cells[j][1]
-	})
-	return cells
 }
 
 // findTrail returns the trail with the given ID, or nil.

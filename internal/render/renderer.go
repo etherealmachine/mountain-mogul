@@ -55,8 +55,10 @@ type Renderer struct {
 
 	staticBatches  map[uint32]*Batch
 	dynamicBatch   *Batch
-	chairBatch     *Batch
-	chairQuadBatch *Batch
+	chairBatch      *Batch
+	chairQuadBatch  *Batch
+	chair6PackBatch *Batch
+	gondolaBatch    *Batch
 	snowcatBatch   *Batch
 	carBatch       *Batch
 
@@ -194,8 +196,14 @@ func NewRenderer(w, h int, assetDir string) (*Renderer, error) {
 	// Transparent fallback — bound to the cell-overlay unit when no overlay is set.
 	r.transparentTexID = transparentTexture()
 
-	// Font atlas generated from basicfont.Face7x13.
-	r.Font = NewFont()
+	// Font — try Barlow Condensed Medium TTF first, fall back to the built-in
+	// basicfont.Face7x13 bitmap if the file is missing or unparseable.
+	const ttfPointSize = 20.0
+	if f, err := LoadTTFFont(assetDir+"/fonts/BarlowCondensed-Medium.ttf", ttfPointSize); err == nil {
+		r.Font = f
+	} else {
+		r.Font = NewFont()
+	}
 
 	// Setup UI quad VAO. Vertex layout: pos.xy (8 B) + uv.xy (8 B) +
 	// color.rgba (16 B) = 32 B per vertex. The initial buffer size is a
@@ -306,9 +314,9 @@ func (r *Renderer) initStaticMeshes() {
 	r.dynamicBatch = NewDynamicBatch(skierMesh, skierTexID)
 
 	// Chair — dynamic batch (heading rotates each chair along the cable).
-	// Two variants: the double-seat default and a fixed-grip quad. Each
+	// Three variants: double, fixed-grip quad, and high-speed 6-pack. Each
 	// has its own batch + slot registration so per-rider seating works
-	// for both without per-frame mesh switching.
+	// for all types without per-frame mesh switching.
 	chairPath := modelDir + "chair.obj"
 	chairMesh, chairTexID := LoadOBJ(chairPath)
 	r.chairBatch = NewDynamicBatch(chairMesh, chairTexID)
@@ -318,6 +326,16 @@ func (r *Renderer) initStaticMeshes() {
 	chairQuadMesh, chairQuadTexID := LoadOBJ(chairQuadPath)
 	r.chairQuadBatch = NewDynamicBatch(chairQuadMesh, chairQuadTexID)
 	world.RegisterMeshSlots(world.MeshChairQuad, LoadOBJSlots(chairQuadPath))
+
+	chair6PackPath := modelDir + "chair_6pack.obj"
+	chair6PackMesh, chair6PackTexID := LoadOBJ(chair6PackPath)
+	r.chair6PackBatch = NewDynamicBatch(chair6PackMesh, chair6PackTexID)
+	world.RegisterMeshSlots(world.MeshChair6Pack, LoadOBJSlots(chair6PackPath))
+
+	gondolaCabinPath := modelDir + "gondola_cabin.obj"
+	gondolaCabinMesh, gondolaCabinTexID := LoadOBJ(gondolaCabinPath)
+	r.gondolaBatch = NewDynamicBatch(gondolaCabinMesh, gondolaCabinTexID)
+	world.RegisterMeshSlots(world.MeshGondolaCabin, LoadOBJSlots(gondolaCabinPath))
 
 	// Snowcat — dynamic batch. Snowcats drive over the terrain every
 	// tick so they share the agent-style instance path rather than
@@ -1772,8 +1790,10 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	// Chair pass — one dynamic batch per chair mesh variant. Group lift
 	// instances by type so each batch draws its own chairs in a single
 	// call, regardless of how many lifts of each type the resort has.
-	if r.chairBatch != nil || r.chairQuadBatch != nil {
-		var doubles, quads []DynamicInstance
+	// Re-bind the dynamic shader: the debug pass above may have switched it.
+	if r.chairBatch != nil || r.chairQuadBatch != nil || r.chair6PackBatch != nil || r.gondolaBatch != nil {
+		r.DynamicShader.Use()
+		var doubles, quads, sixPacks, gondolas []DynamicInstance
 		for _, lift := range w.Lifts {
 			for _, chair := range lift.Chairs {
 				pos, heading := lift.ChairPos(chair.Progress, w.Terrain)
@@ -1793,9 +1813,14 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 					Heading:  heading,
 					Color:    color,
 				}
-				if lift.Type == world.LiftFixedQuad {
+				switch lift.Type {
+				case world.LiftFixedQuad, world.LiftHSQuad:
 					quads = append(quads, inst)
-				} else {
+				case world.LiftHS6Pack:
+					sixPacks = append(sixPacks, inst)
+				case world.LiftGondola:
+					gondolas = append(gondolas, inst)
+				default:
 					doubles = append(doubles, inst)
 				}
 			}
@@ -1807,6 +1832,14 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		if r.chairQuadBatch != nil {
 			r.chairQuadBatch.SetDynamic(quads)
 			r.chairQuadBatch.Draw()
+		}
+		if r.chair6PackBatch != nil {
+			r.chair6PackBatch.SetDynamic(sixPacks)
+			r.chair6PackBatch.Draw()
+		}
+		if r.gondolaBatch != nil {
+			r.gondolaBatch.SetDynamic(gondolas)
+			r.gondolaBatch.Draw()
 		}
 	}
 
@@ -1958,6 +1991,16 @@ func (r *Renderer) DrawTexturedRect(x, y, w, h float32, texID uint32, color mgl3
 func (r *Renderer) DrawColorRect(x, y, w, h float32, color mgl32.Vec4) {
 	r.useUITexture(r.whiteTexID)
 	r.appendUIQuad(x, y, w, h, 0, 0, 1, 1, color)
+}
+
+// DrawColorRectOutline draws a 1-pixel border around a rectangle using
+// four thin filled rects — no fill, just the frame. Used for button
+// outlines and panel chrome.
+func (r *Renderer) DrawColorRectOutline(x, y, w, h float32, color mgl32.Vec4) {
+	r.DrawColorRect(x, y, w, 1, color)           // top
+	r.DrawColorRect(x, y+h-1, w, 1, color)       // bottom
+	r.DrawColorRect(x, y, 1, h, color)           // left
+	r.DrawColorRect(x+w-1, y, 1, h, color)       // right
 }
 
 // DrawColorLine draws a thick line segment from (x0, y0) to (x1, y1) as

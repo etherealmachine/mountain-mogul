@@ -51,7 +51,7 @@ func NewTopBar(h float32) *TopBar {
 	return &TopBar{
 		Y:       0,
 		H:       h,
-		bgColor: mgl32.Vec4{0.06, 0.08, 0.12, 0.96},
+		bgColor: mgl32.Vec4{0.07, 0.09, 0.15, 0.97},
 	}
 }
 
@@ -162,6 +162,8 @@ func (t *TopBar) Draw(r *render.Renderer) {
 	t.layout(screenW)
 
 	r.DrawColorRect(0, t.Y, screenW, t.H, t.bgColor)
+	// 1px powder-blue separator at the bottom edge — defines the bar/world boundary.
+	r.DrawColorRect(0, t.Y+t.H-1, screenW, 1, mgl32.Vec4{0.35, 0.50, 0.80, 0.60})
 
 	t.drawStats(r)
 	t.drawCenter(r, screenW)
@@ -239,7 +241,8 @@ func (t *TopBar) drawStats(r *render.Renderer) {
 	}
 	const iconSize = float32(20)
 	const pad = float32(10)
-	col := mgl32.Vec4{0.95, 0.95, 1.0, 1}
+	// Values are bright snow-white; secondary labels slightly dimmer.
+	valCol := mgl32.Vec4{1.00, 1.00, 1.00, 1.00}
 
 	// Three rows fit inside H if H >= 3*(iconSize+gap).
 	rowH := t.H / 3
@@ -252,26 +255,28 @@ func (t *TopBar) drawStats(r *render.Renderer) {
 
 	// Row 0: Cash
 	if t.GetCash != nil {
-		IconCoin(r, pad, iconY(0), iconSize, mgl32.Vec4{1, 0.85, 0.25, 1})
+		IconCoin(r, pad, iconY(0), iconSize, mgl32.Vec4{1.00, 0.82, 0.20, 1})
 		text := fmt.Sprintf("$%d", t.GetCash())
-		r.Font.DrawText(r, text, pad+iconSize+8, textY(0), col)
+		r.Font.DrawText(r, text, pad+iconSize+8, textY(0), valCol)
 	}
 
 	// Row 1: Guests
 	if t.GetGuests != nil {
-		IconPerson(r, pad, iconY(1), iconSize, mgl32.Vec4{0.55, 0.85, 1.0, 1})
+		IconPerson(r, pad, iconY(1), iconSize, mgl32.Vec4{0.50, 0.82, 1.00, 1})
 		text := fmt.Sprintf("%d", t.GetGuests())
-		r.Font.DrawText(r, text, pad+iconSize+8, textY(1), col)
+		r.Font.DrawText(r, text, pad+iconSize+8, textY(1), valCol)
 	}
 
 	// Row 2: Happiness — heart icon + a slim filled bar.
 	if t.GetHappiness != nil {
-		IconHeart(r, pad, iconY(2), iconSize, mgl32.Vec4{0.95, 0.45, 0.55, 1})
+		IconHeart(r, pad, iconY(2), iconSize, mgl32.Vec4{0.95, 0.40, 0.52, 1})
 		barX := pad + iconSize + 8
 		barY := t.Y + float32(2)*rowH + (rowH-8)/2
-		barW := float32(80)
+		barW := float32(90)
 		barH := float32(8)
-		r.DrawColorRect(barX, barY, barW, barH, mgl32.Vec4{0.20, 0.22, 0.28, 1})
+		// Track background — darker inset look.
+		r.DrawColorRect(barX, barY, barW, barH, mgl32.Vec4{0.12, 0.14, 0.22, 1})
+		r.DrawColorRectOutline(barX, barY, barW, barH, mgl32.Vec4{0.30, 0.40, 0.62, 0.55})
 		h := t.GetHappiness()
 		if h < 0 {
 			h = 0
@@ -279,17 +284,17 @@ func (t *TopBar) drawStats(r *render.Renderer) {
 		if h > 1 {
 			h = 1
 		}
-		fill := mgl32.Vec4{0.30, 0.85, 0.45, 1}
+		fill := mgl32.Vec4{0.28, 0.82, 0.44, 1}
 		if h < 0.5 {
-			fill = mgl32.Vec4{0.95, 0.65, 0.25, 1}
+			fill = mgl32.Vec4{0.96, 0.64, 0.18, 1}
 		}
 		if h < 0.25 {
-			fill = mgl32.Vec4{0.90, 0.30, 0.30, 1}
+			fill = mgl32.Vec4{0.90, 0.28, 0.28, 1}
 		}
 		r.DrawColorRect(barX, barY, barW*h, barH, fill)
 		// Numeric % to the right of the bar.
 		text := fmt.Sprintf("%d%%", int(h*100))
-		r.Font.DrawText(r, text, barX+barW+8, textY(2), col)
+		r.Font.DrawText(r, text, barX+barW+8, textY(2), valCol)
 	}
 }
 
@@ -301,14 +306,14 @@ func (t *TopBar) drawCenter(r *render.Renderer, screenW float32) {
 		return
 	}
 
-	col := mgl32.Vec4{0.95, 0.95, 1.0, 1}
-	dim := mgl32.Vec4{0.78, 0.82, 0.92, 1}
+	col := mgl32.Vec4{1.00, 1.00, 1.00, 1.00}
+	dim := mgl32.Vec4{0.72, 0.82, 0.96, 1}
 
 	// Date line.
 	if t.GetDate != nil {
 		day, month, year := t.GetDate()
 		dateText := fmt.Sprintf("%s %d, Year %d", month, day, year)
-		dateW := float32(len(dateText) * render.GlyphAdvance)
+		dateW := r.Font.TextWidth(dateText)
 		dateX := (screenW - dateW) / 2
 		dateY := t.Y + t.H*0.18
 		r.Font.DrawText(r, dateText, dateX, dateY, col)
@@ -336,27 +341,44 @@ func (t *TopBar) drawCenter(r *render.Renderer, screenW float32) {
 	iconY := t.Y + t.H*0.46
 	tempY := t.Y + t.H*0.72
 
+	// Today column highlight drawn first so date text renders on top.
+	// Cover only the forecast strip area (from iconY upward with a small
+	// margin), not the full bar height.
+	todayCX := startX
+	todayTop := iconY - 8
+	todayH := t.H - todayTop + t.Y - 4
+	r.DrawColorRect(todayCX-2, todayTop, colW+4, todayH, mgl32.Vec4{0.18, 0.26, 0.50, 0.95})
+	r.DrawColorRectOutline(todayCX-2, todayTop, colW+4, todayH, mgl32.Vec4{0.45, 0.65, 1.00, 0.70})
+
 	for i := 0; i < n; i++ {
 		d := days[i]
 		cx := startX + float32(i)*(colW+colGap)
-
-		// Subtle background highlight on today.
-		if i == 0 {
-			r.DrawColorRect(cx-1, t.Y+2, colW+2, t.H-4, mgl32.Vec4{0.16, 0.20, 0.32, 0.85})
-		}
 
 		// Weather icon, centred horizontally in the column.
 		DrawWeatherIcon(r, d.Weather, cx+(colW-iconSize)/2, iconY, iconSize)
 
 		// Temperature centred in the column.
 		tempText := settings.FormatTemp(d.TempC)
-		tempW := float32(len(tempText) * render.GlyphAdvance)
-		r.Font.DrawText(r, tempText, cx+(colW-tempW)/2, tempY, dim)
+		tempW := r.Font.TextWidth(tempText)
+		tempCol := dim
+		if i == 0 {
+			tempCol = col
+		}
+		r.Font.DrawText(r, tempText, cx+(colW-tempW)/2, tempY, tempCol)
 	}
 }
 
 // drawRight renders the speed/pause/gear icon row.
 func (t *TopBar) drawRight(r *render.Renderer) {
+	// Thin separator between the playback cluster (pause/speed) and the
+	// view cluster (charts/overlay/gear).
+	if t.chartsBtn != nil {
+		sepX := t.chartsBtn.x - 3
+		r.DrawColorRect(sepX, t.Y+10, 1, t.H-20, mgl32.Vec4{0.35, 0.50, 0.80, 0.40})
+	} else if t.overlayBtn != nil {
+		sepX := t.overlayBtn.x - 3
+		r.DrawColorRect(sepX, t.Y+10, 1, t.H-20, mgl32.Vec4{0.35, 0.50, 0.80, 0.40})
+	}
 	for _, b := range t.iconButtons() {
 		t.drawIconButton(r, b)
 	}
@@ -370,9 +392,11 @@ func (t *TopBar) drawIconButton(r *render.Renderer, b *iconButton) {
 	// Background — subtle highlight on hover, brighter on active.
 	switch {
 	case b.active:
-		r.DrawColorRect(b.x, b.y, b.w, b.h, mgl32.Vec4{0.18, 0.42, 0.28, 1})
+		r.DrawColorRect(b.x, b.y, b.w, b.h, mgl32.Vec4{0.18, 0.50, 0.28, 1.00})
+		r.DrawColorRectOutline(b.x, b.y, b.w, b.h, mgl32.Vec4{0.40, 0.80, 0.55, 0.55})
 	case b.hovered:
-		r.DrawColorRect(b.x, b.y, b.w, b.h, mgl32.Vec4{0.18, 0.20, 0.28, 1})
+		r.DrawColorRect(b.x, b.y, b.w, b.h, mgl32.Vec4{0.16, 0.24, 0.44, 1.00})
+		r.DrawColorRectOutline(b.x, b.y, b.w, b.h, mgl32.Vec4{0.40, 0.58, 0.90, 0.45})
 	}
 
 	const iconSize = float32(28)

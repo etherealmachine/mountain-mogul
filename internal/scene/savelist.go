@@ -111,7 +111,7 @@ func (e *emptyHint) Draw(r *render.Renderer) {
 	if r.Font == nil {
 		return
 	}
-	w := float32(len(e.text) * render.GlyphAdvance)
+	w := r.Font.TextWidth(e.text)
 	x := (float32(r.ScreenWidth()) - w) / 2
 	r.Font.DrawText(r, e.text, x, e.y, mgl32.Vec4{0.85, 0.85, 0.85, 1})
 }

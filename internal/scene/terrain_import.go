@@ -696,7 +696,7 @@ func (d *tiMapDrawable) Draw(r *render.Renderer) {
 		km := float64(t.gridSize) * importMetersPerCell / 1000.0
 		caption := fmt.Sprintf("%d × %d cells   (%.2f km × %.2f km)",
 			t.gridSize, t.gridSize, km, km)
-		captionW := float32(len(caption) * render.GlyphAdvance)
+		captionW := r.Font.TextWidth(caption)
 		captionX := (qx0+qx1)/2 - captionW/2
 		captionY := qy1 + 6 + hs
 		if captionY > sh-44 {

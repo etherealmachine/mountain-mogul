@@ -24,14 +24,21 @@ type LiftType uint8
 const (
 	LiftDouble    LiftType = iota // 2-seat fixed grip (the original)
 	LiftFixedQuad                 // 4-seat fixed grip
+	LiftHSQuad                    // 4-seat high-speed detachable quad
+	LiftHS6Pack                   // 6-seat high-speed detachable 6-pack
+	LiftGondola                   // 8-person monocable detachable gondola
 )
 
 // Capacity returns the number of riders a single chair of this lift
 // type carries.
 func (t LiftType) Capacity() int {
 	switch t {
-	case LiftFixedQuad:
+	case LiftFixedQuad, LiftHSQuad:
 		return 4
+	case LiftHS6Pack:
+		return 6
+	case LiftGondola:
+		return 8
 	}
 	return 2
 }
@@ -41,10 +48,27 @@ func (t LiftType) Capacity() int {
 // per-rider seat positioning in sim.tickRiding.
 func (t LiftType) MeshID() uint32 {
 	switch t {
-	case LiftFixedQuad:
+	case LiftFixedQuad, LiftHSQuad:
 		return MeshChairQuad
+	case LiftHS6Pack:
+		return MeshChair6Pack
+	case LiftGondola:
+		return MeshGondolaCabin
 	}
 	return MeshChair
+}
+
+// DefaultSpeed returns the cable speed in m/s that PlaceLift assigns to
+// a new lift of this type. High-speed quads run at 5 m/s; fixed-grip
+// lifts run at 2.5 m/s.
+func (t LiftType) DefaultSpeed() float32 {
+	switch t {
+	case LiftHSQuad, LiftHS6Pack:
+		return 5.0
+	case LiftGondola:
+		return 6.0
+	}
+	return 2.5
 }
 
 // Label returns a short human-readable name for HUD / popup display.
@@ -52,6 +76,12 @@ func (t LiftType) Label() string {
 	switch t {
 	case LiftFixedQuad:
 		return "Fixed Quad"
+	case LiftHSQuad:
+		return "High-Speed Quad"
+	case LiftHS6Pack:
+		return "High-Speed 6-Pack"
+	case LiftGondola:
+		return "Gondola"
 	}
 	return "Double"
 }

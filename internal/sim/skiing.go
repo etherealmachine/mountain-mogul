@@ -152,12 +152,11 @@ const (
 	energyFallDrain         = 0.30
 
 	// Hunger drains at a fixed rate regardless of terrain.
-	// Full drain in 4 hours; with a 0.5–1.0 random start, guests get
-	// hungry after 1–3 simulated hours.
-	hungerDrainPerSec = 1.0 / 14400.0
+	// Full drain in 1 in-game day (240 sim-seconds).
+	hungerDrainPerSec = 1.0 / 240.0
 
-	// Thirst base rate (3-hour full drain) scaled by altitude and exertion.
-	thirstDrainPerSec      = 1.0 / 10800.0
+	// Thirst base rate (1 in-game day full drain) scaled by altitude and exertion.
+	thirstDrainPerSec      = 1.0 / 240.0
 	thirstAltitudePerMetre = float32(0.0005) // +50% at 1000 m, ×2 at 2000 m
 
 	// criticalStatThreshold mirrors goap.restTriggerThreshold: below this

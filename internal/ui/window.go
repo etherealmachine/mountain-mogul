@@ -9,11 +9,16 @@ import (
 )
 
 const (
-	winTitleH    = float32(render.GlyphH + 10) // 36
-	winPadding   = float32(10)
-	winRowH      = float32(render.GlyphH + 10) // 36
-	winBtnW      = float32(24)
+	winPadding    = float32(10)
+	winBtnW       = float32(24)
 	winValueAreaW = float32(130) // right portion: value text + stepper buttons
+)
+
+// winTitleH and winRowH depend on the font size; computed as vars so they
+// update when a TTF is loaded and GlyphH changes.
+var (
+	winTitleH = float32(render.GlyphH + 10)
+	winRowH   = float32(render.GlyphH + 10)
 )
 
 // rowKind classifies a window row.

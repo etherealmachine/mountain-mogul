@@ -49,7 +49,7 @@ type overlayRow struct {
 func NewOverlayPanel() *OverlayPanel {
 	p := &OverlayPanel{
 		Width:   148,
-		bgColor: mgl32.Vec4{0.08, 0.10, 0.14, 0.94},
+		bgColor: mgl32.Vec4{0.07, 0.09, 0.15, 0.96},
 	}
 	p.rows = []*overlayRow{
 		{bit: render.OverlayContour, label: "Contour", icon: render.IconChartLine,
@@ -150,10 +150,11 @@ func (p *OverlayPanel) Draw(r *render.Renderer) {
 	// Header strip — labels what this panel does. Subtle, just a tinted
 	// band across the top.
 	headerH := float32(22)
-	r.DrawColorRect(x, p.Top, p.Width, headerH, mgl32.Vec4{0.14, 0.18, 0.26, 1})
+	r.DrawColorRect(x, p.Top, p.Width, headerH, mgl32.Vec4{0.12, 0.17, 0.30, 1})
+	r.DrawColorRectOutline(x, p.Top, p.Width, p.Bottom-p.Top, mgl32.Vec4{0.30, 0.44, 0.72, 0.45})
 	if r.Font != nil {
 		label := "Overlays"
-		labelW := float32(len(label) * render.GlyphAdvance)
+		labelW := r.Font.TextWidth(label)
 		r.Font.DrawText(r, label, x+(p.Width-labelW)/2, p.Top+(headerH-float32(render.GlyphH))/2,
 			mgl32.Vec4{0.92, 0.94, 1.0, 1})
 	}
@@ -171,9 +172,9 @@ func (p *OverlayPanel) drawRow(r *render.Renderer, row *overlayRow, active bool)
 	var bg mgl32.Vec4
 	switch {
 	case active:
-		bg = mgl32.Vec4{0.18, 0.32, 0.42, 1}
+		bg = mgl32.Vec4{0.14, 0.36, 0.24, 1}
 	case row.hovered:
-		bg = mgl32.Vec4{0.16, 0.20, 0.28, 1}
+		bg = mgl32.Vec4{0.14, 0.20, 0.34, 1}
 	default:
 		bg = mgl32.Vec4{0, 0, 0, 0} // transparent — panel bg shows through
 	}

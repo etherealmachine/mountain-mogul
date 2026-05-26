@@ -129,9 +129,7 @@ func (c *introCaption) Draw(r *render.Renderer) {
 		return
 	}
 	const text = "Minty Fresh"
-	// Bitmap font lays out one GlyphAdvance per character, so the
-	// rendered width is exact — no eyeballing.
-	w := float32(len(text)) * render.GlyphAdvance
+	w := r.Font.TextWidth(text)
 	x := c.cx - w/2
 	r.Font.DrawText(r, text, x, c.y, mgl32.Vec4{0.15, 0.35, 0.25, c.alpha})
 }

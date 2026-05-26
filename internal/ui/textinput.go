@@ -83,7 +83,7 @@ func (t *TextInput) Draw(r *render.Renderer) {
 
 	// Blinking cursor: visible roughly half the time at ~1 Hz @ 60 fps.
 	if (t.blink/30)%2 == 0 {
-		cursorX := textX + float32(len([]rune(t.Text))*render.GlyphAdvance)
+		cursorX := textX + r.Font.TextWidth(t.Text)
 		r.DrawColorRect(cursorX, textY, 2, float32(render.GlyphH), mgl32.Vec4{1, 1, 1, 1})
 	}
 }

@@ -24,7 +24,9 @@ const (
 	MeshParkingPad  uint32 = 12
 	MeshRoadConnect uint32 = 14
 	MeshRoadNode    uint32 = 15
-	MeshChairQuad   uint32 = 16
+	MeshChairQuad   uint32 = 16 // 4-seat fixed grip chair
+	MeshChair6Pack  uint32 = 17 // 6-seat high-speed detachable chair
+	MeshGondolaCabin uint32 = 18 // MDG gondola cabin (8-person enclosed)
 )
 
 // MeshSlot is an anchor point baked into a mesh by the SCAD pipeline

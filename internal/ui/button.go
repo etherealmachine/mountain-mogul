@@ -28,9 +28,9 @@ func NewButton(x, y, w, h float32, label string, onClick func()) *Button {
 		W:           w,
 		H:           h,
 		Label:       label,
-		Color:       mgl32.Vec4{0.2, 0.3, 0.5, 0.9},
-		HoverColor:  mgl32.Vec4{0.3, 0.5, 0.8, 0.9},
-		ActiveColor: mgl32.Vec4{0.15, 0.50, 0.28, 1.0},
+		Color:       mgl32.Vec4{0.14, 0.21, 0.38, 0.92},
+		HoverColor:  mgl32.Vec4{0.24, 0.42, 0.72, 0.95},
+		ActiveColor: mgl32.Vec4{0.18, 0.50, 0.28, 1.00},
 		onClick:     onClick,
 	}
 }
@@ -65,6 +65,15 @@ func (b *Button) Draw(r *render.Renderer) {
 		color = b.Color
 	}
 	r.DrawColorRect(b.X, b.Y, b.W, b.H, color)
+	// Subtle 1px outline: brighter on active/hover, dim at rest.
+	var borderAlpha float32 = 0.35
+	if b.hovered {
+		borderAlpha = 0.55
+	}
+	if b.active {
+		borderAlpha = 0.70
+	}
+	r.DrawColorRectOutline(b.X, b.Y, b.W, b.H, mgl32.Vec4{0.55, 0.70, 1.00, borderAlpha})
 
 	white := mgl32.Vec4{1, 1, 1, 1}
 	if b.Icon != "" {
@@ -82,7 +91,7 @@ func (b *Button) Draw(r *render.Renderer) {
 		iconY := b.Y + 4
 		r.DrawIcon(b.Icon, iconX, iconY, iconSize, white)
 		if r.Font != nil && b.Label != "" {
-			labelW := float32(len(b.Label) * render.GlyphAdvance)
+			labelW := r.Font.TextWidth(b.Label)
 			labelX := b.X + (b.W-labelW)/2
 			labelY := iconY + iconSize + 4
 			r.Font.DrawText(r, b.Label, labelX, labelY, white)

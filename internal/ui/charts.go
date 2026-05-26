@@ -84,12 +84,14 @@ type chartTab struct {
 }
 
 const (
-	chartWindowW   = float32(720)
-	chartWindowH   = float32(460)
-	chartTabSize   = float32(40) // square tab cells in the strip
-	chartBodyPad   = float32(20)
-	chartTitleH    = winTitleH
+	chartWindowW = float32(720)
+	chartWindowH = float32(460)
+	chartTabSize = float32(40) // square tab cells in the strip
+	chartBodyPad = float32(20)
 )
+
+// chartTitleH matches winTitleH — both depend on the runtime GlyphH var.
+var chartTitleH = winTitleH
 
 // NewChartWindow constructs a ChartWindow at the given position. Charts
 // is the ordered tab list; the first chart starts active.
@@ -356,11 +358,11 @@ func drawAxes(r *render.Renderer, px, py, pw, ph float32, lo, hi float64) {
 		r.DrawColorLine(px, gy, px+pw, gy, 1, chrome.grid)
 		v := lo + (hi-lo)*float64(frac)
 		label := formatTick(v)
-		labelW := float32(len(label) * render.GlyphAdvance)
+		labelW := r.Font.TextWidth(label)
 		r.Font.DrawText(r, label, px-labelW-6, gy-float32(render.GlyphH)/2, chrome.label)
 	}
 	zero := formatTick(lo)
-	zeroW := float32(len(zero) * render.GlyphAdvance)
+	zeroW := r.Font.TextWidth(zero)
 	r.Font.DrawText(r, zero, px-zeroW-6, py+ph-float32(render.GlyphH)/2, chrome.label)
 }
 
@@ -373,7 +375,7 @@ func drawXLabels(r *render.Renderer, px, py, pw, ph float32, points []ChartPoint
 	y := py + ph + 4
 	stamp := func(i int, anchor float32) {
 		label := points[i].Day.Format("Jan 2")
-		w := float32(len(label) * render.GlyphAdvance)
+		w := r.Font.TextWidth(label)
 		r.Font.DrawText(r, label, anchor-w/2, y, chrome.label)
 	}
 	stamp(0, px)
@@ -389,7 +391,7 @@ func drawNoData(r *render.Renderer, px, py, pw, ph float32) {
 		return
 	}
 	msg := "No data yet — come back after a few days"
-	w := float32(len(msg) * render.GlyphAdvance)
+	w := r.Font.TextWidth(msg)
 	r.Font.DrawText(r, msg, px+(pw-w)/2, py+ph/2-float32(render.GlyphH)/2, defaultChrome.empty)
 }
 
@@ -507,7 +509,7 @@ func drawThoughtRankChart(r *render.Renderer, x, y, w, h float32, series []Chart
 	// Optional date label top-right.
 	if r.Font != nil && !last.Day.IsZero() {
 		dateStr := "as of " + last.Day.Format("Jan 2")
-		dw := float32(len(dateStr) * render.GlyphAdvance)
+		dw := r.Font.TextWidth(dateStr)
 		r.Font.DrawText(r, dateStr, x+w-dw, y, defaultChrome.label)
 	}
 

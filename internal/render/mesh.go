@@ -26,6 +26,8 @@ const (
 	MeshRoadConnect uint32 = 14 // yellow-flag marker for road-network edge connections (editor-placed)
 	MeshRoadNode    uint32 = 15 // small procedural post used as a hover/snap target marker for road nodes
 	MeshChairQuad   uint32 = 16 // 4-seat fixed grip chair; second chair variant
+	MeshChair6Pack   uint32 = 17 // 6-seat high-speed detachable chair
+	MeshGondolaCabin uint32 = 18 // MDG gondola cabin (8-person enclosed)
 )
 
 // Mesh wraps a GPU vertex/index buffer.

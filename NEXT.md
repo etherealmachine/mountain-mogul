@@ -23,6 +23,9 @@ Lifts and attendants
   Wrap lift lines so they don't go through buildings
 
 Drain hunger and thirst so skiers leave without a lodge
+Walk over dirt, don't ski
+Walking drains patience
+Can't board lift without snow
 
 More lifts
 

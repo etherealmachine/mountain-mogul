@@ -19,6 +19,10 @@ const (
 	// while riding a lift chair.
 	patienceGainPerSecRiding = 1.0 / 800.0
 
+	// patienceDrainPerSecQueuing drains patience while standing in a lift
+	// queue. At 1/60 per sec, ~60 cumulative queue-seconds exhaust patience.
+	patienceDrainPerSecQueuing = 1.0 / 60.0
+
 	// longQueuePersons is the queue depth at which a guest considers
 	// the line "long." At ~8 s/person this is ~120 s of expected wait.
 	longQueuePersons = 15
@@ -1193,6 +1197,10 @@ func (s *Simulation) tickQueued(agent *world.Guest, dt float64) {
 		}
 		if idx < 0 {
 			continue
+		}
+		agent.Patience -= float32(dt * patienceDrainPerSecQueuing)
+		if agent.Patience < 0 {
+			agent.Patience = 0
 		}
 		slot := lift.QueueSlotWorldPos(idx, w.Terrain)
 		s.tickWalkToward(agent, slot, dt)

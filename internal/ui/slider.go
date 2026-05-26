@@ -96,7 +96,7 @@ func (s *VSlider) Draw(r *render.Renderer) {
 	}
 	// Label above the track.
 	if s.Label != "" {
-		labelW := float32(len(s.Label) * render.GlyphAdvance)
+		labelW := r.Font.TextWidth(s.Label)
 		lx := s.X + (s.W-labelW)/2
 		r.Font.DrawText(r, s.Label, lx, s.Y-float32(render.GlyphH)-4, mgl32.Vec4{1, 1, 1, 1})
 	}
@@ -111,7 +111,7 @@ func (s *VSlider) Draw(r *render.Renderer) {
 		}
 		val = fmt.Sprintf(format, s.Value)
 	}
-	valW := float32(len(val) * render.GlyphAdvance)
+	valW := r.Font.TextWidth(val)
 	vx := s.X + (s.W-valW)/2
 	r.Font.DrawText(r, val, vx, s.Y+s.H+4, mgl32.Vec4{1, 1, 1, 1})
 }

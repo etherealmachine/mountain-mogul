@@ -239,7 +239,7 @@ func (w *World) PlaceLift(typ LiftType, bx, bz, tx, tz float32) *Lift {
 		Name:        w.nextLiftDefaultName(),
 		Base:        mgl32.Vec2{bx, bz},
 		Top:         mgl32.Vec2{tx, tz},
-		Speed:       2.5, // m/s — realistic chairlift speed
+		Speed:       typ.DefaultSpeed(),
 		TicketPrice: DefaultTicketPrice,
 		Open:        false,
 	}
@@ -279,23 +279,43 @@ func (w *World) PlaceLift(typ LiftType, bx, bz, tx, tz float32) *Lift {
 // than building a fresh lift from scratch.
 const LiftUpgradeCost = LiftStationCost
 
+// LiftHSUpgradeCost is the price to retrofit a fixed-grip quad with
+// detachable grips and new terminal machinery.
+const LiftHSUpgradeCost = LiftStationCost * 2
+
+// LiftHS6PackUpgradeCost is the price to replace a high-speed quad's chair
+// set with wider 6-pack chairs and upgrade the terminal for the heavier load.
+const LiftHS6PackUpgradeCost = LiftStationCost * 2
+
 // UpgradeLift converts a lift to the given chair variant, deducting the
 // upgrade cost from World.Cash. Returns true on success, false if the
 // target type doesn't represent a valid upgrade or the player can't
 // afford it. Existing passengers are preserved (they keep their current
 // seat indices in the resized chair).
 //
-// Currently only Double → FixedQuad is supported; other transitions are
-// rejected. Cable, towers, queue, and chair positions are unchanged.
+// Supported transitions: Double → FixedQuad, FixedQuad → HSQuad.
+// Cable, towers, queue, and chair positions are unchanged.
 func (w *World) UpgradeLift(l *Lift, target LiftType) bool {
-	if l == nil || l.Type != LiftDouble || target != LiftFixedQuad {
+	if l == nil {
 		return false
 	}
-	if w.Cash < LiftUpgradeCost {
+	var cost int
+	switch {
+	case l.Type == LiftDouble && target == LiftFixedQuad:
+		cost = LiftUpgradeCost
+	case l.Type == LiftFixedQuad && target == LiftHSQuad:
+		cost = LiftHSUpgradeCost
+	case l.Type == LiftHSQuad && target == LiftHS6Pack:
+		cost = LiftHS6PackUpgradeCost
+	default:
 		return false
 	}
-	w.Cash -= LiftUpgradeCost
+	if w.Cash < cost {
+		return false
+	}
+	w.Cash -= cost
 	l.Type = target
+	l.Speed = target.DefaultSpeed()
 	cap := target.Capacity()
 	for i := range l.Chairs {
 		fresh := make([]*Guest, cap)

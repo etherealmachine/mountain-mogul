@@ -28,7 +28,7 @@ func NewMenuBar(y, h float32) *MenuBar {
 	return &MenuBar{
 		Y:       y,
 		H:       h,
-		bgColor: mgl32.Vec4{0.1, 0.1, 0.15, 0.95},
+		bgColor: mgl32.Vec4{0.07, 0.09, 0.15, 0.97},
 	}
 }
 
@@ -45,7 +45,7 @@ func (m *MenuBar) AddButton(label string, onClick func()) *Button {
 // AddIconButton appends an icon-and-label button using a fixed tile width.
 // Position and inner height are set during the per-frame layout.
 func (m *MenuBar) AddIconButton(icon render.IconName, label string, onClick func()) *Button {
-	const tileW = float32(76)
+	const tileW = float32(84)
 	btn := NewButton(0, 0, tileW, 0, label, onClick)
 	btn.Icon = icon
 	m.Buttons = append(m.Buttons, btn)
@@ -142,6 +142,16 @@ func (m *MenuBar) Draw(r *render.Renderer) {
 	screenW := float32(r.ScreenWidth())
 	m.layout(screenW)
 	r.DrawColorRect(0, m.Y, screenW, m.H, m.bgColor)
+	// 1px powder-blue highlight at the top edge — separates bar from world.
+	r.DrawColorRect(0, m.Y, screenW, 1, mgl32.Vec4{0.35, 0.50, 0.80, 0.60})
+	// Vertical separators between adjacent buttons.
+	sepColor := mgl32.Vec4{0.35, 0.50, 0.80, 0.55}
+	for i, btn := range m.Buttons {
+		if i > 0 {
+			sepX := btn.X - 4
+			r.DrawColorRect(sepX, m.Y+4, 2, m.H-8, sepColor)
+		}
+	}
 	for _, btn := range m.Buttons {
 		btn.Draw(r)
 	}

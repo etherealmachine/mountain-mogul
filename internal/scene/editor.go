@@ -27,6 +27,9 @@ type Editor struct {
 	toolButtons       map[toolMode]*ui.Button
 	liftDoubleBtn     *ui.Button     // toolbar button for the double-chair lift variant
 	liftQuadBtn       *ui.Button     // toolbar button for the fixed-quad lift variant
+	liftHSQuadBtn     *ui.Button     // toolbar button for the high-speed quad lift variant
+	liftHS6PackBtn    *ui.Button     // toolbar button for the high-speed 6-pack lift variant
+	liftGondolaBtn    *ui.Button     // toolbar button for the MDG gondola
 	liftType          world.LiftType // chair variant the toolLiftBase/Top flow will place
 	activeTool        toolMode
 	scenarioPath      string
@@ -107,6 +110,9 @@ func (e *Editor) Init(app *engine.App) error {
 	e.toolButtons[toolShed] = e.menuBar.AddIconButton(render.IconGarage, "Shed", func() { e.setTool(toolShed) })
 	e.liftDoubleBtn = e.menuBar.AddIconButton(render.IconCableCar, "Double", func() { e.activateLiftTool(world.LiftDouble) })
 	e.liftQuadBtn = e.menuBar.AddIconButton(render.IconCableCar, "Quad", func() { e.activateLiftTool(world.LiftFixedQuad) })
+	e.liftHSQuadBtn = e.menuBar.AddIconButton(render.IconCableCar, "HSQuad", func() { e.activateLiftTool(world.LiftHSQuad) })
+	e.liftHS6PackBtn = e.menuBar.AddIconButton(render.IconCableCar, "6-Pack", func() { e.activateLiftTool(world.LiftHS6Pack) })
+	e.liftGondolaBtn = e.menuBar.AddIconButton(render.IconCableCar, "Gondola", func() { e.activateLiftTool(world.LiftGondola) })
 	e.toolButtons[toolRoadStart] = e.menuBar.AddIconButton(render.IconRoad, "Road", func() { e.setTool(toolRoadStart) })
 	e.toolButtons[toolEdgeConnect] = e.menuBar.AddIconButton(render.IconFlag, "Edge", func() { e.setTool(toolEdgeConnect) })
 	e.toolButtons[toolPlantTrees] = e.menuBar.AddIconButton(render.IconTreeEvergreen, "Plant", func() { e.setTool(toolPlantTrees) })
@@ -775,6 +781,15 @@ func (e *Editor) syncToolButtons() {
 	}
 	if e.liftQuadBtn != nil {
 		e.liftQuadBtn.SetActive(liftActive && e.liftType == world.LiftFixedQuad)
+	}
+	if e.liftHSQuadBtn != nil {
+		e.liftHSQuadBtn.SetActive(liftActive && e.liftType == world.LiftHSQuad)
+	}
+	if e.liftHS6PackBtn != nil {
+		e.liftHS6PackBtn.SetActive(liftActive && e.liftType == world.LiftHS6Pack)
+	}
+	if e.liftGondolaBtn != nil {
+		e.liftGondolaBtn.SetActive(liftActive && e.liftType == world.LiftGondola)
 	}
 }
 

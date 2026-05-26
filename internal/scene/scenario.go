@@ -552,6 +552,9 @@ type Scenario struct {
 	toolButtons     map[toolMode]*ui.Button
 	liftDoubleBtn   *ui.Button // toolbar button for the double-chair lift variant
 	liftQuadBtn     *ui.Button // toolbar button for the fixed-quad lift variant
+	liftHSQuadBtn   *ui.Button // toolbar button for the high-speed quad lift variant
+	liftHS6PackBtn  *ui.Button // toolbar button for the high-speed 6-pack lift variant
+	liftGondolaBtn  *ui.Button // toolbar button for the MDG gondola
 	activeTool      toolMode
 	liftType        world.LiftType // chair variant the toolLiftBase/Top flow will place
 	liftBase        mgl32.Vec2     // first click world position for lift placement
@@ -768,6 +771,10 @@ func (s *Scenario) Init(app *engine.App) error {
 	s.toolButtons[toolShed] = s.toolBar.AddIconButton(render.IconGarage, "Shed", func() { s.setTool(toolShed) })
 	s.liftDoubleBtn = s.toolBar.AddIconButton(render.IconCableCar, "Double", func() { s.activateLiftTool(world.LiftDouble) })
 	s.liftQuadBtn = s.toolBar.AddIconButton(render.IconCableCar, "Quad", func() { s.activateLiftTool(world.LiftFixedQuad) })
+	s.liftHSQuadBtn = s.toolBar.AddIconButton(render.IconCableCar, "HSQuad", func() { s.activateLiftTool(world.LiftHSQuad) })
+	s.liftHS6PackBtn = s.toolBar.AddIconButton(render.IconCableCar, "6-Pack", func() { s.activateLiftTool(world.LiftHS6Pack) })
+
+	s.liftGondolaBtn = s.toolBar.AddIconButton(render.IconCableCar, "Gondola", func() { s.activateLiftTool(world.LiftGondola) })
 	s.toolButtons[toolRoadStart] = s.toolBar.AddIconButton(render.IconRoad, "Road", func() { s.setTool(toolRoadStart) })
 	s.toolButtons[toolGlade] = s.toolBar.AddIconButton(render.IconAxe, "Glade", func() { s.setTool(toolGlade) })
 	s.toolButtons[toolTrailPaint] = s.toolBar.AddIconButton(render.IconFlag, "Trail", func() { s.activateTrailTool() })
@@ -2644,8 +2651,32 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 				}
 				return
 			}
-			// Reopen so the row layout reflects the new type (the upgrade
-			// button drops out, labels refresh).
+			s.openLiftPopup(l, screenW, screenH)
+		})
+	}
+	if l.Type == world.LiftFixedQuad {
+		label := fmt.Sprintf("Upgrade to HS Quad ($%d)", world.LiftHSUpgradeCost)
+		w.AddActionButton(label, func() {
+			if !s.world.UpgradeLift(l, world.LiftHSQuad) {
+				if s.world.Cash < world.LiftHSUpgradeCost {
+					s.setToast(fmt.Sprintf("Need $%d to upgrade — short by $%d",
+						world.LiftHSUpgradeCost, world.LiftHSUpgradeCost-s.world.Cash))
+				}
+				return
+			}
+			s.openLiftPopup(l, screenW, screenH)
+		})
+	}
+	if l.Type == world.LiftHSQuad {
+		label := fmt.Sprintf("Upgrade to HS 6-Pack ($%d)", world.LiftHS6PackUpgradeCost)
+		w.AddActionButton(label, func() {
+			if !s.world.UpgradeLift(l, world.LiftHS6Pack) {
+				if s.world.Cash < world.LiftHS6PackUpgradeCost {
+					s.setToast(fmt.Sprintf("Need $%d to upgrade — short by $%d",
+						world.LiftHS6PackUpgradeCost, world.LiftHS6PackUpgradeCost-s.world.Cash))
+				}
+				return
+			}
 			s.openLiftPopup(l, screenW, screenH)
 		})
 	}
@@ -2843,6 +2874,15 @@ func (s *Scenario) syncToolButtons() {
 	}
 	if s.liftQuadBtn != nil {
 		s.liftQuadBtn.SetActive(liftActive && s.liftType == world.LiftFixedQuad)
+	}
+	if s.liftHSQuadBtn != nil {
+		s.liftHSQuadBtn.SetActive(liftActive && s.liftType == world.LiftHSQuad)
+	}
+	if s.liftHS6PackBtn != nil {
+		s.liftHS6PackBtn.SetActive(liftActive && s.liftType == world.LiftHS6Pack)
+	}
+	if s.liftGondolaBtn != nil {
+		s.liftGondolaBtn.SetActive(liftActive && s.liftType == world.LiftGondola)
 	}
 }
 
@@ -3162,6 +3202,8 @@ func (f *followLabel) Draw(r *render.Renderer) {
 	activity := world.Activity(f.world, f.agent)
 	patiencePct := int(f.agent.Patience*100 + 0.5)
 	energyPct := int(f.agent.Energy*100 + 0.5)
+	hungerPct := int(f.agent.Hunger*100 + 0.5)
+	thirstPct := int(f.agent.Thirst*100 + 0.5)
 	mode := f.agent.Sense.Mode
 	if mode == "" {
 		mode = "—"
@@ -3178,7 +3220,7 @@ func (f *followLabel) Draw(r *render.Renderer) {
 	satisfactionPct := int(f.agent.Satisfaction * 100)
 	rows := []string{
 		fmt.Sprintf("%s #%d (%s)  |  %s  |  %s", f.agent.Name, f.agent.ID, badges, activity, mode),
-		fmt.Sprintf("%s    patience %d%%    energy %d%%    satisfaction %d%%", settings.FormatSpeed(f.agent.Speed), patiencePct, energyPct, satisfactionPct),
+		fmt.Sprintf("%s    patience %d%%    energy %d%%    hunger %d%%    thirst %d%%    satisfaction %d%%", settings.FormatSpeed(f.agent.Speed), patiencePct, energyPct, hungerPct, thirstPct, satisfactionPct),
 	}
 	resolve := entityName(f.world)
 	if t := f.agent.CurrentThought(f.simTime); t.Kind != ai.ThoughtNone {
@@ -3557,7 +3599,7 @@ func drawHUDBox(r *render.Renderer, rows []string, y float32, col mgl32.Vec4, ce
 	for i, row := range rows {
 		var rowX float32
 		if centred {
-			rowX = x + (bw-float32(len(row)*render.GlyphAdvance))/2
+			rowX = x + (bw-r.Font.TextWidth(row))/2
 		} else {
 			rowX = x + float32(padX)
 		}
@@ -3575,14 +3617,15 @@ type seedLabel struct {
 
 func (sl *seedLabel) Draw(r *render.Renderer) {
 	text := fmt.Sprintf("seed=%d", sl.seed)
-	const boxH = float32(render.GlyphH + 8)
+	boxH := float32(render.GlyphH + 8)
 	boxW := float32(len(text)*render.GlyphAdvance + 16)
 	x := float32(r.ScreenWidth()) - boxW - 4
 	y := float32(102) // just below the 96-px top HUD bar
 	textY := y + (boxH-float32(render.GlyphH))/2
-	r.DrawColorRect(x, y, boxW, boxH, mgl32.Vec4{0, 0, 0, 0.6})
+	r.DrawColorRect(x, y, boxW, boxH, mgl32.Vec4{0.07, 0.09, 0.15, 0.82})
+	r.DrawColorRectOutline(x, y, boxW, boxH, mgl32.Vec4{0.30, 0.44, 0.72, 0.50})
 	if r.Font != nil {
-		r.Font.DrawText(r, text, x+8, textY, mgl32.Vec4{0.85, 0.85, 0.85, 1})
+		r.Font.DrawText(r, text, x+8, textY, mgl32.Vec4{0.60, 0.75, 1.00, 0.85})
 	}
 }
 
@@ -3596,7 +3639,7 @@ type costLabel struct {
 
 func (c *costLabel) Draw(r *render.Renderer) {
 	text := fmt.Sprintf("$%d", c.cost)
-	const boxH = float32(render.GlyphH + 8)
+	boxH := float32(render.GlyphH + 8)
 	boxW := float32(len(text)*render.GlyphAdvance + 16)
 	x := float32(4)
 	y := float32(102) // just below the 96-px top HUD bar
@@ -3617,7 +3660,7 @@ type hintLabel struct {
 }
 
 func (h *hintLabel) Draw(r *render.Renderer) {
-	const boxH = float32(render.GlyphH + 8)
+	boxH := float32(render.GlyphH + 8)
 	const toolBarReserve = float32(60) // matches Scenario.toolBar.H
 	boxW := float32(len(h.text)*render.GlyphAdvance + 16)
 	y := float32(r.ScreenHeight()) - boxH - toolBarReserve - 6
@@ -3656,7 +3699,7 @@ func (l *liftDropLabel) Draw(r *render.Renderer) {
 	}
 
 	text := settings.FormatElevation(cableLenM)
-	tw := float32(len(text)*render.GlyphAdvance) + 14
+	tw := r.Font.TextWidth(text) + 14
 	th := float32(render.GlyphH) + 6
 	bx := sx - tw/2
 	by := sy - th/2
@@ -3671,9 +3714,14 @@ type toastLabel struct {
 }
 
 func (t *toastLabel) Draw(r *render.Renderer) {
-	const boxH = float32(render.GlyphH + 8)
+	boxH := float32(render.GlyphH + 8)
 	const toolBarReserve = float32(60) // matches Scenario.toolBar.H
-	boxW := float32(len(t.text)*render.GlyphAdvance + 20)
+	var boxW float32
+	if r.Font != nil {
+		boxW = r.Font.TextWidth(t.text) + 20
+	} else {
+		boxW = float32(len(t.text)*render.GlyphAdvance + 20)
+	}
 	x := (float32(r.ScreenWidth()) - boxW) / 2
 	y := float32(r.ScreenHeight()) - boxH - toolBarReserve - 30
 	textY := y + (boxH-float32(render.GlyphH))/2
@@ -3718,7 +3766,7 @@ func (tl *trailLabels) Draw(r *render.Renderer) {
 		if label == "" {
 			label = "Unnamed"
 		}
-		tw := float32(len(label)*render.GlyphAdvance) + 14
+		tw := r.Font.TextWidth(label) + 14
 		th := float32(render.GlyphH) + 6
 		bx := sx - tw/2
 		by := sy - th/2
