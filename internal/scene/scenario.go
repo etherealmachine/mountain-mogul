@@ -762,6 +762,8 @@ func (s *Scenario) Init(app *engine.App) error {
 		s.escapeMenu = NewEscapeMenu(app, nil, nil, openSettings)
 	}
 	s.debugConsole = newDebugConsole(s.world, s.setToast)
+	r := s.app.Renderer
+	s.debugConsole.SetSim(s.sim, func() { r.FlushTerrainVerts(s.world.Terrain) })
 
 	// Bottom tool bar — palette of construction tools, centred along the
 	// bottom edge. Y is set each frame in Update() based on the current
@@ -1102,7 +1104,9 @@ func (s *Scenario) installWorld(w *world.World) {
 	// Plow roads and parking lots at each day rollover so freshly-fallen
 	// snow doesn't accumulate on asphalt.
 	s.sim.OnDayRollover = applyRoadCellState
-	s.debugConsole.SetSim(s.sim, func() { r.FlushTerrainVerts(s.world.Terrain) })
+	if s.debugConsole != nil {
+		s.debugConsole.SetSim(s.sim, func() { r.FlushTerrainVerts(s.world.Terrain) })
+	}
 	// Saved cells already carry every apron / road / corridor stamp that
 	// was in effect at save time. Testbeds set their own cell state
 	// directly in the builder (no aprons by default). Either way the
