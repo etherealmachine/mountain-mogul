@@ -16,14 +16,16 @@ type StaticInstance struct {
 }
 
 // DynamicInstance holds per-instance data for dynamic objects (agents,
-// chairs, snowcats, cars). Animate gates the limb-bob in dynamic.vert
-// — set it to 1.0 for figures whose geometry should breathe (skiers),
-// 0.0 for vehicles and rigid props.
+// chairs, snowcats, cars). SpinMode drives animation in dynamic.vert:
+//   0.0 = rigid (vehicles, chairs, cars)
+//   1.0 = limb-bob (skiers, walkers: upper vertices oscillate ±5 cm)
+//   2.0 = spin_y (spin around game Y / vertical axis — helicopter main rotor)
+//   3.0 = spin_z (spin around game Z axis — helicopter tail rotor)
 type DynamicInstance struct {
 	Position [3]float32
 	Heading  float32
 	Color    [3]float32
-	Animate  float32
+	SpinMode float32
 }
 
 // batchType distinguishes static vs dynamic batch layout.
@@ -144,7 +146,7 @@ func NewDynamicBatch(mesh *Mesh, texID uint32) *Batch {
 	gl.VertexAttribPointerWithOffset(4, 3, gl.FLOAT, false, stride, 16)
 	gl.VertexAttribDivisor(4, 1)
 
-	// Animate flag at location 5 (1.0 = bob limbs, 0.0 = rigid).
+	// SpinMode at location 5 — see DynamicInstance.SpinMode values.
 	gl.EnableVertexAttribArray(5)
 	gl.VertexAttribPointerWithOffset(5, 1, gl.FLOAT, false, stride, 28)
 	gl.VertexAttribDivisor(5, 1)

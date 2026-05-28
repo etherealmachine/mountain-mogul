@@ -70,6 +70,57 @@ func LoadOBJSlots(path string) []world.MeshSlot {
 	return slots
 }
 
+// PartDecl describes an animated sub-part attached to a mesh. The renderer
+// loads <Name>.obj as a separate DynamicBatch and places one instance per
+// parent instance, spinning it around the declared axis. Offset is the
+// pivot position in mesh-local game space (post SCAD→game rotation).
+type PartDecl struct {
+	Name   string
+	Axis   string     // "spin_y" or "spin_z"
+	Offset [3]float32 // pivot in mesh-local game space
+}
+
+// LoadOBJParts reads `# part <name> <axis> <x> <y> <z>` comment lines from
+// an OBJ produced by tools/scad2obj. Returns nil when the file is missing or
+// has no part lines.
+func LoadOBJParts(path string) []PartDecl {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	var parts []PartDecl
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "v ") || strings.HasPrefix(line, "f ") {
+			break
+		}
+		if !strings.HasPrefix(line, "# part ") {
+			continue
+		}
+		// Format: # part <name> <axis> <x> <y> <z>
+		// fields: [0]="#" [1]="part" [2]=name [3]=axis [4]=x [5]=y [6]=z
+		fields := strings.Fields(line)
+		if len(fields) != 7 {
+			continue
+		}
+		x, err1 := strconv.ParseFloat(fields[4], 32)
+		y, err2 := strconv.ParseFloat(fields[5], 32)
+		z, err3 := strconv.ParseFloat(fields[6], 32)
+		if err1 != nil || err2 != nil || err3 != nil {
+			continue
+		}
+		parts = append(parts, PartDecl{
+			Name:   fields[2],
+			Axis:   fields[3],
+			Offset: [3]float32{float32(x), float32(y), float32(z)},
+		})
+	}
+	return parts
+}
+
 // LoadOBJFootprint reads a `# footprint halfX halfZ` comment line from an
 // OBJ produced by tools/scad2obj. Both values are in metres in mesh-local
 // game coords (the converter has already applied the SCAD Z-up → game

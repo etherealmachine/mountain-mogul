@@ -228,6 +228,15 @@ func main() {
 			// SCAD is halfZ in game coords. Always positive.
 			fmt.Fprintf(w, "# footprint %g %g\n", fp.halfX, fp.halfY)
 		}
+		parts, err := readParts(echoPath)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "read parts:", err)
+			os.Exit(1)
+		}
+		for _, pd := range parts {
+			p := scadToGame(pd.pos)
+			fmt.Fprintf(w, "# part %s %s %g %g %g\n", pd.name, pd.axis, p[0], p[1], p[2])
+		}
 	}
 
 	// One pass per <object>; vertex/normal indices are kept global across
@@ -358,6 +367,50 @@ func readFootprint(path string) (footprint, bool, error) {
 		return footprint{halfX: float32(hx), halfY: float32(hy)}, true, nil
 	}
 	return footprint{}, false, scanner.Err()
+}
+
+// partDecl is an animated sub-part attachment declared by a SCAD body model.
+// The renderer loads <name>.obj and positions one instance per body instance,
+// spinning it around the declared game-space axis.
+type partDecl struct {
+	name string // OBJ base name, e.g. "helicopter_main_rotor"
+	axis string // "spin_y" or "spin_z"
+	pos  vec3   // pivot in SCAD space; converted to game space before writing
+}
+
+// readParts scans an openscad stderr capture for MOGUL_META part declarations:
+//
+//	ECHO: "MOGUL_META", "part", "<name>", "<axis>", <x>, <y>, <z>
+var partLineRE = regexp.MustCompile(
+	`ECHO:\s*"MOGUL_META"\s*,\s*"part"\s*,\s*` +
+		`"([^"]+)"\s*,\s*"([^"]+)"\s*,\s*` +
+		`(-?[\d.eE+-]+)\s*,\s*(-?[\d.eE+-]+)\s*,\s*(-?[\d.eE+-]+)`,
+)
+
+func readParts(path string) ([]partDecl, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	var parts []partDecl
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		m := partLineRE.FindStringSubmatch(scanner.Text())
+		if m == nil {
+			continue
+		}
+		x, _ := strconv.ParseFloat(m[3], 32)
+		y, _ := strconv.ParseFloat(m[4], 32)
+		z, _ := strconv.ParseFloat(m[5], 32)
+		parts = append(parts, partDecl{
+			name: m[1],
+			axis: m[2],
+			pos:  vec3{float32(x), float32(y), float32(z)},
+		})
+	}
+	return parts, scanner.Err()
 }
 
 func readSlots(path string) ([]slot, error) {

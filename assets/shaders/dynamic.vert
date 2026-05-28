@@ -7,7 +7,8 @@ layout(location = 1) in vec3 aNormal;
 layout(location = 2) in vec3 iPosition;
 layout(location = 3) in float iHeading;
 layout(location = 4) in vec3 iColor;
-layout(location = 5) in float iAnimate; // 1 = bob limbs (skiers), 0 = rigid (vehicles, chairs)
+layout(location = 5) in float iSpinMode;
+// 0 = rigid  1 = limb-bob (skiers)  2 = spin_y (main rotor)  3 = spin_z (tail rotor)
 
 // per-vertex base colour from the 3MF pipeline (color() blocks in SCAD).
 // Meshes without per-vertex colour leave this unbound — the renderer sets
@@ -16,6 +17,7 @@ layout(location = 8) in vec3 aBaseColor;
 
 uniform mat4 uViewProj;
 uniform float uTime;
+uniform float uSpinRate; // rad/s for spin_y / spin_z modes; 0 for all others
 
 out vec3 vColor;
 flat out vec3 vNormal;
@@ -41,15 +43,30 @@ void main() {
         iPosition.x, iPosition.y, iPosition.z, 1.0
     );
 
-    // limb animation: small Y displacement for vertices above threshold,
-    // gated by the per-instance iAnimate flag so vehicles don't bob.
+    // Rotor spin: rotate vertices around local origin before heading rotation.
+    // Each rotor OBJ has its pivot at origin so no per-instance pivot needed.
+    vec3 spinPos = aPos;
+    if (iSpinMode > 1.5) {
+        float a = uTime * uSpinRate;
+        float ss = sin(a);
+        float cs = cos(a);
+        if (iSpinMode < 2.5) {
+            // spin_y — main rotor: vertical axis
+            spinPos = vec3(aPos.x * cs - aPos.z * ss, aPos.y, aPos.x * ss + aPos.z * cs);
+        } else {
+            // spin_z — tail rotor: shaft (fuselage-forward) axis
+            spinPos = vec3(aPos.x * cs - aPos.y * ss, aPos.x * ss + aPos.y * cs, aPos.z);
+        }
+    }
+
+    // Limb-bob: small Y displacement for upper-body vertices of skiers/walkers.
     float phase = sin(uTime * 3.0 + float(gl_InstanceID) * 1.618);
     float animY = 0.0;
-    if (aPos.y > 0.3 && iAnimate > 0.5) {
+    if (spinPos.y > 0.3 && iSpinMode > 0.4 && iSpinMode < 1.5) {
         animY = phase * 0.05;
     }
 
-    vec3 animPos = vec3(aPos.x, aPos.y + animY, aPos.z);
+    vec3 animPos = vec3(spinPos.x, spinPos.y + animY, spinPos.z);
     mat4 model = translate * rotY;
 
     vColor = iColor * aBaseColor;

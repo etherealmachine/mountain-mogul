@@ -38,6 +38,14 @@ type DebugLine struct {
 	Color [3]float32
 }
 
+// partBatch pairs a DynamicBatch for an animated sub-part with its
+// declaration (pivot offset, spin axis) and spin rate in rad/s.
+type partBatch struct {
+	batch    *Batch
+	decl     PartDecl
+	spinRate float32
+}
+
 // Renderer coordinates all rendering passes.
 type Renderer struct {
 	TerrainShader *Shader
@@ -62,7 +70,8 @@ type Renderer struct {
 	gondolaBatch    *Batch
 	snowcatBatch    *Batch
 	carBatch        *Batch
-	helicopterBatch *Batch // dynamic batch — one instance per HeliLift
+	helicopterBodyBatch  *Batch      // rigid fuselage, tail, skids
+	helicopterPartBatches []partBatch // spinning rotor parts (loaded from # part metadata)
 
 	uiVAO, uiVBO uint32
 	whiteTexID       uint32 // 1×1 white texture; always bound to unit 0 during UI pass
@@ -362,10 +371,23 @@ func (r *Renderer) initStaticMeshes() {
 		world.RegisterMeshFootprint(MeshHelipad, fp)
 	}
 
-	// Helicopter — dynamic batch (one instance per HeliLift, position
-	// and heading updated every frame from HeliWorldPos / HeliHeading).
-	heliMesh, heliTexID := LoadOBJ(modelDir + "helicopter.obj")
-	r.helicopterBatch = NewDynamicBatch(heliMesh, heliTexID)
+	// Helicopter body (rigid fuselage, tail, skids, mast) and animated
+	// rotor parts declared via # part metadata in the body OBJ.
+	heliBodyPath := modelDir + "helicopter_body.obj"
+	heliBodyMesh, heliBodyTexID := LoadOBJ(heliBodyPath)
+	r.helicopterBodyBatch = NewDynamicBatch(heliBodyMesh, heliBodyTexID)
+	for _, pd := range LoadOBJParts(heliBodyPath) {
+		partMesh, partTexID := LoadOBJ(modelDir + pd.Name + ".obj")
+		rate := float32(25.0) // rad/s default (main rotor ≈ 240 RPM)
+		if pd.Axis == "spin_z" {
+			rate = 90.0 // tail rotor ≈ 860 RPM
+		}
+		r.helicopterPartBatches = append(r.helicopterPartBatches, partBatch{
+			batch:    NewDynamicBatch(partMesh, partTexID),
+			decl:     pd,
+			spinRate: rate,
+		})
+	}
 }
 
 // SetViewport updates the OpenGL framebuffer viewport. Call this from the
@@ -1736,6 +1758,7 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	r.DynamicShader.Use()
 	r.DynamicShader.SetMat4("uViewProj", vp)
 	r.DynamicShader.SetFloat("uTime", time)
+	r.DynamicShader.SetFloat("uSpinRate", 0) // default; overridden per rotor draw
 
 	if r.dynamicBatch != nil || r.walkerBatch != nil {
 		skierInst := make([]DynamicInstance, 0, len(w.OnMountain))
@@ -1764,7 +1787,7 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 				Position: [3]float32{agent.Pos[0], posY, agent.Pos[2]},
 				Heading:  agent.Heading,
 				Color:    color,
-				Animate:  1.0,
+				SpinMode: 1.0,
 			}
 			if agent.SkisOn {
 				skierInst = append(skierInst, inst)
@@ -1802,25 +1825,50 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		r.snowcatBatch.Draw()
 	}
 
-	// Helicopters — one instance per HeliLift, positioned and oriented
-	// from HeliWorldPos / HeliHeading each frame.
-	if r.helicopterBatch != nil {
-		var heliInst []DynamicInstance
+	// Helicopters — body + animated rotor parts, one set per HeliLift.
+	if r.helicopterBodyBatch != nil {
+		var bodyInst []DynamicInstance
+		partInsts := make([][]DynamicInstance, len(r.helicopterPartBatches))
 		for _, lift := range w.Lifts {
 			if !lift.IsHeli() {
 				continue
 			}
 			pos := lift.HeliWorldPos(w.Terrain)
-			heliInst = append(heliInst, DynamicInstance{
+			heading := lift.HeliHeading()
+			s := float32(math.Sin(float64(heading)))
+			c := float32(math.Cos(float64(heading)))
+			bodyInst = append(bodyInst, DynamicInstance{
 				Position: [3]float32{pos[0], pos[1], pos[2]},
-				Heading:  lift.HeliHeading(),
+				Heading:  heading,
 				Color:    [3]float32{1, 1, 1},
 			})
+			// Each part: world pivot = body_pos + rotY(heading) * partOffset.
+			// rotY in dynamic.vert: result.x = s*x - c*z, result.z = c*x + s*z
+			for pi, pb := range r.helicopterPartBatches {
+				off := pb.decl.Offset
+				partInsts[pi] = append(partInsts[pi], DynamicInstance{
+					Position: [3]float32{
+						pos[0] + s*off[0] - c*off[2],
+						pos[1] + off[1],
+						pos[2] + c*off[0] + s*off[2],
+					},
+					Heading:  heading,
+					Color:    [3]float32{1, 1, 1},
+					SpinMode: spinModeFor(pb.decl.Axis),
+				})
+			}
 		}
-		if len(heliInst) > 0 {
-			r.helicopterBatch.SetDynamic(heliInst)
-			r.helicopterBatch.Draw()
+		r.helicopterBodyBatch.SetDynamic(bodyInst)
+		r.helicopterBodyBatch.Draw()
+		for pi, pb := range r.helicopterPartBatches {
+			if len(partInsts[pi]) == 0 {
+				continue
+			}
+			r.DynamicShader.SetFloat("uSpinRate", pb.spinRate)
+			pb.batch.SetDynamic(partInsts[pi])
+			pb.batch.Draw()
 		}
+		r.DynamicShader.SetFloat("uSpinRate", 0) // reset after rotor draws
 	}
 
 	// Parked cars — one box per filled parking-lot stall, count driven by
@@ -2455,5 +2503,17 @@ func setRoadLaneTransformAttribs() {
 // (selection highlight, seasonal mood) on top of the SCAD-authored palette.
 func treeTintForVariant(variant uint32) mgl32.Vec3 {
 	return mgl32.Vec3{1, 1, 1}
+}
+
+// spinModeFor maps a PartDecl.Axis string to the DynamicInstance.SpinMode
+// value consumed by dynamic.vert.
+func spinModeFor(axis string) float32 {
+	switch axis {
+	case "spin_y":
+		return 2.0
+	case "spin_z":
+		return 3.0
+	}
+	return 0.0
 }
 
