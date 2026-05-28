@@ -625,6 +625,28 @@ func kindTransition(current world.SnowKind, evt weatherEvent) world.SnowKind {
 	return current
 }
 
+// TriggerStorm immediately applies one heavy-snow day to the terrain — same
+// effect as a natural blizzard rollover. Called by the debug console cheat.
+func (s *Simulation) TriggerStorm() {
+	s.applyDailyWeather(DayWeather{
+		State:      WeatherHeavySnow,
+		TempC:      -10,
+		CloudCover: 0.95,
+		AccumSWE:   0.025,
+	})
+}
+
+// TriggerHeatwave immediately applies one warm sunny day to the terrain —
+// same melt and kind-transition effects as a natural spring day. Called by
+// the debug console cheat.
+func (s *Simulation) TriggerHeatwave() {
+	s.applyDailyWeather(DayWeather{
+		State:      WeatherClear,
+		TempC:      +10,
+		CloudCover: 0.05,
+	})
+}
+
 // applyDailyWeather runs all terrain snow effects for one day rollover:
 // snowfall (push new layer), non-precipitation kind transitions, melt, and
 // daily traffic decay.

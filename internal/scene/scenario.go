@@ -1102,6 +1102,7 @@ func (s *Scenario) installWorld(w *world.World) {
 	// Plow roads and parking lots at each day rollover so freshly-fallen
 	// snow doesn't accumulate on asphalt.
 	s.sim.OnDayRollover = applyRoadCellState
+	s.debugConsole.SetSim(s.sim, func() { r.FlushTerrainVerts(s.world.Terrain) })
 	// Saved cells already carry every apron / road / corridor stamp that
 	// was in effect at save time. Testbeds set their own cell state
 	// directly in the builder (no aprons by default). Either way the

@@ -7,16 +7,19 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 	"mountain-mogul/internal/engine"
 	"mountain-mogul/internal/render"
+	"mountain-mogul/internal/sim"
 	"mountain-mogul/internal/ui"
 	"mountain-mogul/internal/world"
 )
 
 // DebugConsole is a tilde-toggled cheat-code console.
 type DebugConsole struct {
-	visible bool
-	input   *ui.TextInput
-	world   *world.World
-	toast   func(string)
+	visible      bool
+	input        *ui.TextInput
+	world        *world.World
+	toast        func(string)
+	sim          *sim.Simulation
+	flushTerrain func()
 }
 
 func newDebugConsole(w *world.World, toast func(string)) *DebugConsole {
@@ -35,6 +38,14 @@ func newDebugConsole(w *world.World, toast func(string)) *DebugConsole {
 	return c
 }
 
+// SetSim gives the console access to the running simulation and a callback to
+// flush terrain vertices after weather cheats modify the snow layer stack.
+// Called each time a new simulation is started (new game, load, testbed).
+func (c *DebugConsole) SetSim(s *sim.Simulation, flushTerrain func()) {
+	c.sim = s
+	c.flushTerrain = flushTerrain
+}
+
 func (c *DebugConsole) Visible() bool  { return c.visible }
 func (c *DebugConsole) Toggle()        { c.visible = !c.visible }
 func (c *DebugConsole) Show()          { c.visible = true }
@@ -48,6 +59,24 @@ func (c *DebugConsole) exec(cmd string) {
 	case "moremoney":
 		c.world.Cash += 100_000
 		c.toast("+$100,000")
+	case "moresnow":
+		if c.sim == nil {
+			return
+		}
+		c.sim.TriggerStorm()
+		if c.flushTerrain != nil {
+			c.flushTerrain()
+		}
+		c.toast("Storm incoming!")
+	case "heatwave":
+		if c.sim == nil {
+			return
+		}
+		c.sim.TriggerHeatwave()
+		if c.flushTerrain != nil {
+			c.flushTerrain()
+		}
+		c.toast("Heat wave!")
 	}
 }
 
