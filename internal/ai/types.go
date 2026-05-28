@@ -210,8 +210,9 @@ func AddRide(rides []RideCount, liftID uint64) []RideCount {
 type GuestEventKind uint8
 
 const (
-	EventFall GuestEventKind = iota // L1 controller detected Balance ≤ 0
-	EventRun                        // agent completed a descent (any ActSkiTo* or ActSkiTrail)
+	EventFall   GuestEventKind = iota // L1 controller detected Balance ≤ 0
+	EventRun                          // agent completed a descent (any ActSkiTo* or ActSkiTrail)
+	EventInjury                        // fall severe enough to require rescue
 )
 
 // GuestEvent is one row in an agent's per-session log. Time is sim-time
@@ -244,7 +245,9 @@ const (
 	ThoughtLovingCorduroy // PrefersGroomed = true, on groomed snow
 
 	// Skill events.
-	ThoughtFell        // Balance went to 0; fall recovery
+	ThoughtFell      // Balance went to 0; fall recovery
+	ThoughtInjured   // injured; stuck until rescued
+	ThoughtAbandoned // gave up waiting for help; crawling home
 
 	// Queue events.
 	ThoughtLongLine    // Joining a queue whose estimated wait is long
@@ -273,6 +276,8 @@ var ThoughtSatisfactionWeight = [ThoughtKindCount]float64{
 	ThoughtScaredInTrees:  -0.18,
 	ThoughtLovingCorduroy: +0.15,
 	ThoughtFell:           -0.10,
+	ThoughtInjured:        -0.25,
+	ThoughtAbandoned:      -0.30,
 	ThoughtLongLine:       -0.08,
 	ThoughtLineTooLong:    -0.08,
 	ThoughtNeedsLodge: -0.06,
@@ -289,6 +294,8 @@ var ThoughtLabel = [ThoughtKindCount]string{
 	ThoughtScaredInTrees:  "Scared in trees",
 	ThoughtLovingCorduroy: "Loving corduroy",
 	ThoughtFell:           "Fell",
+	ThoughtInjured:        "Injured",
+	ThoughtAbandoned:      "Abandoned",
 	ThoughtLongLine:       "Long line",
 	ThoughtLineTooLong:    "Line too long",
 	ThoughtNeedsLodge: "Needs lodge",
@@ -303,6 +310,8 @@ var ThoughtChartColor = [ThoughtKindCount][4]float32{
 	ThoughtScaredInTrees:  {0.90, 0.35, 0.30, 1},
 	ThoughtLovingCorduroy: {0.45, 0.85, 0.55, 1},
 	ThoughtFell:           {0.85, 0.20, 0.20, 1},
+	ThoughtInjured:        {0.95, 0.10, 0.10, 1},
+	ThoughtAbandoned:      {0.60, 0.10, 0.80, 1},
 	ThoughtLongLine:       {0.80, 0.45, 0.70, 1},
 	ThoughtLineTooLong:    {0.70, 0.30, 0.60, 1},
 	ThoughtNeedsLodge: {0.60, 0.50, 0.80, 1},
@@ -344,6 +353,13 @@ func (t Thought) Display(resolve func(uint64) string) string {
 			return "ouch, that hurt on " + n
 		}
 		return "ouch, that hurt"
+	case ThoughtInjured:
+		if n := name(0); n != "" {
+			return "I'm hurt on " + n + ", I can't move"
+		}
+		return "I'm hurt, I can't move"
+	case ThoughtAbandoned:
+		return "no one came to help me"
 	case ThoughtLongLine:
 		if n := name(0); n != "" {
 			return "the " + n + " line is way too long"

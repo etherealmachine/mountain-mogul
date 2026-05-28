@@ -31,6 +31,32 @@ type Testbed struct {
 // pick a side and commit to a corduroy lane.
 var Testbeds = []Testbed{
 	{
+		// Injured skier give-up path: skier is pre-injured mid-slope with a
+		// short wait timer (5 s). After expiry they should walk straight to
+		// the parking lot at the bottom rather than routing through the lift.
+		// A lift is present so the GOAP regression (guest rides home) is
+		// visible if the direct-plan logic is removed.
+		Name: "Injured skier, gives up, walks home",
+		Seed: 1,
+		Build: func() *world.World {
+			b := scene(40, 60).slope(25).
+				parkingAt(20, 58).
+				liftFromTo(20, 56, 20, 2).
+				goapSkierAt(20, 20, 0.5, 0.8)
+			if len(b.w.OnMountain) > 0 {
+				a := b.w.OnMountain[len(b.w.OnMountain)-1]
+				a.Injured = true
+				a.Fallen = true
+				a.InjuryWaitTimer = 5.0
+				a.Balance = 0
+				a.Energy = 0.8
+				a.Hunger = 0.8
+				a.Thirst = 0.8
+			}
+			return b.build()
+		},
+	},
+	{
 		Name: "Flat plane, beginner skier",
 		Seed: 1,
 		Build: func() *world.World {

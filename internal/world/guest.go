@@ -98,6 +98,8 @@ type Guest struct {
 	Queued     bool   // in some lift.Queue, waiting to board
 	Fallen     bool   // briefly immobilised after a fall; clears when FallTimer expires
 	FallTimer  float32
+	Injured         bool    // injured after a severe fall; cannot self-recover
+	InjuryWaitTimer float32 // counts down while Injured; on expiry guest gives up and crawls home
 	AtTrailEnd uint64 // nonzero ⇒ arrived at a trail-to-trail junction (ID = destination trail)
 
 	// AI state — populated by sim package.
@@ -209,6 +211,9 @@ type Guest struct {
 func Activity(w *World, g *Guest) string {
 	if g.State == AtHome {
 		return "At home"
+	}
+	if g.Injured {
+		return "Injured"
 	}
 	if g.Fallen {
 		return "Fallen"
@@ -325,6 +330,8 @@ func (g *Guest) ResetForDeparture() {
 	g.Queued = false
 	g.Fallen = false
 	g.FallTimer = 0
+	g.Injured = false
+	g.InjuryWaitTimer = 0
 	g.Plan = ai.Plan{}
 	g.Balance = 0
 	g.TurnSide = 0

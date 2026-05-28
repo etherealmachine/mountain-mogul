@@ -123,6 +123,14 @@ const (
 	fallRecoverTime  = 4.0
 	fallStartBalance = 0.7
 
+	// Injury probability on fall. Chance = (speedFactor + slopeFactor) * scale,
+	// capped at 2*scale. At max speed (20 m/s) on max slope (40°) the chance
+	// is ~30%; a gentle tumble at 5 m/s on 10° gives ~4%.
+	injuryMaxSpeed    = float32(20.0)
+	injuryMaxSlope    = float32(40 * math.Pi / 180)
+	injuryChanceScale = float32(0.15)
+	injuryWaitTime    = float32(90.0) // sim-seconds before giving up and crawling home
+
 	// Tree underfoot signal (display-only — controller doesn't branch on it)
 	inTreesThreshold = 0.3
 
@@ -389,16 +397,32 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 	if a.Balance <= 0 {
 		a.Balance = 0
 		a.Fallen = true
-		a.FallTimer = float32(fallRecoverTime)
-		a.Speed = 0
 		a.Energy = clamp32(a.Energy-energyFallDrain, 0, 1)
 		a.Events = append(a.Events, ai.GuestEvent{Kind: ai.EventFall, Time: s.SimTime})
-		if step := a.Plan.Head(); step.Kind == ai.ActSkiTrail {
-			s.addThought(a, ai.ThoughtFell, step.TrailID)
+
+		speedFactor := clamp32(a.Speed/injuryMaxSpeed, 0, 1)
+		slopeFactor := clamp32(perc.SlopeAngle/injuryMaxSlope, 0, 1)
+		injuryChance := (speedFactor + slopeFactor) * injuryChanceScale
+		a.Speed = 0
+		if rng.Global().Float32() < injuryChance {
+			a.Injured = true
+			a.InjuryWaitTimer = injuryWaitTime
+			a.Events = append(a.Events, ai.GuestEvent{Kind: ai.EventInjury, Time: s.SimTime})
+			if step := a.Plan.Head(); step.Kind == ai.ActSkiTrail {
+				s.addThought(a, ai.ThoughtInjured, step.TrailID)
+			} else {
+				s.addThought(a, ai.ThoughtInjured)
+			}
+			a.Satisfaction = clamp32(a.Satisfaction-0.25, 0, 1)
 		} else {
-			s.addThought(a, ai.ThoughtFell)
+			a.FallTimer = float32(fallRecoverTime)
+			if step := a.Plan.Head(); step.Kind == ai.ActSkiTrail {
+				s.addThought(a, ai.ThoughtFell, step.TrailID)
+			} else {
+				s.addThought(a, ai.ThoughtFell)
+			}
+			a.Satisfaction = clamp32(a.Satisfaction-0.10, 0, 1)
 		}
-		a.Satisfaction = clamp32(a.Satisfaction-0.10, 0, 1)
 		recordFrame(s, a, target, dist, perc, dec)
 		return false
 	}
@@ -501,7 +525,29 @@ func wearSnowUnderfoot(t *world.Terrain, pos mgl32.Vec3, dt float64) {
 }
 
 // tickFallen counts the agent down out of the fallen window and resumes.
+// Injured guests wait for InjuryWaitTimer to expire; on expiry they give up,
+// take a hard satisfaction hit, and force a GoHome replan.
 func (s *Simulation) tickFallen(a *world.Guest, dt float64) {
+	if a.Injured {
+		a.InjuryWaitTimer -= float32(dt)
+		if a.InjuryWaitTimer <= 0 {
+			a.Injured = false
+			a.Fallen = false
+			a.Balance = float32(fallStartBalance)
+			a.Speed = 0
+			a.TurnSide = 0
+			a.SkisOn = false
+			a.Patience = 0
+			a.Satisfaction = clamp32(a.Satisfaction-0.30, 0, 1)
+			s.addThought(a, ai.ThoughtAbandoned)
+			// Build a direct walk-to-parking plan so the guest crawls to the
+			// nearest lot without routing through the lift system. Bypassing
+			// GOAP is intentional: the planner would route WalkToLift →
+			// RideLift → SkiToParking, which reads as "continued skiing."
+			s.injuredGiveUpPlan(a)
+		}
+		return
+	}
 	a.FallTimer -= float32(dt)
 	if a.FallTimer <= 0 {
 		a.Fallen = false

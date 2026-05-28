@@ -1998,6 +1998,8 @@ func guestColor(w *world.World, a *world.Guest) [3]float32 {
 		return [3]float32{0.1, 0.8, 0.3}
 	case "Departing":
 		return [3]float32{0.8, 0.3, 0.8}
+	case "Injured":
+		return [3]float32{1.0, 0.1, 0.8}
 	case "Fallen":
 		return [3]float32{0.8, 0.1, 0.1}
 	}

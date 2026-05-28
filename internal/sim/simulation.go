@@ -1097,6 +1097,40 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 	}
 }
 
+// injuredGiveUpPlan builds a direct [SkiToParking, Depart] plan so an
+// injured guest who gave up walks to the nearest parking lot without routing
+// through the lift system. If no parking lot exists the guest is removed
+// immediately — there is nowhere for them to go.
+func (s *Simulation) injuredGiveUpPlan(a *world.Guest) {
+	w := s.World
+	var best *world.Building
+	var bestD2 float32
+	for _, b := range w.Buildings {
+		if b.Type != world.BuildingParking {
+			continue
+		}
+		dx := b.Pos[0] - a.Pos[0]
+		dz := b.Pos[1] - a.Pos[2]
+		d2 := dx*dx + dz*dz
+		if best == nil || d2 < bestD2 {
+			best = b
+			bestD2 = d2
+		}
+	}
+	if best == nil {
+		a.Removed = true
+		return
+	}
+	a.Plan = ai.Plan{
+		GoalName: "GoHome",
+		Steps: []ai.PlanAction{
+			{Kind: ai.ActSkiToParking, BldgID: best.ID},
+			{Kind: ai.ActDepart, BldgID: best.ID},
+		},
+	}
+	s.onPlanStepStart(a)
+}
+
 // planActionComplete returns true when the head step's post-state is
 // observable in snap. Drives advancePlan.
 func planActionComplete(step ai.PlanAction, a *world.Guest, snap goap.WorldSnapshot) bool {
