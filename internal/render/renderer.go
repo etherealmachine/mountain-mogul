@@ -358,9 +358,9 @@ func (r *Renderer) initStaticMeshes() {
 	snowcatMesh, snowcatTexID := LoadOBJ(modelDir + "snowcat.obj")
 	r.snowcatBatch = NewDynamicBatch(snowcatMesh, snowcatTexID)
 
-	// Ski patrol snowmobiles — same mesh as snowcat, drawn separately with
-	// a red tint when active so they're visually distinct from grooming cats.
-	patrollerMesh, patrollerTexID := LoadOBJ(modelDir + "snowcat.obj")
+	// Ski patrol snowmobiles — dedicated snowmobile mesh, drawn with a red
+	// tint when active so they're visually distinct from grooming snowcats.
+	patrollerMesh, patrollerTexID := LoadOBJ(modelDir + "snowmobile.obj")
 	r.patrollerBatch = NewDynamicBatch(patrollerMesh, patrollerTexID)
 
 	// Cars — dynamic batch. Each parking lot's CurrentCars fluctuates as
