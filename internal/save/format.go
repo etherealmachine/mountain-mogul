@@ -2,22 +2,33 @@ package save
 
 // ScenarioData is the JSON-serialisable representation of a full scenario.
 type ScenarioData struct {
-	Name      string         `json:"name"`
-	Width     int            `json:"width"`
-	Height    int            `json:"height"`
-	Seed      int64          `json:"seed,omitempty"`
-	Cells     []CellData     `json:"cells"` // flat array, row-major (x-major)
-	Objects   []ObjectData   `json:"objects"`
-	Buildings []BuildingData `json:"buildings"`
-	Lifts     []LiftData     `json:"lifts"`
-	Trails    []TrailData    `json:"trails,omitempty"`
-	Guests    []GuestData    `json:"guests"`
-	Snowcats  []SnowcatData  `json:"snowcats,omitempty"`
-	RoadNodes []RoadNodeData `json:"road_nodes,omitempty"`
-	RoadEdges []RoadEdgeData `json:"road_edges,omitempty"`
-	Cash      int            `json:"cash,omitempty"`
-	Camera    *CameraData    `json:"camera,omitempty"`
-	History   *HistoryData   `json:"history,omitempty"`
+	Name       string          `json:"name"`
+	Width      int             `json:"width"`
+	Height     int             `json:"height"`
+	Seed       int64           `json:"seed,omitempty"`
+	Cells      []CellData      `json:"cells"` // flat array, row-major (x-major)
+	Objects    []ObjectData    `json:"objects"`
+	Buildings  []BuildingData  `json:"buildings"`
+	Lifts      []LiftData      `json:"lifts"`
+	Trails     []TrailData     `json:"trails,omitempty"`
+	Guests     []GuestData     `json:"guests"`
+	Snowcats   []SnowcatData   `json:"snowcats,omitempty"`
+	Patrollers []PatrollerData `json:"patrollers,omitempty"`
+	RoadNodes  []RoadNodeData  `json:"road_nodes,omitempty"`
+	RoadEdges  []RoadEdgeData  `json:"road_edges,omitempty"`
+	Cash       int             `json:"cash,omitempty"`
+	Camera     *CameraData     `json:"camera,omitempty"`
+	History    *HistoryData    `json:"history,omitempty"`
+}
+
+// PatrollerData is a saved ski-patrol unit. HutID links it back to its patrol
+// hut; both IDs survive save/load so the patroller → hut chain rehydrates.
+type PatrollerData struct {
+	ID    uint64     `json:"id,omitempty"`
+	HutID uint64     `json:"hut,omitempty"`
+	Pos   [3]float32 `json:"pos"`
+	Heading float32  `json:"heading,omitempty"`
+	State uint8      `json:"state,omitempty"`
 }
 
 // TrailData is a saved player-defined ski trail. Cells is the complete

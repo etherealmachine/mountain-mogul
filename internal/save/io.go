@@ -231,6 +231,17 @@ func worldToData(w *world.World) ScenarioData {
 		}
 	}
 
+	patrollers := make([]PatrollerData, len(w.Patrollers))
+	for i, p := range w.Patrollers {
+		patrollers[i] = PatrollerData{
+			ID:      p.ID,
+			HutID:   p.HutID,
+			Pos:     [3]float32{p.Pos[0], p.Pos[1], p.Pos[2]},
+			Heading: p.Heading,
+			State:   uint8(p.State),
+		}
+	}
+
 	lifts := make([]LiftData, len(w.Lifts))
 	for i, l := range w.Lifts {
 		chairs := make([]ChairData, len(l.Chairs))
@@ -355,21 +366,22 @@ func worldToData(w *world.World) ScenarioData {
 	}
 
 	return ScenarioData{
-		Name:      "scenario",
-		Seed:      w.Seed,
-		Width:     t.Width,
-		Height:    t.Height,
-		Cells:     cells,
-		Objects:   objects,
-		Buildings: buildings,
-		Lifts:     lifts,
-		Trails:    trails,
-		Guests:    guests,
-		Snowcats:  snowcats,
-		RoadNodes: roadNodes,
-		RoadEdges: roadEdges,
-		Cash:      w.Cash,
-		History:   historyToData(w.History),
+		Name:       "scenario",
+		Seed:       w.Seed,
+		Width:      t.Width,
+		Height:     t.Height,
+		Cells:      cells,
+		Objects:    objects,
+		Buildings:  buildings,
+		Lifts:      lifts,
+		Trails:     trails,
+		Guests:     guests,
+		Snowcats:   snowcats,
+		Patrollers: patrollers,
+		RoadNodes:  roadNodes,
+		RoadEdges:  roadEdges,
+		Cash:       w.Cash,
+		History:    historyToData(w.History),
 	}
 }
 
@@ -522,6 +534,29 @@ func dataToWorld(data ScenarioData) *world.World {
 		cat.Pos = mgl32.Vec3{cd.Pos[0], cd.Pos[1], cd.Pos[2]}
 		cat.Heading = cd.Heading
 		cat.Status = world.CatStatus(cd.Status)
+	}
+
+	// Restore patrollers. PlaceBuildingType already auto-spawned one per
+	// patrol hut; clear those first so we restore the exact saved state.
+	hutByID := make(map[uint64]*world.Building)
+	for _, b := range w.Buildings {
+		if b.Type == world.BuildingPatrolHut {
+			hutByID[b.ID] = b
+			w.RemovePatrollersOwnedBy(b.ID)
+		}
+	}
+	for _, pd := range data.Patrollers {
+		hut := hutByID[pd.HutID]
+		if hut == nil {
+			continue
+		}
+		p := w.SpawnPatroller(hut)
+		if pd.ID != 0 {
+			p.ID = pd.ID
+		}
+		p.Pos = mgl32.Vec3{pd.Pos[0], pd.Pos[1], pd.Pos[2]}
+		p.Heading = pd.Heading
+		p.State = world.PatrollerState(pd.State)
 	}
 
 	// Restore lifts. Chair count is computed from cable length so it's
@@ -732,6 +767,11 @@ func dataToWorld(data ScenarioData) *world.World {
 	for _, c := range w.Snowcats {
 		if c.ID > maxID {
 			maxID = c.ID
+		}
+	}
+	for _, p := range w.Patrollers {
+		if p.ID > maxID {
+			maxID = p.ID
 		}
 	}
 	for _, n := range w.RoadNodes {

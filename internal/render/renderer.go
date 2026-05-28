@@ -69,6 +69,7 @@ type Renderer struct {
 	chair6PackBatch *Batch
 	gondolaBatch    *Batch
 	snowcatBatch    *Batch
+	patrollerBatch  *Batch // ski patrol snowmobiles (red snowcat mesh when active)
 	carBatch        *Batch
 	helicopterBodyBatch  *Batch      // rigid fuselage, tail, skids
 	helicopterPartBatches []partBatch // spinning rotor parts (loaded from # part metadata)
@@ -356,6 +357,11 @@ func (r *Renderer) initStaticMeshes() {
 	// sitting in the static batches.
 	snowcatMesh, snowcatTexID := LoadOBJ(modelDir + "snowcat.obj")
 	r.snowcatBatch = NewDynamicBatch(snowcatMesh, snowcatTexID)
+
+	// Ski patrol snowmobiles — same mesh as snowcat, drawn separately with
+	// a red tint when active so they're visually distinct from grooming cats.
+	patrollerMesh, patrollerTexID := LoadOBJ(modelDir + "snowcat.obj")
+	r.patrollerBatch = NewDynamicBatch(patrollerMesh, patrollerTexID)
 
 	// Cars — dynamic batch. Each parking lot's CurrentCars fluctuates as
 	// skiers arrive / depart; rather than rebuild the whole static batch
@@ -1768,6 +1774,9 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 			if r.HiddenGuestID != 0 && agent.ID == r.HiddenGuestID {
 				continue
 			}
+			if agent.OnPatrollerID != 0 {
+				continue // being transported by snowmobile; rendered as part of that unit
+			}
 			if hr2 > 0 {
 				dx := agent.Pos[0] - r.HiddenGuestPos[0]
 				dz := agent.Pos[2] - r.HiddenGuestPos[2]
@@ -1823,6 +1832,25 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		}
 		r.snowcatBatch.SetDynamic(catInstances)
 		r.snowcatBatch.Draw()
+	}
+
+	// Ski patrol snowmobiles — red when active, white when at hut.
+	if r.patrollerBatch != nil && len(w.Patrollers) > 0 {
+		pInst := make([]DynamicInstance, 0, len(w.Patrollers))
+		for _, p := range w.Patrollers {
+			y := VisualElevationAt(w.Terrain, p.Pos[0], p.Pos[2])
+			color := [3]float32{1, 1, 1}
+			if p.State != world.PatrollerAtHut {
+				color = [3]float32{1.0, 0.2, 0.1} // red = responding
+			}
+			pInst = append(pInst, DynamicInstance{
+				Position: [3]float32{p.Pos[0], y, p.Pos[2]},
+				Heading:  p.Heading,
+				Color:    color,
+			})
+		}
+		r.patrollerBatch.SetDynamic(pInst)
+		r.patrollerBatch.Draw()
 	}
 
 	// Helicopters — body + animated rotor parts, one set per HeliLift.

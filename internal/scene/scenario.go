@@ -532,6 +532,7 @@ const (
 	toolRoadStart   toolMode = iota // waiting for first road click
 	toolRoadEnd     toolMode = iota // waiting for second road click
 	toolEdgeConnect toolMode = iota // place a map-edge road connection node (editor only)
+	toolPatrolHut   toolMode = iota // place a ski patrol hut
 	toolGlade       toolMode = iota // reduce TreeDensity (brush)
 	toolPlantTrees  toolMode = iota // increase TreeDensity (brush, editor only)
 	toolRemove     toolMode = iota // remove building at clicked cell
@@ -772,6 +773,7 @@ func (s *Scenario) Init(app *engine.App) error {
 	s.toolButtons[toolParking] = s.toolBar.AddIconButton(render.IconUsers, "Parking", func() { s.setTool(toolParking) })
 	s.toolButtons[toolBuilding] = s.toolBar.AddIconButton(render.IconHouse, "Lodge", func() { s.setTool(toolBuilding) })
 	s.toolButtons[toolShed] = s.toolBar.AddIconButton(render.IconGarage, "Shed", func() { s.setTool(toolShed) })
+	s.toolButtons[toolPatrolHut] = s.toolBar.AddIconButton(render.IconHeart, "Patrol", func() { s.setTool(toolPatrolHut) })
 	s.liftDoubleBtn = s.toolBar.AddIconButton(render.IconCableCar, "Double", func() { s.activateLiftTool(world.LiftDouble) })
 	s.liftQuadBtn = s.toolBar.AddIconButton(render.IconCableCar, "Quad", func() { s.activateLiftTool(world.LiftFixedQuad) })
 	s.liftHSQuadBtn = s.toolBar.AddIconButton(render.IconCableCar, "HSQuad", func() { s.activateLiftTool(world.LiftHSQuad) })
@@ -1961,6 +1963,21 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 		r.RebuildRoads(w)
+	case toolPatrolHut:
+		if w.Cash < world.PatrolHutCost {
+			s.setToast(fmt.Sprintf("Need $%d for a patrol hut — short by $%d",
+				world.PatrolHutCost, world.PatrolHutCost-w.Cash))
+			return
+		}
+		if w.BuildingOverlap(world.BuildingPatrolHut, wx, wz) {
+			s.setToast("Can't place a patrol hut here — overlaps another building")
+			return
+		}
+		w.Cash -= world.PatrolHutCost
+		b := w.PlaceBuildingType(world.BuildingPatrolHut, wx, wz)
+		applyBuildingPlacementEffects(w.Terrain, b)
+		r.FlushTerrainVerts(w.Terrain)
+		r.RebuildStaticBatch(w)
 	case toolGlade:
 		// Slider value 0–10 = % density delta per application. Each click
 		// or drag-into-new-cell event fires one application; stationary
@@ -2956,6 +2973,11 @@ func updatePlacementGhost(r *render.Renderer, t *world.Terrain, st placementGhos
 			buildingInstance(st.hoverPos, t, st.tint),
 		})
 
+	case toolPatrolHut:
+		r.SetGhosts(render.MeshShed, []render.StaticInstance{
+			buildingInstance(st.hoverPos, t, st.tint),
+		})
+
 	case toolParking:
 		r.SetGhosts(render.MeshParkingPad, []render.StaticInstance{
 			buildingInstance(st.hoverPos, t, st.tint),
@@ -3047,6 +3069,9 @@ func (s *Scenario) placementCost() (cost int, affordable, legal, valid bool) {
 	case toolShed:
 		cost = world.ShedCost
 		legal = !s.world.BuildingOverlap(world.BuildingShed, pos[0], pos[1])
+	case toolPatrolHut:
+		cost = world.PatrolHutCost
+		legal = !s.world.BuildingOverlap(world.BuildingPatrolHut, pos[0], pos[1])
 	case toolParking:
 		cost = world.ParkingCost
 		legal = !s.world.BuildingOverlap(world.BuildingParking, pos[0], pos[1])

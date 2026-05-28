@@ -30,6 +30,7 @@ const (
 	MeshWalker       uint32 = 19 // guest with skis off (building footprints, bare ground)
 	MeshHelipad      uint32 = 20 // flat pad with H marking at heli-ski base and drop zone
 	MeshHelicopter   uint32 = 21 // heli-ski helicopter (dynamic — one per HeliLift)
+	MeshPatrolHut    uint32 = MeshShed // patrol hut reuses shed mesh
 )
 
 // MeshSlot is an anchor point baked into a mesh by the SCAD pipeline
@@ -86,6 +87,8 @@ func (t BuildingType) MeshID() uint32 {
 	switch t {
 	case BuildingShed:
 		return MeshShed
+	case BuildingPatrolHut:
+		return MeshPatrolHut
 	case BuildingParking:
 		return MeshParkingPad
 	case BuildingLodge:

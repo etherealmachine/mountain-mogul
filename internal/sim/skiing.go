@@ -529,6 +529,10 @@ func wearSnowUnderfoot(t *world.Terrain, pos mgl32.Vec3, dt float64) {
 // take a hard satisfaction hit, and force a GoHome replan.
 func (s *Simulation) tickFallen(a *world.Guest, dt float64) {
 	if a.Injured {
+		if a.OnPatrollerID != 0 {
+			// Patroller has claimed this guest; don't countdown or give up.
+			return
+		}
 		a.InjuryWaitTimer -= float32(dt)
 		if a.InjuryWaitTimer <= 0 {
 			a.Injured = false

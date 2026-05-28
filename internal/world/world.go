@@ -27,8 +27,9 @@ const (
 
 	GladeCostPerCell = 200 // cost per in-radius cell with trees cleared by the glade brush
 
-	DefaultTicketPrice = 10  // dollars per lift ride; player adjusts via the lift popup
+	DefaultTicketPrice = 10     // dollars per lift ride; player adjusts via the lift popup
 	HelipadCost        = 300000 // flat cost for a heli-ski operation (two pads + helicopter)
+	PatrolHutCost      = 35000  // patrol hut + one patroller/snowmobile
 
 	// Daily operational costs. Charged once per in-game day at rollover.
 	// Sized so a single lift + single cat breaks even at ~63% load ($80/day).
@@ -44,6 +45,8 @@ func BuildingCost(t BuildingType) int {
 		return ShedCost
 	case BuildingParking:
 		return ParkingCost
+	case BuildingPatrolHut:
+		return PatrolHutCost
 	}
 	return LodgeCost
 }
@@ -73,8 +76,9 @@ type World struct {
 	// Guest itself stays in Guests).
 	OnMountain []*Guest
 
-	Snowcats  []*Snowcat
-	RoadNodes []*RoadNode
+	Snowcats   []*Snowcat
+	Patrollers []*Patroller
+	RoadNodes  []*RoadNode
 	RoadEdges []*RoadEdge
 	nextID    uint64
 
@@ -184,6 +188,10 @@ func (w *World) PlaceBuildingType(typ BuildingType, x, z float32) *Building {
 		// No per-shed state; cats are tracked globally in World.Snowcats.
 		// SpawnSnowcat is called after the building is appended so the
 		// first cat reads the shed's ID.
+	case BuildingPatrolHut:
+		// No per-hut state; patrollers are tracked globally in World.Patrollers.
+		// SpawnPatroller is called after the building is appended so the
+		// patroller reads the hut's ID.
 	}
 	w.Buildings = append(w.Buildings, b)
 	cell := b.DoorCell()
@@ -192,6 +200,9 @@ func (w *World) PlaceBuildingType(typ BuildingType, x, z float32) *Building {
 	}
 	if typ == BuildingShed {
 		w.SpawnSnowcat(b)
+	}
+	if typ == BuildingPatrolHut {
+		w.SpawnPatroller(b)
 	}
 	return b
 }
@@ -210,6 +221,9 @@ func (w *World) RemoveBuilding(id uint64) {
 			}
 			if b.Type == BuildingShed {
 				w.RemoveSnowcatsOwnedBy(b.ID)
+			}
+			if b.Type == BuildingPatrolHut {
+				w.RemovePatrollersOwnedBy(b.ID)
 			}
 			if b.Type == BuildingParking {
 				for _, id := range b.DrivewayNodeIDs {

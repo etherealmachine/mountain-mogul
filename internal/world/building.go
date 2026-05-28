@@ -14,9 +14,10 @@ import (
 type BuildingType uint8
 
 const (
-	BuildingLodge   BuildingType = 0
-	BuildingShed    BuildingType = 1
-	BuildingParking BuildingType = 2
+	BuildingLodge     BuildingType = 0
+	BuildingShed      BuildingType = 1
+	BuildingParking   BuildingType = 2
+	BuildingPatrolHut BuildingType = 3
 )
 
 // Building represents a structure placed on the terrain. Lodges are

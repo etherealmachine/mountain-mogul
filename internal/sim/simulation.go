@@ -209,6 +209,7 @@ func (s *Simulation) subTick(dt float64) {
 	s.tickLifts(dt)
 	s.tickGuests(dt)
 	s.tickSnowcats(dt)
+	s.tickPatrollers(dt)
 }
 
 func (s *Simulation) tickLifts(dt float64) {
@@ -401,6 +402,10 @@ func (s *Simulation) tickGuests(dt float64) {
 	w := s.World
 	for _, agent := range w.OnMountain {
 		if agent.Removed {
+			continue
+		}
+		if agent.OnPatrollerID != 0 {
+			// Patroller is responsible for this guest's position and departure.
 			continue
 		}
 		s.tickPlanning(agent)
