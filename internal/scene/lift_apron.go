@@ -170,6 +170,94 @@ func groomLiftApron(t *world.Terrain, station, axis mgl32.Vec2, side float32) {
 	}
 }
 
+// applyHelipadPlacementEffects applies the ground-side consequences of placing
+// a heli-ski lift: flatten and groom a circular pad at each endpoint, clear
+// trees in a generous radius around both pads.  No corridor is cleared between
+// the two points — the helicopter flies over the terrain, not along it.
+func applyHelipadPlacementEffects(t *world.Terrain, lift *world.Lift) {
+	const padRadius = float32(10.0) // flat landing-zone radius around each pad
+	const clearRadius = float32(18.0)
+	for _, pos := range []mgl32.Vec2{lift.Base, lift.Top} {
+		target := stationGroundElev(t, pos)
+		flattenCircle(t, pos, padRadius, target)
+		clearCircle(t, pos, clearRadius)
+		groomCircle(t, pos, padRadius)
+	}
+	t.RestampTreeWells()
+}
+
+// flattenCircle levels all cells within radius metres of pos to targetElev.
+func flattenCircle(t *world.Terrain, pos mgl32.Vec2, radius, targetElev float32) {
+	const cellSize = float32(5.0)
+	r2 := radius * radius
+	x0 := int((pos[0] - radius) / cellSize)
+	x1 := int((pos[0]+radius)/cellSize) + 1
+	z0 := int((pos[1] - radius) / cellSize)
+	z1 := int((pos[1]+radius)/cellSize) + 1
+	for x := x0; x <= x1; x++ {
+		for z := z0; z <= z1; z++ {
+			if !t.InBounds(x, z) {
+				continue
+			}
+			cx := (float32(x) + 0.5) * cellSize
+			cz := (float32(z) + 0.5) * cellSize
+			dx := cx - pos[0]
+			dz := cz - pos[1]
+			if dx*dx+dz*dz <= r2 {
+				t.Cells[x][z].GroundElevation = targetElev
+			}
+		}
+	}
+}
+
+// clearCircle zeros TreeDensity within radius metres of pos.
+func clearCircle(t *world.Terrain, pos mgl32.Vec2, radius float32) {
+	const cellSize = float32(5.0)
+	r2 := radius * radius
+	x0 := int((pos[0] - radius) / cellSize)
+	x1 := int((pos[0]+radius)/cellSize) + 1
+	z0 := int((pos[1] - radius) / cellSize)
+	z1 := int((pos[1]+radius)/cellSize) + 1
+	for x := x0; x <= x1; x++ {
+		for z := z0; z <= z1; z++ {
+			if !t.InBounds(x, z) {
+				continue
+			}
+			cx := (float32(x) + 0.5) * cellSize
+			cz := (float32(z) + 0.5) * cellSize
+			dx := cx - pos[0]
+			dz := cz - pos[1]
+			if dx*dx+dz*dz <= r2 {
+				t.Cells[x][z].TreeDensity = 0
+			}
+		}
+	}
+}
+
+// groomCircle sets Grooming=1 within radius metres of pos.
+func groomCircle(t *world.Terrain, pos mgl32.Vec2, radius float32) {
+	const cellSize = float32(5.0)
+	r2 := radius * radius
+	x0 := int((pos[0] - radius) / cellSize)
+	x1 := int((pos[0]+radius)/cellSize) + 1
+	z0 := int((pos[1] - radius) / cellSize)
+	z1 := int((pos[1]+radius)/cellSize) + 1
+	for x := x0; x <= x1; x++ {
+		for z := z0; z <= z1; z++ {
+			if !t.InBounds(x, z) {
+				continue
+			}
+			cx := (float32(x) + 0.5) * cellSize
+			cz := (float32(z) + 0.5) * cellSize
+			dx := cx - pos[0]
+			dz := cz - pos[1]
+			if dx*dx+dz*dz <= r2 {
+				t.Cells[x][z].Grooming = 1
+			}
+		}
+	}
+}
+
 // clearLiftCorridor zeros TreeDensity in cells within `halfWidth` metres
 // of the line segment between two world XZ points. Models the standard
 // chairlift maintenance lane — trees would otherwise foul cables, towers,

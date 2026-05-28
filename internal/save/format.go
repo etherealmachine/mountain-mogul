@@ -167,6 +167,9 @@ type LiftData struct {
 	Open        bool        `json:"open"`
 	Chairs      []ChairData `json:"chairs,omitempty"`
 	QueueIDs    []uint64    `json:"queue,omitempty"`
+	// HeliPhase and HeliProgress are only meaningful when Type == LiftHeli.
+	HeliPhase    uint8   `json:"heli_phase,omitempty"`
+	HeliProgress float32 `json:"heli_progress,omitempty"`
 }
 
 // PlanActionData is one serialised step in a guest's L0 plan. Fields map

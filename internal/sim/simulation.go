@@ -23,6 +23,12 @@ const (
 	// queue. At 1/60 per sec, ~60 cumulative queue-seconds exhaust patience.
 	patienceDrainPerSecQueuing = 1.0 / 60.0
 
+	// patienceDrainPerSecWalking drains patience while a guest walks
+	// without skis (on a building footprint or bare ground). Slower
+	// than the queue drain; a brief lodge crossing is harmless but a
+	// long barefoot traverse noticeably costs patience.
+	patienceDrainPerSecWalking = 1.0 / 180.0
+
 	// longQueuePersons is the queue depth at which a guest considers
 	// the line "long." At ~8 s/person this is ~120 s of expected wait.
 	longQueuePersons = 15
@@ -208,6 +214,10 @@ func (s *Simulation) subTick(dt float64) {
 func (s *Simulation) tickLifts(dt float64) {
 	w := s.World
 	for _, lift := range w.Lifts {
+		if lift.IsHeli() {
+			s.tickHeliLift(lift, dt)
+			continue
+		}
 		loopLen := lift.LoopLength()
 		if loopLen < 1 {
 			continue
@@ -279,6 +289,92 @@ func (s *Simulation) tickLifts(dt float64) {
 }
 
 
+// tickHeliLift drives the state machine for a heli-ski helicopter lift.
+// Called by tickLifts for every LiftHeli entry; cable-lift logic is
+// handled by the regular tickLifts path.
+func (s *Simulation) tickHeliLift(lift *world.Lift, dt float64) {
+	w := s.World
+	h := lift.HeliState
+	if h == nil {
+		return
+	}
+	switch h.Phase {
+	case world.HeliAtBase:
+		if !lift.Open {
+			return
+		}
+		// Fill empty seats from the queue.
+		for len(h.Passengers) < world.HeliCapacity && len(lift.Queue) > 0 {
+			agent := lift.Queue[0]
+			lift.Queue = lift.Queue[1:]
+			h.Passengers = append(h.Passengers, agent)
+			agent.OnLiftID = lift.ID
+			agent.Queued = false
+			w.Cash += lift.TicketPrice
+			w.History.RecordRevenue(lift.TicketPrice)
+			s.replanOnBoard(agent, lift)
+		}
+		// Depart when full, or when at least one passenger is aboard and
+		// the queue is drained (don't idle forever waiting for a full load).
+		if len(h.Passengers) >= world.HeliCapacity ||
+			(len(h.Passengers) > 0 && len(lift.Queue) == 0) {
+			h.Phase = world.HeliToTop
+			h.Progress = 0
+		}
+
+	case world.HeliToTop:
+		dx := lift.Top[0] - lift.Base[0]
+		dz := lift.Top[1] - lift.Base[1]
+		dist := float32(math.Sqrt(float64(dx*dx + dz*dz)))
+		if dist < 1 {
+			dist = 1
+		}
+		h.Progress += float32(float64(world.HeliAirspeedMs) / float64(dist) * dt)
+		if h.Progress >= 1.0 {
+			h.Progress = 1.0
+			h.Phase = world.HeliAtTop
+		}
+
+	case world.HeliAtTop:
+		// Unload all passengers at the drop zone — same pattern as
+		// regular lift unload at progress 0.5.
+		topCell := lift.TopCell()
+		ty := w.Terrain.SurfaceElevationAt(topCell[0], topCell[1])
+		for _, agent := range h.Passengers {
+			agent.OnLiftID = 0
+			agent.Speed = 0
+			agent.TurnSide = 0
+			if agent.Balance < 0.5 {
+				agent.Balance = 1.0
+			}
+			agent.RidenLifts = ai.AddRide(agent.RidenLifts, lift.ID)
+			agent.Pos = mgl32.Vec3{lift.Top[0], ty, lift.Top[1]}
+			s.advancePlan(agent)
+			if pos, ok := planTargetWorldPos(w, agent); ok {
+				dx2 := pos[0] - agent.Pos[0]
+				dz2 := pos[2] - agent.Pos[2]
+				agent.Heading = float32(math.Atan2(float64(dx2), float64(dz2)))
+			}
+		}
+		h.Passengers = h.Passengers[:0]
+		h.Phase = world.HeliToBase
+		h.Progress = 0
+
+	case world.HeliToBase:
+		dx := lift.Base[0] - lift.Top[0]
+		dz := lift.Base[1] - lift.Top[1]
+		dist := float32(math.Sqrt(float64(dx*dx + dz*dz)))
+		if dist < 1 {
+			dist = 1
+		}
+		h.Progress += float32(float64(world.HeliAirspeedMs) / float64(dist) * dt)
+		if h.Progress >= 1.0 {
+			h.Phase = world.HeliAtBase
+			h.Progress = 0
+		}
+	}
+}
+
 // parkingWorldPos returns the parking lot's anchor as a world-space Vec3,
 // with Y from the terrain mesh under the lot's door cell. Centralised so
 // the "ID → world pos" lookup pattern lives in one place.
@@ -311,6 +407,12 @@ func (s *Simulation) tickGuests(dt float64) {
 		if agent.Removed {
 			continue
 		}
+		// Check whether the agent needs to swap equipment. Only fires
+		// when no other transition is active and not in a state that
+		// already suspends locomotion.
+		if agent.SkiTransitionTimer == 0 && !agent.Fallen && agent.OnLiftID == 0 && !agent.Queued && agent.RestTimer == 0 {
+			s.maybeStartSkiTransition(agent)
+		}
 		switch {
 		case agent.Fallen:
 			s.tickFallen(agent, dt)
@@ -320,6 +422,8 @@ func (s *Simulation) tickGuests(dt float64) {
 			s.tickQueued(agent, dt)
 		case agent.RestTimer > 0:
 			s.tickResting(agent, dt)
+		case agent.SkiTransitionTimer != 0:
+			s.tickSkiTransition(agent, dt)
 		case len(agent.Path) > 0 && agent.PathIdx < len(agent.Path):
 			s.tickPath(agent, dt)
 		default:
@@ -345,6 +449,7 @@ func (s *Simulation) spawnGuest(lot *world.Building, g *world.Guest) bool {
 	g.Heading = 0
 	g.Speed = 0
 	g.Balance = 1.0
+	g.SkisOn = true
 	g.Patience = 1.0
 	g.Energy = 1.0
 	g.Hunger = 0.5 + rng.Global().Float32()*0.5
@@ -1177,6 +1282,7 @@ func (s *Simulation) tickPath(agent *world.Guest, dt float64) {
 	dirNorm := dir.Normalize()
 	agent.Pos = agent.Pos.Add(dirNorm.Mul(step))
 	agent.Heading = float32(math.Atan2(float64(dirNorm[0]), float64(dirNorm[2])))
+	agent.Speed = WalkSpeed
 }
 
 // tickQueued walks the agent toward their assigned single-file queue slot
@@ -1233,6 +1339,13 @@ func (s *Simulation) tickRiding(agent *world.Guest, dt float64) {
 	for _, lift := range w.Lifts {
 		if lift.ID != agent.OnLiftID {
 			continue
+		}
+		if lift.IsHeli() {
+			// Heli passenger: glue position to the helicopter body.
+			pos := lift.HeliWorldPos(w.Terrain)
+			agent.Pos = pos
+			agent.Heading = lift.HeliHeading()
+			return
 		}
 		slots := world.SlotsFor(lift.Type.MeshID())
 		for _, chair := range lift.Chairs {
@@ -1298,18 +1411,20 @@ func (s *Simulation) tickLocomote(agent *world.Guest, dt float64) {
 		return
 	}
 
-	// Ski when the goal is downhill, or when the agent is still carrying
-	// speed — momentum lets a real skier run uphill briefly (over a snow
-	// ridge, a compaction seam, a gentle rise) and gravity drains the excess.
-	// Only walk once speed has actually reached the walk floor, meaning the
-	// terrain truly stopped them rather than the terrain-normal check firing
-	// instantaneously on a single-cell artifact.
-	if shouldSki(w.Terrain, agent.Pos, targetPos) || agent.Speed > skiWalkSpeed {
-		s.tickSkier(agent, targetPos, dt)
+	// Walk (not ski) when skis are off, or when terrain and momentum
+	// no longer call for skiing.
+	if !agent.SkisOn || (!shouldSki(w.Terrain, agent.Pos, targetPos) && agent.Speed <= skiWalkSpeed) {
+		s.recordWalkTick(agent, targetPos)
+		s.tickWalkToward(agent, targetPos, dt)
+		if !agent.SkisOn {
+			agent.Patience -= float32(dt * patienceDrainPerSecWalking)
+			if agent.Patience < 0 {
+				agent.Patience = 0
+			}
+		}
 		return
 	}
-	s.recordWalkTick(agent, targetPos)
-	s.tickWalkToward(agent, targetPos, dt)
+	s.tickSkier(agent, targetPos, dt)
 }
 
 // shouldSki returns true when the goal lies in the downhill direction from

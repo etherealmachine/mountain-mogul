@@ -27,7 +27,8 @@ const (
 
 	GladeCostPerCell = 200 // cost per in-radius cell with trees cleared by the glade brush
 
-	DefaultTicketPrice = 10 // dollars per lift ride; player adjusts via the lift popup
+	DefaultTicketPrice = 10  // dollars per lift ride; player adjusts via the lift popup
+	HelipadCost        = 300000 // flat cost for a heli-ski operation (two pads + helicopter)
 
 	// Daily operational costs. Charged once per in-game day at rollover.
 	// Sized so a single lift + single cat breaks even at ~63% load ($80/day).
@@ -244,22 +245,31 @@ func (w *World) PlaceLift(typ LiftType, bx, bz, tx, tz float32) *Lift {
 		Open:        false,
 	}
 
-	// Initialise chairs evenly spaced around the loop, each pre-sized
-	// to the lift type's per-chair capacity.
-	dx := float64(tx - bx)
-	dz := float64(tz - bz)
-	cableLen := math.Sqrt(dx*dx + dz*dz)
-	loopLen := cableLen * 2
-	numChairs := int(loopLen / ChairSpacingM)
-	if numChairs < 2 {
-		numChairs = 2
-	}
-	cap := typ.Capacity()
-	lift.Chairs = make([]Chair, numChairs)
-	for i := range lift.Chairs {
-		lift.Chairs[i] = Chair{
-			Progress:   float32(i) / float32(numChairs),
-			Passengers: make([]*Guest, cap),
+	if typ == LiftHeli {
+		// Helicopters use a state-machine rather than a chair loop. No
+		// chairs are created; HeliState drives the simulation.
+		lift.HeliState = &HeliData{
+			Phase:      HeliAtBase,
+			Passengers: make([]*Guest, 0, HeliCapacity),
+		}
+	} else {
+		// Initialise chairs evenly spaced around the loop, each pre-sized
+		// to the lift type's per-chair capacity.
+		dx := float64(tx - bx)
+		dz := float64(tz - bz)
+		cableLen := math.Sqrt(dx*dx + dz*dz)
+		loopLen := cableLen * 2
+		numChairs := int(loopLen / ChairSpacingM)
+		if numChairs < 2 {
+			numChairs = 2
+		}
+		cap := typ.Capacity()
+		lift.Chairs = make([]Chair, numChairs)
+		for i := range lift.Chairs {
+			lift.Chairs[i] = Chair{
+				Progress:   float32(i) / float32(numChairs),
+				Passengers: make([]*Guest, cap),
+			}
 		}
 	}
 

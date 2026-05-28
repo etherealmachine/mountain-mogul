@@ -160,6 +160,18 @@ type Guest struct {
 	RunGroomingSum     float32
 	RunGroomingSamples int32
 
+	// SkisOn tracks whether the guest currently has their skis on.
+	// True on arrival; toggled via SkiTransitionTimer when entering or
+	// leaving terrain that requires walking (building footprints, bare
+	// ground). While false the guest walks regardless of slope.
+	SkisOn bool
+
+	// SkiTransitionTimer drives the 1-second equip/unequip pause.
+	// Positive = removing skis (counts down to 0, then SkisOn→false).
+	// Negative = putting skis on (counts up to 0, then SkisOn→true).
+	// Zero = no active transition.
+	SkiTransitionTimer float32
+
 	// RestTimer counts down the atomic RestAtLodge action. While >0 the
 	// guest is parked at a lodge recovering; on expiry Energy resets to
 	// 1 and the plan advances.
@@ -206,6 +218,12 @@ func Activity(w *World, g *Guest) string {
 	}
 	if g.Queued {
 		return "Queuing"
+	}
+	if g.SkiTransitionTimer > 0 {
+		return "Removing Skis"
+	}
+	if g.SkiTransitionTimer < 0 {
+		return "Putting On Skis"
 	}
 	if len(g.Path) > 0 && g.PathIdx < len(g.Path) {
 		return "Walking"
@@ -324,6 +342,8 @@ func (g *Guest) ResetForDeparture() {
 	g.RidenLifts = g.RidenLifts[:0]
 	g.RunGroomingSum = 0
 	g.RunGroomingSamples = 0
+	g.SkisOn = false
+	g.SkiTransitionTimer = 0
 	g.RestTimer = 0
 	g.Removed = false
 	g.Events = g.Events[:0]

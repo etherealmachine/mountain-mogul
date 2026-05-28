@@ -512,7 +512,75 @@ func (s *Simulation) tickFallen(a *world.Guest, dt float64) {
 }
 
 // =============================================================================
-// SECTION 4 — Perception
+// SECTION 4 — Walking / ski transitions
+// =============================================================================
+
+// onBuildingFootprint returns true when world-space (x, z) is on or near any
+// placed building's footprint. A half-cell margin is added on all sides so
+// that pathfinder routes through cells adjacent to (but not the door cell of)
+// a building also trigger the check — without the margin those cell centres
+// can fall just outside the exact AABB edge.
+func onBuildingFootprint(w *world.World, x, z float32) bool {
+	const margin = world.CellSize / 2
+	for _, b := range w.Buildings {
+		minX, minZ, maxX, maxZ := world.FootprintAABB(b.Type, b.Pos[0], b.Pos[1])
+		if x >= minX-margin && x <= maxX+margin && z >= minZ-margin && z <= maxZ+margin {
+			return true
+		}
+	}
+	return false
+}
+
+// noSnowUnderfoot returns true when the cell beneath world-space (x, z) has
+// no snow layers at all (bare ground).
+func noSnowUnderfoot(t *world.Terrain, x, z float32) bool {
+	xi := int(x / world.CellSize)
+	zi := int(z / world.CellSize)
+	if !t.InBounds(xi, zi) {
+		return false
+	}
+	return t.Cells[xi][zi].TopLayer() == nil
+}
+
+// mustWalk returns true when the agent is on terrain that requires walking
+// rather than skiing: a building footprint or bare ground with no snow.
+func mustWalk(w *world.World, x, z float32) bool {
+	return onBuildingFootprint(w, x, z) || noSnowUnderfoot(w.Terrain, x, z)
+}
+
+// maybeStartSkiTransition triggers the 1-second ski equip/unequip pause when
+// the agent crosses into or out of walk-required terrain.  Only called when
+// no transition is already in progress.
+func (s *Simulation) maybeStartSkiTransition(a *world.Guest) {
+	walk := mustWalk(s.World, a.Pos[0], a.Pos[2])
+	if walk && a.SkisOn {
+		a.SkiTransitionTimer = 1.0 // removing skis
+	} else if !walk && !a.SkisOn {
+		a.SkiTransitionTimer = -1.0 // putting skis on
+	}
+}
+
+// tickSkiTransition counts down the equip/unequip timer and flips SkisOn
+// when it completes.  The agent stands still during the transition.
+func (s *Simulation) tickSkiTransition(a *world.Guest, dt float64) {
+	a.Speed = 0
+	if a.SkiTransitionTimer > 0 {
+		a.SkiTransitionTimer -= float32(dt)
+		if a.SkiTransitionTimer <= 0 {
+			a.SkiTransitionTimer = 0
+			a.SkisOn = false
+		}
+	} else {
+		a.SkiTransitionTimer += float32(dt)
+		if a.SkiTransitionTimer >= 0 {
+			a.SkiTransitionTimer = 0
+			a.SkisOn = true
+		}
+	}
+}
+
+// =============================================================================
+// SECTION 5 — Perception
 // =============================================================================
 
 func perceive(t *world.Terrain, a *world.Guest, target mgl32.Vec3) Perception {

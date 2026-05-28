@@ -549,12 +549,14 @@ type Scenario struct {
 	chartWindow     *ui.ChartWindow  // resort-stats charts (line + grouped bar)
 	escapeMenu      *EscapeMenu
 	settingsMenu    *SettingsMenu
+	debugConsole    *DebugConsole
 	toolButtons     map[toolMode]*ui.Button
 	liftDoubleBtn   *ui.Button // toolbar button for the double-chair lift variant
 	liftQuadBtn     *ui.Button // toolbar button for the fixed-quad lift variant
 	liftHSQuadBtn   *ui.Button // toolbar button for the high-speed quad lift variant
 	liftHS6PackBtn  *ui.Button // toolbar button for the high-speed 6-pack lift variant
 	liftGondolaBtn  *ui.Button // toolbar button for the MDG gondola
+	liftHeliBtn     *ui.Button // toolbar button for the helicopter heli-ski lift
 	activeTool      toolMode
 	liftType        world.LiftType // chair variant the toolLiftBase/Top flow will place
 	liftBase        mgl32.Vec2     // first click world position for lift placement
@@ -758,6 +760,7 @@ func (s *Scenario) Init(app *engine.App) error {
 	} else {
 		s.escapeMenu = NewEscapeMenu(app, nil, nil, openSettings)
 	}
+	s.debugConsole = newDebugConsole(s.world, s.setToast)
 
 	// Bottom tool bar — palette of construction tools, centred along the
 	// bottom edge. Y is set each frame in Update() based on the current
@@ -775,6 +778,7 @@ func (s *Scenario) Init(app *engine.App) error {
 	s.liftHS6PackBtn = s.toolBar.AddIconButton(render.IconCableCar, "6-Pack", func() { s.activateLiftTool(world.LiftHS6Pack) })
 
 	s.liftGondolaBtn = s.toolBar.AddIconButton(render.IconCableCar, "Gondola", func() { s.activateLiftTool(world.LiftGondola) })
+	s.liftHeliBtn = s.toolBar.AddIconButton(render.IconCableCar, "Heli", func() { s.activateLiftTool(world.LiftHeli) })
 	s.toolButtons[toolRoadStart] = s.toolBar.AddIconButton(render.IconRoad, "Road", func() { s.setTool(toolRoadStart) })
 	s.toolButtons[toolGlade] = s.toolBar.AddIconButton(render.IconAxe, "Glade", func() { s.setTool(toolGlade) })
 	s.toolButtons[toolTrailPaint] = s.toolBar.AddIconButton(render.IconFlag, "Trail", func() { s.activateTrailTool() })
@@ -1232,6 +1236,15 @@ func (s *Scenario) Update(dt float64) {
 	// CSV logging.
 	typing := s.popup.WantsKeyboard()
 
+	if inp.Pressed[glfw.KeyGraveAccent] {
+		s.debugConsole.Toggle()
+		inp.CharInput = inp.CharInput[:0] // swallow the ~ so it isn't typed into the field
+	}
+	if s.debugConsole.Visible() {
+		s.debugConsole.HandleInput(inp)
+		return
+	}
+
 	if inp.Pressed[glfw.KeyEscape] {
 		switch {
 		case s.settingsMenu.Visible():
@@ -1458,6 +1471,7 @@ func (s *Scenario) Update(dt float64) {
 		hoverPos:   mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]},
 		hoverValid: s.hoverValid,
 		liftBase:   s.liftBase,
+		liftType:   s.liftType,
 		roadStart:  s.roadStart,
 		tint:       s.placementTint(),
 	})
@@ -1963,29 +1977,37 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 	case toolLiftBase:
-		// Cheapest a lift can be is the station-pair fee — gate
-		// entry to the two-click flow so the player can't waste a
-		// click setting a base they could never afford a top from.
-		if w.Cash < world.LiftStationCost {
-			s.setToast(fmt.Sprintf("Need $%d for a lift — short by $%d",
-				world.LiftStationCost, world.LiftStationCost-w.Cash))
+		minCost := world.LiftStationCost
+		if s.liftType == world.LiftHeli {
+			minCost = world.HelipadCost / 2
+		}
+		if w.Cash < minCost {
+			s.setToast(fmt.Sprintf("Need $%d — short by $%d", minCost, minCost-w.Cash))
 			return
 		}
 		s.liftBase = mgl32.Vec2{wx, wz}
 		s.activeTool = toolLiftTop
 	case toolLiftTop:
 		top := mgl32.Vec2{wx, wz}
-		cost := world.LiftCost(s.liftBase, top)
+		var cost int
+		if s.liftType == world.LiftHeli {
+			cost = world.HelipadCost
+		} else {
+			cost = world.LiftCost(s.liftBase, top)
+		}
 		if w.Cash < cost {
-			s.setToast(fmt.Sprintf("Need $%d for this lift — short by $%d",
-				cost, cost-w.Cash))
+			s.setToast(fmt.Sprintf("Need $%d — short by $%d", cost, cost-w.Cash))
 			return
 		}
 		w.Cash -= cost
 		lift := w.PlaceLift(s.liftType, s.liftBase[0], s.liftBase[1], wx, wz)
-		applyLiftPlacementEffects(w.Terrain, lift)
+		if lift.IsHeli() {
+			applyHelipadPlacementEffects(w.Terrain, lift)
+		} else {
+			applyLiftPlacementEffects(w.Terrain, lift)
+		}
 		r.FlushTerrainVerts(w.Terrain)
-		r.AddLiftCable(lift, w.Terrain)
+		r.AddLiftCable(lift, w.Terrain) // no-op for helilifts
 		r.RebuildStaticBatch(w)
 		r.ClearAllGhosts()
 		r.ClearGhostCable()
@@ -2282,6 +2304,9 @@ func (s *Scenario) Render(r *render.Renderer) {
 	}
 	if s.settingsMenu.Visible() {
 		drawables = append(drawables, s.settingsMenu)
+	}
+	if s.debugConsole.Visible() {
+		drawables = append(drawables, s.debugConsole)
 	}
 	if s.escapeMenu.Visible() {
 		drawables = append(drawables, s.escapeMenu)
@@ -2884,6 +2909,9 @@ func (s *Scenario) syncToolButtons() {
 	if s.liftGondolaBtn != nil {
 		s.liftGondolaBtn.SetActive(liftActive && s.liftType == world.LiftGondola)
 	}
+	if s.liftHeliBtn != nil {
+		s.liftHeliBtn.SetActive(liftActive && s.liftType == world.LiftHeli)
+	}
 }
 
 // placementGhostState bundles the inputs that drive the placement ghost
@@ -2892,11 +2920,12 @@ func (s *Scenario) syncToolButtons() {
 // (the editor is always free; the scenario red-tints when over-budget).
 type placementGhostState struct {
 	activeTool toolMode
-	hoverPos   mgl32.Vec2 // continuous world XZ under the cursor
-	hoverValid bool       // false when the cursor isn't on the terrain
-	liftBase   mgl32.Vec2 // first-click position for the two-step lift placement (toolLiftTop only)
-	roadStart  mgl32.Vec2 // first-click position for the two-step road placement (toolRoadEnd only)
-	tint       [3]float32 // colour multiplier for the ghost — typically affordable / unaffordable
+	hoverPos   mgl32.Vec2     // continuous world XZ under the cursor
+	hoverValid bool           // false when the cursor isn't on the terrain
+	liftBase   mgl32.Vec2     // first-click position for the two-step lift placement (toolLiftTop only)
+	liftType   world.LiftType // which lift variant is being placed (for ghost style selection)
+	roadStart  mgl32.Vec2     // first-click position for the two-step road placement (toolRoadEnd only)
+	tint       [3]float32     // colour multiplier for the ghost — typically affordable / unaffordable
 }
 
 // updatePlacementGhost drives the translucent preview that follows the
@@ -2933,20 +2962,34 @@ func updatePlacementGhost(r *render.Renderer, t *world.Terrain, st placementGhos
 		})
 
 	case toolLiftBase:
-		// No top yet — render at default orientation by passing
-		// otherEnd == pos. Rotation kicks in in toolLiftTop below.
-		r.SetGhosts(render.MeshLiftStation, []render.StaticInstance{
-			stationInstance(st.hoverPos, st.hoverPos, t, st.tint),
-		})
+		if st.liftType == world.LiftHeli {
+			r.SetGhosts(render.MeshHelipad, []render.StaticInstance{
+				helipadInstance(st.hoverPos, st.hoverPos, t, st.tint),
+			})
+		} else {
+			// No top yet — render at default orientation by passing
+			// otherEnd == pos. Rotation kicks in in toolLiftTop below.
+			r.SetGhosts(render.MeshLiftStation, []render.StaticInstance{
+				stationInstance(st.hoverPos, st.hoverPos, t, st.tint),
+			})
+		}
 
 	case toolLiftTop:
 		base := st.liftBase
 		top := st.hoverPos
-		r.SetGhosts(render.MeshLiftStation, []render.StaticInstance{
-			stationInstance(base, top, t, st.tint), // base faces top
-			stationInstance(top, base, t, st.tint), // top faces base
-		})
-		r.SetGhostCable(base, top, t)
+		if st.liftType == world.LiftHeli {
+			r.SetGhosts(render.MeshHelipad, []render.StaticInstance{
+				helipadInstance(base, top, t, st.tint),
+				helipadInstance(top, base, t, st.tint),
+			})
+			// No cable ghost for helicopter lifts.
+		} else {
+			r.SetGhosts(render.MeshLiftStation, []render.StaticInstance{
+				stationInstance(base, top, t, st.tint), // base faces top
+				stationInstance(top, base, t, st.tint), // top faces base
+			})
+			r.SetGhostCable(base, top, t)
+		}
 
 	case toolRoadEnd:
 		// Ghost a road segment between the stored start and the cursor.
@@ -3008,9 +3051,17 @@ func (s *Scenario) placementCost() (cost int, affordable, legal, valid bool) {
 		cost = world.ParkingCost
 		legal = !s.world.BuildingOverlap(world.BuildingParking, pos[0], pos[1])
 	case toolLiftBase:
-		cost = world.LiftStationCost
+		if s.liftType == world.LiftHeli {
+			cost = world.HelipadCost / 2
+		} else {
+			cost = world.LiftStationCost
+		}
 	case toolLiftTop:
-		cost = world.LiftCost(s.liftBase, pos)
+		if s.liftType == world.LiftHeli {
+			cost = world.HelipadCost
+		} else {
+			cost = world.LiftCost(s.liftBase, pos)
+		}
 	case toolRoadStart:
 		cost = world.RoadBaseCost
 	case toolRoadEnd:
@@ -3052,6 +3103,15 @@ func ghostTint(affordable, legal bool) [3]float32 {
 // transform helper directly inside RebuildStaticBatch.
 func stationInstance(pos, otherEnd mgl32.Vec2, t *world.Terrain, tint [3]float32) render.StaticInstance {
 	m := render.LiftStationTransform(pos, otherEnd, t)
+	inst := render.StaticInstance{ColorTint: tint}
+	copy(inst.Transform[:], m[:])
+	return inst
+}
+
+// helipadInstance wraps render.HelipadTransform into a StaticInstance
+// for the ghost-preview path.
+func helipadInstance(pos, otherEnd mgl32.Vec2, t *world.Terrain, tint [3]float32) render.StaticInstance {
+	m := render.HelipadTransform(pos, otherEnd, t)
 	inst := render.StaticInstance{ColorTint: tint}
 	copy(inst.Transform[:], m[:])
 	return inst

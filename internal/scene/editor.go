@@ -30,6 +30,7 @@ type Editor struct {
 	liftHSQuadBtn     *ui.Button     // toolbar button for the high-speed quad lift variant
 	liftHS6PackBtn    *ui.Button     // toolbar button for the high-speed 6-pack lift variant
 	liftGondolaBtn    *ui.Button     // toolbar button for the MDG gondola
+	liftHeliBtn       *ui.Button     // toolbar button for the helicopter heli-ski lift
 	liftType          world.LiftType // chair variant the toolLiftBase/Top flow will place
 	activeTool        toolMode
 	scenarioPath      string
@@ -113,6 +114,7 @@ func (e *Editor) Init(app *engine.App) error {
 	e.liftHSQuadBtn = e.menuBar.AddIconButton(render.IconCableCar, "HSQuad", func() { e.activateLiftTool(world.LiftHSQuad) })
 	e.liftHS6PackBtn = e.menuBar.AddIconButton(render.IconCableCar, "6-Pack", func() { e.activateLiftTool(world.LiftHS6Pack) })
 	e.liftGondolaBtn = e.menuBar.AddIconButton(render.IconCableCar, "Gondola", func() { e.activateLiftTool(world.LiftGondola) })
+	e.liftHeliBtn = e.menuBar.AddIconButton(render.IconCableCar, "Heli", func() { e.activateLiftTool(world.LiftHeli) })
 	e.toolButtons[toolRoadStart] = e.menuBar.AddIconButton(render.IconRoad, "Road", func() { e.setTool(toolRoadStart) })
 	e.toolButtons[toolEdgeConnect] = e.menuBar.AddIconButton(render.IconFlag, "Edge", func() { e.setTool(toolEdgeConnect) })
 	e.toolButtons[toolPlantTrees] = e.menuBar.AddIconButton(render.IconTreeEvergreen, "Plant", func() { e.setTool(toolPlantTrees) })
@@ -418,6 +420,7 @@ func (e *Editor) Update(dt float64) {
 		hoverPos:   mgl32.Vec2{e.hoverWorld[0], e.hoverWorld[2]},
 		hoverValid: e.hoverValid,
 		liftBase:   e.liftBase,
+		liftType:   e.liftType,
 		roadStart:  e.roadStart,
 		tint:       ghostTint(true, e.placementLegal()),
 	})
@@ -583,9 +586,13 @@ func (e *Editor) applyPlacement(r *render.Renderer) {
 		e.syncToolButtons()
 	case toolLiftTop:
 		lift := w.PlaceLift(e.liftType, e.liftBase[0], e.liftBase[1], wx, wz)
-		applyLiftPlacementEffects(w.Terrain, lift)
+		if lift.IsHeli() {
+			applyHelipadPlacementEffects(w.Terrain, lift)
+		} else {
+			applyLiftPlacementEffects(w.Terrain, lift)
+			r.AddLiftCable(lift, w.Terrain)
+		}
 		r.FlushTerrainVerts(w.Terrain)
-		r.AddLiftCable(lift, w.Terrain)
 		r.RebuildStaticBatch(w)
 		e.activeTool = toolNone
 		e.syncToolButtons()
@@ -790,6 +797,9 @@ func (e *Editor) syncToolButtons() {
 	}
 	if e.liftGondolaBtn != nil {
 		e.liftGondolaBtn.SetActive(liftActive && e.liftType == world.LiftGondola)
+	}
+	if e.liftHeliBtn != nil {
+		e.liftHeliBtn.SetActive(liftActive && e.liftType == world.LiftHeli)
 	}
 }
 

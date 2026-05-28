@@ -27,6 +27,9 @@ const (
 	MeshChairQuad   uint32 = 16 // 4-seat fixed grip chair
 	MeshChair6Pack  uint32 = 17 // 6-seat high-speed detachable chair
 	MeshGondolaCabin uint32 = 18 // MDG gondola cabin (8-person enclosed)
+	MeshWalker       uint32 = 19 // guest with skis off (building footprints, bare ground)
+	MeshHelipad      uint32 = 20 // flat pad with H marking at heli-ski base and drop zone
+	MeshHelicopter   uint32 = 21 // heli-ski helicopter (dynamic — one per HeliLift)
 )
 
 // MeshSlot is an anchor point baked into a mesh by the SCAD pipeline

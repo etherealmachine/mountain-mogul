@@ -54,13 +54,15 @@ type Renderer struct {
 	scene *SceneResources
 
 	staticBatches  map[uint32]*Batch
-	dynamicBatch   *Batch
+	dynamicBatch   *Batch // skier mesh (SkisOn == true)
+	walkerBatch    *Batch // walker mesh (SkisOn == false)
 	chairBatch      *Batch
 	chairQuadBatch  *Batch
 	chair6PackBatch *Batch
 	gondolaBatch    *Batch
-	snowcatBatch   *Batch
-	carBatch       *Batch
+	snowcatBatch    *Batch
+	carBatch        *Batch
+	helicopterBatch *Batch // dynamic batch — one instance per HeliLift
 
 	uiVAO, uiVBO uint32
 	whiteTexID       uint32 // 1×1 white texture; always bound to unit 0 during UI pass
@@ -308,10 +310,13 @@ func (r *Renderer) initStaticMeshes() {
 	// tint keeps the colour palette decision in the placement code.
 	r.staticBatches[MeshRoadNode] = NewStaticBatch(NewCylinderMesh(1.5, 0.15, 24), r.whiteTexID)
 
-	// Skier — dynamic batch. One instance per world.Guest, repositioned
-	// each tick by the sim.
+	// Skier — dynamic batch. One instance per world.Guest with skis on.
 	skierMesh, skierTexID := LoadOBJ(modelDir + "skier.obj")
 	r.dynamicBatch = NewDynamicBatch(skierMesh, skierTexID)
+
+	// Walker — same guest figure but without skis; drawn when SkisOn==false.
+	walkerMesh, walkerTexID := LoadOBJ(modelDir + "walker.obj")
+	r.walkerBatch = NewDynamicBatch(walkerMesh, walkerTexID)
 
 	// Chair — dynamic batch (heading rotates each chair along the cable).
 	// Three variants: double, fixed-grip quad, and high-speed 6-pack. Each
@@ -349,6 +354,18 @@ func (r *Renderer) initStaticMeshes() {
 	// list keyed off live parking-lot state.
 	carMesh, carTexID := LoadOBJ(modelDir + "car.obj")
 	r.carBatch = NewDynamicBatch(carMesh, carTexID)
+
+	// Helipad — static-batch mesh placed at Base and Top of each HeliLift.
+	helipadMesh, helipadTexID := LoadOBJ(modelDir + "helipad.obj")
+	r.staticBatches[MeshHelipad] = NewStaticBatch(helipadMesh, helipadTexID)
+	if fp, ok := LoadOBJFootprint(modelDir + "helipad.obj"); ok {
+		world.RegisterMeshFootprint(MeshHelipad, fp)
+	}
+
+	// Helicopter — dynamic batch (one instance per HeliLift, position
+	// and heading updated every frame from HeliWorldPos / HeliHeading).
+	heliMesh, heliTexID := LoadOBJ(modelDir + "helicopter.obj")
+	r.helicopterBatch = NewDynamicBatch(heliMesh, heliTexID)
 }
 
 // SetViewport updates the OpenGL framebuffer viewport. Call this from the
@@ -1333,23 +1350,39 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 		}
 	}
 
-	// Lift stations — both ends of each lift, oriented so the model's +X
-	// axis (cable-exit side) points toward the other end. Bullwheel ends
-	// up on the outboard side at both base and top.
+	// Lift stations — both ends of each cable lift. Skipped for
+	// helicopter lifts, which use the helipad mesh instead.
 	if stationBatch, ok := r.staticBatches[MeshLiftStation]; ok {
 		for _, lift := range w.Lifts {
+			if lift.IsHeli() {
+				continue
+			}
 			stationBatch.AddStatic(LiftStationTransform(lift.Base, lift.Top, w.Terrain), mgl32.Vec3{1, 1, 1})
 			stationBatch.AddStatic(LiftStationTransform(lift.Top, lift.Base, w.Terrain), mgl32.Vec3{1, 1, 1})
 		}
 	}
 
-	// Towers — between (not at) the stations. Endpoints are skipped so
-	// they don't sit atop the bullwheel beams.
+	// Towers — cable lifts only.
 	if towerBatch, ok := r.staticBatches[MeshTower]; ok {
 		for _, lift := range w.Lifts {
+			if lift.IsHeli() {
+				continue
+			}
 			for _, m := range TowerInstancesForLift(lift.Base, lift.Top, w.Terrain) {
 				towerBatch.AddStatic(m, mgl32.Vec3{1, 1, 1})
 			}
+		}
+	}
+
+	// Helipads — one at Base, one at Top for every HeliLift.
+	// Oriented so the pad's +X axis points toward the other end.
+	if helipadBatch, ok := r.staticBatches[MeshHelipad]; ok {
+		for _, lift := range w.Lifts {
+			if !lift.IsHeli() {
+				continue
+			}
+			helipadBatch.AddStatic(HelipadTransform(lift.Base, lift.Top, w.Terrain), mgl32.Vec3{1, 1, 1})
+			helipadBatch.AddStatic(HelipadTransform(lift.Top, lift.Base, w.Terrain), mgl32.Vec3{1, 1, 1})
 		}
 	}
 
@@ -1704,8 +1737,9 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	r.DynamicShader.SetMat4("uViewProj", vp)
 	r.DynamicShader.SetFloat("uTime", time)
 
-	if r.dynamicBatch != nil {
-		instances := make([]DynamicInstance, 0, len(w.OnMountain))
+	if r.dynamicBatch != nil || r.walkerBatch != nil {
+		skierInst := make([]DynamicInstance, 0, len(w.OnMountain))
+		walkerInst := make([]DynamicInstance, 0)
 		hr2 := r.HiddenRadius * r.HiddenRadius
 		for _, agent := range w.OnMountain {
 			if r.HiddenGuestID != 0 && agent.ID == r.HiddenGuestID {
@@ -1726,15 +1760,26 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 			if r.HighlightGuestID != 0 && agent.ID == r.HighlightGuestID {
 				color = [3]float32{1.0, 0.95, 0.1}
 			}
-			instances = append(instances, DynamicInstance{
+			inst := DynamicInstance{
 				Position: [3]float32{agent.Pos[0], posY, agent.Pos[2]},
 				Heading:  agent.Heading,
 				Color:    color,
-				Animate:  1.0, // skiers breathe; the shader bobs limbs above y=0.3
-			})
+				Animate:  1.0,
+			}
+			if agent.SkisOn {
+				skierInst = append(skierInst, inst)
+			} else {
+				walkerInst = append(walkerInst, inst)
+			}
 		}
-		r.dynamicBatch.SetDynamic(instances)
-		r.dynamicBatch.Draw()
+		if r.dynamicBatch != nil {
+			r.dynamicBatch.SetDynamic(skierInst)
+			r.dynamicBatch.Draw()
+		}
+		if r.walkerBatch != nil {
+			r.walkerBatch.SetDynamic(walkerInst)
+			r.walkerBatch.Draw()
+		}
 	}
 
 	// Snowcats — same dynamic-instance path as agents. Driven by
@@ -1755,6 +1800,27 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		}
 		r.snowcatBatch.SetDynamic(catInstances)
 		r.snowcatBatch.Draw()
+	}
+
+	// Helicopters — one instance per HeliLift, positioned and oriented
+	// from HeliWorldPos / HeliHeading each frame.
+	if r.helicopterBatch != nil {
+		var heliInst []DynamicInstance
+		for _, lift := range w.Lifts {
+			if !lift.IsHeli() {
+				continue
+			}
+			pos := lift.HeliWorldPos(w.Terrain)
+			heliInst = append(heliInst, DynamicInstance{
+				Position: [3]float32{pos[0], pos[1], pos[2]},
+				Heading:  lift.HeliHeading(),
+				Color:    [3]float32{1, 1, 1},
+			})
+		}
+		if len(heliInst) > 0 {
+			r.helicopterBatch.SetDynamic(heliInst)
+			r.helicopterBatch.Draw()
+		}
 	}
 
 	// Parked cars — one box per filled parking-lot stall, count driven by
@@ -2175,9 +2241,28 @@ func (r *Renderer) ClearGhostCable() {
 	r.SetGhosts(MeshTower, nil)
 }
 
+// HelipadTransform builds the world-space transform for a helipad placed at
+// `pos`, oriented so the model's +X axis (the approach axis with the H
+// pointing toward it) faces `otherEnd`. Pass `otherEnd == pos` to get no
+// rotation (e.g. when the second point isn't known yet).
+func HelipadTransform(pos, otherEnd mgl32.Vec2, terrain *world.Terrain) mgl32.Mat4 {
+	y := VisualElevationAt(terrain, pos[0], pos[1])
+	var rot float32
+	if otherEnd != pos {
+		dx := otherEnd[0] - pos[0]
+		dz := otherEnd[1] - pos[1]
+		rot = float32(math.Atan2(-float64(dz), float64(dx)))
+	}
+	return mgl32.Translate3D(pos[0], y, pos[1]).Mul4(mgl32.HomogRotate3DY(rot))
+}
+
 // AddLiftMeshes generates and stores cable meshes for a lift. Towers are
-// added to the static batch by RebuildStaticBatch.
+// added to the static batch by RebuildStaticBatch. No-op for helicopter
+// lifts, which have no cable infrastructure.
 func (r *Renderer) AddLiftMeshes(lift *world.Lift, t *world.Terrain) {
+	if lift.IsHeli() {
+		return
+	}
 	r.scene.liftUpCables[lift.ID] = generateCableMesh(lift, t, world.CableGap)
 	r.scene.liftDownCables[lift.ID] = generateCableMesh(lift, t, -world.CableGap)
 }

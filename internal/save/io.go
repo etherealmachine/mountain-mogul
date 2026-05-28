@@ -252,7 +252,7 @@ func worldToData(w *world.World) ScenarioData {
 				queueIDs = append(queueIDs, a.ID)
 			}
 		}
-		lifts[i] = LiftData{
+		ld := LiftData{
 			ID:          l.ID,
 			Type:        uint8(l.Type),
 			Name:        l.Name,
@@ -266,6 +266,11 @@ func worldToData(w *world.World) ScenarioData {
 			Chairs:      chairs,
 			QueueIDs:    queueIDs,
 		}
+		if l.IsHeli() && l.HeliState != nil {
+			ld.HeliPhase = uint8(l.HeliState.Phase)
+			ld.HeliProgress = l.HeliState.Progress
+		}
+		lifts[i] = ld
 	}
 
 	// Persist the full Guests master list so identity + career stats survive
@@ -548,6 +553,11 @@ func dataToWorld(data ScenarioData) *world.World {
 			if ci < len(ld.Chairs) {
 				lift.Chairs[ci].Progress = ld.Chairs[ci].Progress
 			}
+		}
+		// Restore helicopter phase and flight progress for HeliLift saves.
+		if lift.IsHeli() && lift.HeliState != nil {
+			lift.HeliState.Phase = world.HeliPhase(ld.HeliPhase)
+			lift.HeliState.Progress = ld.HeliProgress
 		}
 	}
 

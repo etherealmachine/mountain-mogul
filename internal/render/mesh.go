@@ -25,9 +25,12 @@ const (
 	MeshCar         uint32 = 13 // small box used per parked car (dynamic instance per lot)
 	MeshRoadConnect uint32 = 14 // yellow-flag marker for road-network edge connections (editor-placed)
 	MeshRoadNode    uint32 = 15 // small procedural post used as a hover/snap target marker for road nodes
-	MeshChairQuad   uint32 = 16 // 4-seat fixed grip chair; second chair variant
+	MeshChairQuad    uint32 = 16 // 4-seat fixed grip chair; second chair variant
 	MeshChair6Pack   uint32 = 17 // 6-seat high-speed detachable chair
 	MeshGondolaCabin uint32 = 18 // MDG gondola cabin (8-person enclosed)
+	MeshWalker       uint32 = 19 // guest with skis off
+	MeshHelipad      uint32 = 20 // flat pad with H marking at heli-ski base and drop zone
+	MeshHelicopter   uint32 = 21 // heli-ski helicopter (dynamic — one per HeliLift)
 )
 
 // Mesh wraps a GPU vertex/index buffer.
