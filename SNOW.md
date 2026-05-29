@@ -50,22 +50,32 @@ Seven named kinds are the sole discriminator for density, physics, and rendering
 
 ---
 
-## Layer stack
+## Two-layer model
 
-Each cell (`world.Cell`) stores `[]SnowLayer` — oldest (deepest) at index 0, surface at the end.
+Each cell stores a `Top` layer and a `Base` SWE accumulation:
 
 ```go
 type SnowLayer struct {
     Accumulation float32  // metres SWE; conserved as kind transitions
     Kind         SnowKind
 }
+
+// On Cell:
+Base float32   // consolidated season-base SWE (metres); always KindBase density
+Top  SnowLayer // active surface; weather, grooming, and skiing act here
 ```
 
-`Packed` and `Ice` are gone. `Accumulation` is SWE (snow-water-equivalent in metres); visible depth is `Accumulation / KindDensity(Kind)`.
+`Base` has no `Kind` — it is always `KindBase` (compacted season base). `Top.Kind` varies with weather, traffic, and grooming. Either may be zero (bare ground = both zero). **Invariant**: if any snow exists, `Top.Accumulation > 0` (Base is only ever promoted to a `KindBase` Top during melt, never left exposed as a raw float).
+
+**Semantics:**
+- `Top` is always the active surface. Weather transitions, grooming, and skier traffic modify `Top.Kind`.
+- `Base` is the accumulated season foundation, always `KindBase`. Snow guns add to it directly.
+- When a new storm's kind differs from `Top.Kind`, the current `Top.Accumulation` folds into `Base` (SWE-conserving), and a fresh `Top` begins.
+- When `Top` melts away, `Base` is promoted to a `KindBase` `Top` (clearing Grooming and MogulSize).
 
 ### Cell-level surface modifiers
 
-Two scalars live on `Cell` rather than in any layer because they describe the current surface state, not a depositional event:
+Three scalars live on `Cell` rather than in any layer because they describe the current surface state, not a depositional event:
 
 | Field | Range | Meaning | Default |
 |-------|-------|---------|---------|
@@ -77,16 +87,12 @@ Two scalars live on `Cell` rather than in any layer because they describe the cu
 
 | Method | Derived from |
 |--------|--------------|
-| `TotalSWE()` | Sum of all layer Accumulations |
-| `VisibleSnowDepth()` | Σ `Accumulation / KindDensity(Kind)` per layer |
-| `SurfacePacked()` | `KindShaderPacked(top.Kind)` |
-| `SurfaceIce()` | `KindShaderIce(top.Kind)` |
+| `TotalSWE()` | `Base.Accumulation + Top.Accumulation` |
+| `VisibleSnowDepth()` | Sum of `Accumulation / KindDensity(Kind)` for each non-zero layer |
+| `SurfacePacked()` | `KindShaderPacked(TopLayer().Kind)` |
+| `SurfaceIce()` | `KindShaderIce(TopLayer().Kind)` |
 | `SurfaceElevation()` | `GroundElevation + VisibleSnowDepth()` |
 | `SnowAt(x, z)` | `(depth, grooming, kind, mogulSize)` — one-call surface query |
-
-### Stack cap
-
-The stack is capped at 10 layers. When a push would exceed this, the two oldest layers are merged (SWE-conserving, keeping the older layer's Kind).
 
 ---
 
@@ -94,9 +100,9 @@ The stack is capped at 10 layers. When a push would exceed this, the two oldest 
 
 See WEATHER.md for the full daily rollover sequence. Snow-relevant effects:
 
-### Snowfall — push a new layer
+### Snowfall — update Top (or fold into Base)
 
-A new layer is pushed on top; its Kind depends on storm temperature:
+The new storm's Kind depends on temperature:
 
 | Storm TempC | Kind |
 |-------------|------|
@@ -104,7 +110,7 @@ A new layer is pushed on top; its Kind depends on storm temperature:
 | −5 to −1 °C | Packed Powder |
 | −1 to 0 °C (clamped) | Cement |
 
-If the top layer already matches the incoming Kind, accumulation is added in-place (no new entry) — consecutive powder storms build one deep powder layer.
+If `Top.Kind` already matches the incoming kind, `Top.Accumulation` grows in place — consecutive powder storms deepen one powder layer. Otherwise the current `Top` folds into `Base` (Base absorbs the SWE; if Base was empty it inherits Top's kind) and a new `Top` begins.
 
 Grooming is diluted: `Grooming *= 1 − min(1, accumSWE / 0.02)`. Two centimetres SWE fully buries any groomed surface.
 
@@ -129,24 +135,15 @@ Key patterns:
 - **Wind** consolidates → Wind Slab. Boilerplate is too hard to reorganise.
 - **Overcast** (no wind) → no change.
 
-### Buried freeze
-
-On any day with `TempC < 0`, the layer **immediately below the surface** is checked on every cell. If that buried layer is wet or saturated, it freezes:
-
-- **Slush/Corn → Boilerplate** — liquid-saturated snow solidifies to hard ice.
-- **Cement → Crust** — dense wet snow hardens into a breakable glaze.
-
-The freeze threshold is lapse-rate adjusted per cell: higher-elevation cells freeze more aggressively under the same forecast temperature. This naturally models the "powder on top, boilerplate underneath" condition that develops after a warm spell followed by a cold storm.
-
 ### Melt
 
-On days with locally positive temperature (after lapse-rate adjustment), the top layer loses SWE:
+On days with locally positive temperature (after lapse-rate adjustment), `Top` loses SWE:
 
 ```
 meltSWE = 0.02 m/°C/day × effectiveTempC
 ```
 
-Rain days add `0.001 m SWE / mm` of rainfall. Melt cascades through layers if the top layer is exhausted, popping empty layers and exposing older snow or bare ground. Grooming and MogulSize on a popped layer are cleared proportionally.
+Rain days add `0.001 m SWE / mm` of rainfall. When `Top` is fully melted, `Base` is promoted to `Top` (clearing Grooming and MogulSize), and any remaining melt budget continues consuming the promoted layer. When both are exhausted, bare ground is exposed.
 
 ---
 
@@ -209,7 +206,7 @@ The terrain vertex carries `aSnow = (Grooming, Packed, Ice, MogulSize)` at attri
 
 ```
 e   → GroundElevation
-ls  → []LayerData (snow layer stack)
+ls  → []LayerData (0–2 entries: [Base, Top] if present)
 gr  → Grooming
 mg  → MogulSize
 st  → SkierTraffic
@@ -222,7 +219,7 @@ a   → Accumulation (SWE metres)
 k   → SnowKind uint8 (omitempty; 0 = Powder if absent)
 ```
 
-Old `p` (Packed) and `i` (Ice) fields are dropped. Old saves without `ls` load with `Layers = nil` (bare ground).
+`ls` is written with 0 entries (bare ground), 1 entry (Top only), or 2 entries (Base then Top). The Base entry always has `k = KindBase`; its kind is not used on load. Old saves with more than 2 entries load the last two as Base and Top, discarding older history.
 
 ---
 
@@ -264,3 +261,4 @@ Not saved. Fully re-derivable on load: G stamped from saved `TreeDensity`, B rec
 - **Weather-driven demand** — bad weather suppressing arrivals or guest satisfaction.
 - **Wind field** — daily wind direction as a simulation variable rather than a static scenario parameter.
 - **Lift cable clearance** — cables currently sit at `Surface + CableHeight`; physically they should clear ground regardless of snow depth.
+- **Avalanche simulation** — the two-layer model directly supports slab instability: `Top` (WindSlab/Crust with significant SWE) over `Base` (Boilerplate/Crust) on slope angles above ~35° constitutes an unstable slab. No layer indexing required.

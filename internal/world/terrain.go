@@ -186,9 +186,7 @@ func KindEdgeMult(k SnowKind) float32 {
 	}
 }
 
-// SnowLayer is one depositional event in a cell's snow column.
-// Layers are stored oldest-first (index 0 = deepest/oldest; last = surface).
-// Each layer conserves its own SWE: visible depth = Accumulation / KindDensity(Kind).
+// SnowLayer is the active surface snow stratum. Visible depth = Accumulation / KindDensity(Kind).
 type SnowLayer struct {
 	Accumulation float32  // SWE metres, conserved under kind transitions
 	Kind         SnowKind
@@ -196,73 +194,71 @@ type SnowLayer struct {
 
 // Cell represents a single grid cell in the terrain.
 //
-// Snow is stored as a stack of SnowLayer values, oldest at index 0, newest
-// (surface) last. Skier traffic and grooming affect only the surface (top)
-// layer. Snowfall pushes new layers.
+// Snow has two components: Base is consolidated season-base SWE (always
+// KindBase density); Top is the active surface layer whose Kind varies with
+// weather, grooming, and skier traffic. When Top melts away, Base is
+// promoted to a new KindBase Top. When a new storm's kind differs from Top,
+// Top's SWE folds into Base and a new Top begins.
 //
-// Grooming and MogulSize are cell-level surface modifiers above the layer
-// stack: Grooming is set by the snowcat fleet and decays under skier traffic;
-// MogulSize grows from ungroomed traffic.
+// Grooming and MogulSize are surface modifiers: Grooming is set by the
+// snowcat fleet and decays under skier traffic; MogulSize grows from
+// ungroomed traffic.
 //
 // SkierTraffic accumulates while skiers cross the cell and resets after a
 // kind transition (e.g. Powder → Packed Powder). Decays daily.
 type Cell struct {
 	GroundElevation float32
-	Layers          []SnowLayer // [0]=oldest/deepest, [len-1]=surface
-	Grooming        float32     // 0..1; 1 = freshly groomed corduroy
-	MogulSize       float32     // 0..1; mogul amplitude (visual + physics roughness)
-	SkierTraffic    float32     // accumulated traffic; drives kind transitions
+	Base            float32   // consolidated season-base SWE (metres); always KindBase density
+	Top             SnowLayer // active surface; weather and skiing act here
+	Grooming        float32   // 0..1; 1 = freshly groomed corduroy
+	MogulSize       float32   // 0..1; mogul amplitude (visual + physics roughness)
+	SkierTraffic    float32   // accumulated traffic; drives kind transitions
 
 	Passable    bool    // hard structural block (buildings, lift endpoints)
 	TreeDensity float32 // 0.0 = clear, 1.0 = dense old-growth
 }
 
-// TotalSWE returns the total snow-water-equivalent across all layers (metres).
+// TotalSWE returns the total snow-water-equivalent across both layers (metres).
 func (c Cell) TotalSWE() float32 {
-	var total float32
-	for _, l := range c.Layers {
-		total += l.Accumulation
-	}
-	return total
+	return c.Base + c.Top.Accumulation
 }
 
-// VisibleSnowDepth returns the total visible snow column height in metres,
-// summing per-layer depth (each layer's accumulation / its kind density).
+// VisibleSnowDepth returns the total visible snow column height in metres.
 func (c Cell) VisibleSnowDepth() float32 {
 	var depth float32
-	for _, l := range c.Layers {
-		d := KindDensity(l.Kind)
-		if d > 0 {
-			depth += l.Accumulation / d
-		}
+	if c.Top.Accumulation > 0 {
+		depth += c.Top.Accumulation / KindDensity(c.Top.Kind)
+	}
+	if c.Base > 0 {
+		depth += c.Base / KindDensity(KindBase)
 	}
 	return depth
 }
 
-// SurfacePacked returns the shader packed value for the top layer, derived
-// from its Kind. Returns 0 if there are no layers.
+// SurfacePacked returns the shader packed value for the surface layer.
 func (c Cell) SurfacePacked() float32 {
-	if len(c.Layers) == 0 {
-		return 0
+	if top := c.TopLayer(); top != nil {
+		return KindShaderPacked(top.Kind)
 	}
-	return KindShaderPacked(c.Layers[len(c.Layers)-1].Kind)
+	return 0
 }
 
-// SurfaceIce returns the shader ice value for the top layer, derived from
-// its Kind. Returns 0 if there are no layers.
+// SurfaceIce returns the shader ice value for the surface layer.
 func (c Cell) SurfaceIce() float32 {
-	if len(c.Layers) == 0 {
-		return 0
+	if top := c.TopLayer(); top != nil {
+		return KindShaderIce(top.Kind)
 	}
-	return KindShaderIce(c.Layers[len(c.Layers)-1].Kind)
+	return 0
 }
 
-// TopLayer returns a pointer to the surface layer, or nil if there are no layers.
+// TopLayer returns a pointer to the active surface layer, or nil if bare ground.
+// Invariant: if any snow exists, Top.Accumulation > 0 (Base is only promoted
+// to a KindBase Top during melt, never left exposed as a raw float).
 func (c *Cell) TopLayer() *SnowLayer {
-	if len(c.Layers) == 0 {
-		return nil
+	if c.Top.Accumulation > 0 {
+		return &c.Top
 	}
-	return &c.Layers[len(c.Layers)-1]
+	return nil
 }
 
 // SurfaceElevation returns the snow-surface elevation for this cell
@@ -308,10 +304,7 @@ func NewTerrain(w, h int) *Terrain {
 		cells[x] = make([]Cell, h)
 		for z := 0; z < h; z++ {
 			cells[x][z] = Cell{
-				Layers: []SnowLayer{{
-					Accumulation: DefaultSnowAccumulation,
-					Kind:         KindPowder,
-				}},
+				Top:      SnowLayer{Accumulation: DefaultSnowAccumulation, Kind: KindBase},
 				Passable: true,
 			}
 		}

@@ -452,9 +452,8 @@ func plowApronSnow(t *world.Terrain, station, axis mgl32.Vec2, side, halfWidth, 
 				continue
 			}
 			// Blend toward 0 at the inner zone; outer edge keeps natural.
-			for i := range t.Cells[x][z].Layers {
-				t.Cells[x][z].Layers[i].Accumulation *= 1 - w
-			}
+			t.Cells[x][z].Base *= 1 - w
+			t.Cells[x][z].Top.Accumulation *= 1 - w
 		}
 	}
 }
@@ -2331,7 +2330,8 @@ func (s *Scenario) Render(r *render.Renderer) {
 		s.world.Terrain.InBounds(s.hoverCell[0], s.hoverCell[1]) {
 		cell := s.world.Terrain.Cells[s.hoverCell[0]][s.hoverCell[1]]
 		drawables = append(drawables, &snowLayerTooltip{
-			layers:  cell.Layers,
+			base:    cell.Base,
+			top:     cell.Top,
 			mouseX:  s.hoverMouseScreen[0],
 			mouseY:  s.hoverMouseScreen[1],
 			screenW: r.ScreenWidth(),
@@ -3595,15 +3595,17 @@ func (p *terrainInspectPanel) Draw(r *render.Renderer) {
 		fmt.Sprintf("Surface    = %.3f m", c.SurfaceElevation()),
 		fmt.Sprintf("VisDepth   = %.3f m  (derived)", c.VisibleSnowDepth()),
 		"",
-		fmt.Sprintf("TotalSWE   = %.3f m  (%d layers)", c.TotalSWE(), len(c.Layers)),
+		fmt.Sprintf("TotalSWE   = %.3f m", c.TotalSWE()),
 		fmt.Sprintf("Grooming   = %.3f", c.Grooming),
 		fmt.Sprintf("MogulSize  = %.3f", c.MogulSize),
 	}
-	for i := len(c.Layers) - 1; i >= 0; i-- {
-		l := c.Layers[i]
-		visD := l.Accumulation / world.KindDensity(l.Kind)
-		rows = append(rows, fmt.Sprintf("  [%d] %-13s %.2fm",
-			i, world.KindName(l.Kind), visD))
+	if c.Top.Accumulation > 0 {
+		rows = append(rows, fmt.Sprintf("  Top  %-13s %.2fm",
+			world.KindName(c.Top.Kind), c.Top.Accumulation/world.KindDensity(c.Top.Kind)))
+	}
+	if c.Base > 0 {
+		rows = append(rows, fmt.Sprintf("  Base              %.2fm",
+			c.Base/world.KindDensity(world.KindBase)))
 	}
 	rows = append(rows, "",
 		fmt.Sprintf("TreeDens   = %.3f", c.TreeDensity),
@@ -3612,10 +3614,11 @@ func (p *terrainInspectPanel) Draw(r *render.Renderer) {
 	drawHUDBox(r, rows, 460, mgl32.Vec4{0.85, 0.95, 1, 1}, false)
 }
 
-// snowLayerTooltip renders a hover tooltip showing the snow layer stack for
+// snowLayerTooltip renders a hover tooltip showing the two-layer snow state for
 // the cell under the cursor when the Snow overlay is active.
 type snowLayerTooltip struct {
-	layers  []world.SnowLayer
+	base    float32      // KindBase SWE (metres)
+	top     world.SnowLayer
 	mouseX  float32
 	mouseY  float32
 	screenW int
@@ -3629,14 +3632,17 @@ func (t *snowLayerTooltip) Draw(r *render.Renderer) {
 	lineH := float32(render.GlyphH) + lineGap
 
 	var rows []string
-	if len(t.layers) == 0 {
+	if t.top.Accumulation == 0 && t.base == 0 {
 		rows = []string{"No snow"}
 	} else {
-		rows = append(rows, fmt.Sprintf("Snow  %d layer(s)", len(t.layers)))
-		for i := len(t.layers) - 1; i >= 0; i-- {
-			l := t.layers[i]
-			visD := l.Accumulation / world.KindDensity(l.Kind)
-			rows = append(rows, fmt.Sprintf("%-13s %s", world.KindName(l.Kind), settings.FormatDepth(visD)))
+		rows = append(rows, "Snow")
+		if t.top.Accumulation > 0 {
+			visD := t.top.Accumulation / world.KindDensity(t.top.Kind)
+			rows = append(rows, fmt.Sprintf("%-13s %s", world.KindName(t.top.Kind), settings.FormatDepth(visD)))
+		}
+		if t.base > 0 {
+			visD := t.base / world.KindDensity(world.KindBase)
+			rows = append(rows, fmt.Sprintf("Base          %s", settings.FormatDepth(visD)))
 		}
 	}
 

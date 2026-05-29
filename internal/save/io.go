@@ -182,8 +182,11 @@ func worldToData(w *world.World) ScenarioData {
 		for z := 0; z < t.Height; z++ {
 			c := t.Cells[x][z]
 			var layers []LayerData
-			for _, l := range c.Layers {
-				layers = append(layers, LayerData{A: l.Accumulation, K: uint8(l.Kind)})
+			if c.Base > 0 {
+				layers = append(layers, LayerData{A: c.Base, K: uint8(world.KindBase)})
+			}
+			if c.Top.Accumulation > 0 {
+				layers = append(layers, LayerData{A: c.Top.Accumulation, K: uint8(c.Top.Kind)})
 			}
 			cells = append(cells, CellData{
 				Ground:       c.GroundElevation,
@@ -458,16 +461,25 @@ func dataToWorld(data ScenarioData) *world.World {
 		for z := 0; z < data.Height; z++ {
 			if idx < len(data.Cells) {
 				c := data.Cells[idx]
-				layers := make([]world.SnowLayer, len(c.Layers))
-				for i, l := range c.Layers {
-					layers[i] = world.SnowLayer{Accumulation: l.A, Kind: world.SnowKind(l.K)}
-				}
 				t.Cells[x][z].GroundElevation = c.Ground
-				t.Cells[x][z].Layers = layers
 				t.Cells[x][z].Grooming = c.Grooming
 				t.Cells[x][z].MogulSize = c.MogulSize
 				t.Cells[x][z].SkierTraffic = c.SkierTraffic
 				t.Cells[x][z].TreeDensity = c.TreeDensity
+				// ls[]=[] → bare ground; ls=[1] → Top only; ls=[2] → Base+Top.
+				// Old saves with >2 layers: treat last as Top, second-to-last as Base.
+				switch n := len(c.Layers); n {
+				case 0:
+					t.Cells[x][z].Base = 0
+					t.Cells[x][z].Top = world.SnowLayer{}
+				case 1:
+					t.Cells[x][z].Base = 0
+					t.Cells[x][z].Top = world.SnowLayer{Accumulation: c.Layers[0].A, Kind: world.SnowKind(c.Layers[0].K)}
+				default:
+					t.Cells[x][z].Base = c.Layers[n-2].A
+					top := c.Layers[n-1]
+					t.Cells[x][z].Top = world.SnowLayer{Accumulation: top.A, Kind: world.SnowKind(top.K)}
+				}
 			}
 			idx++
 		}

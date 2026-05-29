@@ -31,18 +31,12 @@ func (s *Simulation) tickSnowGuns(dt float64) {
 					continue
 				}
 				cell := &t.Cells[nx][nz]
-				top := cell.TopLayer()
-				if top != nil && top.Kind == world.KindBase {
-					top.Accumulation += swePerCell
+				// Snow guns deposit KindBase snow on the surface.
+				if cell.Top.Accumulation > 0 && cell.Top.Kind == world.KindBase {
+					cell.Top.Accumulation += swePerCell
 				} else {
-					cell.Layers = append(cell.Layers, world.SnowLayer{
-						Accumulation: swePerCell,
-						Kind:         world.KindBase,
-					})
-					if len(cell.Layers) > maxLayerStack {
-						cell.Layers[0].Accumulation += cell.Layers[1].Accumulation
-						cell.Layers = append(cell.Layers[:1], cell.Layers[2:]...)
-					}
+					cell.Base += cell.Top.Accumulation
+					cell.Top = world.SnowLayer{Kind: world.KindBase, Accumulation: swePerCell}
 				}
 				modified = true
 			}

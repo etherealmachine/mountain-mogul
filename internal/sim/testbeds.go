@@ -95,7 +95,8 @@ var Testbeds = []Testbed{
 			t := b.w.Terrain
 			for x := range t.Cells {
 				for z := range t.Cells[x] {
-					t.Cells[x][z].Layers = []world.SnowLayer{{Accumulation: 0.15}}
+					t.Cells[x][z].Base = 0
+					t.Cells[x][z].Top = world.SnowLayer{Accumulation: 0.15}
 				}
 			}
 			w := b.w
@@ -445,7 +446,8 @@ func (b *builder) flat(elev float32) *builder {
 	for x := 0; x < t.Width; x++ {
 		for z := 0; z < t.Height; z++ {
 			t.Cells[x][z].GroundElevation = elev
-			t.Cells[x][z].Layers = []world.SnowLayer{{Accumulation: testbedPowderAccumulation, Kind: world.KindPowder}}
+			t.Cells[x][z].Base = 0
+			t.Cells[x][z].Top = world.SnowLayer{Accumulation: testbedPowderAccumulation, Kind: world.KindPowder}
 			t.Cells[x][z].Passable = true
 		}
 	}
@@ -462,7 +464,8 @@ func (b *builder) slope(slopeDeg float64) *builder {
 	for x := 0; x < t.Width; x++ {
 		for z := 0; z < t.Height; z++ {
 			t.Cells[x][z].GroundElevation = float32(t.Height-z) * CellSize * rate
-			t.Cells[x][z].Layers = []world.SnowLayer{{Accumulation: testbedPowderAccumulation, Kind: world.KindPowder}}
+			t.Cells[x][z].Base = 0
+			t.Cells[x][z].Top = world.SnowLayer{Accumulation: testbedPowderAccumulation, Kind: world.KindPowder}
 			t.Cells[x][z].Passable = true
 		}
 	}
@@ -489,7 +492,8 @@ func (b *builder) runout(upperEndZ int, upperDeg, runoutDeg float64) *builder {
 		}
 		for x := 0; x < t.Width; x++ {
 			t.Cells[x][z].GroundElevation = elev
-			t.Cells[x][z].Layers = []world.SnowLayer{{Accumulation: testbedPowderAccumulation, Kind: world.KindPowder}}
+			t.Cells[x][z].Base = 0
+			t.Cells[x][z].Top = world.SnowLayer{Accumulation: testbedPowderAccumulation, Kind: world.KindPowder}
 			t.Cells[x][z].Passable = true
 		}
 	}
@@ -795,7 +799,8 @@ func (b *builder) bareRect(x1, z1, x2, z2 int) *builder {
 	for x := x1; x <= x2; x++ {
 		for z := z1; z <= z2; z++ {
 			if t.InBounds(x, z) {
-				t.Cells[x][z].Layers = nil
+				t.Cells[x][z].Base = 0
+				t.Cells[x][z].Top = world.SnowLayer{}
 			}
 		}
 	}

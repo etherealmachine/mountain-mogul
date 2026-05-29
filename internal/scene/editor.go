@@ -720,7 +720,8 @@ func (e *Editor) clearAllLayers() {
 	t := e.world.Terrain
 	for x := range t.Cells {
 		for z := range t.Cells[x] {
-			t.Cells[x][z].Layers = nil
+			t.Cells[x][z].Base = 0
+			t.Cells[x][z].Top = world.SnowLayer{}
 		}
 	}
 	t.SnowDirty = true
@@ -901,7 +902,8 @@ func (e *Editor) applyImportedTerrain(elevs [][]float32, r *render.Renderer) {
 			if row < len(elevs) && col < len(elevs[row]) {
 				t.Cells[col][row].GroundElevation = elevs[row][col] - minElev
 			}
-			t.Cells[col][row].Layers = nil
+			t.Cells[col][row].Base = 0
+			t.Cells[col][row].Top = world.SnowLayer{}
 		}
 	}
 	e.world = world.NewWorld(t)
@@ -986,7 +988,8 @@ func (e *Editor) Render(r *render.Renderer) {
 		e.hoverValid && e.world.Terrain.InBounds(e.hoverCell[0], e.hoverCell[1]) {
 		cell := e.world.Terrain.Cells[e.hoverCell[0]][e.hoverCell[1]]
 		edDrawables = append(edDrawables, &snowLayerTooltip{
-			layers:  cell.Layers,
+			base:    cell.Base,
+			top:     cell.Top,
 			mouseX:  e.hoverMouseScreen[0],
 			mouseY:  e.hoverMouseScreen[1],
 			screenW: r.ScreenWidth(),

@@ -580,11 +580,6 @@ func (s *Simulation) maybeSampleHistory() {
 	}
 }
 
-// maxLayerStack is the maximum number of snow layers per cell. When a new
-// layer would exceed this, the two oldest are merged (SWE-conserving, keeps
-// the older kind).
-const maxLayerStack = 10
-
 // snowKindForTemp returns the kind of a newly deposited snow layer based on
 // the storm temperature.
 func snowKindForTemp(tempC float32) world.SnowKind {
@@ -744,12 +739,6 @@ func (s *Simulation) applyDailyWeather(dw DayWeather) {
 	}
 
 	// Freeze buried wet layers on any sub-freezing day. Cold penetrates through
-	// the top layer and solidifies saturated snow beneath — slush becomes
-	// boilerplate, cement becomes crust.
-	if dw.TempC < 0 {
-		s.applyBuriedFreeze(dw.TempC, baseElev)
-	}
-
 	// Decay skier traffic on all cells once per day (~4 day half-life).
 	for x := range t.Cells {
 		for z := range t.Cells[x] {
@@ -760,9 +749,9 @@ func (s *Simulation) applyDailyWeather(dw DayWeather) {
 	t.SnowDirty = true
 }
 
-// pushSnowLayer adds a new snow layer on top of every terrain cell. The
-// layer kind is determined by storm temperature. Grooming is diluted
-// proportionally to the snowfall depth, and skier tracks are buried.
+// pushSnowLayer adds a new storm layer on top of every terrain cell. If the
+// new kind matches Top, Top grows in place. Otherwise the current Top merges
+// into Base and a new Top begins. Grooming is diluted by snowfall depth.
 func (s *Simulation) pushSnowLayer(dw DayWeather) {
 	t := s.World.Terrain
 	kind := snowKindForTemp(dw.TempC)
@@ -776,20 +765,13 @@ func (s *Simulation) pushSnowLayer(dw DayWeather) {
 		for z := range t.Cells[x] {
 			c := &t.Cells[x][z]
 
-			// If the top layer is the same kind (powder on powder), grow it
-			// in place rather than fragmenting the stack.
-			if top := c.TopLayer(); top != nil && top.Kind == kind {
-				top.Accumulation += accumSWE
+			if c.Top.Accumulation > 0 && c.Top.Kind == kind {
+				// Same kind — grow Top in place.
+				c.Top.Accumulation += accumSWE
 			} else {
-				c.Layers = append(c.Layers, world.SnowLayer{
-					Kind:         kind,
-					Accumulation: accumSWE,
-				})
-				// Enforce stack cap: merge oldest two when over limit.
-				if len(c.Layers) > maxLayerStack {
-					c.Layers[0].Accumulation += c.Layers[1].Accumulation
-					c.Layers = append(c.Layers[:1], c.Layers[2:]...)
-				}
+				// Different kind: fold current Top into Base, start new Top.
+				c.Base += c.Top.Accumulation
+				c.Top = world.SnowLayer{Kind: kind, Accumulation: accumSWE}
 			}
 
 			c.Grooming *= 1 - burialFactor
@@ -817,41 +799,6 @@ func (s *Simulation) applyKindTransition(evt weatherEvent) {
 	}
 }
 
-// applyBuriedFreeze converts wet and soft snow kinds in all buried layers to
-// their frozen or compacted equivalents when the lapse-rate-adjusted temperature
-// is below freezing. Cold penetrates the full stack — the surface layer insulates
-// but does not block freezing of deeper layers over time.
-//
-//   Slush         → FrozenGranular  (liquid-saturated slush solidifies)
-//   Cement        → Crust           (dense wet snow hardens)
-//   PackedPowder  → Base            (buried packed snow cold-compacts into season base)
-func (s *Simulation) applyBuriedFreeze(tempC, baseElev float32) {
-	t := s.World.Terrain
-	for x := range t.Cells {
-		for z := range t.Cells[x] {
-			c := &t.Cells[x][z]
-			n := len(c.Layers)
-			if n < 2 {
-				continue
-			}
-			localTemp := tempC - lapseRate*(c.GroundElevation-baseElev)
-			if localTemp >= 0 {
-				continue
-			}
-			for i := n - 2; i >= 0; i-- {
-				switch c.Layers[i].Kind {
-				case world.KindSlush:
-					c.Layers[i].Kind = world.KindFrozenGranular
-				case world.KindCement:
-					c.Layers[i].Kind = world.KindCrust
-				case world.KindPackedPowder:
-					c.Layers[i].Kind = world.KindBase
-				}
-			}
-		}
-	}
-}
-
 const (
 	// lapseRate is the temperature drop per metre of elevation gain (°C/m).
 	lapseRate = float32(0.0065)
@@ -861,11 +808,9 @@ const (
 	rainMeltPerMM = float32(0.001)
 )
 
-// applyMelt reduces snow accumulation on warm days using a per-cell
-// effective temperature derived from the standard atmospheric lapse rate.
-// Low-elevation cells melt first; high peaks persist into late spring.
-// When a layer fully melts, it is popped; grooming and moguls clear when
-// the surface layer is lost.
+// applyMelt reduces snow accumulation on warm days. Melts Top first; when Top
+// is exhausted Base is promoted to Top (clearing grooming and moguls). Then
+// continues melting the promoted layer if budget remains.
 func (s *Simulation) applyMelt(dw DayWeather, baseElev float32) {
 	rainMelt := dw.RainMM * rainMeltPerMM
 	t := s.World.Terrain
@@ -873,38 +818,45 @@ func (s *Simulation) applyMelt(dw DayWeather, baseElev float32) {
 	for x := range t.Cells {
 		for z := range t.Cells[x] {
 			c := &t.Cells[x][z]
-			if len(c.Layers) == 0 {
+			if c.Top.Accumulation == 0 && c.Base == 0 {
 				continue
 			}
 
-			// Effective temperature at this cell's elevation.
 			effTemp := dw.TempC - lapseRate*(c.GroundElevation-baseElev)
 
-			totalMelt := rainMelt
+			melt := rainMelt
 			if effTemp > 0 {
-				totalMelt += meltRate * effTemp
+				melt += meltRate * effTemp
 			}
-			if totalMelt <= 0 {
+			if melt <= 0 {
 				continue
 			}
 
-			origLen := len(c.Layers)
-			melt := totalMelt
-			for melt > 0 && len(c.Layers) > 0 {
-				top := &c.Layers[len(c.Layers)-1]
-				if top.Accumulation <= melt {
-					melt -= top.Accumulation
-					c.Layers = c.Layers[:len(c.Layers)-1]
+			// Melt Top first.
+			if c.Top.Accumulation > 0 {
+				if melt >= c.Top.Accumulation {
+					melt -= c.Top.Accumulation
+					c.Top = world.SnowLayer{}
+					c.Grooming = 0
+					c.MogulSize = 0
+					// Promote Base to a KindBase Top so the invariant holds.
+					if c.Base > 0 {
+						c.Top = world.SnowLayer{Kind: world.KindBase, Accumulation: c.Base}
+						c.Base = 0
+					}
 				} else {
-					top.Accumulation -= melt
+					c.Top.Accumulation -= melt
 					melt = 0
 				}
 			}
 
-			// Surface layer changed — grooming and moguls belong to it.
-			if len(c.Layers) < origLen {
-				c.Grooming = 0
-				c.MogulSize = 0
+			// Continue into the promoted layer if budget remains.
+			if melt > 0 && c.Top.Accumulation > 0 {
+				if melt >= c.Top.Accumulation {
+					c.Top = world.SnowLayer{}
+				} else {
+					c.Top.Accumulation -= melt
+				}
 			}
 		}
 	}
