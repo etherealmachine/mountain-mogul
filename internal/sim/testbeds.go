@@ -363,6 +363,73 @@ var Testbeds = []Testbed{
 				build()
 		},
 	},
+	{
+		// Steep V-shaped couloir feeding into a flat runout. The upper zone is
+		// loaded with WindSlab; checkAvalanches fires at t=5 s to trigger
+		// release. Watch the walls shed inward, debris funnel down the channel,
+		// and snow accumulate in the runout fan.
+		//
+		// Layout (60×80 cells, 5 m/cell):
+		//   z= 0..44  : steep zone (42°)
+		//   z=45..79  : runout (7°)
+		//   V gully   : floor 20 cells wide centred on x=30; walls rise at
+		//               0.6 rise/run beyond the floor edges
+		//   Snow      : WindSlab 1.5 m SWE on the steep zone; Powder on runout
+		Name: "Avalanche: V-gully runout",
+		Seed: 1,
+		Build: func() *world.World {
+			const (
+				wCells    = 60
+				hCells    = 80
+				cx        = 30 // gully centre x
+				splitZ    = 45 // steep → runout row boundary
+				floorHalf = 10 // half-width of flat gully floor (cells)
+			)
+			cs := float32(CellSize)
+			upperRate := float32(math.Tan(42.0 * math.Pi / 180))
+			runoutRate := float32(math.Tan(7.0 * math.Pi / 180))
+			joinElev := float32(hCells-splitZ) * cs * runoutRate
+
+			b := scene(wCells, hCells)
+			t := b.w.Terrain
+			for z := 0; z < hCells; z++ {
+				var baseElev float32
+				if z >= splitZ {
+					baseElev = float32(hCells-z) * cs * runoutRate
+				} else {
+					baseElev = joinElev + float32(splitZ-z)*cs*upperRate
+				}
+				for x := 0; x < wCells; x++ {
+					dx := x - cx
+					if dx < 0 {
+						dx = -dx
+					}
+					wallExtra := float32(0)
+					if dx > floorHalf {
+						wallExtra = float32(dx-floorHalf) * cs * 0.60
+					}
+					c := &t.Cells[x][z]
+					c.GroundElevation = baseElev + wallExtra
+					if z < splitZ {
+						c.Top = world.SnowLayer{Accumulation: 1.5, Kind: world.KindWindSlab}
+					} else {
+						c.Top = world.SnowLayer{Accumulation: testbedPowderAccumulation, Kind: world.KindPowder}
+					}
+					c.Base = 0
+				}
+			}
+			return b.build()
+		},
+		TickHook: func() func(s *Simulation) {
+			fired := false
+			return func(s *Simulation) {
+				if !fired && s.SimTime >= 5.0 {
+					fired = true
+					s.checkAvalanches()
+				}
+			}
+		}(),
+	},
 }
 
 // FindTestbed returns the testbed whose Name starts with `prefix`
