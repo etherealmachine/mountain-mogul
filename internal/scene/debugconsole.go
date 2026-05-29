@@ -77,6 +77,15 @@ func (c *DebugConsole) exec(cmd string) {
 			c.flushTerrain()
 		}
 		c.toast("Heat wave!")
+	case "avalanche":
+		if c.sim == nil {
+			return
+		}
+		c.sim.TriggerAvalanche()
+		if c.flushTerrain != nil {
+			c.flushTerrain()
+		}
+		c.toast("Avalanche!")
 	}
 }
 

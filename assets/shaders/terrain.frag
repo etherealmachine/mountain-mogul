@@ -422,9 +422,10 @@ void main() {
         vec3 safe     = vec3(0.18, 0.78, 0.20);
         vec3 moderate = vec3(0.93, 0.80, 0.08);
         vec3 danger   = vec3(0.88, 0.15, 0.10);
-        vec3 riskCol  = mix(safe,
-                            mix(moderate, danger, clamp(risk * 2.0 - 1.0, 0.0, 1.0)),
-                            clamp(risk * 2.0, 0.0, 1.0));
+        // green→yellow at risk≈0.2, yellow→red at risk≈0.4
+        float t2 = clamp(risk * 5.0, 0.0, 1.0);
+        float t3 = clamp(risk * 4.0 - 0.6, 0.0, 1.0);
+        vec3 riskCol  = mix(safe, mix(moderate, danger, t3), t2);
         fragColor.rgb = mix(fragColor.rgb, riskCol, 0.70);
     }
 

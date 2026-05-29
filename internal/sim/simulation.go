@@ -686,6 +686,13 @@ func (s *Simulation) TriggerStorm() {
 	})
 }
 
+// TriggerAvalanche runs the avalanche instability check immediately,
+// bypassing the daily weather trigger. Used by the debug console cheat.
+func (s *Simulation) TriggerAvalanche() {
+	s.checkAvalanches()
+	s.World.Terrain.SnowDirty = true
+}
+
 // TriggerHeatwave immediately applies one warm sunny day to the terrain —
 // same melt and kind-transition effects as a natural spring day. Called by
 // the debug console cheat.
