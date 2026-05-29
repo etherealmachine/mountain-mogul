@@ -407,6 +407,27 @@ void main() {
         fragColor.rgb = mix(fragColor.rgb, col, 0.55 * snowness);
     }
 
+    // Avalanche risk — steep slope combined with unstable snow surface.
+    // Green = safe, yellow = moderate, orange/red = high risk.
+    // The blend weight is proportional to slopeRisk so flat terrain fades out
+    // entirely and only genuinely steep cells read as red.
+    if ((uOverlayMode & 16) != 0) {
+        // slope = N.y: 1.0 = flat, 0.0 = vertical.
+        // Risk rises from ~25° (N.y≈0.906) to 1.0 at ~45° (N.y≈0.707).
+        float slopeRisk = 1.0 - smoothstep(0.707, 0.906, slope);
+        // Instability: powder (low packed) and icy slab (high ice) are more dangerous.
+        float instability = clamp((1.0 - packed) * 0.6 + ice, 0.0, 1.0);
+        // On bare ground fall back to slope-only risk at reduced weight.
+        float risk = clamp(slopeRisk * mix(0.5, instability, snowness), 0.0, 1.0);
+        vec3 safe     = vec3(0.18, 0.78, 0.20);
+        vec3 moderate = vec3(0.93, 0.80, 0.08);
+        vec3 danger   = vec3(0.88, 0.15, 0.10);
+        vec3 riskCol  = mix(safe,
+                            mix(moderate, danger, clamp(risk * 2.0 - 1.0, 0.0, 1.0)),
+                            clamp(risk * 2.0, 0.0, 1.0));
+        fragColor.rgb = mix(fragColor.rgb, riskCol, 0.70);
+    }
+
     // Bump-normal debug — render Nshading directly as RGB using the
     // standard normal-map convention (xyz remapped from [-1,1] → [0,1]).
     // Flat surface reads as (~0, ~1, ~0) → green; sloped terrain shifts
