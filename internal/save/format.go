@@ -139,6 +139,9 @@ type BuildingData struct {
 	MaxCars         int      `json:"max_cars,omitempty"`
 	CurrentCars     float32  `json:"cur_cars,omitempty"`
 	DrivewayNodeIDs []uint64 `json:"driveway_ids,omitempty"` // road-network attach nodes, one per parking mesh slot
+
+	// SnowGun-only state.
+	SnowGunEnabled bool `json:"sg_on,omitempty"`
 }
 
 // SnowcatData is a saved cat. ShedID links it back to its shed; both

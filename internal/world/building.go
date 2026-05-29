@@ -18,6 +18,7 @@ const (
 	BuildingShed      BuildingType = 1
 	BuildingParking   BuildingType = 2
 	BuildingPatrolHut BuildingType = 3
+	BuildingSnowGun   BuildingType = 4
 )
 
 // Building represents a structure placed on the terrain. Lodges are
@@ -48,6 +49,9 @@ type Building struct {
 	CurrentCars     float32
 	DrivewayNodeIDs []uint64
 
+	// SnowGun-only state. Enabled defaults to true on placement; the player
+	// can toggle it off from the popup to stop snow production and operating costs.
+	SnowGunEnabled bool
 }
 
 // DoorCell returns the grid cell containing the building's anchor — the

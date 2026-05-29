@@ -30,6 +30,11 @@ const (
 	DefaultTicketPrice = 10     // dollars per lift ride; player adjusts via the lift popup
 	HelipadCost        = 300000 // flat cost for a heli-ski operation (two pads + helicopter)
 	PatrolHutCost      = 35000  // patrol hut + one patroller/snowmobile
+	SnowGunCost          = 15000  // snowmaking cannon; operating cost below
+	SnowGunActiveCostDay = 200   // per game-day while enabled
+	SnowGunRangeCells    = 3     // spray radius in terrain cells
+	SnowGunRangeM        = SnowGunRangeCells * CellSize // = 15 metres
+	SnowGunMinTempC      = float32(-2.0) // daily low must be at or below this to make snow
 
 	// Daily operational costs. Charged once per in-game day at rollover.
 	// Sized so a single lift + single cat breaks even at ~63% load ($80/day).
@@ -47,6 +52,8 @@ func BuildingCost(t BuildingType) int {
 		return ParkingCost
 	case BuildingPatrolHut:
 		return PatrolHutCost
+	case BuildingSnowGun:
+		return SnowGunCost
 	}
 	return LodgeCost
 }
@@ -192,11 +199,16 @@ func (w *World) PlaceBuildingType(typ BuildingType, x, z float32) *Building {
 		// No per-hut state; patrollers are tracked globally in World.Patrollers.
 		// SpawnPatroller is called after the building is appended so the
 		// patroller reads the hut's ID.
+	case BuildingSnowGun:
+		b.SnowGunEnabled = true
 	}
 	w.Buildings = append(w.Buildings, b)
-	cell := b.DoorCell()
-	if w.Terrain.InBounds(cell[0], cell[1]) {
-		w.Terrain.Cells[cell[0]][cell[1]].Passable = false
+	// Snow guns are narrow pole-mounted devices — don't block any cell.
+	if typ != BuildingSnowGun {
+		cell := b.DoorCell()
+		if w.Terrain.InBounds(cell[0], cell[1]) {
+			w.Terrain.Cells[cell[0]][cell[1]].Passable = false
+		}
 	}
 	if typ == BuildingShed {
 		w.SpawnSnowcat(b)
@@ -215,9 +227,11 @@ func (w *World) PlaceBuildingType(typ BuildingType, x, z float32) *Building {
 func (w *World) RemoveBuilding(id uint64) {
 	for i, b := range w.Buildings {
 		if b.ID == id {
-			cell := b.DoorCell()
-			if w.Terrain.InBounds(cell[0], cell[1]) {
-				w.Terrain.Cells[cell[0]][cell[1]].Passable = true
+			if b.Type != BuildingSnowGun {
+				cell := b.DoorCell()
+				if w.Terrain.InBounds(cell[0], cell[1]) {
+					w.Terrain.Cells[cell[0]][cell[1]].Passable = true
+				}
 			}
 			if b.Type == BuildingShed {
 				w.RemoveSnowcatsOwnedBy(b.ID)

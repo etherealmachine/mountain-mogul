@@ -211,6 +211,7 @@ func (s *Simulation) subTick(dt float64) {
 	s.tickGuests(dt)
 	s.tickSnowcats(dt)
 	s.tickPatrollers(dt)
+	s.tickSnowGuns(dt)
 }
 
 func (s *Simulation) tickLifts(dt float64) {
@@ -547,6 +548,11 @@ func (s *Simulation) maybeSampleHistory() {
 				costs += world.CatActiveCostDay
 			} else {
 				costs += world.CatStandbyCostDay
+			}
+		}
+		for _, b := range w.Buildings {
+			if b.Type == world.BuildingSnowGun && b.SnowGunEnabled {
+				costs += world.SnowGunActiveCostDay
 			}
 		}
 		w.Cash -= costs

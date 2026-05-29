@@ -30,6 +30,7 @@ const (
 	MeshWalker       uint32 = 19 // guest with skis off (building footprints, bare ground)
 	MeshHelipad      uint32 = 20 // flat pad with H marking at heli-ski base and drop zone
 	MeshHelicopter   uint32 = 21 // heli-ski helicopter (dynamic — one per HeliLift)
+	MeshSnowGun      uint32 = 22 // snowmaking cannon on a tripod
 	MeshPatrolHut    uint32 = MeshShed // patrol hut reuses shed mesh
 )
 
@@ -91,6 +92,8 @@ func (t BuildingType) MeshID() uint32 {
 		return MeshPatrolHut
 	case BuildingParking:
 		return MeshParkingPad
+	case BuildingSnowGun:
+		return MeshSnowGun
 	case BuildingLodge:
 		fallthrough
 	default:

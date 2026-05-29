@@ -41,8 +41,9 @@ type TopBar struct {
 
 // ForecastDay is one slot in the 5-day forecast strip.
 type ForecastDay struct {
-	Weather WeatherKind
-	TempC   float32 // always in °C; the bar formats per the active unit system
+	Weather  WeatherKind
+	TempHigh float32 // daily high, °C; bar formats per active unit system
+	TempLow  float32 // daily low, °C
 }
 
 // NewTopBar creates a top bar at (y=0, h=h). The bar fills the full screen
@@ -307,7 +308,6 @@ func (t *TopBar) drawCenter(r *render.Renderer, screenW float32) {
 	}
 
 	col := mgl32.Vec4{1.00, 1.00, 1.00, 1.00}
-	dim := mgl32.Vec4{0.72, 0.82, 0.96, 1}
 
 	// Date line.
 	if t.GetDate != nil {
@@ -338,17 +338,21 @@ func (t *TopBar) drawCenter(r *render.Renderer, screenW float32) {
 	)
 	stripW := float32(n)*colW + float32(n-1)*colGap
 	startX := (screenW - stripW) / 2
-	iconY := t.Y + t.H*0.46
-	tempY := t.Y + t.H*0.72
+	iconY  := t.Y + t.H*0.40
+	highY  := t.Y + t.H*0.66
+	lowY   := t.Y + t.H*0.83
 
 	// Today column highlight drawn first so date text renders on top.
-	// Cover only the forecast strip area (from iconY upward with a small
-	// margin), not the full bar height.
 	todayCX := startX
 	todayTop := iconY - 8
 	todayH := t.H - todayTop + t.Y - 4
 	r.DrawColorRect(todayCX-2, todayTop, colW+4, todayH, mgl32.Vec4{0.18, 0.26, 0.50, 0.95})
 	r.DrawColorRectOutline(todayCX-2, todayTop, colW+4, todayH, mgl32.Vec4{0.45, 0.65, 1.00, 0.70})
+
+	highCol := mgl32.Vec4{1.00, 1.00, 1.00, 1.00}    // white — today high
+	lowCol  := mgl32.Vec4{0.55, 0.85, 1.00, 1.00}    // blue — today low
+	highColDim := mgl32.Vec4{0.80, 0.80, 0.80, 1.00} // dimmed for future days
+	lowColDim  := mgl32.Vec4{0.44, 0.68, 0.85, 1.00}
 
 	for i := 0; i < n; i++ {
 		d := days[i]
@@ -357,14 +361,20 @@ func (t *TopBar) drawCenter(r *render.Renderer, screenW float32) {
 		// Weather icon, centred horizontally in the column.
 		DrawWeatherIcon(r, d.Weather, cx+(colW-iconSize)/2, iconY, iconSize)
 
-		// Temperature centred in the column.
-		tempText := settings.FormatTemp(d.TempC)
-		tempW := r.Font.TextWidth(tempText)
-		tempCol := dim
+		hc, lc := highColDim, lowColDim
 		if i == 0 {
-			tempCol = col
+			hc, lc = highCol, lowCol
 		}
-		r.Font.DrawText(r, tempText, cx+(colW-tempW)/2, tempY, tempCol)
+
+		// High temperature.
+		hiText := settings.FormatTemp(d.TempHigh)
+		hiW := r.Font.TextWidth(hiText)
+		r.Font.DrawText(r, hiText, cx+(colW-hiW)/2, highY, hc)
+
+		// Low temperature.
+		loText := settings.FormatTemp(d.TempLow)
+		loW := r.Font.TextWidth(loText)
+		r.Font.DrawText(r, loText, cx+(colW-loW)/2, lowY, lc)
 	}
 }
 

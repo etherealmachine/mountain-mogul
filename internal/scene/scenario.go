@@ -533,6 +533,7 @@ const (
 	toolRoadEnd     toolMode = iota // waiting for second road click
 	toolEdgeConnect toolMode = iota // place a map-edge road connection node (editor only)
 	toolPatrolHut   toolMode = iota // place a ski patrol hut
+	toolSnowGun     toolMode = iota // place a snowmaking cannon
 	toolGlade       toolMode = iota // reduce TreeDensity (brush)
 	toolPlantTrees  toolMode = iota // increase TreeDensity (brush, editor only)
 	toolRemove     toolMode = iota // remove building at clicked cell
@@ -608,7 +609,8 @@ type Scenario struct {
 	lastTrailPaintCell [2]int
 	trailEraseMode   bool // true = left-drag removes cells; false = left-drag adds cells
 
-	selectedCatID uint64 // 0 = none; >0 = ID of cat whose popup is open
+	selectedCatID      uint64 // 0 = none; >0 = ID of cat whose popup is open
+	selectedBuildingID uint64 // 0 = none; >0 = ID of building whose popup is open
 	showCatPath   bool   // true = draw cat's route + transit as debug lines
 
 	// Click-to-edit road state. Active only while activeTool == toolNone:
@@ -778,6 +780,7 @@ func (s *Scenario) Init(app *engine.App) error {
 	s.toolButtons[toolBuilding] = s.toolBar.AddIconButton(render.IconHouse, "Lodge", func() { s.setTool(toolBuilding) })
 	s.toolButtons[toolShed] = s.toolBar.AddIconButton(render.IconGarage, "Shed", func() { s.setTool(toolShed) })
 	s.toolButtons[toolPatrolHut] = s.toolBar.AddIconButton(render.IconHeart, "Patrol", func() { s.setTool(toolPatrolHut) })
+	s.toolButtons[toolSnowGun] = s.toolBar.AddIconButton(render.IconSnowflake, "Snow Gun", func() { s.setTool(toolSnowGun) })
 	s.liftDoubleBtn = s.toolBar.AddIconButton(render.IconCableCar, "Double", func() { s.activateLiftTool(world.LiftDouble) })
 	s.liftQuadBtn = s.toolBar.AddIconButton(render.IconCableCar, "Quad", func() { s.activateLiftTool(world.LiftFixedQuad) })
 	s.liftHSQuadBtn = s.toolBar.AddIconButton(render.IconCableCar, "HSQuad", func() { s.activateLiftTool(world.LiftHSQuad) })
@@ -818,13 +821,15 @@ func (s *Scenario) Init(app *engine.App) error {
 		forecast := s.sim.Weather.Forecast(from, 4)
 		days := make([]ui.ForecastDay, 1+len(forecast))
 		days[0] = ui.ForecastDay{
-			Weather: weatherToUI(today.State),
-			TempC:   today.TempC,
+			Weather:  weatherToUI(today.State),
+			TempHigh: today.TempHigh,
+			TempLow:  today.TempLow,
 		}
 		for i, d := range forecast {
 			days[i+1] = ui.ForecastDay{
-				Weather: weatherToUI(d.State),
-				TempC:   d.TempC,
+				Weather:  weatherToUI(d.State),
+				TempHigh: d.TempHigh,
+				TempLow:  d.TempLow,
 			}
 		}
 		return days
@@ -1516,6 +1521,7 @@ func (s *Scenario) Update(dt float64) {
 			s.followGuestID = a.ID
 			s.activeTrailID = 0
 			s.selectedCatID = 0
+			s.selectedBuildingID = 0
 			s.showCatPath = false
 			if s.popup != nil {
 				s.popup.Visible = false
@@ -1988,6 +1994,19 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		applyBuildingPlacementEffects(w.Terrain, b)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
+	case toolSnowGun:
+		if w.Cash < world.SnowGunCost {
+			s.setToast(fmt.Sprintf("Need $%d for a snow gun — short by $%d",
+				world.SnowGunCost, world.SnowGunCost-w.Cash))
+			return
+		}
+		if w.BuildingOverlap(world.BuildingSnowGun, wx, wz) {
+			s.setToast("Can't place a snow gun here — overlaps another building")
+			return
+		}
+		w.Cash -= world.SnowGunCost
+		w.PlaceBuildingType(world.BuildingSnowGun, wx, wz)
+		r.RebuildStaticBatch(w)
 	case toolGlade:
 		// Slider value 0–10 = % density delta per application. Each click
 		// or drag-into-new-cell event fires one application; stationary
@@ -2234,6 +2253,24 @@ func (s *Scenario) Render(r *render.Renderer) {
 		r.ClearBrush()
 	}
 
+	// Snow gun range ring — shown during placement hover and when the gun's popup is open.
+	rangeShown := false
+	if s.activeTool == toolSnowGun && s.hoverValid {
+		r.SetRange(mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]}, world.SnowGunRangeM)
+		rangeShown = true
+	} else if s.popup != nil && s.popup.Visible && s.selectedBuildingID != 0 {
+		for _, b := range s.world.Buildings {
+			if b.ID == s.selectedBuildingID && b.Type == world.BuildingSnowGun {
+				r.SetRange(b.Pos, world.SnowGunRangeM)
+				rangeShown = true
+				break
+			}
+		}
+	}
+	if !rangeShown {
+		r.ClearRange()
+	}
+
 	r.HighlightGuestID = s.followGuestID
 	if s.selectedCatID != 0 && s.popup != nil && s.popup.Visible {
 		r.HighlightCatID = s.selectedCatID
@@ -2244,6 +2281,7 @@ func (s *Scenario) Render(r *render.Renderer) {
 	r.WeatherOverlay = int(s.sim.Weather.Today().State)
 	r.DrawWorld(s.world, s.time)
 	r.ClearBrush()
+	r.ClearRange()
 	r.ClearPerceptionCone()
 
 	// Re-anchor the bottom tool bar to the live screen height before draw.
@@ -2428,6 +2466,7 @@ func (s *Scenario) tryOpenPopup(clickPos mgl32.Vec3, screenW, screenH int) {
 
 func (s *Scenario) openTrailPopup(trail *world.Trail, screenW, screenH int) {
 	s.selectedCatID = 0
+	s.selectedBuildingID = 0
 	s.showCatPath = false
 	s.activeTrailID = trail.ID // show overlay for selected trail even without overlay panel
 	s.buildTrailPopup(trail, false, screenW, screenH)
@@ -2519,6 +2558,7 @@ func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 		s.activeTrailID = 0
 	}
 	s.selectedCatID = 0
+	s.selectedBuildingID = b.ID
 	s.showCatPath = false
 	bldg := b
 	switch bldg.Type {
@@ -2618,6 +2658,31 @@ func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 		w.Center(screenW, screenH)
 		s.popup = w
 		return
+	case world.BuildingSnowGun:
+		w := ui.NewWindow("Snow Gun", 0, 0)
+		w.AddBoolToggle("Active", func() bool { return bldg.SnowGunEnabled }, func(v bool) {
+			bldg.SnowGunEnabled = v
+		})
+		w.AddLabel("Daily cost", func() string {
+			if bldg.SnowGunEnabled {
+				return fmt.Sprintf("$%d/day", world.SnowGunActiveCostDay)
+			}
+			return "$0/day (off)"
+		})
+		w.AddLabel("Status", func() string {
+			if !bldg.SnowGunEnabled {
+				return "Off"
+			}
+			low := s.sim.Weather.Today().TempLow
+			if low <= world.SnowGunMinTempC {
+				return fmt.Sprintf("Producing snow (low %s)", settings.FormatTemp(low))
+			}
+			return fmt.Sprintf("Too warm (low %s)", settings.FormatTemp(low))
+		})
+		w.Visible = true
+		w.Center(screenW, screenH)
+		s.popup = w
+		return
 	}
 	w := ui.NewWindow("Lodge", 0, 0)
 	w.AddLabel("Inbound", func() string {
@@ -2639,6 +2704,7 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 		s.activeTrailID = 0
 	}
 	s.selectedCatID = 0
+	s.selectedBuildingID = 0
 	s.showCatPath = false
 	l := lift
 	w := ui.NewWindow("Ski Lift", 0, 0)
@@ -2745,6 +2811,7 @@ func (s *Scenario) openSnowcatPopup(cat *world.Snowcat, screenW, screenH int) {
 		s.activeTrailID = 0
 	}
 	s.selectedCatID = cat.ID
+	s.selectedBuildingID = 0
 	s.showCatPath = false
 	s.followGuestID = 0
 	c := cat
@@ -2991,6 +3058,11 @@ func updatePlacementGhost(r *render.Renderer, t *world.Terrain, st placementGhos
 			buildingInstance(st.hoverPos, t, st.tint),
 		})
 
+	case toolSnowGun:
+		r.SetGhosts(render.MeshSnowGun, []render.StaticInstance{
+			buildingInstance(st.hoverPos, t, st.tint),
+		})
+
 	case toolParking:
 		r.SetGhosts(render.MeshParkingPad, []render.StaticInstance{
 			buildingInstance(st.hoverPos, t, st.tint),
@@ -3085,6 +3157,9 @@ func (s *Scenario) placementCost() (cost int, affordable, legal, valid bool) {
 	case toolPatrolHut:
 		cost = world.PatrolHutCost
 		legal = !s.world.BuildingOverlap(world.BuildingPatrolHut, pos[0], pos[1])
+	case toolSnowGun:
+		cost = world.SnowGunCost
+		legal = !s.world.BuildingOverlap(world.BuildingSnowGun, pos[0], pos[1])
 	case toolParking:
 		cost = world.ParkingCost
 		legal = !s.world.BuildingOverlap(world.BuildingParking, pos[0], pos[1])

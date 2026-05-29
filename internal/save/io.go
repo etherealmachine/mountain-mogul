@@ -217,6 +217,7 @@ func worldToData(w *world.World) ScenarioData {
 			MaxCars:         b.MaxCars,
 			CurrentCars:     b.CurrentCars,
 			DrivewayNodeIDs: b.DrivewayNodeIDs,
+			SnowGunEnabled:  b.SnowGunEnabled,
 		}
 	}
 
@@ -512,6 +513,7 @@ func dataToWorld(data ScenarioData) *world.World {
 			b.CurrentCars = bd.CurrentCars
 			b.DrivewayNodeIDs = bd.DrivewayNodeIDs
 		}
+		b.SnowGunEnabled = bd.SnowGunEnabled
 	}
 
 	// Restore snowcats. Each cat's ShedID must already resolve via the

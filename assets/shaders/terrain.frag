@@ -10,6 +10,8 @@ in vec3  vSmoothNormal; // per-corner smoothed normal, interpolated across trian
 
 uniform vec2  uBrushCenter;
 uniform float uBrushRadius;
+uniform vec2  uRangeCenter;
+uniform float uRangeRadius;
 uniform int   uOverlayMode;     // 0 = off, 1 = contour, 2 = slope debug
 uniform vec3  uCameraPos;
 uniform float uTime;
@@ -443,7 +445,7 @@ void main() {
         fragColor.rgb = mix(fragColor.rgb, ov.rgb, ov.a);
     }
 
-    // Brush ring (unchanged behaviour).
+    // Brush ring — yellow, used by the glade tool.
     if (uBrushRadius > 0.0) {
         float d    = length(vWorldPos.xz - uBrushCenter);
         float ring = abs(d - uBrushRadius);
@@ -451,6 +453,17 @@ void main() {
         fragColor  = mix(fragColor, vec4(1.0, 1.0, 0.3, 1.0), t * 0.85);
         if (d < uBrushRadius - 5.0) {
             fragColor = mix(fragColor, vec4(1.0, 1.0, 0.5, 1.0), 0.12);
+        }
+    }
+
+    // Range ring — blue/white, used by the snow gun radius indicator.
+    if (uRangeRadius > 0.0) {
+        float d    = length(vWorldPos.xz - uRangeCenter);
+        float ring = abs(d - uRangeRadius);
+        float t    = 1.0 - clamp(ring / 3.0, 0.0, 1.0);
+        fragColor  = mix(fragColor, vec4(0.55, 0.85, 1.0, 1.0), t * 0.9);
+        if (d < uRangeRadius - 3.0) {
+            fragColor = mix(fragColor, vec4(0.6, 0.9, 1.0, 1.0), 0.08);
         }
     }
 }

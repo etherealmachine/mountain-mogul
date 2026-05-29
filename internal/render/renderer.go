@@ -108,6 +108,11 @@ type Renderer struct {
 	brushCenter mgl32.Vec2
 	brushRadius float32
 
+	// rangeCenter/rangeRadius drive the snow-gun range ring drawn by the
+	// terrain shader. Set via SetRange before DrawWorld; cleared after.
+	rangeCenter mgl32.Vec2
+	rangeRadius float32
+
 	// Perception-cone highlight (followed-skier diagnostic). When
 	// perceptionRadius > 0 the static shader tints any instance whose
 	// origin falls inside the fan toward warm yellow. Mirrors the brush
@@ -292,6 +297,7 @@ func (r *Renderer) initStaticMeshes() {
 		{MeshShed, "shed"},
 		{MeshParkingPad, "parking"}, // built by models-src/parking.scad
 		{MeshRoadConnect, "road_connect"},
+		{MeshSnowGun, "snow_gun"}, // built by models-src/snow_gun.scad
 	}
 
 	for _, def := range meshDefs {
@@ -1372,6 +1378,8 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 			meshID = MeshShed
 		case world.BuildingParking:
 			meshID = MeshParkingPad
+		case world.BuildingSnowGun:
+			meshID = MeshSnowGun
 		}
 		if batch, ok := r.staticBatches[meshID]; ok {
 			batch.AddStatic(BuildingTransform(bldg.Pos, bldg.Rotation, w.Terrain), mgl32.Vec3{1, 1, 1})
@@ -1664,6 +1672,8 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		r.TerrainShader.SetMat4("uViewProj", vp)
 		r.TerrainShader.SetVec2("uBrushCenter", r.brushCenter)
 		r.TerrainShader.SetFloat("uBrushRadius", r.brushRadius)
+		r.TerrainShader.SetVec2("uRangeCenter", r.rangeCenter)
+		r.TerrainShader.SetFloat("uRangeRadius", r.rangeRadius)
 		r.TerrainShader.SetInt("uOverlayMode", r.TerrainOverlayMode)
 		r.TerrainShader.SetVec3("uCameraPos", r.Camera.WorldPos())
 		r.TerrainShader.SetFloat("uTime", time)
@@ -2247,6 +2257,18 @@ func (r *Renderer) ClearBrush() {
 	r.brushRadius = 0
 }
 
+// SetRange configures the terrain shader range ring (blue/white, used for
+// snow gun radius display).
+func (r *Renderer) SetRange(center mgl32.Vec2, radius float32) {
+	r.rangeCenter = center
+	r.rangeRadius = radius
+}
+
+// ClearRange disables the terrain shader range ring.
+func (r *Renderer) ClearRange() {
+	r.rangeRadius = 0
+}
+
 // SetPerceptionCone configures the static-shader perception fan used to
 // highlight trees the followed skier currently perceives. forward is a unit
 // XZ vector; cosHalfAngle is precomputed so the shader test is a single dot
@@ -2426,6 +2448,8 @@ func (r *Renderer) ResetSceneState() {
 
 	r.brushCenter = mgl32.Vec2{}
 	r.brushRadius = 0
+	r.rangeCenter = mgl32.Vec2{}
+	r.rangeRadius = 0
 	r.perceptionOrigin = mgl32.Vec3{}
 	r.perceptionForwardXZ = mgl32.Vec2{}
 	r.perceptionCosHalfAngle = 0

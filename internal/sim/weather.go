@@ -41,6 +41,8 @@ func (s WeatherState) String() string {
 type DayWeather struct {
 	State      WeatherState // canonical condition for the day
 	TempC      float32      // daily mean temperature, °C (negative = below freezing)
+	TempHigh   float32      // daily high temperature, °C
+	TempLow    float32      // daily low temperature, °C
 	CloudCover float32      // 0..1; for sky rendering
 	AccumSWE   float32      // new snow, metres snow-water-equivalent (0 on non-snow days)
 	RainMM     float32      // rainfall, mm (0 on non-rain days; no game effect yet)
@@ -66,7 +68,7 @@ type Chain struct {
 func NewChain() *Chain {
 	return &Chain{
 		state: WeatherClear,
-		today: DayWeather{State: WeatherClear, TempC: -5, CloudCover: 0.1},
+		today: DayWeather{State: WeatherClear, TempC: -5, TempHigh: 0, TempLow: -10, CloudCover: 0.1},
 	}
 }
 
@@ -183,6 +185,18 @@ var stateTempNoise = [weatherStateCount]float32{
 	3, // Rain
 }
 
+// stateDiurnal[s] is the half-swing of the daily temperature cycle in °C.
+// Added to the mean to get TempHigh and subtracted to get TempLow.
+// Clear days have the largest swing (cold nights, warm sun); storm/overcast
+// days suppress radiation and narrow the range.
+var stateDiurnal = [weatherStateCount]float32{
+	5.0, // Clear — strong radiative swing
+	2.5, // Overcast — clouds act as blanket
+	2.0, // LightSnow — overcast + latent heat narrow the range
+	1.5, // HeavySnow — blizzard; near-uniform temperature
+	2.5, // Rain — moderate swing; warm air mass
+}
+
 // cloudBase[s] and cloudNoise[s] define the cloud-cover range per state.
 var (
 	cloudBase  = [weatherStateCount]float32{0.05, 0.70, 0.80, 0.90, 0.75}
@@ -220,6 +234,18 @@ func (c *Chain) sample(rng *rand.Rand, month time.Month) DayWeather {
 		}
 	}
 
+	// Diurnal high/low: mean ± half-swing with small independent noise.
+	diurnal := stateDiurnal[c.state]
+	tempHigh := temp + diurnal + float32(rng.NormFloat64())*1.5
+	tempLow := temp - diurnal + float32(rng.NormFloat64())*1.5
+	if tempHigh < tempLow {
+		tempHigh, tempLow = tempLow, tempHigh
+	}
+	// Rain days must stay above freezing even at the low.
+	if c.state == WeatherRain && tempLow < 0.5 {
+		tempLow = 0.5
+	}
+
 	// Cloud cover.
 	cloud := cloudBase[c.state] + rng.Float32()*cloudRange[c.state]
 	if cloud > 1 {
@@ -244,6 +270,8 @@ func (c *Chain) sample(rng *rand.Rand, month time.Month) DayWeather {
 	return DayWeather{
 		State:      c.state,
 		TempC:      temp,
+		TempHigh:   tempHigh,
+		TempLow:    tempLow,
 		CloudCover: cloud,
 		AccumSWE:   accumSWE,
 		RainMM:     rainMM,
