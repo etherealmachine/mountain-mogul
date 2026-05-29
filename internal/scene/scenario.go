@@ -588,6 +588,7 @@ type Scenario struct {
 	prebuiltWorld   *world.World
 	simSeed         int64                          // 0 = wall-clock; nonzero forces deterministic RNG
 	rebuild         func(seed int64) *world.World // non-nil ⇒ "New Seed" button shown
+	tickHook        func(s *sim.Simulation)       // optional testbed hook; called each frame before Tick
 
 	// Glade-tool sliders (radius in cells, thin = % density removed per
 	// application; slider 0–10 → 0.00–0.10 density delta). Visible only
@@ -725,6 +726,7 @@ func NewScenarioFromTestbed(tb *sim.Testbed) *Scenario {
 		prebuiltWorld: rebuild(tb.Seed),
 		simSeed:       tb.Seed,
 		rebuild:       rebuild,
+		tickHook:      tb.TickHook,
 	}
 }
 
@@ -1643,6 +1645,9 @@ func (s *Scenario) Update(dt float64) {
 
 	// Tick simulation (skipped while paused).
 	if !s.paused {
+		if s.tickHook != nil {
+			s.tickHook(s.sim)
+		}
 		s.sim.Tick(dt)
 	}
 
@@ -2673,6 +2678,9 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 	})
 	w.AddStepper("Speed (m/s)", &l.Speed, 0.5, 0.5, 8.0)
 	w.AddIntStepper("Ticket ($)", &l.TicketPrice, 5, 0, 200)
+	if l.OnHold {
+		w.AddLabel("Status", func() string { return "On Hold (no snow at base)" })
+	}
 	if l.Open {
 		w.AddActionButton("Close Lift", func() {
 			for _, g := range l.Queue {

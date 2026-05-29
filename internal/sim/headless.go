@@ -67,6 +67,9 @@ func RunHeadless(out io.Writer, name string, opts HeadlessOptions) error {
 	var arrivedAt float64
 
 	for i := 0; i < steps; i++ {
+		if tb.TickHook != nil {
+			tb.TickHook(sim)
+		}
 		sim.Tick(dt)
 		if len(w.OnMountain) == 0 {
 			arrived = true

@@ -29,7 +29,7 @@ type Action interface {
 const (
 	// Cost-per-second baseline. Costs are in "seconds-equivalent" so the
 	// planner can compare walking, queuing, riding, and skiing uniformly.
-	walkSpeedMps = 2.0
+	walkSpeedMps = 0.67
 	skiSpeedMps  = 10.0 // average descent speed for cost estimation; the
 	// L1 controller ultimately decides actual speed
 	queueSlotSec = 8.0 // average wait per slot in line
@@ -122,7 +122,7 @@ func (a *JoinQueue) Name() string {
 
 func (a *JoinQueue) Precondition(s *WorldSnapshot, w *world.World) bool {
 	l := findLift(w, a.LiftID)
-	if !(!s.Removed && s.AtLiftBase == a.LiftID && l != nil && l.Open) {
+	if !(!s.Removed && s.AtLiftBase == a.LiftID && l != nil && l.Open && !l.OnHold) {
 		return false
 	}
 	if diff := skillDiff(s.Skill); diff != 0 {
@@ -374,7 +374,10 @@ func ApplicableActions(s *WorldSnapshot, w *world.World) []Action {
 	}
 	// Queue / ride at the lift base, top, or while queued/on-lift.
 	if s.AtLiftBase != 0 {
-		out = append(out, &JoinQueue{LiftID: s.AtLiftBase})
+		jq := &JoinQueue{LiftID: s.AtLiftBase}
+		if jq.Precondition(s, w) {
+			out = append(out, jq)
+		}
 	}
 	if s.Queued != 0 {
 		out = append(out, &RideLift{LiftID: s.Queued})

@@ -71,6 +71,12 @@ func advanceCat(w *world.World, cat *world.Snowcat, dt float64) {
 		return
 	}
 	target := cat.Route[cat.RouteIdx]
+	// Skip bare-ground cells — cats can't cross non-snow terrain and
+	// there's nothing to groom anyway.
+	if t := w.Terrain; t.InBounds(target[0], target[1]) && t.Cells[target[0]][target[1]].TopLayer() == nil {
+		cat.RouteIdx++
+		return
+	}
 	tx := (float32(target[0]) + 0.5) * world.CellSize
 	tz := (float32(target[1]) + 0.5) * world.CellSize
 	arrived := cat.DriveToward(tx, tz, dt, arriveCellSlack)

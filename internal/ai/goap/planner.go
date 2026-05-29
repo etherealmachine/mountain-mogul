@@ -192,6 +192,9 @@ func defaultLapPlan(snap WorldSnapshot, a *world.Guest, w *world.World) ai.Plan 
 		if !liftAccessible(l, snap.Skill, w) {
 			continue
 		}
+		if !l.Open || l.OnHold {
+			continue
+		}
 		if liftTopElev(w, src)-liftBaseElev(w, l) < minDescentMeters {
 			continue
 		}

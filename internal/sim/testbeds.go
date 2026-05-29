@@ -16,9 +16,10 @@ import (
 // distinguishing detail — "10 degree slope, intermediate skier" lets a
 // user write `-testbed "10 degree slope"`.
 type Testbed struct {
-	Name  string
-	Build func() *world.World
-	Seed  int64
+	Name     string
+	Build    func() *world.World
+	Seed     int64
+	TickHook func(s *Simulation) // optional; called once per RunHeadless iteration, before Tick
 }
 
 // Testbeds is the registry surfaced by the start-menu testbed picker and
@@ -30,6 +31,111 @@ type Testbed struct {
 // trees the groomed strips go *around* the obstacle so the skier has to
 // pick a side and commit to a corduroy lane.
 var Testbeds = []Testbed{
+	{
+		// Skier walks to lift base along a path that crosses a bare-ground
+		// strip. Reproduces the "skier with SkisOn on bare ground" bug.
+		//
+		// Layout (40×60, 10° slope, z=0 is top):
+		//   Lift:    base (20,54), top (20,2)
+		//   Parking: (20,57)
+		//   Bare:    full-width strip z=46..49
+		//   Skier:   (20,40), SkisOn=true, plan=WalkToLift→Queue→Ride→SkiToParking→Depart
+		//
+		// The pathfinder routes from z=40 to z=54, crossing the bare strip
+		// at z=46..49. With SkisOn already true the violation is immediate.
+		Name: "Walk to lift, bare ground strip",
+		Seed: 1,
+		Build: func() *world.World {
+			b := scene(40, 60).slope(10).
+				parkingAt(20, 57).
+				liftFromTo(20, 54, 20, 2).
+				bareRect(0, 46, 39, 49)
+			w := b.w
+			lift := w.Lifts[0]
+			parking := w.Buildings[0]
+			const cs = float32(5.0)
+			elev := w.Terrain.SurfaceElevationAt(20, 40)
+			a := &world.Guest{
+				ID:         w.NextID(),
+				State:      world.OnMountain,
+				Discipline: world.Ski,
+				Pos:        mgl32.Vec3{20.5 * cs, elev, 40.5 * cs},
+				Traits:     ai.TraitsFor(1.0), // advanced: skips trail-service check
+				Balance:    1.0,
+				Patience:   0.8,
+				SkisOn:     true,
+			}
+			a.Plan = ai.Plan{
+				GoalName: "TestbedGoal",
+				Steps: []ai.PlanAction{
+					{Kind: ai.ActWalkToLift, LiftID: lift.ID},
+					{Kind: ai.ActJoinQueue, LiftID: lift.ID},
+					{Kind: ai.ActRideLift, LiftID: lift.ID},
+					{Kind: ai.ActSkiToParking, BldgID: parking.ID},
+					{Kind: ai.ActDepart, BldgID: parking.ID},
+				},
+			}
+			w.OnMountain = append(w.OnMountain, a)
+			return b.build()
+		},
+	},
+	{
+		// Same world as "Walk to lift, bare ground strip" but with thin snow
+		// (~0.15 m SWE) covering the whole slope. A heatwave fires at t≈10 s
+		// while the skier is mid-walk, melting snow and creating bare ground
+		// under their feet. Tests the between-tick SkisOn pre-pass fix.
+		Name: "Walk to lift, heatwave mid-walk",
+		Seed: 1,
+		Build: func() *world.World {
+			b := scene(40, 60).slope(10).
+				parkingAt(20, 57).
+				liftFromTo(20, 54, 20, 2)
+			// Thin snow: 0.15 m SWE on every cell. One heatwave (+10°C for
+			// one simulated day = 0.2 m SWE melt) will clear it entirely.
+			t := b.w.Terrain
+			for x := range t.Cells {
+				for z := range t.Cells[x] {
+					t.Cells[x][z].Layers = []world.SnowLayer{{Accumulation: 0.15}}
+				}
+			}
+			w := b.w
+			lift := w.Lifts[0]
+			parking := w.Buildings[0]
+			const cs = float32(5.0)
+			elev := w.Terrain.SurfaceElevationAt(20, 40)
+			a := &world.Guest{
+				ID:         w.NextID(),
+				State:      world.OnMountain,
+				Discipline: world.Ski,
+				Pos:        mgl32.Vec3{20.5 * cs, elev, 40.5 * cs},
+				Traits:     ai.TraitsFor(1.0),
+				Balance:    1.0,
+				Patience:   0.8,
+				SkisOn:     true,
+			}
+			a.Plan = ai.Plan{
+				GoalName: "TestbedGoal",
+				Steps: []ai.PlanAction{
+					{Kind: ai.ActWalkToLift, LiftID: lift.ID},
+					{Kind: ai.ActJoinQueue, LiftID: lift.ID},
+					{Kind: ai.ActRideLift, LiftID: lift.ID},
+					{Kind: ai.ActSkiToParking, BldgID: parking.ID},
+					{Kind: ai.ActDepart, BldgID: parking.ID},
+				},
+			}
+			w.OnMountain = append(w.OnMountain, a)
+			return b.build()
+		},
+		TickHook: func() func(s *Simulation) {
+			fired := false
+			return func(s *Simulation) {
+				if !fired && s.SimTime >= 10.0 {
+					fired = true
+					s.TriggerHeatwave()
+				}
+			}
+		}(),
+	},
 	{
 		// Injured skier give-up path: skier is pre-injured mid-slope with a
 		// short wait timer (5 s). After expiry they should walk straight to
@@ -678,6 +784,21 @@ func (b *builder) goapSkierAt(gx, gz int, skill float32, patience float32) *buil
 		Patience:   patience,
 	}
 	b.w.OnMountain = append(b.w.OnMountain, a)
+	return b
+}
+
+// bareRect clears all snow from cells in [x1,x2]×[z1,z2] (inclusive),
+// producing bare terrain. Used to create dirt strips that test skier
+// behaviour on no-snow ground.
+func (b *builder) bareRect(x1, z1, x2, z2 int) *builder {
+	t := b.w.Terrain
+	for x := x1; x <= x2; x++ {
+		for z := z1; z <= z2; z++ {
+			if t.InBounds(x, z) {
+				t.Cells[x][z].Layers = nil
+			}
+		}
+	}
 	return b
 }
 

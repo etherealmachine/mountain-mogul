@@ -239,6 +239,12 @@ type Lift struct {
 	// new guests board. Defaults to true on placement.
 	Open bool
 
+	// OnHold is set automatically when the lift base cell has no snow.
+	// A held lift drains its chairs (unloading at the top as normal) but
+	// does not board new riders; once all chairs are empty it stops moving.
+	// Cleared automatically when snow returns to the base. Not persisted.
+	OnHold bool
+
 	Queue  []*Guest
 	Chairs []Chair
 

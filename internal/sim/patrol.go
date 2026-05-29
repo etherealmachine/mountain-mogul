@@ -62,6 +62,9 @@ func (s *Simulation) patrollerEnRoute(p *world.Patroller, dt float64) {
 		p.State = world.PatrollerAtHut
 		return
 	}
+	if noSnowUnderfoot(s.World.Terrain, p.Pos[0], p.Pos[2]) {
+		return // snowmobile can't cross bare ground
+	}
 	if p.DriveToward(target.Pos[0], target.Pos[2], dt) {
 		target.OnPatrollerID = p.ID
 		p.ActionTimer = world.PatrollerOnSceneSeconds
@@ -110,6 +113,9 @@ func (s *Simulation) patrollerReturning(p *world.Patroller, dt float64) {
 			g.Pos[2] = p.Pos[2]
 			break
 		}
+	}
+	if noSnowUnderfoot(s.World.Terrain, p.Pos[0], p.Pos[2]) {
+		return // snowmobile can't cross bare ground
 	}
 	if p.DriveToward(p.TargetPos[0], p.TargetPos[2], dt) {
 		s.patrollerDropPatient(p, true)

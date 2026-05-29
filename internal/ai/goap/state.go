@@ -118,6 +118,9 @@ func Extract(a *world.Guest, w *world.World) WorldSnapshot {
 	// beyond the 8 m base proximity radius.
 	const qArrR2 = float32(2.0 * 2.0)
 	for _, l := range w.Lifts {
+		if !l.Open || l.OnHold {
+			continue
+		}
 		if sqDistXZ(a.Pos, l.Base[0], l.Base[1]) < r2 {
 			snap.AtLiftBase = l.ID
 			return snap

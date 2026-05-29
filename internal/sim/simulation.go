@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	WalkSpeed = 2.0 // m/s
+	WalkSpeed = 0.67 // m/s (~1.5 mph); slow shuffle in stiff ski boots
 	CellSize  = 5.0 // metres per grid cell
 
 	// patienceGainPerSecRiding is patience restored per sim-second
@@ -188,6 +188,7 @@ func (s *Simulation) Tick(dt float64) {
 	}
 }
 
+
 // refillTowersScratch rebuilds s.towersScratch in place from the live
 // lift list. Each per-lift TowerXZs() is cached on the Lift so this
 // is a flat copy in steady state — no allocations after the first
@@ -224,7 +225,27 @@ func (s *Simulation) tickLifts(dt float64) {
 			continue
 		}
 		fracPerSec := float64(lift.Speed) / float64(loopLen)
-		moving := lift.Open || lift.PassengerCount() > 0
+
+		// Hold: lift base has no snow — drain chairs, don't board, then stop.
+		baseCell := lift.QueueCell()
+		baseHasSnow := false
+		if baseCell[0] >= 0 && baseCell[0] < len(w.Terrain.Cells) &&
+			baseCell[1] >= 0 && baseCell[1] < len(w.Terrain.Cells[0]) {
+			baseHasSnow = w.Terrain.Cells[baseCell[0]][baseCell[1]].TotalSWE() > 0
+		}
+		wasHeld := lift.OnHold
+		lift.OnHold = !baseHasSnow
+		if lift.OnHold && !wasHeld {
+			// Transition to hold: eject queued guests so they can re-plan.
+			for _, g := range lift.Queue {
+				g.Queued = false
+				g.Plan.Steps = nil
+			}
+			lift.Queue = lift.Queue[:0]
+		}
+
+		passengers := lift.PassengerCount()
+		moving := (!lift.OnHold && lift.Open) || (lift.OnHold && passengers > 0)
 		for i := range lift.Chairs {
 			chair := &lift.Chairs[i]
 			prev := chair.Progress
@@ -270,19 +291,20 @@ func (s *Simulation) tickLifts(dt float64) {
 			}
 
 			// At base (progress wraps past 1.0): fill the chair from the
-			// queue up to its capacity. Each boarder pays TicketPrice
-			// into the resort's bank.
+			// queue up to its capacity. Skip when on hold.
 			if chair.Progress >= 1.0 {
 				chair.Progress -= 1.0
-				for j := 0; j < len(chair.Passengers) && len(lift.Queue) > 0; j++ {
-					agent := lift.Queue[0]
-					lift.Queue = lift.Queue[1:]
-					chair.Passengers[j] = agent
-					agent.OnLiftID = lift.ID
-					agent.Queued = false
-					w.Cash += lift.TicketPrice
-					w.History.RecordRevenue(lift.TicketPrice)
-					s.replanOnBoard(agent, lift)
+				if !lift.OnHold {
+					for j := 0; j < len(chair.Passengers) && len(lift.Queue) > 0; j++ {
+						agent := lift.Queue[0]
+						lift.Queue = lift.Queue[1:]
+						chair.Passengers[j] = agent
+						agent.OnLiftID = lift.ID
+						agent.Queued = false
+						w.Cash += lift.TicketPrice
+						w.History.RecordRevenue(lift.TicketPrice)
+						s.replanOnBoard(agent, lift)
+					}
 				}
 			}
 		}
@@ -400,6 +422,15 @@ func liftBaseWorldPos(w *world.World, l *world.Lift) mgl32.Vec3 {
 // mid-pass.
 func (s *Simulation) tickGuests(dt float64) {
 	w := s.World
+	// Pre-pass: correct stale SkisOn state introduced between ticks (e.g.
+	// by heatwave or other external snow mutations applied outside the
+	// substep loop).
+	for _, agent := range w.OnMountain {
+		if agent.SkisOn && noSnowUnderfoot(w.Terrain, agent.Pos[0], agent.Pos[2]) {
+			agent.SkisOn = false
+			agent.SkiTransitionTimer = 0
+		}
+	}
 	for _, agent := range w.OnMountain {
 		if agent.Removed {
 			continue
@@ -433,6 +464,14 @@ func (s *Simulation) tickGuests(dt float64) {
 			s.tickPath(agent, dt)
 		default:
 			s.tickLocomote(agent, dt)
+		}
+		// Hard invariant: skis cannot be on while standing on bare ground.
+		// Use an instant correction (no transition timer) because with high
+		// TimeScale the 1-second transition completes within the same
+		// wall-clock tick and the cycle can recur before the tick ends.
+		if agent.SkisOn && noSnowUnderfoot(s.World.Terrain, agent.Pos[0], agent.Pos[2]) {
+			agent.SkisOn = false
+			agent.SkiTransitionTimer = 0
 		}
 	}
 	s.reapDeparted()
@@ -951,6 +990,12 @@ func (s *Simulation) replan(a *world.Guest) {
 	}
 	if !a.Plan.Done() {
 		s.onPlanStepStart(a)
+		return
+	}
+	// Planner returned nothing — guest is stranded (e.g. all lifts held,
+	// not at a lift top). Send them home rather than leaving them frozen.
+	if !a.Removed {
+		s.directHomePlan(a)
 	}
 }
 
@@ -1011,6 +1056,14 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 	case ai.ActJoinQueue:
 		lift := findLiftByID(w, step.LiftID)
 		if lift == nil {
+			return
+		}
+		// Replan if the lift has been closed or placed on hold since this
+		// plan was built — don't queue on an inoperable lift. Clear the
+		// plan and return; tickPlanning will replan next tick (calling
+		// replan here would recurse: replan→onPlanStepStart→here→...).
+		if !lift.Open || lift.OnHold {
+			a.Plan.Steps = nil
 			return
 		}
 		// Safety-net: queue grew past the threshold since this plan was built.
@@ -1124,11 +1177,11 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 	}
 }
 
-// injuredGiveUpPlan builds a direct [SkiToParking, Depart] plan so an
-// injured guest who gave up walks to the nearest parking lot without routing
-// through the lift system. If no parking lot exists the guest is removed
-// immediately — there is nowhere for them to go.
-func (s *Simulation) injuredGiveUpPlan(a *world.Guest) {
+// directHomePlan assigns a direct [SkiToParking, Depart] plan to a,
+// bypassing the GOAP planner. Used when normal replanning would produce
+// nothing (e.g. all lifts held, guest stranded at lift base) and for
+// injured guests giving up. If no parking lot exists the guest is removed.
+func (s *Simulation) directHomePlan(a *world.Guest) {
 	w := s.World
 	var best *world.Building
 	var bestD2 float32
@@ -1156,6 +1209,14 @@ func (s *Simulation) injuredGiveUpPlan(a *world.Guest) {
 		},
 	}
 	s.onPlanStepStart(a)
+}
+
+// injuredGiveUpPlan builds a direct [SkiToParking, Depart] plan so an
+// injured guest who gave up walks to the nearest parking lot without routing
+// through the lift system. If no parking lot exists the guest is removed
+// immediately — there is nowhere for them to go.
+func (s *Simulation) injuredGiveUpPlan(a *world.Guest) {
+	s.directHomePlan(a)
 }
 
 // planActionComplete returns true when the head step's post-state is
@@ -1200,7 +1261,8 @@ func planActionComplete(step ai.PlanAction, a *world.Guest, snap goap.WorldSnaps
 func planActionPreconditionHolds(step ai.PlanAction, snap goap.WorldSnapshot, w *world.World) bool {
 	switch step.Kind {
 	case ai.ActWalkToLift, ai.ActJoinQueue, ai.ActRideLift, ai.ActSkiToLift:
-		return findLiftByID(w, step.LiftID) != nil
+		l := findLiftByID(w, step.LiftID)
+		return l != nil && l.Open && !l.OnHold
 	case ai.ActSkiToLodge, ai.ActSkiToParking, ai.ActRestAtLodge, ai.ActDepart:
 		return findBuildingByID(w, step.BldgID) != nil
 	case ai.ActSkiTrail:
@@ -1475,6 +1537,22 @@ func (s *Simulation) tickLocomote(agent *world.Guest, dt float64) {
 	// Walk (not ski) when skis are off, or when terrain and momentum
 	// no longer call for skiing.
 	if !agent.SkisOn || (!shouldSki(w.Terrain, agent.Pos, targetPos) && agent.Speed <= skiWalkSpeed) {
+		// Remove skis when close to lodge or parking — guests shouldn't
+		// shuffle the last few metres in full gear. Only trigger near the
+		// destination so a departing guest still skis down from the lift
+		// top rather than removing skis immediately after unloading.
+		if agent.SkisOn && agent.SkiTransitionTimer == 0 {
+			head := agent.Plan.Head()
+			if head.Kind == ai.ActSkiToLodge || head.Kind == ai.ActSkiToParking || agent.Plan.Goal == ai.GoalDepart {
+				dx := targetPos[0] - agent.Pos[0]
+				dz := targetPos[2] - agent.Pos[2]
+				const nearDest = 30.0
+				if dx*dx+dz*dz < nearDest*nearDest {
+					agent.SkiTransitionTimer = 1.0
+					return
+				}
+			}
+		}
 		s.recordWalkTick(agent, targetPos)
 		s.tickWalkToward(agent, targetPos, dt)
 		if !agent.SkisOn {
