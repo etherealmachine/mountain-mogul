@@ -370,7 +370,7 @@ var Testbeds = []Testbed{
 		// and snow accumulate in the runout fan.
 		//
 		// Layout (60×80 cells, 5 m/cell):
-		//   z= 0..44  : steep zone (42°)
+		//   z= 0..44  : steep zone (50°)
 		//   z=45..79  : runout (7°)
 		//   V gully   : floor 20 cells wide centred on x=30; walls rise at
 		//               0.6 rise/run beyond the floor edges
@@ -386,7 +386,7 @@ var Testbeds = []Testbed{
 				floorHalf = 10 // half-width of flat gully floor (cells)
 			)
 			cs := float32(CellSize)
-			upperRate := float32(math.Tan(42.0 * math.Pi / 180))
+			upperRate := float32(math.Tan(50.0 * math.Pi / 180))
 			runoutRate := float32(math.Tan(7.0 * math.Pi / 180))
 			joinElev := float32(hCells-splitZ) * cs * runoutRate
 
