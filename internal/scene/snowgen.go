@@ -160,7 +160,7 @@ func (f *elevFields) applySnowAccum(t *world.Terrain, maxDepth, snowlineFrac, tr
 	for x := 0; x < t.Width; x++ {
 		for z := 0; z < t.Height; z++ {
 			elev := t.Cells[x][z].GroundElevation
-			gx, gz := gradientAt(t, x, z)
+			gx, gz := t.GradientAt(x, z)
 			slope := float32(math.Sqrt(float64(gx*gx + gz*gz)))
 
 			d := float32(1.0)
@@ -258,34 +258,3 @@ func (f *elevFields) applySnowAccum(t *world.Terrain, maxDepth, snowlineFrac, tr
 	t.SnowDirty = true
 }
 
-// gradientAt returns the elevation gradient (∂e/∂x, ∂e/∂z) at cell (x, z)
-// using central differences with edge clamping. Same edge handling as
-// slopeAt; the magnitude of this vector equals slopeAt's result.
-func gradientAt(t *world.Terrain, x, z int) (float32, float32) {
-	const cellSize = float32(5.0)
-	x0, x1 := x-1, x+1
-	if x0 < 0 {
-		x0 = 0
-	}
-	if x1 >= t.Width {
-		x1 = t.Width - 1
-	}
-	z0, z1 := z-1, z+1
-	if z0 < 0 {
-		z0 = 0
-	}
-	if z1 >= t.Height {
-		z1 = t.Height - 1
-	}
-	dxRun := float32(x1-x0) * cellSize
-	dzRun := float32(z1-z0) * cellSize
-	gx := float32(0)
-	if dxRun > 0 {
-		gx = (t.Cells[x1][z].GroundElevation - t.Cells[x0][z].GroundElevation) / dxRun
-	}
-	gz := float32(0)
-	if dzRun > 0 {
-		gz = (t.Cells[x][z1].GroundElevation - t.Cells[x][z0].GroundElevation) / dzRun
-	}
-	return gx, gz
-}

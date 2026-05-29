@@ -261,6 +261,36 @@ func (c *Cell) TopLayer() *SnowLayer {
 	return nil
 }
 
+// GradientAt returns the ground-elevation gradient (∂e/∂x, ∂e/∂z) at cell
+// (x, z) using central differences with edge clamping. The magnitude of the
+// returned vector is the rise-over-run slope (dimensionless).
+func (t *Terrain) GradientAt(x, z int) (gx, gz float32) {
+	const cellSize = float32(5.0)
+	x0, x1 := x-1, x+1
+	if x0 < 0 {
+		x0 = 0
+	}
+	if x1 >= t.Width {
+		x1 = t.Width - 1
+	}
+	z0, z1 := z-1, z+1
+	if z0 < 0 {
+		z0 = 0
+	}
+	if z1 >= t.Height {
+		z1 = t.Height - 1
+	}
+	dxRun := float32(x1-x0) * cellSize
+	dzRun := float32(z1-z0) * cellSize
+	if dxRun > 0 {
+		gx = (t.Cells[x1][z].GroundElevation - t.Cells[x0][z].GroundElevation) / dxRun
+	}
+	if dzRun > 0 {
+		gz = (t.Cells[x][z1].GroundElevation - t.Cells[x][z0].GroundElevation) / dzRun
+	}
+	return gx, gz
+}
+
 // SurfaceElevation returns the snow-surface elevation for this cell
 // (ground + visible snow column height).
 func (c Cell) SurfaceElevation() float32 {

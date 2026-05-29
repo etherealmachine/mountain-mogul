@@ -389,6 +389,42 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 		s.addThought(a, ai.ThoughtThirsty)
 	}
 
+	// Avalanche hit — if active debris is flowing through this cell, force a
+	// high-probability injury fall before the normal balance update.
+	{
+		xi := int(a.Pos[0] / CellSize)
+		zi := int(a.Pos[2] / CellSize)
+		if s.World.Terrain.InBounds(xi, zi) && s.avalancheHazard[xi][zi] > 0.3 && !a.Fallen {
+			a.Balance = 0
+			a.Fallen = true
+			a.Energy = clamp32(a.Energy-energyFallDrain, 0, 1)
+			a.Events = append(a.Events, ai.GuestEvent{Kind: ai.EventFall, Time: s.SimTime})
+			a.Speed = 0
+			const avyInjuryChance = float32(0.70)
+			if rng.Global().Float32() < avyInjuryChance {
+				a.Injured = true
+				a.InjuryWaitTimer = injuryWaitTime
+				a.Events = append(a.Events, ai.GuestEvent{Kind: ai.EventInjury, Time: s.SimTime})
+				if step := a.Plan.Head(); step.Kind == ai.ActSkiTrail {
+					s.addThought(a, ai.ThoughtInjured, step.TrailID)
+				} else {
+					s.addThought(a, ai.ThoughtInjured)
+				}
+				a.Satisfaction = clamp32(a.Satisfaction-0.40, 0, 1)
+			} else {
+				a.FallTimer = float32(fallRecoverTime)
+				if step := a.Plan.Head(); step.Kind == ai.ActSkiTrail {
+					s.addThought(a, ai.ThoughtFell, step.TrailID)
+				} else {
+					s.addThought(a, ai.ThoughtFell)
+				}
+				a.Satisfaction = clamp32(a.Satisfaction-0.20, 0, 1)
+			}
+			recordFrame(s, a, target, dist, perc, dec)
+			return false
+		}
+	}
+
 	// Balance + fall.
 	a.Balance += stressDelta(a.Traits, perc, dec) * float32(dt)
 	if a.Balance > 1 {
