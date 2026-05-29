@@ -90,6 +90,11 @@ type Simulation struct {
 	// avalanche sweeps through a cell. Decays each subTick. Not saved.
 	avalancheHazard [][]float32
 
+	// avyChains holds avalanche fronts currently propagating downhill. Each
+	// chain carries a multi-cell spreading front that widens as it descends.
+	// Advances at avyHopsPerSec cells per wall-second. Not saved.
+	avyChains []avyChain
+
 	// sectionsStale triggers a full global section recompute at the start
 	// of the next snowcat tick. Set by InvalidateSections whenever the
 	// fleet or trail configuration changes.
@@ -222,6 +227,7 @@ func (s *Simulation) subTick(dt float64) {
 	s.tickPatrollers(dt)
 	s.tickSnowGuns(dt)
 	s.decayAvalancheHazard(dt)
+	s.tickAvalancheChains(dt)
 }
 
 func (s *Simulation) tickLifts(dt float64) {
@@ -686,11 +692,43 @@ func (s *Simulation) TriggerStorm() {
 	})
 }
 
-// TriggerAvalanche runs the avalanche instability check immediately,
-// bypassing the daily weather trigger. Used by the debug console cheat.
+// TriggerAvalanche picks a single random cell from those with the highest
+// instability and releases it. Used by the debug console cheat.
 func (s *Simulation) TriggerAvalanche() {
-	s.checkAvalanches()
-	s.World.Terrain.SnowDirty = true
+	t := s.World.Terrain
+	h := s.avalancheHazard
+
+	type candidate struct {
+		x, z       int
+		score      float32
+		gx, gz     float32
+	}
+	var best []candidate
+	bestScore := float32(0)
+	for x := range t.Cells {
+		for z := range t.Cells[x] {
+			c := &t.Cells[x][z]
+			gx, gz := t.GradientAt(x, z)
+			slope := float32(math.Sqrt(float64(gx*gx + gz*gz)))
+			score := instabilityScore(c, slope)
+			if score < 1.0 {
+				continue
+			}
+			if score > bestScore+0.05 {
+				bestScore = score
+				best = best[:0]
+			}
+			if score >= bestScore-0.05 {
+				best = append(best, candidate{x, z, score, gx, gz})
+			}
+		}
+	}
+	if len(best) == 0 {
+		return
+	}
+	pick := best[rng.Global().Intn(len(best))]
+	s.releaseAvalanche(t, h, pick.x, pick.z, pick.gx, pick.gz)
+	t.SnowDirty = true
 }
 
 // TriggerHeatwave immediately applies one warm sunny day to the terrain —

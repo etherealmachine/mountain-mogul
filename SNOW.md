@@ -41,6 +41,7 @@ Seven named kinds are the sole discriminator for density, physics, and rendering
 | Crust | 0.60 | −20 % (fast) | −50 % | 0.65 | 0.40 |
 | Boilerplate | 0.90 | −50 % (very fast) | −85 % | 0.95 | 0.90 |
 | Slush/Corn | 0.55 | +40 % drag | −10 % | 0.45 | 0.00 |
+| Debris | 0.65 | +20 % drag | −25 % | 0.20 | 0.45 |
 
 "Shader packed" and "Shader ice" are written into the `aSnow` vertex attribute `(Grooming, Packed, Ice, MogulSize)` via `KindShaderPacked(k)` and `KindShaderIce(k)`. The terrain shader is unchanged — it still reads those two slots, but they are now kind-derived constants rather than per-layer scalars.
 
@@ -255,10 +256,81 @@ Not saved. Fully re-derivable on load: G stamped from saved `TreeDensity`, B rec
 
 ---
 
+## Avalanche simulation
+
+Avalanches fire as a daily weather effect. After heavy snowfall or rain, steep cells with unstable snow are checked for release. Released snow flows downhill as a hazard corridor; skiers caught in it are injured and require patrol rescue.
+
+### Instability score
+
+Each cell is scored once per triggering weather day:
+
+```
+slope = |GradientAt(x, z)|   // rise/run, dimensionless (consistent with snowgen thresholds)
+if slope < 0.55 (≈29°): never releases
+
+slopeExcess = clamp((slope − 0.55) / 0.85, 0, 1)   // 0 at 29°, 1 at ~60°
+
+kindMult:
+  WindSlab, Crust        → 1.5   (slab surface — highest release risk)
+  FrozenGranular         → 1.2
+  Powder, Cement         → 1.0
+  Slush, Corn            → 0.8   (wet-slide risk)
+  PackedPowder, Boilerplate, Base → 0.2 (stable)
+
+treeAnchor = TreeDensity × 0.4   // dense trees prevent release
+
+instability = (TotalSWE / 0.30) × slopeExcess × kindMult × (1 − treeAnchor)
+```
+
+A cell releases when `instability ≥ 1.0`, subject to a stochastic roll of `clamp(instability − 1.0, 0, 1) × 0.6` so the same conditions don't produce identical events every storm.
+
+### Trigger
+
+`checkAvalanches` is called from `applyDailyWeather` when:
+- A snowfall day deposited `AccumSWE > 0.04 m` (4 cm SWE), or
+- A rain event fired.
+
+### Release and propagation
+
+On release, a cell:
+1. Clears its `Top` layer and reduces `Base` SWE by 60%.
+2. Enqueues a propagating chain (`avyChain`) carrying a multi-cell spreading front. Advances at **2 cells/wall-second (~10 m/s)** via `tickAvalancheChains`.
+3. Each tick, every item in the front fans out to qualifying forward neighbours. Neighbours are weighted by `dot(travelDir, offset) × effectiveSlope`, where `effectiveSlope = slopeToNeighbour + momentum × 0.1`. SWE splits proportionally — the primary downhill cell gets the most; lateral cells get smaller shares. This makes the avalanche widen as it descends.
+4. Transported SWE × 0.85 per hop (15% settles as debris at each reached cell), distributed across all spread children.
+5. Each child item carries **momentum** that builds on steep terrain and drains on flat terrain (`avyMomentumGain = 2.0`, `avyMomentumMax = 4.0`). Momentum carries the chain through flat runout zones and short uphill bumps rather than stopping on a dime.
+
+An item stops propagating when:
+- All forward-hemisphere neighbours have `effectiveSlope ≤ 0` (flat/uphill and no momentum)
+- `Passable == false` (building or lift endpoint)
+- `TreeDensity > 0.7`
+- Hop limit (30) reached
+
+A 30-hop avalanche takes ~15 real seconds to fully propagate.
+
+### Hazard map
+
+`avalancheHazard [][]float32` lives on `Simulation` (not saved, not on `Cell`). The source cell is set to 1.0 immediately; run-out cells are set to 1.0 as the animated front reaches them. Decays at −0.04/sim-second in `subTick`, reaching zero in ~25 sim-seconds (several in-game hours).
+
+### Skier impact
+
+Each tick in `tickSkier`, before the balance update:
+
+```
+if avalancheHazard[xi][zi] > 0.3:
+    a.Balance = −1.0       // guaranteed fall
+    injuryChance = 0.7     // high — avalanche is very dangerous
+```
+
+The existing fall/injury path then handles the rest: patrol dispatch, rescue, satisfaction penalty.
+
+---
+
 ## Future work
 
 - **Glade tolerance trait** — per-skier willingness to enter trees; currently all skiers avoid trees equally.
 - **Weather-driven demand** — bad weather suppressing arrivals or guest satisfaction.
 - **Wind field** — daily wind direction as a simulation variable rather than a static scenario parameter.
 - **Lift cable clearance** — cables currently sit at `Surface + CableHeight`; physically they should clear ground regardless of snow depth.
-- **Avalanche simulation** — the two-layer model directly supports slab instability: `Top` (WindSlab/Crust with significant SWE) over `Base` (Boilerplate/Crust) on slope angles above ~35° constitutes an unstable slab. No layer indexing required.
+- **Avalanche mitigation** — explosive triggering, run closures, avalanche barriers.
+- **Avalanche forecast overlay** — show predicted risk zones on the map before triggering.
+- **Avalanche event type** — separate entry in guest history for demand/reputation modeling.
