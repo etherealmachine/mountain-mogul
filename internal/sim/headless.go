@@ -16,6 +16,12 @@ type HeadlessOptions struct {
 	SamplePeriod float64
 	// Seed overrides the testbed's recommended seed when non-zero.
 	Seed int64
+	// Query, if non-empty, is executed against the sim state at the end of the
+	// run and its output printed after the summary. Multiple queries may be
+	// separated by ";". WHERE expressions use Go syntax (&&, ||, ==); AND/OR
+	// are accepted as aliases. Example:
+	//   "SELECT x, z, slope, instability_score FROM cells ORDER BY instability_score DESC LIMIT 10"
+	Query string
 }
 
 // RunHeadless runs the named testbed without a GLFW window and writes a
@@ -40,37 +46,47 @@ func RunHeadless(out io.Writer, name string, opts HeadlessOptions) error {
 	}
 
 	w := tb.Build()
-	if len(w.OnMountain) == 0 {
-		return fmt.Errorf("testbed %q produced no agents", tb.Name)
-	}
-	agent := w.OnMountain[0]
+	hasAgents := len(w.OnMountain) > 0
 
 	sim := NewSimulationWithSeed(w, seed)
 	sim.TimeScale = 1.0 // headless ticks are real-time = sim-time so dt is exact
-	rec := newTraceRecorder(agent.ID, out, opts.SamplePeriod)
-	sim.Recorder = rec
 
-	target := targetPos(w, agent)
 	fmt.Fprintf(out, "testbed: %s  seed=%d  sim_seconds=%.1f\n", tb.Name, seed, opts.SimSeconds)
-	fmt.Fprintf(out, "agent:   id=%d skill=%s pos=(%.1f,%.1f,%.1f) target=(%.1f,%.1f,%.1f) dist=%.1f\n\n",
-		agent.ID, skillName(agent.Traits.Skill),
-		agent.Pos[0], agent.Pos[1], agent.Pos[2],
-		target[0], target[1], target[2],
-		dist3(agent.Pos[0]-target[0], agent.Pos[1]-target[1], agent.Pos[2]-target[2]))
 
-	rec.writeHeader()
+	var rec *traceRecorder
+	var agent *world.Guest
+	var target [3]float32
+	var prevActivity string
+	var arrived bool
+	var arrivedAt float64
+
+	if hasAgents {
+		agent = w.OnMountain[0]
+		rec = newTraceRecorder(agent.ID, out, opts.SamplePeriod)
+		sim.Recorder = rec
+		target = targetPos(w, agent)
+		fmt.Fprintf(out, "agent:   id=%d skill=%s pos=(%.1f,%.1f,%.1f) target=(%.1f,%.1f,%.1f) dist=%.1f\n\n",
+			agent.ID, skillName(agent.Traits.Skill),
+			agent.Pos[0], agent.Pos[1], agent.Pos[2],
+			target[0], target[1], target[2],
+			dist3(agent.Pos[0]-target[0], agent.Pos[1]-target[1], agent.Pos[2]-target[2]))
+		rec.writeHeader()
+		prevActivity = world.Activity(w, agent)
+	} else {
+		fmt.Fprintln(out)
+	}
 
 	const dt = 1.0 / 60.0
 	steps := int(opts.SimSeconds / dt)
-	prevActivity := world.Activity(w, agent)
-	arrived := false
-	var arrivedAt float64
 
 	for i := 0; i < steps; i++ {
 		if tb.TickHook != nil {
 			tb.TickHook(sim)
 		}
 		sim.Tick(dt)
+		if !hasAgents {
+			continue
+		}
 		if len(w.OnMountain) == 0 {
 			arrived = true
 			arrivedAt = sim.SimTime
@@ -84,15 +100,27 @@ func RunHeadless(out io.Writer, name string, opts HeadlessOptions) error {
 	}
 
 	fmt.Fprintln(out)
-	if arrived {
-		fmt.Fprintf(out, "arrived at t=%.2fs\n", arrivedAt)
-	} else {
-		a := w.OnMountain[0]
-		d := dist3(a.Pos[0]-target[0], a.Pos[1]-target[1], a.Pos[2]-target[2])
-		fmt.Fprintf(out, "did NOT arrive within %.1fs (final pos=(%.1f,%.1f,%.1f) dist=%.1f activity=%s)\n",
-			opts.SimSeconds, a.Pos[0], a.Pos[1], a.Pos[2], d, world.Activity(w, a))
+	if hasAgents {
+		if arrived {
+			fmt.Fprintf(out, "arrived at t=%.2fs\n", arrivedAt)
+		} else {
+			a := w.OnMountain[0]
+			d := dist3(a.Pos[0]-target[0], a.Pos[1]-target[1], a.Pos[2]-target[2])
+			fmt.Fprintf(out, "did NOT arrive within %.1fs (final pos=(%.1f,%.1f,%.1f) dist=%.1f activity=%s)\n",
+				opts.SimSeconds, a.Pos[0], a.Pos[1], a.Pos[2], d, world.Activity(w, a))
+		}
+		rec.writeSummary()
 	}
-	rec.writeSummary()
+
+	if opts.Query != "" {
+		ts := BuildTableSet(w, sim)
+		result, err := RunQuery(ts, opts.Query)
+		if err != nil {
+			fmt.Fprintf(out, "query error: %v\n", err)
+		} else {
+			fmt.Fprintln(out, result)
+		}
+	}
 	return nil
 }
 

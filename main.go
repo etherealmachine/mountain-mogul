@@ -35,6 +35,7 @@ func main() {
 	headless := flag.Bool("headless", false, "with -testbed: skip the UI and run the trace/aggregate runner that prints to stdout")
 	simSeconds := flag.Float64("sim-seconds", 240, "max sim seconds for -testbed -headless runs")
 	samplePeriod := flag.Float64("sample", 0.5, "sim seconds between trace rows in -testbed -headless runs")
+	query := flag.String("query", "", "SQL query (or \";\" separated queries) to run against sim state at end of -testbed -headless run. Tables: cells, guests, cats, buildings, lifts, patrollers. WHERE uses Go syntax (&&, ||, ==); AND/OR accepted. Example: \"SELECT x,z,slope,instability_score FROM cells ORDER BY instability_score DESC LIMIT 10\"")
 	seed := flag.Int64("seed", 0, "override testbed seed (0 = use the testbed's recommended seed)")
 	runs := flag.Int("runs", 1, "number of -headless iterations; >1 switches to aggregate mode (silent per-run, summary at end). Per-run seed = base seed + iteration index.")
 	screenshot := flag.String("screenshot", "", "render a few frames and write a PNG to this path, then exit. Source: -testbed if set, else -load, else most recent save.")
@@ -109,7 +110,7 @@ func main() {
 			if *runs > 1 {
 				runHeadlessAggregate(*testbed, *simSeconds, *seed, *runs)
 			} else {
-				runHeadless(*testbed, *simSeconds, *samplePeriod, *seed)
+				runHeadless(*testbed, *simSeconds, *samplePeriod, *seed, *query)
 			}
 			return
 		}
@@ -419,6 +420,7 @@ func runProfile(wallSeconds, scale float64) {
 			terrain.Cells[x][z].GroundElevation = elev
 		}
 	}
+	terrain.RecomputeSlopes()
 	wld := world.NewWorld(terrain)
 
 	// Parking lot at the base (z near max), two lifts running up-slope.
@@ -527,7 +529,7 @@ func runProfile(wallSeconds, scale float64) {
 	fmt.Println("profile:                 go tool pprof -alloc_space -top mem.prof")
 }
 
-func runHeadless(name string, simSeconds, samplePeriod float64, seed int64) {
+func runHeadless(name string, simSeconds, samplePeriod float64, seed int64, query string) {
 	if name == "list" {
 		fmt.Println("registered testbeds:")
 		for _, t := range sim.Testbeds {
@@ -539,6 +541,7 @@ func runHeadless(name string, simSeconds, samplePeriod float64, seed int64) {
 		SimSeconds:   simSeconds,
 		SamplePeriod: samplePeriod,
 		Seed:         seed,
+		Query:        query,
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
