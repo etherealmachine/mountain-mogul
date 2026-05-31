@@ -7,10 +7,12 @@ import (
 )
 
 // BuildingType selects what a Building represents and which mesh
-// renders it. New types added here also need a mesh ID in
-// world/objects.go (mirrored in render/mesh.go), a `.scad` source in
-// models-src/, a per-type cost in world.go, and a toolbar button in
-// scene/scenario.go.
+// renders it. New types added here also need:
+//   - a mesh ID in world/objects.go (mirrored in render/mesh.go)
+//   - a .scad source in models-src/
+//   - a cost constant + BuildingCost case in world.go
+//   - a toolbar button in scene/scenario.go
+//   - a case in openBuildingPopup in scene/scenario.go (panics if missed)
 type BuildingType uint8
 
 const (
