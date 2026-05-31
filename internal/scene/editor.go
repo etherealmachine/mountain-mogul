@@ -906,6 +906,7 @@ func (e *Editor) applyImportedTerrain(elevs [][]float32, r *render.Renderer) {
 			t.Cells[col][row].Top = world.SnowLayer{}
 		}
 	}
+	t.RecomputeSlopes()
 	e.world = world.NewWorld(t)
 	e.activeTool = toolNone
 	e.autoFields = nil

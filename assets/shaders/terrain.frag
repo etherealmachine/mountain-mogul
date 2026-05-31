@@ -4,9 +4,10 @@ flat in vec3  vNormal;
 in vec3  vWorldPos;
 in float vSmoothY;
 in float vAO;
-in vec4  vSnow;        // (Grooming, Packed, Ice, MogulSize)
-in float vSnowDepth;   // SnowDepth in metres
-in vec3  vSmoothNormal; // per-corner smoothed normal, interpolated across triangles
+in vec4  vSnow;             // (Grooming, Packed, Ice, MogulSize)
+in float vSnowDepth;        // SnowDepth in metres
+in vec3  vSmoothNormal;     // per-corner smoothed normal, interpolated across triangles
+in float vInstabilityScore; // Cell.InstabilityScore(); 0=stable, 1.0=release threshold
 
 uniform vec2  uBrushCenter;
 uniform float uBrushRadius;
@@ -75,6 +76,10 @@ void main() {
     float packed   = clamp(vSnow.y, 0.0, 1.0);
     float ice      = clamp(vSnow.z, 0.0, 1.0);
     float mogul    = clamp(vSnow.w, 0.0, 1.0);
+    // Avalanche-debris marker: ice > packed is a combination no weather-formed kind
+    // produces (debris is written with packed=0.20, ice=0.45). Drives colour and
+    // surface-roughness overrides below; suppresses powder and sparkle.
+    float isDebris = step(packed + 0.02, ice);
 
     // Surface-detail sample — sub-cell features rendered from the
     // 1 m-resolution texture written by the simulation. R = skier
@@ -159,7 +164,8 @@ void main() {
     // surface had been displaced into low pillows. Both are gated on
     // (1-Packed) and SnowDepth so groomed cells and thin aprons stay
     // smooth.
-    float powderness = (1.0 - packed) * smoothstep(0.0, 0.5, effDepth);
+    // Debris suppresses powder pillows — it has its own coarser roughness below.
+    float powderness = (1.0 - packed) * smoothstep(0.0, 0.5, effDepth) * (1.0 - isDebris);
     if (powderness > 0.1) {
         float pgrain = valueNoise(vWorldPos.xz / 0.8) - 0.5;
         snow += vec3(pgrain * 0.04) * powderness;
@@ -173,6 +179,15 @@ void main() {
     // slope shed), so no second slope gate is needed here. Uses
     // effDepth so tree wells expose bare ground at the trunk.
     float snowness = smoothstep(0.0, 0.05, effDepth);
+
+    // Avalanche-debris tint: warm ochre-grey from rock/soil mixed into tumbled snow.
+    // Coarse grain gives the chunky, disturbed surface character.
+    if (isDebris > 0.0 && snowness > 0.05) {
+        float dGrain  = fbmNoise(vWorldPos.xz / 2.2) * 0.08 - 0.04;
+        vec3  debrisCol = vec3(0.78, 0.74, 0.66);
+        snow = mix(snow, snow * debrisCol + vec3(dGrain), isDebris * 0.65);
+    }
+
     vec3  base     = mix(ground, snow, snowness);
 
     // Procedural normal-map for sub-cell surface character. The terrain
@@ -241,6 +256,17 @@ void main() {
             const float trackAmp = 0.08; // metres — shallower than wells
             kick.x += (rx - r0) / bumpEps * trackAmp;
             kick.z += (rz - r0) / bumpEps * trackAmp;
+        }
+        // Debris surface roughness — coarser than moguls, represents tumbled chunks.
+        // Fires instead of the powder kick (powderness is zeroed on debris cells).
+        if (isDebris > 0.0 && snowness > 0.1) {
+            vec2 doff = vec2(53.1, 17.8); // de-correlates from powder/mogul phases
+            float dd0 = fbmNoise(vWorldPos.xz / 2.0 + doff);
+            float ddx = fbmNoise((vWorldPos.xz + vec2(bumpEps, 0)) / 2.0 + doff);
+            float ddz = fbmNoise((vWorldPos.xz + vec2(0, bumpEps)) / 2.0 + doff);
+            const float debrisAmp = 0.30; // metres — 3× powder, reads as chunky rubble
+            kick.x -= (ddx - dd0) / bumpEps * debrisAmp * isDebris;
+            kick.z -= (ddz - dd0) / bumpEps * debrisAmp * isDebris;
         }
         Nshading = normalize(N + kick);
     }
@@ -340,14 +366,15 @@ void main() {
         float spec = pow(max(dot(Nshading, H), 0.0), 256.0);
         vec3  cell = floor(vWorldPos * 2.0 + uTime * 0.07); // ~50 cm cells
         float gate = step(0.985 - ice * 0.05, hash3(cell));
-        lit += gate * spec * snowness * (1.0 + ice * 4.0) * vec3(1.4, 1.35, 1.2);
+        // Debris doesn't sparkle — dirty rock/soil mixture kills specular glint.
+        lit += gate * spec * snowness * (1.0 + ice * 4.0) * vec3(1.4, 1.35, 1.2) * (1.0 - isDebris);
 
         // Ice broad specular: a wider lobe than the sparkle, no per-cell gate.
         // Reads as a sheen across icy slopes — distinct from the rough-snow
         // sparkle.
         if (ice > 0.0) {
             float broadSpec = pow(max(dot(Nshading, H), 0.0), 32.0);
-            lit += broadSpec * snowness * ice * 0.45 * vec3(0.92, 0.96, 1.10);
+            lit += broadSpec * snowness * ice * 0.45 * vec3(0.92, 0.96, 1.10) * (1.0 - isDebris);
         }
     }
 
@@ -407,24 +434,19 @@ void main() {
         fragColor.rgb = mix(fragColor.rgb, col, 0.55 * snowness);
     }
 
-    // Avalanche risk — steep slope combined with unstable snow surface.
-    // Green = safe, yellow = moderate, orange/red = high risk.
-    // The blend weight is proportional to slopeRisk so flat terrain fades out
-    // entirely and only genuinely steep cells read as red.
+    // Avalanche risk — driven directly by Cell.InstabilityScore() passed from CPU.
+    // Score 0 = stable, 1.0 = at the natural release threshold (red).
+    // 0 → green, 0.5 → yellow, 1.0+ → red.
+    // Scores above 1.0 are clamped to red; below 1.0 the cell cannot
+    // naturally release but shows the loading trend.
     if ((uOverlayMode & 16) != 0) {
-        // slope = N.y: 1.0 = flat, 0.0 = vertical.
-        // Risk rises from ~25° (N.y≈0.906) to 1.0 at ~45° (N.y≈0.707).
-        float slopeRisk = 1.0 - smoothstep(0.707, 0.906, slope);
-        // Instability: powder (low packed) and icy slab (high ice) are more dangerous.
-        float instability = clamp((1.0 - packed) * 0.6 + ice, 0.0, 1.0);
-        // On bare ground fall back to slope-only risk at reduced weight.
-        float risk = clamp(slopeRisk * mix(0.5, instability, snowness), 0.0, 1.0);
+        float risk    = clamp(vInstabilityScore, 0.0, 1.0);
         vec3 safe     = vec3(0.18, 0.78, 0.20);
         vec3 moderate = vec3(0.93, 0.80, 0.08);
         vec3 danger   = vec3(0.88, 0.15, 0.10);
-        // green→yellow at risk≈0.2, yellow→red at risk≈0.4
-        float t2 = clamp(risk * 5.0, 0.0, 1.0);
-        float t3 = clamp(risk * 4.0 - 0.6, 0.0, 1.0);
+        // green→yellow over [0, 0.5], yellow→red over [0.5, 1.0]
+        float t2 = clamp(risk * 2.0, 0.0, 1.0);
+        float t3 = clamp(risk * 2.0 - 1.0, 0.0, 1.0);
         vec3 riskCol  = mix(safe, mix(moderate, danger, t3), t2);
         fragColor.rgb = mix(fragColor.rgb, riskCol, 0.70);
     }

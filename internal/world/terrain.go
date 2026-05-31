@@ -1,6 +1,8 @@
 package world
 
 import (
+	"math"
+
 	"github.com/go-gl/mathgl/mgl32"
 )
 
@@ -18,6 +20,7 @@ const (
 	KindFrozenGranular                 // refrozen slush; icy grains, some texture
 	KindCorn                           // spring granular; buttery, fast, great grip
 	KindBase                           // compacted season base; firm, dense, not icy
+	KindAvalancheDebris               // tumbled runout snow mixed with rock and soil
 )
 
 // KindName returns a display name for a snow kind.
@@ -43,6 +46,8 @@ func KindName(k SnowKind) string {
 		return "Corn"
 	case KindBase:
 		return "Base"
+	case KindAvalancheDebris:
+		return "Debris"
 	default:
 		return "Snow"
 	}
@@ -72,6 +77,8 @@ func KindDensity(k SnowKind) float32 {
 		return 0.52
 	case KindBase:
 		return 0.75
+	case KindAvalancheDebris:
+		return 0.65 // dense chunks, similar to cement
 	default:
 		return 0.50
 	}
@@ -101,6 +108,8 @@ func KindShaderPacked(k SnowKind) float32 {
 		return 0.70
 	case KindBase:
 		return 0.90
+	case KindAvalancheDebris:
+		return 0.20 // paired with ShaderIce=0.45; ice>packed is the debris shader signal
 	default:
 		return 0.50
 	}
@@ -122,6 +131,8 @@ func KindShaderIce(k SnowKind) float32 {
 		return 0.05
 	case KindBase:
 		return 0.00
+	case KindAvalancheDebris:
+		return 0.45 // ice>packed flags debris in the shader (no other kind has this)
 	default:
 		return 0.00
 	}
@@ -152,6 +163,8 @@ func KindBaseMult(k SnowKind) float32 {
 		return 0.82
 	case KindBase:
 		return 0.90
+	case KindAvalancheDebris:
+		return 1.20 // rough, chunky surface — more drag than groomed snow
 	default:
 		return 1.00
 	}
@@ -181,6 +194,8 @@ func KindEdgeMult(k SnowKind) float32 {
 		return 0.95
 	case KindBase:
 		return 1.10
+	case KindAvalancheDebris:
+		return 0.75 // uneven chunks reduce edge control
 	default:
 		return 1.00
 	}
@@ -190,6 +205,30 @@ func KindEdgeMult(k SnowKind) float32 {
 type SnowLayer struct {
 	Accumulation float32  // SWE metres, conserved under kind transitions
 	Kind         SnowKind
+}
+
+// Avalanche instability thresholds (rise/run, SWE metres).
+const (
+	AvySlopeMin  = float32(0.55) // below this slope, never releases
+	AvySlopeMax  = float32(1.40) // above this, slopeExcess is clamped to 1
+	avyMinSWE    = float32(0.05) // minimum top-layer SWE for a cell to be avalanche-prone
+	avyLoadScale = float32(0.20) // top-layer SWE that saturates the load factor at 1.0
+)
+
+// avyKindMult returns a snow-instability multiplier for the given kind.
+func avyKindMult(k SnowKind) float32 {
+	switch k {
+	case KindWindSlab, KindCrust:
+		return 1.5
+	case KindFrozenGranular:
+		return 1.2
+	case KindPowder, KindCement:
+		return 1.0
+	case KindSlush, KindCorn:
+		return 0.8
+	default: // PackedPowder, Boilerplate, Base, AvalancheDebris
+		return 0.2
+	}
 }
 
 // Cell represents a single grid cell in the terrain.
@@ -206,6 +245,9 @@ type SnowLayer struct {
 //
 // SkierTraffic accumulates while skiers cross the cell and resets after a
 // kind transition (e.g. Powder → Packed Powder). Decays daily.
+//
+// AvySnow, AvyMomentum, and AvyTick are transient avalanche-wave state.
+// They are not persisted to save files and reset to zero on load.
 type Cell struct {
 	GroundElevation float32
 	Base            float32   // consolidated season-base SWE (metres); always KindBase density
@@ -216,6 +258,78 @@ type Cell struct {
 
 	Passable    bool    // hard structural block (buildings, lift endpoints)
 	TreeDensity float32 // 0.0 = clear, 1.0 = dense old-growth
+	Slope       float32 // rise/run magnitude; set by Terrain.RecomputeSlopes
+
+	AvySnow     float32 // SWE of snow in transit through this cell (0 = inactive)
+	AvyMomentum float32 // wave momentum at this cell
+	AvyTick     int     // generation index when this cell entered the active front
+}
+
+// Baseline friction coefficients for an ideally groomed packed-powder surface.
+// EffectiveFriction scales these by snow kind, grooming state, and mogul size.
+const (
+	MuKineticBase = float64(0.04) // base kinetic friction
+	MuKineticEdge = float64(0.20) // perpendicular (carving) friction
+)
+
+// EffectiveFriction returns the (base, edge) kinetic friction coefficients for
+// this cell, modulated by snow kind, grooming level, powder depth, and mogul
+// size. base is the along-fall-line drag term; edge is the cross-fall brake.
+func (c Cell) EffectiveFriction() (base, edge float64) {
+	depth := c.VisibleSnowDepth()
+	kind := KindPowder
+	if top := c.TopLayer(); top != nil {
+		kind = top.Kind
+	}
+	base = MuKineticBase
+	edge = MuKineticEdge
+
+	// Grooming: lowers base (glide), raises edge (clean carve).
+	base *= 1 - 0.30*float64(c.Grooming)
+	edge *= 1 + 0.20*float64(c.Grooming)
+
+	// Kind-based multipliers.
+	base *= float64(KindBaseMult(kind))
+	edge *= float64(KindEdgeMult(kind))
+
+	// Powder: depth-dependent extra drag.
+	if kind == KindPowder && depth > 0.5 {
+		depthFactor := float64(depth / 2.5)
+		if depthFactor > 1 {
+			depthFactor = 1
+		}
+		base *= 1 + 0.80*depthFactor
+		edge *= 1 - 0.50*depthFactor
+	}
+
+	// Moguls bleed energy on every bump.
+	base *= 1 + 0.60*float64(c.MogulSize)
+	edge *= 1 + 0.10*float64(c.MogulSize)
+
+	if base < 0.005 {
+		base = 0.005
+	}
+	if edge < 0.02 {
+		edge = 0.02
+	}
+	return base, edge
+}
+
+// InstabilityScore returns an avalanche instability score using the cell's
+// cached Slope. Returns ≥1.0 when the cell qualifies for release, 0 when
+// stable or below the minimum snow threshold. Requires RecomputeSlopes to
+// have been called after any ground-elevation change.
+func (c *Cell) InstabilityScore() float32 {
+	if c.Slope < AvySlopeMin || c.Top.Accumulation < avyMinSWE {
+		return 0
+	}
+	slopeExcess := (c.Slope - AvySlopeMin) / (AvySlopeMax - AvySlopeMin)
+	if slopeExcess > 1 {
+		slopeExcess = 1
+	}
+	kindMult := avyKindMult(c.Top.Kind)
+	treeAnchor := c.TreeDensity * 0.4
+	return (c.Top.Accumulation / avyLoadScale) * slopeExcess * kindMult * (1 - treeAnchor)
 }
 
 // TotalSWE returns the total snow-water-equivalent across both layers (metres).
@@ -344,6 +458,19 @@ func NewTerrain(w, h int) *Terrain {
 		Height:  h,
 		Cells:   cells,
 		Surface: NewSurfaceDetail(w, h),
+	}
+}
+
+// RecomputeSlopes recomputes Cell.Slope for every cell from the current
+// ground elevations using central differences. Call this once after any
+// batch change to GroundElevation (terrain import, save load, lift grading,
+// testbed setup). The sim's avalanche logic reads Cell.Slope directly.
+func (t *Terrain) RecomputeSlopes() {
+	for x := range t.Cells {
+		for z := range t.Cells[x] {
+			gx, gz := t.GradientAt(x, z)
+			t.Cells[x][z].Slope = float32(math.Sqrt(float64(gx*gx + gz*gz)))
+		}
 	}
 }
 

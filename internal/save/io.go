@@ -484,6 +484,7 @@ func dataToWorld(data ScenarioData) *world.World {
 			idx++
 		}
 	}
+	t.RecomputeSlopes()
 
 	w := world.NewWorld(t)
 	w.Seed = data.Seed

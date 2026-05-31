@@ -365,16 +365,17 @@ var Testbeds = []Testbed{
 	},
 	{
 		// Steep V-shaped couloir feeding into a flat runout. The upper zone is
-		// loaded with WindSlab; checkAvalanches fires at t=5 s to trigger
-		// release. Watch the walls shed inward, debris funnel down the channel,
-		// and snow accumulate in the runout fan.
+		// loaded with a wind slab over a firm base; checkAvalanches fires at
+		// t=5 s to trigger release. Watch the walls shed inward, debris funnel
+		// down the channel, and snow accumulate in the runout fan.
 		//
 		// Layout (60×80 cells, 5 m/cell):
 		//   z= 0..44  : steep zone (50°)
 		//   z=45..79  : runout (7°)
 		//   V gully   : floor 20 cells wide centred on x=30; walls rise at
 		//               0.6 rise/run beyond the floor edges
-		//   Snow      : WindSlab 1.5 m SWE on the steep zone; Powder on runout
+		//   Snow      : 5 ft base everywhere; 1 ft WindSlab on steep zone,
+		//               Powder on runout
 		Name: "Avalanche: V-gully runout",
 		Seed: 1,
 		Build: func() *world.World {
@@ -408,14 +409,18 @@ var Testbeds = []Testbed{
 					if dx > floorHalf {
 						wallExtra = float32(dx-floorHalf) * cs * 0.60
 					}
+					// 5 ft base + 1 ft wind slab (steep) or powder (runout).
+					// SWE = visible depth × kind density:
+					//   5 ft × 0.3048 m/ft × 0.75 (KindBase)    = 1.14 m SWE
+					//   1 ft × 0.3048 m/ft × 0.55 (KindWindSlab) = 0.17 m SWE
 					c := &t.Cells[x][z]
 					c.GroundElevation = baseElev + wallExtra
+					c.Base = 1.14
 					if z < splitZ {
-						c.Top = world.SnowLayer{Accumulation: 1.5, Kind: world.KindWindSlab}
+						c.Top = world.SnowLayer{Accumulation: 0.17, Kind: world.KindWindSlab}
 					} else {
 						c.Top = world.SnowLayer{Accumulation: testbedPowderAccumulation, Kind: world.KindPowder}
 					}
-					c.Base = 0
 				}
 			}
 			return b.build()
@@ -469,14 +474,9 @@ func testbedNames() []string {
 }
 
 // testbedPowderAccumulation is the SWE applied to off-piste cells in the
-// testbed builders. At fresh-powder density (Packed=0.2 → 0.32) this
-// yields ~4 m of visible snow depth — deeper than world.DefaultSnow-
-// Accumulation (~2 m visible) so the groomed-lane boundary produces a
-// clearly visible step. Groomed cells in the same testbed run at
-// Packed=1.0 with the same accumulation, so their visible depth drops
-// to 1.28 m — a 2.7 m drop into the lane. Production maps stay on
-// world.DefaultSnowAccumulation; this is a shader-iteration knob.
-const testbedPowderAccumulation = float32(1.28)
+// testbed builders. 5 ft of powder: 5 × 0.3048 m × 0.15 (KindPowder
+// density) ≈ 0.23 m SWE → ~1.5 m (5 ft) visible depth.
+const testbedPowderAccumulation = float32(0.23)
 
 // =============================================================================
 // Fluent builder
@@ -877,5 +877,6 @@ func (b *builder) bareRect(x1, z1, x2, z2 int) *builder {
 // build returns the finished *world.World. The builder should not be used
 // after this call.
 func (b *builder) build() *world.World {
+	b.w.Terrain.RecomputeSlopes()
 	return b.w
 }

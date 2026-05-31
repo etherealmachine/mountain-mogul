@@ -448,7 +448,7 @@ func (r *Renderer) SetLogicalSize(w, h int) {
 func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, minY, maxY float32, surfaceVerts int) {
 	const cellSize = float32(5.0)
 	const skirtBaseY = float32(-50.0)
-	const floatsPerVert = 16
+	const floatsPerVert = 17
 
 	numSurface := (t.Width - 1) * (t.Height - 1)
 	numSkirt := 2*(t.Width-1) + 2*(t.Height-1) + 1
@@ -719,7 +719,7 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 	//
 	// Out-of-bounds corners contribute nothing — the divisor counts
 	// only the cells that actually exist.
-	snowAt := func(cx, cz int) (g, pk, ic, mg, dp float32) {
+	snowAt := func(cx, cz int) (g, pk, ic, mg, dp, is float32) {
 		var n float32
 		for dz := -1; dz <= 0; dz++ {
 			for dx := -1; dx <= 0; dx++ {
@@ -733,14 +733,15 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 				ic += c.SurfaceIce()
 				mg += c.MogulSize
 				dp += c.VisibleSnowDepth()
+				is += c.InstabilityScore()
 				n++
 			}
 		}
 		if n == 0 {
-			return 0, 0, 0, 0, 0
+			return 0, 0, 0, 0, 0, 0
 		}
 		inv := 1.0 / n
-		return g * inv, pk * inv, ic * inv, mg * inv, dp * inv
+		return g * inv, pk * inv, ic * inv, mg * inv, dp * inv, is * inv
 	}
 
 	// ── Surface ───────────────────────────────────────────────────────────────
@@ -778,7 +779,7 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 				n := upwardNormal(tri[0], tri[1], tri[2])
 				for vi, p := range tri {
 					cx, cz := corners[ti][vi][0], corners[ti][vi][1]
-					g, pk, ic, mg, dp := snowAt(cx, cz)
+					g, pk, ic, mg, dp, is := snowAt(cx, cz)
 					sn := smoothNormalAt(cx, cz)
 					verts = append(verts,
 						p[0], p[1], p[2],
@@ -788,6 +789,7 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 						g, pk, ic, mg,
 						dp,
 						sn[0], sn[1], sn[2],
+						is,
 					)
 					if p[1] < minY {
 						minY = p[1]
@@ -827,6 +829,7 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 				0, 0, 0, 0, // skirts get no snow-state shading
 				0,          // and no snow depth
 				n[0], n[1], n[2], // skirts: smooth normal == flat normal
+				0,          // no instability score on skirts
 			)
 		}
 		indices = append(indices, idx, idx+1, idx+2)
@@ -1042,7 +1045,7 @@ func (r *Renderer) BuildTerrainMesh(t *world.Terrain) {
 	gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo)
 	gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(indices)*4, gl.Ptr(indices), gl.STATIC_DRAW)
 
-	stride := int32(16 * 4)
+	stride := int32(17 * 4)
 	gl.EnableVertexAttribArray(0)
 	gl.VertexAttribPointerWithOffset(0, 3, gl.FLOAT, false, stride, 0)  // aPos
 	gl.EnableVertexAttribArray(1)
@@ -1057,6 +1060,8 @@ func (r *Renderer) BuildTerrainMesh(t *world.Terrain) {
 	gl.VertexAttribPointerWithOffset(5, 1, gl.FLOAT, false, stride, 48) // aSnowDepth (metres)
 	gl.EnableVertexAttribArray(6)
 	gl.VertexAttribPointerWithOffset(6, 3, gl.FLOAT, false, stride, 52) // aSmoothNormal (per-corner, interpolated)
+	gl.EnableVertexAttribArray(7)
+	gl.VertexAttribPointerWithOffset(7, 1, gl.FLOAT, false, stride, 64) // aInstabilityScore
 	gl.BindVertexArray(0)
 
 	r.scene.terrainVBO = vbo
@@ -1110,7 +1115,7 @@ func (r *Renderer) FlushSnowState(t *world.Terrain) {
 	}
 	verts := r.scene.terrainVerts
 	surfaceVerts := r.scene.terrainSurfaceVerts
-	const stride = 16
+	const stride = 17
 	W, H := t.Width, t.Height
 
 	// Precompute per-corner averages once, then look them up while
@@ -1122,12 +1127,12 @@ func (r *Renderer) FlushSnowState(t *world.Terrain) {
 	// / skier wear) reduce the visible snow column even though SWE is
 	// conserved, so the mesh vertex Y has to follow. SurfaceElevation
 	// already derives visible depth from accumulation/packing.
-	type cornerSnow struct{ g, pk, ic, mg, dp float32 }
+	type cornerSnow struct{ g, pk, ic, mg, dp, is float32 }
 	corners := make([]cornerSnow, W*H)
 	cornerY := make([]float32, W*H)
 	for cz := 0; cz < H; cz++ {
 		for cx := 0; cx < W; cx++ {
-			var g, pk, ic, mg, dp, surf, n float32
+			var g, pk, ic, mg, dp, is, surf, n float32
 			for dz := -1; dz <= 0; dz++ {
 				for dx := -1; dx <= 0; dx++ {
 					x, z := cx+dx, cz+dz
@@ -1140,6 +1145,7 @@ func (r *Renderer) FlushSnowState(t *world.Terrain) {
 					ic += c.SurfaceIce()
 					mg += c.MogulSize
 					dp += c.VisibleSnowDepth()
+					is += c.InstabilityScore()
 					surf += c.SurfaceElevation()
 					n++
 				}
@@ -1148,7 +1154,7 @@ func (r *Renderer) FlushSnowState(t *world.Terrain) {
 				continue
 			}
 			inv := 1.0 / n
-			corners[cx*H+cz] = cornerSnow{g * inv, pk * inv, ic * inv, mg * inv, dp * inv}
+			corners[cx*H+cz] = cornerSnow{g * inv, pk * inv, ic * inv, mg * inv, dp * inv, is * inv}
 			cornerY[cx*H+cz] = surf * inv
 		}
 	}
@@ -1167,6 +1173,7 @@ func (r *Renderer) FlushSnowState(t *world.Terrain) {
 		verts[base+10] = c.ic
 		verts[base+11] = c.mg
 		verts[base+12] = c.dp
+		verts[base+16] = c.is
 		vi++
 	}
 	for z := 0; z < H-1; z++ {

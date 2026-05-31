@@ -86,19 +86,23 @@ type Simulation struct {
 	// plow roads without creating an import cycle (scene→sim→scene).
 	OnDayRollover func(w *world.World)
 
-	// avalancheHazard is a per-cell hazard intensity [0,1] set when an
-	// avalanche sweeps through a cell. Decays each subTick. Not saved.
-	avalancheHazard [][]float32
-
-	// avyChains holds avalanche fronts currently propagating downhill. Each
-	// chain carries a multi-cell spreading front that widens as it descends.
-	// Advances at avyHopsPerSec cells per wall-second. Not saved.
-	avyChains []avyChain
+	// Avalanche wave state. avyFront holds cells active this generation;
+	// avyNext accumulates cells for the following generation. avyGen is the
+	// current generation index (incremented each hop); avyBudget accumulates
+	// fractional hops and fires a full hop when it reaches 1.0. Not saved.
+	avyGen    int
+	avyBudget float32
+	avyFront  [][2]int
+	avyNext   [][2]int
 
 	// sectionsStale triggers a full global section recompute at the start
 	// of the next snowcat tick. Set by InvalidateSections whenever the
 	// fleet or trail configuration changes.
 	sectionsStale bool
+
+	// QueryServer, if non-nil, services live SQL queries from the HTTP
+	// endpoint. Tick() drains pending requests on the game thread.
+	QueryServer *QueryServer
 }
 
 // InvalidateSections signals that cat section assignments need a full
@@ -128,21 +132,16 @@ func NewSimulationWithSeed(w *world.World, seed int64) *Simulation {
 	heightM := float32(w.Terrain.Height) * CellSize
 	w.Seed = seed
 	rng.Init(seed)
-	hazard := make([][]float32, w.Terrain.Width)
-	for i := range hazard {
-		hazard[i] = make([]float32, w.Terrain.Height)
-	}
 	sim := &Simulation{
-		World:            w,
-		Pathfinder:       NewPathfinder(w.Terrain),
-		TimeScale:        4.0,
-		Weather:          NewChain(),
-		Planner:          goap.NewPlanner(),
-		Demand:           NewDemandSystem(),
-		spatial:          newSpatialGrid(widthM, heightM),
-		avalancheHazard:  hazard,
-		lastSampledDay:   0,
-		sectionsStale:    true, // run reassignment on first tick to pick up loaded cats
+		World:          w,
+		Pathfinder:     NewPathfinder(w.Terrain),
+		TimeScale:      4.0,
+		Weather:        NewChain(),
+		Planner:        goap.NewPlanner(),
+		Demand:         NewDemandSystem(),
+		spatial:        newSpatialGrid(widthM, heightM),
+		lastSampledDay: 0,
+		sectionsStale:  true, // run reassignment on first tick to pick up loaded cats
 	}
 	for _, a := range w.OnMountain {
 		if !a.Plan.Done() {
@@ -226,8 +225,7 @@ func (s *Simulation) subTick(dt float64) {
 	s.tickSnowcats(dt)
 	s.tickPatrollers(dt)
 	s.tickSnowGuns(dt)
-	s.decayAvalancheHazard(dt)
-	s.tickAvalancheChains(dt)
+	s.tickAvalanche(dt)
 }
 
 func (s *Simulation) tickLifts(dt float64) {
@@ -696,22 +694,18 @@ func (s *Simulation) TriggerStorm() {
 // instability and releases it. Used by the debug console cheat.
 func (s *Simulation) TriggerAvalanche() {
 	t := s.World.Terrain
-	h := s.avalancheHazard
 
 	type candidate struct {
-		x, z       int
-		score      float32
-		gx, gz     float32
+		x, z  int
+		score float32
 	}
 	var best []candidate
 	bestScore := float32(0)
 	for x := range t.Cells {
 		for z := range t.Cells[x] {
 			c := &t.Cells[x][z]
-			gx, gz := t.GradientAt(x, z)
-			slope := float32(math.Sqrt(float64(gx*gx + gz*gz)))
-			score := instabilityScore(c, slope)
-			if score < 1.0 {
+			score := c.InstabilityScore()
+			if score <= 0 {
 				continue
 			}
 			if score > bestScore+0.05 {
@@ -719,7 +713,7 @@ func (s *Simulation) TriggerAvalanche() {
 				best = best[:0]
 			}
 			if score >= bestScore-0.05 {
-				best = append(best, candidate{x, z, score, gx, gz})
+				best = append(best, candidate{x, z, score})
 			}
 		}
 	}
@@ -727,7 +721,7 @@ func (s *Simulation) TriggerAvalanche() {
 		return
 	}
 	pick := best[rng.Global().Intn(len(best))]
-	s.releaseAvalanche(t, h, pick.x, pick.z, pick.gx, pick.gz)
+	s.startAvalanche(t, pick.x, pick.z)
 	t.SnowDirty = true
 }
 

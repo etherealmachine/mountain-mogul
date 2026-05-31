@@ -43,8 +43,6 @@ import (
 const (
 	// Slope physics
 	gravity = 9.81
-	muBase  = 0.04 // base kinetic friction (groomed snow)
-	muEdge  = 0.20 // perpendicular (carving) friction — the brake mechanism
 	kDrag   = 0.01 // air drag per unit mass
 
 	// Motion floors / arrival
@@ -394,7 +392,7 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 	{
 		xi := int(a.Pos[0] / CellSize)
 		zi := int(a.Pos[2] / CellSize)
-		if s.World.Terrain.InBounds(xi, zi) && s.avalancheHazard[xi][zi] > 0.3 && !a.Fallen {
+		if s.World.Terrain.InBounds(xi, zi) && s.World.Terrain.Cells[xi][zi].AvySnow > avyMinSnow && !a.Fallen {
 			a.Balance = 0
 			a.Fallen = true
 			a.Energy = clamp32(a.Energy-energyFallDrain, 0, 1)
@@ -1092,47 +1090,6 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 // SECTION 6 — Apply (physics integration)
 // =============================================================================
 
-// effectiveFriction returns the (base, edge) kinetic friction coefficients
-// at world position (wx, wz), modulated by snow kind, grooming, and moguls.
-// (muBase, muEdge) are the groomed-corduroy baseline; each modifier shifts
-// them toward the feel of the actual surface.
-//
-// Out-of-bounds positions return groomed PackedPowder defaults.
-func effectiveFriction(t *world.Terrain, wx, wz float32) (base, edge float64) {
-	depth, grooming, kind, mogul := t.SnowAt(wx, wz)
-	base = muBase
-	edge = muEdge
-
-	// Grooming: lowers base (glide), raises edge (clean carve).
-	base *= 1 - 0.30*float64(grooming)
-	edge *= 1 + 0.20*float64(grooming)
-
-	// Kind-based friction: each snow type has its own speed and grip character.
-	base *= float64(world.KindBaseMult(kind))
-	edge *= float64(world.KindEdgeMult(kind))
-
-	// Powder: depth-dependent extra drag — shallow powder is floaty but
-	// manageable; deep powder is slow and tiring. Gated on KindPowder so
-	// Cement/Slush drag comes purely from their kind multipliers.
-	if kind == world.KindPowder && depth > 0.5 {
-		depthFactor := float64(clamp32(depth/2.5, 0, 1))
-		base *= 1 + 0.80*depthFactor
-		edge *= 1 - 0.50*depthFactor
-	}
-
-	// Moguls: each bump bleeds energy (uniform decel; geometric moguls not modelled).
-	base *= 1 + 0.60*float64(mogul)
-	edge *= 1 + 0.10*float64(mogul)
-
-	// Numerical floors so multiplicative chain can't go negative.
-	if base < 0.005 {
-		base = 0.005
-	}
-	if edge < 0.02 {
-		edge = 0.02
-	}
-	return base, edge
-}
 
 func apply(t *world.Terrain, a *world.Guest, dec Decision, perc Perception, dt float64) {
 	a.Heading = rotateToward(a.Heading, dec.DesiredHeading, float32(headingRateMax), dt)
@@ -1163,7 +1120,19 @@ func apply(t *world.Terrain, a *world.Guest, dec Decision, perc Perception, dt f
 	//                       fast scrub on the troughs but speed bleed overall
 	//   - dense packed:     low-medium base, high edge → like groomed but
 	//                       slightly grippier
-	muB, muE := effectiveFriction(t, a.Pos[0], a.Pos[2])
+	xi := int(a.Pos[0] / world.CellSize)
+	zi := int(a.Pos[2] / world.CellSize)
+	if xi < 0 {
+		xi = 0
+	} else if xi >= t.Width {
+		xi = t.Width - 1
+	}
+	if zi < 0 {
+		zi = 0
+	} else if zi >= t.Height {
+		zi = t.Height - 1
+	}
+	muB, muE := t.Cells[xi][zi].EffectiveFriction()
 	speed := float64(a.Speed)
 	accel := gravity*sinTheta*cosOff -
 		muB*gravity*cosTheta -

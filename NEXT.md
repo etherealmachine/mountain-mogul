@@ -22,22 +22,10 @@ Lifts and attendants
     Beginner skiers increase probability chair doesn't fill
   Wrap lift lines so they don't go through buildings
 
-Drain hunger and thirst so skiers leave without a lodge
-Walk over dirt, don't ski
-Walking drains patience
-Can't board lift without snow
-
-More lifts
-
-New features
 Ticket office and season passes
-Ski patrol
 Avalanches
-Snowmaking
 Limit land area and allow land purchases
 Loans
 New buildings - bar, restaurant, plus paths between buildings
   Skiers remove skies and walk around pathed area
   Ski racks to store skis
-
-Make the UI look better

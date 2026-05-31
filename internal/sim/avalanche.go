@@ -1,89 +1,33 @@
 package sim
 
 import (
-	"math"
-
 	"mountain-mogul/internal/rng"
 	"mountain-mogul/internal/world"
 )
 
 const (
-	avySlopeMin        = float32(0.55)  // rise/run ≈ 29° — below this, never releases
-	avySlopeMax        = float32(1.40)  // rise/run ≈ 54° — above this, slopeExcess = 1.0
-	avyMinSWE          = float32(0.10)  // minimum TotalSWE for a cell to be avalanche-prone
-	avyLoadScale       = float32(0.30)  // TotalSWE that saturates the load factor at 1.0
-	avyMaxChance       = float32(0.60)  // maximum stochastic release probability
-	avyMaxHops         = 30             // hop limit per avalanche chain
-	avyReleaseBase     = float32(0.60)  // fraction of Base SWE cleared on release
-	avyHopDecay        = float32(0.85)  // fraction of transported SWE that continues each hop
-	avyRunoutSlope     = float32(0.25)  // momentum drains when slope drops below this
-	avyTreeStop        = float32(0.70)  // chain stops when tree density exceeds this
-	avyHazardDecay     = float32(0.04)  // hazard intensity lost per sim-second
-	avyHopsPerSec      = float32(2.0)   // avalanche front advances 2 cells/wall-second ≈ 10 m/s
-	avyMomentumGain    = float32(2.0)   // momentum change per unit slope above/below runout threshold
-	avyMomentumMax     = float32(4.0)   // cap on carried momentum
-	avyMomentumTransfer = float32(0.10) // fraction of momentum that offsets uphill slope in spread weights
+	avyMaxChance        = float32(0.60)  // maximum stochastic release probability
+	avyRunoutSlope      = float32(0.25)  // threshold: above → gains momentum; below → deposits
+	avyTreeStop         = float32(0.70)  // wave halts when tree density exceeds this
+	avyHopsPerSec       = float32(2.0)   // front advances 2 cells/wall-second ≈ 10 m/s
+	avyMomentumGain     = float32(2.0)   // momentum change per unit slope vs runout threshold
+	avyMomentumMax      = float32(8.0)   // cap on wave momentum
+	avyLateralSpread    = float32(0.30)  // allow spread to neighbours up to this slope uphill
+	avyDebrisMark       = float32(0.02)  // minimum SWE left as a debris marker on steep cells
+	avyMinSnow          = float32(0.00001) // wave dies when SWE in transit drops below this
 )
 
-// avyItem is a single particle in a spreading avalanche front.
-type avyItem struct {
-	x, z     int
-	swe      float32
-	dx, dz   float32  // incoming travel direction — defines forward hemisphere for spreading
-	momentum float32  // builds on steep terrain, drains on flat; carries chain through runout
-}
-
-// avyChain is an in-flight avalanche. The front is a set of avyItems that
-// all advance one hop per tick. Each hop fans out laterally based on terrain
-// slope, so the chain widens as it descends.
-type avyChain struct {
-	front    []avyItem
-	visited  map[[2]int]bool
-	hopsLeft int
-	budget   float32 // fractional hops accumulated; advance one hop when ≥1
-}
-
-// kindAvalancheMult returns a snow-instability multiplier for the given kind.
-func kindAvalancheMult(k world.SnowKind) float32 {
-	switch k {
-	case world.KindWindSlab, world.KindCrust:
-		return 1.5
-	case world.KindFrozenGranular:
-		return 1.2
-	case world.KindPowder, world.KindCement:
-		return 1.0
-	case world.KindSlush, world.KindCorn:
-		return 0.8
-	default: // PackedPowder, Boilerplate, Base, AvalancheDebris
-		return 0.2
-	}
-}
-
-// instabilityScore returns a score ≥1.0 for cells that qualify for release.
-func instabilityScore(c *world.Cell, slope float32) float32 {
-	if slope < avySlopeMin || c.TotalSWE() < avyMinSWE {
-		return 0
-	}
-	slopeExcess := clamp32((slope-avySlopeMin)/(avySlopeMax-avySlopeMin), 0, 1)
-	kindMult := float32(1.0)
-	if top := c.TopLayer(); top != nil {
-		kindMult = kindAvalancheMult(top.Kind)
-	}
-	treeAnchor := c.TreeDensity * 0.4
-	return (c.TotalSWE() / avyLoadScale) * slopeExcess * kindMult * (1 - treeAnchor)
-}
+// avySqrt2 is the distance multiplier for diagonal Moore-neighbourhood steps.
+const avySqrt2 = float32(1.4142136)
 
 // checkAvalanches identifies unstable cells and triggers releases. Called from
 // applyDailyWeather on heavy-snow and rain days.
 func (s *Simulation) checkAvalanches() {
 	t := s.World.Terrain
-	h := s.avalancheHazard
 	for x := range t.Cells {
 		for z := range t.Cells[x] {
 			c := &t.Cells[x][z]
-			gx, gz := t.GradientAt(x, z)
-			slope := float32(math.Sqrt(float64(gx*gx + gz*gz)))
-			score := instabilityScore(c, slope)
+			score := c.InstabilityScore()
 			if score < 1.0 {
 				continue
 			}
@@ -91,167 +35,171 @@ func (s *Simulation) checkAvalanches() {
 			if rng.Global().Float32() > chance {
 				continue
 			}
-			s.releaseAvalanche(t, h, x, z, gx, gz)
+			s.startAvalanche(t, x, z)
 		}
 	}
 }
 
-// releaseAvalanche clears the source cell's snow and enqueues a propagating
-// chain. The chain advances hop-by-hop each tick via tickAvalancheChains,
-// spreading laterally as it descends.
-func (s *Simulation) releaseAvalanche(t *world.Terrain, h [][]float32, sx, sz int, gx, gz float32) {
-	c := &t.Cells[sx][sz]
-	clearedSWE := c.Top.Accumulation + c.Base*avyReleaseBase
-	c.Top = world.SnowLayer{}
-	c.Base *= 1 - avyReleaseBase
+// startAvalanche lifts a fraction of the top snow layer into transit and adds
+// this cell to the active avalanche front. The wave spreads downhill each tick
+// via tickAvalanche.
+func (s *Simulation) startAvalanche(t *world.Terrain, x, z int) {
+	c := &t.Cells[x][z]
+	if c.Top.Accumulation < avyMinSnow {
+		return
+	}
+	// Take half the top layer into transit; the rest stays as a debris marker.
+	released := c.Top.Accumulation * 0.5
+	c.Top.Accumulation -= released
+	c.Top.Kind = world.KindAvalancheDebris
 	c.Grooming = 0
 	c.MogulSize = 0
-	h[sx][sz] = 1.0
+	c.AvySnow = released
+	c.AvyMomentum = 0
+	c.AvyTick = s.avyGen
+	s.avyFront = append(s.avyFront, [2]int{x, z})
+	t.SnowDirty = true
+}
+
+// tickAvalanche advances all in-flight avalanche fronts by dt seconds.
+func (s *Simulation) tickAvalanche(dt float64) {
+	if len(s.avyFront) == 0 {
+		return
+	}
+	t := s.World.Terrain
+	s.avyBudget += float32(dt) * avyHopsPerSec
+	for s.avyBudget >= 1.0 && len(s.avyFront) > 0 {
+		s.avyBudget -= 1.0
+		s.avyGen++
+		s.avyNext = s.avyNext[:0]
+		for _, pos := range s.avyFront {
+			s.spreadAvyCell(t, pos[0], pos[1])
+		}
+		s.avyFront, s.avyNext = s.avyNext, s.avyFront[:0]
+	}
+}
+
+// spreadAvyCell processes one cell in the active front: deposits debris at this
+// cell, then distributes the remaining snow across eligible Moore neighbours.
+func (s *Simulation) spreadAvyCell(t *world.Terrain, x, z int) {
+	c := &t.Cells[x][z]
+	snow := c.AvySnow
+	momentum := c.AvyMomentum
+	c.AvySnow = 0
+	c.AvyMomentum = 0
+
+	// ── Deposit at this cell ──────────────────────────────────────────────────
+	// Deposit fraction rises as slope drops: almost nothing on very steep
+	// terrain (snow keeps moving), building up through mid-slope, and
+	// depositing heavily in the runout. Momentum delays deposition —
+	// a fast-moving wave carries snow further before it settles.
+	//
+	// slopeFrac: 0 at AvySlopeMax (very steep), 1 at runout threshold and below.
+	slopeFrac := float32(1.0)
+	if c.Slope > avyRunoutSlope {
+		slopeFrac = 1.0 - (c.Slope-avyRunoutSlope)/(world.AvySlopeMax-avyRunoutSlope)
+		if slopeFrac < 0 {
+			slopeFrac = 0
+		}
+	}
+	// Momentum reduces deposition — fast wave passes more snow downslope.
+	momentumFrac := float32(1.0) - momentum/avyMomentumMax
+	if momentumFrac < 0 {
+		momentumFrac = 0
+	}
+	depositFrac := avyDebrisMark + (1.0-avyDebrisMark)*slopeFrac*momentumFrac
+	deposit := snow * depositFrac
+	passing := snow - deposit
+
+	c.Top.Accumulation += deposit
+	c.Top.Kind = world.KindAvalancheDebris
+	c.Grooming = 0
+	c.MogulSize = 0
 	t.SnowDirty = true
 
-	if clearedSWE >= 0.001 {
-		s.avyChains = append(s.avyChains, avyChain{
-			front: []avyItem{{
-				x: sx, z: sz,
-				swe:      clearedSWE,
-				dx:       -gx, dz: -gz,
-				momentum: 0,
-			}},
-			visited:  map[[2]int]bool{{sx, sz}: true},
-			hopsLeft: avyMaxHops,
-		})
+	if passing < avyMinSnow {
+		return
 	}
-}
 
-// tickAvalancheChains advances each in-flight avalanche front by dt seconds.
-// Each hop advances the entire front one step, spreading SWE laterally.
-func (s *Simulation) tickAvalancheChains(dt float64) {
-	t := s.World.Terrain
-	h := s.avalancheHazard
-	alive := s.avyChains[:0]
-	for i := range s.avyChains {
-		ch := &s.avyChains[i]
-		ch.budget += float32(dt) * avyHopsPerSec
-		for ch.budget >= 1.0 && ch.hopsLeft > 0 && len(ch.front) > 0 {
-			ch.budget -= 1.0
-			ch.hopsLeft--
-			var next []avyItem
-			for _, it := range ch.front {
-				next = s.spreadAvyItem(t, h, it, ch.visited, next)
-			}
-			ch.front = next
-		}
-		if ch.hopsLeft > 0 && len(ch.front) > 0 {
-			alive = append(alive, *ch)
-		}
-	}
-	s.avyChains = alive
-}
-
-// spreadAvyItem fans one avyItem out to its qualifying forward neighbours,
-// depositing debris and producing child items for the next hop. Returns the
-// updated next slice.
-func (s *Simulation) spreadAvyItem(
-	t *world.Terrain, h [][]float32,
-	it avyItem, visited map[[2]int]bool, next []avyItem,
-) []avyItem {
-	mag := float32(math.Sqrt(float64(it.dx*it.dx + it.dz*it.dz)))
-	if mag < 1e-6 {
-		return next
-	}
-	ndx, ndz := it.dx/mag, it.dz/mag
-
+	// ── Spread to Moore neighbourhood ─────────────────────────────────────────
 	type candidate struct {
 		nx, nz int
 		weight float32
+		slope  float32
 	}
-	var cands [4]candidate
+	var cands [8]candidate
 	n := 0
 	totalWeight := float32(0)
 
-	for _, off := range [4][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}} {
-		nx, nz := it.x+off[0], it.z+off[1]
-		if !t.InBounds(nx, nz) {
-			continue
+	for dx := -1; dx <= 1; dx++ {
+		for dz := -1; dz <= 1; dz++ {
+			if dx == 0 && dz == 0 {
+				continue
+			}
+			nx, nz := x+dx, z+dz
+			if !t.InBounds(nx, nz) {
+				continue
+			}
+			nc := &t.Cells[nx][nz]
+			if !nc.Passable || nc.TreeDensity > avyTreeStop {
+				continue
+			}
+			dist := float32(CellSize)
+			if dx != 0 && dz != 0 {
+				dist *= avySqrt2
+			}
+			drop := c.GroundElevation - nc.GroundElevation
+			slope := drop / dist
+			if slope < -avyLateralSpread {
+				continue // too far uphill
+			}
+			weight := slope + avyLateralSpread // shift so flat neighbours get a small share
+			cands[n] = candidate{nx, nz, weight, slope}
+			n++
+			totalWeight += weight
 		}
-		if visited[[2]int{nx, nz}] {
-			continue
-		}
-		nc := &t.Cells[nx][nz]
-		if !nc.Passable || nc.TreeDensity > avyTreeStop {
-			continue
-		}
-		dot := float32(off[0])*ndx + float32(off[1])*ndz
-		if dot <= 0 {
-			continue // backward hemisphere — never spread uptrail
-		}
-		drop := t.Cells[it.x][it.z].GroundElevation - nc.GroundElevation
-		slopeToN := drop / CellSize
-		// Momentum offsets uphill: a fast-moving chain can crest a small rise.
-		effective := slopeToN + it.momentum*avyMomentumTransfer
-		if effective <= 0 {
-			continue
-		}
-		w := dot * effective
-		cands[n] = candidate{nx, nz, w}
-		n++
-		totalWeight += w
 	}
+
 	if totalWeight <= 0 {
-		return next
+		// No eligible neighbours — wave has nowhere to go; pile remaining snow
+		// here rather than lose it.
+		c.Top.Accumulation += passing
+		t.SnowDirty = true
+		return
 	}
 
-	for _, c := range cands[:n] {
-		p := c.weight / totalWeight
-		childSWE := it.swe * avyHopDecay * p
-		if childSWE < 0.001 {
+	for _, cd := range cands[:n] {
+		p := cd.weight / totalWeight
+		childSnow := passing * p
+		if childSnow < avyMinSnow {
+			// Too thin to keep propagating — deposit at destination for conservation.
+			nc := &t.Cells[cd.nx][cd.nz]
+			nc.Top.Accumulation += childSnow
+			nc.Top.Kind = world.KindAvalancheDebris
+			nc.Grooming = 0
+			nc.MogulSize = 0
+			t.SnowDirty = true
 			continue
 		}
-		visited[[2]int{c.nx, c.nz}] = true
-
-		nc := &t.Cells[c.nx][c.nz]
-		deposit := it.swe * (1 - avyHopDecay) * p
-		if nc.Top.Accumulation > 0 && nc.Top.Kind != world.KindAvalancheDebris {
-			nc.Base += nc.Top.Accumulation
-			nc.Top = world.SnowLayer{}
-		}
-		nc.Top.Accumulation += deposit
-		nc.Top.Kind = world.KindAvalancheDebris
-		nc.Grooming = 0
-		nc.MogulSize = 0
-		h[c.nx][c.nz] = 1.0
-		t.SnowDirty = true
-
-		drop := t.Cells[it.x][it.z].GroundElevation - t.Cells[c.nx][c.nz].GroundElevation
-		newMom := it.momentum + (drop/CellSize-avyRunoutSlope)*avyMomentumGain
+		newMom := momentum + (cd.slope-avyRunoutSlope)*avyMomentumGain
 		if newMom < 0 {
 			newMom = 0
 		}
 		if newMom > avyMomentumMax {
 			newMom = avyMomentumMax
 		}
-		next = append(next, avyItem{
-			x: c.nx, z: c.nz,
-			swe:      childSWE,
-			dx:       float32(c.nx - it.x),
-			dz:       float32(c.nz - it.z),
-			momentum: newMom,
-		})
-	}
-	return next
-}
 
-// decayAvalancheHazard reduces the hazard map every sim tick.
-func (s *Simulation) decayAvalancheHazard(dt float64) {
-	dec := float32(dt) * avyHazardDecay
-	for x := range s.avalancheHazard {
-		for z := range s.avalancheHazard[x] {
-			if v := s.avalancheHazard[x][z]; v > 0 {
-				if v -= dec; v < 0 {
-					v = 0
-				}
-				s.avalancheHazard[x][z] = v
-			}
+		nc := &t.Cells[cd.nx][cd.nz]
+		nc.AvySnow += childSnow
+		if newMom > nc.AvyMomentum {
+			nc.AvyMomentum = newMom
 		}
+		if nc.AvyTick < s.avyGen {
+			nc.AvyTick = s.avyGen
+			s.avyNext = append(s.avyNext, [2]int{cd.nx, cd.nz})
+		}
+		nc.Grooming = 0
+		nc.MogulSize = 0
+		t.SnowDirty = true
 	}
 }

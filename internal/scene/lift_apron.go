@@ -85,6 +85,7 @@ func applyLiftPlacementEffects(t *world.Terrain, lift *world.Lift) {
 	// surface-detail G channel so the well texture matches the new
 	// (smaller) tree set.
 	t.RestampTreeWells()
+	t.RecomputeSlopes()
 }
 
 // maxGroundIn returns the maximum GroundElevation across cells whose
@@ -184,6 +185,7 @@ func applyHelipadPlacementEffects(t *world.Terrain, lift *world.Lift) {
 		groomCircle(t, pos, padRadius)
 	}
 	t.RestampTreeWells()
+	t.RecomputeSlopes()
 }
 
 // flattenCircle levels all cells within radius metres of pos to targetElev.
