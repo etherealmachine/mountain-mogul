@@ -316,9 +316,11 @@ func (s *Simulation) tickLifts(dt float64) {
 						chair.Passengers[j] = agent
 						agent.OnLiftID = lift.ID
 						agent.Queued = false
-						w.Cash += lift.TicketPrice
-						w.History.RecordRevenue(lift.TicketPrice)
-						agent.RemainingBudget -= float32(lift.TicketPrice)
+						if !agent.HasSeasonPass {
+							w.Cash += lift.TicketPrice
+							w.History.RecordRevenue(lift.TicketPrice)
+							agent.RemainingBudget -= float32(lift.TicketPrice)
+						}
 						s.replanOnBoard(agent, lift)
 					}
 				}
@@ -349,9 +351,11 @@ func (s *Simulation) tickHeliLift(lift *world.Lift, dt float64) {
 			h.Passengers = append(h.Passengers, agent)
 			agent.OnLiftID = lift.ID
 			agent.Queued = false
-			w.Cash += lift.TicketPrice
-			w.History.RecordRevenue(lift.TicketPrice)
-			agent.RemainingBudget -= float32(lift.TicketPrice)
+			if !agent.HasSeasonPass {
+				w.Cash += lift.TicketPrice
+				w.History.RecordRevenue(lift.TicketPrice)
+				agent.RemainingBudget -= float32(lift.TicketPrice)
+			}
 			s.replanOnBoard(agent, lift)
 		}
 		// Depart when full, or when at least one passenger is aboard and
@@ -517,6 +521,7 @@ func (s *Simulation) spawnGuest(lot *world.Building, g *world.Guest) bool {
 	g.Thirst = 0.5 + rng.Global().Float32()*0.5
 	g.Satisfaction = 0.6
 	g.RemainingBudget = g.Traits.DailyBudget
+	g.HasSeasonPass = g.SeasonPassExpiry > 0 && s.SimTime < g.SeasonPassExpiry
 	g.Removed = false
 	w.OnMountain = append(w.OnMountain, g)
 	s.replan(g)
@@ -1168,6 +1173,38 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 				a.TargetID = 0
 			}
 		}
+	case ai.ActWalkToTicketOffice:
+		b := findBuildingByID(w, step.BldgID)
+		if b == nil {
+			return
+		}
+		a.TargetID = b.ID
+		a.Plan.Goal = ai.GoalNone
+		a.Plan.GoalID = b.ID
+		a.Plan.Target = parkingWorldPos(w, b)
+
+	case ai.ActBuySeasonPass:
+		b := findBuildingByID(w, step.BldgID)
+		if b == nil {
+			return
+		}
+		// Execute the pass purchase immediately on step start.
+		price := w.SeasonPassPrice
+		w.Cash += price
+		w.History.RecordRevenue(price)
+		a.RemainingBudget -= float32(price)
+		// Expiry = end of the current season.
+		now := DateAt(s.SimTime)
+		closeYear := SeasonCloseYearFor(now)
+		closeDate := SeasonCloseDate(closeYear)
+		daysToClose := closeDate.Sub(now).Hours() / 24.0
+		if daysToClose < 1 {
+			daysToClose = 1
+		}
+		a.SeasonPassExpiry = s.SimTime + daysToClose*secondsPerSimDay
+		a.HasSeasonPass = true
+		_ = b // building exists — purchase confirmed
+
 	case ai.ActRestAtLodge:
 		a.RestTimer = restAtLodgeSec
 		a.Speed = 0
@@ -1247,6 +1284,10 @@ func planActionComplete(step ai.PlanAction, a *world.Guest, snap goap.WorldSnaps
 		return snap.AtLodge == step.BldgID
 	case ai.ActSkiToParking:
 		return snap.AtParking == step.BldgID
+	case ai.ActWalkToTicketOffice:
+		return snap.AtTicketOffice == step.BldgID
+	case ai.ActBuySeasonPass:
+		return true // executed atomically in onPlanStepStart
 	case ai.ActRestAtLodge:
 		return a.RestTimer <= 0
 	case ai.ActDepart:
@@ -1277,7 +1318,8 @@ func planActionPreconditionHolds(step ai.PlanAction, snap goap.WorldSnapshot, w 
 	case ai.ActWalkToLift, ai.ActJoinQueue, ai.ActRideLift, ai.ActSkiToLift:
 		l := findLiftByID(w, step.LiftID)
 		return l != nil && l.Open && !l.OnHold
-	case ai.ActSkiToLodge, ai.ActSkiToParking, ai.ActRestAtLodge, ai.ActDepart:
+	case ai.ActSkiToLodge, ai.ActSkiToParking, ai.ActRestAtLodge, ai.ActDepart,
+		ai.ActWalkToTicketOffice, ai.ActBuySeasonPass:
 		return findBuildingByID(w, step.BldgID) != nil
 	case ai.ActSkiTrail:
 		// Destination entity must still exist.
@@ -1329,7 +1371,7 @@ func planTargetWorldPos(w *world.World, a *world.Guest) (mgl32.Vec3, bool) {
 		if l := findLiftByID(w, step.LiftID); l != nil {
 			return l.BackOfQueueWorldPos(w.Terrain), true
 		}
-	case ai.ActSkiToLodge, ai.ActSkiToParking:
+	case ai.ActSkiToLodge, ai.ActSkiToParking, ai.ActWalkToTicketOffice:
 		if b := findBuildingByID(w, step.BldgID); b != nil {
 			return parkingWorldPos(w, b), true
 		}

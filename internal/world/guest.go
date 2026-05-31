@@ -132,9 +132,17 @@ type Guest struct {
 
 	// RemainingBudget is the guest's remaining spending money for this visit.
 	// Reset to Traits.DailyBudget at each spawn; decremented by lift ticket
-	// price on each ride. When it falls below the cheapest lift ticket the
-	// GoHome goal fires.
+	// price on each ride. Pass holders skip lift charges, so their budget
+	// drains only from the initial pass purchase.
 	RemainingBudget float32
+
+	// SeasonPassExpiry is the SimTime at which the guest's season pass expires.
+	// Zero means no pass. Persisted so passes survive save/load.
+	SeasonPassExpiry float64
+	// HasSeasonPass is a precomputed flag: true when SeasonPassExpiry > 0 and
+	// the current SimTime is before it. Updated at spawn and when a pass is
+	// purchased. Pass holders ride any open lift for free.
+	HasSeasonPass bool
 
 	// Satisfaction is the 0..1 session quality score. Initialised to 0.6
 	// on arrival; drifts continuously toward a terrain-quality target each

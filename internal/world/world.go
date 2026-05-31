@@ -27,7 +27,9 @@ const (
 
 	GladeCostPerCell = 200 // cost per in-radius cell with trees cleared by the glade brush
 
-	DefaultTicketPrice = 10     // dollars per lift ride; player adjusts via the lift popup
+	DefaultTicketPrice   = 10  // dollars per lift ride; player adjusts via the lift popup
+	TicketOfficeCost     = 20000
+	DefaultSeasonPassPrice = 150 // one-time fee per guest per season; guests with sufficient budget buy it on arrival
 	HelipadCost        = 300000 // flat cost for a heli-ski operation (two pads + helicopter)
 	PatrolHutCost      = 35000  // patrol hut + one patroller/snowmobile
 	SnowGunCost          = 15000  // snowmaking cannon; operating cost below
@@ -54,6 +56,8 @@ func BuildingCost(t BuildingType) int {
 		return PatrolHutCost
 	case BuildingSnowGun:
 		return SnowGunCost
+	case BuildingTicketOffice:
+		return TicketOfficeCost
 	}
 	return LodgeCost
 }
@@ -100,6 +104,12 @@ type World struct {
 	// balance can't cover the cost.
 	Cash int
 
+	// SeasonPassPrice is the one-time fee guests pay at the ticket office for
+	// a season pass. Pass holders ride any lift for free for the remainder of
+	// the season. Defaults to DefaultSeasonPassPrice; the player can adjust it
+	// via the ticket office popup (future).
+	SeasonPassPrice int
+
 	// Seed is the RNG seed used when this world's Simulation was created.
 	// Saved and reloaded so SeedGuests on load produces the same guest pool.
 	Seed int64
@@ -109,10 +119,11 @@ type World struct {
 // starting balance.
 func NewWorld(terrain *Terrain) *World {
 	return &World{
-		Terrain: terrain,
-		nextID:  1,
-		Cash:    StartingCash,
-		History: NewHistory(),
+		Terrain:         terrain,
+		nextID:          1,
+		Cash:            StartingCash,
+		History:         NewHistory(),
+		SeasonPassPrice: DefaultSeasonPassPrice,
 	}
 }
 

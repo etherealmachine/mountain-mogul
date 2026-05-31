@@ -529,7 +529,8 @@ type toolMode int
 
 const (
 	toolNone        toolMode = iota
-	toolBuilding    toolMode = iota // place a lodge
+	toolBuilding      toolMode = iota // place a lodge
+	toolTicketOffice  toolMode = iota // place a ticket office (season pass sales)
 	toolShed        toolMode = iota // place an equipment shed
 	toolParking     toolMode = iota // place a parking lot (skier spawn/despawn)
 	toolLiftBase    toolMode = iota // waiting for first lift click
@@ -817,9 +818,10 @@ func (s *Scenario) Init(app *engine.App) error {
 	s.toolBar = ui.NewMenuBar(0, toolBarH)
 	s.toolBar.Centered = true
 
-	// Amenities submenu: Lodge
+	// Amenities submenu: Lodge, Ticket Office
 	s.amenitiesSubmenu = s.toolBar.AddSubmenu(render.IconHouse, "Amenities")
 	s.toolButtons[toolBuilding] = s.amenitiesSubmenu.AddChild(render.IconHouse, "Lodge", func() { s.setTool(toolBuilding) })
+	s.toolButtons[toolTicketOffice] = s.amenitiesSubmenu.AddChild(render.IconCoin, "Tickets", func() { s.setTool(toolTicketOffice) })
 
 	// Operations submenu: Shed, Patrol
 	s.opsSubmenu = s.toolBar.AddSubmenu(render.IconGarage, "Operations")
@@ -2067,6 +2069,21 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		applyBuildingPlacementEffects(w.Terrain, b)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
+	case toolTicketOffice:
+		if w.Cash < world.TicketOfficeCost {
+			s.setToast(fmt.Sprintf("Need $%d for a ticket office — short by $%d",
+				world.TicketOfficeCost, world.TicketOfficeCost-w.Cash))
+			return
+		}
+		if w.BuildingOverlap(world.BuildingTicketOffice, wx, wz) {
+			s.setToast("Can't place a ticket office here — overlaps another building")
+			return
+		}
+		w.Cash -= world.TicketOfficeCost
+		b := w.PlaceBuildingType(world.BuildingTicketOffice, wx, wz)
+		applyBuildingPlacementEffects(w.Terrain, b)
+		r.FlushTerrainVerts(w.Terrain)
+		r.RebuildStaticBatch(w)
 	case toolShed:
 		if w.Cash < world.ShedCost {
 			s.setToast(fmt.Sprintf("Need $%d for a shed — short by $%d",
@@ -3270,7 +3287,7 @@ func updatePlacementGhost(r *render.Renderer, t *world.Terrain, st placementGhos
 	}
 
 	switch st.activeTool {
-	case toolBuilding:
+	case toolBuilding, toolTicketOffice:
 		r.SetGhosts(render.MeshBuilding, []render.StaticInstance{
 			buildingInstance(st.hoverPos, t, st.tint),
 		})
@@ -3378,6 +3395,9 @@ func (s *Scenario) placementCost() (cost int, affordable, legal, valid bool) {
 	case toolBuilding:
 		cost = world.LodgeCost
 		legal = !s.world.BuildingOverlap(world.BuildingLodge, pos[0], pos[1])
+	case toolTicketOffice:
+		cost = world.TicketOfficeCost
+		legal = !s.world.BuildingOverlap(world.BuildingTicketOffice, pos[0], pos[1])
 	case toolShed:
 		cost = world.ShedCost
 		legal = !s.world.BuildingOverlap(world.BuildingShed, pos[0], pos[1])
@@ -3618,9 +3638,14 @@ func (f *followLabel) Draw(r *render.Renderer) {
 		badges += " · corduroy"
 	}
 	satisfactionPct := int(f.agent.Satisfaction * 100)
+	passStr := ""
+	if f.agent.HasSeasonPass {
+		passStr = "  · season pass"
+	}
 	rows := []string{
 		fmt.Sprintf("%s #%d (%s)  |  %s  |  %s", f.agent.Name, f.agent.ID, badges, activity, mode),
 		fmt.Sprintf("%s    patience %d%%    energy %d%%    hunger %d%%    thirst %d%%    satisfaction %d%%", settings.FormatSpeed(f.agent.Speed), patiencePct, energyPct, hungerPct, thirstPct, satisfactionPct),
+		fmt.Sprintf("budget $%d%s", int(f.agent.RemainingBudget), passStr),
 	}
 	resolve := entityName(f.world)
 	if t := f.agent.CurrentThought(f.simTime); t.Kind != ai.ThoughtNone {

@@ -217,6 +217,11 @@ type GuestData struct {
 	LastVisitUnix    int64   `json:"lvu,omitempty"` // 0 = never visited
 	LastScore        float32 `json:"lsc,omitempty"`
 
+	// Season pass. SeasonPassExpiry is the SimTime at which the pass expires;
+	// HasSeasonPass is the precomputed validity flag for guests OnMountain.
+	SeasonPassExpiry float64 `json:"spe,omitempty"`
+	HasSeasonPass    bool    `json:"hsp,omitempty"`
+
 	// Visit state. 0 = AtHome (default), 1 = OnMountain.
 	State uint8 `json:"state,omitempty"`
 

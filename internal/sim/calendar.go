@@ -27,6 +27,16 @@ const (
 // SimTime 0 maps to Nov 25 of this year. The "2026-27 season" opens here.
 const seasonEpochYear = 2026
 
+// SeasonCloseYearFor returns the calendar year in which the season that
+// contains t closes (i.e. the Memorial Day year). Seasons run Nov→May, so
+// dates from November onward belong to the season that closes next year.
+func SeasonCloseYearFor(t time.Time) int {
+	if t.Month() >= time.November {
+		return t.Year() + 1
+	}
+	return t.Year()
+}
+
 // SeasonOpenDate returns Nov 25 of the given year.
 func SeasonOpenDate(year int) time.Time {
 	return time.Date(year, seasonOpenMonth, seasonOpenDay, 0, 0, 0, 0, time.UTC)

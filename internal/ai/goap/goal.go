@@ -24,10 +24,34 @@ type Goal interface {
 // AllGoals is the full set considered at replan time. Order is irrelevant
 // — Select picks by weight.
 var AllGoals = []Goal{
+	GetSeasonPass{},
 	KeepSkiing{},
 	Rest{},
 	Explore{},
 	GoHome{},
+}
+
+// GetSeasonPass fires early in a visit when there is a ticket office and the
+// guest can afford a pass. Weight is high so guests buy a pass before skiing,
+// but it immediately drops to zero once satisfied (HasSeasonPass is true).
+type GetSeasonPass struct{}
+
+func (GetSeasonPass) Name() string { return "GetSeasonPass" }
+
+func (GetSeasonPass) IsSatisfied(s *WorldSnapshot, w *world.World) bool {
+	return s.HasSeasonPass
+}
+
+func (GetSeasonPass) Weight(s *WorldSnapshot, w *world.World) float32 {
+	if s.HasSeasonPass || s.RemainingBudget < float32(w.SeasonPassPrice) {
+		return 0
+	}
+	for _, b := range w.Buildings {
+		if b.Type == world.BuildingTicketOffice {
+			return 0.9 // just below GoHome (1.0) but above all skiing goals
+		}
+	}
+	return 0
 }
 
 // KeepSkiing is the baseline drive: ride one more lift. Weighted
@@ -176,7 +200,7 @@ func (GoHome) Weight(s *WorldSnapshot, w *world.World) float32 {
 	if s.Hunger < 0.05 || s.Thirst < 0.05 {
 		return 1.0
 	}
-	if s.CheapestTicket > 0 && s.RemainingBudget < s.CheapestTicket {
+	if !s.HasSeasonPass && s.CheapestTicket > 0 && s.RemainingBudget < s.CheapestTicket {
 		return 1.0
 	}
 	return 0

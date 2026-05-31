@@ -94,7 +94,7 @@ func (t BuildingType) MeshID() uint32 {
 		return MeshParkingPad
 	case BuildingSnowGun:
 		return MeshSnowGun
-	case BuildingLodge:
+	case BuildingLodge, BuildingTicketOffice:
 		fallthrough
 	default:
 		return MeshBuilding

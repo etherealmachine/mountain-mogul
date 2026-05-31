@@ -5,15 +5,6 @@ Bugs:
   Cats drive on powder
   Release cat is wrong
 
-Tune attracting guests
-  Smaller pool at game start
-  Pool grows over time with resort milestones
-  Demand determined by:
-    Skiable terrain (sum of all trail cells)
-      Breakdown terrain by ability level
-    Number of lifts plus each lift type
-    Rating
-    Need some way of visualizing the demand pool
 Lifts and attendants
   Spawn skiers left and right of the lift
   2 attendants required - one at top and bottom, for safety

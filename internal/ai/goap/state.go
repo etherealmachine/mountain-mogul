@@ -32,22 +32,27 @@ type WorldSnapshot struct {
 	Thirst   float32 // 0..1; drain scales with altitude and exertion; hits 0 → GoHome
 	Skill    float32
 
-	AtLiftBase uint64 // 0 or lift ID — at the base of this lift, not yet queued
-	AtLiftTop  uint64 // 0 or lift ID — just unloaded at the top
-	Queued     uint64 // 0 or lift ID — standing in this lift's queue
-	OnLift     uint64 // 0 or lift ID — riding a chair
-	AtLodge    uint64 // 0 or lodge building ID
-	AtParking  uint64 // 0 or parking building ID
-	AtTrailEnd uint64 // 0 or trail ID — arrived at a trail-to-trail junction
+	AtLiftBase     uint64 // 0 or lift ID — at the base of this lift, not yet queued
+	AtLiftTop      uint64 // 0 or lift ID — just unloaded at the top
+	Queued         uint64 // 0 or lift ID — standing in this lift's queue
+	OnLift         uint64 // 0 or lift ID — riding a chair
+	AtLodge        uint64 // 0 or lodge building ID
+	AtParking      uint64 // 0 or parking building ID
+	AtTrailEnd     uint64 // 0 or trail ID — arrived at a trail-to-trail junction
+	AtTicketOffice uint64 // 0 or ticket office building ID
 
 	// RemainingBudget is the guest's unspent visit money. Decremented by
-	// each lift ticket; when it falls below CheapestTicket the GoHome goal
-	// fires and JoinQueue preconditions become false for unaffordable lifts.
+	// each lift ticket (or the season pass fee); when it falls below
+	// CheapestTicket the GoHome goal fires (unless the guest has a pass).
 	RemainingBudget float32
 	// CheapestTicket is the minimum ticket price across all open lifts,
 	// precomputed at Extract time so goal/action logic needs no world walk.
 	// Zero when the world has no lifts.
 	CheapestTicket float32
+
+	// HasSeasonPass is true when the guest holds a valid season pass. Pass
+	// holders skip lift charges and are never budget-gated from joining a queue.
+	HasSeasonPass bool
 
 	// Removed flags a terminal state: agent has Departed. Planner treats
 	// this as the unique goal-state for GoHome.
@@ -95,6 +100,7 @@ func Extract(a *world.Guest, w *world.World) WorldSnapshot {
 		Skill:           a.Traits.Skill,
 		RemainingBudget: a.RemainingBudget,
 		CheapestTicket:  cheapestTicket(w),
+		HasSeasonPass:   a.HasSeasonPass,
 		OnLift:          a.OnLiftID,
 		AtTrailEnd:      a.AtTrailEnd,
 		RidenLifts:      a.RidenLifts,
@@ -159,6 +165,9 @@ func Extract(a *world.Guest, w *world.World) WorldSnapshot {
 		case world.BuildingParking:
 			snap.AtParking = b.ID
 			return snap
+		case world.BuildingTicketOffice:
+			snap.AtTicketOffice = b.ID
+			return snap
 		}
 	}
 	return snap
@@ -180,6 +189,7 @@ func ExtractLookahead(a *world.Guest, liftID uint64, w *world.World) WorldSnapsh
 		Skill:           a.Traits.Skill,
 		RemainingBudget: a.RemainingBudget,
 		CheapestTicket:  cheapestTicket(w),
+		HasSeasonPass:   a.HasSeasonPass,
 		AtLiftTop:       liftID,
 		AtTrailEnd:      a.AtTrailEnd,
 		RidenLifts:      rides,

@@ -117,7 +117,9 @@ const (
 	ActSkiToParking
 	ActRestAtLodge
 	ActDepart
-	ActSkiTrail // ski a player-defined trail from one entity to another
+	ActSkiTrail          // ski a player-defined trail from one entity to another
+	ActWalkToTicketOffice // walk to the ticket office building
+	ActBuySeasonPass      // purchase a season pass at the ticket office
 )
 
 // PlanAction is one step in the stored L0 plan — plain data, no behaviour.

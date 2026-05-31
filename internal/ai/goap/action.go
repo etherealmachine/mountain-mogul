@@ -136,9 +136,10 @@ func (a *JoinQueue) Precondition(s *WorldSnapshot, w *world.World) bool {
 	if s.Patience >= 0.05 && len(l.Queue) > MaxQueuePersons {
 		return false
 	}
-	// Reject if the guest can't afford this lift. Budget-exhausted guests
-	// still need to ride up to exit — same exception as the patience check.
-	if s.RemainingBudget > 0 && s.RemainingBudget < float32(l.TicketPrice) {
+	// Reject if the guest can't afford this lift. Pass holders skip the budget
+	// check — their rides are free. Budget-exhausted guests still need to ride
+	// up to exit — same exception as the patience check above.
+	if !s.HasSeasonPass && s.RemainingBudget > 0 && s.RemainingBudget < float32(l.TicketPrice) {
 		return false
 	}
 	return true
@@ -315,6 +316,71 @@ func (a *SkiToParking) Cost(s *WorldSnapshot, w *world.World) float32 {
 	return distXZ(mgl32.Vec3{src.Top[0], 0, src.Top[1]}, dst.Pos[0], dst.Pos[1]) / skiSpeedMps
 }
 
+// WalkToTicketOffice moves the agent from any ground position to a ticket
+// office. Only applicable when the guest does not already have a season pass
+// and has enough budget to buy one.
+type WalkToTicketOffice struct{ OfficeID uint64 }
+
+func (a *WalkToTicketOffice) Name() string {
+	return fmt.Sprintf("WalkToTicketOffice(%d)", a.OfficeID)
+}
+
+func (a *WalkToTicketOffice) Precondition(s *WorldSnapshot, w *world.World) bool {
+	if s.Removed || s.OnLift != 0 || s.Queued != 0 || s.AtLiftBase != 0 || s.AtLiftTop != 0 {
+		return false
+	}
+	if s.HasSeasonPass {
+		return false
+	}
+	if s.RemainingBudget < float32(w.SeasonPassPrice) {
+		return false
+	}
+	return findBuilding(w, a.OfficeID, world.BuildingTicketOffice) != nil
+}
+
+func (a *WalkToTicketOffice) Apply(s *WorldSnapshot, w *world.World) {
+	b := findBuilding(w, a.OfficeID, world.BuildingTicketOffice)
+	if b == nil {
+		return
+	}
+	s.AtLodge = 0
+	s.AtParking = 0
+	s.AtTicketOffice = b.ID
+	s.Pos = mgl32.Vec3{b.Pos[0], s.Pos[1], b.Pos[1]}
+}
+
+func (a *WalkToTicketOffice) Cost(s *WorldSnapshot, w *world.World) float32 {
+	b := findBuilding(w, a.OfficeID, world.BuildingTicketOffice)
+	if b == nil {
+		return math.MaxFloat32
+	}
+	return distXZ(s.Pos, b.Pos[0], b.Pos[1]) / walkSpeedMps
+}
+
+// BuySeasonPass is an atomic action executed at a ticket office. The guest
+// pays the season pass fee and receives free lift access for the rest of the
+// season. The actual SimTime expiry and cash transfer are applied by the
+// simulation when the step starts.
+type BuySeasonPass struct{ OfficeID uint64 }
+
+func (a *BuySeasonPass) Name() string {
+	return fmt.Sprintf("BuySeasonPass(%d)", a.OfficeID)
+}
+
+func (a *BuySeasonPass) Precondition(s *WorldSnapshot, w *world.World) bool {
+	return !s.Removed && s.AtTicketOffice == a.OfficeID && !s.HasSeasonPass
+}
+
+func (a *BuySeasonPass) Apply(s *WorldSnapshot, w *world.World) {
+	s.HasSeasonPass = true
+	s.RemainingBudget -= float32(w.SeasonPassPrice)
+	s.AtTicketOffice = 0
+}
+
+func (a *BuySeasonPass) Cost(s *WorldSnapshot, w *world.World) float32 {
+	return 5.0 // brief transaction; planner sees minimal queue cost
+}
+
 // RestAtLodge is an atomic recovery action — one application restores
 // Energy to near full. Models a single ~minute-long stop at a lodge
 // rather than chaining many small recovery ticks, which would balloon
@@ -426,6 +492,22 @@ func ApplicableActions(s *WorldSnapshot, w *world.World) []Action {
 	if s.AtParking != 0 {
 		out = append(out, &Depart{LotID: s.AtParking})
 	}
+	// Walk to ticket office from any ground position (not on a lift or in a queue).
+	if !s.Removed && !s.HasSeasonPass && s.OnLift == 0 && s.Queued == 0 && s.AtLiftBase == 0 && s.AtLiftTop == 0 {
+		for _, b := range w.Buildings {
+			if b.Type != world.BuildingTicketOffice {
+				continue
+			}
+			a := &WalkToTicketOffice{OfficeID: b.ID}
+			if a.Precondition(s, w) {
+				out = append(out, a)
+			}
+		}
+	}
+	// Buy pass when already at the ticket office.
+	if s.AtTicketOffice != 0 {
+		out = append(out, &BuySeasonPass{OfficeID: s.AtTicketOffice})
+	}
 	return out
 }
 
@@ -471,6 +553,12 @@ func ToPlanActions(actions []Action, snap WorldSnapshot, w *world.World) []ai.Pl
 		case *Depart:
 			pa.Kind = ai.ActDepart
 			pa.BldgID = t.LotID
+		case *WalkToTicketOffice:
+			pa.Kind = ai.ActWalkToTicketOffice
+			pa.BldgID = t.OfficeID
+		case *BuySeasonPass:
+			pa.Kind = ai.ActBuySeasonPass
+			pa.BldgID = t.OfficeID
 		case *SkiTrail:
 			pa.Kind = ai.ActSkiTrail
 			pa.TrailID = t.TrailID // via trail (display); overridden for trail-to-trail
@@ -511,6 +599,10 @@ func PlanActionLabel(pa ai.PlanAction, w *world.World) string {
 		return "RestAtLodge(" + buildingLabel(w, pa.BldgID) + ")"
 	case ai.ActDepart:
 		return "Depart(" + buildingLabel(w, pa.BldgID) + ")"
+	case ai.ActWalkToTicketOffice:
+		return "WalkToTicketOffice(" + buildingLabel(w, pa.BldgID) + ")"
+	case ai.ActBuySeasonPass:
+		return "BuySeasonPass(" + buildingLabel(w, pa.BldgID) + ")"
 	case ai.ActSkiTrail:
 		return skiTrailPlanActionLabel(pa, w)
 	}
@@ -544,6 +636,10 @@ func DisplayName(a Action, w *world.World) string {
 		return "RestAtLodge(" + buildingLabel(w, act.LodgeID) + ")"
 	case *Depart:
 		return "Depart(" + buildingLabel(w, act.LotID) + ")"
+	case *WalkToTicketOffice:
+		return "WalkToTicketOffice(" + buildingLabel(w, act.OfficeID) + ")"
+	case *BuySeasonPass:
+		return "BuySeasonPass(" + buildingLabel(w, act.OfficeID) + ")"
 	case *SkiTrail:
 		return skiTrailDisplayName(act, w)
 	}
@@ -569,6 +665,8 @@ func buildingLabel(w *world.World, id uint64) string {
 			return fmt.Sprintf("Lodge#%d", id)
 		case world.BuildingParking:
 			return fmt.Sprintf("Lot#%d", id)
+		case world.BuildingTicketOffice:
+			return fmt.Sprintf("TicketOffice#%d", id)
 		}
 	}
 	return fmt.Sprintf("#%d", id)

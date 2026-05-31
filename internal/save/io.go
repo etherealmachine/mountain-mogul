@@ -310,6 +310,8 @@ func worldToData(w *world.World) ScenarioData {
 		if !g.LastVisit.IsZero() {
 			gd.LastVisitUnix = g.LastVisit.Unix()
 		}
+		gd.SeasonPassExpiry = g.SeasonPassExpiry
+		gd.HasSeasonPass = g.HasSeasonPass
 		if g.State == world.OnMountain {
 			gd.Pos = [3]float32{g.Pos[0], g.Pos[1], g.Pos[2]}
 			gd.Heading = g.Heading
@@ -639,6 +641,8 @@ func dataToWorld(data ScenarioData) *world.World {
 		if gd.LastVisitUnix != 0 {
 			g.LastVisit = time.Unix(gd.LastVisitUnix, 0).UTC()
 		}
+		g.SeasonPassExpiry = gd.SeasonPassExpiry
+		g.HasSeasonPass = gd.HasSeasonPass
 		if g.State == world.OnMountain {
 			g.Pos = mgl32.Vec3{gd.Pos[0], gd.Pos[1], gd.Pos[2]}
 			g.Heading = gd.Heading
