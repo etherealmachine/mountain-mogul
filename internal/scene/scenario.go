@@ -2913,6 +2913,33 @@ func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 		w.Center(screenW, screenH)
 		s.popup = w
 		return
+	case world.BuildingTicketOffice:
+		w := ui.NewWindow("Ticket Office", 0, 0)
+		w.AddIntStepper("Pass price ($)", &s.world.SeasonPassPrice, 10, 0, 1000)
+		w.AddLabel("Pass holders", func() string {
+			count := 0
+			for _, a := range s.world.OnMountain {
+				if a.HasSeasonPass {
+					count++
+				}
+			}
+			return fmt.Sprintf("%d on mountain", count)
+		})
+		w.AddLabel("Inbound", func() string {
+			count := 0
+			for _, a := range s.world.OnMountain {
+				if a.TargetID == bldg.ID {
+					count++
+				}
+			}
+			return fmt.Sprintf("%d", count)
+		})
+		w.Visible = true
+		w.Center(screenW, screenH)
+		s.popup = w
+		return
+	case world.BuildingLodge:
+		// fallthrough to Lodge window below
 	}
 	w := ui.NewWindow("Lodge", 0, 0)
 	w.AddLabel("Inbound", func() string {
