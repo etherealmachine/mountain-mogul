@@ -435,6 +435,50 @@ var Testbeds = []Testbed{
 			}
 		}(),
 	},
+	{
+		// Skier on a slope split by a land-ownership boundary. The bottom
+		// half is owned; the upper half is purchasable. The skier starts in
+		// the owned zone and should stay within it when skiing.
+		//
+		// Layout (30×60, 15° slope, z=0 is top):
+		//   Parking:   (15,57)
+		//   Lift:      base (15,52), top (15,8)
+		//   Parcel 1 (owned):      z=30..59
+		//   Parcel 2 (purchasable, $50k): z=0..29
+		//   Skier: (15,35) — in owned zone, GOAP plans
+		//   Cash: $60k (can afford the parcel purchase)
+		Name: "Land ownership boundary",
+		Seed: 42,
+		Build: func() *world.World {
+			b := scene(30, 60).slope(15).
+				parkingAt(15, 57).
+				liftFromTo(15, 52, 15, 8)
+
+			w := b.w
+			// Cash enough to test purchasing the upper parcel.
+			w.Cash = 60000
+
+			// Define parcels. Parcel 1 covers the lower owned zone;
+			// parcel 2 covers the upper purchasable zone.
+			var p1Cells, p2Cells [][2]int
+			for x := 0; x < 30; x++ {
+				for z := 30; z < 60; z++ {
+					p1Cells = append(p1Cells, [2]int{x, z})
+				}
+				for z := 0; z < 30; z++ {
+					p2Cells = append(p2Cells, [2]int{x, z})
+				}
+			}
+			w.Parcels = []world.Parcel{
+				{ID: 1, Name: "Base Area", State: world.ParcelOwned, Cells: p1Cells},
+				{ID: 2, Name: "Upper Mountain", State: world.ParcelPurchasable, Price: 50000, Cells: p2Cells},
+			}
+			w.ApplyParcels()
+
+			w.Terrain.RecomputeSlopes()
+			return w
+		},
+	},
 }
 
 // FindTestbed returns the testbed whose Name starts with `prefix`

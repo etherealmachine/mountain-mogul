@@ -98,6 +98,12 @@ type Renderer struct {
 	catPathVAO, catPathVBO uint32
 	catPathVertCount       int32
 
+	boundaryVAO, boundaryVBO uint32
+	boundaryVertCount        int32 // fence rope lines around owned parcels
+
+	fencePostVAO, fencePostVBO uint32
+	fencePostVertCount         int32 // fence post triangles (square vertical posts)
+
 	weatherVAO uint32 // empty VAO for the full-screen-triangle weather pass
 
 	// WeatherOverlay controls the precipitation/sky overlay drawn after the
@@ -256,6 +262,28 @@ func NewRenderer(w, h int, assetDir string) (*Renderer, error) {
 	gl.GenBuffers(1, &r.catPathVBO)
 	gl.BindVertexArray(r.catPathVAO)
 	gl.BindBuffer(gl.ARRAY_BUFFER, r.catPathVBO)
+	gl.EnableVertexAttribArray(0)
+	gl.VertexAttribPointerWithOffset(0, 3, gl.FLOAT, false, 24, 0)
+	gl.EnableVertexAttribArray(1)
+	gl.VertexAttribPointerWithOffset(1, 3, gl.FLOAT, false, 24, 12)
+	gl.BindVertexArray(0)
+
+	// Boundary fence rope VAO/VBO — same vertex layout as debug, drawn as lines.
+	gl.GenVertexArrays(1, &r.boundaryVAO)
+	gl.GenBuffers(1, &r.boundaryVBO)
+	gl.BindVertexArray(r.boundaryVAO)
+	gl.BindBuffer(gl.ARRAY_BUFFER, r.boundaryVBO)
+	gl.EnableVertexAttribArray(0)
+	gl.VertexAttribPointerWithOffset(0, 3, gl.FLOAT, false, 24, 0)
+	gl.EnableVertexAttribArray(1)
+	gl.VertexAttribPointerWithOffset(1, 3, gl.FLOAT, false, 24, 12)
+	gl.BindVertexArray(0)
+
+	// Fence post VAO/VBO — same vertex layout, drawn as triangles.
+	gl.GenVertexArrays(1, &r.fencePostVAO)
+	gl.GenBuffers(1, &r.fencePostVBO)
+	gl.BindVertexArray(r.fencePostVAO)
+	gl.BindBuffer(gl.ARRAY_BUFFER, r.fencePostVBO)
 	gl.EnableVertexAttribArray(0)
 	gl.VertexAttribPointerWithOffset(0, 3, gl.FLOAT, false, 24, 0)
 	gl.EnableVertexAttribArray(1)
@@ -1945,6 +1973,18 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 			gl.BindVertexArray(0)
 			gl.LineWidth(1.0)
 		}
+		if r.fencePostVertCount > 0 {
+			gl.BindVertexArray(r.fencePostVAO)
+			gl.DrawArrays(gl.TRIANGLES, 0, r.fencePostVertCount)
+			gl.BindVertexArray(0)
+		}
+		if r.boundaryVertCount > 0 {
+			gl.BindVertexArray(r.boundaryVAO)
+			gl.LineWidth(2.0)
+			gl.DrawArrays(gl.LINES, 0, r.boundaryVertCount)
+			gl.BindVertexArray(0)
+			gl.LineWidth(1.0)
+		}
 	}
 
 	// Chair pass — one dynamic batch per chair mesh variant. Group lift
@@ -2252,6 +2292,39 @@ func (r *Renderer) SetCatPathLines(lines []DebugLine) {
 	gl.BufferData(gl.ARRAY_BUFFER, len(verts)*4, gl.Ptr(verts), gl.DYNAMIC_DRAW)
 	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
 	r.catPathVertCount = int32(len(lines) * 2)
+}
+
+// SetBoundaryLines uploads fence line segments marking the ski-area boundary.
+// Pass nil or an empty slice to clear.
+func (r *Renderer) SetBoundaryLines(lines []DebugLine) {
+	if len(lines) == 0 {
+		r.boundaryVertCount = 0
+		return
+	}
+	verts := make([]float32, 0, len(lines)*12)
+	for _, l := range lines {
+		verts = append(verts,
+			l.A[0], l.A[1], l.A[2], l.Color[0], l.Color[1], l.Color[2],
+			l.B[0], l.B[1], l.B[2], l.Color[0], l.Color[1], l.Color[2],
+		)
+	}
+	gl.BindBuffer(gl.ARRAY_BUFFER, r.boundaryVBO)
+	gl.BufferData(gl.ARRAY_BUFFER, len(verts)*4, gl.Ptr(verts), gl.DYNAMIC_DRAW)
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+	r.boundaryVertCount = int32(len(lines) * 2)
+}
+
+// SetFencePostVerts uploads flat-shaded triangle vertices for fence posts.
+// Each vertex is pos(xyz) + color(rgb) = 6 floats. Pass nil to clear.
+func (r *Renderer) SetFencePostVerts(verts []float32) {
+	if len(verts) == 0 {
+		r.fencePostVertCount = 0
+		return
+	}
+	gl.BindBuffer(gl.ARRAY_BUFFER, r.fencePostVBO)
+	gl.BufferData(gl.ARRAY_BUFFER, len(verts)*4, gl.Ptr(verts), gl.DYNAMIC_DRAW)
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+	r.fencePostVertCount = int32(len(verts) / 6)
 }
 
 // SetBrush configures the terrain shader brush ring.

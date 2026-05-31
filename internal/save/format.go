@@ -16,9 +16,21 @@ type ScenarioData struct {
 	Patrollers []PatrollerData `json:"patrollers,omitempty"`
 	RoadNodes  []RoadNodeData  `json:"road_nodes,omitempty"`
 	RoadEdges  []RoadEdgeData  `json:"road_edges,omitempty"`
+	Parcels    []ParcelData    `json:"parcels,omitempty"`
 	Cash       int             `json:"cash,omitempty"`
 	Camera     *CameraData     `json:"camera,omitempty"`
 	History    *HistoryData    `json:"history,omitempty"`
+}
+
+// ParcelData is one scenario-authored land parcel. State: 0=owned,
+// 1=purchasable, 2=off-limits. Cells is the full list of terrain grid
+// coordinates belonging to this parcel.
+type ParcelData struct {
+	ID    uint16   `json:"id"`
+	Name  string   `json:"name,omitempty"`
+	State uint8    `json:"state"`
+	Price int      `json:"price,omitempty"`
+	Cells [][2]int `json:"cells,omitempty"`
 }
 
 // PatrollerData is a saved ski-patrol unit. HutID links it back to its patrol

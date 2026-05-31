@@ -1011,7 +1011,7 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 			d := horizon * float32(sIdx) / float32(sampleSegments)
 			x := perc.Pos[0] + hx*d
 			z := perc.Pos[2] + hz*d
-			if !t.InBoundsWorld(x, z) {
+			if !t.IsAccessibleWorld(x, z) {
 				boundaryHits++
 				continue
 			}

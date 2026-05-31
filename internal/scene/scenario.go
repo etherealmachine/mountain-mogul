@@ -544,6 +544,7 @@ const (
 	toolPlantTrees  toolMode = iota // increase TreeDensity (brush, editor only)
 	toolRemove     toolMode = iota // remove building at clicked cell
 	toolTrailPaint toolMode = iota // paint/erase cells on the active trail
+	toolLandBuy    toolMode = iota // click to purchase a land parcel
 )
 
 // Scenario is the main gameplay scene.
@@ -623,6 +624,16 @@ type Scenario struct {
 	selectedCatID      uint64 // 0 = none; >0 = ID of cat whose popup is open
 	selectedBuildingID uint64 // 0 = none; >0 = ID of building whose popup is open
 	showCatPath   bool   // true = draw cat's route + transit as debug lines
+
+	// hoverParcel is the parcel under the mouse cursor when toolLandBuy is
+	// active. Nil when the cursor is over owned/off-limits land or no parcel
+	// system is defined.
+	hoverParcel *world.Parcel
+
+	// parcelBoundaryDirty is set to true when the parcel state changes
+	// (world load or purchase). The render loop rebuilds and uploads the
+	// fence line geometry once and clears the flag.
+	parcelBoundaryDirty bool
 
 	// Click-to-edit road state. Active only while activeTool == toolNone:
 	// a toolNone left click on a road node/edge populates this and the
@@ -847,6 +858,12 @@ func (s *Scenario) Init(app *engine.App) error {
 	s.toolButtons[toolGlade] = s.toolBar.AddIconButton(render.IconAxe, "Glade", func() { s.setTool(toolGlade) })
 	s.toolButtons[toolTrailPaint] = s.toolBar.AddIconButton(render.IconFlag, "Trail", func() { s.activateTrailTool() })
 	s.toolButtons[toolRemove] = s.toolBar.AddIconButton(render.IconTrash, "Remove", func() { s.setTool(toolRemove) })
+	s.toolButtons[toolLandBuy] = s.toolBar.AddIconButton(render.IconGlobe, "Land", func() {
+		s.setTool(toolLandBuy)
+		if s.activeTool == toolLandBuy {
+			s.setToast("Click a purchasable parcel to buy it. Esc to exit.")
+		}
+	})
 	if s.rebuild != nil {
 		s.toolBar.AddButton("New Seed", func() {
 			s.restartWithSeed(rand.Int63n(1_000_000))
@@ -1246,6 +1263,7 @@ func (s *Scenario) installWorld(w *world.World) {
 	for _, lift := range w.Lifts {
 		r.AddLiftCable(lift, w.Terrain)
 	}
+	s.parcelBoundaryDirty = true
 }
 
 // openSavePrompt is hooked into the escape menu's Save button. Pops up a
@@ -1598,6 +1616,18 @@ func (s *Scenario) Update(dt float64) {
 		s.hoverCell = [2]int{-1, -1}
 	}
 
+	// Track hovered parcel for the land-buy tool.
+	if s.activeTool == toolLandBuy && s.hoverValid {
+		p := s.world.ParcelAt(s.hoverCell[0], s.hoverCell[1])
+		if p != nil && p.State == world.ParcelPurchasable {
+			s.hoverParcel = p
+		} else {
+			s.hoverParcel = nil
+		}
+	} else {
+		s.hoverParcel = nil
+	}
+
 	// Ghost preview for placement tools — uses the continuous hover so
 	// the preview tracks the cursor without snapping.
 	updatePlacementGhost(r, s.world.Terrain, placementGhostState{
@@ -1851,6 +1881,14 @@ func (s *Scenario) Update(dt float64) {
 // steering-debug visualisation in the debug-line buffer, and separately
 // pushes the cell overlay texture (trails + grooming routes) to the renderer.
 func (s *Scenario) updateOverlay(r *render.Renderer) {
+	// Rebuild parcel fence geometry when parcels change.
+	if s.parcelBoundaryDirty {
+		postVerts, ropeLines := buildParcelFence(s.world)
+		r.SetFencePostVerts(postVerts)
+		r.SetBoundaryLines(ropeLines)
+		s.parcelBoundaryDirty = false
+	}
+
 	// Cell overlay texture (trails + grooming routes) — always updated.
 	pix, ow, oh := s.buildCellOverlay()
 	r.SetCellOverlay(pix, ow, oh)
@@ -1920,9 +1958,10 @@ func (s *Scenario) updateOverlay(r *render.Renderer) {
 }
 
 // buildCellOverlay returns an RGBA8 pixel array (w×h, one texel per terrain
-// cell) encoding trail and grooming-route colours. Trails are shown when the
-// Trails overlay bit is set, or always when actively painting a trail.
-// Grooming routes are shown only while the route-paint tool is active.
+// cell) encoding trail, grooming-route, and land-ownership colours. Trails
+// are shown when the Trails overlay bit is set, or always when actively
+// painting a trail. Land ownership is shown when the land-buy tool is active
+// or when parcels exist (so the player always knows their boundary).
 // Returns nil when there is nothing to paint.
 func (s *Scenario) buildCellOverlay() (pixels []uint8, w, h int) {
 	if s.world == nil || s.world.Terrain == nil {
@@ -1934,7 +1973,8 @@ func (s *Scenario) buildCellOverlay() (pixels []uint8, w, h int) {
 	trailOverlayOn := s.overlayPanel != nil && (s.overlayPanel.Mask()&render.OverlayTrails) != 0
 	hasActiveTrail := s.activeTrailID != 0
 	hasTrails := len(s.world.Trails) > 0 && (trailOverlayOn || hasActiveTrail)
-	if !hasTrails {
+	hasLandOverlay := s.hoverParcel != nil // hover highlight when buying land
+	if !hasTrails && !hasLandOverlay {
 		return nil, 0, 0
 	}
 
@@ -1955,6 +1995,14 @@ func (s *Scenario) buildCellOverlay() (pixels []uint8, w, h int) {
 		pix[i+1] = uint8((float32(g)/255.0*srcA + float32(pix[i+1])/255.0*dstA*(1-srcA)) / outA * 255)
 		pix[i+2] = uint8((float32(b)/255.0*srcA + float32(pix[i+2])/255.0*dstA*(1-srcA)) / outA * 255)
 		pix[i+3] = uint8(outA * 255)
+	}
+
+	// Hover highlight for land-buy tool — lights up the hovered purchasable
+	// parcel so the player knows what they're about to buy.
+	if hasLandOverlay {
+		for _, c := range s.hoverParcel.Cells {
+			set(c[0], c[1], 100, 220, 100, 160)
+		}
 	}
 
 	// Trails — shown when overlay is on, or always for the selected/active trail.
@@ -1990,6 +2038,172 @@ func (s *Scenario) buildCellOverlay() (pixels []uint8, w, h int) {
 	return pix, tw, th
 }
 
+// buildParcelFence generates square-post triangle geometry and drooping rope
+// line segments for the ski-area boundary fence. Returns post vertices (flat
+// pos+color triangle list, 6 floats per vertex) and rope DebugLines.
+//
+// The terrain mesh renders (Width-1)×(Height-1) quads; corner grid runs from
+// (0,0) to (Width-1, Height-1). All fence geometry is clamped to this grid.
+func buildParcelFence(w *world.World) (postVerts []float32, ropeLines []render.DebugLine) {
+	if len(w.Parcels) == 0 {
+		return nil, nil
+	}
+	t := w.Terrain
+	const cs = float32(world.CellSize)
+
+	// Post geometry constants.
+	const postHW = float32(0.08) // half-width of square cross-section (0.16 m post)
+	const postTop = float32(1.5) // height above terrain
+	const postBase = float32(0.0)
+
+	// Rope geometry constants.
+	const ropeAttach = float32(1.2) // height on post where rope ties
+	const ropeSag = float32(0.30)   // max droop at rope centre
+
+	// Two brown shades: slightly lighter for +Z/-Z faces, darker for +X/-X.
+	brown1 := [3]float32{0.42, 0.24, 0.10} // front/back
+	brown2 := [3]float32{0.32, 0.18, 0.07} // sides
+	ropeCol := [3]float32{0.50, 0.22, 0.12}
+
+	elevAt := func(gx, gz int) float32 {
+		return t.InterpolatedSurfaceElevationAt(float32(gx)*cs, float32(gz)*cs)
+	}
+	elevAtWorld := func(wx, wz float32) float32 {
+		return t.InterpolatedSurfaceElevationAt(wx, wz)
+	}
+
+	// cornerHash returns a stable pseudo-random value in [0,1) for a grid corner.
+	// Using the corner's integer grid indices as the seed ensures the same corner
+	// always produces the same offset regardless of which fence edge adds it.
+	cornerHash := func(gx, gz int) float32 {
+		h := uint32(gx)*1234567 + uint32(gz)*7654321
+		h ^= h >> 16
+		h *= 0x45d9f3b
+		h ^= h >> 16
+		return float32(h&0xFFFF) / float32(0x10000)
+	}
+
+	// quad emits two triangles for a planar quad v0..v3 (v0,v1,v2 and v0,v2,v3).
+	quad := func(v0, v1, v2, v3 [3]float32, c [3]float32) {
+		for _, v := range [6][3]float32{v0, v1, v2, v0, v2, v3} {
+			postVerts = append(postVerts, v[0], v[1], v[2], c[0], c[1], c[2])
+		}
+	}
+
+	// addPost emits the 4 side faces of a square prism at (px, py, pz).
+	addPost := func(px, py, pz float32) {
+		hw := postHW
+		bot := py + postBase
+		top := py + postTop
+		// +Z face
+		quad([3]float32{px - hw, top, pz + hw}, [3]float32{px + hw, top, pz + hw},
+			[3]float32{px + hw, bot, pz + hw}, [3]float32{px - hw, bot, pz + hw}, brown1)
+		// -Z face
+		quad([3]float32{px + hw, top, pz - hw}, [3]float32{px - hw, top, pz - hw},
+			[3]float32{px - hw, bot, pz - hw}, [3]float32{px + hw, bot, pz - hw}, brown1)
+		// +X face
+		quad([3]float32{px + hw, top, pz - hw}, [3]float32{px + hw, top, pz + hw},
+			[3]float32{px + hw, bot, pz + hw}, [3]float32{px + hw, bot, pz - hw}, brown2)
+		// -X face
+		quad([3]float32{px - hw, top, pz + hw}, [3]float32{px - hw, top, pz - hw},
+			[3]float32{px - hw, bot, pz - hw}, [3]float32{px - hw, bot, pz + hw}, brown2)
+	}
+
+	// jitteredPost returns the world-space XZ position of a post at grid corner
+	// (gx, gz). The offset is driven purely by the corner index so every edge
+	// that shares the corner places its post at the same spot (corners line up).
+	// Two independent hashes give uncorrelated X and Z displacements of ±maxJitter.
+	const maxJitter = float32(1.50)
+	jitteredPost := func(gx, gz int, basePx, basePz float32) (wx, wz float32) {
+		dx := (cornerHash(gx, gz) - 0.5) * 2 * maxJitter
+		dz := (cornerHash(gx*997+1, gz*991+1) - 0.5) * 2 * maxJitter
+		return basePx + dx, basePz + dz
+	}
+
+	// addEdge emits posts at both ends and a 3-segment drooping rope between them.
+	// gxA/gzA and gxB/gzB are the integer grid corner indices used for jitter.
+	addEdge := func(ax, ay, az, bx, by, bz float32, gxA, gzA, gxB, gzB int) {
+		pAx, pAz := jitteredPost(gxA, gzA, ax, az)
+		pAy := elevAtWorld(pAx, pAz)
+		pBx, pBz := jitteredPost(gxB, gzB, bx, bz)
+		pBy := elevAtWorld(pBx, pBz)
+
+		addPost(pAx, pAy, pAz)
+		addPost(pBx, pBy, pBz)
+
+		// Rope: attach at ropeAttach height, 3 segments with parabolic sag.
+		ry0 := pAy + ropeAttach
+		ry1 := pBy + ropeAttach
+		lerp := func(a, b, t float32) float32 { return a + (b-a)*t }
+		sag := func(t float32) float32 { return ropeSag * 4 * t * (1 - t) }
+
+		rA := mgl32.Vec3{pAx, ry0, pAz}
+		rM1 := mgl32.Vec3{lerp(pAx, pBx, 1.0/3), lerp(ry0, ry1, 1.0/3) - sag(1.0/3), lerp(pAz, pBz, 1.0/3)}
+		rM2 := mgl32.Vec3{lerp(pAx, pBx, 2.0/3), lerp(ry0, ry1, 2.0/3) - sag(2.0/3), lerp(pAz, pBz, 2.0/3)}
+		rB := mgl32.Vec3{pBx, ry1, pBz}
+
+		ropeLines = append(ropeLines,
+			render.DebugLine{A: rA, B: rM1, Color: ropeCol},
+			render.DebugLine{A: rM1, B: rM2, Color: ropeCol},
+			render.DebugLine{A: rM2, B: rB, Color: ropeCol},
+		)
+	}
+
+	// Main pass with direction-specific bounds guards (see inline comments).
+	for cx := 0; cx < t.Width; cx++ {
+		for cz := 0; cz < t.Height; cz++ {
+			if !t.IsAccessible(cx, cz) {
+				continue
+			}
+			if cx < t.Width-1 && cz < t.Height-1 && !t.IsAccessible(cx+1, cz) {
+				ex := float32(cx+1) * cs
+				addEdge(ex, elevAt(cx+1, cz), float32(cz)*cs,
+					ex, elevAt(cx+1, cz+1), float32(cz+1)*cs,
+					cx+1, cz, cx+1, cz+1)
+			}
+			if cz < t.Height-1 && !t.IsAccessible(cx-1, cz) {
+				ex := float32(cx) * cs
+				addEdge(ex, elevAt(cx, cz), float32(cz)*cs,
+					ex, elevAt(cx, cz+1), float32(cz+1)*cs,
+					cx, cz, cx, cz+1)
+			}
+			if cz < t.Height-1 && cx < t.Width-1 && !t.IsAccessible(cx, cz+1) {
+				ez := float32(cz+1) * cs
+				addEdge(float32(cx)*cs, elevAt(cx, cz+1), ez,
+					float32(cx+1)*cs, elevAt(cx+1, cz+1), ez,
+					cx, cz+1, cx+1, cz+1)
+			}
+			if cx < t.Width-1 && !t.IsAccessible(cx, cz-1) {
+				ez := float32(cz) * cs
+				addEdge(float32(cx)*cs, elevAt(cx, cz), ez,
+					float32(cx+1)*cs, elevAt(cx+1, cz), ez,
+					cx, cz, cx+1, cz)
+			}
+		}
+	}
+
+	// Right map-edge.
+	for cz := 0; cz < t.Height-1; cz++ {
+		if t.IsAccessible(t.Width-1, cz) {
+			ex := float32(t.Width-1) * cs
+			addEdge(ex, elevAt(t.Width-1, cz), float32(cz)*cs,
+				ex, elevAt(t.Width-1, cz+1), float32(cz+1)*cs,
+				t.Width-1, cz, t.Width-1, cz+1)
+		}
+	}
+
+	// Bottom map-edge.
+	for cx := 0; cx < t.Width-1; cx++ {
+		if t.IsAccessible(cx, t.Height-1) {
+			ez := float32(t.Height-1) * cs
+			addEdge(float32(cx)*cs, elevAt(cx, t.Height-1), ez,
+				float32(cx+1)*cs, elevAt(cx+1, t.Height-1), ez,
+				cx, t.Height-1, cx+1, t.Height-1)
+		}
+	}
+
+	return postVerts, ropeLines
+}
 
 // steeringLines builds the F3 steering-debug visualisation for the agent.
 func steeringLines(w *world.World, a *world.Guest, target mgl32.Vec3) []render.DebugLine {
@@ -2055,6 +2269,10 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 	wx, wz := s.hoverWorld[0], s.hoverWorld[2]
 	switch s.activeTool {
 	case toolBuilding:
+		if !w.Terrain.IsAccessible(gx, gz) {
+			s.setToast("Can't build on land you don't own")
+			return
+		}
 		if w.Cash < world.LodgeCost {
 			s.setToast(fmt.Sprintf("Need $%d for a lodge — short by $%d",
 				world.LodgeCost, world.LodgeCost-w.Cash))
@@ -2070,6 +2288,10 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 	case toolTicketOffice:
+		if !w.Terrain.IsAccessible(gx, gz) {
+			s.setToast("Can't build on land you don't own")
+			return
+		}
 		if w.Cash < world.TicketOfficeCost {
 			s.setToast(fmt.Sprintf("Need $%d for a ticket office — short by $%d",
 				world.TicketOfficeCost, world.TicketOfficeCost-w.Cash))
@@ -2085,6 +2307,10 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 	case toolShed:
+		if !w.Terrain.IsAccessible(gx, gz) {
+			s.setToast("Can't build on land you don't own")
+			return
+		}
 		if w.Cash < world.ShedCost {
 			s.setToast(fmt.Sprintf("Need $%d for a shed — short by $%d",
 				world.ShedCost, world.ShedCost-w.Cash))
@@ -2101,6 +2327,10 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 	case toolParking:
+		if !w.Terrain.IsAccessible(gx, gz) {
+			s.setToast("Can't build on land you don't own")
+			return
+		}
 		if w.Cash < world.ParkingCost {
 			s.setToast(fmt.Sprintf("Need $%d for a parking lot — short by $%d",
 				world.ParkingCost, world.ParkingCost-w.Cash))
@@ -2118,6 +2348,10 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		r.RebuildStaticBatch(w)
 		r.RebuildRoads(w)
 	case toolPatrolHut:
+		if !w.Terrain.IsAccessible(gx, gz) {
+			s.setToast("Can't build on land you don't own")
+			return
+		}
 		if w.Cash < world.PatrolHutCost {
 			s.setToast(fmt.Sprintf("Need $%d for a patrol hut — short by $%d",
 				world.PatrolHutCost, world.PatrolHutCost-w.Cash))
@@ -2133,6 +2367,10 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 	case toolSnowGun:
+		if !w.Terrain.IsAccessible(gx, gz) {
+			s.setToast("Can't build on land you don't own")
+			return
+		}
 		if w.Cash < world.SnowGunCost {
 			s.setToast(fmt.Sprintf("Need $%d for a snow gun — short by $%d",
 				world.SnowGunCost, world.SnowGunCost-w.Cash))
@@ -2161,6 +2399,10 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 	case toolLiftBase:
+		if !w.Terrain.IsAccessible(gx, gz) {
+			s.setToast("Can't place a lift on land you don't own")
+			return
+		}
 		minCost := world.LiftStationCost
 		if s.liftType == world.LiftHeli {
 			minCost = world.HelipadCost / 2
@@ -2172,6 +2414,10 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		s.liftBase = mgl32.Vec2{wx, wz}
 		s.activeTool = toolLiftTop
 	case toolLiftTop:
+		if !w.Terrain.IsAccessible(gx, gz) {
+			s.setToast("Can't place a lift on land you don't own")
+			return
+		}
 		top := mgl32.Vec2{wx, wz}
 		var cost int
 		if s.liftType == world.LiftHeli {
@@ -2250,6 +2496,8 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 			s.applyTrailPaint(gx, gz)
 		}
 		s.lastTrailPaintCell = [2]int{gx, gz}
+	case toolLandBuy:
+		s.openLandBuyPopup(gx, gz, r.ScreenWidth(), r.ScreenHeight())
 	}
 }
 
@@ -3133,6 +3381,39 @@ func (s *Scenario) openSnowcatPopup(cat *world.Snowcat, screenW, screenH int) {
 	s.popup = w
 }
 
+// openLandBuyPopup shows a purchase confirmation popup for the parcel at
+// terrain cell (gx, gz). Does nothing if the cell is not in a purchasable
+// parcel.
+func (s *Scenario) openLandBuyPopup(gx, gz, screenW, screenH int) {
+	p := s.world.ParcelAt(gx, gz)
+	if p == nil || p.State != world.ParcelPurchasable {
+		if p != nil && p.State == world.ParcelOffLimits {
+			s.setToast("This land is off-limits and cannot be purchased")
+		}
+		return
+	}
+	parcel := p
+	w := ui.NewWindow(parcel.Name, 0, 0)
+	w.AddLabel("Price", func() string { return fmt.Sprintf("$%d", parcel.Price) })
+	w.AddLabel("Status", func() string { return "Available for purchase" })
+	w.AddActionButton(fmt.Sprintf("Buy for $%d", parcel.Price), func() {
+		if !s.world.BuyParcel(parcel.ID) {
+			s.setToast(fmt.Sprintf("Need $%d — short by $%d", parcel.Price, parcel.Price-s.world.Cash))
+		} else {
+			s.parcelBoundaryDirty = true
+		}
+		w.Visible = false
+		s.popup = nil
+	})
+	w.AddActionButton("Cancel", func() {
+		w.Visible = false
+		s.popup = nil
+	})
+	w.Visible = true
+	w.Center(screenW, screenH)
+	s.popup = w
+}
+
 // catPathLines builds debug lines for the selected cat's remaining route,
 // hovering slightly above the terrain surface.
 func (s *Scenario) catPathLines() []render.DebugLine {
@@ -3444,37 +3725,41 @@ func (s *Scenario) placementCost() (cost int, affordable, legal, valid bool) {
 	}
 	pos := mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]}
 	legal = true
+	gx, gz := s.hoverCell[0], s.hoverCell[1]
+	cellOwned := s.world.Terrain.IsAccessible(gx, gz)
 	switch s.activeTool {
 	case toolBuilding:
 		cost = world.LodgeCost
-		legal = !s.world.BuildingOverlap(world.BuildingLodge, pos[0], pos[1])
+		legal = cellOwned && !s.world.BuildingOverlap(world.BuildingLodge, pos[0], pos[1])
 	case toolTicketOffice:
 		cost = world.TicketOfficeCost
-		legal = !s.world.BuildingOverlap(world.BuildingTicketOffice, pos[0], pos[1])
+		legal = cellOwned && !s.world.BuildingOverlap(world.BuildingTicketOffice, pos[0], pos[1])
 	case toolShed:
 		cost = world.ShedCost
-		legal = !s.world.BuildingOverlap(world.BuildingShed, pos[0], pos[1])
+		legal = cellOwned && !s.world.BuildingOverlap(world.BuildingShed, pos[0], pos[1])
 	case toolPatrolHut:
 		cost = world.PatrolHutCost
-		legal = !s.world.BuildingOverlap(world.BuildingPatrolHut, pos[0], pos[1])
+		legal = cellOwned && !s.world.BuildingOverlap(world.BuildingPatrolHut, pos[0], pos[1])
 	case toolSnowGun:
 		cost = world.SnowGunCost
-		legal = !s.world.BuildingOverlap(world.BuildingSnowGun, pos[0], pos[1])
+		legal = cellOwned && !s.world.BuildingOverlap(world.BuildingSnowGun, pos[0], pos[1])
 	case toolParking:
 		cost = world.ParkingCost
-		legal = !s.world.BuildingOverlap(world.BuildingParking, pos[0], pos[1])
+		legal = cellOwned && !s.world.BuildingOverlap(world.BuildingParking, pos[0], pos[1])
 	case toolLiftBase:
 		if s.liftType == world.LiftHeli {
 			cost = world.HelipadCost / 2
 		} else {
 			cost = world.LiftStationCost
 		}
+		legal = cellOwned
 	case toolLiftTop:
 		if s.liftType == world.LiftHeli {
 			cost = world.HelipadCost
 		} else {
 			cost = world.LiftCost(s.liftBase, pos)
 		}
+		legal = cellOwned
 	case toolRoadStart:
 		cost = world.RoadBaseCost
 	case toolRoadEnd:

@@ -13,8 +13,6 @@ Lifts and attendants
     Beginner skiers increase probability chair doesn't fill
   Wrap lift lines so they don't go through buildings
 
-Ticket office and season passes
-Avalanches
 Limit land area and allow land purchases
 Loans
 New buildings - bar, restaurant, plus paths between buildings

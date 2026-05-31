@@ -371,6 +371,17 @@ func worldToData(w *world.World) ScenarioData {
 		}
 	}
 
+	parcels := make([]ParcelData, len(w.Parcels))
+	for i, p := range w.Parcels {
+		parcels[i] = ParcelData{
+			ID:    p.ID,
+			Name:  p.Name,
+			State: uint8(p.State),
+			Price: p.Price,
+			Cells: p.Cells,
+		}
+	}
+
 	return ScenarioData{
 		Name:       "scenario",
 		Seed:       w.Seed,
@@ -386,6 +397,7 @@ func worldToData(w *world.World) ScenarioData {
 		Patrollers: patrollers,
 		RoadNodes:  roadNodes,
 		RoadEdges:  roadEdges,
+		Parcels:    parcels,
 		Cash:       w.Cash,
 		History:    historyToData(w.History),
 	}
@@ -739,6 +751,18 @@ func dataToWorld(data ScenarioData) *world.World {
 			e.ID = ed.ID
 		}
 	}
+
+	// Restore parcels and derive the terrain accessibility grid.
+	for _, pd := range data.Parcels {
+		w.Parcels = append(w.Parcels, world.Parcel{
+			ID:    pd.ID,
+			Name:  pd.Name,
+			State: world.ParcelState(pd.State),
+			Price: pd.Price,
+			Cells: pd.Cells,
+		})
+	}
+	w.ApplyParcels()
 
 	// Restore trails. TrailGraph is derived on load rather than persisted.
 	for _, td := range data.Trails {

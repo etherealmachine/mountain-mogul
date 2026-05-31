@@ -77,6 +77,10 @@ func (p *Pathfinder) FindPath(from, to [2]int) [][2]int {
 			if !p.terrain.InBounds(nb[0], nb[1]) {
 				continue
 			}
+			// Skip cells outside player-owned land unless it's the destination.
+			if !p.terrain.IsAccessible(nb[0], nb[1]) && nb != to {
+				continue
+			}
 			// Skip unwalkable cells unless it's the destination (lift base may be structural-blocked)
 			if !p.terrain.Cells[nb[0]][nb[1]].Walkable() && nb != to {
 				continue

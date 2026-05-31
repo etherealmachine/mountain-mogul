@@ -433,6 +433,11 @@ type Terrain struct {
 	// carrying sub-cell features the 5 m mesh can't (skier tracks,
 	// tree wells, groom edges). See world/surface_detail.go.
 	Surface *SurfaceDetail
+
+	// accessible is a derived per-cell land-ownership grid. nil means all
+	// in-bounds cells are accessible (no parcel system). Maintained by
+	// World.ApplyParcels and World.BuyParcel.
+	accessible [][]bool
 }
 
 // DefaultSnowAccumulation is the baseline SWE applied to fresh terrain
@@ -623,4 +628,27 @@ func (t *Terrain) NormalAt(x, z float32) mgl32.Vec3 {
 
 	normal := tz.Cross(tx)
 	return normal.Normalize()
+}
+
+// IsAccessible returns true if terrain cell (x, z) is owned by the player
+// and available for building, skiing, and grooming. Returns false for
+// out-of-bounds cells. When no parcel system is defined (accessible == nil),
+// all in-bounds cells are accessible.
+func (t *Terrain) IsAccessible(x, z int) bool {
+	if !t.InBounds(x, z) {
+		return false
+	}
+	if t.accessible == nil {
+		return true
+	}
+	return t.accessible[x][z]
+}
+
+// IsAccessibleWorld returns true if the world-space position (wx, wz) maps to
+// an owned terrain cell.
+func (t *Terrain) IsAccessibleWorld(wx, wz float32) bool {
+	const cs = float32(CellSize)
+	xi := int(wx / cs)
+	zi := int(wz / cs)
+	return t.IsAccessible(xi, zi)
 }

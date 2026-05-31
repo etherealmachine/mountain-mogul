@@ -110,6 +110,12 @@ type World struct {
 	// via the ticket office popup (future).
 	SeasonPassPrice int
 
+	// Parcels is the scenario-authored land-ownership registry. An empty
+	// slice means no parcel system: all cells are accessible. When non-empty,
+	// only ParcelOwned parcels are accessible; call ApplyParcels to derive
+	// Terrain.accessible from this list.
+	Parcels []Parcel
+
 	// Seed is the RNG seed used when this world's Simulation was created.
 	// Saved and reloaded so SeedGuests on load produces the same guest pool.
 	Seed int64
