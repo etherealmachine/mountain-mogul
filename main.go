@@ -54,6 +54,7 @@ func main() {
 	profileSeconds := flag.Float64("profile-seconds", 10, "wall-clock seconds to run with -profile")
 	profileScale := flag.Float64("profile-scale", 50, "TimeScale to run with -profile")
 	trace := flag.Bool("trace", false, "start a localhost pprof endpoint on :6060 for live profiling (curl http://localhost:6060/debug/pprof/profile?seconds=10 > out.prof during a stall)")
+	liveQuery := flag.String("live-query", "", "start a live SQL query server on this address, e.g. localhost:6061 (use with -testbed; query with: curl -G http://localhost:6061/query --data-urlencode \"sql=SELECT x,z,avy_snow FROM cells WHERE avy_snow > 0\")")
 	cpuProfile := flag.String("cpuprofile", "", "write a CPU profile of the interactive session to FILE; play normally and Cmd-Q to flush. Inspect with: go tool pprof -top FILE")
 	memProfile := flag.String("memprofile", "", "write a heap profile of the interactive session to FILE on exit. Inspect with: go tool pprof -alloc_space -top FILE")
 	flag.Parse()
@@ -122,7 +123,7 @@ func main() {
 			yaw:     *camYaw,
 			pitch:   *camPitch,
 			zoom:    *camZoom,
-		})
+		}, *liveQuery)
 		return
 	}
 	if *headless {
@@ -132,6 +133,15 @@ func main() {
 
 	stopProfile := startInteractiveProfiles(*cpuProfile, *memProfile)
 	defer stopProfile()
+
+	if *liveQuery != "" {
+		qs := sim.NewQueryServer(*liveQuery)
+		qs.Start()
+		scene.UseQueryServer(qs)
+	}
+	if *seed != 0 {
+		scene.UseSimSeed(*seed)
+	}
 
 	app := engine.NewApp("Mountain Mogul", 1280, 720, "assets")
 	defer app.Destroy()
@@ -197,7 +207,7 @@ func startInteractiveProfiles(cpuPath, memPath string) func() {
 // in-game testbed menu does on button click. Any -camera-* overrides
 // set the *initial* framing — the user can pan/zoom from there as
 // normal, so the flags are a starting view, not a lock.
-func runTestbedUI(name string, logSlowFrames bool, cam cameraOverrides) {
+func runTestbedUI(name string, logSlowFrames bool, cam cameraOverrides, liveQueryAddr string) {
 	tb, err := sim.FindTestbed(name)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "testbed:", err)
@@ -207,6 +217,11 @@ func runTestbedUI(name string, logSlowFrames bool, cam cameraOverrides) {
 	defer app.Destroy()
 	app.LogSlowFrames = logSlowFrames
 	sc := scene.NewScenarioFromTestbed(tb)
+	if liveQueryAddr != "" {
+		qs := sim.NewQueryServer(liveQueryAddr)
+		qs.Start()
+		sc.SetQueryServer(qs)
+	}
 	app.PushScene(sc)
 	applyCameraOverrides(app.Renderer.Camera, sc, cam, "testbed")
 	app.Run()

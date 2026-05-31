@@ -589,6 +589,7 @@ type Scenario struct {
 	simSeed         int64                          // 0 = wall-clock; nonzero forces deterministic RNG
 	rebuild         func(seed int64) *world.World // non-nil ⇒ "New Seed" button shown
 	tickHook        func(s *sim.Simulation)       // optional testbed hook; called each frame before Tick
+	queryServer     *sim.QueryServer              // non-nil when -live-query is set; wired into sim on installWorld
 
 	// Glade-tool sliders (radius in cells, thin = % density removed per
 	// application; slider 0–10 → 0.00–0.10 density delta). Visible only
@@ -719,6 +720,27 @@ func NewScenarioFromWorld(w *world.World, seed int64) *Scenario {
 // NewScenarioFromTestbed creates a Scenario from a sim.Testbed and remembers
 // how to rebuild the world from a seed, so the menu bar can offer a
 // "New Seed" button that re-rolls the run without leaving the scene.
+// globalQueryServer, if set, is attached to every Scenario on installWorld.
+var globalQueryServer *sim.QueryServer
+
+// globalSimSeed, if non-zero, overrides the RNG seed for every Scenario.
+var globalSimSeed int64
+
+// UseQueryServer registers a query server to be wired into every Scenario
+// that installs a world, regardless of how it was created. Call once from
+// main before app.Run().
+func UseQueryServer(qs *sim.QueryServer) { globalQueryServer = qs }
+
+// UseSimSeed sets a global RNG seed applied to every Scenario on installWorld.
+func UseSimSeed(seed int64) { globalSimSeed = seed }
+
+// SetQueryServer attaches a live-query server to this specific scenario.
+// Overrides the global server for this instance.
+func (s *Scenario) SetQueryServer(qs *sim.QueryServer) { s.queryServer = qs }
+
+// SetSeed overrides the RNG seed for this scenario's simulation.
+func (s *Scenario) SetSeed(seed int64) { s.simSeed = seed }
+
 func NewScenarioFromTestbed(tb *sim.Testbed) *Scenario {
 	rebuild := func(seed int64) *world.World {
 		return tb.Build()
@@ -1102,14 +1124,24 @@ func (s *Scenario) installWorld(w *world.World) {
 	r := s.app.Renderer
 	r.ResetSceneState()
 	s.world = w
-	if s.simSeed != 0 {
-		s.sim = sim.NewSimulationWithSeed(w, s.simSeed)
+	seed := globalSimSeed // -seed flag takes priority over testbed default
+	if seed == 0 {
+		seed = s.simSeed
+	}
+	if seed != 0 {
+		s.simSeed = seed // keep display and rebuild in sync
+		s.sim = sim.NewSimulationWithSeed(w, seed)
 	} else {
 		s.sim = sim.NewSimulation(w)
 	}
 	// Plow roads and parking lots at each day rollover so freshly-fallen
 	// snow doesn't accumulate on asphalt.
 	s.sim.OnDayRollover = applyRoadCellState
+	if s.queryServer != nil {
+		s.sim.QueryServer = s.queryServer
+	} else {
+		s.sim.QueryServer = globalQueryServer
+	}
 	if s.debugConsole != nil {
 		s.debugConsole.SetSim(s.sim, func() { r.FlushTerrainVerts(s.world.Terrain) })
 	}
@@ -1654,6 +1686,9 @@ func (s *Scenario) Update(dt float64) {
 			s.tickHook(s.sim)
 		}
 		s.sim.Tick(dt)
+	}
+	if s.sim != nil && s.sim.QueryServer != nil {
+		s.sim.QueryServer.Tick(s.world, s.sim)
 	}
 
 	// If the sim mutated any cell's snow state (cats grooming, eventually
