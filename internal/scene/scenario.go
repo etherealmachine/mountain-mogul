@@ -2938,22 +2938,48 @@ func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 		w.Center(screenW, screenH)
 		s.popup = w
 		return
-	case world.BuildingLodge:
-		// fallthrough to Lodge window below
-	}
-	w := ui.NewWindow("Lodge", 0, 0)
-	w.AddLabel("Inbound", func() string {
-		count := 0
-		for _, a := range s.world.OnMountain {
-			if a.TargetID == bldg.ID {
-				count++
+	case world.BuildingPatrolHut:
+		w := ui.NewWindow("Patrol Hut", 0, 0)
+		w.AddLabel("Patroller", func() string {
+			for _, p := range s.world.Patrollers {
+				if p.HutID != bldg.ID {
+					continue
+				}
+				switch p.State {
+				case world.PatrollerAtHut:
+					return "At hut"
+				case world.PatrollerEnRoute:
+					return "En route to injured skier"
+				case world.PatrollerOnScene:
+					return "On scene"
+				case world.PatrollerReturning:
+					return "Returning with patient"
+				}
 			}
-		}
-		return fmt.Sprintf("%d", count)
-	})
-	w.Visible = true
-	w.Center(screenW, screenH)
-	s.popup = w
+			return "None"
+		})
+		w.Visible = true
+		w.Center(screenW, screenH)
+		s.popup = w
+		return
+	case world.BuildingLodge:
+		w := ui.NewWindow("Lodge", 0, 0)
+		w.AddLabel("Inbound", func() string {
+			count := 0
+			for _, a := range s.world.OnMountain {
+				if a.TargetID == bldg.ID {
+					count++
+				}
+			}
+			return fmt.Sprintf("%d", count)
+		})
+		w.Visible = true
+		w.Center(screenW, screenH)
+		s.popup = w
+		return
+	default:
+		panic(fmt.Sprintf("openBuildingPopup: unhandled building type %d", bldg.Type))
+	}
 }
 
 func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
