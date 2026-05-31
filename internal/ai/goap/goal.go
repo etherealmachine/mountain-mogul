@@ -164,8 +164,8 @@ func (GoHome) IsSatisfied(s *WorldSnapshot, w *world.World) bool {
 
 func (GoHome) Weight(s *WorldSnapshot, w *world.World) float32 {
 	// GoHome fires when Patience or Energy is critically low (Rest handles
-	// the recoverable range), or when Hunger or Thirst is exhausted (those
-	// can never be restored — they are a hard time limit on the visit).
+	// the recoverable range), when Hunger or Thirst is exhausted (those can
+	// never be restored), or when the guest can no longer afford any lift.
 	combined := s.Patience
 	if s.Energy < combined {
 		combined = s.Energy
@@ -174,6 +174,9 @@ func (GoHome) Weight(s *WorldSnapshot, w *world.World) float32 {
 		return 1.0
 	}
 	if s.Hunger < 0.05 || s.Thirst < 0.05 {
+		return 1.0
+	}
+	if s.CheapestTicket > 0 && s.RemainingBudget < s.CheapestTicket {
 		return 1.0
 	}
 	return 0

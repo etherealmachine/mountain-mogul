@@ -2492,31 +2492,40 @@ func (r *Renderer) WorldToScreen(pos mgl32.Vec3) (sx, sy float32, visible bool) 
 	return sx, sy, true
 }
 
-// SaveScreenshot reads the default framebuffer with glReadPixels and writes it
-// as a PNG to path. Must be called after rendering and before SwapBuffers (so
-// the back buffer still holds the freshly drawn frame). Creates parent dirs as
-// needed.
-func (r *Renderer) SaveScreenshot(path string) error {
+// ReadFrame reads the current framebuffer into an *image.NRGBA. Must be called
+// after rendering and before SwapBuffers. Returns nil if the framebuffer size
+// is invalid.
+func (r *Renderer) ReadFrame() *image.NRGBA {
 	w, h := r.frameW, r.frameH
 	if w <= 0 || h <= 0 {
-		return fmt.Errorf("screenshot: invalid framebuffer size %dx%d", w, h)
+		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-
 	buf := make([]byte, w*h*4)
 	gl.PixelStorei(gl.PACK_ALIGNMENT, 1)
 	gl.ReadPixels(0, 0, int32(w), int32(h), gl.RGBA, gl.UNSIGNED_BYTE, gl.Ptr(buf))
 
-	// glReadPixels origin is bottom-left; PNG origin is top-left. Flip rows.
+	// glReadPixels origin is bottom-left; image origin is top-left. Flip rows.
 	img := image.NewNRGBA(image.Rect(0, 0, w, h))
 	stride := w * 4
 	for y := 0; y < h; y++ {
 		src := buf[(h-1-y)*stride : (h-y)*stride]
 		copy(img.Pix[y*img.Stride:y*img.Stride+stride], src)
 	}
+	return img
+}
 
+// SaveScreenshot reads the default framebuffer with glReadPixels and writes it
+// as a PNG to path. Must be called after rendering and before SwapBuffers (so
+// the back buffer still holds the freshly drawn frame). Creates parent dirs as
+// needed.
+func (r *Renderer) SaveScreenshot(path string) error {
+	img := r.ReadFrame()
+	if img == nil {
+		return fmt.Errorf("screenshot: invalid framebuffer size %dx%d", r.frameW, r.frameH)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
 	f, err := os.Create(path)
 	if err != nil {
 		return err

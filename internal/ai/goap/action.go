@@ -136,6 +136,11 @@ func (a *JoinQueue) Precondition(s *WorldSnapshot, w *world.World) bool {
 	if s.Patience >= 0.05 && len(l.Queue) > MaxQueuePersons {
 		return false
 	}
+	// Reject if the guest can't afford this lift. Budget-exhausted guests
+	// still need to ride up to exit — same exception as the patience check.
+	if s.RemainingBudget > 0 && s.RemainingBudget < float32(l.TicketPrice) {
+		return false
+	}
 	return true
 }
 

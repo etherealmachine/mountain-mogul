@@ -28,6 +28,11 @@ const (
 	// ranked list: colour swatch + label | fill bar | percentage. Entries
 	// are sorted most-common first; zero-count entries are hidden.
 	ChartThoughtRank
+
+	// ChartStats shows one or more named scalar values as label + large-number
+	// rows. GetData should return a single ChartPoint whose Values slice has
+	// one entry per Series.
+	ChartStats
 )
 
 // ChartSeries describes one named, coloured line/bar in a chart. Lines
@@ -50,11 +55,12 @@ type ChartPoint struct {
 // callback so the scene can keep the History on the World and just feed
 // the window each frame.
 type Chart struct {
-	Title   string
-	Icon    render.IconName
-	Kind    ChartKind
-	Series  []ChartSeries
-	GetData func() []ChartPoint
+	Title       string
+	Icon        render.IconName
+	Kind        ChartKind
+	Series      []ChartSeries
+	GetData     func() []ChartPoint
+	FormatValue func(float64) string // optional; used by ChartStats to format each value
 }
 
 // ChartWindow hosts one or more Charts with an icon tab strip along the
@@ -234,6 +240,8 @@ func (cw *ChartWindow) Draw(r *render.Renderer) {
 		drawGroupedBarChart(r, bodyX, bodyY, bodyW, bodyH, c.Series, points)
 	case ChartThoughtRank:
 		drawThoughtRankChart(r, bodyX, bodyY, bodyW, bodyH, c.Series, points)
+	case ChartStats:
+		drawStatsChart(r, bodyX, bodyY, bodyW, bodyH, c.Series, points, c.FormatValue)
 	}
 }
 
@@ -570,6 +578,34 @@ func drawThoughtRankChart(r *render.Renderer, x, y, w, h float32, series []Chart
 		}
 
 		row++
+	}
+}
+
+func drawStatsChart(r *render.Renderer, x, y, w, h float32, series []ChartSeries, points []ChartPoint, formatValue func(float64) string) {
+	if r.Font == nil {
+		return
+	}
+	var vals []float64
+	if len(points) > 0 {
+		vals = points[0].Values
+	}
+
+	format := formatValue
+	if format == nil {
+		format = func(v float64) string { return fmt.Sprintf("%.0f", v) }
+	}
+
+	const rowH = float32(52)
+	labelColor := defaultChrome.label
+
+	for i, s := range series {
+		v := 0.0
+		if i < len(vals) {
+			v = vals[i]
+		}
+		ry := y + float32(i)*rowH
+		r.Font.DrawText(r, s.Name, x, ry, labelColor)
+		r.Font.DrawText(r, format(v), x, ry+float32(render.GlyphH)+6, s.Color)
 	}
 }
 

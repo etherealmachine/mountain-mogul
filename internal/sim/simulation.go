@@ -318,6 +318,7 @@ func (s *Simulation) tickLifts(dt float64) {
 						agent.Queued = false
 						w.Cash += lift.TicketPrice
 						w.History.RecordRevenue(lift.TicketPrice)
+						agent.RemainingBudget -= float32(lift.TicketPrice)
 						s.replanOnBoard(agent, lift)
 					}
 				}
@@ -350,6 +351,7 @@ func (s *Simulation) tickHeliLift(lift *world.Lift, dt float64) {
 			agent.Queued = false
 			w.Cash += lift.TicketPrice
 			w.History.RecordRevenue(lift.TicketPrice)
+			agent.RemainingBudget -= float32(lift.TicketPrice)
 			s.replanOnBoard(agent, lift)
 		}
 		// Depart when full, or when at least one passenger is aboard and
@@ -514,6 +516,7 @@ func (s *Simulation) spawnGuest(lot *world.Building, g *world.Guest) bool {
 	g.Hunger = 0.5 + rng.Global().Float32()*0.5
 	g.Thirst = 0.5 + rng.Global().Float32()*0.5
 	g.Satisfaction = 0.6
+	g.RemainingBudget = g.Traits.DailyBudget
 	g.Removed = false
 	w.OnMountain = append(w.OnMountain, g)
 	s.replan(g)

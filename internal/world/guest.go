@@ -130,6 +130,12 @@ type Guest struct {
 	Hunger float32
 	Thirst float32
 
+	// RemainingBudget is the guest's remaining spending money for this visit.
+	// Reset to Traits.DailyBudget at each spawn; decremented by lift ticket
+	// price on each ride. When it falls below the cheapest lift ticket the
+	// GoHome goal fires.
+	RemainingBudget float32
+
 	// Satisfaction is the 0..1 session quality score. Initialised to 0.6
 	// on arrival; drifts continuously toward a terrain-quality target each
 	// skiing tick; spikes up or down on discrete events (novel lift ride,

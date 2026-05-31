@@ -2,12 +2,18 @@ package scene
 
 import (
 	"fmt"
+	"image"
+	"image/color/palette"
+	"image/draw"
+	"image/gif"
 	"math"
 	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	xdraw "golang.org/x/image/draw"
 
 	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
@@ -628,6 +634,15 @@ type Scenario struct {
 	toastText         string
 	toastExpiry       float32 // s.time at which toast disappears
 
+	// GIF capture state. gifRecording is true while recording; gifFrames
+	// accumulates paletted frames; gifFrameCount counts rendered frames so we
+	// can subsample (capture every gifFrameInterval-th frame).
+	// gifResult receives a single message from the background encode goroutine.
+	gifRecording  bool
+	gifFrames     []*image.Paletted
+	gifFrameCount int
+	gifResult     chan string
+
 	// Trail of world-space positions for the currently followed skier.
 	// Reset when followGuestID changes; appended when at least
 	// trackMinSpacing metres past the last sample.
@@ -899,7 +914,7 @@ func (s *Scenario) Init(app *engine.App) error {
 	// departures (grouped bar), cash on hand (line). Data is pulled
 	// from world.History each frame so retuning the simulation doesn't
 	// require touching the UI.
-	s.chartWindow = ui.NewChartWindow("Resort Stats", 0, 0, []ui.Chart{
+	s.chartWindow = ui.NewChartWindow("Resort Overview", 0, 0, []ui.Chart{
 		{
 			Title:   "Guests on mountain",
 			Icon:    render.IconUsers,
@@ -948,6 +963,57 @@ func (s *Scenario) Init(app *engine.App) error {
 			Kind:    ui.ChartThoughtRank,
 			Series:  thoughtChartSeries(),
 			GetData: func() []ui.ChartPoint { return exitThoughtsToDistribution(s.world) },
+		},
+		{
+			Title: "Resort overview",
+			Icon:  render.IconGridFour,
+			Kind:  ui.ChartStats,
+			Series: []ui.ChartSeries{
+				{Name: "Easy terrain", Color: mgl32.Vec4{0.55, 1.0, 0.55, 1}},
+				{Name: "Intermediate terrain", Color: mgl32.Vec4{0.55, 0.75, 1.0, 1}},
+				{Name: "Advanced terrain", Color: mgl32.Vec4{0.85, 0.85, 0.85, 1}},
+				{Name: "Total skiable terrain", Color: mgl32.Vec4{0.55, 0.85, 1.0, 1}},
+			},
+			GetData: func() []ui.ChartPoint {
+				var green, blue, black int
+				seenAll := make(map[[2]int]bool)
+				for _, t := range s.world.Trails {
+					seen := make(map[[2]int]bool)
+					for _, c := range t.Cells {
+						if !seen[c] {
+							seen[c] = true
+							switch t.Difficulty {
+							case world.DiffGreen:
+								green++
+							case world.DiffBlue:
+								blue++
+							default:
+								black++
+							}
+						}
+						seenAll[c] = true
+					}
+				}
+				return []ui.ChartPoint{{Values: []float64{
+					float64(green),
+					float64(blue),
+					float64(black),
+					float64(len(seenAll)),
+				}}}
+			},
+			FormatValue: func(v float64) string { return settings.FormatArea(int(v)) },
+		},
+		{
+			Title: "Mountain capacity",
+			Icon:  render.IconUsers,
+			Kind:  ui.ChartStats,
+			Series: []ui.ChartSeries{
+				{Name: "Terrain cap (guests at once)", Color: mgl32.Vec4{1.0, 0.75, 0.35, 1}},
+			},
+			GetData: func() []ui.ChartPoint {
+				return []ui.ChartPoint{{Values: []float64{float64(sim.TerrainCapacity(s.world))}}}
+			},
+			FormatValue: func(v float64) string { return fmt.Sprintf("%.0f guests", v) },
 		},
 	})
 	s.chartWindow.Center(app.Renderer.ScreenWidth(), app.Renderer.ScreenHeight())
@@ -1386,9 +1452,13 @@ func (s *Scenario) Update(dt float64) {
 		s.toggleSkierLog()
 	}
 
-	// F12: capture a screenshot of the current frame to debug/screens/.
+	// F12: screenshot. Shift+F12: toggle GIF recording.
 	if inp.Pressed[glfw.KeyF12] {
-		s.pendingScreenshot = true
+		if inp.Held[glfw.KeyLeftShift] || inp.Held[glfw.KeyRightShift] {
+			s.toggleGIFRecording(r)
+		} else {
+			s.pendingScreenshot = true
+		}
 	}
 
 	// Auto-stop CSV log if the followed skier changed or no longer exists.
@@ -2425,11 +2495,32 @@ func (s *Scenario) Render(r *render.Renderer) {
 			showAll:       showAll,
 		})
 	}
+	// GIF capture happens before UI so toasts and overlays don't appear in
+	// recorded frames. Subsample every gifFrameInterval rendered frames.
+	if s.gifRecording {
+		s.gifFrameCount++
+		if s.gifFrameCount%gifFrameInterval == 0 {
+			if frame := r.ReadFrame(); frame != nil {
+				// Scale to half resolution before dithering — 4× fewer pixels.
+				b := frame.Bounds()
+				half := image.Rect(0, 0, b.Dx()/2, b.Dy()/2)
+				small := image.NewNRGBA(half)
+				xdraw.BiLinear.Scale(small, half, frame, b, xdraw.Over, nil)
+				p := image.NewPaletted(half, palette.Plan9)
+				draw.FloydSteinberg.Draw(p, half, small, image.Point{})
+				s.gifFrames = append(s.gifFrames, p)
+			}
+			if len(s.gifFrames) >= gifMaxFrames {
+				s.finishGIF()
+			}
+		}
+	}
+
 	r.DrawUI(drawables)
 
-	// Screenshot is taken AFTER UI is drawn so the captured frame matches what
-	// the user sees. The "saved" toast is set after capture so it appears only
-	// on subsequent frames, never in the screenshot itself.
+	// Screenshot is taken AFTER UI is drawn so the captured frame includes UI.
+	// The "saved" toast is set after capture so it appears only on subsequent
+	// frames, never in the screenshot itself.
 	if s.pendingScreenshot {
 		s.pendingScreenshot = false
 		path := filepath.Join("debug", "screens", time.Now().Format("20060102-150405")+".png")
@@ -2439,12 +2530,82 @@ func (s *Scenario) Render(r *render.Renderer) {
 			s.setToast("Screenshot saved → " + path)
 		}
 	}
+
+	// Drain result from background GIF encode goroutine.
+	if s.gifResult != nil {
+		select {
+		case msg := <-s.gifResult:
+			s.setToast(msg)
+			s.gifResult = nil
+		default:
+		}
+	}
 }
 
 func (s *Scenario) Destroy() {
 	if s.app != nil && s.app.Renderer != nil {
 		s.app.Renderer.ResetSceneState()
 	}
+}
+
+const (
+	gifFrameInterval = 3   // capture every Nth rendered frame (~20fps at 60fps)
+	gifMaxFrames     = 600 // hard cap: ~30s at 20fps before auto-stop
+	gifCentiseconds  = 5   // delay per frame in 1/100s (gifFrameInterval/60fps ≈ 5cs)
+)
+
+// toggleGIFRecording starts or stops a GIF capture session.
+func (s *Scenario) toggleGIFRecording(r *render.Renderer) {
+	if s.gifRecording {
+		s.finishGIF()
+	} else {
+		s.gifRecording = true
+		s.gifFrames = nil
+		s.gifFrameCount = 0
+		s.gifResult = make(chan string, 1)
+		s.setToast("GIF recording — Shift+F12 to stop")
+	}
+}
+
+// finishGIF stops recording and encodes the accumulated frames to disk in a
+// background goroutine so the game doesn't freeze. The result is reported via
+// s.gifResult which Draw() drains each frame.
+func (s *Scenario) finishGIF() {
+	s.gifRecording = false
+	frames := s.gifFrames
+	s.gifFrames = nil
+	if len(frames) == 0 {
+		s.setToast("GIF: no frames captured")
+		return
+	}
+
+	s.setToast(fmt.Sprintf("GIF encoding %d frames…", len(frames)))
+	result := s.gifResult
+
+	go func() {
+		delays := make([]int, len(frames))
+		for i := range delays {
+			delays[i] = gifCentiseconds
+		}
+
+		path := filepath.Join("debug", "screens", time.Now().Format("20060102-150405")+".gif")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			result <- "GIF failed: " + err.Error()
+			return
+		}
+		f, err := os.Create(path)
+		if err != nil {
+			result <- "GIF failed: " + err.Error()
+			return
+		}
+		defer f.Close()
+
+		if err := gif.EncodeAll(f, &gif.GIF{Image: frames, Delay: delays}); err != nil {
+			result <- "GIF encode failed: " + err.Error()
+			return
+		}
+		result <- fmt.Sprintf("GIF saved (%d frames) → %s", len(frames), path)
+	}()
 }
 
 // tryOpenPopup opens a popup window if the click is within the pick

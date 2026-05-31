@@ -98,3 +98,13 @@ func FormatElevation(m float32) string {
 	}
 	return fmt.Sprintf("%d m", int(m))
 }
+
+// FormatArea formats a count of grid cells as a labelled area string.
+// Each cell is 5 m × 5 m = 25 sq m.
+func FormatArea(cells int) string {
+	sqm := float64(cells) * 25.0
+	if global.Units == Imperial {
+		return fmt.Sprintf("%.1f acres", sqm/4046.856)
+	}
+	return fmt.Sprintf("%.2f sq km", sqm/1_000_000)
+}

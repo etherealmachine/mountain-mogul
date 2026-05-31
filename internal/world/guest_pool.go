@@ -61,6 +61,7 @@ func SeedGuests(w *World, seed int64, count int) {
 		}
 		traits.LikesGlades = g.Float32() < gladeProb
 		traits.PrefersGroomed = g.Float32() < 0.60
+		traits.DailyBudget = 40 + skill*160
 		guest := &Guest{
 			ID:              w.NextID(),
 			Name:            firstNames[g.Intn(len(firstNames))] + " " + lastNames[g.Intn(len(lastNames))],

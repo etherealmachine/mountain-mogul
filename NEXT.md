@@ -29,3 +29,5 @@ Loans
 New buildings - bar, restaurant, plus paths between buildings
   Skiers remove skies and walk around pathed area
   Ski racks to store skis
+
+Yeti

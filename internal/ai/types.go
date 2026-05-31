@@ -49,6 +49,11 @@ type GuestTraits struct {
 
 	// PrefersGroomed: true ⇒ groomed snow emits ThoughtLovingCorduroy (positive).
 	PrefersGroomed bool
+
+	// DailyBudget is the total amount a guest is willing to spend per visit.
+	// Derived from skill at pool creation ($40 + skill×$160); campaigns may
+	// override it per-scenario to model different demographics.
+	DailyBudget float32
 }
 
 // TraitsFor returns sensible defaults for a skill value in [0, 1]. Callers
@@ -260,6 +265,13 @@ const (
 	ThoughtHungry  // Hunger critically low; guest departs
 	ThoughtThirsty // Thirst critically low; guest departs
 
+	// Fatigue events.
+	ThoughtTired     // min(Patience,Energy) below rest threshold; needs a lodge
+	ThoughtExhausted // min(Patience,Energy) critically low; guest departs
+
+	// Budget events.
+	ThoughtTooExpensive // RemainingBudget < cheapest lift ticket; guest departs
+
 	thoughtKindSentinel // must stay last; equals the total count
 )
 
@@ -281,8 +293,11 @@ var ThoughtSatisfactionWeight = [ThoughtKindCount]float64{
 	ThoughtLongLine:       -0.08,
 	ThoughtLineTooLong:    -0.08,
 	ThoughtNeedsLodge: -0.06,
-	ThoughtHungry:     -0.08,
-	ThoughtThirsty:    -0.08,
+	ThoughtHungry:       -0.08,
+	ThoughtThirsty:      -0.08,
+	ThoughtTired:        -0.05,
+	ThoughtExhausted:    -0.15,
+	ThoughtTooExpensive: -0.20,
 }
 
 // ThoughtLabel is the short chart label for each thought kind. An empty
@@ -298,9 +313,12 @@ var ThoughtLabel = [ThoughtKindCount]string{
 	ThoughtAbandoned:      "Abandoned",
 	ThoughtLongLine:       "Long line",
 	ThoughtLineTooLong:    "Line too long",
-	ThoughtNeedsLodge: "Needs lodge",
-	ThoughtHungry:     "Hungry",
-	ThoughtThirsty:    "Thirsty",
+	ThoughtNeedsLodge:   "Needs lodge",
+	ThoughtHungry:       "Hungry",
+	ThoughtThirsty:      "Thirsty",
+	ThoughtTired:        "Need a break",
+	ThoughtExhausted:    "Too tired to ski",
+	ThoughtTooExpensive: "Too expensive",
 }
 
 // ThoughtChartColor is the RGBA bar colour for each thought kind in charts.
@@ -314,9 +332,12 @@ var ThoughtChartColor = [ThoughtKindCount][4]float32{
 	ThoughtAbandoned:      {0.60, 0.10, 0.80, 1},
 	ThoughtLongLine:       {0.80, 0.45, 0.70, 1},
 	ThoughtLineTooLong:    {0.70, 0.30, 0.60, 1},
-	ThoughtNeedsLodge: {0.60, 0.50, 0.80, 1},
-	ThoughtHungry:     {0.95, 0.60, 0.20, 1},
-	ThoughtThirsty:    {0.25, 0.65, 0.90, 1},
+	ThoughtNeedsLodge:   {0.60, 0.50, 0.80, 1},
+	ThoughtHungry:       {0.95, 0.60, 0.20, 1},
+	ThoughtThirsty:      {0.25, 0.65, 0.90, 1},
+	ThoughtTired:        {0.80, 0.70, 0.30, 1},
+	ThoughtExhausted:    {0.65, 0.50, 0.20, 1},
+	ThoughtTooExpensive: {0.95, 0.85, 0.20, 1},
 }
 
 // Thought is one entry in a Guest's bounded thoughts ring. Persists in

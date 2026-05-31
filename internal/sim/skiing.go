@@ -386,6 +386,18 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 	if a.Thirst < criticalStatThreshold {
 		s.addThought(a, ai.ThoughtThirsty)
 	}
+	combined := a.Patience
+	if a.Energy < combined {
+		combined = a.Energy
+	}
+	if combined < 0.05 {
+		s.addThought(a, ai.ThoughtExhausted)
+	} else if combined < criticalStatThreshold {
+		s.addThought(a, ai.ThoughtTired)
+	}
+	if cheap := cheapestLiftTicket(s.World); cheap > 0 && a.RemainingBudget < float32(cheap) {
+		s.addThought(a, ai.ThoughtTooExpensive)
+	}
 
 	// Avalanche hit — if active debris is flowing through this cell, force a
 	// high-probability injury fall before the normal balance update.
@@ -1370,4 +1382,15 @@ func recordFrame(s *Simulation, a *world.Guest, target mgl32.Vec3, dist float32,
 		InArrivalRadius: perc.InArrival,
 		TacticalOffset:  dec.TacticalOffset,
 	})
+}
+
+// cheapestLiftTicket returns the minimum ticket price across all lifts, or 0.
+func cheapestLiftTicket(w *world.World) int {
+	min := 0
+	for _, l := range w.Lifts {
+		if min == 0 || l.TicketPrice < min {
+			min = l.TicketPrice
+		}
+	}
+	return min
 }

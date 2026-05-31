@@ -61,6 +61,12 @@ const seasonDaysApprox = 186.0
 // occupies a lift seat across one cycle (queue + ride + descent).
 const avgSessionSec = 800.0
 
+// guestsPerTrailCell is the terrain-density tuning knob for TerrainCapacity.
+// Each unique 5×5 m trail cell supports this many simultaneous guests —
+// equivalent to ~16 guests per skiable acre at k=0.10. Adjust only this
+// constant to retune the terrain-vs-lift balance.
+const guestsPerTrailCell = float32(0.10)
+
 // DemandSystem owns the resort rating + poll timers. The catchment
 // itself lives on world.World.Guests; this struct only tracks the
 // scalar rating and the timers that gate the per-guest walks.
@@ -96,9 +102,13 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 		s.World.Terrain.Surface.DecayTracks(0.985)
 	}
 
-	cap := resortCapacity(s.World)
-	if cap <= 0 {
+	liftCap := resortCapacity(s.World)
+	if liftCap <= 0 {
 		return // no lifts → no guests want to come
+	}
+	cap := liftCap
+	if tc := TerrainCapacity(s.World); tc > 0 && tc < liftCap {
+		cap = tc
 	}
 	occupancy := float32(len(s.World.OnMountain)) / cap
 	if occupancy > 1 {
@@ -181,12 +191,25 @@ func resortCapacity(w *world.World) float32 {
 	return total
 }
 
-// terrainMatch is the binary skill-vs-lift-services check. Returns 1
-// if any lift in the resort serves the guest's skill tier, else 0.
+// TerrainCapacity returns the maximum simultaneous guests the resort's painted
+// trail area can support. Deduplicates cells shared across overlapping trails.
+// Returns 0 when the world has no trails — callers treat 0 as "no constraint".
+func TerrainCapacity(w *world.World) float32 {
+	seen := make(map[[2]int]struct{})
+	for _, t := range w.Trails {
+		for _, c := range t.Cells {
+			seen[c] = struct{}{}
+		}
+	}
+	return float32(len(seen)) * guestsPerTrailCell
+}
+
+// terrainMatch returns 1 if the resort has any painted trail cells
+// matching the guest's skill tier, else 0.
 func terrainMatch(w *world.World, skill float32) float32 {
 	want := skillToDifficulty(skill)
-	for _, l := range w.Lifts {
-		if w.ServicesForLift(l.ID).Has(want) {
+	for _, t := range w.Trails {
+		if t.Difficulty == want && len(t.Cells) > 0 {
 			return 1
 		}
 	}

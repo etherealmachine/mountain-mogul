@@ -40,6 +40,15 @@ type WorldSnapshot struct {
 	AtParking  uint64 // 0 or parking building ID
 	AtTrailEnd uint64 // 0 or trail ID — arrived at a trail-to-trail junction
 
+	// RemainingBudget is the guest's unspent visit money. Decremented by
+	// each lift ticket; when it falls below CheapestTicket the GoHome goal
+	// fires and JoinQueue preconditions become false for unaffordable lifts.
+	RemainingBudget float32
+	// CheapestTicket is the minimum ticket price across all open lifts,
+	// precomputed at Extract time so goal/action logic needs no world walk.
+	// Zero when the world has no lifts.
+	CheapestTicket float32
+
 	// Removed flags a terminal state: agent has Departed. Planner treats
 	// this as the unique goal-state for GoHome.
 	Removed bool
@@ -78,15 +87,17 @@ func (s WorldSnapshot) Clone() WorldSnapshot {
 // sync with the queue mutations in tickLifts — not worth it yet.
 func Extract(a *world.Guest, w *world.World) WorldSnapshot {
 	snap := WorldSnapshot{
-		Pos:        a.Pos,
-		Patience:   a.Patience,
-		Energy:     a.Energy,
-		Hunger:     a.Hunger,
-		Thirst:     a.Thirst,
-		Skill:      a.Traits.Skill,
-		OnLift:     a.OnLiftID,
-		AtTrailEnd: a.AtTrailEnd,
-		RidenLifts: a.RidenLifts,
+		Pos:             a.Pos,
+		Patience:        a.Patience,
+		Energy:          a.Energy,
+		Hunger:          a.Hunger,
+		Thirst:          a.Thirst,
+		Skill:           a.Traits.Skill,
+		RemainingBudget: a.RemainingBudget,
+		CheapestTicket:  cheapestTicket(w),
+		OnLift:          a.OnLiftID,
+		AtTrailEnd:      a.AtTrailEnd,
+		RidenLifts:      a.RidenLifts,
 	}
 	if a.Queued {
 		for _, l := range w.Lifts {
@@ -161,16 +172,32 @@ func ExtractLookahead(a *world.Guest, liftID uint64, w *world.World) WorldSnapsh
 	rides := append(make([]ai.RideCount, 0, len(a.RidenLifts)), a.RidenLifts...)
 	rides = ai.AddRide(rides, liftID)
 	return WorldSnapshot{
-		Pos:        a.Pos,
-		Patience:   a.Patience,
-		Energy:     a.Energy,
-		Hunger:     a.Hunger,
-		Thirst:     a.Thirst,
-		Skill:      a.Traits.Skill,
-		AtLiftTop:  liftID,
-		AtTrailEnd: a.AtTrailEnd,
-		RidenLifts: rides,
+		Pos:             a.Pos,
+		Patience:        a.Patience,
+		Energy:          a.Energy,
+		Hunger:          a.Hunger,
+		Thirst:          a.Thirst,
+		Skill:           a.Traits.Skill,
+		RemainingBudget: a.RemainingBudget,
+		CheapestTicket:  cheapestTicket(w),
+		AtLiftTop:       liftID,
+		AtTrailEnd:      a.AtTrailEnd,
+		RidenLifts:      rides,
 	}
+}
+
+// cheapestTicket returns the minimum ticket price across all open lifts,
+// or 0 if there are none. Precomputed into WorldSnapshot so goal and action
+// logic never walk the lift list themselves.
+func cheapestTicket(w *world.World) float32 {
+	min := float32(0)
+	for _, l := range w.Lifts {
+		p := float32(l.TicketPrice)
+		if min == 0 || p < min {
+			min = p
+		}
+	}
+	return min
 }
 
 // proximityRadius is the radius (m) within which an agent counts as "at"
