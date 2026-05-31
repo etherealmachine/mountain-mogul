@@ -557,13 +557,17 @@ type Scenario struct {
 	escapeMenu      *EscapeMenu
 	settingsMenu    *SettingsMenu
 	debugConsole    *DebugConsole
-	toolButtons     map[toolMode]*ui.Button
-	liftDoubleBtn   *ui.Button // toolbar button for the double-chair lift variant
-	liftQuadBtn     *ui.Button // toolbar button for the fixed-quad lift variant
-	liftHSQuadBtn   *ui.Button // toolbar button for the high-speed quad lift variant
-	liftHS6PackBtn  *ui.Button // toolbar button for the high-speed 6-pack lift variant
-	liftGondolaBtn  *ui.Button // toolbar button for the MDG gondola
-	liftHeliBtn     *ui.Button // toolbar button for the helicopter heli-ski lift
+	toolButtons      map[toolMode]*ui.Button
+	liftDoubleBtn    *ui.Button        // toolbar button for the double-chair lift variant
+	liftQuadBtn      *ui.Button        // toolbar button for the fixed-quad lift variant
+	liftHSQuadBtn    *ui.Button        // toolbar button for the high-speed quad lift variant
+	liftHS6PackBtn   *ui.Button        // toolbar button for the high-speed 6-pack lift variant
+	liftGondolaBtn   *ui.Button        // toolbar button for the MDG gondola
+	liftHeliBtn      *ui.Button        // toolbar button for the helicopter heli-ski lift
+	liftsSubmenu     *ui.SubmenuButton // Lifts group (all chair/gondola/heli variants)
+	opsSubmenu       *ui.SubmenuButton // Operations group (shed, patrol)
+	amenitiesSubmenu  *ui.SubmenuButton // Amenities group (lodge)
+	transportSubmenu  *ui.SubmenuButton // Transport group (parking, road)
 	activeTool      toolMode
 	liftType        world.LiftType // chair variant the toolLiftBase/Top flow will place
 	liftBase        mgl32.Vec2     // first click world position for lift placement
@@ -812,19 +816,32 @@ func (s *Scenario) Init(app *engine.App) error {
 	s.toolButtons = make(map[toolMode]*ui.Button)
 	s.toolBar = ui.NewMenuBar(0, toolBarH)
 	s.toolBar.Centered = true
-	s.toolButtons[toolParking] = s.toolBar.AddIconButton(render.IconUsers, "Parking", func() { s.setTool(toolParking) })
-	s.toolButtons[toolBuilding] = s.toolBar.AddIconButton(render.IconHouse, "Lodge", func() { s.setTool(toolBuilding) })
-	s.toolButtons[toolShed] = s.toolBar.AddIconButton(render.IconGarage, "Shed", func() { s.setTool(toolShed) })
-	s.toolButtons[toolPatrolHut] = s.toolBar.AddIconButton(render.IconHeart, "Patrol", func() { s.setTool(toolPatrolHut) })
-	s.toolButtons[toolSnowGun] = s.toolBar.AddIconButton(render.IconSnowflake, "Snow Gun", func() { s.setTool(toolSnowGun) })
-	s.liftDoubleBtn = s.toolBar.AddIconButton(render.IconCableCar, "Double", func() { s.activateLiftTool(world.LiftDouble) })
-	s.liftQuadBtn = s.toolBar.AddIconButton(render.IconCableCar, "Quad", func() { s.activateLiftTool(world.LiftFixedQuad) })
-	s.liftHSQuadBtn = s.toolBar.AddIconButton(render.IconCableCar, "HSQuad", func() { s.activateLiftTool(world.LiftHSQuad) })
-	s.liftHS6PackBtn = s.toolBar.AddIconButton(render.IconCableCar, "6-Pack", func() { s.activateLiftTool(world.LiftHS6Pack) })
 
-	s.liftGondolaBtn = s.toolBar.AddIconButton(render.IconCableCar, "Gondola", func() { s.activateLiftTool(world.LiftGondola) })
-	s.liftHeliBtn = s.toolBar.AddIconButton(render.IconCableCar, "Heli", func() { s.activateLiftTool(world.LiftHeli) })
-	s.toolButtons[toolRoadStart] = s.toolBar.AddIconButton(render.IconRoad, "Road", func() { s.setTool(toolRoadStart) })
+	// Amenities submenu: Lodge
+	s.amenitiesSubmenu = s.toolBar.AddSubmenu(render.IconHouse, "Amenities")
+	s.toolButtons[toolBuilding] = s.amenitiesSubmenu.AddChild(render.IconHouse, "Lodge", func() { s.setTool(toolBuilding) })
+
+	// Operations submenu: Shed, Patrol
+	s.opsSubmenu = s.toolBar.AddSubmenu(render.IconGarage, "Operations")
+	s.toolButtons[toolShed] = s.opsSubmenu.AddChild(render.IconGarage, "Shed", func() { s.setTool(toolShed) })
+	s.toolButtons[toolPatrolHut] = s.opsSubmenu.AddChild(render.IconHeart, "Patrol", func() { s.setTool(toolPatrolHut) })
+
+	// Transport submenu: Parking, Road
+	s.transportSubmenu = s.toolBar.AddSubmenu(render.IconRoad, "Transport")
+	s.toolButtons[toolParking] = s.transportSubmenu.AddChild(render.IconUsers, "Parking", func() { s.setTool(toolParking) })
+	s.toolButtons[toolRoadStart] = s.transportSubmenu.AddChild(render.IconRoad, "Road", func() { s.setTool(toolRoadStart) })
+
+	// Lifts submenu: all chair/gondola/heli variants
+	s.liftsSubmenu = s.toolBar.AddSubmenu(render.IconCableCar, "Lifts")
+	s.liftDoubleBtn = s.liftsSubmenu.AddChild(render.IconCableCar, "Double", func() { s.activateLiftTool(world.LiftDouble) })
+	s.liftQuadBtn = s.liftsSubmenu.AddChild(render.IconCableCar, "Quad", func() { s.activateLiftTool(world.LiftFixedQuad) })
+	s.liftHSQuadBtn = s.liftsSubmenu.AddChild(render.IconCableCar, "HSQuad", func() { s.activateLiftTool(world.LiftHSQuad) })
+	s.liftHS6PackBtn = s.liftsSubmenu.AddChild(render.IconCableCar, "6-Pack", func() { s.activateLiftTool(world.LiftHS6Pack) })
+	s.liftGondolaBtn = s.liftsSubmenu.AddChild(render.IconCableCar, "Gondola", func() { s.activateLiftTool(world.LiftGondola) })
+	s.liftHeliBtn = s.liftsSubmenu.AddChild(render.IconCableCar, "Heli", func() { s.activateLiftTool(world.LiftHeli) })
+
+	// Flat tools
+	s.toolButtons[toolSnowGun] = s.toolBar.AddIconButton(render.IconSnowflake, "Snow Gun", func() { s.setTool(toolSnowGun) })
 	s.toolButtons[toolGlade] = s.toolBar.AddIconButton(render.IconAxe, "Glade", func() { s.setTool(toolGlade) })
 	s.toolButtons[toolTrailPaint] = s.toolBar.AddIconButton(render.IconFlag, "Trail", func() { s.activateTrailTool() })
 	s.toolButtons[toolRemove] = s.toolBar.AddIconButton(render.IconTrash, "Remove", func() { s.setTool(toolRemove) })
@@ -3204,6 +3221,20 @@ func (s *Scenario) syncToolButtons() {
 	}
 	if s.liftHeliBtn != nil {
 		s.liftHeliBtn.SetActive(liftActive && s.liftType == world.LiftHeli)
+	}
+	// Sync submenu parent active state so the group button highlights when any
+	// child tool is selected, giving the user a visual cue of the active group.
+	if s.liftsSubmenu != nil {
+		s.liftsSubmenu.Btn.SetActive(s.liftsSubmenu.HasActiveChild())
+	}
+	if s.opsSubmenu != nil {
+		s.opsSubmenu.Btn.SetActive(s.opsSubmenu.HasActiveChild())
+	}
+	if s.amenitiesSubmenu != nil {
+		s.amenitiesSubmenu.Btn.SetActive(s.amenitiesSubmenu.HasActiveChild())
+	}
+	if s.transportSubmenu != nil {
+		s.transportSubmenu.Btn.SetActive(s.transportSubmenu.HasActiveChild())
 	}
 }
 

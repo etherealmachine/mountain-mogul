@@ -12,8 +12,9 @@ import (
 // left-aligned (default) or centred with even space-around distribution.
 type MenuBar struct {
 	Y, H         float32
-	Buttons      []*Button // tool palette
-	RightButtons []*Button // right-aligned cluster (e.g. speed controls)
+	Buttons      []*Button     // tool palette (includes submenu parent buttons)
+	RightButtons []*Button     // right-aligned cluster (e.g. speed controls)
+	Submenus     []*SubmenuButton // popup submenus registered in this bar
 
 	// Centered switches the layout for `Buttons` from left-packed to a
 	// horizontally-centred group with a fixed inter-button gap. The cluster
@@ -50,6 +51,25 @@ func (m *MenuBar) AddIconButton(icon render.IconName, label string, onClick func
 	btn.Icon = icon
 	m.Buttons = append(m.Buttons, btn)
 	return btn
+}
+
+// AddSubmenu appends a toolbar button that opens a vertical popup of child
+// buttons when clicked. Only one submenu is open at a time — clicking any
+// submenu's parent closes all others first.
+func (m *MenuBar) AddSubmenu(icon render.IconName, label string) *SubmenuButton {
+	const tileW = float32(84)
+	sub := &SubmenuButton{}
+	sub.Btn = NewButton(0, 0, tileW, 0, label, func() {
+		wasOpen := sub.Open
+		for _, s := range m.Submenus {
+			s.Open = false
+		}
+		sub.Open = !wasOpen
+	})
+	sub.Btn.Icon = icon
+	m.Buttons = append(m.Buttons, sub.Btn)
+	m.Submenus = append(m.Submenus, sub)
+	return sub
 }
 
 // AddRightButton appends a button to the right-aligned cluster. X is
@@ -121,6 +141,24 @@ func (m *MenuBar) HandleInput(input *engine.Input, screenW, screenH float32) {
 	m.layout(screenW)
 	mx := input.MousePos[0]
 	my := input.MousePos[1]
+
+	// Submenu popups are drawn above the toolbar — handle their input first so
+	// a click on a child doesn't fall through to the world.
+	for _, sub := range m.Submenus {
+		if sub.HandlePopupInput(input) {
+			return
+		}
+	}
+
+	// Close open submenus when a click lands outside the toolbar (and wasn't
+	// already consumed by a popup above). Don't consume the click — let it
+	// reach the world terrain.
+	if input.LeftClick && !m.ContainsY(my) {
+		for _, sub := range m.Submenus {
+			sub.Open = false
+		}
+	}
+
 	for _, btn := range m.Buttons {
 		btn.SetHovered(btn.Contains(mx, my))
 		if input.LeftClick && btn.Contains(mx, my) {
@@ -157,6 +195,10 @@ func (m *MenuBar) Draw(r *render.Renderer) {
 	}
 	for _, btn := range m.RightButtons {
 		btn.Draw(r)
+	}
+	// Submenu popups render on top of the bar background and regular buttons.
+	for _, sub := range m.Submenus {
+		sub.DrawPopup(r)
 	}
 }
 
