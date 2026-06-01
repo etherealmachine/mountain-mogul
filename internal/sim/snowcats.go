@@ -87,10 +87,10 @@ func advanceCat(w *world.World, cat *world.Snowcat, dt float64) {
 	}
 }
 
-// planRoute builds the full cell sequence for cat's next grooming pass.
-// Section trail cells form a graph; Prim's MST with straight=0/turn=1 edge
-// costs produces a spanning tree; DFS with explicit backtrack cells
-// serialises that into the route so every cell is groomed.
+// planRoute builds the full cell sequence for cat's next grooming pass
+// using a boustrophedon (back-and-forth) sweep: columns are traversed one
+// at a time as straight up/down runs, alternating direction so consecutive
+// runs connect with a single lateral step at the top or bottom.
 func planRoute(w *world.World, cat *world.Snowcat) {
 	sectionCells := buildSectionCells(w, cat)
 	if len(sectionCells) == 0 {
@@ -106,9 +106,7 @@ func planRoute(w *world.World, cat *world.Snowcat) {
 	var route [][2]int
 	curX, curZ := catCX, catCZ
 	for _, comp := range comps {
-		start := nearestCell(comp, curX, curZ)
-		par, parDir := mstPrim(comp, start)
-		seg := mstDFS(comp, par, parDir, start)
+		seg := boustrophedon(comp, curX, curZ)
 		route = append(route, seg...)
 		if len(seg) > 0 {
 			last := seg[len(seg)-1]
@@ -118,6 +116,76 @@ func planRoute(w *world.World, cat *world.Snowcat) {
 
 	cat.Route = route
 	cat.RouteIdx = 0
+}
+
+// boustrophedon produces a back-and-forth route over comp by sweeping
+// column-by-column (constant X, varying Z). Each column is one straight
+// run; direction alternates so consecutive runs connect at top or bottom
+// with a single lateral hop. Column order and initial direction are chosen
+// to minimise dead-heading from (startX, startZ).
+func boustrophedon(comp map[[2]int]bool, startX, startZ int) [][2]int {
+	xSet := map[int]bool{}
+	for c := range comp {
+		xSet[c[0]] = true
+	}
+	xs := make([]int, 0, len(xSet))
+	for x := range xSet {
+		xs = append(xs, x)
+	}
+	sort.Ints(xs)
+
+	if len(xs) == 0 {
+		return nil
+	}
+
+	// Start from whichever end is closer to the cat.
+	if absInt(xs[len(xs)-1]-startX) < absInt(xs[0]-startX) {
+		for l, r := 0, len(xs)-1; l < r; l, r = l+1, r-1 {
+			xs[l], xs[r] = xs[r], xs[l]
+		}
+	}
+
+	// Initial up/down direction: go down if cat is near the top of the first
+	// column, go up if near the bottom.
+	firstX := xs[0]
+	minZ, maxZ := int(^uint(0)>>1), -int(^uint(0)>>1)-1
+	for c := range comp {
+		if c[0] == firstX {
+			if c[1] < minZ {
+				minZ = c[1]
+			}
+			if c[1] > maxZ {
+				maxZ = c[1]
+			}
+		}
+	}
+	goDown := absInt(startZ-minZ) <= absInt(startZ-maxZ)
+
+	var route [][2]int
+	for _, x := range xs {
+		var col [][2]int
+		for c := range comp {
+			if c[0] == x {
+				col = append(col, c)
+			}
+		}
+		sort.Slice(col, func(i, j int) bool { return col[i][1] < col[j][1] })
+		if !goDown {
+			for l, r := 0, len(col)-1; l < r; l, r = l+1, r-1 {
+				col[l], col[r] = col[r], col[l]
+			}
+		}
+		route = append(route, col...)
+		goDown = !goDown
+	}
+	return route
+}
+
+func absInt(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
 }
 
 // buildSectionCells returns the set of all trail cells assigned to cat's section.
@@ -219,114 +287,6 @@ func orderByNearest(comps []map[[2]int]bool, startX, startZ int) []map[[2]int]bo
 		curX, curZ = near[0], near[1]
 	}
 	return ordered
-}
-
-// mstPrim builds a spanning tree over cells rooted at start using Prim's
-// algorithm. Edge cost is 0 for straight movement (same direction as arrival),
-// 1 for a turn. Returns parent and parentDir maps describing the tree.
-func mstPrim(cells map[[2]int]bool, start [2]int) (parent, parentDir map[[2]int][2]int) {
-	dirs := [4][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}
-	maxInt := int(^uint(0) >> 1)
-
-	parent = map[[2]int][2]int{}
-	parentDir = map[[2]int][2]int{}
-	arriveDir := map[[2]int][2]int{}
-	key := make(map[[2]int]int, len(cells))
-	for c := range cells {
-		key[c] = maxInt
-	}
-	key[start] = 0
-
-	type entry struct {
-		cell [2]int
-		cost int
-	}
-	open := []entry{{start, 0}}
-	inMST := map[[2]int]bool{}
-
-	for len(open) > 0 {
-		bi := 0
-		for i := 1; i < len(open); i++ {
-			if open[i].cost < open[bi].cost {
-				bi = i
-			}
-		}
-		cur := open[bi]
-		open[bi] = open[len(open)-1]
-		open = open[:len(open)-1]
-
-		if inMST[cur.cell] {
-			continue
-		}
-		inMST[cur.cell] = true
-		from := arriveDir[cur.cell]
-
-		for _, d := range dirs {
-			nb := [2]int{cur.cell[0] + d[0], cur.cell[1] + d[1]}
-			if !cells[nb] || inMST[nb] {
-				continue
-			}
-			cost := 0
-			if from != ([2]int{}) && d != from {
-				cost = 1
-			}
-			if cost < key[nb] {
-				key[nb] = cost
-				parent[nb] = cur.cell
-				parentDir[nb] = d
-				arriveDir[nb] = d
-				open = append(open, entry{nb, cost})
-			}
-		}
-	}
-	return parent, parentDir
-}
-
-// mstDFS traverses the spanning tree depth-first and returns a flat cell
-// sequence. Children are ordered straight-ahead first to minimise turns.
-// When the DFS must backtrack to a fork after finishing a branch, it walks
-// back through the tree edges so every intermediate cell is included and
-// groomed by the cat.
-func mstDFS(cells map[[2]int]bool, parent, parentDir map[[2]int][2]int, start [2]int) [][2]int {
-	children := map[[2]int][][2]int{}
-	for node := range cells {
-		if node == start {
-			continue
-		}
-		p := parent[node]
-		children[p] = append(children[p], node)
-	}
-
-	route := make([][2]int, 0, len(cells))
-
-	var walk func(node [2]int, inDir [2]int)
-	walk = func(node [2]int, inDir [2]int) {
-		route = append(route, node)
-		kids := children[node]
-		sort.Slice(kids, func(i, j int) bool {
-			// straight-ahead children first
-			si := parentDir[kids[i]] == inDir
-			sj := parentDir[kids[j]] == inDir
-			if si != sj {
-				return si
-			}
-			return false
-		})
-		for i, kid := range kids {
-			walk(kid, parentDir[kid])
-			if i < len(kids)-1 {
-				// Backtrack from current position to node along tree edges.
-				cur := route[len(route)-1]
-				for cur != node {
-					cur = parent[cur]
-					route = append(route, cur)
-				}
-			}
-		}
-	}
-
-	walk(start, [2]int{})
-	return route
 }
 
 // driveToDoor steers cat toward its shed door cell.
