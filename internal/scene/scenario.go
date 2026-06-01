@@ -1997,11 +1997,12 @@ func (s *Scenario) buildCellOverlay() (pixels []uint8, w, h int) {
 		pix[i+3] = uint8(outA * 255)
 	}
 
-	// Hover highlight for land-buy tool — lights up the hovered purchasable
-	// parcel so the player knows what they're about to buy.
+	// Hover highlight for land-buy tool — brighter version of the parcel's
+	// own palette color so the player knows what they're about to buy.
 	if hasLandOverlay {
+		pr, pg, pb := parcelPurchasableColor(s.hoverParcel.ID)
 		for _, c := range s.hoverParcel.Cells {
-			set(c[0], c[1], 100, 220, 100, 160)
+			set(c[0], c[1], pr, pg, pb, 200)
 		}
 	}
 
@@ -2038,6 +2039,41 @@ func (s *Scenario) buildCellOverlay() (pixels []uint8, w, h int) {
 	return pix, tw, th
 }
 
+// parcelPurchasableColor returns a distinct RGBA overlay color for a purchasable
+// parcel, cycling through a small palette keyed by the parcel's ID so that
+// adjacent parcels are visually distinguishable.
+func parcelPurchasableColor(id uint16) (r, g, b uint8) {
+	// Six perceptually-distinct warm/cool hues that contrast with the green
+	// owned tint and the red off-limits tint.
+	palette := [6][3]uint8{
+		{220, 160, 50},  // amber
+		{80, 160, 220},  // sky blue
+		{200, 100, 200}, // lavender
+		{80, 200, 160},  // teal
+		{230, 120, 60},  // orange
+		{160, 200, 80},  // yellow-green
+	}
+	c := palette[id%6]
+	return c[0], c[1], c[2]
+}
+
+// parcelCentroidWorld returns the world-space XZ centroid of a parcel's cells.
+func parcelCentroidWorld(p *world.Parcel, t *world.Terrain) (wx, wz float32, ok bool) {
+	if len(p.Cells) == 0 {
+		return 0, 0, false
+	}
+	const cs = float32(world.CellSize)
+	var sx, sz float64
+	for _, c := range p.Cells {
+		sx += float64(c[0])
+		sz += float64(c[1])
+	}
+	n := float64(len(p.Cells))
+	cx := float32(sx/n+0.5) * cs
+	cz := float32(sz/n+0.5) * cs
+	return cx, cz, true
+}
+
 // buildParcelFence generates square-post triangle geometry and drooping rope
 // line segments for the ski-area boundary fence. Returns post vertices (flat
 // pos+color triangle list, 6 floats per vertex) and rope DebugLines.
@@ -2050,6 +2086,30 @@ func buildParcelFence(w *world.World) (postVerts []float32, ropeLines []render.D
 	}
 	t := w.Terrain
 	const cs = float32(world.CellSize)
+
+	// Build an explicit owned grid: true only for cells in a ParcelOwned parcel.
+	// We use this instead of IsAccessible so the fence traces owned land, not
+	// "everything that isn't purchasable" (which would surround unowned islands).
+	ownedGrid := make([][]bool, t.Width)
+	for x := range ownedGrid {
+		ownedGrid[x] = make([]bool, t.Height)
+	}
+	for _, p := range w.Parcels {
+		if p.State != world.ParcelOwned {
+			continue
+		}
+		for _, c := range p.Cells {
+			if t.InBounds(c[0], c[1]) {
+				ownedGrid[c[0]][c[1]] = true
+			}
+		}
+	}
+	isOwned := func(cx, cz int) bool {
+		if cx < 0 || cx >= t.Width || cz < 0 || cz >= t.Height {
+			return false
+		}
+		return ownedGrid[cx][cz]
+	}
 
 	// Post geometry constants.
 	const postHW = float32(0.08) // half-width of square cross-section (0.16 m post)
@@ -2152,28 +2212,28 @@ func buildParcelFence(w *world.World) (postVerts []float32, ropeLines []render.D
 	// Main pass with direction-specific bounds guards (see inline comments).
 	for cx := 0; cx < t.Width; cx++ {
 		for cz := 0; cz < t.Height; cz++ {
-			if !t.IsAccessible(cx, cz) {
+			if !isOwned(cx, cz) {
 				continue
 			}
-			if cx < t.Width-1 && cz < t.Height-1 && !t.IsAccessible(cx+1, cz) {
+			if cx < t.Width-1 && cz < t.Height-1 && !isOwned(cx+1, cz) {
 				ex := float32(cx+1) * cs
 				addEdge(ex, elevAt(cx+1, cz), float32(cz)*cs,
 					ex, elevAt(cx+1, cz+1), float32(cz+1)*cs,
 					cx+1, cz, cx+1, cz+1)
 			}
-			if cz < t.Height-1 && !t.IsAccessible(cx-1, cz) {
+			if cz < t.Height-1 && !isOwned(cx-1, cz) {
 				ex := float32(cx) * cs
 				addEdge(ex, elevAt(cx, cz), float32(cz)*cs,
 					ex, elevAt(cx, cz+1), float32(cz+1)*cs,
 					cx, cz, cx, cz+1)
 			}
-			if cz < t.Height-1 && cx < t.Width-1 && !t.IsAccessible(cx, cz+1) {
+			if cz < t.Height-1 && cx < t.Width-1 && !isOwned(cx, cz+1) {
 				ez := float32(cz+1) * cs
 				addEdge(float32(cx)*cs, elevAt(cx, cz+1), ez,
 					float32(cx+1)*cs, elevAt(cx+1, cz+1), ez,
 					cx, cz+1, cx+1, cz+1)
 			}
-			if cx < t.Width-1 && !t.IsAccessible(cx, cz-1) {
+			if cx < t.Width-1 && !isOwned(cx, cz-1) {
 				ez := float32(cz) * cs
 				addEdge(float32(cx)*cs, elevAt(cx, cz), ez,
 					float32(cx+1)*cs, elevAt(cx+1, cz), ez,
@@ -2184,7 +2244,7 @@ func buildParcelFence(w *world.World) (postVerts []float32, ropeLines []render.D
 
 	// Right map-edge.
 	for cz := 0; cz < t.Height-1; cz++ {
-		if t.IsAccessible(t.Width-1, cz) {
+		if isOwned(t.Width-1, cz) {
 			ex := float32(t.Width-1) * cs
 			addEdge(ex, elevAt(t.Width-1, cz), float32(cz)*cs,
 				ex, elevAt(t.Width-1, cz+1), float32(cz+1)*cs,
@@ -2194,7 +2254,7 @@ func buildParcelFence(w *world.World) (postVerts []float32, ropeLines []render.D
 
 	// Bottom map-edge.
 	for cx := 0; cx < t.Width-1; cx++ {
-		if t.IsAccessible(cx, t.Height-1) {
+		if isOwned(cx, t.Height-1) {
 			ez := float32(t.Height-1) * cs
 			addEdge(float32(cx)*cs, elevAt(cx, t.Height-1), ez,
 				float32(cx+1)*cs, elevAt(cx+1, t.Height-1), ez,
@@ -2676,6 +2736,35 @@ func (s *Scenario) Render(r *render.Renderer) {
 		s.overlayPanel.Bottom = float32(r.ScreenHeight()) - s.toolBar.H
 	}
 	drawables := []render.UIDrawable{s.topBar, s.toolBar, s.overlayPanel}
+
+	// Parcel price labels — shown when the land-buy tool is active so the
+	// player can see what each purchasable parcel costs before clicking.
+	if s.activeTool == toolLandBuy && len(s.world.Parcels) > 0 && r.Font != nil {
+		w := s.world
+		drawables = append(drawables, uiDrawFunc(func(rr *render.Renderer) {
+			for i := range w.Parcels {
+				p := &w.Parcels[i]
+				if p.State != world.ParcelPurchasable {
+					continue
+				}
+				cx, cz, ok := parcelCentroidWorld(p, w.Terrain)
+				if !ok {
+					continue
+				}
+				elev := w.Terrain.InterpolatedSurfaceElevationAt(cx, cz)
+				sx, sy, vis := rr.WorldToScreen(mgl32.Vec3{cx, elev + 4, cz})
+				if !vis {
+					continue
+				}
+				label := fmt.Sprintf("$%d", p.Price)
+				tw := rr.Font.TextWidth(label)
+				pr, pg, pb := parcelPurchasableColor(p.ID)
+				col := mgl32.Vec4{float32(pr) / 255, float32(pg) / 255, float32(pb) / 255, 1}
+				rr.Font.DrawText(rr, label, sx-tw/2, sy-float32(render.GlyphH)/2, col)
+			}
+		}))
+	}
+
 	if s.simSeed != 0 {
 		drawables = append(drawables, &seedLabel{seed: s.simSeed})
 	}

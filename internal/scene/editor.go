@@ -25,35 +25,49 @@ type Editor struct {
 	escapeMenu        *EscapeMenu
 	settingsMenu      *SettingsMenu
 	toolButtons       map[toolMode]*ui.Button
-	liftDoubleBtn     *ui.Button     // toolbar button for the double-chair lift variant
-	liftQuadBtn       *ui.Button     // toolbar button for the fixed-quad lift variant
-	liftHSQuadBtn     *ui.Button     // toolbar button for the high-speed quad lift variant
-	liftHS6PackBtn    *ui.Button     // toolbar button for the high-speed 6-pack lift variant
-	liftGondolaBtn    *ui.Button     // toolbar button for the MDG gondola
-	liftHeliBtn       *ui.Button     // toolbar button for the helicopter heli-ski lift
-	liftType          world.LiftType // chair variant the toolLiftBase/Top flow will place
-	activeTool        toolMode
-	scenarioPath      string
-	hoverCell         [2]int      // terrain cell currently under the mouse
-	hoverWorld        mgl32.Vec3  // continuous terrain hit under the mouse — for placement and ghost preview
-	hoverMouseScreen  mgl32.Vec2  // screen-space mouse position, updated with hoverValid
-	hoverValid        bool        // false when the cursor isn't on the terrain (or sits on chrome)
-	radiusSlider      *ui.VSlider // shown for any brush tool
-	densitySlider     *ui.VSlider // shown only for the plant tool — caps brush target density
-	autoMaxSlider      *ui.VSlider // shown only in auto tool: max snow depth (m)
-	autoSnowlineSlider *ui.VSlider // shown only in auto tool: snowline elevation (%)
-	autoTreelineSlider *ui.VSlider // shown only in auto tool: treeline elevation (%) — drives both snow & forest
-	autoCoverageSlider *ui.VSlider // shown only in auto tool: forest coverage (%)
-	autoWindSlider     *ui.VSlider // shown only in auto tool: wind direction (deg)
-	autoSeed           int64       // seed for the noise overlays; stable across slider tweaks
-	autoFields         *elevFields // cached flow / curvature / minE-maxE; invalidated on elevation edits
-	liftBase          mgl32.Vec2  // toolLiftBase → toolLiftTop two-click state: first click stored here
-	roadStart         mgl32.Vec2  // toolRoadStart → toolRoadEnd two-click state: first click stored here (post-snap)
-	roadEdit          roadEditSelection // toolNone click-to-edit road handle / dragged node
-	structureEdit     structureEditSelection // toolNone click-to-edit building / lift handle
-	addStormBtn       *ui.Button  // shown in toolAuto: push a fresh-snow layer onto the stack
-	clearLayersBtn    *ui.Button  // shown in toolAuto: remove all snow layers
-	pendingScreenshot bool        // captured at end of Render so the PNG matches what's on screen
+	// Submenu groups
+	buildingsSubmenu *ui.SubmenuButton
+	transportSubmenu *ui.SubmenuButton
+	liftsSubmenu     *ui.SubmenuButton
+	terrainSubmenu   *ui.SubmenuButton
+	// Lift variant buttons (outside toolButtons — multiple share toolLiftBase/Top)
+	liftDoubleBtn  *ui.Button
+	liftQuadBtn    *ui.Button
+	liftHSQuadBtn  *ui.Button
+	liftHS6PackBtn *ui.Button
+	liftGondolaBtn *ui.Button
+	liftHeliBtn    *ui.Button
+	liftType       world.LiftType
+	activeTool     toolMode
+	scenarioPath   string
+	hoverCell        [2]int
+	hoverWorld       mgl32.Vec3
+	hoverMouseScreen mgl32.Vec2
+	hoverValid       bool
+	radiusSlider  *ui.VSlider // shown for any brush tool
+	densitySlider *ui.VSlider // plant tool only
+	// Parcel rect-selection state
+	parcelRectStart  [2]int
+	parcelRectActive bool
+	parcelRectIntent parcelRectIntent
+	parcelEditID     uint16      // ID of parcel being modified via rect or popup
+	parcelPopup      *ui.Window
+	autoMaxSlider      *ui.VSlider
+	autoSnowlineSlider *ui.VSlider
+	autoTreelineSlider *ui.VSlider
+	autoCoverageSlider *ui.VSlider
+	autoWindSlider     *ui.VSlider
+	autoSeed           int64
+	autoFields         *elevFields
+	liftBase           mgl32.Vec2
+	roadStart          mgl32.Vec2
+	roadEdit           roadEditSelection
+	structureEdit      structureEditSelection
+	addStormBtn        *ui.Button
+	clearLayersBtn     *ui.Button
+	parcelBoundaryDirty        bool // fence geometry needs rebuild
+	suppressBrushUntilRelease  bool // set when a brush tool is activated via toolbar click; cleared on mouse-up
+	pendingScreenshot          bool
 }
 
 // NewEditor creates an Editor scene loading from the given path.
@@ -84,6 +98,7 @@ func (e *Editor) Init(app *engine.App) error {
 	for _, lift := range w.Lifts {
 		r.AddLiftCable(lift, w.Terrain)
 	}
+	e.parcelBoundaryDirty = true
 
 	if savedCam != nil {
 		applyCameraSnapshot(r.Camera, savedCam)
@@ -98,28 +113,47 @@ func (e *Editor) Init(app *engine.App) error {
 		r.Camera.Recalculate()
 	}
 
-	// Editor tool bar — same shape as the scenario's: centred icon buttons,
-	// anchored to the bottom of the screen each frame in Update().
+	// Editor tool bar — grouped submenus matching the gameplay toolbar style.
 	e.toolButtons = make(map[toolMode]*ui.Button)
 	e.menuBar = ui.NewMenuBar(0, 60)
 	e.menuBar.Centered = true
-	// Placement tools — same set the scenario exposes, but free in the
-	// editor (no cost gating) since the editor's purpose is laying out
-	// starting state for a scenario.
-	e.toolButtons[toolParking] = e.menuBar.AddIconButton(render.IconUsers, "Parking", func() { e.setTool(toolParking) })
-	e.toolButtons[toolBuilding] = e.menuBar.AddIconButton(render.IconHouse, "Lodge", func() { e.setTool(toolBuilding) })
-	e.toolButtons[toolShed] = e.menuBar.AddIconButton(render.IconGarage, "Shed", func() { e.setTool(toolShed) })
-	e.liftDoubleBtn = e.menuBar.AddIconButton(render.IconCableCar, "Double", func() { e.activateLiftTool(world.LiftDouble) })
-	e.liftQuadBtn = e.menuBar.AddIconButton(render.IconCableCar, "Quad", func() { e.activateLiftTool(world.LiftFixedQuad) })
-	e.liftHSQuadBtn = e.menuBar.AddIconButton(render.IconCableCar, "HSQuad", func() { e.activateLiftTool(world.LiftHSQuad) })
-	e.liftHS6PackBtn = e.menuBar.AddIconButton(render.IconCableCar, "6-Pack", func() { e.activateLiftTool(world.LiftHS6Pack) })
-	e.liftGondolaBtn = e.menuBar.AddIconButton(render.IconCableCar, "Gondola", func() { e.activateLiftTool(world.LiftGondola) })
-	e.liftHeliBtn = e.menuBar.AddIconButton(render.IconCableCar, "Heli", func() { e.activateLiftTool(world.LiftHeli) })
-	e.toolButtons[toolRoadStart] = e.menuBar.AddIconButton(render.IconRoad, "Road", func() { e.setTool(toolRoadStart) })
-	e.toolButtons[toolEdgeConnect] = e.menuBar.AddIconButton(render.IconFlag, "Edge", func() { e.setTool(toolEdgeConnect) })
-	e.toolButtons[toolPlantTrees] = e.menuBar.AddIconButton(render.IconTreeEvergreen, "Plant", func() { e.setTool(toolPlantTrees) })
-	e.toolButtons[toolAuto] = e.menuBar.AddIconButton(render.IconSnowflake, "Auto", func() { e.setTool(toolAuto) })
-	e.toolButtons[toolGlade] = e.menuBar.AddIconButton(render.IconAxe, "Glade", func() { e.setTool(toolGlade) })
+
+	// Buildings submenu: Lodge, Shed
+	e.buildingsSubmenu = e.menuBar.AddSubmenu(render.IconHouse, "Buildings")
+	e.toolButtons[toolBuilding] = e.buildingsSubmenu.AddChild(render.IconHouse, "Lodge", func() { e.setTool(toolBuilding) })
+	e.toolButtons[toolShed] = e.buildingsSubmenu.AddChild(render.IconGarage, "Shed", func() { e.setTool(toolShed) })
+
+	// Transport submenu: Parking, Road, Edge Connect
+	e.transportSubmenu = e.menuBar.AddSubmenu(render.IconRoad, "Transport")
+	e.toolButtons[toolParking] = e.transportSubmenu.AddChild(render.IconUsers, "Parking", func() { e.setTool(toolParking) })
+	e.toolButtons[toolRoadStart] = e.transportSubmenu.AddChild(render.IconRoad, "Road", func() { e.setTool(toolRoadStart) })
+	e.toolButtons[toolEdgeConnect] = e.transportSubmenu.AddChild(render.IconFlag, "Edge", func() { e.setTool(toolEdgeConnect) })
+
+	// Lifts submenu
+	e.liftsSubmenu = e.menuBar.AddSubmenu(render.IconCableCar, "Lifts")
+	e.liftDoubleBtn = e.liftsSubmenu.AddChild(render.IconCableCar, "Double", func() { e.activateLiftTool(world.LiftDouble) })
+	e.liftQuadBtn = e.liftsSubmenu.AddChild(render.IconCableCar, "Quad", func() { e.activateLiftTool(world.LiftFixedQuad) })
+	e.liftHSQuadBtn = e.liftsSubmenu.AddChild(render.IconCableCar, "HSQuad", func() { e.activateLiftTool(world.LiftHSQuad) })
+	e.liftHS6PackBtn = e.liftsSubmenu.AddChild(render.IconCableCar, "6-Pack", func() { e.activateLiftTool(world.LiftHS6Pack) })
+	e.liftGondolaBtn = e.liftsSubmenu.AddChild(render.IconCableCar, "Gondola", func() { e.activateLiftTool(world.LiftGondola) })
+	e.liftHeliBtn = e.liftsSubmenu.AddChild(render.IconCableCar, "Heli", func() { e.activateLiftTool(world.LiftHeli) })
+
+	// Terrain submenu: Plant Trees, Auto-gen, Glade
+	e.terrainSubmenu = e.menuBar.AddSubmenu(render.IconTreeEvergreen, "Terrain")
+	e.toolButtons[toolPlantTrees] = e.terrainSubmenu.AddChild(render.IconTreeEvergreen, "Plant", func() { e.setTool(toolPlantTrees) })
+	e.toolButtons[toolAuto] = e.terrainSubmenu.AddChild(render.IconSnowflake, "Auto", func() { e.setTool(toolAuto) })
+	e.toolButtons[toolGlade] = e.terrainSubmenu.AddChild(render.IconAxe, "Glade", func() { e.setTool(toolGlade) })
+
+	// Land: single button to start drawing a new parcel rectangle
+	e.toolButtons[toolParcelRect] = e.menuBar.AddIconButton(render.IconGlobe, "Add Parcel", func() {
+		e.parcelRectIntent = parcelIntentNew
+		e.parcelRectActive = false
+		e.parcelEditID = 0
+		e.setTool(toolParcelRect)
+	})
+
+	// Flat utility buttons
+	e.toolButtons[toolRemove] = e.menuBar.AddIconButton(render.IconTrash, "Remove", func() { e.setTool(toolRemove) })
 	e.menuBar.AddIconButton(render.IconGlobe, "Import", func() {
 		app.PushScene(NewTerrainImport(
 			e.world.Terrain.Width,
@@ -194,7 +228,17 @@ func (e *Editor) Init(app *engine.App) error {
 }
 
 const (
-	toolAuto = toolMode(102)
+	toolAuto       = toolMode(102)
+	toolParcelRect = toolMode(103) // two-click rectangle selection for parcel authoring
+)
+
+// parcelRectIntent describes what a committed rect selection should do.
+type parcelRectIntent int
+
+const (
+	parcelIntentNew    parcelRectIntent = iota // create a new parcel from the rect
+	parcelIntentAdd    parcelRectIntent = iota // add rect cells to parcelEditID
+	parcelIntentRemove parcelRectIntent = iota // remove rect cells from parcelEditID
 )
 
 // uiDrawFunc adapts a bare function to the render.UIDrawable interface.
@@ -223,8 +267,12 @@ func (e *Editor) Update(dt float64) {
 		case e.roadEdit.active() || e.structureEdit.active():
 			e.roadEdit.clear()
 			e.structureEdit.clear()
+		case e.activeTool == toolParcelRect && e.parcelRectActive:
+			// Cancel the in-progress selection but stay in the tool.
+			e.parcelRectActive = false
 		case e.activeTool != toolNone:
 			e.activeTool = toolNone
+			e.parcelRectActive = false
 			e.syncToolButtons()
 		default:
 			e.escapeMenu.Toggle()
@@ -247,6 +295,13 @@ func (e *Editor) Update(dt float64) {
 	if e.escapeMenu.Visible() {
 		e.escapeMenu.HandleInput(inp)
 		return
+	}
+	if e.parcelPopup != nil && e.parcelPopup.Visible {
+		e.parcelPopup.HandleInput(inp)
+		// Close popup on Escape while it's open.
+		if inp.Pressed[glfw.KeyEscape] {
+			e.parcelPopup.Visible = false
+		}
 	}
 
 	// C: toggle the contour overlay via the panel so the hotkey and the
@@ -394,9 +449,12 @@ func (e *Editor) Update(dt float64) {
 	// placement ghost preview, plus the integer cell for the brush
 	// tools. Both gated by the same on-chrome check so hovers over the
 	// top bar / menu bar / overlay panel don't paint a ghost into the world.
+	popupCoversClick := e.parcelPopup != nil && e.parcelPopup.Visible &&
+		e.parcelPopup.ContainsPoint(inp.MousePos[0], inp.MousePos[1])
 	overChrome := e.menuBar.ContainsY(inp.MousePos[1]) ||
 		e.topBar.ContainsY(inp.MousePos[1]) ||
-		e.overlayPanel.ContainsXY(inp.MousePos[0], inp.MousePos[1], float32(r.ScreenWidth()))
+		e.overlayPanel.ContainsXY(inp.MousePos[0], inp.MousePos[1], float32(r.ScreenWidth())) ||
+		popupCoversClick
 	if !overChrome {
 		if pos, ok := screenToWorld(r.Camera, e.world.Terrain, inp.MousePos); ok {
 			e.hoverWorld = pos
@@ -441,7 +499,12 @@ func (e *Editor) Update(dt float64) {
 	// Tool application — placement tools fire on click only; brush tools
 	// follow the cursor while held. Suppressed when a slider is grabbing
 	// input or the cursor is over slider/menu chrome.
-	if !sliderActive && !overChrome {
+	// Clear the suppress flag once the mouse button is fully released.
+	if !inp.LeftClick && !inp.LeftHeld {
+		e.suppressBrushUntilRelease = false
+	}
+
+	if !sliderActive && !overChrome && !inp.LeftClickConsumed && !e.suppressBrushUntilRelease {
 		overSlider := e.toolUsesRadiusSlider() && e.radiusSlider.Contains(inp.MousePos[0], inp.MousePos[1])
 		overSlider = overSlider || (e.toolUsesDensitySlider() && e.densitySlider.Contains(inp.MousePos[0], inp.MousePos[1]))
 		if e.activeTool == toolAuto {
@@ -455,7 +518,8 @@ func (e *Editor) Update(dt float64) {
 		if !overSlider {
 			if e.isPlacementTool() {
 				if inp.LeftClick && e.hoverValid {
-					e.applyPlacement(r)
+					shiftHeld := inp.Held[glfw.KeyLeftShift] || inp.Held[glfw.KeyRightShift]
+					e.applyPlacement(r, shiftHeld)
 				}
 			} else if e.activeTool == toolNone {
 				e.handleToolNoneMouse(r, inp.LeftClick, inp.LeftHeld)
@@ -498,6 +562,10 @@ func (e *Editor) handleToolNoneMouse(r *render.Renderer, leftClick, leftHeld boo
 			e.structureEdit.clear()
 		} else if tryStartStructureEdit(e.world, pos, &e.structureEdit) {
 			e.roadEdit.clear()
+		} else if p := e.world.ParcelAt(e.hoverCell[0], e.hoverCell[1]); p != nil {
+			e.roadEdit.clear()
+			e.structureEdit.clear()
+			e.openParcelPopup(p.ID, r.ScreenWidth(), r.ScreenHeight())
 		} else {
 			e.roadEdit.clear()
 			e.structureEdit.clear()
@@ -513,7 +581,7 @@ func (e *Editor) handleToolNoneMouse(r *render.Renderer, leftClick, leftHeld boo
 // or lift placement (click to commit) rather than a held brush.
 func (e *Editor) isPlacementTool() bool {
 	switch e.activeTool {
-	case toolBuilding, toolShed, toolParking, toolLiftBase, toolLiftTop, toolRoadStart, toolRoadEnd, toolEdgeConnect:
+	case toolBuilding, toolShed, toolParking, toolLiftBase, toolLiftTop, toolRoadStart, toolRoadEnd, toolEdgeConnect, toolRemove, toolParcelRect:
 		return true
 	}
 	return false
@@ -543,10 +611,8 @@ func (e *Editor) placementLegal() bool {
 
 // applyPlacement commits a one-shot building or lift placement at the
 // current continuous hover position. No cost gating — editor placements
-// are free. Mirrors the scenario's placement flow (apron, terrain flush,
-// batch rebuild) so the resulting world is identical to one built by
-// playing through the scenario.
-func (e *Editor) applyPlacement(r *render.Renderer) {
+// are free. shiftHeld enables flood-fill mode for toolParcelRect.
+func (e *Editor) applyPlacement(r *render.Renderer, shiftHeld bool) {
 	w := e.world
 	wx := e.hoverWorld[0]
 	wz := e.hoverWorld[2]
@@ -640,6 +706,37 @@ func (e *Editor) applyPlacement(r *render.Renderer) {
 		r.RebuildRoads(w)
 		// Stay in the tool — designers usually place several edge
 		// connections in a row.
+	case toolRemove:
+		pick := mgl32.Vec2{wx, wz}
+		for _, b := range w.Buildings {
+			if b.Pos.Sub(pick).Len() <= buildingPickRadius {
+				wasParking := b.Type == world.BuildingParking
+				w.RemoveBuilding(b.ID)
+				r.FlushTerrainVerts(w.Terrain)
+				r.RebuildStaticBatch(w)
+				if wasParking {
+					r.RebuildRoads(w)
+				}
+				return
+			}
+		}
+	case toolParcelRect:
+		gx, gz := e.hoverCell[0], e.hoverCell[1]
+		if !w.Terrain.InBounds(gx, gz) {
+			return
+		}
+		if shiftHeld {
+			// Shift-click: flood fill from this cell to roads / map boundary.
+			e.parcelRectActive = false
+			e.commitParcelFloodFill(gx, gz, r)
+		} else if !e.parcelRectActive {
+			// First click: record start corner.
+			e.parcelRectStart = [2]int{gx, gz}
+			e.parcelRectActive = true
+		} else {
+			// Second click: commit the selection.
+			e.commitParcelRect(gx, gz, r)
+		}
 	}
 }
 
@@ -655,8 +752,10 @@ func (e *Editor) setTool(t toolMode) {
 		(t == toolRoadStart && e.activeTool == toolRoadEnd)
 	if isActive {
 		e.activeTool = toolNone
+		e.parcelRectActive = false
 	} else {
 		e.activeTool = t
+		e.suppressBrushUntilRelease = true
 	}
 	// Activating any tool ends a toolNone-level edit session — the
 	// selection markers should disappear and a half-finished drag must
@@ -773,10 +872,7 @@ func (e *Editor) regenerateAuto() {
 	}
 }
 
-// syncToolButtons updates the active state of all tool buttons to match
-// activeTool. Lift buttons live outside toolButtons because two of them
-// share the toolLiftBase/Top tool modes — only the one whose chair type
-// matches the current liftType selection should highlight.
+// syncToolButtons updates the active state of all tool buttons to match activeTool.
 func (e *Editor) syncToolButtons() {
 	for mode, btn := range e.toolButtons {
 		active := e.activeTool == mode ||
@@ -801,6 +897,14 @@ func (e *Editor) syncToolButtons() {
 	}
 	if e.liftHeliBtn != nil {
 		e.liftHeliBtn.SetActive(liftActive && e.liftType == world.LiftHeli)
+	}
+	// Highlight submenu parent when any child is active.
+	for _, sub := range []*ui.SubmenuButton{
+		e.buildingsSubmenu, e.transportSubmenu, e.liftsSubmenu, e.terrainSubmenu,
+	} {
+		if sub != nil {
+			sub.Btn.SetActive(sub.HasActiveChild())
+		}
 	}
 }
 
@@ -840,7 +944,7 @@ func (e *Editor) brushRadius() int {
 }
 
 // toolUsesRadiusSlider reports whether the radius slider is relevant for
-// the active tool — currently the two density brushes.
+// the active tool.
 func (e *Editor) toolUsesRadiusSlider() bool {
 	return e.activeTool == toolPlantTrees || e.activeTool == toolGlade
 }
@@ -910,6 +1014,7 @@ func (e *Editor) applyImportedTerrain(elevs [][]float32, r *render.Renderer) {
 	e.world = world.NewWorld(t)
 	e.activeTool = toolNone
 	e.autoFields = nil
+	e.parcelBoundaryDirty = true
 	e.syncToolButtons()
 
 	r.ResetSceneState()
@@ -927,9 +1032,472 @@ func (e *Editor) applyImportedTerrain(elevs [][]float32, r *render.Renderer) {
 	r.Camera.Recalculate()
 }
 
+// parcelFloodFill returns all terrain cells reachable from (startX, startZ) by
+// 4-connected BFS, stopping at map edges, impassable cells, and cells within
+// the road inner-snow band (same radius used by applyRoadCellState). This
+// lets the designer flood-fill a natural region bounded by roads and the
+// terrain perimeter rather than drawing a rectangle.
+func (e *Editor) parcelFloodFill(startX, startZ int) [][2]int {
+	t := e.world.Terrain
+	if !t.InBounds(startX, startZ) {
+		return nil
+	}
+
+	// Build a per-cell "blocked" grid: impassable structures + cells near roads.
+	const cs = float32(world.CellSize)
+	const innerR2 = roadSnowInnerRadius * roadSnowInnerRadius
+	blocked := make([][]bool, t.Width)
+	for x := range blocked {
+		blocked[x] = make([]bool, t.Height)
+		for z := range blocked[x] {
+			if !t.Cells[x][z].Passable {
+				blocked[x][z] = true
+			}
+		}
+	}
+	for _, chain := range e.world.FindRoadChains() {
+		samples := world.SampleRoadChain(chain, t, world.RoadChainSamplesPerSegment)
+		if len(samples) < 2 {
+			continue
+		}
+		// Restrict to a bbox around the chain to avoid scanning the whole map.
+		minX, maxX := samples[0][0], samples[0][0]
+		minZ, maxZ := samples[0][1], samples[0][1]
+		for _, s := range samples[1:] {
+			if s[0] < minX {
+				minX = s[0]
+			}
+			if s[0] > maxX {
+				maxX = s[0]
+			}
+			if s[1] < minZ {
+				minZ = s[1]
+			}
+			if s[1] > maxZ {
+				maxZ = s[1]
+			}
+		}
+		x0 := int((minX-roadSnowInnerRadius)/cs) - 1
+		x1 := int((maxX+roadSnowInnerRadius)/cs) + 1
+		z0 := int((minZ-roadSnowInnerRadius)/cs) - 1
+		z1 := int((maxZ+roadSnowInnerRadius)/cs) + 1
+		for x := x0; x <= x1; x++ {
+			for z := z0; z <= z1; z++ {
+				if !t.InBounds(x, z) || blocked[x][z] {
+					continue
+				}
+				cx := (float32(x) + 0.5) * cs
+				cz := (float32(z) + 0.5) * cs
+				cell := mgl32.Vec2{cx, cz}
+				for i := 0; i < len(samples)-1; i++ {
+					cp := world.ClosestPointOnRoadSegment(cell, samples[i], samples[i+1])
+					dx := cx - cp[0]
+					dz := cz - cp[1]
+					if dx*dx+dz*dz <= innerR2 {
+						blocked[x][z] = true
+						break
+					}
+				}
+			}
+		}
+	}
+
+	// Also block cells that already belong to any parcel, so the fill
+	// respects existing parcel boundaries as walls.
+	for _, p := range e.world.Parcels {
+		for _, c := range p.Cells {
+			if t.InBounds(c[0], c[1]) {
+				blocked[c[0]][c[1]] = true
+			}
+		}
+	}
+
+	if blocked[startX][startZ] {
+		return nil
+	}
+
+	// 4-connected BFS.
+	visited := make([][]bool, t.Width)
+	for x := range visited {
+		visited[x] = make([]bool, t.Height)
+	}
+	visited[startX][startZ] = true
+	queue := [][2]int{{startX, startZ}}
+	var result [][2]int
+	dirs := [4][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		result = append(result, cur)
+		for _, d := range dirs {
+			nx, nz := cur[0]+d[0], cur[1]+d[1]
+			if !t.InBounds(nx, nz) || blocked[nx][nz] || visited[nx][nz] {
+				continue
+			}
+			visited[nx][nz] = true
+			queue = append(queue, [2]int{nx, nz})
+		}
+	}
+	return result
+}
+
+// rectCells returns all in-bounds terrain cells within the axis-aligned rect
+// defined by two grid corners (inclusive on both ends).
+func (e *Editor) rectCells(ax, az, bx, bz int) [][2]int {
+	x0, x1 := ax, bx
+	if x0 > x1 {
+		x0, x1 = x1, x0
+	}
+	z0, z1 := az, bz
+	if z0 > z1 {
+		z0, z1 = z1, z0
+	}
+	var out [][2]int
+	for x := x0; x <= x1; x++ {
+		for z := z0; z <= z1; z++ {
+			if e.world.Terrain.InBounds(x, z) {
+				out = append(out, [2]int{x, z})
+			}
+		}
+	}
+	return out
+}
+
+// commitParcelRect finalises a two-click rect selection for parcel authoring.
+func (e *Editor) commitParcelRect(ex, ez int, r *render.Renderer) {
+	cells := e.rectCells(e.parcelRectStart[0], e.parcelRectStart[1], ex, ez)
+	e.parcelRectActive = false
+	e.commitCells(cells, r)
+}
+
+// commitParcelFloodFill runs a flood fill from (startX, startZ) bounded by
+// roads and the map edge, then commits the resulting cell set using the same
+// intent logic as commitParcelRect.
+func (e *Editor) commitParcelFloodFill(startX, startZ int, r *render.Renderer) {
+	cells := e.parcelFloodFill(startX, startZ)
+	if len(cells) == 0 {
+		return
+	}
+	e.commitCells(cells, r)
+}
+
+// commitCells is the shared finaliser for both rect and flood-fill parcel
+// commits. It applies the current parcelRectIntent using the provided cell set.
+func (e *Editor) commitCells(cells [][2]int, r *render.Renderer) {
+	switch e.parcelRectIntent {
+	case parcelIntentNew:
+		var maxID uint16
+		for _, p := range e.world.Parcels {
+			if p.ID > maxID {
+				maxID = p.ID
+			}
+		}
+		newID := maxID + 1
+		e.world.Parcels = append(e.world.Parcels, world.Parcel{
+			ID:    newID,
+			State: world.ParcelPurchasable,
+			Price: 50000,
+			Cells: cells,
+		})
+		e.parcelEditID = newID
+		e.world.ApplyParcels()
+		e.parcelBoundaryDirty = true
+		e.activeTool = toolNone
+		e.syncToolButtons()
+		e.openParcelPopup(newID, r.ScreenWidth(), r.ScreenHeight())
+
+	case parcelIntentAdd:
+		for _, c := range cells {
+			e.removeCellFromAllParcels(c[0], c[1])
+		}
+		for i := range e.world.Parcels {
+			if e.world.Parcels[i].ID == e.parcelEditID {
+				e.world.Parcels[i].Cells = append(e.world.Parcels[i].Cells, cells...)
+				break
+			}
+		}
+		e.world.ApplyParcels()
+		e.parcelBoundaryDirty = true
+		e.activeTool = toolNone
+		e.syncToolButtons()
+		e.openParcelPopup(e.parcelEditID, r.ScreenWidth(), r.ScreenHeight())
+
+	case parcelIntentRemove:
+		for i := range e.world.Parcels {
+			if e.world.Parcels[i].ID != e.parcelEditID {
+				continue
+			}
+			for _, c := range cells {
+				cs := e.world.Parcels[i].Cells
+				for j := range cs {
+					if cs[j] == c {
+						cs[j] = cs[len(cs)-1]
+						e.world.Parcels[i].Cells = cs[:len(cs)-1]
+						break
+					}
+				}
+			}
+			break
+		}
+		e.world.ApplyParcels()
+		e.parcelBoundaryDirty = true
+		e.activeTool = toolNone
+		e.syncToolButtons()
+		e.openParcelPopup(e.parcelEditID, r.ScreenWidth(), r.ScreenHeight())
+	}
+}
+
+// openParcelPopup opens (or replaces) the parcel detail popup for the parcel
+// with the given ID.
+func (e *Editor) openParcelPopup(id uint16, screenW, screenH int) {
+	e.parcelEditID = id
+
+	// Capture ID for callbacks — avoids stale pointer if Parcels slice moves.
+	parcel := func() *world.Parcel {
+		for i := range e.world.Parcels {
+			if e.world.Parcels[i].ID == id {
+				return &e.world.Parcels[i]
+			}
+		}
+		return nil
+	}
+	stateName := func(s world.ParcelState) string {
+		switch s {
+		case world.ParcelOwned:
+			return "Owned"
+		case world.ParcelPurchasable:
+			return "Purchasable"
+		case world.ParcelOffLimits:
+			return "Off-limits"
+		}
+		return "?"
+	}
+
+	win := ui.NewWindow("Parcel", 0, 0)
+
+	win.AddLabel("Type", func() string {
+		if p := parcel(); p != nil {
+			return stateName(p.State)
+		}
+		return "?"
+	})
+	win.AddActionButton("→ Owned", func() {
+		if p := parcel(); p != nil {
+			p.State = world.ParcelOwned
+			e.world.ApplyParcels()
+			e.parcelBoundaryDirty = true
+		}
+	})
+	win.AddActionButton("→ Purchasable", func() {
+		if p := parcel(); p != nil {
+			p.State = world.ParcelPurchasable
+			e.world.ApplyParcels()
+			e.parcelBoundaryDirty = true
+		}
+	})
+	win.AddActionButton("→ Off-limits", func() {
+		if p := parcel(); p != nil {
+			p.State = world.ParcelOffLimits
+			e.world.ApplyParcels()
+			e.parcelBoundaryDirty = true
+		}
+	})
+	win.AddIntStepperFn("Price", func() string {
+		if p := parcel(); p != nil {
+			return fmt.Sprintf("$%d", p.Price)
+		}
+		return "$0"
+	}, func() {
+		if p := parcel(); p != nil && p.Price >= 5000 {
+			p.Price -= 5000
+		}
+	}, func() {
+		if p := parcel(); p != nil {
+			p.Price += 5000
+		}
+	})
+	win.AddLabel("Cells", func() string {
+		if p := parcel(); p != nil {
+			return fmt.Sprintf("%d", len(p.Cells))
+		}
+		return "0"
+	})
+	win.AddActionButton("Add Cells", func() {
+		win.Visible = false
+		e.parcelRectIntent = parcelIntentAdd
+		e.parcelRectActive = false
+		e.setTool(toolParcelRect)
+	})
+	win.AddActionButton("Remove Cells", func() {
+		win.Visible = false
+		e.parcelRectIntent = parcelIntentRemove
+		e.parcelRectActive = false
+		e.setTool(toolParcelRect)
+	})
+	win.AddActionButton("Delete Parcel", func() {
+		for i, p := range e.world.Parcels {
+			if p.ID == id {
+				e.world.Parcels = append(e.world.Parcels[:i], e.world.Parcels[i+1:]...)
+				break
+			}
+		}
+		e.world.ApplyParcels()
+		e.parcelBoundaryDirty = true
+		win.Visible = false
+		e.parcelPopup = nil
+		e.parcelEditID = 0
+	})
+
+	win.Visible = true
+	win.Center(screenW, screenH)
+	e.parcelPopup = win
+}
+
+// paintParcelBrush assigns all cells within the current brush radius to a
+// parcel of the given state, creating the parcel if it doesn't exist yet.
+func (e *Editor) paintParcelBrush(cx, cz int, state world.ParcelState) {
+	for _, c := range world.BrushCells(cx, cz, e.brushRadius()) {
+		if !e.world.Terrain.InBounds(c[0], c[1]) {
+			continue
+		}
+		e.setCellParcelState(c[0], c[1], state)
+	}
+	e.world.ApplyParcels()
+	e.parcelBoundaryDirty = true
+}
+
+// eraseParcelBrush removes all cells within the brush radius from every parcel,
+// reverting them to the default-accessible (unassigned) state.
+func (e *Editor) eraseParcelBrush(cx, cz int) {
+	for _, c := range world.BrushCells(cx, cz, e.brushRadius()) {
+		e.removeCellFromAllParcels(c[0], c[1])
+	}
+	// Drop empty parcels.
+	var keep []world.Parcel
+	for _, p := range e.world.Parcels {
+		if len(p.Cells) > 0 {
+			keep = append(keep, p)
+		}
+	}
+	e.world.Parcels = keep
+	e.world.ApplyParcels()
+	e.parcelBoundaryDirty = true
+}
+
+// setCellParcelState moves cell (cx, cz) into the parcel of the given state.
+// It removes the cell from any other parcel first.
+func (e *Editor) setCellParcelState(cx, cz int, state world.ParcelState) {
+	e.removeCellFromAllParcels(cx, cz)
+	p := e.findOrCreateParcel(state)
+	p.Cells = append(p.Cells, [2]int{cx, cz})
+}
+
+// findOrCreateParcel returns the first parcel with the given state, creating
+// one if none exists. Purchasable parcels use the current price slider value.
+func (e *Editor) findOrCreateParcel(state world.ParcelState) *world.Parcel {
+	for i := range e.world.Parcels {
+		if e.world.Parcels[i].State == state {
+			return &e.world.Parcels[i]
+		}
+	}
+	var maxID uint16
+	for _, p := range e.world.Parcels {
+		if p.ID > maxID {
+			maxID = p.ID
+		}
+	}
+	e.world.Parcels = append(e.world.Parcels, world.Parcel{
+		ID:    maxID + 1,
+		State: state,
+	})
+	return &e.world.Parcels[len(e.world.Parcels)-1]
+}
+
+// removeCellFromAllParcels removes cell (cx, cz) from every parcel's cell list.
+func (e *Editor) removeCellFromAllParcels(cx, cz int) {
+	for i := range e.world.Parcels {
+		cells := e.world.Parcels[i].Cells
+		for j := 0; j < len(cells); j++ {
+			if cells[j][0] == cx && cells[j][1] == cz {
+				cells[j] = cells[len(cells)-1]
+				e.world.Parcels[i].Cells = cells[:len(cells)-1]
+				break
+			}
+		}
+	}
+}
+
+// buildEditorParcelOverlay returns an RGBA8 cell overlay showing parcel states,
+// the currently-being-edited parcel (brighter), and the live rect selection preview.
+func (e *Editor) buildEditorParcelOverlay() ([]uint8, int, int) {
+	t := e.world.Terrain
+	hasParcels := len(e.world.Parcels) > 0
+	hasRect := e.activeTool == toolParcelRect && e.parcelRectActive && e.hoverValid
+	if !hasParcels && !hasRect {
+		return nil, 0, 0
+	}
+	tw, th := t.Width, t.Height
+	pix := make([]uint8, tw*th*4)
+	set := func(cx, cz int, rv, gv, bv, av uint8) {
+		if cx < 0 || cx >= tw || cz < 0 || cz >= th {
+			return
+		}
+		i := (cz*tw + cx) * 4
+		pix[i], pix[i+1], pix[i+2], pix[i+3] = rv, gv, bv, av
+	}
+	// Parcels: dim tint for others, brighter for the one being edited.
+	for _, p := range e.world.Parcels {
+		editing := p.ID == e.parcelEditID && e.parcelEditID != 0
+		alpha := uint8(100)
+		if editing {
+			alpha = 180
+		}
+		var rv, gv, bv uint8
+		switch p.State {
+		case world.ParcelOwned:
+			rv, gv, bv = 55, 200, 55
+		case world.ParcelPurchasable:
+			rv, gv, bv = parcelPurchasableColor(p.ID)
+		case world.ParcelOffLimits:
+			rv, gv, bv = 220, 60, 60
+		}
+		for _, c := range p.Cells {
+			set(c[0], c[1], rv, gv, bv, alpha)
+		}
+	}
+	// Live rect selection preview.
+	if hasRect {
+		var rv, gv, bv uint8
+		switch e.parcelRectIntent {
+		case parcelIntentRemove:
+			rv, gv, bv = 240, 80, 80
+		default:
+			rv, gv, bv = 80, 200, 240
+		}
+		for _, c := range e.rectCells(e.parcelRectStart[0], e.parcelRectStart[1],
+			e.hoverCell[0], e.hoverCell[1]) {
+			set(c[0], c[1], rv, gv, bv, 170)
+		}
+	}
+	return pix, tw, th
+}
+
 func (e *Editor) Render(r *render.Renderer) {
 	const cellSize = float32(5.0)
 	t := e.world.Terrain
+
+	// Rebuild parcel fence geometry when parcels change.
+	if e.parcelBoundaryDirty {
+		postVerts, ropeLines := buildParcelFence(e.world)
+		r.SetFencePostVerts(postVerts)
+		r.SetBoundaryLines(ropeLines)
+		e.parcelBoundaryDirty = false
+	}
+
+	// Parcel cell overlay — always visible when parcels are defined.
+	pix, ow, oh := e.buildEditorParcelOverlay()
+	r.SetCellOverlay(pix, ow, oh)
+
 	if e.toolUsesRadiusSlider() && t.InBounds(e.hoverCell[0], e.hoverCell[1]) {
 		gx, gz := e.hoverCell[0], e.hoverCell[1]
 		center := mgl32.Vec2{float32(gx)*cellSize + cellSize/2, float32(gz)*cellSize + cellSize/2}
@@ -945,6 +1513,34 @@ func (e *Editor) Render(r *render.Renderer) {
 	e.menuBar.Y = float32(r.ScreenHeight()) - e.menuBar.H
 	e.overlayPanel.Bottom = float32(r.ScreenHeight()) - e.menuBar.H
 	edDrawables := []render.UIDrawable{e.topBar, e.menuBar, e.overlayPanel}
+
+	// Parcel labels — price tag at the centroid of each purchasable parcel,
+	// colored to match its palette entry so it reads as a caption for the tint.
+	if len(e.world.Parcels) > 0 && r.Font != nil {
+		w := e.world
+		edDrawables = append(edDrawables, uiDrawFunc(func(rr *render.Renderer) {
+			for i := range w.Parcels {
+				p := &w.Parcels[i]
+				if p.State != world.ParcelPurchasable {
+					continue
+				}
+				cx, cz, ok := parcelCentroidWorld(p, w.Terrain)
+				if !ok {
+					continue
+				}
+				elev := w.Terrain.InterpolatedSurfaceElevationAt(cx, cz)
+				sx, sy, vis := rr.WorldToScreen(mgl32.Vec3{cx, elev + 4, cz})
+				if !vis {
+					continue
+				}
+				label := fmt.Sprintf("$%d", p.Price)
+				tw := rr.Font.TextWidth(label)
+				pr, pg, pb := parcelPurchasableColor(p.ID)
+				col := mgl32.Vec4{float32(pr) / 255, float32(pg) / 255, float32(pb) / 255, 1}
+				rr.Font.DrawText(rr, label, sx-tw/2, sy-float32(render.GlyphH)/2, col)
+			}
+		}))
+	}
 	if e.activeTool == toolLiftTop && e.hoverValid {
 		edDrawables = append(edDrawables, &liftDropLabel{
 			terrain: e.world.Terrain,
@@ -996,6 +1592,9 @@ func (e *Editor) Render(r *render.Renderer) {
 			screenW: r.ScreenWidth(),
 			screenH: r.ScreenHeight(),
 		})
+	}
+	if e.parcelPopup != nil && e.parcelPopup.Visible {
+		edDrawables = append(edDrawables, e.parcelPopup)
 	}
 	if e.settingsMenu.Visible() {
 		edDrawables = append(edDrawables, e.settingsMenu)
