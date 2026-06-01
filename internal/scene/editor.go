@@ -517,8 +517,15 @@ func (e *Editor) Update(dt float64) {
 		}
 		if !overSlider {
 			if e.isPlacementTool() {
-				if inp.LeftClick && e.hoverValid {
-					shiftHeld := inp.Held[glfw.KeyLeftShift] || inp.Held[glfw.KeyRightShift]
+				shiftHeld := inp.Held[glfw.KeyLeftShift] || inp.Held[glfw.KeyRightShift]
+				// toolParcelRect can fire off-terrain (first or second click):
+				// clamp to map bounds so the rect can reach the edges.
+				placementReady := inp.LeftClick && (e.hoverValid ||
+					e.activeTool == toolParcelRect)
+				if placementReady {
+					if !e.hoverValid && e.activeTool == toolParcelRect {
+						e.hoverCell = e.clampedTerrainCell(r, inp.MousePos)
+					}
 					e.applyPlacement(r, shiftHeld)
 				}
 			} else if e.activeTool == toolNone {
@@ -725,17 +732,26 @@ func (e *Editor) applyPlacement(r *render.Renderer, shiftHeld bool) {
 		if !w.Terrain.InBounds(gx, gz) {
 			return
 		}
-		if shiftHeld {
-			// Shift-click: flood fill from this cell to roads / map boundary.
-			e.parcelRectActive = false
+		if shiftHeld && !e.parcelRectActive {
+			// Shift + first click: flood fill to roads / map boundary.
 			e.commitParcelFloodFill(gx, gz, r)
 		} else if !e.parcelRectActive {
 			// First click: record start corner.
 			e.parcelRectStart = [2]int{gx, gz}
 			e.parcelRectActive = true
-		} else {
-			// Second click: commit the selection.
+		} else if shiftHeld {
+			// Shift + second click: full unclipped rectangle.
 			e.commitParcelRect(gx, gz, r)
+		} else if e.parcelRectIntent == parcelIntentRemove {
+			// Remove: plain rectangle — road-clipping would block on the
+			// target parcel's own cells, preventing any selection.
+			e.commitParcelRect(gx, gz, r)
+		} else {
+			// Add / new: rectangle clipped to road boundaries.
+			cells := e.rectCellsClippedToRoads(
+				e.parcelRectStart[0], e.parcelRectStart[1], gx, gz)
+			e.parcelRectActive = false
+			e.commitCells(cells, r)
 		}
 	}
 }
@@ -1141,6 +1157,51 @@ func (e *Editor) parcelFloodFill(startX, startZ int) [][2]int {
 	return result
 }
 
+// clampedTerrainCell projects screenPos onto the terrain base plane (y = 0)
+// and returns the nearest in-bounds cell, clamped to the terrain edges.
+// Used so off-map clicks can still commit a parcel rect to the map boundary.
+func (e *Editor) clampedTerrainCell(r *render.Renderer, screenPos mgl32.Vec2) [2]int {
+	t := e.world.Terrain
+	const cs = float32(world.CellSize)
+	world3 := r.Camera.ScreenToTerrain(screenPos, 0)
+	cx := int(world3[0] / cs)
+	cz := int(world3[2] / cs)
+	if cx < 0 {
+		cx = 0
+	} else if cx >= t.Width {
+		cx = t.Width - 1
+	}
+	if cz < 0 {
+		cz = 0
+	} else if cz >= t.Height {
+		cz = t.Height - 1
+	}
+	return [2]int{cx, cz}
+}
+
+// rectCellsClippedToRoads returns the subset of cells in the axis-aligned rect
+// that are reachable from (ax, az) without crossing roads, existing parcels, or
+// impassable cells. It reuses parcelFloodFill for the connectivity check and
+// then intersects the result with the rect bounds.
+func (e *Editor) rectCellsClippedToRoads(ax, az, bx, bz int) [][2]int {
+	x0, x1 := ax, bx
+	if x0 > x1 {
+		x0, x1 = x1, x0
+	}
+	z0, z1 := az, bz
+	if z0 > z1 {
+		z0, z1 = z1, z0
+	}
+	flooded := e.parcelFloodFill(ax, az)
+	var result [][2]int
+	for _, c := range flooded {
+		if c[0] >= x0 && c[0] <= x1 && c[1] >= z0 && c[1] <= z1 {
+			result = append(result, c)
+		}
+	}
+	return result
+}
+
 // rectCells returns all in-bounds terrain cells within the axis-aligned rect
 // defined by two grid corners (inclusive on both ends).
 func (e *Editor) rectCells(ax, az, bx, bz int) [][2]int {
@@ -1429,10 +1490,11 @@ func (e *Editor) removeCellFromAllParcels(cx, cz int) {
 
 // buildEditorParcelOverlay returns an RGBA8 cell overlay showing parcel states,
 // the currently-being-edited parcel (brighter), and the live rect selection preview.
-func (e *Editor) buildEditorParcelOverlay() ([]uint8, int, int) {
+// rectEnd is the current second corner for the preview (may be clamped off-terrain).
+func (e *Editor) buildEditorParcelOverlay(rectEnd [2]int) ([]uint8, int, int) {
 	t := e.world.Terrain
 	hasParcels := len(e.world.Parcels) > 0
-	hasRect := e.activeTool == toolParcelRect && e.parcelRectActive && e.hoverValid
+	hasRect := e.activeTool == toolParcelRect && e.parcelRectActive
 	if !hasParcels && !hasRect {
 		return nil, 0, 0
 	}
@@ -1465,7 +1527,8 @@ func (e *Editor) buildEditorParcelOverlay() ([]uint8, int, int) {
 			set(c[0], c[1], rv, gv, bv, alpha)
 		}
 	}
-	// Live rect selection preview.
+	// Live rect selection preview — use the same cell set that would be
+	// committed on click: road-clipped by default, full rect when shift held.
 	if hasRect {
 		var rv, gv, bv uint8
 		switch e.parcelRectIntent {
@@ -1474,8 +1537,16 @@ func (e *Editor) buildEditorParcelOverlay() ([]uint8, int, int) {
 		default:
 			rv, gv, bv = 80, 200, 240
 		}
-		for _, c := range e.rectCells(e.parcelRectStart[0], e.parcelRectStart[1],
-			e.hoverCell[0], e.hoverCell[1]) {
+		shiftHeld := e.app.Input.Held[glfw.KeyLeftShift] || e.app.Input.Held[glfw.KeyRightShift]
+		var cells [][2]int
+		if shiftHeld || e.parcelRectIntent == parcelIntentRemove {
+			cells = e.rectCells(e.parcelRectStart[0], e.parcelRectStart[1],
+				rectEnd[0], rectEnd[1])
+		} else {
+			cells = e.rectCellsClippedToRoads(e.parcelRectStart[0], e.parcelRectStart[1],
+				rectEnd[0], rectEnd[1])
+		}
+		for _, c := range cells {
 			set(c[0], c[1], rv, gv, bv, 170)
 		}
 	}
@@ -1495,7 +1566,12 @@ func (e *Editor) Render(r *render.Renderer) {
 	}
 
 	// Parcel cell overlay — always visible when parcels are defined.
-	pix, ow, oh := e.buildEditorParcelOverlay()
+	// When drawing a rect off-terrain, clamp to the map boundary for the preview.
+	rectEndCell := e.hoverCell
+	if e.activeTool == toolParcelRect && e.parcelRectActive && !e.hoverValid {
+		rectEndCell = e.clampedTerrainCell(r, e.hoverMouseScreen)
+	}
+	pix, ow, oh := e.buildEditorParcelOverlay(rectEndCell)
 	r.SetCellOverlay(pix, ow, oh)
 
 	if e.toolUsesRadiusSlider() && t.InBounds(e.hoverCell[0], e.hoverCell[1]) {

@@ -13,7 +13,6 @@ Lifts and attendants
     Beginner skiers increase probability chair doesn't fill
   Wrap lift lines so they don't go through buildings
 
-Limit land area and allow land purchases
 Loans
 New buildings - bar, restaurant, plus paths between buildings
   Skiers remove skies and walk around pathed area
