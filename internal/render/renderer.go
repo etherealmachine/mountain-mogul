@@ -977,10 +977,34 @@ func terrainJitterXYZ(gx, gz, width, height int, cellSize float32) (float32, flo
 	return fx, 0, fz
 }
 
+// meshCornerY returns the terrain mesh Y at grid corner (cx, cz), matching
+// the cornerSurfaceY computation in buildTerrainVerts: a 4-cell average of
+// SurfaceElevation around the corner so steep cell boundaries produce a
+// smooth ramp rather than a hard step. terrainJitter Y is always 0 and
+// is omitted; only X/Z jitter exists (used for horizontal displacement).
+func meshCornerY(t *world.Terrain, cx, cz int) float32 {
+	var sum, n float32
+	for dz := -1; dz <= 0; dz++ {
+		for dx := -1; dx <= 0; dx++ {
+			x, z := cx+dx, cz+dz
+			if x < 0 || x >= t.Width || z < 0 || z >= t.Height {
+				continue
+			}
+			sum += t.SurfaceElevationAt(x, z)
+			n++
+		}
+	}
+	if n == 0 {
+		return 0
+	}
+	return sum / n
+}
+
 // VisualElevationAt returns the exact terrain mesh surface height at world
 // position (wx, wz). It replicates the same triangle selection and barycentric
-// interpolation used in buildTerrainVerts — including per-vertex jitter and the
-// checkerboard diagonal pattern — so agents always sit on (never below) the mesh.
+// interpolation used in buildTerrainVerts — including the 4-cell corner
+// averaging and checkerboard diagonal pattern — so agents always sit on
+// (never below) the mesh.
 func VisualElevationAt(t *world.Terrain, wx, wz float32) float32 {
 	const cellSize = float32(5.0)
 	xi := int(wx / cellSize)
@@ -1012,10 +1036,10 @@ func VisualElevationAt(t *world.Terrain, wx, wz float32) float32 {
 		fz = 1
 	}
 
-	e00 := t.SurfaceElevationAt(xi, zi) + terrainJitter(xi, zi, cellSize)
-	e10 := t.SurfaceElevationAt(xi+1, zi) + terrainJitter(xi+1, zi, cellSize)
-	e01 := t.SurfaceElevationAt(xi, zi+1) + terrainJitter(xi, zi+1, cellSize)
-	e11 := t.SurfaceElevationAt(xi+1, zi+1) + terrainJitter(xi+1, zi+1, cellSize)
+	e00 := meshCornerY(t, xi, zi)
+	e10 := meshCornerY(t, xi+1, zi)
+	e01 := meshCornerY(t, xi, zi+1)
+	e11 := meshCornerY(t, xi+1, zi+1)
 
 	// Mirror the checkerboard diagonal from buildTerrainVerts.
 	if (xi+zi)%2 == 0 {
@@ -1677,6 +1701,144 @@ func generateCableMesh(lift *world.Lift, t *world.Terrain, perpOff float32) *Mes
 	return NewMesh(verts, indices, []int{3, 3, 2}, nil)
 }
 
+// generateQueueMesh builds a world-space mesh (poles + ropes) for the
+// queue-line dividers at a lift's base station. Returns nil when the lift
+// has no lane configuration.
+//
+// Ropes run LATERALLY (perpendicular to the cable) at each downhill boundary
+// returned by QueueRopeBoundaries. They extend RopeDepth metres to the left
+// and right of the cable axis, with poles spaced every polePitch metres.
+func generateQueueMesh(lift *world.Lift, t *world.Terrain) *Mesh {
+	downhillOffsets := lift.QueueRopeBoundaries()
+	if len(downhillOffsets) == 0 {
+		return nil
+	}
+
+	const (
+		polePitch  = float32(3.0)  // metres between consecutive poles along a rope
+		poleRadius = float32(0.05) // pole cross-section radius
+		poleHeight = float32(1.10) // pole height above snow surface
+		ropeHeight = float32(0.95) // rope centre height above snow surface
+		ropeHW     = float32(0.02) // rope half-width / half-thickness
+		poleFaces  = 6
+	)
+
+	lateralDepth := lift.QueueConfig.EffectiveRopeDepth() // how far left/right ropes extend
+	qx, qz := lift.QueueDirXZ()
+	rx, rz := lift.LateralRightXZ()
+
+	var verts []float32
+	var idxs []uint32
+
+	appendCylinder := func(cx, cy, cz float32) {
+		base := uint32(len(verts) / 8)
+		twoPi := float32(2 * math.Pi)
+		for i := 0; i < poleFaces; i++ {
+			a0 := twoPi * float32(i) / float32(poleFaces)
+			a1 := twoPi * float32(i+1) / float32(poleFaces)
+			for _, a := range [2]float32{a0, a1} {
+				nx := float32(math.Cos(float64(a)))
+				nz := float32(math.Sin(float64(a)))
+				u := float32(i) / float32(poleFaces)
+				verts = append(verts,
+					cx+poleRadius*nx, cy, cz+poleRadius*nz, nx, 0, nz, u, 0,
+					cx+poleRadius*nx, cy+poleHeight, cz+poleRadius*nz, nx, 0, nz, u, 1,
+				)
+			}
+			vi := base + uint32(i)*4
+			idxs = append(idxs, vi, vi+2, vi+1, vi+1, vi+2, vi+3)
+		}
+		topCtr := uint32(len(verts) / 8)
+		verts = append(verts, cx, cy+poleHeight, cz, 0, 1, 0, 0.5, 0.5)
+		twoPi2 := float32(2 * math.Pi)
+		for i := 0; i < poleFaces; i++ {
+			a := twoPi2 * float32(i) / float32(poleFaces)
+			nx := float32(math.Cos(float64(a)))
+			nz := float32(math.Sin(float64(a)))
+			verts = append(verts, cx+poleRadius*nx, cy+poleHeight, cz+poleRadius*nz, 0, 1, 0, 0.5+0.5*nx, 0.5+0.5*nz)
+		}
+		for i := 0; i < poleFaces; i++ {
+			idxs = append(idxs, topCtr, topCtr+1+uint32(i), topCtr+1+uint32((i+1)%poleFaces))
+		}
+	}
+
+	appendRope := func(p0x, p0z, p1x, p1z float32) {
+		y0 := VisualElevationAt(t, p0x, p0z) + ropeHeight
+		y1 := VisualElevationAt(t, p1x, p1z) + ropeHeight
+		mx := (p0x + p1x) / 2
+		my := (y0 + y1) / 2
+		mz := (p0z + p1z) / 2
+		fdx, fdz := p1x-p0x, p1z-p0z
+		flen := float32(math.Sqrt(float64(fdx*fdx + fdz*fdz)))
+		if flen < 1e-4 {
+			return
+		}
+		fx, fz := fdx/flen, fdz/flen
+		lx, lz := -fz, fx
+		hlen := flen / 2
+		corners := [8][3]float32{
+			{mx - fx*hlen - lx*ropeHW, my - ropeHW, mz - fz*hlen - lz*ropeHW},
+			{mx + fx*hlen - lx*ropeHW, my - ropeHW, mz + fz*hlen - lz*ropeHW},
+			{mx + fx*hlen + lx*ropeHW, my - ropeHW, mz + fz*hlen + lz*ropeHW},
+			{mx - fx*hlen + lx*ropeHW, my - ropeHW, mz - fz*hlen + lz*ropeHW},
+			{mx - fx*hlen - lx*ropeHW, my + ropeHW, mz - fz*hlen - lz*ropeHW},
+			{mx + fx*hlen - lx*ropeHW, my + ropeHW, mz + fz*hlen - lz*ropeHW},
+			{mx + fx*hlen + lx*ropeHW, my + ropeHW, mz + fz*hlen + lz*ropeHW},
+			{mx - fx*hlen + lx*ropeHW, my + ropeHW, mz - fz*hlen + lz*ropeHW},
+		}
+		faces := [6][4]int{{3, 2, 1, 0}, {4, 5, 6, 7}, {0, 1, 5, 4}, {2, 3, 7, 6}, {3, 0, 4, 7}, {1, 2, 6, 5}}
+		normals := [6][3]float32{
+			{0, -1, 0}, {0, 1, 0},
+			{fx, 0, fz}, {-fx, 0, -fz},
+			{-lx, 0, -lz}, {lx, 0, lz},
+		}
+		for fi, face := range faces {
+			base := uint32(len(verts) / 8)
+			nx, ny, nz := normals[fi][0], normals[fi][1], normals[fi][2]
+			for vi, ci := range face {
+				c := corners[ci]
+				u := float32(vi & 1)
+				v := float32(vi >> 1)
+				verts = append(verts, c[0], c[1], c[2], nx, ny, nz, u, v)
+			}
+			idxs = append(idxs, base, base+1, base+2, base, base+2, base+3)
+		}
+	}
+
+	// Each rope runs laterally from -lateralDepth to +lateralDepth at a
+	// specific downhill offset from the base. Poles at every polePitch metres.
+	nPoles := int(lateralDepth/polePitch)*2 + 1 // one per pitch each side plus centre
+	for _, downhill := range downhillOffsets {
+		// Base point of this rope (on the cable axis, at this downhill offset).
+		baseX := lift.Base[0] + downhill*qx
+		baseZ := lift.Base[1] + downhill*qz
+
+		// Pole lateral offsets from −lateralDepth to +lateralDepth.
+		poleWX := make([]float32, nPoles)
+		poleWZ := make([]float32, nPoles)
+		for i := 0; i < nPoles; i++ {
+			lat := -lateralDepth + float32(i)*polePitch
+			if lat > lateralDepth {
+				lat = lateralDepth
+			}
+			poleWX[i] = baseX + lat*rx
+			poleWZ[i] = baseZ + lat*rz
+		}
+		for i, px := range poleWX {
+			pz := poleWZ[i]
+			appendCylinder(px, VisualElevationAt(t, px, pz), pz)
+		}
+		for i := 0; i < nPoles-1; i++ {
+			appendRope(poleWX[i], poleWZ[i], poleWX[i+1], poleWZ[i+1])
+		}
+	}
+
+	if len(verts) == 0 {
+		return nil
+	}
+	return NewMesh(verts, idxs, []int{3, 3, 2}, nil)
+}
+
 // skyColor returns the ClearColor components for the current WeatherOverlay.
 // Matches sim.WeatherState indices.
 func (r *Renderer) skyColor() (float32, float32, float32) {
@@ -1779,6 +1941,11 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		m.Draw()
 	}
 	for _, m := range r.scene.liftDownCables {
+		m.Draw()
+	}
+	// Queue poles and ropes — same world-space pass, lighter tint.
+	setQueueTransformAttribs()
+	for _, m := range r.scene.liftQueueMeshes {
 		m.Draw()
 	}
 
@@ -2437,18 +2604,21 @@ func HelipadTransform(pos, otherEnd mgl32.Vec2, terrain *world.Terrain) mgl32.Ma
 	return mgl32.Translate3D(pos[0], y, pos[1]).Mul4(mgl32.HomogRotate3DY(rot))
 }
 
-// AddLiftMeshes generates and stores cable meshes for a lift. Towers are
-// added to the static batch by RebuildStaticBatch. No-op for helicopter
-// lifts, which have no cable infrastructure.
+// AddLiftMeshes generates and stores cable and queue meshes for a lift.
+// Towers are added to the static batch by RebuildStaticBatch. No-op for
+// helicopter lifts, which have no cable infrastructure.
 func (r *Renderer) AddLiftMeshes(lift *world.Lift, t *world.Terrain) {
 	if lift.IsHeli() {
 		return
 	}
 	r.scene.liftUpCables[lift.ID] = generateCableMesh(lift, t, world.CableGap)
 	r.scene.liftDownCables[lift.ID] = generateCableMesh(lift, t, -world.CableGap)
+	if m := generateQueueMesh(lift, t); m != nil {
+		r.scene.liftQueueMeshes[lift.ID] = m
+	}
 }
 
-// RemoveLiftMeshes removes the cable meshes for a lift.
+// RemoveLiftMeshes removes the cable and queue meshes for a lift.
 func (r *Renderer) RemoveLiftMeshes(liftID uint64) {
 	if m, ok := r.scene.liftUpCables[liftID]; ok {
 		m.Delete()
@@ -2457,6 +2627,10 @@ func (r *Renderer) RemoveLiftMeshes(liftID uint64) {
 	if m, ok := r.scene.liftDownCables[liftID]; ok {
 		m.Delete()
 		delete(r.scene.liftDownCables, liftID)
+	}
+	if m, ok := r.scene.liftQueueMeshes[liftID]; ok {
+		m.Delete()
+		delete(r.scene.liftQueueMeshes, liftID)
 	}
 }
 
@@ -2616,6 +2790,17 @@ func setCableTransformAttribs() {
 	gl.VertexAttrib4f(5, 0, 0, 1, 0) // identity col 2
 	gl.VertexAttrib4f(6, 0, 0, 0, 1) // identity col 3
 	gl.VertexAttrib3f(7, 0.15, 0.15, 0.15) // dark charcoal tint
+}
+
+// setQueueTransformAttribs sets instance attributes for queue pole/rope meshes:
+// identity transform with a warm off-white tint so the poles read as painted
+// wood or light metal without blending into the snow.
+func setQueueTransformAttribs() {
+	gl.VertexAttrib4f(3, 1, 0, 0, 0)
+	gl.VertexAttrib4f(4, 0, 1, 0, 0)
+	gl.VertexAttrib4f(5, 0, 0, 1, 0)
+	gl.VertexAttrib4f(6, 0, 0, 0, 1)
+	gl.VertexAttrib3f(7, 0.85, 0.80, 0.70) // warm off-white (bare wood / primed metal)
 }
 
 // setRoadTransformAttribs is the road-mesh counterpart to setCableTransformAttribs:

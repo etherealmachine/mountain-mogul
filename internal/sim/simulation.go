@@ -257,6 +257,12 @@ func (s *Simulation) tickLifts(dt float64) {
 				g.Plan.Steps = nil
 			}
 			lift.Queue = lift.Queue[:0]
+			if len(lift.Lines) > 0 {
+				for _, g := range lift.EjectLinesGuests() {
+					g.Queued = false
+					g.Plan.Steps = nil
+				}
+			}
 		}
 
 		passengers := lift.PassengerCount()
@@ -310,9 +316,19 @@ func (s *Simulation) tickLifts(dt float64) {
 			if chair.Progress >= 1.0 {
 				chair.Progress -= 1.0
 				if !lift.OnHold {
-					for j := 0; j < len(chair.Passengers) && len(lift.Queue) > 0; j++ {
-						agent := lift.Queue[0]
-						lift.Queue = lift.Queue[1:]
+					var boarders []*world.Guest
+					if len(lift.Lines) > 0 {
+						boarders = lift.BoardNextPair(len(chair.Passengers))
+					} else {
+						for len(lift.Queue) > 0 && len(boarders) < len(chair.Passengers) {
+							boarders = append(boarders, lift.Queue[0])
+							lift.Queue = lift.Queue[1:]
+						}
+					}
+					for j, agent := range boarders {
+						if j >= len(chair.Passengers) {
+							break
+						}
 						chair.Passengers[j] = agent
 						agent.OnLiftID = lift.ID
 						agent.Queued = false
@@ -1089,18 +1105,24 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		// Zero patience first (same as the original pattern) so that when
 		// replan calls onPlanStepStart for the GoHome JoinQueue step the
 		// bail guard (Patience >= 0.05) is false — preventing recursion.
-		if a.Patience >= 0.05 && len(lift.Queue) > goap.MaxQueuePersons {
+		qLen := lift.QueueLen()
+		if a.Patience >= 0.05 && qLen > goap.MaxQueuePersons {
 			s.addThought(a, ai.ThoughtLineTooLong, lift.ID)
 			a.Satisfaction = clamp32(a.Satisfaction-0.08, 0, 1)
 			a.Patience = 0
 			s.replan(a)
 			return
 		}
-		if len(lift.Queue) >= longQueuePersons {
+		if qLen >= longQueuePersons {
 			s.addThought(a, ai.ThoughtLongLine, lift.ID)
 			a.Satisfaction = clamp32(a.Satisfaction-0.08, 0, 1)
 		}
-		lift.Queue = append(lift.Queue, a)
+		if len(lift.Lines) > 0 {
+			lineIdx := lift.ShortestLineIdx()
+			lift.Lines[lineIdx].Guests = append(lift.Lines[lineIdx].Guests, a)
+		} else {
+			lift.Queue = append(lift.Queue, a)
+		}
 		a.Queued = true
 		a.TargetID = 0
 	case ai.ActRideLift:
@@ -1464,15 +1486,30 @@ func (s *Simulation) tickPath(agent *world.Guest, dt float64) {
 	agent.Speed = WalkSpeed
 }
 
-// tickQueued walks the agent toward their assigned single-file queue slot
-// (index in lift.Queue) and orients them to face the boarding spot. Slot 0
-// is at the base, so the front-of-line skier holds station there; deeper
-// slots are further downhill of the base axis. As skiers board off the
-// front and lift.Queue shrinks, each remaining agent's index drops by one
-// and they shuffle forward on subsequent ticks.
+// tickQueued walks the agent toward their assigned queue slot and orients
+// them to face the boarding spot. For line-mode lifts, the slot position
+// accounts for lane, depth, and pair position. For legacy flat-queue lifts
+// the single-file behaviour is unchanged.
 func (s *Simulation) tickQueued(agent *world.Guest, dt float64) {
 	w := s.World
 	for _, lift := range w.Lifts {
+		// Line mode: locate the agent in one of the configured lanes.
+		if len(lift.Lines) > 0 {
+			if pos, ok := lift.GuestSlotWorldPos(agent, w.Terrain); ok {
+				agent.Patience -= float32(dt * patienceDrainPerSecQueuing)
+				if agent.Patience < 0 {
+					agent.Patience = 0
+				}
+				s.tickWalkToward(agent, pos, dt)
+				faceX := lift.Base[0] - agent.Pos[0]
+				faceZ := lift.Base[1] - agent.Pos[2]
+				if faceX*faceX+faceZ*faceZ > 0.01 {
+					agent.Heading = float32(math.Atan2(float64(faceX), float64(faceZ)))
+				}
+				return
+			}
+		}
+		// Legacy flat-queue mode.
 		idx := -1
 		for i, q := range lift.Queue {
 			if q == agent {

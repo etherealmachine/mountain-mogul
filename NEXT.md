@@ -1,8 +1,6 @@
 # Next Steps
 
 Bugs:
-  Cat routing is still wrong
-  Cats drive on powder
   Release cat is wrong
 
 Lifts and attendants

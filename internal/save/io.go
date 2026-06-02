@@ -280,6 +280,21 @@ func worldToData(w *world.World) ScenarioData {
 			Open:        l.Open,
 			Chairs:      chairs,
 			QueueIDs:    queueIDs,
+			LeftLines:   l.QueueConfig.LeftLines,
+			RightLines:  l.QueueConfig.RightLines,
+			SingleRider: l.QueueConfig.SingleRider,
+		}
+		if len(l.Lines) > 0 {
+			ld.LineQueueIDs = make([][]uint64, len(l.Lines))
+			for li, line := range l.Lines {
+				ids := make([]uint64, 0, len(line.Guests))
+				for _, g := range line.Guests {
+					if g != nil {
+						ids = append(ids, g.ID)
+					}
+				}
+				ld.LineQueueIDs[li] = ids
+			}
 		}
 		if l.IsHeli() && l.HeliState != nil {
 			ld.HeliPhase = uint8(l.HeliState.Phase)
@@ -623,6 +638,15 @@ func dataToWorld(data ScenarioData) *world.World {
 			lift.HeliState.Phase = world.HeliPhase(ld.HeliPhase)
 			lift.HeliState.Progress = ld.HeliProgress
 		}
+		// Restore queue lane config for LiftDouble lifts.
+		lift.QueueConfig = world.LiftQueueConfig{
+			LeftLines:   ld.LeftLines,
+			RightLines:  ld.RightLines,
+			SingleRider: ld.SingleRider,
+		}
+		if ld.LeftLines > 0 || ld.RightLines > 0 || ld.SingleRider {
+			lift.RebuildLines()
+		}
 	}
 
 	// Restore guests. Every row in data.Guests rehydrates into a *Guest in
@@ -731,6 +755,17 @@ func dataToWorld(data ScenarioData) *world.World {
 		for _, qid := range ld.QueueIDs {
 			if a := guestByID[qid]; a != nil {
 				lift.Queue = append(lift.Queue, a)
+			}
+		}
+		// Per-lane queues: restore guest pointers into each line in order.
+		for li, ids := range ld.LineQueueIDs {
+			if li >= len(lift.Lines) {
+				break
+			}
+			for _, gid := range ids {
+				if a := guestByID[gid]; a != nil {
+					lift.Lines[li].Guests = append(lift.Lines[li].Guests, a)
+				}
 			}
 		}
 	}

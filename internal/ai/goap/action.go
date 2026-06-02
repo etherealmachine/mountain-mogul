@@ -133,7 +133,7 @@ func (a *JoinQueue) Precondition(s *WorldSnapshot, w *world.World) bool {
 	// Reject if the queue is too long, unless patience is already exhausted.
 	// The exhausted exception keeps GoHome routing functional: a guest leaving
 	// the mountain still needs to join a queue and ride up to exit a lift base.
-	if s.Patience >= 0.05 && len(l.Queue) > MaxQueuePersons {
+	if s.Patience >= 0.05 && l.QueueLen() > MaxQueuePersons {
 		return false
 	}
 	// Reject if the guest can't afford this lift. Pass holders skip the budget
@@ -155,7 +155,7 @@ func (a *JoinQueue) Cost(s *WorldSnapshot, w *world.World) float32 {
 	if l == nil {
 		return math.MaxFloat32
 	}
-	return float32(len(l.Queue)) * queueSlotSec
+	return float32(l.QueueLen()) * queueSlotSec
 }
 
 // RideLift is folded board + ride + unload: the planner doesn't see the

@@ -772,6 +772,15 @@ func (s *Scenario) SetQueryServer(qs *sim.QueryServer) { s.queryServer = qs }
 // SetSeed overrides the RNG seed for this scenario's simulation.
 func (s *Scenario) SetSeed(seed int64) { s.simSeed = seed }
 
+// setFollowGuest sets the camera-followed guest and mirrors the ID into
+// world.FocusedGuestID so live SQL queries can use "WHERE followed = 1".
+func (s *Scenario) setFollowGuest(id uint64) {
+	s.followGuestID = id
+	if s.world != nil {
+		s.world.FocusedGuestID = id
+	}
+}
+
 func NewScenarioFromTestbed(tb *sim.Testbed) *Scenario {
 	rebuild := func(seed int64) *world.World {
 		return tb.Build()
@@ -1328,7 +1337,7 @@ func (s *Scenario) restartWithSeed(seed int64) {
 	if s.popup != nil {
 		s.popup.Visible = false
 	}
-	s.followGuestID = 0
+	s.setFollowGuest(0)
 	s.app.Renderer.SetDebugLines(nil)
 	s.syncSpeedButtons()
 	s.setToast(fmt.Sprintf("Restarted with seed=%d", seed))
@@ -1550,7 +1559,7 @@ func (s *Scenario) Update(dt float64) {
 	}
 	if s.rightDragging {
 		if inp.MouseDelta.Len() > 0 {
-			s.followGuestID = 0
+			s.setFollowGuest(0)
 			dx, dz := r.Camera.PanDelta(inp.MouseDelta)
 			r.Camera.Target[0] += dx
 			r.Camera.Target[2] += dz
@@ -1578,7 +1587,7 @@ func (s *Scenario) Update(dt float64) {
 		keyDelta[1] -= keyPanSpeed * float32(dt)
 	}
 	if keyDelta[0] != 0 || keyDelta[1] != 0 {
-		s.followGuestID = 0
+		s.setFollowGuest(0)
 		dx, dz := r.Camera.PanDelta(keyDelta)
 		r.Camera.Target[0] += dx
 		r.Camera.Target[2] += dz
@@ -1668,7 +1677,7 @@ func (s *Scenario) Update(dt float64) {
 	if !inp.LeftClickConsumed && inp.LeftClick && s.activeTool == toolNone && !s.uiCovers(inp.MousePos[0], inp.MousePos[1], screenW) {
 		// Skier pick takes priority over toolNone-level edits and popups.
 		if a := s.pickGuest(r.Camera, inp.MousePos); a != nil {
-			s.followGuestID = a.ID
+			s.setFollowGuest(a.ID)
 			s.activeTrailID = 0
 			s.selectedCatID = 0
 			s.selectedBuildingID = 0
@@ -1862,7 +1871,7 @@ func (s *Scenario) Update(dt float64) {
 				r.Camera.Recalculate()
 			}
 		} else {
-			s.followGuestID = 0
+			s.setFollowGuest(0)
 		}
 	}
 	// Follow dropped (despawn / right-drag pan / etc.) — exit FPV so
@@ -3354,7 +3363,7 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 		return l.Type.Label()
 	})
 	w.AddLabel("Queue", func() string {
-		return fmt.Sprintf("%d skiers", len(l.Queue))
+		return fmt.Sprintf("%d skiers", l.QueueLen())
 	})
 	w.AddLabel("On lift", func() string {
 		return fmt.Sprintf("%d skiers", l.PassengerCount())
@@ -3362,6 +3371,71 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 	w.AddLabel("Chairs", func() string {
 		return fmt.Sprintf("%d × %d-seat", len(l.Chairs), l.Type.Capacity())
 	})
+	if l.Type == world.LiftDouble {
+		rebuild := func() {
+			evicted := l.RebuildLines()
+			for _, g := range evicted {
+				g.Queued = false
+				g.Plan.Steps = nil
+			}
+			s.app.Renderer.AddLiftMeshes(l, s.world.Terrain)
+			s.openLiftPopup(l, screenW, screenH)
+		}
+		w.AddIntStepperFn("Right lanes",
+			func() string { return fmt.Sprintf("%d", l.QueueConfig.RightLines) },
+			func() {
+				if l.QueueConfig.RightLines > 0 {
+					l.QueueConfig.RightLines--
+					rebuild()
+				}
+			},
+			func() {
+				if l.QueueConfig.RightLines < 5 {
+					l.QueueConfig.RightLines++
+					rebuild()
+				}
+			},
+		)
+		w.AddIntStepperFn("Left lanes",
+			func() string { return fmt.Sprintf("%d", l.QueueConfig.LeftLines) },
+			func() {
+				if l.QueueConfig.LeftLines > 0 {
+					l.QueueConfig.LeftLines--
+					rebuild()
+				}
+			},
+			func() {
+				if l.QueueConfig.LeftLines < 5 {
+					l.QueueConfig.LeftLines++
+					rebuild()
+				}
+			},
+		)
+		w.AddBoolToggle("Single rider",
+			func() bool { return l.QueueConfig.SingleRider },
+			func(v bool) {
+				l.QueueConfig.SingleRider = v
+				rebuild()
+			},
+		)
+		w.AddIntStepperFn("Rope width (m)",
+			func() string {
+				return fmt.Sprintf("%.0f", l.QueueConfig.EffectiveRopeDepth())
+			},
+			func() {
+				if l.QueueConfig.EffectiveRopeDepth() > 3 {
+					l.QueueConfig.RopeDepth = l.QueueConfig.EffectiveRopeDepth() - 3
+					s.app.Renderer.AddLiftMeshes(l, s.world.Terrain)
+				}
+			},
+			func() {
+				if l.QueueConfig.EffectiveRopeDepth() < 30 {
+					l.QueueConfig.RopeDepth = l.QueueConfig.EffectiveRopeDepth() + 3
+					s.app.Renderer.AddLiftMeshes(l, s.world.Terrain)
+				}
+			},
+		)
+	}
 	w.AddStepper("Speed (m/s)", &l.Speed, 0.5, 0.5, 8.0)
 	w.AddIntStepper("Ticket ($)", &l.TicketPrice, 5, 0, 200)
 	if l.OnHold {
@@ -3370,9 +3444,16 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 	if l.Open {
 		w.AddActionButton("Close Lift", func() {
 			for _, g := range l.Queue {
+				g.Queued = false
 				g.Plan.Steps = nil
 			}
 			l.Queue = l.Queue[:0]
+			if len(l.Lines) > 0 {
+				for _, g := range l.EjectLinesGuests() {
+					g.Queued = false
+					g.Plan.Steps = nil
+				}
+			}
 			l.Open = false
 			s.openLiftPopup(l, screenW, screenH)
 		})
@@ -3433,7 +3514,7 @@ func (s *Scenario) openSnowcatPopup(cat *world.Snowcat, screenW, screenH int) {
 	s.selectedCatID = cat.ID
 	s.selectedBuildingID = 0
 	s.showCatPath = false
-	s.followGuestID = 0
+	s.setFollowGuest(0)
 	c := cat
 	w := ui.NewWindow("Snowcat", 0, 0)
 	w.AddLabel("Status", func() string {
@@ -3919,7 +4000,7 @@ func buildingInstance(pos mgl32.Vec2, t *world.Terrain, tint [3]float32) render.
 func (s *Scenario) cycleFollow() {
 	agents := s.world.OnMountain
 	if len(agents) == 0 {
-		s.followGuestID = 0
+		s.setFollowGuest(0)
 		return
 	}
 	current := s.followGuestID
@@ -3932,7 +4013,7 @@ func (s *Scenario) cycleFollow() {
 			}
 		}
 	}
-	s.followGuestID = candidates[rand.Intn(len(candidates))].ID
+	s.setFollowGuest(candidates[rand.Intn(len(candidates))].ID)
 }
 
 // pickGuest returns the front-most agent under the cursor, or nil if none.

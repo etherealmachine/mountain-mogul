@@ -824,6 +824,7 @@ func (e *Editor) pushSnowLayer(kind world.SnowKind) {
 	)
 	if e.app != nil && e.app.Renderer != nil {
 		e.app.Renderer.FlushTerrainVerts(e.world.Terrain)
+		e.app.Renderer.RebuildStaticBatch(e.world)
 	}
 }
 
@@ -839,7 +840,11 @@ func (e *Editor) clearAllLayers() {
 			t.Cells[x][z].Top = world.SnowLayer{}
 		}
 	}
-	t.SnowDirty = true
+	t.RecomputeGroomEdges()
+	if e.app != nil && e.app.Renderer != nil {
+		e.app.Renderer.FlushTerrainVerts(e.world.Terrain)
+		e.app.Renderer.RebuildStaticBatch(e.world)
+	}
 }
 
 // regenerateAuto runs the snow and forest generators with the current slider

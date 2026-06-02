@@ -25,11 +25,29 @@ type TableSet map[string][]Row
 // BuildTableSet constructs all queryable tables from the current sim/world state.
 // Tables: cells, guests, cats, buildings, lifts, patrollers.
 func BuildTableSet(w *world.World, s *Simulation) TableSet {
+	const cellSize = float32(5.0)
 	ts := TableSet{}
 	ts["cells"] = buildCellRows(w.Terrain, s)
 	ts["guests"] = buildEntityRows(w.OnMountain, func(g *world.Guest) Row {
 		row := reflectRow(reflect.ValueOf(*g), "")
 		row["activity"] = world.Activity(w, g)
+		// followed: 1 for the camera-followed guest, 0 otherwise.
+		if g.ID == w.FocusedGuestID {
+			row["followed"] = float64(1)
+		} else {
+			row["followed"] = float64(0)
+		}
+		// Terrain columns at the guest's XZ position.
+		if w.Terrain != nil {
+			px, pz := g.Pos[0], g.Pos[2]
+			cx := int(px / cellSize)
+			cz := int(pz / cellSize)
+			row["cell_x"] = float64(cx)
+			row["cell_z"] = float64(cz)
+			row["surface_elev"] = float64(w.Terrain.InterpolatedSurfaceElevationAt(px, pz))
+			row["ground_elev"] = float64(w.Terrain.InterpolatedGroundElevationAt(px, pz))
+			row["snow_depth"] = float64(w.Terrain.InterpolatedSurfaceElevationAt(px, pz) - w.Terrain.InterpolatedGroundElevationAt(px, pz))
+		}
 		return row
 	})
 	ts["cats"] = buildEntityRows(w.Snowcats, func(c *world.Snowcat) Row {
@@ -80,6 +98,8 @@ func buildCellRows(t *world.Terrain, s *Simulation) []Row {
 			row["x"] = float64(x)
 			row["z"] = float64(z)
 			row["instability_score"] = float64(c.InstabilityScore())
+			row["surface_elev"] = float64(c.SurfaceElevation())
+			row["snow_depth"] = float64(c.VisibleSnowDepth())
 			// Friendly alias: top_swe == top_accumulation
 			if v, ok := row["top_accumulation"]; ok {
 				row["top_swe"] = v

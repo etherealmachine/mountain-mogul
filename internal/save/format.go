@@ -196,6 +196,11 @@ type LiftData struct {
 	// HeliPhase and HeliProgress are only meaningful when Type == LiftHeli.
 	HeliPhase    uint8   `json:"heli_phase,omitempty"`
 	HeliProgress float32 `json:"heli_progress,omitempty"`
+	// Queue line config — only non-zero for LiftDouble with lanes configured.
+	LeftLines    int        `json:"left_lines,omitempty"`
+	RightLines   int        `json:"right_lines,omitempty"`
+	SingleRider  bool       `json:"single_rider,omitempty"`
+	LineQueueIDs [][]uint64 `json:"line_queues,omitempty"` // per-lane ordered guest IDs
 }
 
 // PlanActionData is one serialised step in a guest's L0 plan. Fields map

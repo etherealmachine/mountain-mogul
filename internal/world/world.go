@@ -119,6 +119,11 @@ type World struct {
 	// Seed is the RNG seed used when this world's Simulation was created.
 	// Saved and reloaded so SeedGuests on load produces the same guest pool.
 	Seed int64
+
+	// FocusedGuestID is the ID of the guest currently being followed by the
+	// camera (0 = none). Written by the scene layer; exposed to the query
+	// system so "WHERE followed = 1" works in live SQL queries.
+	FocusedGuestID uint64
 }
 
 // NewWorld creates a World with the given terrain and the default
