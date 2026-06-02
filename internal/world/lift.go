@@ -399,35 +399,22 @@ func (l *Lift) LateralRightXZ() (float32, float32) { return l.lateralRight() }
 
 // QueueRopeBoundaries returns the sorted downhill offsets (metres from the
 // lift base along queueDir) at which lateral rope dividers should be drawn.
-// Each row contributes a front rope (at the base-side edge) and a back rope
-// (at the downhill edge); the 0.5 m LineGap between adjacent rows is the
-// aisle skiers use to advance.
+// N rows need only N+1 ropes: one shared rope divides every adjacent pair,
+// so ropes sit at i*(LineWidth+LineGap) for i = 0..maxRows.
 func (l *Lift) QueueRopeBoundaries() []float32 {
 	maxRows := l.QueueConfig.LeftLines
 	if l.QueueConfig.RightLines > maxRows {
 		maxRows = l.QueueConfig.RightLines
 	}
 	if l.QueueConfig.SingleRider && maxRows > 0 {
-		maxRows++ // single-rider row sits furthest downhill
+		maxRows++
 	}
 	if maxRows == 0 {
 		return nil
 	}
-	seen := map[float32]bool{}
-	for i := 0; i < maxRows; i++ {
-		frontDepth := float32(i) * (LineWidth + LineGap)
-		backDepth := frontDepth + LineWidth
-		seen[frontDepth] = true
-		seen[backDepth] = true
-	}
-	out := make([]float32, 0, len(seen))
-	for d := range seen {
-		out = append(out, d)
-	}
-	for i := 1; i < len(out); i++ {
-		for j := i; j > 0 && out[j] < out[j-1]; j-- {
-			out[j], out[j-1] = out[j-1], out[j]
-		}
+	out := make([]float32, maxRows+1)
+	for i := range out {
+		out[i] = float32(i) * (LineWidth + LineGap)
 	}
 	return out
 }
@@ -575,8 +562,9 @@ func (l *Lift) lineGuestWorldPos(lineIdx, slotIdx, pairPos int, t *Terrain) mgl3
 		sign = -1
 	}
 
-	// Downhill distance of this row from the base.
-	rowDepth := float32(li.Idx) * (LineWidth + LineGap)
+	// Downhill distance to the centre of this row's band (midway between its
+	// two bounding ropes at i*(LineWidth+LineGap) and (i+1)*(LineWidth+LineGap)).
+	rowDepth := (float32(li.Idx) + 0.5) * (LineWidth + LineGap)
 
 	// Lateral distance outward from the cable axis.
 	var latOff float32
@@ -639,7 +627,7 @@ func (l *Lift) backOfLinesWorldPos(t *Terrain) mgl32.Vec3 {
 	rx, rz := l.lateralRight()
 	qx, qz := l.queueDir()
 
-	rowDepth := float32(li.Idx) * (LineWidth + LineGap)
+	rowDepth := (float32(li.Idx) + 0.5) * (LineWidth + LineGap)
 	var slotWidth float32
 	if li.IsSingle {
 		slotWidth = SingleLineWidth
