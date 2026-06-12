@@ -99,7 +99,10 @@ func (a *WalkToLift) Apply(s *WorldSnapshot, w *world.World) {
 	}
 	s.Pos = mgl32.Vec3{l.Base[0], s.Pos[1], l.Base[1]}
 	s.AtLodge = 0
+	s.AtBar = 0
 	s.AtParking = 0
+	s.AtTicketOffice = 0
+	s.AtTrailEnd = 0
 	s.AtLiftBase = l.ID
 }
 
@@ -225,6 +228,11 @@ func (a *SkiToLift) Apply(s *WorldSnapshot, w *world.World) {
 		return
 	}
 	s.AtLiftTop = 0
+	s.AtLodge = 0
+	s.AtBar = 0
+	s.AtParking = 0
+	s.AtTicketOffice = 0
+	s.AtTrailEnd = 0
 	s.AtLiftBase = l.ID
 	s.Pos = mgl32.Vec3{l.Base[0], s.Pos[1], l.Base[1]}
 }
@@ -264,6 +272,10 @@ func (a *SkiToLodge) Apply(s *WorldSnapshot, w *world.World) {
 		return
 	}
 	s.AtLiftTop = 0
+	s.AtBar = 0
+	s.AtParking = 0
+	s.AtTicketOffice = 0
+	s.AtTrailEnd = 0
 	s.AtLodge = b.ID
 	s.Pos = mgl32.Vec3{b.Pos[0], s.Pos[1], b.Pos[1]}
 }
@@ -271,6 +283,49 @@ func (a *SkiToLodge) Apply(s *WorldSnapshot, w *world.World) {
 func (a *SkiToLodge) Cost(s *WorldSnapshot, w *world.World) float32 {
 	src := findLift(w, s.AtLiftTop)
 	dst := findBuilding(w, a.LodgeID, world.BuildingLodge)
+	if src == nil || dst == nil {
+		return math.MaxFloat32
+	}
+	return distXZ(mgl32.Vec3{src.Top[0], 0, src.Top[1]}, dst.Pos[0], dst.Pos[1]) / skiSpeedMps
+}
+
+// SkiToBar descends from a lift top to a bar. Used in plans that
+// satisfy the RelieveThirst goal.
+type SkiToBar struct{ BarID uint64 }
+
+func (a *SkiToBar) Name() string {
+	return fmt.Sprintf("SkiToBar(%d)", a.BarID)
+}
+
+func (a *SkiToBar) Precondition(s *WorldSnapshot, w *world.World) bool {
+	if s.Removed || s.AtLiftTop == 0 {
+		return false
+	}
+	src := findLift(w, s.AtLiftTop)
+	dst := findBuilding(w, a.BarID, world.BuildingBar)
+	if src == nil || dst == nil {
+		return false
+	}
+	return liftTopElev(w, src)-buildingElev(w, dst) >= minDescentMeters
+}
+
+func (a *SkiToBar) Apply(s *WorldSnapshot, w *world.World) {
+	b := findBuilding(w, a.BarID, world.BuildingBar)
+	if b == nil {
+		return
+	}
+	s.AtLiftTop = 0
+	s.AtLodge = 0
+	s.AtParking = 0
+	s.AtTicketOffice = 0
+	s.AtTrailEnd = 0
+	s.AtBar = b.ID
+	s.Pos = mgl32.Vec3{b.Pos[0], s.Pos[1], b.Pos[1]}
+}
+
+func (a *SkiToBar) Cost(s *WorldSnapshot, w *world.World) float32 {
+	src := findLift(w, s.AtLiftTop)
+	dst := findBuilding(w, a.BarID, world.BuildingBar)
 	if src == nil || dst == nil {
 		return math.MaxFloat32
 	}
@@ -303,6 +358,10 @@ func (a *SkiToParking) Apply(s *WorldSnapshot, w *world.World) {
 		return
 	}
 	s.AtLiftTop = 0
+	s.AtLodge = 0
+	s.AtBar = 0
+	s.AtTicketOffice = 0
+	s.AtTrailEnd = 0
 	s.AtParking = b.ID
 	s.Pos = mgl32.Vec3{b.Pos[0], s.Pos[1], b.Pos[1]}
 }
@@ -344,7 +403,9 @@ func (a *WalkToTicketOffice) Apply(s *WorldSnapshot, w *world.World) {
 		return
 	}
 	s.AtLodge = 0
+	s.AtBar = 0
 	s.AtParking = 0
+	s.AtTrailEnd = 0
 	s.AtTicketOffice = b.ID
 	s.Pos = mgl32.Vec3{b.Pos[0], s.Pos[1], b.Pos[1]}
 }
@@ -402,6 +463,26 @@ func (a *RestAtLodge) Apply(s *WorldSnapshot, w *world.World) {
 
 func (a *RestAtLodge) Cost(s *WorldSnapshot, w *world.World) float32 {
 	return restDurationSec
+}
+
+// RelieveThirstAtBar is an atomic recovery action — restores Thirst and sets
+// ThirstRelieved = true.
+type RelieveThirstAtBar struct{ BarID uint64 }
+
+func (a *RelieveThirstAtBar) Name() string {
+	return fmt.Sprintf("RelieveThirstAtBar(%d)", a.BarID)
+}
+
+func (a *RelieveThirstAtBar) Precondition(s *WorldSnapshot, w *world.World) bool {
+	return !s.Removed && s.AtBar == a.BarID
+}
+
+func (a *RelieveThirstAtBar) Apply(s *WorldSnapshot, w *world.World) {
+	s.Thirst = 1
+}
+
+func (a *RelieveThirstAtBar) Cost(s *WorldSnapshot, w *world.World) float32 {
+	return 30.0 // brief stop for a drink
 }
 
 // Depart is the terminal action that removes the agent from the sim.
@@ -476,6 +557,11 @@ func ApplicableActions(s *WorldSnapshot, w *world.World) []Action {
 				if a.Precondition(s, w) {
 					out = append(out, a)
 				}
+			case world.BuildingBar:
+				a := &SkiToBar{BarID: b.ID}
+				if a.Precondition(s, w) {
+					out = append(out, a)
+				}
 			case world.BuildingParking:
 				a := &SkiToParking{LotID: b.ID}
 				if a.Precondition(s, w) {
@@ -485,12 +571,24 @@ func ApplicableActions(s *WorldSnapshot, w *world.World) []Action {
 		}
 	}
 
-	// At a lodge or parking — rest or depart.
+	// At a lodge, bar, or parking — rest, relieve thirst, or depart.
 	if s.AtLodge != 0 {
-		out = append(out, &RestAtLodge{LodgeID: s.AtLodge})
+		a := &RestAtLodge{LodgeID: s.AtLodge}
+		if a.Precondition(s, w) {
+			out = append(out, a)
+		}
+	}
+	if s.AtBar != 0 {
+		a := &RelieveThirstAtBar{BarID: s.AtBar}
+		if a.Precondition(s, w) {
+			out = append(out, a)
+		}
 	}
 	if s.AtParking != 0 {
-		out = append(out, &Depart{LotID: s.AtParking})
+		a := &Depart{LotID: s.AtParking}
+		if a.Precondition(s, w) {
+			out = append(out, a)
+		}
 	}
 	// Walk to ticket office from any ground position (not on a lift or in a queue).
 	if !s.Removed && !s.HasSeasonPass && s.OnLift == 0 && s.Queued == 0 && s.AtLiftBase == 0 && s.AtLiftTop == 0 {
@@ -544,12 +642,18 @@ func ToPlanActions(actions []Action, snap WorldSnapshot, w *world.World) []ai.Pl
 		case *SkiToLodge:
 			pa.Kind = ai.ActSkiToLodge
 			pa.BldgID = t.LodgeID
+		case *SkiToBar:
+			pa.Kind = ai.ActSkiToLodge // map to Lodge kind per internal/ai/types.go
+			pa.BldgID = t.BarID
 		case *SkiToParking:
 			pa.Kind = ai.ActSkiToParking
 			pa.BldgID = t.LotID
 		case *RestAtLodge:
 			pa.Kind = ai.ActRestAtLodge
 			pa.BldgID = t.LodgeID
+		case *RelieveThirstAtBar:
+			pa.Kind = ai.ActRelieveThirst
+			pa.BldgID = t.BarID
 		case *Depart:
 			pa.Kind = ai.ActDepart
 			pa.BldgID = t.LotID
@@ -597,6 +701,8 @@ func PlanActionLabel(pa ai.PlanAction, w *world.World) string {
 		return "SkiToParking(" + buildingLabel(w, pa.BldgID) + ")"
 	case ai.ActRestAtLodge:
 		return "RestAtLodge(" + buildingLabel(w, pa.BldgID) + ")"
+	case ai.ActRelieveThirst:
+		return "RelieveThirst(" + buildingLabel(w, pa.BldgID) + ")"
 	case ai.ActDepart:
 		return "Depart(" + buildingLabel(w, pa.BldgID) + ")"
 	case ai.ActWalkToTicketOffice:
@@ -630,10 +736,14 @@ func DisplayName(a Action, w *world.World) string {
 		return "SkiToLift(" + liftLabel(w, act.LiftID) + ")"
 	case *SkiToLodge:
 		return "SkiToLodge(" + buildingLabel(w, act.LodgeID) + ")"
+	case *SkiToBar:
+		return "SkiToBar(" + buildingLabel(w, act.BarID) + ")"
 	case *SkiToParking:
 		return "SkiToParking(" + buildingLabel(w, act.LotID) + ")"
 	case *RestAtLodge:
 		return "RestAtLodge(" + buildingLabel(w, act.LodgeID) + ")"
+	case *RelieveThirstAtBar:
+		return "RelieveThirst(" + buildingLabel(w, act.BarID) + ")"
 	case *Depart:
 		return "Depart(" + buildingLabel(w, act.LotID) + ")"
 	case *WalkToTicketOffice:
@@ -663,6 +773,8 @@ func buildingLabel(w *world.World, id uint64) string {
 		switch b.Type {
 		case world.BuildingLodge:
 			return fmt.Sprintf("Lodge#%d", id)
+		case world.BuildingBar:
+			return fmt.Sprintf("Bar#%d", id)
 		case world.BuildingParking:
 			return fmt.Sprintf("Lot#%d", id)
 		case world.BuildingTicketOffice:

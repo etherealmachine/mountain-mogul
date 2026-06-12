@@ -96,9 +96,10 @@ func TraitsFor(skill float32) GuestTraits {
 type GoalKind int
 
 const (
-	GoalNone GoalKind = iota
+	GoalNone        GoalKind = iota
 	GoalLift
-	GoalDepart // heading to a parking lot / bus stop / train station to leave the resort
+	GoalDepart      // heading to a parking lot / bus stop / train station to leave the resort
+	GoalRelieveThirst // heading to a bar to drink something
 )
 
 // PlanActionKind tags an L0 plan step so the simulation can drive
@@ -117,9 +118,10 @@ const (
 	ActSkiToParking
 	ActRestAtLodge
 	ActDepart
-	ActSkiTrail          // ski a player-defined trail from one entity to another
+	ActSkiTrail           // ski a player-defined trail from one entity to another
 	ActWalkToTicketOffice // walk to the ticket office building
 	ActBuySeasonPass      // purchase a season pass at the ticket office
+	ActRelieveThirst      // stop at a bar to drink something
 )
 
 // PlanAction is one step in the stored L0 plan — plain data, no behaviour.

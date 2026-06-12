@@ -589,8 +589,13 @@ func (s *Simulation) maybeSampleHistory() {
 			}
 		}
 		for _, b := range w.Buildings {
-			if b.Type == world.BuildingSnowGun && b.SnowGunEnabled {
-				costs += world.SnowGunActiveCostDay
+			switch b.Type {
+			case world.BuildingBar:
+				costs += world.BarDailyCost
+			case world.BuildingSnowGun:
+				if b.SnowGunEnabled {
+					costs += world.SnowGunActiveCostDay
+				}
 			}
 		}
 		w.Cash -= costs
@@ -1146,7 +1151,11 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 			return
 		}
 		a.TargetID = b.ID
-		a.Plan.Goal = ai.GoalNone
+		if b.Type == world.BuildingBar {
+			a.Plan.Goal = ai.GoalRelieveThirst
+		} else {
+			a.Plan.Goal = ai.GoalNone
+		}
 		a.Plan.GoalID = b.ID
 		a.Plan.Target = parkingWorldPos(w, b)
 	case ai.ActSkiToParking:
@@ -1231,6 +1240,10 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		a.RestTimer = restAtLodgeSec
 		a.Speed = 0
 		a.TargetID = 0
+	case ai.ActRelieveThirst:
+		a.RestTimer = 30.0 // brief stop for a drink
+		a.Speed = 0
+		a.TargetID = 0
 	case ai.ActDepart:
 		// Capture session stats (LastScore, LifetimeVisits, LastVisit,
 		// VisitsThisSeason) on the persistent Guest record before the
@@ -1303,7 +1316,7 @@ func planActionComplete(step ai.PlanAction, a *world.Guest, snap goap.WorldSnaps
 	case ai.ActRideLift:
 		return snap.AtLiftTop == step.LiftID
 	case ai.ActSkiToLodge:
-		return snap.AtLodge == step.BldgID
+		return snap.AtLodge == step.BldgID || snap.AtBar == step.BldgID
 	case ai.ActSkiToParking:
 		return snap.AtParking == step.BldgID
 	case ai.ActWalkToTicketOffice:
@@ -1311,6 +1324,8 @@ func planActionComplete(step ai.PlanAction, a *world.Guest, snap goap.WorldSnaps
 	case ai.ActBuySeasonPass:
 		return true // executed atomically in onPlanStepStart
 	case ai.ActRestAtLodge:
+		return a.RestTimer <= 0
+	case ai.ActRelieveThirst:
 		return a.RestTimer <= 0
 	case ai.ActDepart:
 		// Terminal — the Removed flag is the real signal; this is
@@ -1321,7 +1336,7 @@ func planActionComplete(step ai.PlanAction, a *world.Guest, snap goap.WorldSnaps
 			return snap.AtLiftBase == step.LiftID
 		}
 		if step.BldgID != 0 {
-			return snap.AtLodge == step.BldgID || snap.AtParking == step.BldgID
+			return snap.AtLodge == step.BldgID || snap.AtParking == step.BldgID || snap.AtBar == step.BldgID
 		}
 		// Trail-to-trail: proximity to Plan.Target (the destination trail centroid).
 		dx := a.Pos[0] - a.Plan.Target[0]
@@ -1340,8 +1355,8 @@ func planActionPreconditionHolds(step ai.PlanAction, snap goap.WorldSnapshot, w 
 	case ai.ActWalkToLift, ai.ActJoinQueue, ai.ActRideLift, ai.ActSkiToLift:
 		l := findLiftByID(w, step.LiftID)
 		return l != nil && l.Open && !l.OnHold
-	case ai.ActSkiToLodge, ai.ActSkiToParking, ai.ActRestAtLodge, ai.ActDepart,
-		ai.ActWalkToTicketOffice, ai.ActBuySeasonPass:
+	case ai.ActSkiToLodge, ai.ActSkiToParking, ai.ActRestAtLodge, ai.ActRelieveThirst,
+		ai.ActDepart, ai.ActWalkToTicketOffice, ai.ActBuySeasonPass:
 		return findBuildingByID(w, step.BldgID) != nil
 	case ai.ActSkiTrail:
 		// Destination entity must still exist.
@@ -1365,8 +1380,14 @@ func (s *Simulation) tickResting(a *world.Guest, dt float64) {
 	a.RestTimer -= float32(dt)
 	if a.RestTimer <= 0 {
 		a.RestTimer = 0
-		a.Patience = 1
-		a.Energy = 1
+		// Restore stats based on which building we just finished visiting.
+		switch a.Plan.Head().Kind {
+		case ai.ActRestAtLodge:
+			a.Patience = 1
+			a.Energy = 1
+		case ai.ActRelieveThirst:
+			a.Thirst = 1
+		}
 	}
 }
 

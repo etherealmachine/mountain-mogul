@@ -27,6 +27,7 @@ var AllGoals = []Goal{
 	GetSeasonPass{},
 	KeepSkiing{},
 	Rest{},
+	RelieveThirst{},
 	Explore{},
 	GoHome{},
 }
@@ -118,6 +119,34 @@ func (Rest) Weight(s *WorldSnapshot, w *world.World) float32 {
 	return w2
 }
 
+// RelieveThirst is satisfied when thirst is above the trigger threshold.
+// Weight rises as thirst drops below 0.25; at critically low levels it
+// exceeds GoHome so that the guest tries to find a bar before giving up.
+// After drinking (Thirst restored to 1.0), the goal is satisfied again
+// and will re-fire the next time thirst drains back down.
+type RelieveThirst struct{}
+
+func (RelieveThirst) Name() string { return "RelieveThirst" }
+
+func (RelieveThirst) IsSatisfied(s *WorldSnapshot, w *world.World) bool {
+	return s.Thirst >= 0.25
+}
+
+func (RelieveThirst) Weight(s *WorldSnapshot, w *world.World) float32 {
+	if s.Thirst >= 0.25 {
+		return 0
+	}
+	// Linear rise from 0 at 0.25 thirst to 0.8 at 0.05 thirst.
+	d := 0.25 - s.Thirst
+	w2 := d * 4.0
+	// Boost above KeepSkiing's max and GoHome's base (1.0) when critically
+	// low so the planner attempts a bar visit before removal.
+	if s.Thirst < 0.05 {
+		w2 = 1.2
+	}
+	return w2
+}
+
 // Explore is satisfied once every skill-accessible lift has been ridden at
 // least once. Weight is the fraction of accessible lifts still unridden —
 // drops to zero when the skier has sampled every lift they can ride, which
@@ -188,8 +217,8 @@ func (GoHome) IsSatisfied(s *WorldSnapshot, w *world.World) bool {
 
 func (GoHome) Weight(s *WorldSnapshot, w *world.World) float32 {
 	// GoHome fires when Patience or Energy is critically low (Rest handles
-	// the recoverable range), when Hunger or Thirst is exhausted (those can
-	// never be restored), or when the guest can no longer afford any lift.
+	// the recoverable range), when Hunger or Thirst is exhausted, or when
+	// the guest can no longer afford any lift.
 	combined := s.Patience
 	if s.Energy < combined {
 		combined = s.Energy

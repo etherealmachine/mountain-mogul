@@ -32,6 +32,7 @@ const (
 	MeshHelicopter   uint32 = 21 // heli-ski helicopter (dynamic — one per HeliLift)
 	MeshSnowGun      uint32 = 22 // snowmaking cannon on a tripod
 	MeshPatrolHut    uint32 = MeshShed // patrol hut reuses shed mesh
+	MeshBar          uint32 = 23     // bar/restaurant (half-size lodge mesh)
 )
 
 // MeshSlot is an anchor point baked into a mesh by the SCAD pipeline
@@ -94,6 +95,8 @@ func (t BuildingType) MeshID() uint32 {
 		return MeshParkingPad
 	case BuildingSnowGun:
 		return MeshSnowGun
+	case BuildingBar:
+		return MeshBar
 	case BuildingLodge, BuildingTicketOffice:
 		fallthrough
 	default:

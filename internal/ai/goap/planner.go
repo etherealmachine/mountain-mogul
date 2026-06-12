@@ -269,14 +269,18 @@ func (h *nodeHeap) Pop() any {
 func stateKey(s *WorldSnapshot) string {
 	pb := int(s.Patience * 100)
 	eb := int(s.Energy * 100)
+	tb := int(s.Thirst * 100)
 	ridden := 0
 	for _, r := range s.RidenLifts {
 		ridden += r.Count
 	}
-	return fmt.Sprintf("P%dE%dB%dT%dQ%dL%dD%dPt%dR%dX%vJ%d",
-		pb, eb,
+	// Key includes all IDs that define an agent's discrete location and
+	// status. Pos is omitted (L1 handles continuous movement); stats are
+	// bucketed to 0.01 to keep the search space finite.
+	return fmt.Sprintf("P%dE%dT%dB%dTop%dQ%dL%dLdg%dBar%dPrk%dTkt%dR%dX%vJ%d",
+		pb, eb, tb,
 		s.AtLiftBase, s.AtLiftTop, s.Queued, s.OnLift,
-		s.AtLodge, s.AtParking,
+		s.AtLodge, s.AtBar, s.AtParking, s.AtTicketOffice,
 		ridden, s.Removed,
 		s.AtTrailEnd,
 	)

@@ -35,6 +35,7 @@ const (
 	IconSnowflake      IconName = "snowflake"
 	IconCloudLightning IconName = "cloud-lightning"
 	IconArrowRight     IconName = "arrow-right"
+	IconCocktail       IconName = "chart-bar" // placeholder for bar tool
 
 	// Overlay panel — the right-side stack of view toggles. `Stack` is the
 	// panel's own toggle in the top bar; the rest are the individual overlay
@@ -66,7 +67,7 @@ var allIcons = []IconName{
 	IconGear, IconPause, IconPlay, IconFastForward,
 	IconCoin, IconUsers, IconHeart,
 	IconSun, IconCloudSun, IconCloud, IconCloudSnow, IconSnowflake, IconCloudLightning,
-	IconArrowRight,
+	IconArrowRight, IconCocktail,
 	IconStack, IconChartLine, IconChartBar, IconTriangle, IconWaves, IconBroom, IconGridFour, IconDrop, IconDotsNine,
 	IconGarage,
 	IconRoad,

@@ -327,6 +327,7 @@ func (r *Renderer) initStaticMeshes() {
 		{MeshParkingPad, "parking"}, // built by models-src/parking.scad
 		{MeshRoadConnect, "road_connect"},
 		{MeshSnowGun, "snow_gun"}, // built by models-src/snow_gun.scad
+		{MeshBar, "bar"},
 	}
 
 	for _, def := range meshDefs {
@@ -1440,6 +1441,8 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 			meshID = MeshParkingPad
 		case world.BuildingSnowGun:
 			meshID = MeshSnowGun
+		case world.BuildingBar:
+			meshID = MeshBar
 		}
 		if batch, ok := r.staticBatches[meshID]; ok {
 			batch.AddStatic(BuildingTransform(bldg.Pos, bldg.Rotation, w.Terrain), mgl32.Vec3{1, 1, 1})

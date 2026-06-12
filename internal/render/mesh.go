@@ -32,6 +32,7 @@ const (
 	MeshHelipad      uint32 = 20 // flat pad with H marking at heli-ski base and drop zone
 	MeshHelicopter   uint32 = 21 // heli-ski helicopter (dynamic — one per HeliLift)
 	MeshSnowGun      uint32 = 22 // snowmaking cannon on a tripod
+	MeshBar          uint32 = 23 // bar/restaurant (half-size lodge)
 )
 
 // Mesh wraps a GPU vertex/index buffer.

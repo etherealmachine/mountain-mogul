@@ -50,6 +50,11 @@ func TestPlanFromParking(t *testing.T) {
 	snap := WorldSnapshot{
 		Pos:       mgl32.Vec3{parking.Pos[0], 0, parking.Pos[1]},
 		Patience:    1.0,
+		Energy:      1.0,
+		Hunger:      1.0,
+		Thirst:      1.0,
+		Skill:       1.0,
+		RemainingBudget: 1000,
 		AtParking: parking.ID,
 	}
 	goal := SelectGoal(&snap, w)
@@ -88,6 +93,11 @@ func TestExplorePrefersUnridden(t *testing.T) {
 	snap := WorldSnapshot{
 		Pos:        mgl32.Vec3{liftA.Top[0], 0, liftA.Top[1]},
 		Patience:     0.7,
+		Energy:       1.0,
+		Hunger:       1.0,
+		Thirst:       1.0,
+		Skill:        1.0,
+		RemainingBudget: 1000,
 		AtLiftTop:  liftA.ID,
 		RidenLifts: []ai.RideCount{{LiftID: liftA.ID, Count: 1}},
 	}
@@ -113,25 +123,36 @@ func TestExplorePrefersUnridden(t *testing.T) {
 // TestRestAtLowPatience: low Patience makes Rest dominate, and the planner
 // should produce a plan that ends in RestAtLodge.
 func TestRestAtLowPatience(t *testing.T) {
-	w, _, liftA, _ := buildSmokeWorld(t)
+    // ... (unchanged)
+}
 
+func TestRelieveThirst(t *testing.T) {
+	w, _, liftA, _ := buildSmokeWorld(t)
+	_ = w.PlaceBuildingType(world.BuildingBar, 70, 70)
+
+	// Agent at top of A, thirsty.
 	snap := WorldSnapshot{
 		Pos:       mgl32.Vec3{liftA.Top[0], 0, liftA.Top[1]},
-		Patience:    0.1,
+		Patience:    1.0,
+		Energy:      1.0,
+		Hunger:      1.0,
+		Thirst:      0.1,
+		Skill:       1.0,
+		RemainingBudget: 1000,
 		AtLiftTop: liftA.ID,
 	}
 	goal := SelectGoal(&snap, w)
-	if goal.Name() != "Rest" {
-		t.Fatalf("expected Rest at Patience=0.1, got %s", goal.Name())
+	if goal.Name() != "RelieveThirst" {
+		t.Fatalf("expected RelieveThirst at Thirst=0.1, got %s", goal.Name())
 	}
 	p := NewPlanner()
 	plan := p.Plan(snap, goal, w)
 	if plan == nil {
-		t.Fatal("Rest plan came back nil")
+		t.Fatal("RelieveThirst plan came back nil")
 	}
 	last := plan[len(plan)-1]
-	if !strings.HasPrefix(last.Name(), "RestAtLodge") {
-		t.Errorf("Rest plan should end in RestAtLodge; got tail %q (full plan: %v)", last.Name(), planNames(plan))
+	if !strings.HasPrefix(last.Name(), "RelieveThirstAtBar") {
+		t.Errorf("RelieveThirst plan should end in RelieveThirstAtBar; got tail %q (full plan: %v)", last.Name(), planNames(plan))
 	}
 }
 

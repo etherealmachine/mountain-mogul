@@ -528,9 +528,9 @@ func applyDensityBrushUpTo(t *world.Terrain, cx, cz, radius int, step, target fl
 type toolMode int
 
 const (
-	toolNone        toolMode = iota
-	toolBuilding      toolMode = iota // place a lodge
-	toolTicketOffice  toolMode = iota // place a ticket office (season pass sales)
+	toolNone         toolMode = iota
+	toolBuilding     toolMode = iota // place a lodge
+	toolTicketOffice toolMode = iota // place a ticket office (season pass sales)
 	toolShed        toolMode = iota // place an equipment shed
 	toolParking     toolMode = iota // place a parking lot (skier spawn/despawn)
 	toolLiftBase    toolMode = iota // waiting for first lift click
@@ -539,6 +539,7 @@ const (
 	toolRoadEnd     toolMode = iota // waiting for second road click
 	toolEdgeConnect toolMode = iota // place a map-edge road connection node (editor only)
 	toolPatrolHut   toolMode = iota // place a ski patrol hut
+	toolBar         toolMode = iota // place a bar (relieve thirst/hunger)
 	toolSnowGun     toolMode = iota // place a snowmaking cannon
 	toolGlade       toolMode = iota // reduce TreeDensity (brush)
 	toolPlantTrees  toolMode = iota // increase TreeDensity (brush, editor only)
@@ -838,10 +839,11 @@ func (s *Scenario) Init(app *engine.App) error {
 	s.toolBar = ui.NewMenuBar(0, toolBarH)
 	s.toolBar.Centered = true
 
-	// Amenities submenu: Lodge, Ticket Office
+	// Amenities submenu: Lodge, Ticket Office, Bar
 	s.amenitiesSubmenu = s.toolBar.AddSubmenu(render.IconHouse, "Amenities")
 	s.toolButtons[toolBuilding] = s.amenitiesSubmenu.AddChild(render.IconHouse, "Lodge", func() { s.setTool(toolBuilding) })
 	s.toolButtons[toolTicketOffice] = s.amenitiesSubmenu.AddChild(render.IconCoin, "Tickets", func() { s.setTool(toolTicketOffice) })
+	s.toolButtons[toolBar] = s.amenitiesSubmenu.AddChild(render.IconCocktail, "Bar", func() { s.setTool(toolBar) })
 
 	// Operations submenu: Shed, Patrol
 	s.opsSubmenu = s.toolBar.AddSubmenu(render.IconGarage, "Operations")
@@ -2452,6 +2454,25 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		w.Cash -= world.SnowGunCost
 		w.PlaceBuildingType(world.BuildingSnowGun, wx, wz)
 		r.RebuildStaticBatch(w)
+	case toolBar:
+		if !w.Terrain.IsAccessible(gx, gz) {
+			s.setToast("Can't build on land you don't own")
+			return
+		}
+		if w.Cash < world.BarCost {
+			s.setToast(fmt.Sprintf("Need $%d for a bar — short by $%d",
+				world.BarCost, world.BarCost-w.Cash))
+			return
+		}
+		if w.BuildingOverlap(world.BuildingBar, wx, wz) {
+			s.setToast("Can't place a bar here — overlaps another building")
+			return
+		}
+		w.Cash -= world.BarCost
+		b := w.PlaceBuildingType(world.BuildingBar, wx, wz)
+		applyBuildingPlacementEffects(w.Terrain, b)
+		r.FlushTerrainVerts(w.Terrain)
+		r.RebuildStaticBatch(w)
 	case toolGlade:
 		// Slider value 0–10 = % density delta per application. Each click
 		// or drag-into-new-cell event fires one application; stationary
@@ -3318,6 +3339,24 @@ func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 				}
 			}
 			return fmt.Sprintf("%d", count)
+		})
+		w.Visible = true
+		w.Center(screenW, screenH)
+		s.popup = w
+		return
+	case world.BuildingBar:
+		w := ui.NewWindow("Bar", 0, 0)
+		w.AddLabel("Inbound", func() string {
+			count := 0
+			for _, a := range s.world.OnMountain {
+				if a.TargetID == bldg.ID {
+					count++
+				}
+			}
+			return fmt.Sprintf("%d", count)
+		})
+		w.AddLabel("Daily cost", func() string {
+			return fmt.Sprintf("$%d/day", world.BarDailyCost)
 		})
 		w.Visible = true
 		w.Center(screenW, screenH)

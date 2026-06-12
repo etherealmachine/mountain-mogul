@@ -29,6 +29,7 @@ const (
 
 	DefaultTicketPrice   = 10  // dollars per lift ride; player adjusts via the lift popup
 	TicketOfficeCost     = 20000
+	BarCost             = 35000 // bar/restaurant (half-size lodge)
 	DefaultSeasonPassPrice = 150 // one-time fee per guest per season; guests with sufficient budget buy it on arrival
 	HelipadCost        = 300000 // flat cost for a heli-ski operation (two pads + helicopter)
 	PatrolHutCost      = 35000  // patrol hut + one patroller/snowmobile
@@ -41,6 +42,7 @@ const (
 	// Daily operational costs. Charged once per in-game day at rollover.
 	// Sized so a single lift + single cat breaks even at ~63% load ($80/day).
 	LiftAttendantDailyCost = 20 // per attendant; each lift requires one top + one bottom
+	BarDailyCost           = 150 // bar operating cost per day
 	// Snowcat daily costs live in world/snowcat.go (CatActiveCostDay, CatStandbyCostDay).
 )
 
@@ -58,6 +60,8 @@ func BuildingCost(t BuildingType) int {
 		return SnowGunCost
 	case BuildingTicketOffice:
 		return TicketOfficeCost
+	case BuildingBar:
+		return BarCost
 	}
 	return LodgeCost
 }

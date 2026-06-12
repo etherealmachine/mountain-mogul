@@ -37,6 +37,7 @@ type WorldSnapshot struct {
 	Queued         uint64 // 0 or lift ID — standing in this lift's queue
 	OnLift         uint64 // 0 or lift ID — riding a chair
 	AtLodge        uint64 // 0 or lodge building ID
+	AtBar          uint64 // 0 or bar building ID
 	AtParking      uint64 // 0 or parking building ID
 	AtTrailEnd     uint64 // 0 or trail ID — arrived at a trail-to-trail junction
 	AtTicketOffice uint64 // 0 or ticket office building ID
@@ -161,6 +162,9 @@ func Extract(a *world.Guest, w *world.World) WorldSnapshot {
 		switch b.Type {
 		case world.BuildingLodge:
 			snap.AtLodge = b.ID
+			return snap
+		case world.BuildingBar:
+			snap.AtBar = b.ID
 			return snap
 		case world.BuildingParking:
 			snap.AtParking = b.ID

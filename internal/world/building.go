@@ -22,6 +22,7 @@ const (
 	BuildingPatrolHut    BuildingType = 3
 	BuildingSnowGun      BuildingType = 4
 	BuildingTicketOffice BuildingType = 5
+	BuildingBar          BuildingType = 6 // bar/restaurant — relieve thirst/hunger
 )
 
 // Building represents a structure placed on the terrain. Lodges are
