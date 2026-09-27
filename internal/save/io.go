@@ -125,7 +125,21 @@ func DefaultSaveName() string {
 // (most cells in a scenario have default snow state) down to a tiny
 // fraction of the original.
 func SaveScenario(path string, w *world.World, cam *CameraData) error {
-	data := worldToData(w)
+	return saveWorld(path, w, cam, false)
+}
+
+// SaveStarterScenario writes the world as a starter scenario: the same
+// format as SaveScenario, minus today's in-flight state. Guests on the
+// mountain go home, queues and chairs are emptied, parking lots are
+// empty, and snowcats and patrollers are parked at their buildings, so
+// a New Game from the file starts clean. Everything the player built
+// (and the snow, history, cash and camera) is kept.
+func SaveStarterScenario(path string, w *world.World, cam *CameraData) error {
+	return saveWorld(path, w, cam, true)
+}
+
+func saveWorld(path string, w *world.World, cam *CameraData, forScenario bool) error {
+	data := worldToData(w, forScenario)
 	if cam != nil {
 		c := *cam
 		data.Camera = &c
@@ -175,7 +189,9 @@ func LoadScenario(path string) (*world.World, *CameraData, error) {
 	return dataToWorld(data), data.Camera, nil
 }
 
-func worldToData(w *world.World) ScenarioData {
+// worldToData snapshots w. forScenario drops today's in-flight state
+// (see SaveStarterScenario).
+func worldToData(w *world.World, forScenario bool) ScenarioData {
 	t := w.Terrain
 	cells := make([]CellData, 0, t.Width*t.Height)
 	for x := 0; x < t.Width; x++ {
@@ -222,6 +238,14 @@ func worldToData(w *world.World) ScenarioData {
 			DrivewayNodeIDs: b.DrivewayNodeIDs,
 			SnowGunEnabled:  b.SnowGunEnabled,
 		}
+		if forScenario {
+			buildings[i].CurrentCars = 0
+		}
+	}
+
+	buildingByID := make(map[uint64]*world.Building, len(w.Buildings))
+	for _, b := range w.Buildings {
+		buildingByID[b.ID] = b
 	}
 
 	snowcats := make([]SnowcatData, len(w.Snowcats))
@@ -232,6 +256,11 @@ func worldToData(w *world.World) ScenarioData {
 			Pos:     [3]float32{c.Pos[0], c.Pos[1], c.Pos[2]},
 			Heading: c.Heading,
 			Status:  uint8(c.Status),
+		}
+		if shed := buildingByID[c.ShedID]; forScenario && shed != nil {
+			p := w.SnowcatParkPos(shed)
+			snowcats[i].Pos = [3]float32{p[0], p[1], p[2]}
+			snowcats[i].Heading = 0
 		}
 	}
 
@@ -244,6 +273,12 @@ func worldToData(w *world.World) ScenarioData {
 			Heading: p.Heading,
 			State:   uint8(p.State),
 		}
+		if hut := buildingByID[p.HutID]; forScenario && hut != nil {
+			pos := w.PatrollerHutPos(hut)
+			patrollers[i].Pos = [3]float32{pos[0], pos[1], pos[2]}
+			patrollers[i].Heading = 0
+			patrollers[i].State = uint8(world.PatrollerAtHut)
+		}
 	}
 
 	lifts := make([]LiftData, len(w.Lifts))
@@ -255,7 +290,7 @@ func worldToData(w *world.World) ScenarioData {
 				PassengerIDs: make([]uint64, len(c.Passengers)),
 			}
 			for pi, pax := range c.Passengers {
-				if pax != nil {
+				if pax != nil && !forScenario {
 					cd.PassengerIDs[pi] = pax.ID
 				}
 			}
@@ -263,7 +298,7 @@ func worldToData(w *world.World) ScenarioData {
 		}
 		queueIDs := make([]uint64, 0, len(l.Queue))
 		for _, a := range l.Queue {
-			if a != nil {
+			if a != nil && !forScenario {
 				queueIDs = append(queueIDs, a.ID)
 			}
 		}
@@ -284,7 +319,7 @@ func worldToData(w *world.World) ScenarioData {
 			RightLines:  l.QueueConfig.RightLines,
 			SingleRider: l.QueueConfig.SingleRider,
 		}
-		if len(l.Lines) > 0 {
+		if len(l.Lines) > 0 && !forScenario {
 			ld.LineQueueIDs = make([][]uint64, len(l.Lines))
 			for li, line := range l.Lines {
 				ids := make([]uint64, 0, len(line.Guests))
@@ -296,7 +331,7 @@ func worldToData(w *world.World) ScenarioData {
 				ld.LineQueueIDs[li] = ids
 			}
 		}
-		if l.IsHeli() && l.HeliState != nil {
+		if l.IsHeli() && l.HeliState != nil && !forScenario {
 			ld.HeliPhase = uint8(l.HeliState.Phase)
 			ld.HeliProgress = l.HeliState.Progress
 		}
@@ -322,12 +357,15 @@ func worldToData(w *world.World) ScenarioData {
 			LastScore:        g.LastScore,
 			State:            uint8(g.State),
 		}
+		if forScenario {
+			gd.State = uint8(world.AtHome)
+		}
 		if !g.LastVisit.IsZero() {
 			gd.LastVisitUnix = g.LastVisit.Unix()
 		}
 		gd.SeasonPassExpiry = g.SeasonPassExpiry
 		gd.HasSeasonPass = g.HasSeasonPass
-		if g.State == world.OnMountain {
+		if gd.State == uint8(world.OnMountain) {
 			gd.Pos = [3]float32{g.Pos[0], g.Pos[1], g.Pos[2]}
 			gd.Heading = g.Heading
 			gd.Path = g.Path

@@ -598,6 +598,7 @@ type Scenario struct {
 	saveAllowed     bool   // false in testbed mode; gates the Save prompt
 	saveName        string // last name used for Save; pre-fills the prompt next time
 	savePrompt      *savePrompt
+	confirmPrompt   *confirmPrompt // Save as Scenario overwrite check
 	prebuiltWorld   *world.World
 	simSeed         int64                          // 0 = wall-clock; nonzero forces deterministic RNG
 	rebuild         func(seed int64) *world.World // non-nil ⇒ "New Seed" button shown
@@ -824,6 +825,7 @@ func (s *Scenario) Init(app *engine.App) error {
 	}
 	if s.saveAllowed {
 		s.escapeMenu = NewEscapeMenu(app, s.openSavePrompt, s.gotoLoadMenu, openSettings)
+		s.escapeMenu.InsertButton(2, "Save as Scenario...", s.openScenarioSavePrompt)
 	} else {
 		s.escapeMenu = NewEscapeMenu(app, nil, nil, openSettings)
 	}
@@ -1317,6 +1319,52 @@ func (s *Scenario) commitSave(name string) {
 	s.setToast("Saved to " + filepath.Base(path))
 }
 
+// openScenarioSavePrompt is hooked into the escape menu's Save as
+// Scenario button. Asks for a name and writes assets/scenarios/<name>.save
+// as a starter scenario (see save.SaveStarterScenario).
+func (s *Scenario) openScenarioSavePrompt() {
+	if !s.saveAllowed {
+		return
+	}
+	s.savePrompt = newSavePrompt(s.saveName,
+		func(name string) {
+			s.savePrompt = nil
+			s.commitScenarioSave(name)
+		},
+		func() { s.savePrompt = nil },
+	)
+	s.savePrompt.title = "Save as Scenario"
+}
+
+// commitScenarioSave resolves name to assets/scenarios/<name>.save,
+// asking first when that file already exists.
+func (s *Scenario) commitScenarioSave(name string) {
+	clean := save.SanitizeSaveName(name)
+	if clean == "" {
+		s.setToast("Scenario name cannot be empty")
+		return
+	}
+	path := filepath.Join(s.app.AssetDir, "scenarios", clean+save.SaveExt)
+	write := func() {
+		if err := save.SaveStarterScenario(path, s.world, s.cameraSnapshot()); err != nil {
+			s.setToast("Save error: " + err.Error())
+			return
+		}
+		s.setToast("Saved scenario " + clean)
+	}
+	if _, err := os.Stat(path); err == nil {
+		s.confirmPrompt = newConfirmPrompt("Overwrite scenario "+clean+"?", "Overwrite",
+			func() {
+				s.confirmPrompt = nil
+				write()
+			},
+			func() { s.confirmPrompt = nil },
+		)
+		return
+	}
+	write()
+}
+
 // gotoLoadMenu is hooked into the escape menu's Load button. Pops back to
 // the start menu and pushes the SaveList scene so the user can pick which
 // save to resume — uniform with the main-menu Load Game flow.
@@ -1386,6 +1434,10 @@ func (s *Scenario) Update(dt float64) {
 	// swallows Escape (handled inside its TextInput's Cancel binding).
 	if s.savePrompt != nil {
 		s.savePrompt.HandleInput(inp, float32(r.ScreenWidth()), float32(r.ScreenHeight()))
+		return
+	}
+	if s.confirmPrompt != nil {
+		s.confirmPrompt.HandleInput(inp, float32(r.ScreenWidth()), float32(r.ScreenHeight()))
 		return
 	}
 
@@ -2887,6 +2939,9 @@ func (s *Scenario) Render(r *render.Renderer) {
 	}
 	if s.savePrompt != nil {
 		drawables = append(drawables, s.savePrompt)
+	}
+	if s.confirmPrompt != nil {
+		drawables = append(drawables, s.confirmPrompt)
 	}
 	if s.world != nil && len(s.world.Trails) > 0 {
 		showAll := s.overlayPanel != nil && (s.overlayPanel.Mask()&render.OverlayTrails) != 0
@@ -4821,6 +4876,7 @@ func (s *Scenario) setToast(text string) {
 // OK / Cancel buttons; the parent Scenario routes input to it whenever
 // non-nil and draws it as the topmost UI element.
 type savePrompt struct {
+	title    string // heading; "Save As" unless the caller sets it
 	input    *ui.TextInput
 	okBtn    *ui.Button
 	cancelBtn *ui.Button
@@ -4829,7 +4885,7 @@ type savePrompt struct {
 }
 
 func newSavePrompt(initial string, onSubmit func(string), onCancel func()) *savePrompt {
-	p := &savePrompt{onSubmit: onSubmit, onCancel: onCancel}
+	p := &savePrompt{title: "Save As", onSubmit: onSubmit, onCancel: onCancel}
 	p.input = ui.NewTextInput(0, 0, 0, 32, initial)
 	p.input.OnSubmit = func(text string) { p.onSubmit(text) }
 	p.input.OnCancel = func() { p.onCancel() }
@@ -4884,7 +4940,7 @@ func (p *savePrompt) Draw(r *render.Renderer) {
 	y := (sh - savePromptH) / 2
 	r.DrawColorRect(x, y, savePromptW, savePromptH, mgl32.Vec4{0.08, 0.12, 0.22, 0.98})
 	if r.Font != nil {
-		r.Font.DrawText(r, "Save As", x+16, y+16, mgl32.Vec4{1, 0.95, 0.8, 1})
+		r.Font.DrawText(r, p.title, x+16, y+16, mgl32.Vec4{1, 0.95, 0.8, 1})
 	}
 	p.input.Draw(r)
 	p.okBtn.Draw(r)
