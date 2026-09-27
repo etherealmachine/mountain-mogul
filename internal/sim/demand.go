@@ -73,6 +73,10 @@ const guestsPerTrailCell = float32(0.10)
 type DemandSystem struct {
 	ResortRating float32
 	LastPoll     float64
+	// Season is the close year (SeasonCloseYearFor) of the season the
+	// last poll ran in; 0 until the first poll. Not persisted — a loaded
+	// save re-seeds it from SimTime without triggering a reset.
+	Season int
 }
 
 // NewDemandSystem bootstraps a fresh demand system with a neutral rating.
@@ -94,6 +98,7 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 	}
 	elapsed := s.SimTime - d.LastPoll
 	d.LastPoll = s.SimTime
+	d.checkSeasonRollover(s)
 
 	// Piggyback the slow cadence with a one-pass linear decay of skier
 	// tracks in the surface-detail R channel. 0.985 per 30 s sim time
@@ -158,6 +163,29 @@ func (d *DemandSystem) recordDeparture(g *world.Guest, simTime float64) {
 	g.LifetimeVisits++
 	g.VisitsThisSeason++
 	g.LastVisit = DateAt(simTime)
+}
+
+// checkSeasonRollover detects the season boundary from SimTime and, when
+// it has moved since the last poll, clears per-season guest counters.
+// The first call only seeds d.Season.
+func (d *DemandSystem) checkSeasonRollover(s *Simulation) {
+	season := SeasonCloseYearFor(DateAt(s.SimTime))
+	if d.Season != 0 && season != d.Season {
+		resetSeasonCounters(s.World)
+	}
+	d.Season = season
+}
+
+// resetSeasonCounters zeroes every per-season field on every guest in the
+// catchment. This is the single place a new season starts for guests;
+// the derived-season work should call it rather than duplicating resets.
+func resetSeasonCounters(w *world.World) {
+	if w == nil {
+		return
+	}
+	for _, g := range w.Guests {
+		g.VisitsThisSeason = 0
+	}
 }
 
 // =============================================================================
