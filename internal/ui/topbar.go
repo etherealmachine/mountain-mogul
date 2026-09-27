@@ -35,6 +35,7 @@ type TopBar struct {
 	gearBtn    *iconButton
 	overlayBtn *iconButton // overlay-panel toggle; sits between speed and gear
 	chartsBtn  *iconButton // chart-window toggle; sits next to overlay
+	eventsBtn  *iconButton // event-feed panel toggle; sits left of charts
 
 	bgColor mgl32.Vec4
 }
@@ -82,6 +83,20 @@ func (t *TopBar) SetChartsToggle(onClick func()) {
 func (t *TopBar) SetChartsActive(active bool) {
 	if t.chartsBtn != nil {
 		t.chartsBtn.active = active
+	}
+}
+
+// SetEventsToggle installs the event-feed panel toggle button. Sits left
+// of the charts button; tracks visibility via SetEventsActive.
+func (t *TopBar) SetEventsToggle(onClick func()) {
+	t.eventsBtn = newIconButton("events", onClick)
+}
+
+// SetEventsActive reflects the event panel's visibility back to the
+// top-bar icon.
+func (t *TopBar) SetEventsActive(active bool) {
+	if t.eventsBtn != nil {
+		t.eventsBtn.active = active
 	}
 }
 
@@ -173,11 +188,14 @@ func (t *TopBar) Draw(r *render.Renderer) {
 
 // iconButtons returns every clickable icon for hover/click iteration.
 func (t *TopBar) iconButtons() []*iconButton {
-	out := make([]*iconButton, 0, len(t.speedBtns)+4)
+	out := make([]*iconButton, 0, len(t.speedBtns)+5)
 	if t.pauseBtn != nil {
 		out = append(out, t.pauseBtn)
 	}
 	out = append(out, t.speedBtns...)
+	if t.eventsBtn != nil {
+		out = append(out, t.eventsBtn)
+	}
 	if t.chartsBtn != nil {
 		out = append(out, t.chartsBtn)
 	}
@@ -217,6 +235,13 @@ func (t *TopBar) layout(screenW float32) {
 		t.chartsBtn.y = t.Y
 		t.chartsBtn.w = iconBoxW
 		t.chartsBtn.h = t.H
+	}
+	if t.eventsBtn != nil {
+		x -= iconBoxW
+		t.eventsBtn.x = x
+		t.eventsBtn.y = t.Y
+		t.eventsBtn.w = iconBoxW
+		t.eventsBtn.h = t.H
 	}
 	for i := len(t.speedBtns) - 1; i >= 0; i-- {
 		x -= iconBoxW
@@ -381,8 +406,11 @@ func (t *TopBar) drawCenter(r *render.Renderer, screenW float32) {
 // drawRight renders the speed/pause/gear icon row.
 func (t *TopBar) drawRight(r *render.Renderer) {
 	// Thin separator between the playback cluster (pause/speed) and the
-	// view cluster (charts/overlay/gear).
-	if t.chartsBtn != nil {
+	// view cluster (events/charts/overlay/gear).
+	if t.eventsBtn != nil {
+		sepX := t.eventsBtn.x - 3
+		r.DrawColorRect(sepX, t.Y+10, 1, t.H-20, mgl32.Vec4{0.35, 0.50, 0.80, 0.40})
+	} else if t.chartsBtn != nil {
 		sepX := t.chartsBtn.x - 3
 		r.DrawColorRect(sepX, t.Y+10, 1, t.H-20, mgl32.Vec4{0.35, 0.50, 0.80, 0.40})
 	} else if t.overlayBtn != nil {
@@ -438,6 +466,8 @@ func (t *TopBar) drawIconButton(r *render.Renderer, b *iconButton) {
 		r.DrawIcon(render.IconStack, cx-iconSize/2, cy, iconSize, col)
 	case "charts":
 		r.DrawIcon(render.IconChartBar, cx-iconSize/2, cy, iconSize, col)
+	case "events":
+		r.DrawIcon(render.IconFlag, cx-iconSize/2, cy, iconSize, col)
 	}
 }
 

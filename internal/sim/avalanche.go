@@ -24,6 +24,8 @@ const avySqrt2 = float32(1.4142136)
 // applyDailyWeather on heavy-snow and rain days.
 func (s *Simulation) checkAvalanches() {
 	t := s.World.Terrain
+	released := 0
+	var first [2]int
 	for x := range t.Cells {
 		for z := range t.Cells[x] {
 			c := &t.Cells[x][z]
@@ -35,18 +37,24 @@ func (s *Simulation) checkAvalanches() {
 			if rng.Global().Float32() > chance {
 				continue
 			}
-			s.startAvalanche(t, x, z)
+			if s.startAvalanche(t, x, z) {
+				if released == 0 {
+					first = [2]int{x, z}
+				}
+				released++
+			}
 		}
 	}
+	s.logAvalanches(released, first)
 }
 
 // startAvalanche lifts a fraction of the top snow layer into transit and adds
 // this cell to the active avalanche front. The wave spreads downhill each tick
-// via tickAvalanche.
-func (s *Simulation) startAvalanche(t *world.Terrain, x, z int) {
+// via tickAvalanche. Returns false when the cell had too little snow to release.
+func (s *Simulation) startAvalanche(t *world.Terrain, x, z int) bool {
 	c := &t.Cells[x][z]
 	if c.Top.Accumulation < avyMinSnow {
-		return
+		return false
 	}
 	// Take half the top layer into transit; the rest stays as a debris marker.
 	released := c.Top.Accumulation * 0.5
@@ -59,6 +67,7 @@ func (s *Simulation) startAvalanche(t *world.Terrain, x, z int) {
 	c.AvyTick = s.avyGen
 	s.avyFront = append(s.avyFront, [2]int{x, z})
 	t.SnowDirty = true
+	return true
 }
 
 // tickAvalanche advances all in-flight avalanche fronts by dt seconds.

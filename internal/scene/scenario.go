@@ -557,6 +557,7 @@ type Scenario struct {
 	topBar          *ui.TopBar       // resort-management HUD strip
 	overlayPanel    *ui.OverlayPanel // right-side terrain-overlay toggles
 	chartWindow     *ui.ChartWindow  // resort-stats charts (line + grouped bar)
+	eventPanel      *ui.EventPanel   // left-side world event feed
 	escapeMenu      *EscapeMenu
 	settingsMenu    *SettingsMenu
 	debugConsole    *DebugConsole
@@ -955,6 +956,22 @@ func (s *Scenario) Init(app *engine.App) error {
 	s.topBar.SetOverlayToggle(func() {
 		visible := s.overlayPanel.Toggle()
 		s.topBar.SetOverlayActive(visible)
+	})
+
+	// Event panel — left-edge list of recent world.Events. Clicking a
+	// positioned event drops any follow and centres the camera on it.
+	s.eventPanel = ui.NewEventPanel()
+	s.eventPanel.Top = topBarH
+	s.eventPanel.Bottom = float32(app.Renderer.ScreenHeight()) - toolBarH
+	s.eventPanel.GetRows = func() []ui.EventRow { return eventRows(s.world) }
+	s.eventPanel.OnJump = func(x, z float32) {
+		s.setFollowGuest(0)
+		c := app.Renderer.Camera
+		c.Target = mgl32.Vec3{x, s.world.Terrain.InterpolatedSurfaceElevationAt(x, z), z}
+		c.Recalculate()
+	}
+	s.topBar.SetEventsToggle(func() {
+		s.topBar.SetEventsActive(s.eventPanel.Toggle())
 	})
 
 	// Charts window — three tabs: guest population (line), arrivals /
@@ -1551,6 +1568,8 @@ func (s *Scenario) Update(dt float64) {
 	s.overlayPanel.Bottom = float32(r.ScreenHeight()) - s.toolBar.H
 	s.overlayPanel.HandleInput(inp, float32(r.ScreenWidth()))
 	r.TerrainOverlayMode = s.overlayPanel.Mask()
+	s.eventPanel.Bottom = s.overlayPanel.Bottom
+	s.eventPanel.HandleInput(inp)
 
 	// Camera pan with right-click drag
 	if inp.RightClick {
@@ -2355,6 +2374,7 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		}
 		w.Cash -= world.LodgeCost
 		b := w.PlaceBuildingType(world.BuildingLodge, wx, wz)
+		s.sim.LogBuildingPlaced(b)
 		applyBuildingPlacementEffects(w.Terrain, b)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
@@ -2374,6 +2394,7 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		}
 		w.Cash -= world.TicketOfficeCost
 		b := w.PlaceBuildingType(world.BuildingTicketOffice, wx, wz)
+		s.sim.LogBuildingPlaced(b)
 		applyBuildingPlacementEffects(w.Terrain, b)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
@@ -2393,6 +2414,7 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		}
 		w.Cash -= world.ShedCost
 		b := w.PlaceBuildingType(world.BuildingShed, wx, wz)
+		s.sim.LogBuildingPlaced(b)
 		s.sim.InvalidateSections()
 		applyBuildingPlacementEffects(w.Terrain, b)
 		r.FlushTerrainVerts(w.Terrain)
@@ -2413,6 +2435,7 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		}
 		w.Cash -= world.ParkingCost
 		b := w.PlaceBuildingType(world.BuildingParking, wx, wz)
+		s.sim.LogBuildingPlaced(b)
 		w.EnsureParkingDriveway(b)
 		applyBuildingPlacementEffects(w.Terrain, b)
 		r.FlushTerrainVerts(w.Terrain)
@@ -2434,6 +2457,7 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		}
 		w.Cash -= world.PatrolHutCost
 		b := w.PlaceBuildingType(world.BuildingPatrolHut, wx, wz)
+		s.sim.LogBuildingPlaced(b)
 		applyBuildingPlacementEffects(w.Terrain, b)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
@@ -2452,7 +2476,8 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 			return
 		}
 		w.Cash -= world.SnowGunCost
-		w.PlaceBuildingType(world.BuildingSnowGun, wx, wz)
+		b := w.PlaceBuildingType(world.BuildingSnowGun, wx, wz)
+		s.sim.LogBuildingPlaced(b)
 		r.RebuildStaticBatch(w)
 	case toolBar:
 		if !w.Terrain.IsAccessible(gx, gz) {
@@ -2470,6 +2495,7 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		}
 		w.Cash -= world.BarCost
 		b := w.PlaceBuildingType(world.BuildingBar, wx, wz)
+		s.sim.LogBuildingPlaced(b)
 		applyBuildingPlacementEffects(w.Terrain, b)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
@@ -2521,6 +2547,7 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		}
 		w.Cash -= cost
 		lift := w.PlaceLift(s.liftType, s.liftBase[0], s.liftBase[1], wx, wz)
+		s.sim.LogLiftPlaced(lift)
 		if lift.IsHeli() {
 			applyHelipadPlacementEffects(w.Terrain, lift)
 		} else {
@@ -2765,7 +2792,10 @@ func (s *Scenario) Render(r *render.Renderer) {
 	if s.overlayPanel != nil {
 		s.overlayPanel.Bottom = float32(r.ScreenHeight()) - s.toolBar.H
 	}
-	drawables := []render.UIDrawable{s.topBar, s.toolBar, s.overlayPanel}
+	if s.eventPanel != nil {
+		s.eventPanel.Bottom = float32(r.ScreenHeight()) - s.toolBar.H
+	}
+	drawables := []render.UIDrawable{s.topBar, s.toolBar, s.overlayPanel, s.eventPanel}
 
 	// Parcel price labels — shown when the land-buy tool is active so the
 	// player can see what each purchasable parcel costs before clicking.
@@ -3494,11 +3524,13 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 				}
 			}
 			l.Open = false
+			s.sim.LogLiftOpenChanged(l)
 			s.openLiftPopup(l, screenW, screenH)
 		})
 	} else {
 		w.AddActionButton("Open Lift", func() {
 			l.Open = true
+			s.sim.LogLiftOpenChanged(l)
 			s.openLiftPopup(l, screenW, screenH)
 		})
 	}
@@ -3743,6 +3775,9 @@ func (s *Scenario) uiCovers(x, y float32, screenW float32) bool {
 		return true
 	}
 	if s.overlayPanel != nil && s.overlayPanel.ContainsXY(x, y, screenW) {
+		return true
+	}
+	if s.eventPanel != nil && s.eventPanel.ContainsXY(x, y) {
 		return true
 	}
 	if s.popup != nil && s.popup.ContainsPoint(x, y) {
