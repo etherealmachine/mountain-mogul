@@ -15,38 +15,63 @@ import (
 )
 
 // ScenarioPicker lists every starter scenario in assets/scenarios/ so the
-// user can pick which one a New Game begins from. Models on TestbedMenu's
+// user can pick which one a New Game begins from — or, in editor mode,
+// which one the Scenario Editor opens. Models on TestbedMenu's
 // centred-button-stack pattern; Back returns to the start menu.
 type ScenarioPicker struct {
 	app     *engine.App
 	buttons []*ui.Button
+	forEditor bool // pick opens the editor, plus a "New blank scenario" entry
 }
 
 func NewScenarioPicker() *ScenarioPicker { return &ScenarioPicker{} }
 
+// NewEditorScenarioPicker lists the same files but opens the pick in the
+// Scenario Editor, with an extra entry for starting from a blank world.
+func NewEditorScenarioPicker() *ScenarioPicker { return &ScenarioPicker{forEditor: true} }
+
+// listScenarioFiles returns the sorted basenames of every save file in dir.
+// A missing directory yields an empty list.
+func listScenarioFiles(dir string) []string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	files := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), save.SaveExt) {
+			continue
+		}
+		files = append(files, e.Name())
+	}
+	sort.Strings(files)
+	return files
+}
+
 func (s *ScenarioPicker) Init(app *engine.App) error {
 	s.app = app
 	dir := filepath.Join(app.AssetDir, "scenarios")
-	entries, err := os.ReadDir(dir)
-	if err == nil {
-		files := make([]string, 0, len(entries))
-		for _, e := range entries {
-			if e.IsDir() || !strings.HasSuffix(e.Name(), save.SaveExt) {
-				continue
-			}
-			files = append(files, e.Name())
-		}
-		sort.Strings(files)
-		for _, name := range files {
-			path := filepath.Join(dir, name)
-			label := strings.TrimSuffix(name, save.SaveExt)
-			btn := ui.NewButton(0, 0, 280, 40, label, func() {
+	addBtn := func(label string, fn func()) {
+		btn := ui.NewButton(0, 0, 280, 40, label, fn)
+		btn.Color = mgl32.Vec4{0.15, 0.25, 0.45, 0.95}
+		btn.HoverColor = mgl32.Vec4{0.25, 0.45, 0.75, 0.95}
+		s.buttons = append(s.buttons, btn)
+	}
+	for _, name := range listScenarioFiles(dir) {
+		path := filepath.Join(dir, name)
+		label := strings.TrimSuffix(name, save.SaveExt)
+		addBtn(label, func() {
+			if s.forEditor {
+				s.app.ReplaceScene(NewEditor(path))
+			} else {
 				s.app.ReplaceScene(NewScenarioFromFile(path))
-			})
-			btn.Color = mgl32.Vec4{0.15, 0.25, 0.45, 0.95}
-			btn.HoverColor = mgl32.Vec4{0.25, 0.45, 0.75, 0.95}
-			s.buttons = append(s.buttons, btn)
-		}
+			}
+		})
+	}
+	if s.forEditor {
+		addBtn("New blank scenario", func() {
+			s.app.ReplaceScene(NewEditor(""))
+		})
 	}
 	back := ui.NewButton(0, 0, 280, 40, "Back", func() { s.app.PopScene() })
 	back.Color = mgl32.Vec4{0.4, 0.25, 0.25, 0.95}

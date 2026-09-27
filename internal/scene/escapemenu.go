@@ -57,6 +57,19 @@ func NewEscapeMenu(app *engine.App, saveFunc, loadFunc, settingsFunc func()) *Es
 	return m
 }
 
+// InsertButton adds an extra entry at index (clamped to the list), styled
+// like the rest. The menu hides itself before running fn, matching Save.
+func (m *EscapeMenu) InsertButton(index int, label string, fn func()) {
+	btn := ui.NewButton(0, 0, 200, 40, label, func() {
+		m.visible = false
+		fn()
+	})
+	btn.Color = mgl32.Vec4{0.15, 0.25, 0.45, 0.95}
+	btn.HoverColor = mgl32.Vec4{0.25, 0.45, 0.75, 0.95}
+	index = max(0, min(index, len(m.buttons)))
+	m.buttons = append(m.buttons[:index], append([]*ui.Button{btn}, m.buttons[index:]...)...)
+}
+
 func (m *EscapeMenu) Visible() bool { return m.visible }
 func (m *EscapeMenu) Show()         { m.visible = true }
 func (m *EscapeMenu) Hide()         { m.visible = false }
