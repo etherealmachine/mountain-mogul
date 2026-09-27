@@ -1384,12 +1384,14 @@ func recordFrame(s *Simulation, a *world.Guest, target mgl32.Vec3, dist float32,
 	})
 }
 
-// cheapestLiftTicket returns the minimum ticket price across all lifts, or 0.
+// cheapestLiftTicket returns the minimum per-ride fare across all lifts,
+// or 0 when there are no lifts or any lift is free to ride (every cable
+// lift, since the day ticket covers them).
 func cheapestLiftTicket(w *world.World) int {
 	min := 0
-	for _, l := range w.Lifts {
-		if min == 0 || l.TicketPrice < min {
-			min = l.TicketPrice
+	for i, l := range w.Lifts {
+		if fare := l.RideFare(); i == 0 || fare < min {
+			min = fare
 		}
 	}
 	return min

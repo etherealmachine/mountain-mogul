@@ -46,7 +46,7 @@ domain helpers (entity lookup, coordinate conversion, ID allocation).
 | `Terrain` | Height-map grid. Each `Cell` stores `GroundElevation`, `SnowDepth`, `Grooming`, `Packed`, `Ice`, `MogulSize`, `TreeDensity`, `Passable`. |
 | `SurfaceDetail` | 1 m-resolution RGBA8 texture (5× cell grid). R = skier tracks, G = tree wells, B = groom-edge mask. See [SNOW.md](SNOW.md). |
 | `Guest` | Resort visitor. Identity + career stats (`Visits`, `LastRating`); on-mountain transient state (position, speed, energy, fun, fear, `Plan`, `Balance`); `Thoughts` ring for RCT-style feedback. |
-| `Lift` | Cable lift. Base/top positions, speed, ticket price, `[]Chair` loop, queue of waiting guests. |
+| `Lift` | Cable lift. Base/top positions, speed, per-ride fare (heli only; cable lifts are covered by the day ticket), `[]Chair` loop, queue of waiting guests. |
 | `Building` | Placed structure (lodge, shed, parking lot). Sheds own snowcats and a painted grooming route. |
 | `Snowcat` | Grooming machine. Drives to route cells, applies corduroy (raises `Packed`, lowers `SnowDepth`). |
 | `RoadNode / RoadEdge` | Road graph vertices and segments. Nodes typed: freestanding, edge-connection, parking driveway, auto-intersection. |

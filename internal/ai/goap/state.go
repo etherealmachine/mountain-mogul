@@ -42,13 +42,17 @@ type WorldSnapshot struct {
 	AtTrailEnd     uint64 // 0 or trail ID — arrived at a trail-to-trail junction
 	AtTicketOffice uint64 // 0 or ticket office building ID
 
-	// RemainingBudget is the guest's unspent visit money. Decremented by
-	// each lift ticket (or the season pass fee); when it falls below
-	// CheapestTicket the GoHome goal fires (unless the guest has a pass).
+	// RemainingBudget is the guest's unspent visit money after the day
+	// ticket. Decremented by heli fares (or the season pass fee); when it
+	// falls below CheapestTicket the GoHome goal fires (unless the guest
+	// has a pass).
 	RemainingBudget float32
-	// CheapestTicket is the minimum ticket price across all open lifts,
+	// PassCredit is today's day ticket, credited toward a season pass
+	// bought this visit. A pass costs SeasonPassPrice - PassCredit.
+	PassCredit float32
+	// CheapestTicket is the minimum per-ride fare across all lifts,
 	// precomputed at Extract time so goal/action logic needs no world walk.
-	// Zero when the world has no lifts.
+	// Zero when the world has no lifts or any lift is free per ride.
 	CheapestTicket float32
 
 	// HasSeasonPass is true when the guest holds a valid season pass. Pass
@@ -100,6 +104,7 @@ func Extract(a *world.Guest, w *world.World) WorldSnapshot {
 		Thirst:          a.Thirst,
 		Skill:           a.Traits.Skill,
 		RemainingBudget: a.RemainingBudget,
+		PassCredit:      float32(a.DayTicketPaid),
 		CheapestTicket:  cheapestTicket(w),
 		HasSeasonPass:   a.HasSeasonPass,
 		OnLift:          a.OnLiftID,
@@ -192,6 +197,7 @@ func ExtractLookahead(a *world.Guest, liftID uint64, w *world.World) WorldSnapsh
 		Thirst:          a.Thirst,
 		Skill:           a.Traits.Skill,
 		RemainingBudget: a.RemainingBudget,
+		PassCredit:      float32(a.DayTicketPaid),
 		CheapestTicket:  cheapestTicket(w),
 		HasSeasonPass:   a.HasSeasonPass,
 		AtLiftTop:       liftID,
@@ -200,18 +206,27 @@ func ExtractLookahead(a *world.Guest, liftID uint64, w *world.World) WorldSnapsh
 	}
 }
 
-// cheapestTicket returns the minimum ticket price across all open lifts,
-// or 0 if there are none. Precomputed into WorldSnapshot so goal and action
-// logic never walk the lift list themselves.
+// cheapestTicket returns the minimum per-ride fare across all lifts, or 0
+// if there are none or any lift is free per ride. Precomputed into
+// WorldSnapshot so goal and action logic never walk the lift list themselves.
 func cheapestTicket(w *world.World) float32 {
 	min := float32(0)
-	for _, l := range w.Lifts {
-		p := float32(l.TicketPrice)
-		if min == 0 || p < min {
+	for i, l := range w.Lifts {
+		if p := float32(l.RideFare()); i == 0 || p < min {
 			min = p
 		}
 	}
 	return min
+}
+
+// passCost is what a season pass costs this guest right now: the pass
+// price less today's day ticket credit, floored at zero.
+func passCost(s *WorldSnapshot, w *world.World) float32 {
+	c := float32(w.SeasonPassPrice) - s.PassCredit
+	if c < 0 {
+		return 0
+	}
+	return c
 }
 
 // proximityRadius is the radius (m) within which an agent counts as "at"

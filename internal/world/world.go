@@ -27,7 +27,8 @@ const (
 
 	GladeCostPerCell = 200 // cost per in-radius cell with trees cleared by the glade brush
 
-	DefaultTicketPrice   = 10  // dollars per lift ride; player adjusts via the lift popup
+	DefaultTicketPrice   = 10  // dollars per heli ride; only heli charges per ride, player adjusts via the lift popup
+	DefaultDayTicketPrice = 60 // dollars per visit, charged once at arrival (VISION §7: $60–90); pass holders pay nothing
 	TicketOfficeCost     = 20000
 	BarCost             = 35000 // bar/restaurant (half-size lodge)
 	DefaultSeasonPassPrice = 150 // one-time fee per guest per season; guests with sufficient budget buy it on arrival
@@ -114,6 +115,13 @@ type World struct {
 	// via the ticket office popup (future).
 	SeasonPassPrice int
 
+	// DayTicketPrice is the per-visit fee in dollars charged once when a
+	// guest arrives at the resort. Guests holding a valid season pass pay
+	// nothing; guests whose DailyBudget can't cover it stay home. Defaults
+	// to DefaultDayTicketPrice; the player adjusts it via the parking lot
+	// or ticket office popup.
+	DayTicketPrice int
+
 	// Parcels is the scenario-authored land-ownership registry. An empty
 	// slice means no parcel system: all cells are accessible. When non-empty,
 	// only ParcelOwned parcels are accessible; call ApplyParcels to derive
@@ -139,6 +147,7 @@ func NewWorld(terrain *Terrain) *World {
 		Cash:            StartingCash,
 		History:         NewHistory(),
 		SeasonPassPrice: DefaultSeasonPassPrice,
+		DayTicketPrice:  DefaultDayTicketPrice,
 	}
 }
 

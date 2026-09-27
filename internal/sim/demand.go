@@ -127,6 +127,9 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 		if g.State != world.AtHome {
 			continue
 		}
+		if _, ok := dayTicketCharge(s.World, g, s.SimTime); !ok {
+			continue
+		}
 		match := terrainMatch(s.World, g.Traits.Skill)
 		if match == 0 {
 			continue
@@ -147,6 +150,28 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 			}
 		}
 	}
+}
+
+// dayTicketCharge returns the day ticket guest g pays on arriving at
+// simTime and whether they can afford to come at all. Pass holders pay 0
+// and always can; everyone else pays w.DayTicketPrice if their
+// DailyBudget covers it. The demand poll gates on ok; spawnGuest charges
+// the price. This is the single hook for price elasticity.
+func dayTicketCharge(w *world.World, g *world.Guest, simTime float64) (price int, ok bool) {
+	if hasValidPass(g, simTime) {
+		return 0, true
+	}
+	price = w.DayTicketPrice
+	if price < 0 {
+		price = 0
+	}
+	return price, float32(price) <= g.Traits.DailyBudget
+}
+
+// hasValidPass reports whether g holds a season pass that hasn't expired
+// at simTime.
+func hasValidPass(g *world.Guest, simTime float64) bool {
+	return g.SeasonPassExpiry > 0 && simTime < g.SeasonPassExpiry
 }
 
 // recordDeparture is called once at the moment of ActDepart, before the

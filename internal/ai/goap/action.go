@@ -142,7 +142,7 @@ func (a *JoinQueue) Precondition(s *WorldSnapshot, w *world.World) bool {
 	// Reject if the guest can't afford this lift. Pass holders skip the budget
 	// check — their rides are free. Budget-exhausted guests still need to ride
 	// up to exit — same exception as the patience check above.
-	if !s.HasSeasonPass && s.RemainingBudget > 0 && s.RemainingBudget < float32(l.TicketPrice) {
+	if !s.HasSeasonPass && s.RemainingBudget > 0 && s.RemainingBudget < float32(l.RideFare()) {
 		return false
 	}
 	return true
@@ -391,7 +391,7 @@ func (a *WalkToTicketOffice) Precondition(s *WorldSnapshot, w *world.World) bool
 	if s.HasSeasonPass {
 		return false
 	}
-	if s.RemainingBudget < float32(w.SeasonPassPrice) {
+	if s.RemainingBudget < passCost(s, w) {
 		return false
 	}
 	return findBuilding(w, a.OfficeID, world.BuildingTicketOffice) != nil
@@ -433,8 +433,9 @@ func (a *BuySeasonPass) Precondition(s *WorldSnapshot, w *world.World) bool {
 }
 
 func (a *BuySeasonPass) Apply(s *WorldSnapshot, w *world.World) {
+	s.RemainingBudget -= passCost(s, w)
+	s.PassCredit = 0
 	s.HasSeasonPass = true
-	s.RemainingBudget -= float32(w.SeasonPassPrice)
 	s.AtTicketOffice = 0
 }
 

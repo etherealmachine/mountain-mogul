@@ -414,6 +414,7 @@ func worldToData(w *world.World) ScenarioData {
 		RoadEdges:  roadEdges,
 		Parcels:    parcels,
 		Cash:       w.Cash,
+		DayTicket:  &w.DayTicketPrice,
 		History:    historyToData(w.History),
 	}
 }
@@ -519,6 +520,9 @@ func dataToWorld(data ScenarioData) *world.World {
 	w.Seed = data.Seed
 	if data.Cash != 0 {
 		w.Cash = data.Cash
+	}
+	if data.DayTicket != nil {
+		w.DayTicketPrice = *data.DayTicket
 	}
 
 	// Restore objects (no cross-references, fresh IDs are fine).

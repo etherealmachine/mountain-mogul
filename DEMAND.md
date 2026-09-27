@@ -26,11 +26,13 @@ system, neither by the lot.
                                │  occupancy)  │
                                └──────┬───────┘
                                       │ for each AtHome guest:
+                                      │   skip if can't afford day ticket
                                       │   p = rating × terrainMatch × (1 − occ)
                                       │   if Bernoulli(p) → spawnGuest
                                       ▼
                             ┌──────────────────┐
                             │   spawnGuest     │  Satisfaction = 0.6, Patience = 1
+                            │                  │  day ticket → Cash, revenue
                             └────────┬─────────┘
                                      │ lot.CurrentCars += 1/GuestsPerCar
                                      ▼
@@ -77,6 +79,7 @@ capacity = Σ lifts: chairs × seats × (1 / loopTime) × avgSessionSec
 occupancy = len(World.OnMountain) / capacity
 
 for each g in World.Guests where g.State == AtHome:
+    if !dayTicketCharge(g).ok: continue   // can't afford the day ticket
     match = terrainMatch(g.Traits.Skill)
     if match == 0: continue   // no lifts they'd ride
     dailyRate = g.VisitsPerSeason / seasonDaysApprox
@@ -98,6 +101,34 @@ Advanced→Black), else 0.
 
 **`visitProbability`** is multiplicative — any factor near zero kills demand.
 
+**`dayTicketCharge(w, g, simTime)`** is the price gate and the single hook
+for price elasticity. It returns `(price, ok)`: a guest with a valid
+season pass pays 0 and is always ok; everyone else pays
+`World.DayTicketPrice` and is ok only if `Traits.DailyBudget` covers it.
+Unaffordable guests are skipped before the Bernoulli roll — they stay home.
+
+---
+
+## Payment: the day ticket
+
+Revenue is per visit, not per ride (VISION §7). The day ticket is paid
+**once, at arrival**, inside `spawnGuest`:
+
+- `World.DayTicketPrice` (dollars; default `DefaultDayTicketPrice` = $60
+  in `world.go`) is set by the player from the parking lot or ticket
+  office popup, and persisted in the save (`day_ticket`).
+- The price is computed before planning so the planner sees the
+  post-ticket budget: `RemainingBudget = DailyBudget − price`,
+  `Guest.DayTicketPaid = price`.
+- Only once the spawn succeeds does the money move: `World.Cash += price`
+  and `History.RecordRevenue(price)`. A failed spawn charges nothing.
+- Guests holding a valid season pass (`SeasonPassExpiry > SimTime`) pay
+  nothing.
+- Cable lifts cost nothing per ride. Heli keeps per-ride pricing via
+  `Lift.RideFare()` (heli's `TicketPrice`; 0 for every other lift type).
+- A guest who buys a season pass later in the same visit has today's day
+  ticket credited: they pay `SeasonPassPrice − DayTicketPaid`.
+
 ---
 
 ## Spawning
@@ -105,12 +136,14 @@ Advanced→Black), else 0.
 `Simulation.spawnGuest(lot, g)` places the guest on the mountain:
 
 1. Set `Pos` to the lot's door cell, `Balance = 1.0`, `Patience = 1.0`,
-   `Satisfaction = 0.6`.
+   `Satisfaction = 0.6`; price the day ticket and set `RemainingBudget`.
 2. Append to `w.OnMountain`; flip `g.State = OnMountain`.
 3. Call `s.replan(g)` — the L0 planner picks the first lift and
    `onPlanStepStart(ActWalkToLift)` lays a pathfinder route.
 4. If the planner returns no plan OR the pathfinder fails, unwind: pop
    from `OnMountain`, call `g.ResetForDeparture()`, return false.
+5. On success, credit the day ticket to `Cash` and revenue history, and
+   record the arrival.
 
 ---
 
@@ -160,6 +193,7 @@ half-bar on a fresh scenario; the bar drifts up or down as guests depart.
 | `initialResortRating` | 0.5 | Bootstrap value on fresh sim |
 | `avgSessionSec` | 800 | Capacity estimate denominator |
 | `seasonDaysApprox` | 186 | Divisor for per-day visit rates |
+| `world.DefaultDayTicketPrice` | $60 | Starting day ticket; player-adjustable via `World.DayTicketPrice` |
 
 ---
 
@@ -168,6 +202,8 @@ half-bar on a fresh scenario; the bar drifts up or down as guests depart.
 - **Time-of-day / weather modulation.** The poll fires at a flat rate.
   A clock + weather system would shape the curve (morning peak, storm
   penalty, etc.).
+- **Price elasticity.** The day-ticket gate is binary (budget covers it
+  or not). A smooth price factor in the poll plugs into `dayTicketCharge`.
 - **Per-lot draw weighting.** New guests pick a uniform-random lot.
   Occupancy, distance to lifts, or pricing could weight the draw.
 - **Richer `terrainMatch`.** Binary today. A trail-aware fraction of

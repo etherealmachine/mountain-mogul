@@ -44,7 +44,7 @@ func (GetSeasonPass) IsSatisfied(s *WorldSnapshot, w *world.World) bool {
 }
 
 func (GetSeasonPass) Weight(s *WorldSnapshot, w *world.World) float32 {
-	if s.HasSeasonPass || s.RemainingBudget < float32(w.SeasonPassPrice) {
+	if s.HasSeasonPass || s.RemainingBudget < passCost(s, w) {
 		return 0
 	}
 	for _, b := range w.Buildings {

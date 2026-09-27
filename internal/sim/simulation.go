@@ -332,11 +332,6 @@ func (s *Simulation) tickLifts(dt float64) {
 						chair.Passengers[j] = agent
 						agent.OnLiftID = lift.ID
 						agent.Queued = false
-						if !agent.HasSeasonPass {
-							w.Cash += lift.TicketPrice
-							w.History.RecordRevenue(lift.TicketPrice)
-							agent.RemainingBudget -= float32(lift.TicketPrice)
-						}
 						s.replanOnBoard(agent, lift)
 					}
 				}
@@ -367,10 +362,12 @@ func (s *Simulation) tickHeliLift(lift *world.Lift, dt float64) {
 			h.Passengers = append(h.Passengers, agent)
 			agent.OnLiftID = lift.ID
 			agent.Queued = false
-			if !agent.HasSeasonPass {
-				w.Cash += lift.TicketPrice
-				w.History.RecordRevenue(lift.TicketPrice)
-				agent.RemainingBudget -= float32(lift.TicketPrice)
+			// Heli keeps per-ride pricing; cable lifts are covered by the
+			// day ticket charged at arrival.
+			if fare := lift.RideFare(); fare > 0 && !agent.HasSeasonPass {
+				w.Cash += fare
+				w.History.RecordRevenue(fare)
+				agent.RemainingBudget -= float32(fare)
 			}
 			s.replanOnBoard(agent, lift)
 		}
@@ -536,8 +533,12 @@ func (s *Simulation) spawnGuest(lot *world.Building, g *world.Guest) bool {
 	g.Hunger = 0.5 + rng.Global().Float32()*0.5
 	g.Thirst = 0.5 + rng.Global().Float32()*0.5
 	g.Satisfaction = 0.6
-	g.RemainingBudget = g.Traits.DailyBudget
-	g.HasSeasonPass = g.SeasonPassExpiry > 0 && s.SimTime < g.SeasonPassExpiry
+	g.HasSeasonPass = hasValidPass(g, s.SimTime)
+	// Price the day ticket before planning so the planner sees the
+	// post-ticket budget; the cash moves only once the spawn succeeds.
+	ticket, _ := dayTicketCharge(w, g, s.SimTime)
+	g.DayTicketPaid = ticket
+	g.RemainingBudget = g.Traits.DailyBudget - float32(ticket)
 	g.Removed = false
 	w.OnMountain = append(w.OnMountain, g)
 	s.replan(g)
@@ -549,6 +550,10 @@ func (s *Simulation) spawnGuest(lot *world.Building, g *world.Guest) bool {
 		w.OnMountain = w.OnMountain[:len(w.OnMountain)-1]
 		g.ResetForDeparture()
 		return false
+	}
+	if ticket > 0 {
+		w.Cash += ticket
+		w.History.RecordRevenue(ticket)
 	}
 	w.History.RecordArrival()
 	return true
@@ -1219,8 +1224,13 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		if b == nil {
 			return
 		}
-		// Execute the pass purchase immediately on step start.
-		price := w.SeasonPassPrice
+		// Execute the pass purchase immediately on step start. Today's
+		// day ticket is credited toward the pass.
+		price := w.SeasonPassPrice - a.DayTicketPaid
+		if price < 0 {
+			price = 0
+		}
+		a.DayTicketPaid = 0
 		w.Cash += price
 		w.History.RecordRevenue(price)
 		a.RemainingBudget -= float32(price)

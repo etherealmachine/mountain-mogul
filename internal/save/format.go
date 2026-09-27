@@ -18,6 +18,9 @@ type ScenarioData struct {
 	RoadEdges  []RoadEdgeData  `json:"road_edges,omitempty"`
 	Parcels    []ParcelData    `json:"parcels,omitempty"`
 	Cash       int             `json:"cash,omitempty"`
+	// DayTicket is World.DayTicketPrice. Pointer so a player-set $0 round-
+	// trips; nil (older saves) loads as DefaultDayTicketPrice.
+	DayTicket  *int            `json:"day_ticket,omitempty"`
 	Camera     *CameraData     `json:"camera,omitempty"`
 	History    *HistoryData    `json:"history,omitempty"`
 }

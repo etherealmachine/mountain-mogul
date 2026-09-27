@@ -231,7 +231,8 @@ type Lift struct {
 	Speed float32 // cable speed in m/s (typical real lift: 2–3 m/s)
 
 	// TicketPrice is the per-ride fare credited to World.Cash when a
-	// skier boards a chair. Set per-lift via the lift popup.
+	// guest boards. Only heli lifts charge per ride (see RideFare); cable
+	// lifts are covered by World.DayTicketPrice. Set via the lift popup.
 	TicketPrice int
 
 	// Open controls whether guests may join the queue. Closed lifts still
@@ -812,4 +813,14 @@ func (l *Lift) PassengerCount() int {
 		}
 	}
 	return n
+}
+
+// RideFare is what a guest without a season pass pays to board this lift,
+// in dollars. Cable lifts are covered by the day ticket and cost nothing
+// per ride; only heli keeps per-ride pricing (VISION §7).
+func (l *Lift) RideFare() int {
+	if l.Type == LiftHeli {
+		return l.TicketPrice
+	}
+	return 0
 }
