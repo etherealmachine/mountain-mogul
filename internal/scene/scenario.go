@@ -786,7 +786,7 @@ func (s *Scenario) setFollowGuest(id uint64) {
 
 func NewScenarioFromTestbed(tb *sim.Testbed) *Scenario {
 	rebuild := func(seed int64) *world.World {
-		return tb.Build()
+		return tb.NewWorld()
 	}
 	return &Scenario{
 		prebuiltWorld: rebuild(tb.Seed),
@@ -3368,6 +3368,26 @@ func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 		return
 	case world.BuildingTicketOffice:
 		w := ui.NewWindow("Ticket Office", 0, 0)
+		w.AddLabel("Resort", func() string {
+			if s.world.ResortOpen {
+				return "Open"
+			}
+			return "Closed"
+		})
+		// Rebuild the popup on click so the button label tracks the state,
+		// as the lift popup's Open/Close Lift button does.
+		toggleLabel := "Open resort"
+		if s.world.ResortOpen {
+			toggleLabel = "Close resort"
+		}
+		w.AddActionButton(toggleLabel, func() {
+			s.sim.SetResortOpen(!s.world.ResortOpen)
+			s.openBuildingPopup(bldg, screenW, screenH)
+		})
+		for _, l := range s.world.Lifts {
+			l := l
+			w.AddLabel(l.Name+" base", func() string { return liftBaseSnowText(s.world, l) })
+		}
 		w.AddIntStepper("Day ticket ($)", &s.world.DayTicketPrice, 5, 0, 500)
 		w.AddIntStepper("Pass price ($)", &s.world.SeasonPassPrice, 10, 0, 1000)
 		w.AddLabel("Pass holders", func() string {
@@ -3452,6 +3472,22 @@ func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 	default:
 		panic(fmt.Sprintf("openBuildingPopup: unhandled building type %d", bldg.Type))
 	}
+}
+
+// liftBaseSnowText is the ticket office's "is there enough snow?" readout
+// for one lift: visible snow depth at the loading cell and the surface
+// kind, e.g. "34 cm Packed Powder", or "bare ground".
+func liftBaseSnowText(w *world.World, l *world.Lift) string {
+	c := l.QueueCell()
+	if !w.Terrain.InBounds(c[0], c[1]) {
+		return "—"
+	}
+	cell := &w.Terrain.Cells[c[0]][c[1]]
+	top := cell.TopLayer()
+	if top == nil {
+		return "bare ground"
+	}
+	return fmt.Sprintf("%.0f cm %s", cell.VisibleSnowDepth()*100, world.KindName(top.Kind))
 }
 
 func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {

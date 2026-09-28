@@ -28,6 +28,8 @@ type ScenarioData struct {
 	// DayTicket is World.DayTicketPrice. Pointer so a player-set $0 round-
 	// trips; nil (older saves) loads as DefaultDayTicketPrice.
 	DayTicket  *int            `json:"day_ticket,omitempty"`
+	// ResortOpen is World.ResortOpen. Absent loads closed.
+	ResortOpen bool            `json:"resort_open,omitempty"`
 	Camera     *CameraData     `json:"camera,omitempty"`
 	History    *HistoryData    `json:"history,omitempty"`
 	Events     []EventData     `json:"events,omitempty"`

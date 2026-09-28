@@ -22,6 +22,15 @@ type Testbed struct {
 	TickHook func(s *Simulation) // optional; called once per RunHeadless iteration, before Tick
 }
 
+// NewWorld builds the testbed's world with the resort open, so
+// skier-behaviour testbeds run without the player opening it first. Use
+// this rather than calling Build directly.
+func (tb *Testbed) NewWorld() *world.World {
+	w := tb.Build()
+	w.ResortOpen = true
+	return w
+}
+
 // Testbeds is the registry surfaced by the start-menu testbed picker and
 // by the headless runner. Append new entries here.
 //

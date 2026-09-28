@@ -17,6 +17,7 @@ func dayTicketWorld() (*Simulation, *world.Building, *world.Building) {
 		build()
 	lot := w.Buildings[0]
 	office := w.PlaceBuildingType(world.BuildingTicketOffice, lot.Pos[0]+10, lot.Pos[1])
+	w.ResortOpen = true
 	return NewSimulationWithSeed(w, 1), lot, office
 }
 

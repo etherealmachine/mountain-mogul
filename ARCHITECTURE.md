@@ -81,10 +81,11 @@ lifts, snowcats, and the demand/rating system.
 
 **Calendar** (`calendar.go`): `DateAt(simTime)` is the epoch (Nov 25,
 2026) plus one day per `secondsPerSimDay` (240 s). It runs through the
-whole year; there is no off-season jump. `ResortOpen(w, simTime)` says
-whether the resort is open that day — for now a fixed window, Nov 25
-through Memorial Day. The day rollover (`maybeSampleHistory`) charges
-`DailyOperatingCost` on open days and `DailyStandbyCost` on closed ones,
+whole year; there is no off-season jump. Whether the resort is open is
+the player's call, not the calendar's: `World.ResortOpen`, flipped by
+`Simulation.SetResortOpen` from the Ticket Office popup (`resort.go`).
+The day rollover (`maybeSampleHistory`) charges `DailyOperatingCost` on
+days the resort was open at any point and `DailyStandbyCost` otherwise,
 bills credit interest at each month end (`credit.go`), and advances the
 weather chain, which samples all twelve month profiles.
 

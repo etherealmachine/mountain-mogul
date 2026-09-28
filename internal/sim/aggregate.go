@@ -64,7 +64,7 @@ func RunHeadlessAggregate(out io.Writer, name string, opts AggregateOptions) err
 	// Probe-build once to detect whether the testbed has a tree patch and,
 	// if so, where its centroid is. The patch is purely a function of the
 	// builder DSL (deterministic), so any seed gives the same answer.
-	probe := tb.Build()
+	probe := tb.NewWorld()
 	cx, cz, hasPatch := treePatchCenter(probe)
 
 	fmt.Fprintf(out, "testbed: %s  base_seed=%d  runs=%d  sim_seconds=%.1f\n",
@@ -139,7 +139,7 @@ func RunHeadlessAggregate(out io.Writer, name string, opts AggregateOptions) err
 // runOnceForAggregate is a stripped-down RunHeadless: no recorder, no
 // per-tick printing. Captures only the side outcome + a few coarse stats.
 func runOnceForAggregate(tb *Testbed, seed int64, simSeconds float64, cx, cz float32, hasPatch bool) runResult {
-	w := tb.Build()
+	w := tb.NewWorld()
 	s := NewSimulationWithSeed(w, seed)
 	s.TimeScale = 1.0
 

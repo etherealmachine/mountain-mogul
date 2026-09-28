@@ -18,9 +18,9 @@ func eventKindTint(k world.EventKind) mgl32.Vec4 {
 		return mgl32.Vec4{0.95, 0.40, 0.10, 1}
 	case world.EventRescue:
 		return mgl32.Vec4{0.90, 0.25, 0.25, 1}
-	case world.EventLiftOpened:
+	case world.EventLiftOpened, world.EventResortOpened:
 		return mgl32.Vec4{0.30, 0.85, 0.45, 1}
-	case world.EventLiftClosed:
+	case world.EventLiftClosed, world.EventResortClosed:
 		return mgl32.Vec4{0.93, 0.80, 0.08, 1}
 	case world.EventBuildPlaced:
 		return mgl32.Vec4{0.40, 0.60, 0.95, 1}

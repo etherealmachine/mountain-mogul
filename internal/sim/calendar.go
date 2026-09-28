@@ -1,13 +1,9 @@
 package sim
 
-import (
-	"time"
-
-	"mountain-mogul/internal/world"
-)
+import "time"
 
 // Calendar maps SimTime to a date. Weather samples its month profile,
-// demand and costs follow ResortOpen, and credit bills at month ends.
+// demand and costs follow World.ResortOpen, and credit bills at month ends.
 
 // secondsPerSimDay sets how fast in-game days tick relative to sim seconds.
 // 240 sim seconds per day at 4× TimeScale = 60 real seconds per day (1 min),
@@ -20,24 +16,10 @@ const secondsPerSimDay = 240.0
 // day per secondsPerSimDay, through the off-season as well as the season.
 var calendarEpoch = time.Date(2026, time.November, 25, 0, 0, 0, 0, time.UTC)
 
-// Ski-season window. Opens Nov 25 (post-Thanksgiving, traditional US
-// resort opening); closes Memorial Day (last Monday of May). Until the
-// player can open and close the resort, ResortOpen uses this fixed window.
-const (
-	seasonOpenMonth  = time.November
-	seasonOpenDay    = 25
-	seasonCloseMonth = time.May // last Monday of this month
-)
-
-// ResortOpen reports whether the resort is open for skiing on the day
-// containing simTime: Nov 25 through Memorial Day inclusive. While closed
-// the demand poll spawns nobody and the day rollover charges standby
-// rather than operating costs. Placeholder for player open/close, which
-// will decide from w; the fixed window ignores it.
-func ResortOpen(w *world.World, simTime float64) bool {
-	t := DateAt(simTime)
-	return !t.Before(SeasonOpenDate(t.Year())) || !t.After(SeasonCloseDate(t.Year()))
-}
+// Memorial Day (last Monday of May) marks the end of a season for the
+// demand system's season rollover. Whether the resort is open on any
+// given day is the player's call (World.ResortOpen), not the calendar's.
+const seasonCloseMonth = time.May // last Monday of this month
 
 // SeasonCloseYearFor returns the calendar year in which the season that
 // contains t closes (i.e. the Memorial Day year). Seasons run Nov→May, so
@@ -47,11 +29,6 @@ func SeasonCloseYearFor(t time.Time) int {
 		return t.Year() + 1
 	}
 	return t.Year()
-}
-
-// SeasonOpenDate returns Nov 25 of the given year.
-func SeasonOpenDate(year int) time.Time {
-	return time.Date(year, seasonOpenMonth, seasonOpenDay, 0, 0, 0, 0, time.UTC)
 }
 
 // SeasonCloseDate returns Memorial Day (last Monday of May) for the given

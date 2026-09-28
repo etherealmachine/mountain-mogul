@@ -72,8 +72,8 @@ const (
 	// Standby (closed-resort) costs, dollars per in-game day. What the
 	// resort pays while nothing is open: lifts idle with no attendants,
 	// cats parked (CatStandbyCostDay), buildings heated but unstaffed.
-	// See DailyStandbyCost. Charged at rollover on days the resort is
-	// closed (sim.ResortOpen).
+	// See DailyStandbyCost. Charged at rollover on days the resort was
+	// closed all day (World.ResortOpen).
 	LiftStandbyCostDay     = 100 // per lift: inspections, idle power
 	BuildingStandbyCostDay = 40  // per staffed building (lodge, bar, office, patrol hut, shed)
 	// Snowcat daily costs live in world/snowcat.go (CatActiveCostDay, CatStandbyCostDay).
@@ -162,6 +162,12 @@ type World struct {
 	// Bankrupt is set once DaysBelowFloor reaches BankruptcyGraceDays and
 	// never cleared by the sim. The UI reads it for the game-over screen.
 	Bankrupt bool
+
+	// ResortOpen is the player's resort-wide open/closed switch, set from
+	// any ticket office popup. Closed: no arrivals, standby costs, lifts
+	// load only guests heading home. Snowcats and snow guns run either
+	// way. New games and scenarios start closed; testbeds start open.
+	ResortOpen bool
 
 	// SeasonPassPrice is the one-time fee guests pay at the ticket office for
 	// a season pass. Pass holders ride any lift for free for the remainder of

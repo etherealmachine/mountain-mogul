@@ -105,7 +105,7 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 	elapsed := s.SimTime - d.LastPoll
 	d.LastPoll = s.SimTime
 	d.checkSeasonRollover(s)
-	if !ResortOpen(s.World, s.SimTime) {
+	if !s.World.ResortOpen {
 		return // closed: nobody comes, pass holders included
 	}
 

@@ -103,6 +103,11 @@ type Simulation struct {
 	// QueryServer, if non-nil, services live SQL queries from the HTTP
 	// endpoint. Tick() drains pending requests on the game thread.
 	QueryServer *QueryServer
+
+	// openToday records whether World.ResortOpen was true at any point in
+	// the current sim day; the rollover bills operating costs if so and
+	// standby otherwise. Not persisted — a load seeds it from ResortOpen.
+	openToday bool
 }
 
 // InvalidateSections signals that cat section assignments need a full
@@ -142,6 +147,7 @@ func NewSimulationWithSeed(w *world.World, seed int64) *Simulation {
 		Demand:         NewDemandSystem(),
 		spatial:        newSpatialGrid(widthM, heightM),
 		lastSampledDay: int(w.SimTime / secondsPerSimDay),
+		openToday:      w.ResortOpen,
 		sectionsStale:  true, // run reassignment on first tick to pick up loaded cats
 	}
 	// Start the demand poll timer at the loaded clock so the first poll
@@ -225,6 +231,7 @@ func (s *Simulation) subTick(dt float64) {
 	s.World.SimTime = s.SimTime
 	s.Demand.maybePoll(s)
 	s.maybeSampleHistory()
+	s.tickResortClosed()
 	s.tickLifts(dt)
 	s.tickGuests(dt)
 	s.tickSnowcats(dt)
@@ -260,17 +267,7 @@ func (s *Simulation) tickLifts(dt float64) {
 		}
 		if lift.OnHold && !wasHeld {
 			// Transition to hold: eject queued guests so they can re-plan.
-			for _, g := range lift.Queue {
-				g.Queued = false
-				g.Plan.Steps = nil
-			}
-			lift.Queue = lift.Queue[:0]
-			if len(lift.Lines) > 0 {
-				for _, g := range lift.EjectLinesGuests() {
-					g.Queued = false
-					g.Plan.Steps = nil
-				}
-			}
+			ejectQueue(lift)
 		}
 
 		passengers := lift.PassengerCount()
@@ -591,11 +588,13 @@ func (s *Simulation) maybeSampleHistory() {
 		dayIdx := s.lastSampledDay
 		w := s.World
 
-		// Debit the day's costs: operating when open, standby when closed.
+		// Debit the day's costs: operating if the resort was open at any
+		// point in the day, standby if it stayed closed.
 		costs := w.DailyStandbyCost()
-		if ResortOpen(w, float64(dayIdx)*secondsPerSimDay) {
+		if s.openToday {
 			costs = w.DailyOperatingCost()
 		}
+		s.openToday = w.ResortOpen
 		w.Cash -= costs
 		costs += s.applyCredit(dayIdx)
 
@@ -1113,6 +1112,13 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		// replan here would recurse: replan→onPlanStepStart→here→...).
 		if !lift.Open || lift.OnHold {
 			a.Plan.Steps = nil
+			return
+		}
+		// Resort closed: lifts load no one. A guest about to queue heads
+		// straight for the parking lot instead, skiing or walking down,
+		// rather than riding up for one more run on the way out.
+		if !w.ResortOpen {
+			s.directHomePlan(a)
 			return
 		}
 		// Safety-net: no riding without a pass or a day ticket.

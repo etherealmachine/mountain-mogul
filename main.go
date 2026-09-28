@@ -437,6 +437,7 @@ func runProfile(wallSeconds, scale float64) {
 	}
 	terrain.RecomputeSlopes()
 	wld := world.NewWorld(terrain)
+	wld.ResortOpen = true // profile a running resort, not a closed one
 
 	// Parking lot at the base (z near max), two lifts running up-slope.
 	lotX, lotZ := float32(w/2)*cellSize, float32(h-3)*cellSize

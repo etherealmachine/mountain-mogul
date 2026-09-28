@@ -457,6 +457,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		Parcels:    parcels,
 		Cash:       w.Cash,
 		DayTicket:  &w.DayTicketPrice,
+		ResortOpen: w.ResortOpen,
 
 		CreditLimit:     &w.CreditLimit,
 		AccruedInterest: w.AccruedInterest,
@@ -608,6 +609,7 @@ func dataToWorld(data ScenarioData) *world.World {
 	if data.DayTicket != nil {
 		w.DayTicketPrice = *data.DayTicket
 	}
+	w.ResortOpen = data.ResortOpen
 	if data.CreditLimit != nil {
 		w.CreditLimit = *data.CreditLimit
 	}

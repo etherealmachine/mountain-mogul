@@ -45,7 +45,7 @@ func RunHeadless(out io.Writer, name string, opts HeadlessOptions) error {
 		seed = opts.Seed
 	}
 
-	w := tb.Build()
+	w := tb.NewWorld()
 	hasAgents := len(w.OnMountain) > 0
 
 	sim := NewSimulationWithSeed(w, seed)

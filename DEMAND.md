@@ -75,8 +75,12 @@ it just flips State and populates sim scratch fields at spawn.
 `DemandSystem.maybePoll(s *Simulation)` runs from `Simulation.Tick`
 once per frame; it short-circuits unless
 `s.SimTime - LastPoll >= demandPollInterval` (currently **30 sim-seconds**).
-It also spawns nobody, pass holders included, on days the resort is
-closed (`ResortOpen` false — outside Nov 25 to Memorial Day for now).
+It also spawns nobody, pass holders included, while the resort is
+closed (`World.ResortOpen` false). The player opens and closes the
+resort from any Ticket Office popup; new games and scenarios start
+closed. Closing mid-day stops arrivals at once: guests in lift lines
+leave them and head for the parking lot, riders unload at the top and
+ski home, and no lift loads anyone until the resort reopens.
 The season rollover check still runs first, so `VisitsThisSeason`
 resets on Nov 1, before opening day.
 
