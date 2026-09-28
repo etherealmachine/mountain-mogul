@@ -1293,7 +1293,7 @@ func (e *Editor) commitCells(cells [][2]int, r *render.Renderer) {
 		e.world.Parcels = append(e.world.Parcels, world.Parcel{
 			ID:    newID,
 			State: world.ParcelPurchasable,
-			Price: 50000,
+			Price: world.DefaultParcelPrice,
 			Cells: cells,
 		})
 		e.parcelEditID = newID

@@ -2571,7 +2571,7 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 			s.setToast("Can't place a lift on land you don't own")
 			return
 		}
-		minCost := world.LiftStationCost
+		minCost := s.liftType.StationCost()
 		if s.liftType == world.LiftHeli {
 			minCost = world.HelipadCost / 2
 		}
@@ -2591,7 +2591,7 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		if s.liftType == world.LiftHeli {
 			cost = world.HelipadCost
 		} else {
-			cost = world.LiftCost(s.liftBase, top)
+			cost = world.LiftCost(s.liftType, s.liftBase, top)
 		}
 		if !w.CanAfford(cost) {
 			s.setToast(fmt.Sprintf("Need $%d — short by $%d", cost, cost-w.Available()))
@@ -3595,12 +3595,13 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 		})
 	}
 	if l.Type == world.LiftDouble {
-		label := fmt.Sprintf("Upgrade to Quad ($%d)", world.LiftUpgradeCost)
+		cost := world.LiftUpgradeCost(world.LiftDouble, world.LiftFixedQuad)
+		label := fmt.Sprintf("Upgrade to Quad ($%d)", cost)
 		w.AddActionButton(label, func() {
 			if !s.world.UpgradeLift(l, world.LiftFixedQuad) {
-				if !s.world.CanAfford(world.LiftUpgradeCost) {
+				if !s.world.CanAfford(cost) {
 					s.setToast(fmt.Sprintf("Need $%d to upgrade — short by $%d",
-						world.LiftUpgradeCost, world.LiftUpgradeCost-s.world.Available()))
+						cost, cost-s.world.Available()))
 				}
 				return
 			}
@@ -3608,12 +3609,13 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 		})
 	}
 	if l.Type == world.LiftFixedQuad {
-		label := fmt.Sprintf("Upgrade to HS Quad ($%d)", world.LiftHSUpgradeCost)
+		cost := world.LiftUpgradeCost(world.LiftFixedQuad, world.LiftHSQuad)
+		label := fmt.Sprintf("Upgrade to HS Quad ($%d)", cost)
 		w.AddActionButton(label, func() {
 			if !s.world.UpgradeLift(l, world.LiftHSQuad) {
-				if !s.world.CanAfford(world.LiftHSUpgradeCost) {
+				if !s.world.CanAfford(cost) {
 					s.setToast(fmt.Sprintf("Need $%d to upgrade — short by $%d",
-						world.LiftHSUpgradeCost, world.LiftHSUpgradeCost-s.world.Available()))
+						cost, cost-s.world.Available()))
 				}
 				return
 			}
@@ -3621,12 +3623,13 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 		})
 	}
 	if l.Type == world.LiftHSQuad {
-		label := fmt.Sprintf("Upgrade to HS 6-Pack ($%d)", world.LiftHS6PackUpgradeCost)
+		cost := world.LiftUpgradeCost(world.LiftHSQuad, world.LiftHS6Pack)
+		label := fmt.Sprintf("Upgrade to HS 6-Pack ($%d)", cost)
 		w.AddActionButton(label, func() {
 			if !s.world.UpgradeLift(l, world.LiftHS6Pack) {
-				if !s.world.CanAfford(world.LiftHS6PackUpgradeCost) {
+				if !s.world.CanAfford(cost) {
 					s.setToast(fmt.Sprintf("Need $%d to upgrade — short by $%d",
-						world.LiftHS6PackUpgradeCost, world.LiftHS6PackUpgradeCost-s.world.Available()))
+						cost, cost-s.world.Available()))
 				}
 				return
 			}
@@ -4054,14 +4057,14 @@ func (s *Scenario) placementCost() (cost int, affordable, legal, valid bool) {
 		if s.liftType == world.LiftHeli {
 			cost = world.HelipadCost / 2
 		} else {
-			cost = world.LiftStationCost
+			cost = s.liftType.StationCost()
 		}
 		legal = cellOwned
 	case toolLiftTop:
 		if s.liftType == world.LiftHeli {
 			cost = world.HelipadCost
 		} else {
-			cost = world.LiftCost(s.liftBase, pos)
+			cost = world.LiftCost(s.liftType, s.liftBase, pos)
 		}
 		legal = cellOwned
 	case toolRoadStart:

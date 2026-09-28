@@ -50,8 +50,8 @@ const (
 // on Lift records with Type == LiftHeli; all other lift types leave this nil.
 type HeliData struct {
 	Phase      HeliPhase
-	Progress   float32   // 0→1 within the current HeliToTop or HeliToBase leg
-	Passengers []*Guest  // up to HeliCapacity; nil slots are empty seats
+	Progress   float32  // 0→1 within the current HeliToTop or HeliToBase leg
+	Passengers []*Guest // up to HeliCapacity; nil slots are empty seats
 }
 
 // Capacity returns the number of riders a single chair of this lift
@@ -635,7 +635,7 @@ func (l *Lift) backOfLinesWorldPos(t *Terrain) mgl32.Vec3 {
 	} else {
 		slotWidth = LineWidth
 	}
-	latOff := sign * (float32(nextSlot)+0.5) * slotWidth
+	latOff := sign * (float32(nextSlot) + 0.5) * slotWidth
 
 	x := l.Base[0] + latOff*rx + qx*rowDepth
 	z := l.Base[1] + latOff*rz + qz*rowDepth
@@ -821,6 +821,65 @@ func (l *Lift) PassengerCount() int {
 func (l *Lift) RideFare() int {
 	if l.Type == LiftHeli {
 		return l.TicketPrice
+	}
+	return 0
+}
+
+// StationCost returns the fixed station-pair build cost in dollars for a
+// lift of this type (VISION §7: fixed quad $700k, HS quad $1.5M, gondola
+// $4M). Heli returns 0; helipads are priced by HelipadCost.
+func (t LiftType) StationCost() int {
+	switch t {
+	case LiftDouble:
+		return 400_000
+	case LiftFixedQuad:
+		return 700_000
+	case LiftHSQuad:
+		return 1_500_000
+	case LiftHS6Pack:
+		return 2_200_000
+	case LiftGondola:
+		return 4_000_000
+	}
+	return 0
+}
+
+// PerMeterCost returns the build cost in dollars per metre of cable run
+// (towers + cable) for this type. The gondola's rate puts a 2.5 km span
+// near $10M.
+func (t LiftType) PerMeterCost() int {
+	switch t {
+	case LiftDouble:
+		return 150
+	case LiftFixedQuad:
+		return 200
+	case LiftHSQuad:
+		return 200
+	case LiftHS6Pack:
+		return 250
+	case LiftGondola:
+		return 2_400
+	}
+	return 0
+}
+
+// RunningCostDay returns the daily running cost in dollars (power,
+// maintenance) for an open lift of this type, on top of its two
+// attendants (LiftAttendantDailyCost).
+func (t LiftType) RunningCostDay() int {
+	switch t {
+	case LiftDouble:
+		return 300
+	case LiftFixedQuad:
+		return 400
+	case LiftHSQuad:
+		return 800
+	case LiftHS6Pack:
+		return 1_000
+	case LiftGondola:
+		return 2_500
+	case LiftHeli:
+		return 3_000 // pilot + fuel
 	}
 	return 0
 }

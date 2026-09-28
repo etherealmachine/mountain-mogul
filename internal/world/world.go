@@ -7,23 +7,22 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 )
 
-// Cost constants.
+// Cost constants (VISION §7 magnitudes, dollars).
 //
-// Starting cash is sized for a minimal resort: 1 parking + 1 lodge + 1 shed +
-// 1 lift (~500 m) = ~$220K, leaving ~$30K buffer.
-//
-// Operating costs are calibrated to the lift revenue ceiling. A 500 m double at
-// 2.5 m/s delivers at most ~12.7 rides per 77-second sim-day (33 chairs × 2
-// seats × 77s ÷ 400s loop). At $10/ride that's $127/day max. Daily costs for
-// 1 lift + 1 cat = 2×$20 + $40 = $80/day, so break-even sits at ~63% occupancy
-// and the resort earns ~$47/day at capacity — small but positive.
+// Calibration target — a Season 1 pod: one ~1 km fixed quad with its
+// trails, plus parking, ticket office, lodge, shed (first cat), and a
+// patrol hut. At the VISION S1 attendance (~170 guests/day averaged over
+// weekdays and weekends) and the $60 day ticket, a 186-day season grosses
+// ~$1.9M. Daily opex for that resort (see DailyOperatingCost) is ~$3.8k,
+// ~$0.71M a season ≈ 37% of gross, so the pod ($900k) nets back roughly
+// its own build cost in one season. Lift build prices are per LiftType
+// (LiftType.StationCost / PerMeterCost); a 2.5 km gondola (~$10M) is ~6×
+// a typical 700 m high-speed quad (~$1.64M).
 const (
-	LodgeCost       = 50000 // single fixed cost per lodge
-	ShedCost        = 30000 // grooming equipment storage; first cat included
-	ParkingCost     = 40000 // base parking lot
-	LiftStationCost = 50000 // fixed cost for both stations of a lift
-	LiftPerMeter    = 100   // cost per metre of cable run, covers towers + cable
-	StartingCash    = 250000
+	LodgeCost    = 150_000 // single fixed cost per lodge (VISION: shell $100k + per cell; flat until shells land)
+	ShedCost     = 200_000 // grooming equipment storage; first cat included
+	ParkingCost  = 150_000 // base parking lot
+	StartingCash = 1_000_000
 
 	// Credit line (VISION §7). Cash may go negative down to −CreditLimit;
 	// the negative balance is the drawn amount. Interest accrues daily on
@@ -34,9 +33,11 @@ const (
 	CreditAnnualRate    = 0.12      // fraction per 365 calendar days; simple interest, accrued daily
 	BankruptcyGraceDays = 30        // consecutive day rollovers below the credit floor
 
+	DefaultParcelPrice = 250_000 // dollars; editor default for a newly painted purchasable parcel
+
 	GladeCostPerCell = 200 // cost per in-radius cell with trees cleared by the glade brush
 
-	DefaultTicketPrice   = 10  // dollars per heli ride; only heli charges per ride, player adjusts via the lift popup
+	DefaultTicketPrice    = 10 // dollars per heli ride; only heli charges per ride, player adjusts via the lift popup
 	DefaultDayTicketPrice = 60 // dollars per visit, charged once at arrival (VISION §7: $60–90); pass holders pay nothing
 
 	// Day-ticket price elasticity in the demand poll. A guest's price factor
@@ -48,21 +49,33 @@ const (
 	DayTicketRatingPremium  = float32(1.0) // unitless; reference spans 0.5×–1.5× across rating 0..1
 	DayTicketElasticity     = float32(0.5) // unitless exponent; <1 bows the curve so guests hold on until price nears budget
 
-	TicketOfficeCost     = 20000
-	BarCost             = 35000 // bar/restaurant (half-size lodge)
-	DefaultSeasonPassPrice = 150 // one-time fee per guest per season; guests with sufficient budget buy it on arrival
-	HelipadCost        = 300000 // flat cost for a heli-ski operation (two pads + helicopter)
-	PatrolHutCost      = 35000  // patrol hut + one patroller/snowmobile
-	SnowGunCost          = 15000  // snowmaking cannon; operating cost below
-	SnowGunActiveCostDay = 200   // per game-day while enabled
-	SnowGunRangeCells    = 3     // spray radius in terrain cells
-	SnowGunRangeM        = SnowGunRangeCells * CellSize // = 15 metres
-	SnowGunMinTempC      = float32(-2.0) // daily low must be at or below this to make snow
+	TicketOfficeCost       = 80_000
+	BarCost                = 100_000                      // bar/restaurant; a VISION "module" ($50–150k)
+	DefaultSeasonPassPrice = 150                          // one-time fee per guest per season; guests with sufficient budget buy it on arrival
+	HelipadCost            = 2_000_000                    // flat cost for a heli-ski operation (two pads + helicopter); the post-gondola unlock
+	PatrolHutCost          = 120_000                      // patrol hut + one patroller/snowmobile
+	SnowGunCost            = 40_000                       // snowmaking cannon; operating cost below
+	SnowGunActiveCostDay   = 400                          // dollars per game-day while enabled (water + power)
+	SnowGunRangeCells      = 3                            // spray radius in terrain cells
+	SnowGunRangeM          = SnowGunRangeCells * CellSize // = 15 metres
+	SnowGunMinTempC        = float32(-2.0)                // daily low must be at or below this to make snow
 
-	// Daily operational costs. Charged once per in-game day at rollover.
-	// Sized so a single lift + single cat breaks even at ~63% load ($80/day).
-	LiftAttendantDailyCost = 20 // per attendant; each lift requires one top + one bottom
-	BarDailyCost           = 150 // bar operating cost per day
+	// Daily operational costs, dollars per in-game day, charged at rollover
+	// (see DailyOperatingCost). Lift running costs are per LiftType
+	// (LiftType.RunningCostDay) on top of the two attendants.
+	LiftAttendantDailyCost = 250 // per attendant; each lift requires one top + one bottom
+	LodgeDailyCost         = 600 // lodge staff
+	BarDailyCost           = 500 // bar staff
+	TicketOfficeDailyCost  = 300 // ticket window staff
+	PatrolHutDailyCost     = 800 // patrollers on shift
+
+	// Standby (closed-resort) costs, dollars per in-game day. What the
+	// resort pays while nothing is open: lifts idle with no attendants,
+	// cats parked (CatStandbyCostDay), buildings heated but unstaffed.
+	// See DailyStandbyCost. Not yet charged — the calendar skips the
+	// off-season until the season thread derives open/closed state.
+	LiftStandbyCostDay     = 100 // per lift: inspections, idle power
+	BuildingStandbyCostDay = 40  // per staffed building (lodge, bar, office, patrol hut, shed)
 	// Snowcat daily costs live in world/snowcat.go (CatActiveCostDay, CatStandbyCostDay).
 )
 
@@ -114,8 +127,8 @@ type World struct {
 	Snowcats   []*Snowcat
 	Patrollers []*Patroller
 	RoadNodes  []*RoadNode
-	RoadEdges []*RoadEdge
-	nextID    uint64
+	RoadEdges  []*RoadEdge
+	nextID     uint64
 
 	// History is a daily ring of stats (guest count, cash, arrivals,
 	// departures) feeding the in-game charts window. Nil on a freshly
@@ -219,11 +232,65 @@ func (w *World) CreditDrawn() int {
 	return 0
 }
 
-// LiftCost returns what it costs to build a lift between two world XZ
-// positions: a fixed station-pair fee plus per-metre run cost.
-func LiftCost(base, top mgl32.Vec2) int {
+// LiftCost returns what it costs to build a lift of the given type
+// between two world XZ positions: the type's station-pair fee plus its
+// per-metre run cost. Heli has no cable; use HelipadCost.
+func LiftCost(typ LiftType, base, top mgl32.Vec2) int {
 	length := base.Sub(top).Len()
-	return LiftStationCost + int(length*LiftPerMeter)
+	return typ.StationCost() + int(length*float32(typ.PerMeterCost()))
+}
+
+// DailyOperatingCost returns the resort's operating cost for one open
+// in-game day in dollars: lift attendants and running costs, cats by
+// status, staffed buildings, and enabled snow guns.
+func (w *World) DailyOperatingCost() int {
+	costs := 0
+	for _, l := range w.Lifts {
+		costs += 2*LiftAttendantDailyCost + l.Type.RunningCostDay()
+	}
+	for _, cat := range w.Snowcats {
+		if cat.Status == CatActive {
+			costs += CatActiveCostDay
+		} else {
+			costs += CatStandbyCostDay
+		}
+	}
+	for _, b := range w.Buildings {
+		switch b.Type {
+		case BuildingLodge:
+			costs += LodgeDailyCost
+		case BuildingBar:
+			costs += BarDailyCost
+		case BuildingTicketOffice:
+			costs += TicketOfficeDailyCost
+		case BuildingPatrolHut:
+			costs += PatrolHutDailyCost
+		case BuildingSnowGun:
+			if b.SnowGunEnabled {
+				costs += SnowGunActiveCostDay
+			}
+		}
+	}
+	return costs
+}
+
+// DailyStandbyCost returns what the resort costs per in-game day while
+// closed, in dollars: idle lifts, every cat parked, staffed buildings
+// unstaffed. Snow guns still cost their active rate when enabled, since
+// snowmaking before opening is the point of having them.
+func (w *World) DailyStandbyCost() int {
+	costs := len(w.Lifts)*LiftStandbyCostDay + len(w.Snowcats)*CatStandbyCostDay
+	for _, b := range w.Buildings {
+		switch b.Type {
+		case BuildingLodge, BuildingBar, BuildingTicketOffice, BuildingPatrolHut, BuildingShed:
+			costs += BuildingStandbyCostDay
+		case BuildingSnowGun:
+			if b.SnowGunEnabled {
+				costs += SnowGunActiveCostDay
+			}
+		}
+	}
+	return costs
 }
 
 // NextID returns the next unique entity ID.
@@ -414,19 +481,19 @@ func (w *World) PlaceLift(typ LiftType, bx, bz, tx, tz float32) *Lift {
 	return lift
 }
 
-// LiftUpgradeCost is the price to convert a fixed-grip double into a
-// fixed-grip quad — covers replacement of both station bullwheels and
-// the full chair set. Towers and cable stay in place, so it's cheaper
-// than building a fresh lift from scratch.
-const LiftUpgradeCost = LiftStationCost
-
-// LiftHSUpgradeCost is the price to retrofit a fixed-grip quad with
-// detachable grips and new terminal machinery.
-const LiftHSUpgradeCost = LiftStationCost * 2
-
-// LiftHS6PackUpgradeCost is the price to replace a high-speed quad's chair
-// set with wider 6-pack chairs and upgrade the terminal for the heavier load.
-const LiftHS6PackUpgradeCost = LiftStationCost * 2
+// LiftUpgradeCost is the price to convert a lift from one chair variant
+// to the next: the difference in station cost between the two types.
+// Towers and cable stay in place, so it's cheaper than building fresh.
+// Returns 0 if from → to isn't a supported upgrade.
+func LiftUpgradeCost(from, to LiftType) int {
+	switch {
+	case from == LiftDouble && to == LiftFixedQuad,
+		from == LiftFixedQuad && to == LiftHSQuad,
+		from == LiftHSQuad && to == LiftHS6Pack:
+		return to.StationCost() - from.StationCost()
+	}
+	return 0
+}
 
 // UpgradeLift converts a lift to the given chair variant, deducting the
 // upgrade cost from World.Cash. Returns true on success, false if the
@@ -440,15 +507,8 @@ func (w *World) UpgradeLift(l *Lift, target LiftType) bool {
 	if l == nil {
 		return false
 	}
-	var cost int
-	switch {
-	case l.Type == LiftDouble && target == LiftFixedQuad:
-		cost = LiftUpgradeCost
-	case l.Type == LiftFixedQuad && target == LiftHSQuad:
-		cost = LiftHSUpgradeCost
-	case l.Type == LiftHSQuad && target == LiftHS6Pack:
-		cost = LiftHS6PackUpgradeCost
-	default:
+	cost := LiftUpgradeCost(l.Type, target)
+	if cost == 0 {
 		return false
 	}
 	if !w.CanAfford(cost) {

@@ -593,24 +593,7 @@ func (s *Simulation) maybeSampleHistory() {
 		w := s.World
 
 		// Compute and debit operational costs for the day.
-		costs := len(w.Lifts) * 2 * world.LiftAttendantDailyCost
-		for _, cat := range w.Snowcats {
-			if cat.Status == world.CatActive {
-				costs += world.CatActiveCostDay
-			} else {
-				costs += world.CatStandbyCostDay
-			}
-		}
-		for _, b := range w.Buildings {
-			switch b.Type {
-			case world.BuildingBar:
-				costs += world.BarDailyCost
-			case world.BuildingSnowGun:
-				if b.SnowGunEnabled {
-					costs += world.SnowGunActiveCostDay
-				}
-			}
-		}
+		costs := w.DailyOperatingCost()
 		w.Cash -= costs
 		costs += s.applyCredit(dayIdx)
 
