@@ -39,7 +39,13 @@ type Editor struct {
 	liftHeliBtn    *ui.Button
 	liftType       world.LiftType
 	activeTool     toolMode
-	scenarioPath   string
+	scenarioPath   string // open file; "" for a blank scenario not yet saved
+	dirty          bool   // unsaved edits since load / last save (coarse)
+	time           float32 // editor wall time (s), drives toast expiry
+	toastText      string
+	toastExpiry    float32
+	savePrompt     *savePrompt
+	confirmPrompt  *confirmPrompt
 	hoverCell        [2]int
 	hoverWorld       mgl32.Vec3
 	hoverMouseScreen mgl32.Vec2
@@ -70,7 +76,8 @@ type Editor struct {
 	pendingScreenshot          bool
 }
 
-// NewEditor creates an Editor scene loading from the given path.
+// NewEditor creates an Editor scene loading from the given path. An empty
+// path starts a blank scenario with no file until the first Save.
 func NewEditor(path string) *Editor {
 	return &Editor{scenarioPath: path}
 }
@@ -78,9 +85,17 @@ func NewEditor(path string) *Editor {
 func (e *Editor) Init(app *engine.App) error {
 	e.app = app
 
-	w, savedCam, err := save.LoadScenario(e.scenarioPath)
-	if err != nil {
-		fmt.Printf("Editor load error (%v), creating blank world\n", err)
+	var w *world.World
+	var savedCam *save.CameraData
+	if e.scenarioPath != "" {
+		var err error
+		w, savedCam, err = save.LoadScenario(e.scenarioPath)
+		if err != nil {
+			fmt.Printf("Editor load error (%v), creating blank world\n", err)
+			e.scenarioPath = ""
+		}
+	}
+	if w == nil {
 		t := world.NewTerrain(256, 256)
 		w = world.NewWorld(t)
 	}
@@ -160,32 +175,23 @@ func (e *Editor) Init(app *engine.App) error {
 			func(elevs [][]float32) { e.applyImportedTerrain(elevs, e.app.Renderer) },
 		))
 	})
-	e.menuBar.AddIconButton(render.IconFloppyDisk, "Save", func() {
-		if err := save.SaveScenario(e.scenarioPath, e.world, editorCameraSnapshot(e)); err != nil {
-			fmt.Println("Save error:", err)
-		} else {
-			fmt.Println("Saved to", e.scenarioPath)
-		}
-	})
+	e.menuBar.AddIconButton(render.IconFloppyDisk, "Save", e.saveCurrent)
+	e.menuBar.AddIconButton(render.IconFloppyDisk, "Save As", e.openSaveAsPrompt)
 
 	e.settingsMenu = NewSettingsMenu(app, func() { e.escapeMenu.Show() })
 	openSettings := func() {
 		e.escapeMenu.Hide()
 		e.settingsMenu.Show()
 	}
-	e.escapeMenu = NewEscapeMenu(app, func() {
-		if err := save.SaveScenario(e.scenarioPath, e.world, editorCameraSnapshot(e)); err != nil {
-			fmt.Println("Save error:", err)
-		} else {
-			fmt.Println("Saved to", e.scenarioPath)
-		}
-	}, nil, openSettings)
+	e.escapeMenu = NewEscapeMenu(app, e.saveCurrent, nil, openSettings)
+	e.escapeMenu.InsertButton(2, "Save As...", e.openSaveAsPrompt) // right after Save
 
-	// Top bar — editor-mode only has overlay-panel toggle + settings (gear).
-	// No stats, no date/weather, no time controls, so the centre and left
-	// stay empty by leaving the callbacks unset.
+	// Top bar — editor-mode only has overlay-panel toggle + settings (gear)
+	// and the open scenario's name in the centre. No stats, date/weather, or
+	// time controls, so those callbacks stay unset.
 	const topBarH = float32(96)
 	e.topBar = ui.NewTopBar(topBarH)
+	e.topBar.GetTitle = e.editorTitle
 	e.topBar.SetSettingsButton(func() { e.escapeMenu.Toggle() })
 
 	e.overlayPanel = ui.NewOverlayPanel()
@@ -249,6 +255,7 @@ func (f uiDrawFunc) Draw(r *render.Renderer) { f(r) }
 func (e *Editor) Update(dt float64) {
 	inp := e.app.Input
 	r := e.app.Renderer
+	e.time += float32(dt)
 
 	// Coalesced snow-state flush: any tool that mutates SnowAccumulation /
 	// Grooming / Packed / Ice / MogulSize sets Terrain.SnowDirty and we
@@ -257,6 +264,17 @@ func (e *Editor) Update(dt float64) {
 	if e.world != nil && e.world.Terrain != nil && e.world.Terrain.SnowDirty {
 		r.FlushSnowState(e.world.Terrain)
 		e.world.Terrain.SnowDirty = false
+	}
+
+	// Save As / overwrite prompts are the topmost modals — they take all
+	// input, including Escape and the single-letter hotkeys below.
+	if e.confirmPrompt != nil {
+		e.confirmPrompt.HandleInput(inp, float32(r.ScreenWidth()), float32(r.ScreenHeight()))
+		return
+	}
+	if e.savePrompt != nil {
+		e.savePrompt.HandleInput(inp, float32(r.ScreenWidth()), float32(r.ScreenHeight()))
+		return
 	}
 
 	if inp.Pressed[glfw.KeyEscape] {
@@ -283,9 +301,11 @@ func (e *Editor) Update(dt float64) {
 		case e.roadEdit.active():
 			deleteSelectedRoad(r, e.world, &e.roadEdit)
 			e.autoFields = nil
+			e.markDirty()
 		case e.structureEdit.active():
 			deleteSelectedStructure(r, e.world, &e.structureEdit)
 			e.autoFields = nil
+			e.markDirty()
 		}
 	}
 	if e.settingsMenu.Visible() {
@@ -297,6 +317,9 @@ func (e *Editor) Update(dt float64) {
 		return
 	}
 	if e.parcelPopup != nil && e.parcelPopup.Visible {
+		if inp.LeftClick && e.parcelPopup.ContainsPoint(inp.MousePos[0], inp.MousePos[1]) {
+			e.markDirty() // popup buttons edit parcel state / price
+		}
 		e.parcelPopup.HandleInput(inp)
 		// Close popup on Escape while it's open.
 		if inp.Pressed[glfw.KeyEscape] {
@@ -552,11 +575,13 @@ func (e *Editor) handleToolNoneMouse(r *render.Renderer, leftClick, leftHeld boo
 			commitRoadDrag(r, e.world)
 			e.roadEdit.dragging = false
 			e.autoFields = nil
+			e.markDirty()
 		}
 		if e.structureEdit.dragging {
 			commitStructureDrag(r, e.world)
 			e.structureEdit.dragging = false
 			e.autoFields = nil
+			e.markDirty()
 		}
 	}
 	if !e.hoverValid {
@@ -620,6 +645,7 @@ func (e *Editor) placementLegal() bool {
 // current continuous hover position. No cost gating — editor placements
 // are free. shiftHeld enables flood-fill mode for toolParcelRect.
 func (e *Editor) applyPlacement(r *render.Renderer, shiftHeld bool) {
+	e.markDirty()
 	w := e.world
 	wx := e.hoverWorld[0]
 	wz := e.hoverWorld[2]
@@ -806,6 +832,7 @@ func (e *Editor) autoSliders() []*ui.VSlider {
 // auto-gen slider settings. Unlike regenerateAuto, this does not
 // replace existing layers — it stacks on top of them.
 func (e *Editor) pushSnowLayer(kind world.SnowKind) {
+	e.markDirty()
 	if e.world == nil || e.world.Terrain == nil {
 		return
 	}
@@ -830,6 +857,7 @@ func (e *Editor) pushSnowLayer(kind world.SnowKind) {
 
 // clearAllLayers removes all snow layers from every terrain cell.
 func (e *Editor) clearAllLayers() {
+	e.markDirty()
 	if e.world == nil || e.world.Terrain == nil {
 		return
 	}
@@ -856,6 +884,7 @@ func (e *Editor) clearAllLayers() {
 // O(N log N) sort every frame. The cache is invalidated whenever ground
 // elevation changes (raise/lower brushes, terrain import).
 func (e *Editor) regenerateAuto() {
+	e.markDirty()
 	if e.world == nil || e.world.Terrain == nil {
 		return
 	}
@@ -978,6 +1007,7 @@ func (e *Editor) toolUsesDensitySlider() bool {
 }
 
 func (e *Editor) applyEditorTool(gx, gz int, r *render.Renderer, dt float32) {
+	e.markDirty()
 	w := e.world
 	switch e.activeTool {
 	case toolPlantTrees:
@@ -1002,6 +1032,7 @@ func (e *Editor) applyEditorTool(gx, gz int, r *render.Renderer, dt float32) {
 // as bare ground; the Auto-snow generator (and brushes, eventually) is the
 // authoritative way to lay snow on top.
 func (e *Editor) applyImportedTerrain(elevs [][]float32, r *render.Renderer) {
+	e.markDirty()
 	rows := len(elevs)
 	cols := 0
 	if rows > 0 {
@@ -1682,6 +1713,15 @@ func (e *Editor) Render(r *render.Renderer) {
 	}
 	if e.escapeMenu.Visible() {
 		edDrawables = append(edDrawables, e.escapeMenu)
+	}
+	if e.toastText != "" && e.time < e.toastExpiry {
+		edDrawables = append(edDrawables, &toastLabel{text: e.toastText})
+	}
+	if e.savePrompt != nil {
+		edDrawables = append(edDrawables, e.savePrompt)
+	}
+	if e.confirmPrompt != nil {
+		edDrawables = append(edDrawables, e.confirmPrompt)
 	}
 	r.DrawUI(edDrawables)
 

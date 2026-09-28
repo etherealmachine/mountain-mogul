@@ -37,15 +37,21 @@ type Patroller struct {
 
 // SpawnPatroller creates a new patroller parked at the patrol hut's door.
 func (w *World) SpawnPatroller(hut *Building) *Patroller {
-	cell := hut.DoorCell()
 	p := &Patroller{
 		ID:    w.NextID(),
 		HutID: hut.ID,
-		Pos:   mgl32.Vec3{float32(cell[0]) * CellSize, 0, float32(cell[1]) * CellSize},
+		Pos:   w.PatrollerHutPos(hut),
 		State: PatrollerAtHut,
 	}
 	w.Patrollers = append(w.Patrollers, p)
 	return p
+}
+
+// PatrollerHutPos is where a patroller waits at its hut: the corner of
+// the hut's door cell.
+func (w *World) PatrollerHutPos(hut *Building) mgl32.Vec3 {
+	cell := hut.DoorCell()
+	return mgl32.Vec3{float32(cell[0]) * CellSize, 0, float32(cell[1]) * CellSize}
 }
 
 // RemovePatrollersOwnedBy drops every patroller whose HutID matches hutID.

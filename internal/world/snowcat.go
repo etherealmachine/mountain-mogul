@@ -114,17 +114,23 @@ func (w *World) CatsOwnedBy(shedID uint64) []*Snowcat {
 // appends it to the world. The cat starts with no target so the sim's
 // first tick assigns one (or parks it if the route is empty).
 func (w *World) SpawnSnowcat(shed *Building) *Snowcat {
+	cat := &Snowcat{
+		ID:     w.NextID(),
+		ShedID: shed.ID,
+		Pos:    w.SnowcatParkPos(shed),
+	}
+	w.Snowcats = append(w.Snowcats, cat)
+	return cat
+}
+
+// SnowcatParkPos is where a cat sits when parked at its shed: the centre
+// of the shed's door cell, on the snow surface.
+func (w *World) SnowcatParkPos(shed *Building) mgl32.Vec3 {
 	cell := shed.DoorCell()
 	cx := (float32(cell[0]) + 0.5) * CellSize
 	cz := (float32(cell[1]) + 0.5) * CellSize
 	cy := w.Terrain.SurfaceElevationAt(cell[0], cell[1])
-	cat := &Snowcat{
-		ID:     w.NextID(),
-		ShedID: shed.ID,
-		Pos:    mgl32.Vec3{cx, cy, cz},
-	}
-	w.Snowcats = append(w.Snowcats, cat)
-	return cat
+	return mgl32.Vec3{cx, cy, cz}
 }
 
 // RemoveSnowcat drops the cat with the given ID. Used when a shed
