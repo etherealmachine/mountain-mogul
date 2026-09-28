@@ -695,8 +695,8 @@ func NewScenarioFromFile(path string) *Scenario {
 	// its basename so Save defaults to overwriting the same slot.
 	dir, file := filepath.Split(path)
 	cleanDir := filepath.Clean(dir)
-	if cleanDir == filepath.Clean(save.SavesDir()) && strings.HasSuffix(file, ".json") {
-		s.saveName = strings.TrimSuffix(file, ".json")
+	if cleanDir == filepath.Clean(save.SavesDir()) && strings.HasSuffix(file, save.SaveExt) {
+		s.saveName = strings.TrimSuffix(file, save.SaveExt)
 	}
 	return s
 }
@@ -1300,7 +1300,7 @@ func (s *Scenario) openSavePrompt() {
 	)
 }
 
-// commitSave writes the world to {SavesDir}/{name}.json and updates
+// commitSave writes the world to {SavesDir}/{name}.save and updates
 // saveName so the next prompt defaults to the same slot.
 func (s *Scenario) commitSave(name string) {
 	clean := save.SanitizeSaveName(name)
