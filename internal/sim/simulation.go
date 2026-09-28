@@ -134,15 +134,19 @@ func NewSimulationWithSeed(w *world.World, seed int64) *Simulation {
 	rng.Init(seed)
 	sim := &Simulation{
 		World:          w,
+		SimTime:        w.SimTime,
 		Pathfinder:     NewPathfinder(w.Terrain),
 		TimeScale:      4.0,
 		Weather:        NewChain(),
 		Planner:        goap.NewPlanner(),
 		Demand:         NewDemandSystem(),
 		spatial:        newSpatialGrid(widthM, heightM),
-		lastSampledDay: 0,
+		lastSampledDay: int(w.SimTime / secondsPerSimDay),
 		sectionsStale:  true, // run reassignment on first tick to pick up loaded cats
 	}
+	// Start the demand poll timer at the loaded clock so the first poll
+	// covers one interval, not the whole elapsed season.
+	sim.Demand.LastPoll = w.SimTime
 	for _, a := range w.OnMountain {
 		if !a.Plan.Done() {
 			sim.onPlanStepStart(a)
@@ -218,6 +222,7 @@ func (s *Simulation) refillTowersScratch() {
 // controls step size.
 func (s *Simulation) subTick(dt float64) {
 	s.SimTime += dt
+	s.World.SimTime = s.SimTime
 	s.Demand.maybePoll(s)
 	s.maybeSampleHistory()
 	s.tickLifts(dt)
