@@ -137,6 +137,11 @@ type World struct {
 	// Saved and reloaded so SeedGuests on load produces the same guest pool.
 	Seed int64
 
+	// SimTime is the sim clock in seconds. Simulation owns the live clock
+	// and mirrors it here every sub-tick so saves capture it; on load,
+	// NewSimulationWithSeed starts the clock from this value.
+	SimTime float64
+
 	// FocusedGuestID is the ID of the guest currently being followed by the
 	// camera (0 = none). Written by the scene layer; exposed to the query
 	// system so "WHERE followed = 1" works in live SQL queries.

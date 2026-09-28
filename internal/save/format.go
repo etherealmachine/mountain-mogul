@@ -6,6 +6,7 @@ type ScenarioData struct {
 	Width      int             `json:"width"`
 	Height     int             `json:"height"`
 	Seed       int64           `json:"seed,omitempty"`
+	SimTime    float64         `json:"sim_time,omitempty"` // sim clock in seconds at save time
 	Cells      []CellData      `json:"cells"` // flat array, row-major (x-major)
 	Objects    []ObjectData    `json:"objects"`
 	Buildings  []BuildingData  `json:"buildings"`

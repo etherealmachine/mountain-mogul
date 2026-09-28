@@ -400,6 +400,7 @@ func worldToData(w *world.World) ScenarioData {
 	return ScenarioData{
 		Name:       "scenario",
 		Seed:       w.Seed,
+		SimTime:    w.SimTime,
 		Width:      t.Width,
 		Height:     t.Height,
 		Cells:      cells,
@@ -926,6 +927,7 @@ func dataToWorld(data ScenarioData) *world.World {
 	// empty *History so the sim starts recording immediately.
 	w.History = historyFromData(data.History)
 	eventsFromData(&w.Events, data.Events)
+	w.SimTime = data.SimTime
 
 	return w
 }
