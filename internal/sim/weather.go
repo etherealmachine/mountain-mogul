@@ -122,8 +122,8 @@ type monthProfile struct {
 	meanTempC float32
 }
 
-// monthProfiles is indexed by time.Month-1. All twelve months are present
-// so off-season calls (if any) return sensible values.
+// monthProfiles is indexed by time.Month-1. All twelve months are present;
+// the calendar runs through the off-season, so every month gets sampled.
 //
 // Tendency weights (Clear, Overcast, LightSnow, HeavySnow, Rain):
 // Jan–Feb: peak cold and snow. Mar: spring thaw starts.

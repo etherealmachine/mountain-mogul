@@ -72,8 +72,8 @@ const (
 	// Standby (closed-resort) costs, dollars per in-game day. What the
 	// resort pays while nothing is open: lifts idle with no attendants,
 	// cats parked (CatStandbyCostDay), buildings heated but unstaffed.
-	// See DailyStandbyCost. Not yet charged — the calendar skips the
-	// off-season until the season thread derives open/closed state.
+	// See DailyStandbyCost. Charged at rollover on days the resort is
+	// closed (sim.ResortOpen).
 	LiftStandbyCostDay     = 100 // per lift: inspections, idle power
 	BuildingStandbyCostDay = 40  // per staffed building (lodge, bar, office, patrol hut, shed)
 	// Snowcat daily costs live in world/snowcat.go (CatActiveCostDay, CatStandbyCostDay).

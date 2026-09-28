@@ -105,6 +105,9 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 	elapsed := s.SimTime - d.LastPoll
 	d.LastPoll = s.SimTime
 	d.checkSeasonRollover(s)
+	if !ResortOpen(s.World, s.SimTime) {
+		return // closed: nobody comes, pass holders included
+	}
 
 	// Piggyback the slow cadence with a one-pass linear decay of skier
 	// tracks in the surface-detail R channel. 0.985 per 30 s sim time

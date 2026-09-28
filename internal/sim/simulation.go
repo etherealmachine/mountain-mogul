@@ -591,8 +591,11 @@ func (s *Simulation) maybeSampleHistory() {
 		dayIdx := s.lastSampledDay
 		w := s.World
 
-		// Compute and debit operational costs for the day.
-		costs := w.DailyOperatingCost()
+		// Debit the day's costs: operating when open, standby when closed.
+		costs := w.DailyStandbyCost()
+		if ResortOpen(w, float64(dayIdx)*secondsPerSimDay) {
+			costs = w.DailyOperatingCost()
+		}
 		w.Cash -= costs
 		costs += s.applyCredit(dayIdx)
 

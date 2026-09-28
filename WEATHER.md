@@ -44,7 +44,7 @@ Twelve profiles (January–December) each carry tendency weights `(Clear, Overca
 - **Jan–Feb**: peak snow season; heavy-snow tendency highest, sub-zero temperatures.
 - **Mar**: spring thaw begins; rain probability rises, heavy snow falls off.
 - **Apr–May**: shoulder; rain dominant, snow rare, near-freezing temps.
-- **Jun–Oct**: off-season; almost no snow, warm temperatures.
+- **Jun–Oct**: off-season (resort closed, calendar still runs); almost no snow, warm temperatures, snowpack melts out.
 - **Nov–Dec**: early season; mixed precipitation, returning cold.
 
 ## Per-State Parameters

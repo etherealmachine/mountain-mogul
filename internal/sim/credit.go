@@ -8,18 +8,16 @@ import (
 )
 
 // applyCredit runs the credit line for the rollover that closes day dayIdx:
-// accrues interest on the drawn balance for every calendar day until the
-// next sim day (normally 1; the whole closed gap across the off-season),
-// charges the accrued total to Cash when the next day is in a new month,
-// and advances the bankruptcy counter. Returns the interest charged in
+// accrues one day's interest on the drawn balance, charges the accrued
+// total to Cash when the next day is in a new month, and advances the
+// bankruptcy counter. Returns the interest charged in
 // dollars (0 on non-billing days) so the day's sample counts it as a cost.
 func (s *Simulation) applyCredit(dayIdx int) int {
 	w := s.World
 	today := DateAt(float64(dayIdx) * secondsPerSimDay)
 	next := DateAt(float64(dayIdx+1) * secondsPerSimDay)
-	days := int(math.Round(next.Sub(today).Hours() / 24))
 
-	w.AccruedInterest += float64(w.CreditDrawn()) * world.CreditAnnualRate / 365 * float64(days)
+	w.AccruedInterest += float64(w.CreditDrawn()) * world.CreditAnnualRate / 365
 
 	charged := 0
 	if next.Month() != today.Month() || next.Year() != today.Year() {
@@ -27,13 +25,8 @@ func (s *Simulation) applyCredit(dayIdx int) int {
 		w.AccruedInterest = 0
 		if charged > 0 {
 			w.Cash -= charged
-			// Across the off-season gap one bill covers every closed month.
-			period := today.Format("Jan")
-			if last := next.AddDate(0, 0, -1); last.Month() != today.Month() {
-				period += "–" + last.Format("Jan")
-			}
 			w.LogEvent(world.EventFinance, s.SimTime, fmt.Sprintf(
-				"%s interest charged: $%d on $%d drawn", period, charged, w.CreditDrawn()))
+				"%s interest charged: $%d on $%d drawn", today.Format("Jan"), charged, w.CreditDrawn()))
 		}
 	}
 

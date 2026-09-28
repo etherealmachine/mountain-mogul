@@ -75,6 +75,10 @@ it just flips State and populates sim scratch fields at spawn.
 `DemandSystem.maybePoll(s *Simulation)` runs from `Simulation.Tick`
 once per frame; it short-circuits unless
 `s.SimTime - LastPoll >= demandPollInterval` (currently **30 sim-seconds**).
+It also spawns nobody, pass holders included, on days the resort is
+closed (`ResortOpen` false — outside Nov 25 to Memorial Day for now).
+The season rollover check still runs first, so `VisitsThisSeason`
+resets on Nov 1, before opening day.
 
 ```
 capacity = Σ lifts: chairs × seats × (1 / loopTime) × avgSessionSec

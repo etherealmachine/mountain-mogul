@@ -17,8 +17,8 @@ func TestSeasonRolloverResetsVisitsThisSeason(t *testing.T) {
 		t.Fatalf("counters reset without a boundary: %d, %d", guests[0].VisitsThisSeason, guests[1].VisitsThisSeason)
 	}
 
-	// Step past the first season's close (2026-27 season is 188 days).
-	for day := 101.0; day <= 200; day++ {
+	// Step through the summer into the 2027-28 season (day 400 = Dec 30, 2027).
+	for day := 101.0; day <= 400; day++ {
 		s.SimTime = day * secondsPerSimDay
 		s.Demand.maybePoll(s)
 	}

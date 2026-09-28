@@ -79,6 +79,15 @@ lifts, snowcats, and the demand/rating system.
 | `DemandSystem` | Resort rating + guest arrival. Bernoulli roll per guest every 30 sim-seconds; daily EMA from departure satisfaction. |
 | `Pathfinder` | A* grid navigation for walk segments between buildings and lift bases. |
 
+**Calendar** (`calendar.go`): `DateAt(simTime)` is the epoch (Nov 25,
+2026) plus one day per `secondsPerSimDay` (240 s). It runs through the
+whole year; there is no off-season jump. `ResortOpen(w, simTime)` says
+whether the resort is open that day — for now a fixed window, Nov 25
+through Memorial Day. The day rollover (`maybeSampleHistory`) charges
+`DailyOperatingCost` on open days and `DailyStandbyCost` on closed ones,
+bills credit interest at each month end (`credit.go`), and advances the
+weather chain, which samples all twelve month profiles.
+
 Skiing is the hot path: `tickSkier` runs the full L1–L3 pipeline
 (perception → steering → physics integration → balance/fall check) once
 per guest per tick. See [GUESTS.md](GUESTS.md).
