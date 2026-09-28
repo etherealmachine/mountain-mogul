@@ -23,6 +23,20 @@ type ScenarioData struct {
 	DayTicket  *int            `json:"day_ticket,omitempty"`
 	Camera     *CameraData     `json:"camera,omitempty"`
 	History    *HistoryData    `json:"history,omitempty"`
+	Events     []EventData     `json:"events,omitempty"`
+}
+
+// EventData is one entry of the world event feed (world.Event). Saved
+// oldest-first; the loader pushes them back in order, so the ring's head
+// bookkeeping is not persisted. Saves without the field load an empty feed.
+type EventData struct {
+	Kind     uint8   `json:"k,omitempty"`
+	SimTime  float64 `json:"t,omitempty"`
+	Message  string  `json:"m,omitempty"`
+	HasPos   bool    `json:"hp,omitempty"`
+	X        float32 `json:"x,omitempty"`
+	Z        float32 `json:"z,omitempty"`
+	EntityID uint64  `json:"id,omitempty"`
 }
 
 // ParcelData is one scenario-authored land parcel. State: 0=owned,

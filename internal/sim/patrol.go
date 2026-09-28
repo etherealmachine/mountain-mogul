@@ -1,8 +1,10 @@
 package sim
 
 import (
+	"fmt"
 	"math"
 
+	"github.com/go-gl/mathgl/mgl32"
 	"mountain-mogul/internal/world"
 )
 
@@ -133,6 +135,9 @@ func (s *Simulation) patrollerDropPatient(p *world.Patroller, depart bool) {
 			g.Injured = false
 			g.Fallen = false
 			if depart {
+				w.LogEventAt(world.EventRescue, s.SimTime,
+					fmt.Sprintf("Patrol brought %s down to the base", g.Name),
+					mgl32.Vec2{p.Pos[0], p.Pos[2]}, g.ID)
 				s.Demand.recordDeparture(g, s.SimTime)
 				w.History.RecordDeparture()
 				w.History.RecordExitThought(g.LastThought().Kind)

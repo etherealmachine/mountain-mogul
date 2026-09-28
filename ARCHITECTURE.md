@@ -51,6 +51,7 @@ domain helpers (entity lookup, coordinate conversion, ID allocation).
 | `Snowcat` | Grooming machine. Drives to route cells, applies corduroy (raises `Packed`, lowers `SnowDepth`). |
 | `RoadNode / RoadEdge` | Road graph vertices and segments. Nodes typed: freestanding, edge-connection, parking driveway, auto-intersection. |
 | `History` | Daily ring of resort stats (guests on mountain, arrivals, departures, cash). Feeds the in-game charts. |
+| `EventLog` | `World.Events`: bounded ring (256) of `Event`s — kind, sim time, message, optional XZ position + entity ID. Written by the sim (avalanche, patrol rescue, lift holds, day recap) and by the scene for player actions (builds, lift open/close) via `Simulation.Log*`. Shown in the left-side event panel (top-bar flag button); clicking a positioned event centres the camera there. |
 | `GuestPool` | Master roster of all guests (on-mountain + departed). Tracks per-guest career across visits. |
 
 ---
@@ -123,7 +124,7 @@ from internal renames.
 
 **Key types:** `ScenarioData` (full world snapshot), `CellData`,
 `BuildingData`, `LiftData`, `GuestData`, `SnowcatData`, `HistoryData`,
-`CameraData`
+`EventData`, `CameraData`
 
 ---
 

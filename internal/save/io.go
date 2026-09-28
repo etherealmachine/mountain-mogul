@@ -416,6 +416,43 @@ func worldToData(w *world.World) ScenarioData {
 		Cash:       w.Cash,
 		DayTicket:  &w.DayTicketPrice,
 		History:    historyToData(w.History),
+		Events:     eventsToData(&w.Events),
+	}
+}
+
+// eventsToData captures the event feed oldest-first. Returns nil for an
+// empty feed so msgpack omits the field.
+func eventsToData(l *world.EventLog) []EventData {
+	if l.Len() == 0 {
+		return nil
+	}
+	out := make([]EventData, l.Len())
+	for i := range out {
+		e := l.At(i)
+		out[i] = EventData{
+			Kind:     uint8(e.Kind),
+			SimTime:  e.SimTime,
+			Message:  e.Message,
+			HasPos:   e.HasPos,
+			X:        e.Pos[0],
+			Z:        e.Pos[1],
+			EntityID: e.EntityID,
+		}
+	}
+	return out
+}
+
+// eventsFromData replays saved events into l in chronological order.
+func eventsFromData(l *world.EventLog, data []EventData) {
+	for _, e := range data {
+		l.Push(world.Event{
+			Kind:     world.EventKind(e.Kind),
+			SimTime:  e.SimTime,
+			Message:  e.Message,
+			HasPos:   e.HasPos,
+			Pos:      mgl32.Vec2{e.X, e.Z},
+			EntityID: e.EntityID,
+		})
 	}
 }
 
@@ -888,6 +925,7 @@ func dataToWorld(data ScenarioData) *world.World {
 	// Rehydrate the history ring. Absent in the save → allocate an
 	// empty *History so the sim starts recording immediately.
 	w.History = historyFromData(data.History)
+	eventsFromData(&w.Events, data.Events)
 
 	return w
 }

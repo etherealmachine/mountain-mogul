@@ -190,3 +190,22 @@ func (w *World) RemoveRoadNode(id uint64) {
 		}
 	}
 }
+
+// Label returns a short human-readable name for HUD / event-feed display.
+func (t BuildingType) Label() string {
+	switch t {
+	case BuildingShed:
+		return "Equipment Shed"
+	case BuildingParking:
+		return "Parking Lot"
+	case BuildingPatrolHut:
+		return "Patrol Hut"
+	case BuildingSnowGun:
+		return "Snow Gun"
+	case BuildingTicketOffice:
+		return "Ticket Office"
+	case BuildingBar:
+		return "Bar"
+	}
+	return "Lodge"
+}

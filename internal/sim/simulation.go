@@ -250,6 +250,9 @@ func (s *Simulation) tickLifts(dt float64) {
 		}
 		wasHeld := lift.OnHold
 		lift.OnHold = !baseHasSnow
+		if lift.OnHold != wasHeld && lift.Open {
+			s.logLiftHoldChanged(lift)
+		}
 		if lift.OnHold && !wasHeld {
 			// Transition to hold: eject queued guests so they can re-plan.
 			for _, g := range lift.Queue {
@@ -605,7 +608,7 @@ func (s *Simulation) maybeSampleHistory() {
 		}
 		w.Cash -= costs
 
-		w.History.Push(world.DailySample{
+		sample := world.DailySample{
 			Day:              DateAt(float64(dayIdx) * secondsPerSimDay),
 			GuestsOnMountain: len(w.OnMountain),
 			ArrivalsToday:    w.History.ArrivalsToday,
@@ -615,7 +618,9 @@ func (s *Simulation) maybeSampleHistory() {
 			Costs:            costs,
 			ThoughtCounts:     w.History.ThoughtCountsToday,
 			ExitThoughtCounts: w.History.ExitThoughtCountsToday,
-		})
+		}
+		w.History.Push(sample)
+		s.logDaySummary(sample)
 		s.lastSampledDay++
 
 		// Advance weather for the new day and apply terrain effects.
@@ -755,7 +760,9 @@ func (s *Simulation) TriggerAvalanche() {
 		return
 	}
 	pick := best[rng.Global().Intn(len(best))]
-	s.startAvalanche(t, pick.x, pick.z)
+	if s.startAvalanche(t, pick.x, pick.z) {
+		s.logAvalanches(1, [2]int{pick.x, pick.z})
+	}
 	t.SnowDirty = true
 }
 

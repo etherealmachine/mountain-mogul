@@ -104,6 +104,11 @@ type World struct {
 	// allocates an empty one so the sim immediately begins recording.
 	History *History
 
+	// Events is the bounded feed of notable happenings (avalanches,
+	// rescues, lift status changes, builds, day summaries) shown in the
+	// UI event panel. Zero value is an empty log.
+	Events EventLog
+
 	// Cash is the resort's bank balance in dollars. PlaceBuilding /
 	// PlaceLift deduct from this and refuse the placement when the
 	// balance can't cover the cost.
