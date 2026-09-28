@@ -454,8 +454,13 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		Parcels:    parcels,
 		Cash:       w.Cash,
 		DayTicket:  &w.DayTicketPrice,
-		History:    historyToData(w.History),
-		Events:     eventsToData(&w.Events),
+
+		CreditLimit:     &w.CreditLimit,
+		AccruedInterest: w.AccruedInterest,
+		DaysBelowFloor:  w.DaysBelowFloor,
+		Bankrupt:        w.Bankrupt,
+		History:         historyToData(w.History),
+		Events:          eventsToData(&w.Events),
 	}
 }
 
@@ -600,6 +605,12 @@ func dataToWorld(data ScenarioData) *world.World {
 	if data.DayTicket != nil {
 		w.DayTicketPrice = *data.DayTicket
 	}
+	if data.CreditLimit != nil {
+		w.CreditLimit = *data.CreditLimit
+	}
+	w.AccruedInterest = data.AccruedInterest
+	w.DaysBelowFloor = data.DaysBelowFloor
+	w.Bankrupt = data.Bankrupt
 
 	// Restore objects (no cross-references, fresh IDs are fine).
 	for _, od := range data.Objects {

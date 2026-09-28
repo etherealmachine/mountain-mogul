@@ -2415,9 +2415,9 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 			s.setToast("Can't build on land you don't own")
 			return
 		}
-		if w.Cash < world.LodgeCost {
+		if !w.CanAfford(world.LodgeCost) {
 			s.setToast(fmt.Sprintf("Need $%d for a lodge — short by $%d",
-				world.LodgeCost, world.LodgeCost-w.Cash))
+				world.LodgeCost, world.LodgeCost-w.Available()))
 			return
 		}
 		if w.BuildingOverlap(world.BuildingLodge, wx, wz) {
@@ -2435,9 +2435,9 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 			s.setToast("Can't build on land you don't own")
 			return
 		}
-		if w.Cash < world.TicketOfficeCost {
+		if !w.CanAfford(world.TicketOfficeCost) {
 			s.setToast(fmt.Sprintf("Need $%d for a ticket office — short by $%d",
-				world.TicketOfficeCost, world.TicketOfficeCost-w.Cash))
+				world.TicketOfficeCost, world.TicketOfficeCost-w.Available()))
 			return
 		}
 		if w.BuildingOverlap(world.BuildingTicketOffice, wx, wz) {
@@ -2455,9 +2455,9 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 			s.setToast("Can't build on land you don't own")
 			return
 		}
-		if w.Cash < world.ShedCost {
+		if !w.CanAfford(world.ShedCost) {
 			s.setToast(fmt.Sprintf("Need $%d for a shed — short by $%d",
-				world.ShedCost, world.ShedCost-w.Cash))
+				world.ShedCost, world.ShedCost-w.Available()))
 			return
 		}
 		if w.BuildingOverlap(world.BuildingShed, wx, wz) {
@@ -2476,9 +2476,9 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 			s.setToast("Can't build on land you don't own")
 			return
 		}
-		if w.Cash < world.ParkingCost {
+		if !w.CanAfford(world.ParkingCost) {
 			s.setToast(fmt.Sprintf("Need $%d for a parking lot — short by $%d",
-				world.ParkingCost, world.ParkingCost-w.Cash))
+				world.ParkingCost, world.ParkingCost-w.Available()))
 			return
 		}
 		if w.BuildingOverlap(world.BuildingParking, wx, wz) {
@@ -2498,9 +2498,9 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 			s.setToast("Can't build on land you don't own")
 			return
 		}
-		if w.Cash < world.PatrolHutCost {
+		if !w.CanAfford(world.PatrolHutCost) {
 			s.setToast(fmt.Sprintf("Need $%d for a patrol hut — short by $%d",
-				world.PatrolHutCost, world.PatrolHutCost-w.Cash))
+				world.PatrolHutCost, world.PatrolHutCost-w.Available()))
 			return
 		}
 		if w.BuildingOverlap(world.BuildingPatrolHut, wx, wz) {
@@ -2518,9 +2518,9 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 			s.setToast("Can't build on land you don't own")
 			return
 		}
-		if w.Cash < world.SnowGunCost {
+		if !w.CanAfford(world.SnowGunCost) {
 			s.setToast(fmt.Sprintf("Need $%d for a snow gun — short by $%d",
-				world.SnowGunCost, world.SnowGunCost-w.Cash))
+				world.SnowGunCost, world.SnowGunCost-w.Available()))
 			return
 		}
 		if w.BuildingOverlap(world.BuildingSnowGun, wx, wz) {
@@ -2536,9 +2536,9 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 			s.setToast("Can't build on land you don't own")
 			return
 		}
-		if w.Cash < world.BarCost {
+		if !w.CanAfford(world.BarCost) {
 			s.setToast(fmt.Sprintf("Need $%d for a bar — short by $%d",
-				world.BarCost, world.BarCost-w.Cash))
+				world.BarCost, world.BarCost-w.Available()))
 			return
 		}
 		if w.BuildingOverlap(world.BuildingBar, wx, wz) {
@@ -2557,8 +2557,8 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		// holding does nothing further (see lastGladeCell gate in Update).
 		strength := s.gladeThinSlider.Value / 100
 		cost := gladeStrokeCost(w.Terrain, gx, gz, s.gladeBrushRadius(), strength)
-		if cost > 0 && w.Cash < cost {
-			s.setToast(fmt.Sprintf("Need $%d to clear here — short by $%d", cost, cost-w.Cash))
+		if cost > 0 && !w.CanAfford(cost) {
+			s.setToast(fmt.Sprintf("Need $%d to clear here — short by $%d", cost, cost-w.Available()))
 			return
 		}
 		w.Cash -= cost
@@ -2575,8 +2575,8 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		if s.liftType == world.LiftHeli {
 			minCost = world.HelipadCost / 2
 		}
-		if w.Cash < minCost {
-			s.setToast(fmt.Sprintf("Need $%d — short by $%d", minCost, minCost-w.Cash))
+		if !w.CanAfford(minCost) {
+			s.setToast(fmt.Sprintf("Need $%d — short by $%d", minCost, minCost-w.Available()))
 			return
 		}
 		s.liftBase = mgl32.Vec2{wx, wz}
@@ -2593,8 +2593,8 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		} else {
 			cost = world.LiftCost(s.liftBase, top)
 		}
-		if w.Cash < cost {
-			s.setToast(fmt.Sprintf("Need $%d — short by $%d", cost, cost-w.Cash))
+		if !w.CanAfford(cost) {
+			s.setToast(fmt.Sprintf("Need $%d — short by $%d", cost, cost-w.Available()))
 			return
 		}
 		w.Cash -= cost
@@ -2615,9 +2615,9 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		// Cheapest a road can be is the base cost — gate entry so the
 		// player can't waste a click on a start they couldn't afford
 		// the cheapest follow-up from.
-		if w.Cash < world.RoadBaseCost {
+		if !w.CanAfford(world.RoadBaseCost) {
 			s.setToast(fmt.Sprintf("Need $%d to start a road — short by $%d",
-				world.RoadBaseCost, world.RoadBaseCost-w.Cash))
+				world.RoadBaseCost, world.RoadBaseCost-w.Available()))
 			return
 		}
 		s.roadStart = resolveRoadEndpoint(w, mgl32.Vec2{wx, wz}).pos
@@ -2634,9 +2634,9 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 			return
 		}
 		cost := world.RoadCost(start.pos, end.pos)
-		if w.Cash < cost {
+		if !w.CanAfford(cost) {
 			s.setToast(fmt.Sprintf("Need $%d for this road — short by $%d",
-				cost, cost-w.Cash))
+				cost, cost-w.Available()))
 			return
 		}
 		if placeRoadSegment(w, start, end) == nil {
@@ -3300,7 +3300,7 @@ func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 			return fmt.Sprintf("$%d/day", cost)
 		})
 		w.AddActionButton(fmt.Sprintf("Buy cat  $%d", world.CatPurchasePrice), func() {
-			if s.world.Cash < world.CatPurchasePrice {
+			if !s.world.CanAfford(world.CatPurchasePrice) {
 				s.setToast(fmt.Sprintf("Need $%d for another cat", world.CatPurchasePrice))
 				return
 			}
@@ -3598,9 +3598,9 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 		label := fmt.Sprintf("Upgrade to Quad ($%d)", world.LiftUpgradeCost)
 		w.AddActionButton(label, func() {
 			if !s.world.UpgradeLift(l, world.LiftFixedQuad) {
-				if s.world.Cash < world.LiftUpgradeCost {
+				if !s.world.CanAfford(world.LiftUpgradeCost) {
 					s.setToast(fmt.Sprintf("Need $%d to upgrade — short by $%d",
-						world.LiftUpgradeCost, world.LiftUpgradeCost-s.world.Cash))
+						world.LiftUpgradeCost, world.LiftUpgradeCost-s.world.Available()))
 				}
 				return
 			}
@@ -3611,9 +3611,9 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 		label := fmt.Sprintf("Upgrade to HS Quad ($%d)", world.LiftHSUpgradeCost)
 		w.AddActionButton(label, func() {
 			if !s.world.UpgradeLift(l, world.LiftHSQuad) {
-				if s.world.Cash < world.LiftHSUpgradeCost {
+				if !s.world.CanAfford(world.LiftHSUpgradeCost) {
 					s.setToast(fmt.Sprintf("Need $%d to upgrade — short by $%d",
-						world.LiftHSUpgradeCost, world.LiftHSUpgradeCost-s.world.Cash))
+						world.LiftHSUpgradeCost, world.LiftHSUpgradeCost-s.world.Available()))
 				}
 				return
 			}
@@ -3624,9 +3624,9 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 		label := fmt.Sprintf("Upgrade to HS 6-Pack ($%d)", world.LiftHS6PackUpgradeCost)
 		w.AddActionButton(label, func() {
 			if !s.world.UpgradeLift(l, world.LiftHS6Pack) {
-				if s.world.Cash < world.LiftHS6PackUpgradeCost {
+				if !s.world.CanAfford(world.LiftHS6PackUpgradeCost) {
 					s.setToast(fmt.Sprintf("Need $%d to upgrade — short by $%d",
-						world.LiftHS6PackUpgradeCost, world.LiftHS6PackUpgradeCost-s.world.Cash))
+						world.LiftHS6PackUpgradeCost, world.LiftHS6PackUpgradeCost-s.world.Available()))
 				}
 				return
 			}
@@ -3699,7 +3699,7 @@ func (s *Scenario) openLandBuyPopup(gx, gz, screenW, screenH int) {
 	w.AddLabel("Status", func() string { return "Available for purchase" })
 	w.AddActionButton(fmt.Sprintf("Buy for $%d", parcel.Price), func() {
 		if !s.world.BuyParcel(parcel.ID) {
-			s.setToast(fmt.Sprintf("Need $%d — short by $%d", parcel.Price, parcel.Price-s.world.Cash))
+			s.setToast(fmt.Sprintf("Need $%d — short by $%d", parcel.Price, parcel.Price-s.world.Available()))
 		} else {
 			s.parcelBoundaryDirty = true
 		}
@@ -4072,7 +4072,7 @@ func (s *Scenario) placementCost() (cost int, affordable, legal, valid bool) {
 	default:
 		return 0, false, true, false
 	}
-	return cost, s.world.Cash >= cost, legal, true
+	return cost, s.world.CanAfford(cost), legal, true
 }
 
 // placementTint resolves the ghost tint for the active placement tool:

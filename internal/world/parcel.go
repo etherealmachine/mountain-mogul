@@ -62,7 +62,7 @@ func (w *World) BuyParcel(id uint16) bool {
 		if p.State != ParcelPurchasable {
 			return false
 		}
-		if w.Cash < p.Price {
+		if !w.CanAfford(p.Price) {
 			return false
 		}
 		w.Cash -= p.Price

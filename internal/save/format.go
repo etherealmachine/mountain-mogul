@@ -19,6 +19,12 @@ type ScenarioData struct {
 	RoadEdges  []RoadEdgeData  `json:"road_edges,omitempty"`
 	Parcels    []ParcelData    `json:"parcels,omitempty"`
 	Cash       int             `json:"cash,omitempty"`
+	// Credit line state. CreditLimit is a pointer so a $0 line round-trips;
+	// nil (older saves) loads as DefaultCreditLimit.
+	CreditLimit     *int    `json:"credit_limit,omitempty"`
+	AccruedInterest float64 `json:"accrued_interest,omitempty"`
+	DaysBelowFloor  int     `json:"days_below_floor,omitempty"`
+	Bankrupt        bool    `json:"bankrupt,omitempty"`
 	// DayTicket is World.DayTicketPrice. Pointer so a player-set $0 round-
 	// trips; nil (older saves) loads as DefaultDayTicketPrice.
 	DayTicket  *int            `json:"day_ticket,omitempty"`

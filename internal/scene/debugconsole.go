@@ -59,6 +59,9 @@ func (c *DebugConsole) exec(cmd string) {
 	case "moremoney":
 		c.world.Cash += 100_000
 		c.toast("+$100,000")
+	case "lessmoney":
+		c.world.Cash -= 500_000
+		c.toast("-$500,000")
 	case "moresnow":
 		if c.sim == nil {
 			return

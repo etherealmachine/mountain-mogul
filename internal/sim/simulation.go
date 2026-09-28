@@ -612,6 +612,7 @@ func (s *Simulation) maybeSampleHistory() {
 			}
 		}
 		w.Cash -= costs
+		costs += s.applyCredit(dayIdx)
 
 		sample := world.DailySample{
 			Day:              DateAt(float64(dayIdx) * secondsPerSimDay),

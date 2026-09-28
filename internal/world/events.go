@@ -17,6 +17,7 @@ const (
 	EventLiftClosed  EventKind = 3 // player closed a lift, or it went on hold
 	EventBuildPlaced EventKind = 4 // player placed a building or lift
 	EventDaySummary  EventKind = 5 // end-of-day recap written at rollover
+	EventFinance     EventKind = 6 // interest charged, credit floor crossed, bankruptcy
 )
 
 // Event is one entry in the World-level event feed: something the player
