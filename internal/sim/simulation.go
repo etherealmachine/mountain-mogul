@@ -153,6 +153,9 @@ func NewSimulationWithSeed(w *world.World, seed int64) *Simulation {
 	// Start the demand poll timer at the loaded clock so the first poll
 	// covers one interval, not the whole elapsed season.
 	sim.Demand.LastPoll = w.SimTime
+	// Sample today's weather for the world's current date so an October
+	// start opens on October weather rather than NewChain's placeholder.
+	sim.Weather.Advance(sim.DateAt(w.SimTime))
 	for _, a := range w.OnMountain {
 		if !a.Plan.Done() {
 			sim.onPlanStepStart(a)
@@ -599,7 +602,7 @@ func (s *Simulation) maybeSampleHistory() {
 		costs += s.applyCredit(dayIdx)
 
 		sample := world.DailySample{
-			Day:              DateAt(float64(dayIdx) * secondsPerSimDay),
+			Day:              s.DateAt(float64(dayIdx) * secondsPerSimDay),
 			GuestsOnMountain: len(w.OnMountain),
 			ArrivalsToday:    w.History.ArrivalsToday,
 			DeparturesToday:  w.History.DeparturesToday,
@@ -614,7 +617,7 @@ func (s *Simulation) maybeSampleHistory() {
 		s.lastSampledDay++
 
 		// Advance weather for the new day and apply terrain effects.
-		newDay := DateAt(float64(s.lastSampledDay) * secondsPerSimDay)
+		newDay := s.DateAt(float64(s.lastSampledDay) * secondsPerSimDay)
 		dw := s.Weather.Advance(newDay)
 		s.applyDailyWeather(dw)
 		if s.OnDayRollover != nil {
@@ -1283,7 +1286,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		w.History.RecordRevenue(price)
 		a.RemainingBudget -= float32(spend)
 		// Expiry = end of the current season.
-		now := DateAt(s.SimTime)
+		now := s.DateAt(s.SimTime)
 		closeYear := SeasonCloseYearFor(now)
 		closeDate := SeasonCloseDate(closeYear)
 		daysToClose := closeDate.Sub(now).Hours() / 24.0
@@ -1308,7 +1311,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		// reaper clears sim scratch fields. Decrement the lot's visible
 		// car count (4 departures = -1 car), then flip Removed so
 		// reapDeparted will splice this Guest out of OnMountain.
-		s.Demand.recordDeparture(a, s.SimTime)
+		s.Demand.recordDeparture(a, s.DateAt(s.SimTime))
 		w.History.RecordDeparture()
 		w.History.RecordExitThought(a.LastThought().Kind)
 		if b := findBuildingByID(w, step.BldgID); b != nil {

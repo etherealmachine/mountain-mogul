@@ -138,7 +138,7 @@ func (s *Simulation) patrollerDropPatient(p *world.Patroller, depart bool) {
 				w.LogEventAt(world.EventRescue, s.SimTime,
 					fmt.Sprintf("Patrol brought %s down to the base", g.Name),
 					mgl32.Vec2{p.Pos[0], p.Pos[2]}, g.ID)
-				s.Demand.recordDeparture(g, s.SimTime)
+				s.Demand.recordDeparture(g, s.DateAt(s.SimTime))
 				w.History.RecordDeparture()
 				w.History.RecordExitThought(g.LastThought().Kind)
 				g.Removed = true

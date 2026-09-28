@@ -2,6 +2,7 @@ package sim
 
 import (
 	"math"
+	"time"
 
 	"mountain-mogul/internal/ai"
 	"mountain-mogul/internal/rng"
@@ -245,19 +246,19 @@ func hasValidPass(g *world.Guest, simTime float64) bool {
 // recordDeparture is called once at the moment of ActDepart, before the
 // guest's Removed flag is set. Captures the session Satisfaction as
 // LastScore, folds it into ResortRating via EMA, and bumps career stats.
-func (d *DemandSystem) recordDeparture(g *world.Guest, simTime float64) {
+func (d *DemandSystem) recordDeparture(g *world.Guest, today time.Time) {
 	g.LastScore = g.Satisfaction
 	d.ResortRating += ratingEMAAlpha * (g.Satisfaction - d.ResortRating)
 	g.LifetimeVisits++
 	g.VisitsThisSeason++
-	g.LastVisit = DateAt(simTime)
+	g.LastVisit = today
 }
 
 // checkSeasonRollover detects the season boundary from SimTime and, when
 // it has moved since the last poll, clears per-season guest counters.
 // The first call only seeds d.Season.
 func (d *DemandSystem) checkSeasonRollover(s *Simulation) {
-	season := SeasonCloseYearFor(DateAt(s.SimTime))
+	season := SeasonCloseYearFor(s.DateAt(s.SimTime))
 	if d.Season != 0 && season != d.Season {
 		resetSeasonCounters(s.World)
 	}

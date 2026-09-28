@@ -21,6 +21,9 @@ import (
 // encoded ScenarioData wrapped in gzip. Cheap, compact, binary.
 const SaveExt = ".save"
 
+// startDateLayout is the ScenarioData.StartDate encoding.
+const startDateLayout = "2006-01-02"
+
 // SaveInfo describes one entry in the user's saves directory.
 type SaveInfo struct {
 	Name    string    // file basename without extension
@@ -442,6 +445,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		Name:       "scenario",
 		Seed:       w.Seed,
 		SimTime:    w.SimTime,
+		StartDate:  w.StartDate.Format(startDateLayout),
 		Width:      t.Width,
 		Height:     t.Height,
 		Cells:      cells,
@@ -985,6 +989,9 @@ func dataToWorld(data ScenarioData) *world.World {
 	w.History = historyFromData(data.History)
 	eventsFromData(&w.Events, data.Events)
 	w.SimTime = data.SimTime
+	if d, err := time.Parse(startDateLayout, data.StartDate); err == nil {
+		w.StartDate = d
+	}
 
 	return w
 }

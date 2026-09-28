@@ -79,15 +79,22 @@ lifts, snowcats, and the demand/rating system.
 | `DemandSystem` | Resort rating + guest arrival. Bernoulli roll per guest every 30 sim-seconds; daily EMA from departure satisfaction. |
 | `Pathfinder` | A* grid navigation for walk segments between buildings and lift bases. |
 
-**Calendar** (`calendar.go`): `DateAt(simTime)` is the epoch (Nov 25,
-2026) plus one day per `secondsPerSimDay` (240 s). It runs through the
+**Calendar** (`calendar.go`): `DateAt(start, simTime)` is `start` plus
+one day per `secondsPerSimDay` (240 s); `Simulation.DateAt(simTime)`
+passes the sim's `World.StartDate`. `StartDate` is the date SimTime 0
+maps to: `world.DefaultStartDate` (Nov 25, 2026) unless the scenario
+sets one with the editor's **Start date** strip under the top bar. It
+is saved as `start_date` ("2006-01-02"), so a New Game from a scenario
+begins on that date with SimTime 0. The calendar runs through the
 whole year; there is no off-season jump. Whether the resort is open is
 the player's call, not the calendar's: `World.ResortOpen`, flipped by
 `Simulation.SetResortOpen` from the Ticket Office popup (`resort.go`).
 The day rollover (`maybeSampleHistory`) charges `DailyOperatingCost` on
 days the resort was open at any point and `DailyStandbyCost` otherwise,
 bills credit interest at each month end (`credit.go`), and advances the
-weather chain, which samples all twelve month profiles.
+weather chain, which samples all twelve month profiles by date. The
+sim also samples the chain once at creation, so day 1's weather matches
+the start month.
 
 Skiing is the hot path: `tickSkier` runs the full L1–L3 pipeline
 (perception → steering → physics integration → balance/fall check) once

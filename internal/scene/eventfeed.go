@@ -38,7 +38,7 @@ func eventRows(w *world.World) []ui.EventRow {
 	rows := make([]ui.EventRow, len(events))
 	for i, e := range events {
 		rows[i] = ui.EventRow{
-			When:     sim.DateAt(e.SimTime).Format("Jan 2, 2006"),
+			When:     sim.DateAt(w.StartDate, e.SimTime).Format("Jan 2, 2006"),
 			Text:     e.Message,
 			Tint:     eventKindTint(e.Kind),
 			Jumpable: e.HasPos,

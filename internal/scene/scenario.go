@@ -898,12 +898,12 @@ func (s *Scenario) Init(app *engine.App) error {
 		return s.sim.Demand.ResortRating
 	}
 	s.topBar.GetDate = func() (int, string, int) {
-		d := sim.CalendarAt(s.sim.SimTime)
+		d := sim.CalendarAt(s.world.StartDate, s.sim.SimTime)
 		return d.Day, d.Month, d.Year
 	}
 	s.topBar.GetWeather = func() []ui.ForecastDay {
 		today := s.sim.Weather.Today()
-		from := sim.DateAt(s.sim.SimTime)
+		from := s.sim.DateAt(s.sim.SimTime)
 		forecast := s.sim.Weather.Forecast(from, 4)
 		days := make([]ui.ForecastDay, 1+len(forecast))
 		days[0] = ui.ForecastDay{

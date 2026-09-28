@@ -70,6 +70,7 @@ type Editor struct {
 	roadEdit           roadEditSelection
 	structureEdit      structureEditSelection
 	addStormBtn        *ui.Button
+	startDate          *startDatePanel
 	clearLayersBtn     *ui.Button
 	parcelBoundaryDirty        bool // fence geometry needs rebuild
 	suppressBrushUntilRelease  bool // set when a brush tool is activated via toolbar click; cleared on mouse-up
@@ -193,6 +194,12 @@ func (e *Editor) Init(app *engine.App) error {
 	e.topBar = ui.NewTopBar(topBarH)
 	e.topBar.GetTitle = e.editorTitle
 	e.topBar.SetSettingsButton(func() { e.escapeMenu.Toggle() })
+	e.startDate = newStartDatePanel(topBarH,
+		func() time.Time { return e.world.StartDate },
+		func(d time.Time) {
+			e.world.StartDate = d
+			e.markDirty()
+		})
 
 	e.overlayPanel = ui.NewOverlayPanel()
 	e.overlayPanel.Top = topBarH
@@ -367,6 +374,7 @@ func (e *Editor) Update(dt float64) {
 	e.menuBar.Y = float32(r.ScreenHeight()) - e.menuBar.H
 	e.menuBar.HandleInput(inp, float32(r.ScreenWidth()), float32(r.ScreenHeight()))
 	e.topBar.HandleInput(inp, float32(r.ScreenWidth()))
+	e.startDate.HandleInput(inp, float32(r.ScreenWidth()))
 
 	// Keep overlay panel sized to the live window and mirror its mask into
 	// the renderer so toggles take effect this frame.
@@ -476,6 +484,7 @@ func (e *Editor) Update(dt float64) {
 		e.parcelPopup.ContainsPoint(inp.MousePos[0], inp.MousePos[1])
 	overChrome := e.menuBar.ContainsY(inp.MousePos[1]) ||
 		e.topBar.ContainsY(inp.MousePos[1]) ||
+		e.startDate.Contains(inp.MousePos[0], inp.MousePos[1]) ||
 		e.overlayPanel.ContainsXY(inp.MousePos[0], inp.MousePos[1], float32(r.ScreenWidth())) ||
 		popupCoversClick
 	if !overChrome {
@@ -1624,7 +1633,7 @@ func (e *Editor) Render(r *render.Renderer) {
 	// Re-anchor before draw so menuBar.Y matches the live screen height.
 	e.menuBar.Y = float32(r.ScreenHeight()) - e.menuBar.H
 	e.overlayPanel.Bottom = float32(r.ScreenHeight()) - e.menuBar.H
-	edDrawables := []render.UIDrawable{e.topBar, e.menuBar, e.overlayPanel}
+	edDrawables := []render.UIDrawable{e.topBar, e.startDate, e.menuBar, e.overlayPanel}
 
 	// Parcel labels — price tag at the centroid of each purchasable parcel,
 	// colored to match its palette entry so it reads as a caption for the tint.

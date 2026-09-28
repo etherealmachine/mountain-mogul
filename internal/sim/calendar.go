@@ -1,6 +1,9 @@
 package sim
 
-import "time"
+import (
+	"math"
+	"time"
+)
 
 // Calendar maps SimTime to a date. Weather samples its month profile,
 // demand and costs follow World.ResortOpen, and credit bills at month ends.
@@ -10,11 +13,6 @@ import "time"
 // so a ~186-day ski season ≈ 3 real hours and a full year ≈ 6 real hours.
 // Pure tuning knob — adjust freely.
 const secondsPerSimDay = 240.0
-
-// calendarEpoch is the date SimTime 0 maps to: Nov 25, 2026, opening day
-// of the 2026-27 season. The calendar runs continuously from here, one
-// day per secondsPerSimDay, through the off-season as well as the season.
-var calendarEpoch = time.Date(2026, time.November, 25, 0, 0, 0, 0, time.UTC)
 
 // Memorial Day (last Monday of May) marks the end of a season for the
 // demand system's season rollover. Whether the resort is open on any
@@ -46,9 +44,10 @@ type Date struct {
 	Year  int    // calendar year, e.g. 2026
 }
 
-// CalendarAt returns the in-game date for the given SimTime.
-func CalendarAt(simTime float64) Date {
-	t := DateAt(simTime)
+// CalendarAt returns the in-game date for the given SimTime in a world
+// whose calendar starts on start (World.StartDate).
+func CalendarAt(start time.Time, simTime float64) Date {
+	t := DateAt(start, simTime)
 	return Date{
 		Day:   t.Day(),
 		Month: t.Month().String()[:3],
@@ -56,8 +55,16 @@ func CalendarAt(simTime float64) Date {
 	}
 }
 
-// DateAt returns the calendar date of the day containing simTime: the
-// epoch plus one day per secondsPerSimDay.
-func DateAt(simTime float64) time.Time {
-	return calendarEpoch.AddDate(0, 0, int(simTime/secondsPerSimDay))
+// DateAt returns the calendar date of the day containing simTime: start
+// (World.StartDate, the date SimTime 0 maps to) plus one day per
+// secondsPerSimDay. The calendar runs continuously from start through the
+// off-season as well as the season. Negative simTime (events from before a
+// starter scenario was rebased) counts back from start.
+func DateAt(start time.Time, simTime float64) time.Time {
+	return start.AddDate(0, 0, int(math.Floor(simTime/secondsPerSimDay)))
+}
+
+// DateAt is DateAt for this simulation's world.
+func (s *Simulation) DateAt(simTime float64) time.Time {
+	return DateAt(s.World.StartDate, simTime)
 }

@@ -14,8 +14,8 @@ import (
 // dollars (0 on non-billing days) so the day's sample counts it as a cost.
 func (s *Simulation) applyCredit(dayIdx int) int {
 	w := s.World
-	today := DateAt(float64(dayIdx) * secondsPerSimDay)
-	next := DateAt(float64(dayIdx+1) * secondsPerSimDay)
+	today := s.DateAt(float64(dayIdx) * secondsPerSimDay)
+	next := s.DateAt(float64(dayIdx+1) * secondsPerSimDay)
 
 	w.AccruedInterest += float64(w.CreditDrawn()) * world.CreditAnnualRate / 365
 

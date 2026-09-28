@@ -7,6 +7,9 @@ type ScenarioData struct {
 	Height     int             `json:"height"`
 	Seed       int64           `json:"seed,omitempty"`
 	SimTime    float64         `json:"sim_time,omitempty"` // sim clock in seconds at save time
+	// StartDate is World.StartDate, the date SimTime 0 maps to, as
+	// "2006-01-02". Absent loads world.DefaultStartDate.
+	StartDate  string          `json:"start_date,omitempty"`
 	Cells      []CellData      `json:"cells"` // flat array, row-major (x-major)
 	Objects    []ObjectData    `json:"objects"`
 	Buildings  []BuildingData  `json:"buildings"`

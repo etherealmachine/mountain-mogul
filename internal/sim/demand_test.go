@@ -8,7 +8,7 @@ import (
 
 func TestSeasonRolloverResetsVisitsThisSeason(t *testing.T) {
 	guests := []*world.Guest{{ID: 1, VisitsThisSeason: 7}, {ID: 2, VisitsThisSeason: 3}}
-	s := &Simulation{World: &world.World{Guests: guests}, Demand: NewDemandSystem()}
+	s := &Simulation{World: &world.World{Guests: guests, StartDate: world.DefaultStartDate}, Demand: NewDemandSystem()}
 
 	// First poll mid-season only seeds the tracked season.
 	s.SimTime = 100 * secondsPerSimDay
@@ -22,7 +22,7 @@ func TestSeasonRolloverResetsVisitsThisSeason(t *testing.T) {
 		s.SimTime = day * secondsPerSimDay
 		s.Demand.maybePoll(s)
 	}
-	if got := SeasonCloseYearFor(DateAt(s.SimTime)); got != 2028 {
+	if got := SeasonCloseYearFor(s.DateAt(s.SimTime)); got != 2028 {
 		t.Fatalf("expected to be in the 2027-28 season, got close year %d", got)
 	}
 	for _, g := range guests {

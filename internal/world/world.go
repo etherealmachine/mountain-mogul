@@ -3,6 +3,7 @@ package world
 import (
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/go-gl/mathgl/mgl32"
 )
@@ -98,6 +99,11 @@ func BuildingCost(t BuildingType) int {
 	}
 	return LodgeCost
 }
+
+// DefaultStartDate is the calendar date SimTime 0 maps to in a world that
+// doesn't set its own: Nov 25, 2026, opening day of the 2026-27 season.
+// Scenarios set World.StartDate in the editor.
+var DefaultStartDate = time.Date(2026, time.November, 25, 0, 0, 0, 0, time.UTC)
 
 // World owns all simulation state.
 type World struct {
@@ -198,6 +204,11 @@ type World struct {
 	// NewSimulationWithSeed starts the clock from this value.
 	SimTime float64
 
+	// StartDate is the calendar date SimTime 0 maps to (midnight UTC). The
+	// sim's calendar (sim.DateAt) counts one day per sim day from here.
+	// Authored per scenario in the editor; defaults to DefaultStartDate.
+	StartDate time.Time
+
 	// FocusedGuestID is the ID of the guest currently being followed by the
 	// camera (0 = none). Written by the scene layer; exposed to the query
 	// system so "WHERE followed = 1" works in live SQL queries.
@@ -212,6 +223,7 @@ func NewWorld(terrain *Terrain) *World {
 		nextID:          1,
 		Cash:            StartingCash,
 		CreditLimit:     DefaultCreditLimit,
+		StartDate:       DefaultStartDate,
 		History:         NewHistory(),
 		SeasonPassPrice: DefaultSeasonPassPrice,
 		DayTicketPrice:  DefaultDayTicketPrice,
