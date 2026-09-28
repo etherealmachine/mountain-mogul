@@ -38,7 +38,7 @@ const (
 	GladeCostPerCell = 200 // cost per in-radius cell with trees cleared by the glade brush
 
 	DefaultTicketPrice    = 10 // dollars per heli ride; only heli charges per ride, player adjusts via the lift popup
-	DefaultDayTicketPrice = 60 // dollars per visit, charged once at arrival (VISION §7: $60–90); pass holders pay nothing
+	DefaultDayTicketPrice = 60 // dollars per visit, paid once at the ticket window (VISION §7: $60–90); pass holders pay nothing
 
 	// Day-ticket price elasticity in the demand poll. A guest's price factor
 	// is 1 at or below the reference price and falls to 0 as the price rises
@@ -169,8 +169,9 @@ type World struct {
 	// via the ticket office popup (future).
 	SeasonPassPrice int
 
-	// DayTicketPrice is the per-visit fee in dollars charged once when a
-	// guest arrives at the resort. Guests holding a valid season pass pay
+	// DayTicketPrice is the per-visit fee in dollars. It is fixed when a
+	// guest arrives and paid when they reach a ticket office; with no office
+	// only pass holders come. Guests holding a valid season pass pay
 	// nothing; guests whose DailyBudget can't cover it stay home. Defaults
 	// to DefaultDayTicketPrice; the player adjusts it via the parking lot
 	// or ticket office popup.

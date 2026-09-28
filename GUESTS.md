@@ -220,11 +220,28 @@ out after the loop so range iteration doesn't shift mid-pass.
 
 ### Spawn and load
 
-`tickBuildings` spawns an agent and calls `s.replan(agent)`. The first
-step (typically `WalkToLift`) drives `onPlanStepStart` to lay a path
-from the parking lot's door to the lift's queue back. Spawn unwinds if
-either the planner returns no plan or the pathfinder can't reach the
-target.
+`spawnGuest` places an agent at a parking lot and calls `s.replan(agent)`.
+The first step drives `onPlanStepStart` to lay a path from the lot's door:
+to a ticket office for guests without a pass, or to the lift's queue back
+for pass holders (`WalkToLift`). Spawn unwinds if the planner returns no
+plan or the pathfinder can't reach a `WalkToLift` target.
+
+### Tickets
+
+Guests arrive without a ticket. `JoinQueue` requires `HasSeasonPass ||
+HasDayTicket`, so every riding plan for a guest without a pass starts
+`WalkToTicketOffice` → `BuyDayTicket` (or `BuySeasonPass` when the
+`GetSeasonPass` goal wins and the guest can afford it). The planner picks
+the office by walk cost. `BuyDayTicket` pays `DayTicketDue`, which spawn
+already set aside from `RemainingBudget`, so the planner's budget math
+already reflects it. The planner's closed-set key includes both ticket
+flags.
+
+A guest who can't get a ticket gives up: if the pathfinder finds no route
+to the office, or no riding goal can be planned while the guest has no
+ticket, they think "couldn't find where to buy a ticket"
+(`ThoughtNoTicketWindow`) and head home. Without any ticket office, the
+demand poll doesn't send guests without a pass at all (see DEMAND.md).
 
 `NewSimulationWithSeed` walks any pre-existing agents (testbeds, save-
 restored) and calls `onPlanStepStart` for each non-empty plan so the

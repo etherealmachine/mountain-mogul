@@ -28,11 +28,13 @@ system, neither by the lot.
                                       │ for each AtHome guest:
                                       │   skip if can't afford day ticket
                                       │   p = rating × terrainMatch × (1 − occ) × priceFactor
-                                      │   if Bernoulli(p) → spawnGuest
+                                      │   if Bernoulli(p):
+                                      │     no ticket office and no pass → turned away
+                                      │     else → spawnGuest
                                       ▼
                             ┌──────────────────┐
                             │   spawnGuest     │  Satisfaction = 0.6, Patience = 1
-                            │                  │  day ticket → Cash, revenue
+                            │                  │  day ticket set aside from budget
                             └────────┬─────────┘
                                      │ lot.CurrentCars += 1/GuestsPerCar
                                      ▼
@@ -86,6 +88,9 @@ for each g in World.Guests where g.State == AtHome:
     dailyRate = g.VisitsPerSeason / seasonDaysApprox
     p = dailyRate × pollFraction × rating × match × (1 − occupancy) × priceFactor
     if rng.Float32() >= p: continue
+    if no BuildingTicketOffice and g has no valid pass:
+        log "Guests turned away: no ticket office" (once per sim day)
+        continue
     lot = uniform-random parking lot
     spawnGuest(lot, g)
     lot.CurrentCars += 1 / GuestsPerCar
@@ -150,23 +155,41 @@ response to large price moves.
 
 ## Payment: the day ticket
 
-Revenue is per visit, not per ride (VISION §7). The day ticket is paid
-**once, at arrival**, inside `spawnGuest`:
+Revenue is per visit, not per ride (VISION §7). The day ticket is
+**priced at arrival and paid at the ticket window**:
 
 - `World.DayTicketPrice` (dollars; default `DefaultDayTicketPrice` = $60
   in `world.go`) is set by the player from the parking lot or ticket
   office popup, and persisted in the save (`day_ticket`).
-- The price is computed before planning so the planner sees the
-  post-ticket budget: `RemainingBudget = DailyBudget − price`,
-  `Guest.DayTicketPaid = price`.
-- Only once the spawn succeeds does the money move: `World.Cash += price`
-  and `History.RecordRevenue(price)`. A failed spawn charges nothing.
+- **No ticket office, no day guests.** The demand poll still weighs the
+  price at arrival (`dayTicketPriceFactor`: that is when guests decide
+  whether to come), but a guest without a valid pass is turned away when
+  the world has no `BuildingTicketOffice`. The event feed says
+  "Guests turned away: no ticket office", at most once per sim day.
+  Pass holders still come.
+- At spawn the price is set aside from the budget so the planner sees
+  the post-ticket budget: `RemainingBudget = DailyBudget − price`,
+  `Guest.DayTicketDue = price`, `HasDayTicket = false`. No cash moves.
+- The guest's first steps are `WalkToTicketOffice` → `BuyDayTicket` at
+  the office with the lowest walk cost. `BuyDayTicket` (executed in
+  `onPlanStepStart`) does `World.Cash += price`,
+  `History.RecordRevenue(price)`, `DayTicketPaid = price`,
+  `DayTicketDue = 0`, `HasDayTicket = true`. The purchase is instant (no
+  service rate at the window yet).
+- `JoinQueue` requires `HasSeasonPass || HasDayTicket`, so nobody rides
+  free. A guest with no walkable route to an office (pathfinder fails on
+  `WalkToTicketOffice`), or whose riding goals can't be planned for lack
+  of a ticket, thinks "couldn't find where to buy a ticket"
+  (`ThoughtNoTicketWindow`) and heads home.
 - Guests holding a valid season pass (`SeasonPassExpiry > SimTime`) pay
-  nothing.
+  nothing and skip the window.
 - Cable lifts cost nothing per ride. Heli keeps per-ride pricing via
   `Lift.RideFare()` (heli's `TicketPrice`; 0 for every other lift type).
-- A guest who buys a season pass later in the same visit has today's day
-  ticket credited: they pay `SeasonPassPrice − DayTicketPaid`.
+- A guest who can afford it may buy a season pass at the window instead
+  (`GetSeasonPass` goal). Today's day ticket is credited whether bought or
+  still owed: the resort collects `SeasonPassPrice − DayTicketPaid`, and
+  the guest's budget drops by `SeasonPassPrice − DayTicketPaid −
+  DayTicketDue` (the rest was already set aside).
 
 ---
 
@@ -175,14 +198,16 @@ Revenue is per visit, not per ride (VISION §7). The day ticket is paid
 `Simulation.spawnGuest(lot, g)` places the guest on the mountain:
 
 1. Set `Pos` to the lot's door cell, `Balance = 1.0`, `Patience = 1.0`,
-   `Satisfaction = 0.6`; price the day ticket and set `RemainingBudget`.
+   `Satisfaction = 0.6`; price the day ticket into `DayTicketDue` and set
+   `RemainingBudget`.
 2. Append to `w.OnMountain`; flip `g.State = OnMountain`.
-3. Call `s.replan(g)` — the L0 planner picks the first lift and
-   `onPlanStepStart(ActWalkToLift)` lays a pathfinder route.
-4. If the planner returns no plan OR the pathfinder fails, unwind: pop
-   from `OnMountain`, call `g.ResetForDeparture()`, return false.
-5. On success, credit the day ticket to `Cash` and revenue history, and
-   record the arrival.
+3. Call `s.replan(g)`. For a guest without a pass the plan starts
+   `WalkToTicketOffice` → `BuyDayTicket` → `WalkToLift` …, and
+   `onPlanStepStart` lays a pathfinder route to the office.
+4. If the planner returns no plan OR the head is `WalkToLift` and the
+   pathfinder fails, unwind: pop from `OnMountain`, call
+   `g.ResetForDeparture()`, return false.
+5. On success, record the arrival. Cash moves later, at the window.
 
 ---
 

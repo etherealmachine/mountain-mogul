@@ -263,6 +263,12 @@ type GuestData struct {
 	SeasonPassExpiry float64 `json:"spe,omitempty"`
 	HasSeasonPass    bool    `json:"hsp,omitempty"`
 
+	// Day ticket for the current visit (OnMountain only): the price still
+	// owed at the window, the price already paid, and whether it's bought.
+	DayTicketDue  int  `json:"dtd,omitempty"`
+	DayTicketPaid int  `json:"dtp,omitempty"`
+	HasDayTicket  bool `json:"hdt,omitempty"`
+
 	// Visit state. 0 = AtHome (default), 1 = OnMountain.
 	State uint8 `json:"state,omitempty"`
 

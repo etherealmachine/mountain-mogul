@@ -7,15 +7,17 @@ import (
 	"mountain-mogul/internal/world"
 )
 
-// dayTicketWorld is a slope with a parking lot at the bottom and one open
-// double chair running up the fall line — enough for spawnGuest to lay a
-// WalkToLift plan.
-func dayTicketWorld() (*Simulation, *world.Building) {
+// dayTicketWorld is a slope with a parking lot and a ticket office at the
+// bottom and one open double chair running up the fall line — enough for
+// spawnGuest to lay a WalkToTicketOffice → BuyDayTicket → WalkToLift plan.
+func dayTicketWorld() (*Simulation, *world.Building, *world.Building) {
 	w := scene(40, 60).slope(10).
 		parkingAt(20, 57).
 		liftFromTo(20, 54, 20, 2).
 		build()
-	return NewSimulationWithSeed(w, 1), w.Buildings[0]
+	lot := w.Buildings[0]
+	office := w.PlaceBuildingType(world.BuildingTicketOffice, lot.Pos[0]+10, lot.Pos[1])
+	return NewSimulationWithSeed(w, 1), lot, office
 }
 
 func dayTicketGuest(w *world.World, budget float32) *world.Guest {
@@ -56,10 +58,11 @@ func TestDayTicketCharge(t *testing.T) {
 	}
 }
 
-// TestSpawnChargesDayTicketOnce: an arriving guest pays the day ticket
-// once at spawn; riding the chair afterwards costs nothing more.
-func TestSpawnChargesDayTicketOnce(t *testing.T) {
-	s, lot := dayTicketWorld()
+// TestDayTicketPaidAtWindow: an arriving guest pays nothing at spawn,
+// walks to the ticket office, pays the day ticket there once, and riding
+// the chair afterwards costs nothing more.
+func TestDayTicketPaidAtWindow(t *testing.T) {
+	s, lot, _ := dayTicketWorld()
 	w := s.World
 	g := dayTicketGuest(w, 100)
 	cash0 := w.Cash
@@ -67,25 +70,30 @@ func TestSpawnChargesDayTicketOnce(t *testing.T) {
 	if !s.spawnGuest(lot, g) {
 		t.Fatal("spawnGuest failed")
 	}
-	if got := w.Cash - cash0; got != world.DefaultDayTicketPrice {
-		t.Fatalf("cash delta at arrival = %d, want %d", got, world.DefaultDayTicketPrice)
+	if got := w.Cash - cash0; got != 0 {
+		t.Fatalf("cash delta at arrival = %d, want 0", got)
 	}
-	if got := w.History.RevenueToday; got != world.DefaultDayTicketPrice {
-		t.Fatalf("RevenueToday = %d, want %d", got, world.DefaultDayTicketPrice)
+	if head := g.Plan.Head().Kind; head != ai.ActWalkToTicketOffice {
+		t.Fatalf("first step = %v, want ActWalkToTicketOffice", head)
 	}
 	if want := float32(100 - world.DefaultDayTicketPrice); g.RemainingBudget != want {
 		t.Fatalf("RemainingBudget = %v, want %v", g.RemainingBudget, want)
 	}
 
-	// Tick until the guest walks, queues, and boards. No further revenue
-	// should appear.
+	// Tick until the guest walks to the window, then the lift, and boards.
 	boarded := false
-	for i := 0; i < 600 && !boarded; i++ {
+	for i := 0; i < 1200 && !boarded; i++ {
 		s.Tick(0.1)
 		boarded = g.OnLiftID != 0
 	}
 	if !boarded {
 		t.Fatal("guest never boarded the chair")
+	}
+	if !g.HasDayTicket {
+		t.Fatal("guest boarded without a day ticket")
+	}
+	if got := w.History.RevenueToday; got != world.DefaultDayTicketPrice {
+		t.Fatalf("RevenueToday = %d, want %d", got, world.DefaultDayTicketPrice)
 	}
 	if got := w.Cash - cash0; got != world.DefaultDayTicketPrice {
 		t.Fatalf("cash delta after riding = %d, want %d", got, world.DefaultDayTicketPrice)
@@ -93,7 +101,7 @@ func TestSpawnChargesDayTicketOnce(t *testing.T) {
 }
 
 func TestSpawnPassHolderPaysNothing(t *testing.T) {
-	s, lot := dayTicketWorld()
+	s, lot, _ := dayTicketWorld()
 	w := s.World
 	g := dayTicketGuest(w, 100)
 	g.SeasonPassExpiry = s.SimTime + 1e6
@@ -110,19 +118,29 @@ func TestSpawnPassHolderPaysNothing(t *testing.T) {
 	}
 }
 
-// TestDayOfArrivalsRevenue: N arrivals in a day yield N × price.
+// TestDayOfArrivalsRevenue: N arrivals in a day yield N × price once they
+// have all reached the window. Budget 100 at price 75 leaves too little
+// for a pass, so every guest buys a day ticket.
 func TestDayOfArrivalsRevenue(t *testing.T) {
 	const n = 25
-	s, lot := dayTicketWorld()
+	s, lot, _ := dayTicketWorld()
 	w := s.World
 	w.DayTicketPrice = 75
 	for i := 0; i < n; i++ {
-		if !s.spawnGuest(lot, dayTicketGuest(w, 200)) {
+		if !s.spawnGuest(lot, dayTicketGuest(w, 100)) {
 			t.Fatalf("spawn %d failed", i)
 		}
 	}
 	if got := w.History.ArrivalsToday; got != n {
 		t.Fatalf("ArrivalsToday = %d, want %d", got, n)
+	}
+	if got := w.History.RevenueToday; got != 0 {
+		t.Fatalf("RevenueToday before the window = %d, want 0", got)
+	}
+	// 15 s at the default TimeScale is ~60 sim s: long enough for everyone
+	// to walk to the window, well inside one 240 s sim day.
+	for i := 0; i < 150; i++ {
+		s.Tick(0.1)
 	}
 	if got, want := w.History.RevenueToday, n*75; got != want {
 		t.Fatalf("RevenueToday = %d, want %d", got, want)
@@ -133,7 +151,7 @@ func TestDayOfArrivalsRevenue(t *testing.T) {
 // is below the day ticket never arrives while an otherwise identical
 // guest who can afford it does.
 func TestDemandPollSkipsUnaffordable(t *testing.T) {
-	s, _ := dayTicketWorld()
+	s, _, _ := dayTicketWorld()
 	w := s.World
 	w.DayTicketPrice = 60
 	// terrainMatch needs a trail at the guests' tier (skill 0.9 → black).
@@ -161,24 +179,35 @@ func TestDemandPollSkipsUnaffordable(t *testing.T) {
 	}
 }
 
-// TestSeasonPassCreditsDayTicket: a guest who paid the day ticket and
-// then buys a pass in the same visit pays only the difference.
+// TestSeasonPassCreditsDayTicket: a guest who bought the day ticket at the
+// window and then buys a pass in the same visit pays only the difference.
 func TestSeasonPassCreditsDayTicket(t *testing.T) {
-	s, lot := dayTicketWorld()
+	s, lot, office := dayTicketWorld()
 	w := s.World
-	office := w.PlaceBuildingType(world.BuildingTicketOffice, lot.Pos[0]+10, lot.Pos[1])
 	g := dayTicketGuest(w, 200)
 	if !s.spawnGuest(lot, g) {
 		t.Fatal("spawnGuest failed")
 	}
 	cash0 := w.Cash
-	g.Plan.Steps = []ai.PlanAction{{Kind: ai.ActBuySeasonPass, BldgID: office.ID}}
+	g.Plan.Steps = []ai.PlanAction{
+		{Kind: ai.ActBuyDayTicket, BldgID: office.ID},
+		{Kind: ai.ActBuySeasonPass, BldgID: office.ID},
+	}
 	g.Plan.Step = 0
+	s.onPlanStepStart(g)
+	if got := w.Cash - cash0; got != world.DefaultDayTicketPrice {
+		t.Fatalf("day ticket charged %d, want %d", got, world.DefaultDayTicketPrice)
+	}
+	cash0 = w.Cash
+	g.Plan.Step = 1
 	s.onPlanStepStart(g)
 	if got, want := w.Cash-cash0, world.DefaultSeasonPassPrice-world.DefaultDayTicketPrice; got != want {
 		t.Fatalf("pass purchase charged %d, want %d", got, want)
 	}
-	if !g.HasSeasonPass || g.DayTicketPaid != 0 {
-		t.Fatalf("after purchase: HasSeasonPass=%v DayTicketPaid=%d", g.HasSeasonPass, g.DayTicketPaid)
+	if !g.HasSeasonPass || g.DayTicketPaid != 0 || g.DayTicketDue != 0 {
+		t.Fatalf("after purchase: HasSeasonPass=%v DayTicketPaid=%d DayTicketDue=%d", g.HasSeasonPass, g.DayTicketPaid, g.DayTicketDue)
+	}
+	if want := float32(200 - world.DefaultSeasonPassPrice); g.RemainingBudget != want {
+		t.Fatalf("RemainingBudget = %v, want %v", g.RemainingBudget, want)
 	}
 }

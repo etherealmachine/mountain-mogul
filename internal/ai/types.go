@@ -122,6 +122,7 @@ const (
 	ActWalkToTicketOffice // walk to the ticket office building
 	ActBuySeasonPass      // purchase a season pass at the ticket office
 	ActRelieveThirst      // stop at a bar to drink something
+	ActBuyDayTicket       // buy today's day ticket at the ticket office
 )
 
 // PlanAction is one step in the stored L0 plan — plain data, no behaviour.
@@ -275,6 +276,7 @@ const (
 
 	// Budget events.
 	ThoughtTooExpensive // RemainingBudget < cheapest lift ticket; guest departs
+	ThoughtNoTicketWindow // no reachable ticket office to buy a day ticket; guest departs
 
 	thoughtKindSentinel // must stay last; equals the total count
 )
@@ -302,6 +304,7 @@ var ThoughtSatisfactionWeight = [ThoughtKindCount]float64{
 	ThoughtTired:        -0.05,
 	ThoughtExhausted:    -0.15,
 	ThoughtTooExpensive: -0.20,
+	ThoughtNoTicketWindow: -0.20,
 }
 
 // ThoughtLabel is the short chart label for each thought kind. An empty
@@ -323,6 +326,7 @@ var ThoughtLabel = [ThoughtKindCount]string{
 	ThoughtTired:        "Need a break",
 	ThoughtExhausted:    "Too tired to ski",
 	ThoughtTooExpensive: "Too expensive",
+	ThoughtNoTicketWindow: "No ticket window",
 }
 
 // ThoughtChartColor is the RGBA bar colour for each thought kind in charts.
@@ -342,6 +346,7 @@ var ThoughtChartColor = [ThoughtKindCount][4]float32{
 	ThoughtTired:        {0.80, 0.70, 0.30, 1},
 	ThoughtExhausted:    {0.65, 0.50, 0.20, 1},
 	ThoughtTooExpensive: {0.95, 0.85, 0.20, 1},
+	ThoughtNoTicketWindow: {0.85, 0.40, 0.30, 1},
 }
 
 // Thought is one entry in a Guest's bounded thoughts ring. Persists in
@@ -401,6 +406,8 @@ func (t Thought) Display(resolve func(uint64) string) string {
 		return "I could really use a meal"
 	case ThoughtThirsty:
 		return "I need something to drink"
+	case ThoughtNoTicketWindow:
+		return "couldn't find where to buy a ticket"
 	}
 	return ""
 }

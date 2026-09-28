@@ -371,7 +371,7 @@ func (s *Simulation) tickHeliLift(lift *world.Lift, dt float64) {
 			agent.OnLiftID = lift.ID
 			agent.Queued = false
 			// Heli keeps per-ride pricing; cable lifts are covered by the
-			// day ticket charged at arrival.
+			// day ticket bought at the ticket window.
 			if fare := lift.RideFare(); fare > 0 && !agent.HasSeasonPass {
 				w.Cash += fare
 				w.History.RecordRevenue(fare)
@@ -543,9 +543,12 @@ func (s *Simulation) spawnGuest(lot *world.Building, g *world.Guest) bool {
 	g.Satisfaction = 0.6
 	g.HasSeasonPass = hasValidPass(g, s.SimTime)
 	// Price the day ticket before planning so the planner sees the
-	// post-ticket budget; the cash moves only once the spawn succeeds.
+	// post-ticket budget. The guest arrives without a ticket and pays at
+	// the window (ActBuyDayTicket); pass holders owe nothing.
 	ticket, _ := dayTicketCharge(w, g, s.SimTime)
-	g.DayTicketPaid = ticket
+	g.DayTicketDue = ticket
+	g.DayTicketPaid = 0
+	g.HasDayTicket = false
 	g.RemainingBudget = g.Traits.DailyBudget - float32(ticket)
 	g.Removed = false
 	w.OnMountain = append(w.OnMountain, g)
@@ -558,10 +561,6 @@ func (s *Simulation) spawnGuest(lot *world.Building, g *world.Guest) bool {
 		w.OnMountain = w.OnMountain[:len(w.OnMountain)-1]
 		g.ResetForDeparture()
 		return false
-	}
-	if ticket > 0 {
-		w.Cash += ticket
-		w.History.RecordRevenue(ticket)
 	}
 	w.History.RecordArrival()
 	return true
@@ -1024,10 +1023,16 @@ func isDescentKind(k ai.PlanActionKind) bool {
 // spawn, when the plan exhausts, and when a precondition breaks.
 func (s *Simulation) replan(a *world.Guest) {
 	a.AtTrailEnd = 0 // clear any stale junction anchor before re-planning
+	// The planner emits these thoughts itself; tally them into today's
+	// history the same way addThought would.
 	prevNeedsLodge := a.ThoughtCounts[ai.ThoughtNeedsLodge]
+	prevNoTicket := a.ThoughtCounts[ai.ThoughtNoTicketWindow]
 	a.Plan = s.Planner.StoredPlanFor(a, s.World, s.SimTime)
 	if a.ThoughtCounts[ai.ThoughtNeedsLodge] != prevNeedsLodge {
 		s.World.History.RecordThought(ai.ThoughtNeedsLodge)
+	}
+	if a.ThoughtCounts[ai.ThoughtNoTicketWindow] != prevNoTicket {
+		s.World.History.RecordThought(ai.ThoughtNoTicketWindow)
 	}
 	if !a.Plan.Done() {
 		s.onPlanStepStart(a)
@@ -1104,6 +1109,11 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		// plan and return; tickPlanning will replan next tick (calling
 		// replan here would recurse: replan→onPlanStepStart→here→...).
 		if !lift.Open || lift.OnHold {
+			a.Plan.Steps = nil
+			return
+		}
+		// Safety-net: no riding without a pass or a day ticket.
+		if !a.HasSeasonPass && !a.HasDayTicket {
 			a.Plan.Steps = nil
 			return
 		}
@@ -1214,6 +1224,32 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		a.Plan.Goal = ai.GoalNone
 		a.Plan.GoalID = b.ID
 		a.Plan.Target = parkingWorldPos(w, b)
+		startCell := [2]int{
+			int(math.Floor(float64(a.Pos[0] / CellSize))),
+			int(math.Floor(float64(a.Pos[2] / CellSize))),
+		}
+		a.Path = s.Pathfinder.FindPath(startCell, b.DoorCell())
+		a.PathIdx = 0
+		if a.Path == nil && !a.HasSeasonPass && !a.HasDayTicket {
+			// No walkable route to the window: without a ticket there
+			// is nothing to do here, so give up rather than ski free.
+			s.addThought(a, ai.ThoughtNoTicketWindow)
+			s.directHomePlan(a)
+		}
+
+	case ai.ActBuyDayTicket:
+		if findBuildingByID(w, step.BldgID) == nil {
+			return
+		}
+		// Pay at the window. RemainingBudget already excludes the ticket.
+		price := a.DayTicketDue
+		a.DayTicketDue = 0
+		a.DayTicketPaid = price
+		a.HasDayTicket = true
+		if price > 0 {
+			w.Cash += price
+			w.History.RecordRevenue(price)
+		}
 
 	case ai.ActBuySeasonPass:
 		b := findBuildingByID(w, step.BldgID)
@@ -1221,15 +1257,22 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 			return
 		}
 		// Execute the pass purchase immediately on step start. Today's
-		// day ticket is credited toward the pass.
+		// day ticket is credited toward the pass: a bought ticket
+		// reduces what the resort collects, and a ticket still owed was
+		// already set aside from RemainingBudget.
 		price := w.SeasonPassPrice - a.DayTicketPaid
 		if price < 0 {
 			price = 0
 		}
+		spend := price - a.DayTicketDue
+		if spend < 0 {
+			spend = 0
+		}
 		a.DayTicketPaid = 0
+		a.DayTicketDue = 0
 		w.Cash += price
 		w.History.RecordRevenue(price)
-		a.RemainingBudget -= float32(price)
+		a.RemainingBudget -= float32(spend)
 		// Expiry = end of the current season.
 		now := DateAt(s.SimTime)
 		closeYear := SeasonCloseYearFor(now)
@@ -1327,7 +1370,7 @@ func planActionComplete(step ai.PlanAction, a *world.Guest, snap goap.WorldSnaps
 		return snap.AtParking == step.BldgID
 	case ai.ActWalkToTicketOffice:
 		return snap.AtTicketOffice == step.BldgID
-	case ai.ActBuySeasonPass:
+	case ai.ActBuySeasonPass, ai.ActBuyDayTicket:
 		return true // executed atomically in onPlanStepStart
 	case ai.ActRestAtLodge:
 		return a.RestTimer <= 0
@@ -1362,7 +1405,7 @@ func planActionPreconditionHolds(step ai.PlanAction, snap goap.WorldSnapshot, w 
 		l := findLiftByID(w, step.LiftID)
 		return l != nil && l.Open && !l.OnHold
 	case ai.ActSkiToLodge, ai.ActSkiToParking, ai.ActRestAtLodge, ai.ActRelieveThirst,
-		ai.ActDepart, ai.ActWalkToTicketOffice, ai.ActBuySeasonPass:
+		ai.ActDepart, ai.ActWalkToTicketOffice, ai.ActBuySeasonPass, ai.ActBuyDayTicket:
 		return findBuildingByID(w, step.BldgID) != nil
 	case ai.ActSkiTrail:
 		// Destination entity must still exist.

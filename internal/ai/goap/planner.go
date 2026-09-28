@@ -161,6 +161,11 @@ func (p *Planner) planFromSnap(snap WorldSnapshot, a *world.Guest, w *world.Worl
 					a.Satisfaction = 0
 				}
 			}
+			if ridesLift(gr.Goal) && !hasTicket(&snap) {
+				// Every ride needs a ticket first; with none in hand and no
+				// plan, there is no office this guest can get to.
+				a.AddThought(ai.ThoughtNoTicketWindow, simTime)
+			}
 			continue
 		}
 		out := ai.Plan{GoalName: gr.Goal.Name()}
@@ -173,13 +178,22 @@ func (p *Planner) planFromSnap(snap WorldSnapshot, a *world.Guest, w *world.Worl
 	return defaultLapPlan(snap, a, w)
 }
 
+// ridesLift reports whether goal g can only be met by riding a lift.
+func ridesLift(g Goal) bool {
+	switch g.(type) {
+	case KeepSkiing, Explore:
+		return true
+	}
+	return false
+}
+
 // defaultLapPlan builds a minimal [SkiToLift, JoinQueue, RideLift] plan
 // directly when no goal has positive unsatisfied weight. Picks the
 // skill-accessible lift reachable from snap.AtLiftTop with the fewest
 // prior rides (preferring novelty even when Explore is satisfied).
 // Returns an empty plan if no lap is possible.
 func defaultLapPlan(snap WorldSnapshot, a *world.Guest, w *world.World) ai.Plan {
-	if snap.AtLiftTop == 0 {
+	if snap.AtLiftTop == 0 || !hasTicket(&snap) {
 		return ai.Plan{}
 	}
 	src := findLift(w, snap.AtLiftTop)
@@ -277,11 +291,12 @@ func stateKey(s *WorldSnapshot) string {
 	// Key includes all IDs that define an agent's discrete location and
 	// status. Pos is omitted (L1 handles continuous movement); stats are
 	// bucketed to 0.01 to keep the search space finite.
-	return fmt.Sprintf("P%dE%dT%dB%dTop%dQ%dL%dLdg%dBar%dPrk%dTkt%dR%dX%vJ%d",
+	return fmt.Sprintf("P%dE%dT%dB%dTop%dQ%dL%dLdg%dBar%dPrk%dTkt%dR%dX%vJ%dSP%vDT%v",
 		pb, eb, tb,
 		s.AtLiftBase, s.AtLiftTop, s.Queued, s.OnLift,
 		s.AtLodge, s.AtBar, s.AtParking, s.AtTicketOffice,
 		ridden, s.Removed,
 		s.AtTrailEnd,
+		s.HasSeasonPass, s.HasDayTicket,
 	)
 }

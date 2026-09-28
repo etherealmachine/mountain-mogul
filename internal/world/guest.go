@@ -131,15 +131,22 @@ type Guest struct {
 	Thirst float32
 
 	// RemainingBudget is the guest's remaining spending money for this visit.
-	// Reset at each spawn to Traits.DailyBudget minus the day ticket (pass
-	// holders pay no day ticket); further decremented by heli fares and the
-	// season pass purchase.
+	// Reset at each spawn to Traits.DailyBudget minus the day ticket they
+	// intend to buy (pass holders pay no day ticket); further decremented by
+	// heli fares and the season pass purchase.
 	RemainingBudget float32
 
-	// DayTicketPaid is the day ticket charged at this visit's arrival, in
+	// DayTicketDue is the day ticket priced at this visit's arrival and
+	// still owed at the ticket window, in dollars. Already set aside from
+	// RemainingBudget; moves to DayTicketPaid when the guest buys it.
+	DayTicketDue int
+	// DayTicketPaid is the day ticket bought at the window this visit, in
 	// dollars (0 for pass holders). Credited toward a season pass bought
 	// later in the same visit, then zeroed.
 	DayTicketPaid int
+	// HasDayTicket is true once the guest has bought today's day ticket.
+	// A guest needs this or a valid season pass to join a lift queue.
+	HasDayTicket bool
 
 	// SeasonPassExpiry is the SimTime at which the guest's season pass expires.
 	// Zero means no pass. Persisted so passes survive save/load.
@@ -371,7 +378,9 @@ func (g *Guest) ResetForDeparture() {
 	}
 	g.ThoughtsHead = 0
 	g.RidenLifts = g.RidenLifts[:0]
+	g.DayTicketDue = 0
 	g.DayTicketPaid = 0
+	g.HasDayTicket = false
 	g.RunGroomingSum = 0
 	g.RunGroomingSamples = 0
 	g.SkisOn = false

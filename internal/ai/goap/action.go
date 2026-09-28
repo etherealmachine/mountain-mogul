@@ -136,6 +136,10 @@ func (a *JoinQueue) Precondition(s *WorldSnapshot, w *world.World) bool {
 	// Reject if the queue is too long, unless patience is already exhausted.
 	// The exhausted exception keeps GoHome routing functional: a guest leaving
 	// the mountain still needs to join a queue and ride up to exit a lift base.
+	// No riding without a season pass or a day ticket from the window.
+	if !hasTicket(s) {
+		return false
+	}
 	if s.Patience >= 0.05 && l.QueueLen() > MaxQueuePersons {
 		return false
 	}
@@ -376,8 +380,8 @@ func (a *SkiToParking) Cost(s *WorldSnapshot, w *world.World) float32 {
 }
 
 // WalkToTicketOffice moves the agent from any ground position to a ticket
-// office. Only applicable when the guest does not already have a season pass
-// and has enough budget to buy one.
+// office. Applicable when the guest still needs a day ticket, or holds one
+// and has enough budget left to upgrade to a season pass.
 type WalkToTicketOffice struct{ OfficeID uint64 }
 
 func (a *WalkToTicketOffice) Name() string {
@@ -391,7 +395,7 @@ func (a *WalkToTicketOffice) Precondition(s *WorldSnapshot, w *world.World) bool
 	if s.HasSeasonPass {
 		return false
 	}
-	if s.RemainingBudget < passCost(s, w) {
+	if s.HasDayTicket && s.RemainingBudget < passCost(s, w) {
 		return false
 	}
 	return findBuilding(w, a.OfficeID, world.BuildingTicketOffice) != nil
@@ -418,6 +422,29 @@ func (a *WalkToTicketOffice) Cost(s *WorldSnapshot, w *world.World) float32 {
 	return distXZ(s.Pos, b.Pos[0], b.Pos[1]) / walkSpeedMps
 }
 
+// BuyDayTicket is an atomic action executed at a ticket office: the guest
+// pays the day ticket priced at arrival. RemainingBudget already excludes
+// it, so only the ticket flag changes here; the simulation moves the cash
+// when the step starts.
+type BuyDayTicket struct{ OfficeID uint64 }
+
+func (a *BuyDayTicket) Name() string {
+	return fmt.Sprintf("BuyDayTicket(%d)", a.OfficeID)
+}
+
+func (a *BuyDayTicket) Precondition(s *WorldSnapshot, w *world.World) bool {
+	return !s.Removed && s.AtTicketOffice == a.OfficeID && !hasTicket(s)
+}
+
+func (a *BuyDayTicket) Apply(s *WorldSnapshot, w *world.World) {
+	s.HasDayTicket = true
+	s.AtTicketOffice = 0
+}
+
+func (a *BuyDayTicket) Cost(s *WorldSnapshot, w *world.World) float32 {
+	return 5.0 // brief transaction, same as BuySeasonPass
+}
+
 // BuySeasonPass is an atomic action executed at a ticket office. The guest
 // pays the season pass fee and receives free lift access for the rest of the
 // season. The actual SimTime expiry and cash transfer are applied by the
@@ -429,7 +456,8 @@ func (a *BuySeasonPass) Name() string {
 }
 
 func (a *BuySeasonPass) Precondition(s *WorldSnapshot, w *world.World) bool {
-	return !s.Removed && s.AtTicketOffice == a.OfficeID && !s.HasSeasonPass
+	return !s.Removed && s.AtTicketOffice == a.OfficeID && !s.HasSeasonPass &&
+		s.RemainingBudget >= passCost(s, w)
 }
 
 func (a *BuySeasonPass) Apply(s *WorldSnapshot, w *world.World) {
@@ -603,9 +631,14 @@ func ApplicableActions(s *WorldSnapshot, w *world.World) []Action {
 			}
 		}
 	}
-	// Buy pass when already at the ticket office.
+	// Buy a day ticket or a pass when already at the ticket office.
 	if s.AtTicketOffice != 0 {
-		out = append(out, &BuySeasonPass{OfficeID: s.AtTicketOffice})
+		if a := (&BuyDayTicket{OfficeID: s.AtTicketOffice}); a.Precondition(s, w) {
+			out = append(out, a)
+		}
+		if a := (&BuySeasonPass{OfficeID: s.AtTicketOffice}); a.Precondition(s, w) {
+			out = append(out, a)
+		}
 	}
 	return out
 }
@@ -661,6 +694,9 @@ func ToPlanActions(actions []Action, snap WorldSnapshot, w *world.World) []ai.Pl
 		case *WalkToTicketOffice:
 			pa.Kind = ai.ActWalkToTicketOffice
 			pa.BldgID = t.OfficeID
+		case *BuyDayTicket:
+			pa.Kind = ai.ActBuyDayTicket
+			pa.BldgID = t.OfficeID
 		case *BuySeasonPass:
 			pa.Kind = ai.ActBuySeasonPass
 			pa.BldgID = t.OfficeID
@@ -708,6 +744,8 @@ func PlanActionLabel(pa ai.PlanAction, w *world.World) string {
 		return "Depart(" + buildingLabel(w, pa.BldgID) + ")"
 	case ai.ActWalkToTicketOffice:
 		return "WalkToTicketOffice(" + buildingLabel(w, pa.BldgID) + ")"
+	case ai.ActBuyDayTicket:
+		return "BuyDayTicket(" + buildingLabel(w, pa.BldgID) + ")"
 	case ai.ActBuySeasonPass:
 		return "BuySeasonPass(" + buildingLabel(w, pa.BldgID) + ")"
 	case ai.ActSkiTrail:
@@ -749,6 +787,8 @@ func DisplayName(a Action, w *world.World) string {
 		return "Depart(" + buildingLabel(w, act.LotID) + ")"
 	case *WalkToTicketOffice:
 		return "WalkToTicketOffice(" + buildingLabel(w, act.OfficeID) + ")"
+	case *BuyDayTicket:
+		return "BuyDayTicket(" + buildingLabel(w, act.OfficeID) + ")"
 	case *BuySeasonPass:
 		return "BuySeasonPass(" + buildingLabel(w, act.OfficeID) + ")"
 	case *SkiTrail:

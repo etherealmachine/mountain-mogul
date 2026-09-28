@@ -11,13 +11,14 @@ const EventLogCapacity = 256
 type EventKind uint8
 
 const (
-	EventAvalanche   EventKind = 0 // natural or triggered slab release
-	EventRescue      EventKind = 1 // patrol delivered an injured guest to the base
-	EventLiftOpened  EventKind = 2 // player opened a lift, or a hold cleared
-	EventLiftClosed  EventKind = 3 // player closed a lift, or it went on hold
-	EventBuildPlaced EventKind = 4 // player placed a building or lift
-	EventDaySummary  EventKind = 5 // end-of-day recap written at rollover
-	EventFinance     EventKind = 6 // interest charged, credit floor crossed, bankruptcy
+	EventAvalanche        EventKind = 0 // natural or triggered slab release
+	EventRescue           EventKind = 1 // patrol delivered an injured guest to the base
+	EventLiftOpened       EventKind = 2 // player opened a lift, or a hold cleared
+	EventLiftClosed       EventKind = 3 // player closed a lift, or it went on hold
+	EventBuildPlaced      EventKind = 4 // player placed a building or lift
+	EventDaySummary       EventKind = 5 // end-of-day recap written at rollover
+	EventFinance          EventKind = 6 // interest charged, credit floor crossed, bankruptcy
+	EventGuestsTurnedAway EventKind = 7 // guests would have come but couldn't buy a ticket
 )
 
 // Event is one entry in the World-level event feed: something the player

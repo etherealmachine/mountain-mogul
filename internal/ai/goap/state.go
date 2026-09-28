@@ -43,12 +43,13 @@ type WorldSnapshot struct {
 	AtTicketOffice uint64 // 0 or ticket office building ID
 
 	// RemainingBudget is the guest's unspent visit money after the day
-	// ticket. Decremented by heli fares (or the season pass fee); when it
-	// falls below CheapestTicket the GoHome goal fires (unless the guest
-	// has a pass).
+	// ticket (bought or still owed at the window). Decremented by heli
+	// fares (or the season pass fee); when it falls below CheapestTicket
+	// the GoHome goal fires (unless the guest has a pass).
 	RemainingBudget float32
-	// PassCredit is today's day ticket, credited toward a season pass
-	// bought this visit. A pass costs SeasonPassPrice - PassCredit.
+	// PassCredit is today's day ticket, bought or owed, credited toward a
+	// season pass bought this visit. A pass costs SeasonPassPrice -
+	// PassCredit out of RemainingBudget.
 	PassCredit float32
 	// CheapestTicket is the minimum per-ride fare across all lifts,
 	// precomputed at Extract time so goal/action logic needs no world walk.
@@ -58,6 +59,9 @@ type WorldSnapshot struct {
 	// HasSeasonPass is true when the guest holds a valid season pass. Pass
 	// holders skip lift charges and are never budget-gated from joining a queue.
 	HasSeasonPass bool
+	// HasDayTicket is true once the guest has bought today's day ticket at
+	// a ticket office. JoinQueue needs this or HasSeasonPass.
+	HasDayTicket bool
 
 	// Removed flags a terminal state: agent has Departed. Planner treats
 	// this as the unique goal-state for GoHome.
@@ -104,9 +108,10 @@ func Extract(a *world.Guest, w *world.World) WorldSnapshot {
 		Thirst:          a.Thirst,
 		Skill:           a.Traits.Skill,
 		RemainingBudget: a.RemainingBudget,
-		PassCredit:      float32(a.DayTicketPaid),
+		PassCredit:      float32(a.DayTicketPaid + a.DayTicketDue),
 		CheapestTicket:  cheapestTicket(w),
 		HasSeasonPass:   a.HasSeasonPass,
+		HasDayTicket:    a.HasDayTicket,
 		OnLift:          a.OnLiftID,
 		AtTrailEnd:      a.AtTrailEnd,
 		RidenLifts:      a.RidenLifts,
@@ -197,9 +202,10 @@ func ExtractLookahead(a *world.Guest, liftID uint64, w *world.World) WorldSnapsh
 		Thirst:          a.Thirst,
 		Skill:           a.Traits.Skill,
 		RemainingBudget: a.RemainingBudget,
-		PassCredit:      float32(a.DayTicketPaid),
+		PassCredit:      float32(a.DayTicketPaid + a.DayTicketDue),
 		CheapestTicket:  cheapestTicket(w),
 		HasSeasonPass:   a.HasSeasonPass,
+		HasDayTicket:    a.HasDayTicket,
 		AtLiftTop:       liftID,
 		AtTrailEnd:      a.AtTrailEnd,
 		RidenLifts:      rides,
@@ -217,6 +223,12 @@ func cheapestTicket(w *world.World) float32 {
 		}
 	}
 	return min
+}
+
+// hasTicket reports whether the guest may ride: a valid season pass or
+// today's day ticket bought at the window.
+func hasTicket(s *WorldSnapshot) bool {
+	return s.HasSeasonPass || s.HasDayTicket
 }
 
 // passCost is what a season pass costs this guest right now: the pass

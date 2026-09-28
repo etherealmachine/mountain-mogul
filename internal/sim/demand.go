@@ -80,6 +80,9 @@ type DemandSystem struct {
 	// last poll ran in; 0 until the first poll. Not persisted — a loaded
 	// save re-seeds it from SimTime without triggering a reset.
 	Season int
+	// turnedAwayDay is 1 + the sim day index on which "no ticket office"
+	// was last logged; 0 = never. Keeps the event to once per day.
+	turnedAwayDay int
 }
 
 // NewDemandSystem bootstraps a fresh demand system with a neutral rating.
@@ -130,6 +133,7 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 
 	rating := clamp01(d.ResortRating)
 	occFactor := 1 - occupancy
+	hasOffice := hasTicketOffice(s.World)
 
 	for _, g := range s.World.Guests {
 		if g.State != world.AtHome {
@@ -148,6 +152,12 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 		if p <= 0 || rng.Global().Float32() >= p {
 			continue
 		}
+		// Day tickets are sold only at a ticket office; without one,
+		// only pass holders come.
+		if !hasOffice && !hasValidPass(g, s.SimTime) {
+			d.logTurnedAway(s)
+			continue
+		}
 		lot := uniformParking(s.World)
 		if lot == nil {
 			return // no lots → no spawns this poll
@@ -161,11 +171,12 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 	}
 }
 
-// dayTicketCharge returns the day ticket guest g pays on arriving at
-// simTime and whether they can afford to come at all. Pass holders pay 0
-// and always can; everyone else pays w.DayTicketPrice if their
-// DailyBudget covers it. spawnGuest charges the price; the demand poll
-// weighs it via dayTicketPriceFactor.
+// dayTicketCharge returns the day ticket guest g will pay for a visit
+// starting at simTime and whether they can afford to come at all. Pass
+// holders pay 0 and always can; everyone else pays w.DayTicketPrice if
+// their DailyBudget covers it. spawnGuest sets the price aside from the
+// guest's budget and the ticket office collects it (ActBuyDayTicket);
+// the demand poll weighs it via dayTicketPriceFactor.
 func dayTicketCharge(w *world.World, g *world.Guest, simTime float64) (price int, ok bool) {
 	if hasValidPass(g, simTime) {
 		return 0, true
@@ -198,6 +209,28 @@ func dayTicketPriceFactor(w *world.World, g *world.Guest, simTime float64, ratin
 	// ok guarantees ref < price ≤ budget, so the denominator is positive.
 	budget := g.Traits.DailyBudget
 	return float32(math.Pow(float64((budget-p)/(budget-ref)), float64(world.DayTicketElasticity)))
+}
+
+// hasTicketOffice reports whether w has a ticket office to sell day
+// tickets.
+func hasTicketOffice(w *world.World) bool {
+	for _, b := range w.Buildings {
+		if b.Type == world.BuildingTicketOffice {
+			return true
+		}
+	}
+	return false
+}
+
+// logTurnedAway writes "Guests turned away: no ticket office" to the event
+// feed at most once per sim day.
+func (d *DemandSystem) logTurnedAway(s *Simulation) {
+	day := int(s.SimTime/secondsPerSimDay) + 1
+	if d.turnedAwayDay == day {
+		return
+	}
+	d.turnedAwayDay = day
+	s.World.LogEvent(world.EventGuestsTurnedAway, s.SimTime, "Guests turned away: no ticket office")
 }
 
 // hasValidPass reports whether g holds a season pass that hasn't expired

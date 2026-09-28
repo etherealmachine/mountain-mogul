@@ -366,6 +366,9 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		gd.SeasonPassExpiry = g.SeasonPassExpiry
 		gd.HasSeasonPass = g.HasSeasonPass
 		if gd.State == uint8(world.OnMountain) {
+			gd.DayTicketDue = g.DayTicketDue
+			gd.DayTicketPaid = g.DayTicketPaid
+			gd.HasDayTicket = g.HasDayTicket
 			gd.Pos = [3]float32{g.Pos[0], g.Pos[1], g.Pos[2]}
 			gd.Heading = g.Heading
 			gd.Path = g.Path
@@ -771,6 +774,9 @@ func dataToWorld(data ScenarioData) *world.World {
 		g.SeasonPassExpiry = gd.SeasonPassExpiry
 		g.HasSeasonPass = gd.HasSeasonPass
 		if g.State == world.OnMountain {
+			g.DayTicketDue = gd.DayTicketDue
+			g.DayTicketPaid = gd.DayTicketPaid
+			g.HasDayTicket = gd.HasDayTicket
 			g.Pos = mgl32.Vec3{gd.Pos[0], gd.Pos[1], gd.Pos[2]}
 			g.Heading = gd.Heading
 			g.Path = gd.Path
