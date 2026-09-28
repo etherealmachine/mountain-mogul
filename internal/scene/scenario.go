@@ -3248,6 +3248,7 @@ func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 		return
 	case world.BuildingParking:
 		w := ui.NewWindow("Parking Lot", 0, 0)
+		w.AddIntStepper("Day ticket ($)", &s.world.DayTicketPrice, 5, 0, 500)
 		w.AddLabel("Cars", func() string {
 			return fmt.Sprintf("%d / %d", int(bldg.CurrentCars), bldg.MaxCars)
 		})
@@ -3282,6 +3283,7 @@ func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 		return
 	case world.BuildingTicketOffice:
 		w := ui.NewWindow("Ticket Office", 0, 0)
+		w.AddIntStepper("Day ticket ($)", &s.world.DayTicketPrice, 5, 0, 500)
 		w.AddIntStepper("Pass price ($)", &s.world.SeasonPassPrice, 10, 0, 1000)
 		w.AddLabel("Pass holders", func() string {
 			count := 0
@@ -3476,7 +3478,10 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 		)
 	}
 	w.AddStepper("Speed (m/s)", &l.Speed, 0.5, 0.5, 8.0)
-	w.AddIntStepper("Ticket ($)", &l.TicketPrice, 5, 0, 200)
+	if l.Type == world.LiftHeli {
+		// Only heli charges per ride; cable lifts are covered by the day ticket.
+		w.AddIntStepper("Fare per ride ($)", &l.TicketPrice, 5, 0, 200)
+	}
 	if l.OnHold {
 		w.AddLabel("Status", func() string { return "On Hold (no snow at base)" })
 	}
