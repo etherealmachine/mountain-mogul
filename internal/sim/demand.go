@@ -1,6 +1,8 @@
 package sim
 
 import (
+	"math"
+
 	"mountain-mogul/internal/ai"
 	"mountain-mogul/internal/rng"
 	"mountain-mogul/internal/world"
@@ -17,6 +19,7 @@ import (
 //
 //	p_per_poll(g) = (g.VisitsPerSeason / seasonDays) * pollFraction
 //	              * clamp(ResortRating) * terrainMatch(g.Skill) * (1 - occupancy)
+//	              * dayTicketPriceFactor(g, rating)
 //
 // On a hit the guest spawns at a uniform-random parking lot, moves into
 // w.OnMountain, and their State flips to OnMountain. On Depart the same
@@ -132,7 +135,8 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 		if g.State != world.AtHome {
 			continue
 		}
-		if _, ok := dayTicketCharge(s.World, g, s.SimTime); !ok {
+		priceFactor := dayTicketPriceFactor(s.World, g, s.SimTime, rating)
+		if priceFactor == 0 {
 			continue
 		}
 		match := terrainMatch(s.World, g.Traits.Skill)
@@ -140,7 +144,7 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 			continue
 		}
 		dailyRate := g.VisitsPerSeason / seasonDaysApprox
-		p := dailyRate * pollFractionOfDay * rating * match * occFactor
+		p := dailyRate * pollFractionOfDay * rating * match * occFactor * priceFactor
 		if p <= 0 || rng.Global().Float32() >= p {
 			continue
 		}
@@ -160,8 +164,8 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 // dayTicketCharge returns the day ticket guest g pays on arriving at
 // simTime and whether they can afford to come at all. Pass holders pay 0
 // and always can; everyone else pays w.DayTicketPrice if their
-// DailyBudget covers it. The demand poll gates on ok; spawnGuest charges
-// the price. This is the single hook for price elasticity.
+// DailyBudget covers it. spawnGuest charges the price; the demand poll
+// weighs it via dayTicketPriceFactor.
 func dayTicketCharge(w *world.World, g *world.Guest, simTime float64) (price int, ok bool) {
 	if hasValidPass(g, simTime) {
 		return 0, true
@@ -171,6 +175,29 @@ func dayTicketCharge(w *world.World, g *world.Guest, simTime float64) (price int
 		price = 0
 	}
 	return price, float32(price) <= g.Traits.DailyBudget
+}
+
+// dayTicketPriceFactor is the price-elasticity term in the visit
+// probability, in [0, 1]. Pass holders get 1. Otherwise it is 1 at or
+// below a rating-shifted reference price, 0 once the price exceeds the
+// guest's DailyBudget, and ((budget − price) / (budget − ref))^elasticity
+// in between. See the DayTicket* constants in world.go.
+func dayTicketPriceFactor(w *world.World, g *world.Guest, simTime float64, rating float32) float32 {
+	price, ok := dayTicketCharge(w, g, simTime)
+	if !ok {
+		return 0
+	}
+	if price == 0 {
+		return 1 // pass holder or free ticket
+	}
+	ref := world.DayTicketReferencePrice * (1 + world.DayTicketRatingPremium*(rating-0.5))
+	p := float32(price)
+	if p <= ref {
+		return 1
+	}
+	// ok guarantees ref < price ≤ budget, so the denominator is positive.
+	budget := g.Traits.DailyBudget
+	return float32(math.Pow(float64((budget-p)/(budget-ref)), float64(world.DayTicketElasticity)))
 }
 
 // hasValidPass reports whether g holds a season pass that hasn't expired

@@ -29,6 +29,16 @@ const (
 
 	DefaultTicketPrice   = 10  // dollars per heli ride; only heli charges per ride, player adjusts via the lift popup
 	DefaultDayTicketPrice = 60 // dollars per visit, charged once at arrival (VISION §7: $60–90); pass holders pay nothing
+
+	// Day-ticket price elasticity in the demand poll. A guest's price factor
+	// is 1 at or below the reference price and falls to 0 as the price rises
+	// to their DailyBudget: ((budget − price) / (budget − ref))^elasticity.
+	// The reference scales with resort rating, ref × (1 + premium × (rating − 0.5)),
+	// so a well-rated resort can charge more before guests balk.
+	DayTicketReferencePrice = 60           // dollars; the no-penalty price at rating 0.5
+	DayTicketRatingPremium  = float32(1.0) // unitless; reference spans 0.5×–1.5× across rating 0..1
+	DayTicketElasticity     = float32(0.5) // unitless exponent; <1 bows the curve so guests hold on until price nears budget
+
 	TicketOfficeCost     = 20000
 	BarCost             = 35000 // bar/restaurant (half-size lodge)
 	DefaultSeasonPassPrice = 150 // one-time fee per guest per season; guests with sufficient budget buy it on arrival

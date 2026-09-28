@@ -27,7 +27,7 @@ system, neither by the lot.
                                └──────┬───────┘
                                       │ for each AtHome guest:
                                       │   skip if can't afford day ticket
-                                      │   p = rating × terrainMatch × (1 − occ)
+                                      │   p = rating × terrainMatch × (1 − occ) × priceFactor
                                       │   if Bernoulli(p) → spawnGuest
                                       ▼
                             ┌──────────────────┐
@@ -79,11 +79,12 @@ capacity = Σ lifts: chairs × seats × (1 / loopTime) × avgSessionSec
 occupancy = len(World.OnMountain) / capacity
 
 for each g in World.Guests where g.State == AtHome:
-    if !dayTicketCharge(g).ok: continue   // can't afford the day ticket
+    priceFactor = dayTicketPriceFactor(g, rating)
+    if priceFactor == 0: continue   // day ticket above their budget
     match = terrainMatch(g.Traits.Skill)
     if match == 0: continue   // no lifts they'd ride
     dailyRate = g.VisitsPerSeason / seasonDaysApprox
-    p = dailyRate × pollFraction × rating × match × (1 − occupancy)
+    p = dailyRate × pollFraction × rating × match × (1 − occupancy) × priceFactor
     if rng.Float32() >= p: continue
     lot = uniform-random parking lot
     spawnGuest(lot, g)
@@ -101,11 +102,49 @@ Advanced→Black), else 0.
 
 **`visitProbability`** is multiplicative — any factor near zero kills demand.
 
-**`dayTicketCharge(w, g, simTime)`** is the price gate and the single hook
-for price elasticity. It returns `(price, ok)`: a guest with a valid
-season pass pays 0 and is always ok; everyone else pays
-`World.DayTicketPrice` and is ok only if `Traits.DailyBudget` covers it.
-Unaffordable guests are skipped before the Bernoulli roll — they stay home.
+**`dayTicketCharge(w, g, simTime)`** prices the visit. It returns
+`(price, ok)`: a guest with a valid season pass pays 0 and is always ok;
+everyone else pays `World.DayTicketPrice` and is ok only if
+`Traits.DailyBudget` covers it.
+
+**`dayTicketPriceFactor(w, g, simTime, rating)`** is the price elasticity
+term, in [0, 1]:
+
+```
+ref = DayTicketReferencePrice × (1 + DayTicketRatingPremium × (rating − 0.5))
+priceFactor = 0                                          if price > budget
+            = 1                                          if price ≤ ref (or pass holder)
+            = ((budget − price) / (budget − ref))^DayTicketElasticity   otherwise
+```
+
+Rating shifts the reference rather than scaling the factor: with the
+defaults ($60, premium 1.0) the no-penalty price runs from $30 at rating 0
+through $60 at 0.5 to $90 at 1.0. A well-rated resort can charge more
+before guests balk. Rating also still multiplies `p` directly, so it
+counts twice: once for "is this place any good" and once for "is it worth
+the price". Elasticity 0.5 bows the curve, so a guest keeps most of their
+interest until the price gets close to their budget.
+
+Worked numbers for the seeded catchment (`DailyBudget = 40 + 160 × skill`,
+60/30/10 beginner/intermediate/advanced, so budgets run $40–$200 and 60%
+sit below $93). "Share" is the pool-average price factor, which is the
+fraction of the no-price arrival rate that still comes:
+
+| Day ticket | rating 0.5 (ref $60) | rating 1.0 (ref $90) |
+|---|---|---|
+| $30 | 100% | 100% |
+| $60 (default) | 77% | 77% |
+| $90 | 29% | 43% |
+| $120 (2× default) | 12.5% | 15% |
+| $150 | 4% | 5% |
+| $201 (above every budget) | 0% | 0% |
+
+At the default price and neutral rating the factor is exactly the old
+binary budget gate (77%), so default arrivals are unchanged. Doubling
+from $60 to $120 cuts arrivals by about 84%. The hard budget cutoff alone
+accounts for 68 points of that, because only 24% of guests have a $120
+budget. The budget distribution, not the elasticity, dominates the
+response to large price moves.
 
 ---
 
@@ -194,6 +233,9 @@ half-bar on a fresh scenario; the bar drifts up or down as guests depart.
 | `avgSessionSec` | 800 | Capacity estimate denominator |
 | `seasonDaysApprox` | 186 | Divisor for per-day visit rates |
 | `world.DefaultDayTicketPrice` | $60 | Starting day ticket; player-adjustable via `World.DayTicketPrice` |
+| `world.DayTicketReferencePrice` | $60 | No-penalty day-ticket price at rating 0.5 |
+| `world.DayTicketRatingPremium` | 1.0 | How far rating shifts the reference (±50% across rating 0..1) |
+| `world.DayTicketElasticity` | 0.5 | Exponent on the price factor; lower = guests tolerate prices closer to budget |
 
 ---
 
@@ -202,8 +244,6 @@ half-bar on a fresh scenario; the bar drifts up or down as guests depart.
 - **Time-of-day / weather modulation.** The poll fires at a flat rate.
   A clock + weather system would shape the curve (morning peak, storm
   penalty, etc.).
-- **Price elasticity.** The day-ticket gate is binary (budget covers it
-  or not). A smooth price factor in the poll plugs into `dayTicketCharge`.
 - **Per-lot draw weighting.** New guests pick a uniform-random lot.
   Occupancy, distance to lifts, or pricing could weight the draw.
 - **Richer `terrainMatch`.** Binary today. A trail-aware fraction of
