@@ -111,7 +111,6 @@ const (
 	towerHazardRadius = 5.0 // lift towers are 0.6–0.9 m poles; the radius gives ~4 m of carving room
 	skierHazardRadius = 2.5 // ski-width is ~0.6 m; the radius is "don't ski into someone's blind spot"
 
-
 	// Fall-line attenuation. Identical to prior model — gentle terrain has
 	// noisy gradients, so we ignore the fall direction below flatSlopeL.
 	flatSlopeL  = 0.05
@@ -138,13 +137,13 @@ const (
 	//   trafficRate: SkierTraffic units accumulated per second while skiing.
 	//   trafficThresh*: SkierTraffic thresholds that trigger a kind transition.
 	//   mogulFormRate: mogul growth rate, scaled by (1 − Grooming).
-	groomingWearRate    = 0.005
-	trafficRate         = 1.0  // units/s; ~0.5 units per pass at 10 m/s
-	trafficThreshPowder  = float32(40)  // ~40 passes
+	groomingWearRate      = 0.005
+	trafficRate           = 1.0         // units/s; ~0.5 units per pass at 10 m/s
+	trafficThreshPowder   = float32(40) // ~40 passes
 	trafficThreshWindSlab = float32(60)
-	trafficThreshCrust   = float32(20)  // crust shatters quickly
-	mogulFormRate        = 0.005
-	mogulMinSnowDepth    = 0.3
+	trafficThreshCrust    = float32(20) // crust shatters quickly
+	mogulFormRate         = 0.005
+	mogulMinSnowDepth     = 0.3
 
 	// patienceGainPerSecSkiing is patience restored per sim-second of
 	// active downhill skiing. Offset against the drain from queuing —
@@ -169,7 +168,6 @@ const (
 	// level ThoughtHungry / ThoughtThirsty are emitted each tick (rate-
 	// limited by ThoughtTTL) so the departure thought reflects the cause.
 	criticalStatThreshold = float32(0.15)
-
 )
 
 // =============================================================================
@@ -619,8 +617,7 @@ func (s *Simulation) tickFallen(a *world.Guest, dt float64) {
 func onBuildingFootprint(w *world.World, x, z float32) bool {
 	const margin = world.CellSize / 2
 	for _, b := range w.Buildings {
-		minX, minZ, maxX, maxZ := world.FootprintAABB(b.Type, b.Pos[0], b.Pos[1])
-		if x >= minX-margin && x <= maxX+margin && z >= minZ-margin && z <= maxZ+margin {
+		if b.FootprintContains(x, z, margin) {
 			return true
 		}
 	}
@@ -947,9 +944,10 @@ func hazardDensityAt(t *world.Terrain, towers []mgl32.Vec2, grid *spatialGrid, s
 // while avoiding), and centre/right/left density readings for the HUD.
 //
 // Score = progressBonus × cos(offset)
-//       − Σ treePenalty × density(point along projected line)
-//       − boundaryPenalty × (off-map sample count)
-//       + sideCommitBonus × sign(prevTactical) × sign(offset)   [conditional]
+//
+//	− Σ treePenalty × density(point along projected line)
+//	− boundaryPenalty × (off-map sample count)
+//	+ sideCommitBonus × sign(prevTactical) × sign(offset)   [conditional]
 //
 // The progress term keeps the skier on axis when nothing obstructs. The
 // side-commit term breaks the symmetry of obstacles centred on axis so
@@ -1101,7 +1099,6 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 // =============================================================================
 // SECTION 6 — Apply (physics integration)
 // =============================================================================
-
 
 func apply(t *world.Terrain, a *world.Guest, dec Decision, perc Perception, dt float64) {
 	a.Heading = rotateToward(a.Heading, dec.DesiredHeading, float32(headingRateMax), dt)

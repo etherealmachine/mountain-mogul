@@ -61,7 +61,7 @@ func SeedGuests(w *World, seed int64, count int) {
 		}
 		traits.LikesGlades = g.Float32() < gladeProb
 		traits.PrefersGroomed = g.Float32() < 0.60
-		traits.DailyBudget = 40 + skill*160
+		traits.DailyBudget = DailyBudgetFor(skill)
 		guest := &Guest{
 			ID:              w.NextID(),
 			Name:            firstNames[g.Intn(len(firstNames))] + " " + lastNames[g.Intn(len(lastNames))],
@@ -74,6 +74,13 @@ func SeedGuests(w *World, seed int64, count int) {
 	}
 }
 
+// DailyBudgetFor is the dollars a guest of the given skill will spend on
+// one visit (ticket, parking, food). Not persisted: save load derives it
+// from skill again, so it must stay a pure function of skill.
+func DailyBudgetFor(skill float32) float32 {
+	return 40 + skill*160
+}
+
 // rollSkill biases toward beginners — the real-world resort split is
 // roughly 60/30/10 beginner/intermediate/advanced. Returns a continuous
 // value in [0, 1] drawn uniformly within the appropriate tier band.
@@ -81,8 +88,21 @@ func rollSkill(g *rand.Rand) float32 {
 	r := g.Float32()
 	switch {
 	case r < 0.6:
-		return g.Float32() * ai.SkillIntermediateThreshold
+		return SkillInTier(0, g)
 	case r < 0.9:
+		return SkillInTier(1, g)
+	default:
+		return SkillInTier(2, g)
+	}
+}
+
+// SkillInTier draws a skill uniformly within a tier's band: 0 beginner,
+// 1 intermediate, 2 advanced.
+func SkillInTier(tier int, g *rand.Rand) float32 {
+	switch tier {
+	case 0:
+		return g.Float32() * ai.SkillIntermediateThreshold
+	case 1:
 		return ai.SkillIntermediateThreshold + g.Float32()*(ai.SkillAdvancedThreshold-ai.SkillIntermediateThreshold)
 	default:
 		return ai.SkillAdvancedThreshold + g.Float32()*(1-ai.SkillAdvancedThreshold)

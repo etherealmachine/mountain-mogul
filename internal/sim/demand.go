@@ -20,7 +20,7 @@ import (
 //
 //	p_per_poll(g) = (g.VisitsPerSeason / seasonDays) * pollFraction
 //	              * clamp(ResortRating) * terrainMatch(g.Skill) * (1 - occupancy)
-//	              * dayTicketPriceFactor(g, rating)
+//	              * visitPriceFactor(g, rating)
 //
 // On a hit the guest spawns at a uniform-random parking lot, moves into
 // w.OnMountain, and their State flips to OnMountain. On Depart the same
@@ -130,10 +130,14 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 		occupancy = 1
 	}
 
-	// Convert poll-window length into a per-day fraction. At
-	// demandPollInterval = 30s and secondsPerSimDay ≈ 77s, this is
-	// ~0.39 of a sim day per poll — most polls land inside one day.
-	pollFractionOfDay := float32(elapsed / secondsPerSimDay)
+	// The share of the day's arrivals that fall in this poll window:
+	// guests come from just before opening, mostly in the morning, and
+	// stop an hour before closing (arrivalShare).
+	h1 := HourOfDay(s.SimTime)
+	pollFractionOfDay := float32(arrivalShare(s.World, math.Max(0, h1-elapsed/simSecondsPerHour), h1))
+	if pollFractionOfDay <= 0 {
+		return
+	}
 
 	rating := clamp01(d.ResortRating)
 	occFactor := 1 - occupancy
@@ -143,7 +147,7 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 		if g.State != world.AtHome {
 			continue
 		}
-		priceFactor := dayTicketPriceFactor(s.World, g, s.SimTime, rating)
+		priceFactor := visitPriceFactor(s.World, g, s.SimTime, rating)
 		if priceFactor == 0 {
 			continue
 		}
@@ -180,7 +184,7 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 // holders pay 0 and always can; everyone else pays w.DayTicketPrice if
 // their DailyBudget covers it. spawnGuest sets the price aside from the
 // guest's budget and the ticket office collects it (ActBuyDayTicket);
-// the demand poll weighs it via dayTicketPriceFactor.
+// the demand poll weighs it via visitPriceFactor.
 func dayTicketCharge(w *world.World, g *world.Guest, simTime float64) (price int, ok bool) {
 	if hasValidPass(g, simTime) {
 		return 0, true
@@ -192,27 +196,56 @@ func dayTicketCharge(w *world.World, g *world.Guest, simTime float64) (price int
 	return price, float32(price) <= g.Traits.DailyBudget
 }
 
-// dayTicketPriceFactor is the price-elasticity term in the visit
-// probability, in [0, 1]. Pass holders get 1. Otherwise it is 1 at or
-// below a rating-shifted reference price, 0 once the price exceeds the
-// guest's DailyBudget, and ((budget − price) / (budget − ref))^elasticity
-// in between. See the DayTicket* constants in world.go.
-func dayTicketPriceFactor(w *world.World, g *world.Guest, simTime float64, rating float32) float32 {
+// visitPriceFactor is the price-elasticity term in the visit
+// probability, in [0, 1]. The price is the guest's day ticket (0 for pass
+// holders) plus their share of the parking fee. It is 1 at or below a
+// reference price, 0 once the price exceeds the guest's DailyBudget, and
+// ((budget − price) / (budget − ref))^elasticity in between. The
+// reference is the parking reference share plus, for guests who need a
+// ticket, the rating-shifted ticket reference. See the DayTicket* and
+// ParkingReferencePrice constants in world.go.
+func visitPriceFactor(w *world.World, g *world.Guest, simTime float64, rating float32) float32 {
 	price, ok := dayTicketCharge(w, g, simTime)
 	if !ok {
 		return 0
 	}
-	if price == 0 {
-		return 1 // pass holder or free ticket
+	p := float32(price) + parkingShare(w)
+	budget := g.Traits.DailyBudget
+	if p > budget {
+		return 0
 	}
-	ref := world.DayTicketReferencePrice * (1 + world.DayTicketRatingPremium*(rating-0.5))
-	p := float32(price)
+	if p == 0 {
+		return 1 // free ticket (or pass) and free parking
+	}
+	ref := float32(world.ParkingReferencePrice) / GuestsPerCar
+	if !hasValidPass(g, simTime) {
+		ref += world.DayTicketReferencePrice * (1 + world.DayTicketRatingPremium*(rating-0.5))
+	}
 	if p <= ref {
 		return 1
 	}
-	// ok guarantees ref < price ≤ budget, so the denominator is positive.
-	budget := g.Traits.DailyBudget
+	// ref < p ≤ budget here, so the denominator is positive.
 	return float32(math.Pow(float64((budget-p)/(budget-ref)), float64(world.DayTicketElasticity)))
+}
+
+// parkingShare is one guest's average share of the per-car parking fee.
+func parkingShare(w *world.World) float32 {
+	if w.ParkingPrice <= 0 {
+		return 0
+	}
+	return float32(w.ParkingPrice) / GuestsPerCar
+}
+
+// nextParkingFee is the whole-dollar parking share the next arriving
+// guest pays. Shares rotate so every GuestsPerCar arrivals together pay
+// exactly one ParkingPrice.
+func (s *Simulation) nextParkingFee() int {
+	price := s.World.ParkingPrice
+	if price <= 0 {
+		return 0
+	}
+	k := s.parkedGuests % GuestsPerCar
+	return price*(k+1)/GuestsPerCar - price*k/GuestsPerCar
 }
 
 // hasTicketOffice reports whether w has a ticket office to sell day

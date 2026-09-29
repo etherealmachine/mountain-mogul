@@ -67,6 +67,28 @@ func FormatTemp(tempC float32) string {
 	return fmt.Sprintf("%d", int(tempC))
 }
 
+// FormatClock formats an hour of day (0..24) as "9:42 AM" under Imperial
+// units and "09:42" under Metric.
+func FormatClock(hour float64) string {
+	mins := int(hour*60) % (24 * 60)
+	if mins < 0 {
+		mins += 24 * 60
+	}
+	h, m := mins/60, mins%60
+	if global.Units == Metric {
+		return fmt.Sprintf("%02d:%02d", h, m)
+	}
+	suffix := "AM"
+	if h >= 12 {
+		suffix = "PM"
+	}
+	h12 := h % 12
+	if h12 == 0 {
+		h12 = 12
+	}
+	return fmt.Sprintf("%d:%02d %s", h12, m, suffix)
+}
+
 // TempUnit returns "°F" or "°C" for the active unit system.
 func TempUnit() string {
 	if global.Units == Imperial {

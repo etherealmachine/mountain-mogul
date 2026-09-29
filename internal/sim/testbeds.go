@@ -23,11 +23,13 @@ type Testbed struct {
 }
 
 // NewWorld builds the testbed's world with the resort open, so
-// skier-behaviour testbeds run without the player opening it first. Use
-// this rather than calling Build directly.
+// skier-behaviour testbeds run without the player opening it first, and
+// the clock at mid-morning so they start in daylight. Use this rather
+// than calling Build directly.
 func (tb *Testbed) NewWorld() *world.World {
 	w := tb.Build()
 	w.ResortOpen = true
+	w.SimTime = 10 * world.SimSecondsPerHour
 	return w
 }
 
@@ -325,9 +327,9 @@ var Testbeds = []Testbed{
 			}
 			return scene(40, 80).slope(15).
 				lodgeAt(21, 78).
-				treeRect(3, 5, 4, 75, 0.8).    // left wall
-				treeRect(35, 5, 36, 75, 0.8).  // right wall
-				treePatch(15, 50, 6, 0.8).     // center obstacle (off-axis west)
+				treeRect(3, 5, 4, 75, 0.8).   // left wall
+				treeRect(35, 5, 36, 75, 0.8). // right wall
+				treePatch(15, 50, 6, 0.8).    // center obstacle (off-axis west)
 				groomPolygon(westBranch).
 				groomPolygon(eastBranch).
 				skierAt(21, 1, 0.5).
@@ -676,8 +678,8 @@ func (b *builder) skierAt(gx, gz int, skill float32) *builder {
 		Pos:        pos,
 		Heading:    heading,
 		Traits:     ai.TraitsFor(skill),
-		Balance:  1.0,
-		Patience: 1.0,
+		Balance:    1.0,
+		Patience:   1.0,
 	}
 	// Seed a two-step plan: ski to the lodge, then despawn. The GOAP
 	// planner would never emit this from a no-lift testbed world
@@ -928,8 +930,10 @@ func (b *builder) bareRect(x1, z1, x2, z2 int) *builder {
 }
 
 // build returns the finished *world.World. The builder should not be used
-// after this call.
+// after this call. Built worlds operate around the clock (0–24) so
+// behaviour runs aren't cut short by closing time.
 func (b *builder) build() *world.World {
 	b.w.Terrain.RecomputeSlopes()
+	b.w.OpenHour, b.w.CloseHour = 0, 24
 	return b.w
 }

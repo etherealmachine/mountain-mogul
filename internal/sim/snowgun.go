@@ -2,16 +2,18 @@ package sim
 
 import "mountain-mogul/internal/world"
 
-const (
-	snowGunSWEPerCellPerSec = 0.002 / 3600.0 // m SWE/cell/sim-sec ≈ 4.8 mm/24 h per cell
-)
+// snowGunSWEPerCellPerHour is machine snow per covered cell per clock hour
+// of running: 3 mm SWE ≈ 7 mm of dense machine snow, so a cold 12-hour
+// night lays ~9 cm.
+const snowGunSWEPerCellPerHour = 0.003
 
 // tickSnowGuns applies artificial snow (KindBase) to terrain cells within each
-// enabled snow gun's range, gated by ambient temperature.
+// enabled snow gun's range whenever the air is cold enough.
 func (s *Simulation) tickSnowGuns(dt float64) {
-	if s.Weather.Today().TempLow > world.SnowGunMinTempC {
+	if s.TempNow() > world.SnowGunMinTempC {
 		return
 	}
+	const snowGunSWEPerCellPerSec = snowGunSWEPerCellPerHour / simSecondsPerHour
 	t := s.World.Terrain
 	swePerCell := float32(snowGunSWEPerCellPerSec * dt)
 	modified := false

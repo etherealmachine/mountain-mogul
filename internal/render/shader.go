@@ -72,6 +72,71 @@ func LoadShader(vertPath, fragPath string, sharedPaths ...string) (*Shader, erro
 	return &Shader{id: prog}, nil
 }
 
+// LoadShaderTess compiles a 4-stage tessellation shader program
+// (vertex → tesc → tese → fragment). sharedPaths are prepended to all stages.
+func LoadShaderTess(vertPath, tescPath, tesePath, fragPath string, sharedPaths ...string) (*Shader, error) {
+	var shared strings.Builder
+	for _, sp := range sharedPaths {
+		data, err := os.ReadFile(sp)
+		if err != nil {
+			return nil, fmt.Errorf("shader shared file %q: %w", sp, err)
+		}
+		shared.Write(data)
+		shared.WriteString("\n")
+	}
+	sharedSrc := shared.String()
+
+	type stageSpec struct {
+		path string
+		kind uint32
+	}
+	stages := []stageSpec{
+		{vertPath, gl.VERTEX_SHADER},
+		{tescPath, gl.TESS_CONTROL_SHADER},
+		{tesePath, gl.TESS_EVALUATION_SHADER},
+		{fragPath, gl.FRAGMENT_SHADER},
+	}
+
+	var ids []uint32
+	for _, s := range stages {
+		src, err := os.ReadFile(s.path)
+		if err != nil {
+			for _, id := range ids {
+				gl.DeleteShader(id)
+			}
+			return nil, fmt.Errorf("shader %q: %w", s.path, err)
+		}
+		id, err := compileShader(prependShared(string(src), sharedSrc), s.kind)
+		if err != nil {
+			for _, id := range ids {
+				gl.DeleteShader(id)
+			}
+			return nil, fmt.Errorf("shader %q: %w", s.path, err)
+		}
+		ids = append(ids, id)
+	}
+
+	prog := gl.CreateProgram()
+	for _, id := range ids {
+		gl.AttachShader(prog, id)
+		gl.DeleteShader(id)
+	}
+	gl.LinkProgram(prog)
+
+	var status int32
+	gl.GetProgramiv(prog, gl.LINK_STATUS, &status)
+	if status == gl.FALSE {
+		var logLen int32
+		gl.GetProgramiv(prog, gl.INFO_LOG_LENGTH, &logLen)
+		log := strings.Repeat("\x00", int(logLen+1))
+		gl.GetProgramInfoLog(prog, logLen, nil, gl.Str(log))
+		gl.DeleteProgram(prog)
+		return nil, fmt.Errorf("shader link: %s", log)
+	}
+
+	return &Shader{id: prog}, nil
+}
+
 // prependShared inserts shared source after the #version directive.
 func prependShared(src, shared string) string {
 	if shared == "" {

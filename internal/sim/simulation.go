@@ -13,7 +13,7 @@ import (
 
 const (
 	WalkSpeed = 0.67 // m/s (~1.5 mph); slow shuffle in stiff ski boots
-	CellSize  = 5.0 // metres per grid cell
+	CellSize  = 5.0  // metres per grid cell
 
 	// patienceGainPerSecRiding is patience restored per sim-second
 	// while riding a lift chair.
@@ -42,8 +42,12 @@ const (
 type Simulation struct {
 	World      *world.World
 	Pathfinder *Pathfinder
-	TimeScale  float64    // simulation speed multiplier (default 4 — ~1 hr per ski season)
-	SimTime    float64    // accumulated sim seconds (post-TimeScale)
+	TimeScale  float64 // simulation speed multiplier (default 4 — ~1 hr per ski season)
+	SimTime    float64 // accumulated sim seconds (post-TimeScale)
+	// StopAt, when > 0, is a sim time Tick never advances past, however
+	// large TimeScale is — the fast-forward-to-storm stop. The caller
+	// notices SimTime reaching it and clears it.
+	StopAt float64
 	// lastSampledDay is the most recent in-game day index whose end has
 	// been written to World.History. Initialised to int(SimTime /
 	// secondsPerSimDay) so a sim loaded mid-day starts recording from
@@ -57,10 +61,22 @@ type Simulation struct {
 	// Weather is the daily Markov-chain weather generator. Advance is called
 	// once per in-game day rollover in maybeSampleHistory.
 	Weather *Chain
+	// yesterday and tomorrow bracket Weather.Today() for the hourly
+	// temperature curve (TempAt). tomorrow is the deterministic forecast,
+	// so it matches what Advance later produces.
+	yesterday, tomorrow DayWeather
+
+	// lastHour is the index (SimTime / simSecondsPerHour) of the most
+	// recent clock hour whose hourly effects (melt) have run.
+	lastHour int
 
 	// Demand owns the global skier pool and resort rating. The
 	// per-30-sim-seconds poll fires from Tick.
 	Demand *DemandSystem
+
+	// parkedGuests counts arrivals, rotating which share of the car's
+	// parking fee the next guest pays (nextParkingFee). Not saved.
+	parkedGuests int
 
 	// Recorder, if non-nil, receives one RecorderFrame per skiing tick.
 	// Used by the debug CSV log; default nil.
@@ -108,6 +124,10 @@ type Simulation struct {
 	// the current sim day; the rollover bills operating costs if so and
 	// standby otherwise. Not persisted — a load seeds it from ResortOpen.
 	openToday bool
+
+	// closedForDay is ClosedForDay() as of the last tick, to catch the
+	// moment the lifts close.
+	closedForDay bool
 }
 
 // InvalidateSections signals that cat section assignments need a full
@@ -147,6 +167,7 @@ func NewSimulationWithSeed(w *world.World, seed int64) *Simulation {
 		Demand:         NewDemandSystem(),
 		spatial:        newSpatialGrid(widthM, heightM),
 		lastSampledDay: int(w.SimTime / secondsPerSimDay),
+		lastHour:       int(w.SimTime / simSecondsPerHour),
 		openToday:      w.ResortOpen,
 		sectionsStale:  true, // run reassignment on first tick to pick up loaded cats
 	}
@@ -155,7 +176,9 @@ func NewSimulationWithSeed(w *world.World, seed int64) *Simulation {
 	sim.Demand.LastPoll = w.SimTime
 	// Sample today's weather for the world's current date so an October
 	// start opens on October weather rather than NewChain's placeholder.
-	sim.Weather.Advance(sim.DateAt(w.SimTime))
+	sim.closedForDay = sim.ClosedForDay()
+	sim.yesterday = sim.Weather.Advance(sim.DateAt(w.SimTime))
+	sim.tomorrow = sim.Weather.Forecast(sim.DateAt(w.SimTime), 1)[0]
 	for _, a := range w.OnMountain {
 		if !a.Plan.Done() {
 			sim.onPlanStepStart(a)
@@ -204,6 +227,9 @@ func (s *Simulation) Tick(dt float64) {
 	s.spatial.rebuild(s.World.OnMountain)
 
 	remaining := dt * s.TimeScale
+	if s.StopAt > 0 && s.SimTime+remaining > s.StopAt {
+		remaining = s.StopAt - s.SimTime
+	}
 	for remaining > 0 {
 		sub := remaining
 		if sub > maxSubstepSec {
@@ -213,7 +239,6 @@ func (s *Simulation) Tick(dt float64) {
 		remaining -= sub
 	}
 }
-
 
 // refillTowersScratch rebuilds s.towersScratch in place from the live
 // lift list. Each per-lift TowerXZs() is cached on the Lift so this
@@ -233,6 +258,9 @@ func (s *Simulation) subTick(dt float64) {
 	s.SimTime += dt
 	s.World.SimTime = s.SimTime
 	s.Demand.maybePoll(s)
+	// Hourly effects run before the rollover so the day's last hour
+	// still sees that day's weather.
+	s.tickHourly()
 	s.maybeSampleHistory()
 	s.tickResortClosed()
 	s.tickLifts(dt)
@@ -245,6 +273,7 @@ func (s *Simulation) subTick(dt float64) {
 
 func (s *Simulation) tickLifts(dt float64) {
 	w := s.World
+	running := s.LiftsRunning()
 	for _, lift := range w.Lifts {
 		if lift.IsHeli() {
 			s.tickHeliLift(lift, dt)
@@ -273,8 +302,10 @@ func (s *Simulation) tickLifts(dt float64) {
 			ejectQueue(lift)
 		}
 
+		// Outside operating hours chairs stop once they've carried
+		// everyone up, and nobody boards.
 		passengers := lift.PassengerCount()
-		moving := (!lift.OnHold && lift.Open) || (lift.OnHold && passengers > 0)
+		moving := (!lift.OnHold && lift.Open && (running || passengers > 0)) || (lift.OnHold && passengers > 0)
 		for i := range lift.Chairs {
 			chair := &lift.Chairs[i]
 			prev := chair.Progress
@@ -323,7 +354,7 @@ func (s *Simulation) tickLifts(dt float64) {
 			// queue up to its capacity. Skip when on hold.
 			if chair.Progress >= 1.0 {
 				chair.Progress -= 1.0
-				if !lift.OnHold {
+				if !lift.OnHold && running {
 					var boarders []*world.Guest
 					if len(lift.Lines) > 0 {
 						boarders = lift.BoardNextPair(len(chair.Passengers))
@@ -348,7 +379,6 @@ func (s *Simulation) tickLifts(dt float64) {
 	}
 }
 
-
 // tickHeliLift drives the state machine for a heli-ski helicopter lift.
 // Called by tickLifts for every LiftHeli entry; cable-lift logic is
 // handled by the regular tickLifts path.
@@ -360,7 +390,7 @@ func (s *Simulation) tickHeliLift(lift *world.Lift, dt float64) {
 	}
 	switch h.Phase {
 	case world.HeliAtBase:
-		if !lift.Open {
+		if !lift.Open || !s.LiftsRunning() {
 			return
 		}
 		// Fill empty seats from the queue.
@@ -545,11 +575,14 @@ func (s *Simulation) spawnGuest(lot *world.Building, g *world.Guest) bool {
 	// Price the day ticket before planning so the planner sees the
 	// post-ticket budget. The guest arrives without a ticket and pays at
 	// the window (ActBuyDayTicket); pass holders owe nothing.
+	// Parking is paid at the lot on arrival, so it comes out of the
+	// budget up front too.
 	ticket, _ := dayTicketCharge(w, g, s.SimTime)
+	parking := s.nextParkingFee()
 	g.DayTicketDue = ticket
 	g.DayTicketPaid = 0
 	g.HasDayTicket = false
-	g.RemainingBudget = g.Traits.DailyBudget - float32(ticket)
+	g.RemainingBudget = g.Traits.DailyBudget - float32(ticket+parking)
 	g.Removed = false
 	w.OnMountain = append(w.OnMountain, g)
 	s.replan(g)
@@ -561,6 +594,11 @@ func (s *Simulation) spawnGuest(lot *world.Building, g *world.Guest) bool {
 		w.OnMountain = w.OnMountain[:len(w.OnMountain)-1]
 		g.ResetForDeparture()
 		return false
+	}
+	s.parkedGuests++
+	if parking > 0 {
+		w.Cash += parking
+		w.History.RecordRevenue(parking)
 	}
 	w.History.RecordArrival()
 	return true
@@ -602,13 +640,13 @@ func (s *Simulation) maybeSampleHistory() {
 		costs += s.applyCredit(dayIdx)
 
 		sample := world.DailySample{
-			Day:              s.DateAt(float64(dayIdx) * secondsPerSimDay),
-			GuestsOnMountain: len(w.OnMountain),
-			ArrivalsToday:    w.History.ArrivalsToday,
-			DeparturesToday:  w.History.DeparturesToday,
-			Cash:             w.Cash,
-			Revenue:          w.History.RevenueToday,
-			Costs:            costs,
+			Day:               s.DateAt(float64(dayIdx) * secondsPerSimDay),
+			GuestsOnMountain:  len(w.OnMountain),
+			ArrivalsToday:     w.History.ArrivalsToday,
+			DeparturesToday:   w.History.DeparturesToday,
+			Cash:              w.Cash,
+			Revenue:           w.History.RevenueToday,
+			Costs:             costs,
 			ThoughtCounts:     w.History.ThoughtCountsToday,
 			ExitThoughtCounts: w.History.ExitThoughtCountsToday,
 		}
@@ -618,7 +656,9 @@ func (s *Simulation) maybeSampleHistory() {
 
 		// Advance weather for the new day and apply terrain effects.
 		newDay := s.DateAt(float64(s.lastSampledDay) * secondsPerSimDay)
+		s.yesterday = s.Weather.Today()
 		dw := s.Weather.Advance(newDay)
+		s.tomorrow = s.Weather.Forecast(newDay, 1)[0]
 		s.applyDailyWeather(dw)
 		if s.OnDayRollover != nil {
 			s.OnDayRollover(s.World)
@@ -655,7 +695,7 @@ func windProbForTemp(tempC float32) float32 {
 type weatherEvent int
 
 const (
-	weatherEventNone      weatherEvent = iota
+	weatherEventNone weatherEvent = iota
 	weatherEventRain
 	weatherEventColdClear
 	weatherEventWarmClear
@@ -763,11 +803,15 @@ func (s *Simulation) TriggerAvalanche() {
 // same melt and kind-transition effects as a natural spring day. Called by
 // the debug console cheat.
 func (s *Simulation) TriggerHeatwave() {
-	s.applyDailyWeather(DayWeather{
+	dw := DayWeather{
 		State:      WeatherClear,
 		TempC:      +10,
+		TempHigh:   +15,
+		TempLow:    +5,
 		CloudCover: 0.05,
-	})
+	}
+	s.applyDailyWeather(dw)
+	s.applyDayMelt(dw)
 }
 
 // applyDailyWeather runs all terrain snow effects for one day rollover:
@@ -775,17 +819,6 @@ func (s *Simulation) TriggerHeatwave() {
 // daily traffic decay.
 func (s *Simulation) applyDailyWeather(dw DayWeather) {
 	t := s.World.Terrain
-
-	// Compute base elevation for lapse-rate melt (minimum ground elevation
-	// = warmest point on the map).
-	baseElev := t.Cells[0][0].GroundElevation
-	for x := range t.Cells {
-		for z := range t.Cells[x] {
-			if e := t.Cells[x][z].GroundElevation; e < baseElev {
-				baseElev = e
-			}
-		}
-	}
 
 	// Stochastic wind roll for Clear and Overcast days.
 	windFired := false
@@ -818,7 +851,7 @@ func (s *Simulation) applyDailyWeather(dw DayWeather) {
 		if evt != weatherEventNone {
 			s.applyKindTransition(evt)
 		}
-		s.applyMelt(dw, baseElev)
+		// Melt runs hourly through the day (tickHourly).
 	}
 
 	// Avalanche check: significant snowfall or rain can trigger slab release.
@@ -886,65 +919,104 @@ func (s *Simulation) applyKindTransition(evt weatherEvent) {
 	}
 }
 
-const (
-	// lapseRate is the temperature drop per metre of elevation gain (°C/m).
-	lapseRate = float32(0.0065)
-	// meltRate is metres SWE melted per °C above 0 per day.
-	meltRate = float32(0.02)
-	// rainMeltPerMM is additional melt per millimetre of rain (m SWE/mm).
-	rainMeltPerMM = float32(0.001)
-)
+// tickHourly runs the effects that step once per clock hour: snowmelt
+// from that hour's air temperature and sun. Snow days don't melt.
+func (s *Simulation) tickHourly() {
+	idx := int(s.SimTime / simSecondsPerHour)
+	for s.lastHour < idx {
+		mid := (float64(s.lastHour) + 0.5) * simSecondsPerHour
+		s.lastHour++
+		dw := s.Weather.Today()
+		if dw.IsSnowing() {
+			continue
+		}
+		s.meltHour(dw, s.DateAt(mid), HourOfDay(mid), s.TempAt(mid), 1.0/24)
+	}
+}
 
-// applyMelt reduces snow accumulation on warm days. Melts Top first; when Top
-// is exhausted Base is promoted to Top (clearing grooming and moguls). Then
-// continues melting the promoted layer if budget remains.
-func (s *Simulation) applyMelt(dw DayWeather, baseElev float32) {
-	rainMelt := dw.RainMM * rainMeltPerMM
+// applyDayMelt runs a whole day of hourly melt for dw at once, treating it
+// as yesterday, today and tomorrow (the heatwave cheat).
+func (s *Simulation) applyDayMelt(dw DayWeather) {
+	date := s.DateAt(s.SimTime)
+	for h := 0; h < 24; h++ {
+		hour := float64(h) + 0.5
+		s.meltHour(dw, date, hour, tempCurve(date, hour, dw, dw, dw), 1.0/24)
+	}
+}
+
+// meltHour removes one step of melt (days of it: frac) from every cell at
+// base-area air temperature tempC, using the melt model in snowmelt.go:
+// degree-days at the cell's lapsed temperature, scaled by its direct sun
+// at this moment for its slope and aspect.
+func (s *Simulation) meltHour(dw DayWeather, date time.Time, hour float64, tempC, frac float32) {
 	t := s.World.Terrain
-
+	rainMelt := dw.RainMM * rainMeltPerMM * frac
+	if rainMelt <= 0 && tempC <= 0 {
+		return // even the base area is below freezing, and it's dry
+	}
+	baseElev := terrainMinElevation(t)
+	beam := newInstantSun(SunAt(date, hour), dw.CloudCover)
+	melted := false
 	for x := range t.Cells {
 		for z := range t.Cells[x] {
 			c := &t.Cells[x][z]
 			if c.Top.Accumulation == 0 && c.Base == 0 {
 				continue
 			}
-
-			effTemp := dw.TempC - lapseRate*(c.GroundElevation-baseElev)
-
 			melt := rainMelt
-			if effTemp > 0 {
-				melt += meltRate * effTemp
+			if temp := tempC - lapseRate*(c.GroundElevation-baseElev); temp > 0 {
+				gx, gz := t.GradientAt(x, z)
+				melt += meltFactor(beam.exposure(gx, gz)) * temp * frac
 			}
-			if melt <= 0 {
-				continue
+			if melt > 0 {
+				meltCell(c, melt)
+				melted = true
 			}
+		}
+	}
+	if melted {
+		t.SnowDirty = true
+	}
+}
 
-			// Melt Top first.
-			if c.Top.Accumulation > 0 {
-				if melt >= c.Top.Accumulation {
-					melt -= c.Top.Accumulation
-					c.Top = world.SnowLayer{}
-					c.Grooming = 0
-					c.MogulSize = 0
-					// Promote Base to a KindBase Top so the invariant holds.
-					if c.Base > 0 {
-						c.Top = world.SnowLayer{Kind: world.KindBase, Accumulation: c.Base}
-						c.Base = 0
-					}
-				} else {
-					c.Top.Accumulation -= melt
-					melt = 0
-				}
-			}
+// terrainMinElevation is the lowest ground elevation: the base area, where
+// the weather's temperatures apply.
+func terrainMinElevation(t *world.Terrain) float32 {
+	lo := t.Cells[0][0].GroundElevation
+	for x := range t.Cells {
+		for z := range t.Cells[x] {
+			lo = min(lo, t.Cells[x][z].GroundElevation)
+		}
+	}
+	return lo
+}
 
-			// Continue into the promoted layer if budget remains.
-			if melt > 0 && c.Top.Accumulation > 0 {
-				if melt >= c.Top.Accumulation {
-					c.Top = world.SnowLayer{}
-				} else {
-					c.Top.Accumulation -= melt
-				}
+// meltCell removes melt metres of SWE from c. Melts Top first; when Top is
+// exhausted Base is promoted to Top (clearing grooming and moguls), then
+// the promoted layer melts if budget remains.
+func meltCell(c *world.Cell, melt float32) {
+	if c.Top.Accumulation > 0 {
+		if melt >= c.Top.Accumulation {
+			melt -= c.Top.Accumulation
+			c.Top = world.SnowLayer{}
+			c.Grooming = 0
+			c.MogulSize = 0
+			// Promote Base to a KindBase Top so the invariant holds.
+			if c.Base > 0 {
+				c.Top = world.SnowLayer{Kind: world.KindBase, Accumulation: c.Base}
+				c.Base = 0
 			}
+		} else {
+			c.Top.Accumulation -= melt
+			melt = 0
+		}
+	}
+
+	if melt > 0 && c.Top.Accumulation > 0 {
+		if melt >= c.Top.Accumulation {
+			c.Top = world.SnowLayer{}
+		} else {
+			c.Top.Accumulation -= melt
 		}
 	}
 }
@@ -1117,10 +1189,11 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 			a.Plan.Steps = nil
 			return
 		}
-		// Resort closed: lifts load no one. A guest about to queue heads
-		// straight for the parking lot instead, skiing or walking down,
-		// rather than riding up for one more run on the way out.
-		if !w.ResortOpen {
+		// Closed for the day: lifts load no one. A guest about to queue
+		// heads straight for the parking lot instead, skiing or walking
+		// down, rather than riding up for one more run on the way out.
+		// Before opening they queue and wait for the first chair.
+		if s.ClosedForDay() {
 			s.directHomePlan(a)
 			return
 		}
@@ -1574,11 +1647,15 @@ func (s *Simulation) tickPath(agent *world.Guest, dt float64) {
 // the single-file behaviour is unchanged.
 func (s *Simulation) tickQueued(agent *world.Guest, dt float64) {
 	w := s.World
+	drain := float32(dt * patienceDrainPerSecQueuing)
+	if !s.LiftsRunning() {
+		drain = 0 // waiting for the lifts to open doesn't try anyone's patience
+	}
 	for _, lift := range w.Lifts {
 		// Line mode: locate the agent in one of the configured lanes.
 		if len(lift.Lines) > 0 {
 			if pos, ok := lift.GuestSlotWorldPos(agent, w.Terrain); ok {
-				agent.Patience -= float32(dt * patienceDrainPerSecQueuing)
+				agent.Patience -= drain
 				if agent.Patience < 0 {
 					agent.Patience = 0
 				}
@@ -1602,7 +1679,7 @@ func (s *Simulation) tickQueued(agent *world.Guest, dt float64) {
 		if idx < 0 {
 			continue
 		}
-		agent.Patience -= float32(dt * patienceDrainPerSecQueuing)
+		agent.Patience -= drain
 		if agent.Patience < 0 {
 			agent.Patience = 0
 		}

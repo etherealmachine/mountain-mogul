@@ -3,6 +3,7 @@
 uniform float uTime;    // wall-clock seconds
 uniform int   uWeather; // 0=clear/none, 1=overcast, 2=lightSnow, 3=heavySnow, 4=rain
 uniform float uAspect;  // viewport width / height
+uniform vec3  uLight;   // scene light level (1 ≈ clear midday)
 
 in  vec2 vUV;   // (0,0)=top-left, (1,1)=bottom-right in screen space
 out vec4 fragColor;
@@ -105,5 +106,8 @@ void main() {
     }
     // uWeather 0 (clear) and 1 (overcast): sky colour alone does the work.
 
+    // Flakes and fog are lit by the scene, so they darken after sunset
+    // (kept a little brighter than the ground, as if catching light).
+    result.rgb *= clamp(uLight * 1.2 + 0.05, 0.0, 1.0);
     fragColor = result;
 }

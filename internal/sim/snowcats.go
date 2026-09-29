@@ -19,8 +19,9 @@ const (
 )
 
 // tickSnowcats advances the grooming fleet one step. Standby cats park at
-// their shed. Active cats follow their assigned section route, starting a
-// new pass whenever the section average drops below the grooming threshold.
+// their shed, as does the whole fleet while the mountain is open. After
+// hours, active cats follow their assigned section route, starting a new
+// pass whenever the section average drops below the grooming threshold.
 func (s *Simulation) tickSnowcats(dt float64) {
 	w := s.World
 
@@ -29,6 +30,9 @@ func (s *Simulation) tickSnowcats(dt float64) {
 		s.sectionsStale = false
 	}
 
+	// Cats groom only while the mountain is closed for the day, and head
+	// back to the shed before the morning's first guests arrive.
+	offShift := !s.ClosedForDay()
 
 	for _, cat := range w.Snowcats {
 		shed := findBuilding(w, cat.ShedID)
@@ -36,7 +40,8 @@ func (s *Simulation) tickSnowcats(dt float64) {
 			continue
 		}
 
-		if cat.Status == world.CatStandby {
+		if cat.Status == world.CatStandby || offShift {
+			cat.Route = nil
 			driveToDoor(w, cat, shed, dt)
 			continue
 		}
@@ -444,7 +449,6 @@ func reassignAllSections(w *world.World) {
 	}
 
 }
-
 
 // sectionAvgGrooming returns the average Grooming value across all cells
 // in cat's assigned section. Returns 1.0 if the section is empty.

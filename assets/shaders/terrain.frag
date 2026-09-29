@@ -272,7 +272,7 @@ void main() {
     }
 
     // Wrap lighting — soft terminator that hints at sub-surface scatter on snow.
-    vec3  L    = normalize(vec3(0.6, 1.0, 0.4));
+    vec3  L    = uSunDir;
     const float wrap = 0.5;
     float ndl  = dot(Nshading, L);
     float diff = clamp((ndl + wrap) / (1.0 + wrap), 0.0, 1.0);
@@ -284,7 +284,7 @@ void main() {
     vec3 shaded  = base * mix(vec3(1.0), tint, snowness);
 
     // Ambient + diffuse, multiplied by baked AO to deepen valleys / cliff bases.
-    vec3 lit = shaded * (0.25 + 0.85 * diff) * vAO;
+    vec3 lit = shaded * (uAmbient + 0.85 * diff * uSunColor) * vAO;
 
     // Groomed snow visual. Three layered cues:
     //   1. Corduroy stripes — a sine pattern projected along the
@@ -349,7 +349,7 @@ void main() {
         if (grooming < 0.5) {
             // Powder shoulder — bright, warm white lip.
             float lip = edge;
-            lit = mix(lit, vec3(1.02, 1.02, 1.00), lip * 0.30);
+            lit = mix(lit, vec3(1.02, 1.02, 1.00) * sceneLight(), lip * 0.30);
         } else {
             // Groomed scrape edge — cooler, slightly darker.
             float scrape = edge;
@@ -363,7 +363,7 @@ void main() {
     if (snowness > 0.0) {
         vec3  V    = normalize(uCameraPos - vWorldPos);
         vec3  H    = normalize(L + V);
-        float spec = pow(max(dot(Nshading, H), 0.0), 256.0);
+        float spec = pow(max(dot(Nshading, H), 0.0), 256.0) * dot(uSunColor, vec3(1.0 / 3.0));
         vec3  cell = floor(vWorldPos * 2.0 + uTime * 0.07); // ~50 cm cells
         float gate = step(0.985 - ice * 0.05, hash3(cell));
         // Debris doesn't sparkle — dirty rock/soil mixture kills specular glint.
@@ -373,7 +373,7 @@ void main() {
         // Reads as a sheen across icy slopes — distinct from the rough-snow
         // sparkle.
         if (ice > 0.0) {
-            float broadSpec = pow(max(dot(Nshading, H), 0.0), 32.0);
+            float broadSpec = pow(max(dot(Nshading, H), 0.0), 32.0) * dot(uSunColor, vec3(1.0 / 3.0));
             lit += broadSpec * snowness * ice * 0.45 * vec3(0.92, 0.96, 1.10) * (1.0 - isDebris);
         }
     }

@@ -206,4 +206,3 @@ func skiTrailDisplayName(a *SkiTrail, w *world.World) string {
 	}
 	return fmt.Sprintf("SkiTrail(%s→#%d)", via, a.ToID)
 }
-

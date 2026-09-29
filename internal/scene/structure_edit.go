@@ -1,8 +1,13 @@
 package scene
 
 import (
+	"fmt"
+	"math"
+
+	"github.com/go-gl/glfw/v3.3/glfw"
 	"github.com/go-gl/mathgl/mgl32"
 
+	"mountain-mogul/internal/engine"
 	"mountain-mogul/internal/render"
 	"mountain-mogul/internal/world"
 )
@@ -14,7 +19,7 @@ import (
 type structureEditSelection struct {
 	building   *world.Building
 	lift       *world.Lift
-	liftEnd    int     // 0 = base, 1 = top
+	liftEnd    int // 0 = base, 1 = top
 	dragging   bool
 	dragOffset mgl32.Vec2 // (building.Pos or station.Pos) minus the cursor at click — preserves cursor-on-grab feel
 }
@@ -38,6 +43,9 @@ func (s *structureEditSelection) clear() {
 // building even if a lift cable happens to be near.
 func tryStartStructureEdit(w *world.World, pos mgl32.Vec2, sel *structureEditSelection) bool {
 	for _, b := range w.Buildings {
+		if b.IsCellLot() {
+			continue // painted lots are reshaped from their popup, not dragged
+		}
 		if b.Pos.Sub(pos).Len() <= buildingPickRadius {
 			sel.building = b
 			sel.lift = nil
@@ -92,7 +100,7 @@ func dragStructure(r *render.Renderer, w *world.World, sel *structureEditSelecti
 	switch {
 	case sel.building != nil:
 		newPos := target
-		if w.BuildingOverlapExcept(sel.building.Type, newPos[0], newPos[1], sel.building.ID) {
+		if w.BuildingOverlapExcept(sel.building.Type, newPos[0], newPos[1], sel.building.Rotation, sel.building.ID) {
 			return
 		}
 		if sel.building.Pos == newPos {
@@ -124,6 +132,79 @@ func dragStructure(r *render.Renderer, w *world.World, sel *structureEditSelecti
 		r.RemoveLiftCable(sel.lift.ID)
 		r.AddLiftCable(sel.lift, w.Terrain)
 	}
+}
+
+// Building rotation steps: R turns a quarter, Shift+R a fine step.
+const (
+	buildingRotateSteps    = 24 // fine steps per full turn (15°)
+	buildingRotateFineStep = float32(2 * math.Pi / buildingRotateSteps)
+	buildingRotateStep     = float32(math.Pi / 2)
+)
+
+// rotateKeyDelta returns the rotation requested by R this frame (0 if R
+// wasn't pressed).
+func rotateKeyDelta(inp *engine.Input) float32 {
+	if !inp.Pressed[glfw.KeyR] {
+		return 0
+	}
+	if inp.Held[glfw.KeyLeftShift] || inp.Held[glfw.KeyRightShift] {
+		return buildingRotateFineStep
+	}
+	return buildingRotateStep
+}
+
+// stepRotation adds delta to rot, snapped to the fine step and wrapped
+// into [0, 2π) so repeated turns don't drift or grow without bound.
+func stepRotation(rot, delta float32) float32 {
+	steps := int(math.Round(float64((rot + delta) / buildingRotateFineStep)))
+	steps = ((steps % buildingRotateSteps) + buildingRotateSteps) % buildingRotateSteps
+	return float32(steps) * buildingRotateFineStep
+}
+
+// rotationDegrees formats a rotation for toasts.
+func rotationDegrees(rot float32) string {
+	return fmt.Sprintf("%d°", int(math.Round(float64(rot)*180/math.Pi)))
+}
+
+// isBuildingPlacementTool reports whether t places a single rotatable
+// building.
+func isBuildingPlacementTool(t toolMode) bool {
+	switch t {
+	case toolBuilding, toolTicketOffice, toolShed, toolPatrolHut, toolBar, toolSnowGun:
+		return true
+	}
+	return false
+}
+
+// placeBuilding places a building of typ at (x, z) turned by rotation.
+// The caller checks overlap and applies placement effects.
+func placeBuilding(w *world.World, typ world.BuildingType, x, z, rotation float32) *world.Building {
+	b := w.PlaceBuildingType(typ, x, z)
+	b.Rotation = rotation
+	return b
+}
+
+// rotateSelectedBuilding turns the selected building by delta in place
+// and regrades its pad. Returns false (leaving it untouched) when the
+// turned footprint would overlap another building.
+func rotateSelectedBuilding(r *render.Renderer, w *world.World, sel *structureEditSelection, delta float32) bool {
+	b := sel.building
+	if b == nil || b.IsCellLot() {
+		return false
+	}
+	rot := stepRotation(b.Rotation, delta)
+	if w.BuildingOverlapExcept(b.Type, b.Pos[0], b.Pos[1], rot, b.ID) {
+		return false
+	}
+	b.Rotation = rot
+	if b.Type == world.BuildingParking {
+		refreshParkingDriveways(w, b)
+		r.RebuildRoads(w)
+	}
+	applyBuildingPlacementEffects(w.Terrain, b)
+	r.FlushTerrainVerts(w.Terrain)
+	r.RebuildStaticBatch(w)
+	return true
 }
 
 // commitStructureDrag finalises a drag — pushes the static-batch +
@@ -164,7 +245,7 @@ func deleteSelectedStructure(r *render.Renderer, w *world.World, sel *structureE
 // corresponding slot's new world position. Edges incident to the node
 // stay attached — the player's road network "flexes" with the move.
 func refreshParkingDriveways(w *world.World, b *world.Building) {
-	positions := b.DrivewayPositions()
+	positions := w.DrivewayPositions(b)
 	for i, id := range b.DrivewayNodeIDs {
 		if i >= len(positions) {
 			break

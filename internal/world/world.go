@@ -50,6 +50,11 @@ const (
 	DayTicketRatingPremium  = float32(1.0) // unitless; reference spans 0.5×–1.5× across rating 0..1
 	DayTicketElasticity     = float32(0.5) // unitless exponent; <1 bows the curve so guests hold on until price nears budget
 
+	// ParkingReferencePrice is the per-car fee guests accept without
+	// complaint; each guest's share (÷ GuestsPerCar) adds to the day
+	// ticket in the demand poll, on both the price and the reference.
+	ParkingReferencePrice = 20 // dollars per car
+
 	TicketOfficeCost       = 80_000
 	BarCost                = 100_000                      // bar/restaurant; a VISION "module" ($50–150k)
 	DefaultSeasonPassPrice = 150                          // one-time fee per guest per season; guests with sufficient budget buy it on arrival
@@ -59,7 +64,7 @@ const (
 	SnowGunActiveCostDay   = 400                          // dollars per game-day while enabled (water + power)
 	SnowGunRangeCells      = 3                            // spray radius in terrain cells
 	SnowGunRangeM          = SnowGunRangeCells * CellSize // = 15 metres
-	SnowGunMinTempC        = float32(-2.0)                // daily low must be at or below this to make snow
+	SnowGunMinTempC        = float32(-2.0)                // air must be at or below this to make snow
 
 	// Daily operational costs, dollars per in-game day, charged at rollover
 	// (see DailyOperatingCost). Lift running costs are per LiftType
@@ -99,6 +104,28 @@ func BuildingCost(t BuildingType) int {
 	}
 	return LodgeCost
 }
+
+// The clock runs 20× faster than guest movement: one clock minute is three
+// sim seconds, so a 9:00–16:00 ski day is 1260 sim s (~5 real minutes at
+// 4×) and fits a typical ~800 s visit. Day and night run at the same rate.
+const (
+	SimSecondsPerHour = 180.0
+	SecondsPerSimDay  = 24 * SimSecondsPerHour
+
+	// LegacySecondsPerSimDay is the day length of saves written before the
+	// clock had hours; save load rescales their clocks.
+	LegacySecondsPerSimDay = 240.0
+
+	// NewGameStartHour is the clock hour a fresh game or scenario starts
+	// at, so the first thing the player sees is the morning.
+	NewGameStartHour = 8.0
+)
+
+// Default lift operating hours (clock hours, local solar time).
+const (
+	DefaultOpenHour  = 9.0
+	DefaultCloseHour = 16.0
+)
 
 // DefaultStartDate is the calendar date SimTime 0 maps to in a world that
 // doesn't set its own: Nov 25, 2026, opening day of the 2026-27 season.
@@ -175,6 +202,11 @@ type World struct {
 	// way. New games and scenarios start closed; testbeds start open.
 	ResortOpen bool
 
+	// OpenHour and CloseHour are the daily lift operating hours in clock
+	// hours (9.5 = 9:30). While the resort is open, lifts load, guests
+	// arrive and snowcats stay in the shed only between them.
+	OpenHour, CloseHour float32
+
 	// SeasonPassPrice is the one-time fee guests pay at the ticket office for
 	// a season pass. Pass holders ride any lift for free for the remainder of
 	// the season. Defaults to DefaultSeasonPassPrice; the player can adjust it
@@ -185,9 +217,14 @@ type World struct {
 	// guest arrives and paid when they reach a ticket office; with no office
 	// only pass holders come. Guests holding a valid season pass pay
 	// nothing; guests whose DailyBudget can't cover it stay home. Defaults
-	// to DefaultDayTicketPrice; the player adjusts it via the parking lot
-	// or ticket office popup.
+	// to DefaultDayTicketPrice; the player adjusts it via the ticket
+	// office popup.
 	DayTicketPrice int
+
+	// ParkingPrice is the per-car fee in dollars for every lot, set from
+	// the parking lot popup. The car's guests split it and each pays their
+	// share on arrival, pass holders included. 0 (the default) is free.
+	ParkingPrice int
 
 	// Parcels is the scenario-authored land-ownership registry. An empty
 	// slice means no parcel system: all cells are accessible. When non-empty,
@@ -227,6 +264,8 @@ func NewWorld(terrain *Terrain) *World {
 		History:         NewHistory(),
 		SeasonPassPrice: DefaultSeasonPassPrice,
 		DayTicketPrice:  DefaultDayTicketPrice,
+		OpenHour:        DefaultOpenHour,
+		CloseHour:       DefaultCloseHour,
 	}
 }
 
@@ -362,8 +401,8 @@ func (w *World) PlaceBuilding(x, z float32) *Building {
 // setup can construct entities without re-deducting from the player's
 // balance.
 //
-// Parking lots are passive containers — MaxCars caps the visible
-// population, CurrentCars is driven by the (future) demand system.
+// Parking lots placed this way get a default rectangular footprint
+// around (x, z); the player-facing path paints cells via PlaceParkingLot.
 //
 // Multi-cell footprints with rotated AABB rasterisation are a future
 // extension.
@@ -375,9 +414,7 @@ func (w *World) PlaceBuildingType(typ BuildingType, x, z float32) *Building {
 	}
 	switch typ {
 	case BuildingParking:
-		if layout, ok := ParkingLotLayout(typ); ok {
-			b.MaxCars = layout.Capacity()
-		}
+		b.Cells = defaultParkingCells(w.Terrain, x, z, 0)
 	case BuildingLodge:
 		// Lodges are reserved for future rest/lunch features.
 	case BuildingShed:
@@ -404,6 +441,9 @@ func (w *World) PlaceBuildingType(typ BuildingType, x, z float32) *Building {
 	}
 	if typ == BuildingPatrolHut {
 		w.SpawnPatroller(b)
+	}
+	if typ == BuildingParking {
+		w.RefreshParkingLot(b, false)
 	}
 	return b
 }

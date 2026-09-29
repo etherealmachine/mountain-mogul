@@ -26,6 +26,9 @@ type TopBar struct {
 	// doesn't hold any simulation state of its own.
 	GetDate    func() (day int, month string, year int)
 	GetWeather func() []ForecastDay
+	// GetClock returns the hour of day (0..24), the current air temperature
+	// in °C, and whether the lifts are turning.
+	GetClock func() (hour float64, tempC float32, open bool)
 
 	// GetTitle, when set, draws a single centred line in the bar's middle
 	// region. The editor uses it for the open scenario's name; scenes that
@@ -140,6 +143,14 @@ func (t *TopBar) SetSpeedActive(i int) {
 	}
 	if t.pauseBtn != nil {
 		t.pauseBtn.active = false
+	}
+}
+
+// SetSpeedLabel sets a short caption drawn under speed button i's icon
+// (e.g. the turbo multiplier); "" removes it.
+func (t *TopBar) SetSpeedLabel(i int, label string) {
+	if i >= 0 && i < len(t.speedBtns) {
+		t.speedBtns[i].label = label
 	}
 }
 
@@ -346,14 +357,9 @@ func (t *TopBar) drawCenter(r *render.Renderer, screenW float32) {
 		r.Font.DrawText(r, title, (screenW-titleW)/2, titleY, col)
 	}
 
-	// Date line.
+	// Date line, deferred so it draws over the forecast strip's today highlight.
 	if t.GetDate != nil {
-		day, month, year := t.GetDate()
-		dateText := fmt.Sprintf("%s %d, Year %d", month, day, year)
-		dateW := r.Font.TextWidth(dateText)
-		dateX := (screenW - dateW) / 2
-		dateY := t.Y + t.H*0.18
-		r.Font.DrawText(r, dateText, dateX, dateY, col)
+		defer t.drawDateLine(r, screenW, col)
 	}
 
 	if t.GetWeather == nil {
@@ -375,9 +381,9 @@ func (t *TopBar) drawCenter(r *render.Renderer, screenW float32) {
 	)
 	stripW := float32(n)*colW + float32(n-1)*colGap
 	startX := (screenW - stripW) / 2
-	iconY  := t.Y + t.H*0.40
-	highY  := t.Y + t.H*0.66
-	lowY   := t.Y + t.H*0.83
+	iconY := t.Y + t.H*0.40
+	highY := t.Y + t.H*0.66
+	lowY := t.Y + t.H*0.83
 
 	// Today column highlight drawn first so date text renders on top.
 	todayCX := startX
@@ -387,9 +393,9 @@ func (t *TopBar) drawCenter(r *render.Renderer, screenW float32) {
 	r.DrawColorRectOutline(todayCX-2, todayTop, colW+4, todayH, mgl32.Vec4{0.45, 0.65, 1.00, 0.70})
 
 	highCol := mgl32.Vec4{1.00, 1.00, 1.00, 1.00}    // white — today high
-	lowCol  := mgl32.Vec4{0.55, 0.85, 1.00, 1.00}    // blue — today low
+	lowCol := mgl32.Vec4{0.55, 0.85, 1.00, 1.00}     // blue — today low
 	highColDim := mgl32.Vec4{0.80, 0.80, 0.80, 1.00} // dimmed for future days
-	lowColDim  := mgl32.Vec4{0.44, 0.68, 0.85, 1.00}
+	lowColDim := mgl32.Vec4{0.44, 0.68, 0.85, 1.00}
 
 	for i := 0; i < n; i++ {
 		d := days[i]
@@ -412,6 +418,30 @@ func (t *TopBar) drawCenter(r *render.Renderer, screenW float32) {
 		loText := settings.FormatTemp(d.TempLow)
 		loW := r.Font.TextWidth(loText)
 		r.Font.DrawText(r, loText, cx+(colW-loW)/2, lowY, lc)
+	}
+}
+
+// drawDateLine renders "Dec 8, Year 2026   9:42 AM   23F", with the clock
+// amber while the lifts are turning and blue otherwise.
+func (t *TopBar) drawDateLine(r *render.Renderer, screenW float32, col mgl32.Vec4) {
+	day, month, year := t.GetDate()
+	dateText := fmt.Sprintf("%s %d, Year %d", month, day, year)
+	clockText := ""
+	clockCol := mgl32.Vec4{0.55, 0.85, 1.00, 1.00}
+	if t.GetClock != nil {
+		hour, tempC, open := t.GetClock()
+		clockText = "   " + settings.FormatClock(hour) + "   " +
+			settings.FormatTemp(tempC) + settings.TempUnit()[len("°"):]
+		if open {
+			clockCol = mgl32.Vec4{1.00, 0.85, 0.45, 1.00}
+		}
+	}
+	dateW := r.Font.TextWidth(dateText)
+	dateX := (screenW - dateW - r.Font.TextWidth(clockText)) / 2
+	dateY := t.Y + t.H*0.18
+	r.Font.DrawText(r, dateText, dateX, dateY, col)
+	if clockText != "" {
+		r.Font.DrawText(r, clockText, dateX+dateW, dateY, clockCol)
 	}
 }
 
@@ -454,6 +484,13 @@ func (t *TopBar) drawIconButton(r *render.Renderer, b *iconButton) {
 
 	cy := b.y + (b.h-iconSize)/2
 	cx := b.x + b.w/2
+	if b.label != "" && r.Font != nil {
+		// Icon moves up to make room for the caption underneath.
+		labelY := b.y + b.h - float32(render.GlyphH) - 10
+		cy = labelY - iconSize - 2
+		lw := r.Font.TextWidth(b.label)
+		r.Font.DrawText(r, b.label, cx-lw/2, labelY, mgl32.Vec4{1.00, 0.85, 0.35, 1})
+	}
 
 	switch b.kind {
 	case "pause":
@@ -489,6 +526,7 @@ func (t *TopBar) drawIconButton(r *render.Renderer, b *iconButton) {
 // confusing than a parallel type.
 type iconButton struct {
 	kind       string // "pause", "play", "ff2", "ff4", "gear"
+	label      string // optional caption under the icon
 	x, y, w, h float32
 	hovered    bool
 	active     bool

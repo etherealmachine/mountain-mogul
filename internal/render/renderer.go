@@ -28,9 +28,10 @@ const (
 	OverlayGrooming      = 1 << 3
 	OverlayAvalancheRisk = 1 << 4
 	OverlayMoguls        = 1 << 6
-	OverlayBumpNormal    = 1 << 7 // debug: render the perturbed shading normal as RGB
-	OverlaySurfaceDetail = 1 << 8 // debug: render the surface-detail RGBA texture directly
-	OverlayTrails        = 1 << 9 // show painted trail areas as semi-opaque colour patches
+	OverlayBumpNormal    = 1 << 7  // debug: render the perturbed shading normal as RGB
+	OverlaySurfaceDetail = 1 << 8  // debug: render the surface-detail RGBA texture directly
+	OverlayTrails        = 1 << 9  // show painted trail areas as semi-opaque colour patches
+	OverlayParcels       = 1 << 10 // editor: show parcel tints and price labels (CPU-side, not in shader)
 )
 
 // DebugLine is a single world-space line segment for tuning overlays.
@@ -62,20 +63,20 @@ type Renderer struct {
 	// by ResetSceneState on every scene transition.
 	scene *SceneResources
 
-	staticBatches  map[uint32]*Batch
-	dynamicBatch   *Batch // skier mesh (SkisOn == true)
-	walkerBatch    *Batch // walker mesh (SkisOn == false)
-	chairBatch      *Batch
-	chairQuadBatch  *Batch
-	chair6PackBatch *Batch
-	gondolaBatch    *Batch
-	snowcatBatch    *Batch
-	patrollerBatch  *Batch // ski patrol snowmobiles (red snowcat mesh when active)
-	carBatch        *Batch
-	helicopterBodyBatch  *Batch      // rigid fuselage, tail, skids
+	staticBatches         map[uint32]*Batch
+	dynamicBatch          *Batch // skier mesh (SkisOn == true)
+	walkerBatch           *Batch // walker mesh (SkisOn == false)
+	chairBatch            *Batch
+	chairQuadBatch        *Batch
+	chair6PackBatch       *Batch
+	gondolaBatch          *Batch
+	snowcatBatch          *Batch
+	patrollerBatch        *Batch // ski patrol snowmobiles (red snowcat mesh when active)
+	carBatch              *Batch
+	helicopterBodyBatch   *Batch      // rigid fuselage, tail, skids
 	helicopterPartBatches []partBatch // spinning rotor parts (loaded from # part metadata)
 
-	uiVAO, uiVBO uint32
+	uiVAO, uiVBO     uint32
 	whiteTexID       uint32 // 1×1 white texture; always bound to unit 0 during UI pass
 	transparentTexID uint32 // 1×1 all-zero RGBA; fallback for uCellOverlay when no overlay is set
 
@@ -112,6 +113,11 @@ type Renderer struct {
 	// calling DrawWorld; defaults to 0 (no overlay).
 	WeatherOverlay int
 
+	// Lighting is the sun, fill and sky for this frame, set by the scene
+	// from the sim clock before DrawWorld. The zero value draws with
+	// DefaultLighting (fixed midday).
+	Lighting Lighting
+
 	brushCenter mgl32.Vec2
 	brushRadius float32
 
@@ -129,11 +135,11 @@ type Renderer struct {
 	perceptionCosHalfAngle float32
 	perceptionRadius       float32 // 0 disables
 
-	HighlightGuestID   uint64
-	HighlightCatID     uint64
-	HiddenGuestID      uint64     // skip this agent in the dynamic pass (used by first-person camera)
-	HiddenGuestPos     mgl32.Vec3 // anchor for HiddenRadius proximity culling
-	HiddenRadius       float32    // when >0, also skip agents within this XZ radius of HiddenGuestPos
+	HighlightGuestID uint64
+	HighlightCatID   uint64
+	HiddenGuestID    uint64     // skip this agent in the dynamic pass (used by first-person camera)
+	HiddenGuestPos   mgl32.Vec3 // anchor for HiddenRadius proximity culling
+	HiddenRadius     float32    // when >0, also skip agents within this XZ radius of HiddenGuestPos
 	// TerrainOverlayMode is a bitmask of view overlays applied to the
 	// terrain mesh. Each enabled bit alpha-blends its overlay onto the
 	// base shading, so several can stack at once. Bits, in order:
@@ -182,7 +188,7 @@ func NewRenderer(w, h int, assetDir string) (*Renderer, error) {
 	lightingPath := shaderDir + "lighting.glsl"
 
 	var err error
-	r.TerrainShader, err = LoadShader(shaderDir+"terrain.vert", shaderDir+"terrain.frag", lightingPath)
+	r.TerrainShader, err = LoadShaderTess(shaderDir+"terrain.vert", shaderDir+"terrain.tesc", shaderDir+"terrain.tese", shaderDir+"terrain.frag", lightingPath)
 	if err != nil {
 		return nil, fmt.Errorf("terrain shader: %w", err)
 	}
@@ -328,6 +334,7 @@ func (r *Renderer) initStaticMeshes() {
 		{MeshRoadConnect, "road_connect"},
 		{MeshSnowGun, "snow_gun"}, // built by models-src/snow_gun.scad
 		{MeshBar, "bar"},
+		{MeshTicketOffice, "ticket_office"},
 	}
 
 	for _, def := range meshDefs {
@@ -536,6 +543,9 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 	// parallelogram the single-cell lookup produced. Apron / road / pad
 	// blends stay smooth; grooming → powder boundaries get a visible-but-
 	// soft dip that reads as a depressed lane.
+	// Vertex Y carries only ground elevation; the TES adds snow depth as a
+	// separate displacement so density differences (powder vs. packed) appear
+	// as actual geometry without requiring a mesh rebuild on snow changes.
 	cornerSurfaceY := func(cx, cz int) float32 {
 		var sum, n float32
 		for dz := -1; dz <= 0; dz++ {
@@ -544,7 +554,7 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 				if x < 0 || x >= t.Width || z < 0 || z >= t.Height {
 					continue
 				}
-				sum += t.SurfaceElevationAt(x, z)
+				sum += t.Cells[x][z].GroundElevation
 				n++
 			}
 		}
@@ -856,9 +866,9 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 				p[1], // smoothY = vertex y so contour bands stay horizontal on walls
 				ao,
 				0, 0, 0, 0, // skirts get no snow-state shading
-				0,          // and no snow depth
+				0,                // and no snow depth
 				n[0], n[1], n[2], // skirts: smooth normal == flat normal
-				0,          // no instability score on skirts
+				0, // no instability score on skirts
 			)
 		}
 		indices = append(indices, idx, idx+1, idx+2)
@@ -1100,7 +1110,7 @@ func (r *Renderer) BuildTerrainMesh(t *world.Terrain) {
 
 	stride := int32(17 * 4)
 	gl.EnableVertexAttribArray(0)
-	gl.VertexAttribPointerWithOffset(0, 3, gl.FLOAT, false, stride, 0)  // aPos
+	gl.VertexAttribPointerWithOffset(0, 3, gl.FLOAT, false, stride, 0) // aPos
 	gl.EnableVertexAttribArray(1)
 	gl.VertexAttribPointerWithOffset(1, 3, gl.FLOAT, false, stride, 12) // aNormal (flat)
 	gl.EnableVertexAttribArray(2)
@@ -1433,6 +1443,9 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 	// sheds use the dedicated shed mesh; parking lots use a flat asphalt
 	// pad and draw their cars dynamically. New types add another case.
 	for _, bldg := range w.Buildings {
+		if bldg.IsCellLot() {
+			continue // drawn procedurally by RebuildParkingLots
+		}
 		meshID := MeshBuilding
 		switch bldg.Type {
 		case world.BuildingShed:
@@ -1443,6 +1456,8 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 			meshID = MeshSnowGun
 		case world.BuildingBar:
 			meshID = MeshBar
+		case world.BuildingTicketOffice:
+			meshID = MeshTicketOffice
 		}
 		if batch, ok := r.staticBatches[meshID]; ok {
 			batch.AddStatic(BuildingTransform(bldg.Pos, bldg.Rotation, w.Terrain), mgl32.Vec3{1, 1, 1})
@@ -1497,6 +1512,8 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 			connectBatch.AddStatic(RoadConnectTransform(n.Pos, w.Terrain), mgl32.Vec3{1, 1, 1})
 		}
 	}
+
+	r.RebuildParkingLots(w)
 }
 
 // RoadConnectTransform builds the world-space transform for an edge-
@@ -1527,7 +1544,7 @@ func BuildingTransform(pos mgl32.Vec2, rotation float32, terrain *world.Terrain)
 }
 
 // carInstancesFor enumerates the parked-car instances across every parking
-// lot in the world. Stall positions come from world.ParkingLotLayout so
+// lot in the world: one car on each of the first CurrentCars stalls, so
 // MaxCars in the lot's popup matches what the renderer actually fills.
 func carInstancesFor(w *world.World) []DynamicInstance {
 	var instances []DynamicInstance
@@ -1536,34 +1553,14 @@ func carInstancesFor(w *world.World) []DynamicInstance {
 			continue
 		}
 		count := int(b.CurrentCars)
-		if count <= 0 {
-			continue
+		if count > len(b.Stalls) {
+			count = len(b.Stalls)
 		}
-		// Layout depends on registered footprint metadata. Without it
-		// (e.g. parking.obj hasn't been built yet) we skip car instancing
-		// — the magenta marker cube for the pad is enough noise.
-		layout, ok := world.ParkingLotLayout(b.Type)
-		if !ok {
-			continue
-		}
-		if cap := layout.Capacity(); count > cap {
-			count = cap
-		}
-		// Pad origin is at the building anchor at ground level. Cars rest
-		// on the asphalt surface — the pad top is parkingPadHeight above
-		// the anchor, and an extra epsilon keeps the wheels from
-		// z-fighting with the stripe geometry that sits ~1 cm above the
-		// asphalt slab in parking.scad.
-		const parkingPadHeight = float32(0.6)
-		anchorY := VisualElevationAt(w.Terrain, b.Pos[0], b.Pos[1])
-		carBaseY := anchorY + parkingPadHeight + 0.02
-		// Cosine/sine of the lot rotation so the grid rotates with it.
-		ca := float32(math.Cos(float64(b.Rotation)))
-		sa := float32(math.Sin(float64(b.Rotation)))
 		for i := 0; i < count; i++ {
-			localX, localZ := layout.StallPosition(i)
-			worldX := b.Pos[0] + localX*ca - localZ*sa
-			worldZ := b.Pos[1] + localX*sa + localZ*ca
+			s := b.Stalls[i]
+			// A small lift above the stripes keeps the wheels from
+			// z-fighting with the paint.
+			y := parkingSurfaceY(w.Terrain, s.Pos[0], s.Pos[1]) + parkingHoverOffset + parkingStripeHover + 0.02
 			// Subtle deterministic tint variation so the lot doesn't read
 			// as a single flat block — derived from the lot ID and stall
 			// index so the same car at the same stall keeps the same colour.
@@ -1572,8 +1569,8 @@ func carInstancesFor(w *world.World) []DynamicInstance {
 			g := 0.35 + float32((hash>>6)&0x3f)/255.0
 			bl := 0.35 + float32((hash>>12)&0x3f)/255.0
 			instances = append(instances, DynamicInstance{
-				Position: [3]float32{worldX, carBaseY, worldZ},
-				Heading:  b.Rotation,
+				Position: [3]float32{s.Pos[0], y, s.Pos[1]},
+				Heading:  s.Heading,
 				Color:    [3]float32{r, g, bl},
 			})
 		}
@@ -1842,27 +1839,14 @@ func generateQueueMesh(lift *world.Lift, t *world.Terrain) *Mesh {
 	return NewMesh(verts, idxs, []int{3, 3, 2}, nil)
 }
 
-// skyColor returns the ClearColor components for the current WeatherOverlay.
-// Matches sim.WeatherState indices.
-func (r *Renderer) skyColor() (float32, float32, float32) {
-	switch r.WeatherOverlay {
-	case 1: // overcast
-		return 0.62, 0.63, 0.68
-	case 2: // light snow
-		return 0.72, 0.74, 0.80
-	case 3: // heavy snow
-		return 0.58, 0.60, 0.64
-	case 4: // rain
-		return 0.45, 0.50, 0.58
-	default: // clear
-		return 0.635, 0.682, 0.918
-	}
-}
-
 // DrawWorld renders the full 3D world.
 func (r *Renderer) DrawWorld(w *world.World, time float32) {
-	sr, sg, sb := r.skyColor()
-	gl.ClearColor(sr, sg, sb, 1.0)
+	light := r.Lighting
+	if light == (Lighting{}) {
+		light = DefaultLighting
+		light.Sky = weatherSky(r.WeatherOverlay)
+	}
+	gl.ClearColor(light.Sky[0], light.Sky[1], light.Sky[2], 1.0)
 	gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
 	vp := r.Camera.ViewProj()
@@ -1870,6 +1854,7 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	// Terrain pass
 	if r.scene.terrainMesh != nil {
 		r.TerrainShader.Use()
+		light.apply(r.TerrainShader)
 		r.TerrainShader.SetMat4("uViewProj", vp)
 		r.TerrainShader.SetVec2("uBrushCenter", r.brushCenter)
 		r.TerrainShader.SetFloat("uBrushRadius", r.brushRadius)
@@ -1903,11 +1888,12 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		}
 		gl.ActiveTexture(gl.TEXTURE0)
 
-		r.scene.terrainMesh.Draw()
+		r.scene.terrainMesh.DrawPatches()
 	}
 
 	// Static pass
 	r.StaticShader.Use()
+	light.apply(r.StaticShader)
 	r.StaticShader.SetMat4("uViewProj", vp)
 	r.StaticShader.SetInt("uTexture", 0)
 	r.StaticShader.SetFloat("uAlpha", 1.0)
@@ -1930,6 +1916,16 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		gl.BindTexture(gl.TEXTURE_2D, r.whiteTexID)
 		setRoadLaneTransformAttribs()
 		r.scene.roadLanesMesh.Draw()
+	}
+	if r.scene.parkingMesh != nil {
+		gl.BindTexture(gl.TEXTURE_2D, r.whiteTexID)
+		setRoadTransformAttribs()
+		r.scene.parkingMesh.Draw()
+	}
+	if r.scene.parkingStripesMesh != nil {
+		gl.BindTexture(gl.TEXTURE_2D, r.whiteTexID)
+		setParkingStripeTransformAttribs()
+		r.scene.parkingStripesMesh.Draw()
 	}
 
 	for _, batch := range r.staticBatches {
@@ -1978,6 +1974,7 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 
 	// Dynamic pass (agents)
 	r.DynamicShader.Use()
+	light.apply(r.DynamicShader)
 	r.DynamicShader.SetMat4("uViewProj", vp)
 	r.DynamicShader.SetFloat("uTime", time)
 	r.DynamicShader.SetFloat("uSpinRate", 0) // default; overridden per rotor draw
@@ -2213,13 +2210,13 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		}
 	}
 
-	r.drawWeatherOverlay(time)
+	r.drawWeatherOverlay(time, light)
 }
 
 // drawWeatherOverlay draws a full-screen precipitation/atmosphere effect after
 // all 3D geometry. It uses a single large triangle (no VBO; gl_VertexID only)
 // with a procedural GLSL shader that animates falling snow or rain.
-func (r *Renderer) drawWeatherOverlay(time float32) {
+func (r *Renderer) drawWeatherOverlay(time float32, light Lighting) {
 	if r.WeatherShader == nil || r.WeatherOverlay == 0 {
 		return
 	}
@@ -2236,6 +2233,7 @@ func (r *Renderer) drawWeatherOverlay(time float32) {
 	r.WeatherShader.SetFloat("uTime", time)
 	r.WeatherShader.SetInt("uWeather", r.WeatherOverlay)
 	r.WeatherShader.SetFloat("uAspect", aspect)
+	r.WeatherShader.SetVec3("uLight", light.light())
 
 	gl.BindVertexArray(r.weatherVAO)
 	gl.DrawArrays(gl.TRIANGLES, 0, 3)
@@ -2369,10 +2367,10 @@ func (r *Renderer) DrawColorRect(x, y, w, h float32, color mgl32.Vec4) {
 // four thin filled rects — no fill, just the frame. Used for button
 // outlines and panel chrome.
 func (r *Renderer) DrawColorRectOutline(x, y, w, h float32, color mgl32.Vec4) {
-	r.DrawColorRect(x, y, w, 1, color)           // top
-	r.DrawColorRect(x, y+h-1, w, 1, color)       // bottom
-	r.DrawColorRect(x, y, 1, h, color)           // left
-	r.DrawColorRect(x+w-1, y, 1, h, color)       // right
+	r.DrawColorRect(x, y, w, 1, color)     // top
+	r.DrawColorRect(x, y+h-1, w, 1, color) // bottom
+	r.DrawColorRect(x, y, 1, h, color)     // left
+	r.DrawColorRect(x+w-1, y, 1, h, color) // right
 }
 
 // DrawColorLine draws a thick line segment from (x0, y0) to (x1, y1) as
@@ -2788,10 +2786,10 @@ func (r *Renderer) SaveScreenshot(path string) error {
 // identity transform with white tint. Cable meshes have no instance VBO at those locations,
 // so OpenGL falls back to these global values — making the cable render in world space.
 func setCableTransformAttribs() {
-	gl.VertexAttrib4f(3, 1, 0, 0, 0) // identity col 0
-	gl.VertexAttrib4f(4, 0, 1, 0, 0) // identity col 1
-	gl.VertexAttrib4f(5, 0, 0, 1, 0) // identity col 2
-	gl.VertexAttrib4f(6, 0, 0, 0, 1) // identity col 3
+	gl.VertexAttrib4f(3, 1, 0, 0, 0)       // identity col 0
+	gl.VertexAttrib4f(4, 0, 1, 0, 0)       // identity col 1
+	gl.VertexAttrib4f(5, 0, 0, 1, 0)       // identity col 2
+	gl.VertexAttrib4f(6, 0, 0, 0, 1)       // identity col 3
 	gl.VertexAttrib3f(7, 0.15, 0.15, 0.15) // dark charcoal tint
 }
 
@@ -2828,6 +2826,16 @@ func setRoadLaneTransformAttribs() {
 	gl.VertexAttrib3f(7, 0.92, 0.88, 0.55) // warm cream — reads as faded yellow lane paint
 }
 
+// setParkingStripeTransformAttribs is the stall-line counterpart: identity
+// transform + off-white, distinct from the road's cream lane paint.
+func setParkingStripeTransformAttribs() {
+	gl.VertexAttrib4f(3, 1, 0, 0, 0)
+	gl.VertexAttrib4f(4, 0, 1, 0, 0)
+	gl.VertexAttrib4f(5, 0, 0, 1, 0)
+	gl.VertexAttrib4f(6, 0, 0, 0, 1)
+	gl.VertexAttrib3f(7, 0.90, 0.90, 0.88)
+}
+
 // treeTintForVariant returns the per-instance ColorTint for a tree variant.
 // Foliage colour now lives in the .scad source per variant (medium pine /
 // dark spruce / blue-green fir) and flows through as per-vertex base
@@ -2848,4 +2856,3 @@ func spinModeFor(axis string) float32 {
 	}
 	return 0.0
 }
-

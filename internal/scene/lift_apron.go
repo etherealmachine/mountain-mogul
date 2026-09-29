@@ -288,4 +288,3 @@ func clearLiftCorridor(t *world.Terrain, base, top mgl32.Vec2, halfWidth float32
 		}
 	}
 }
-

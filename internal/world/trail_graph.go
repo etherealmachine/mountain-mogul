@@ -97,7 +97,16 @@ func BuildTrailGraph(w *World) *TrailGraph {
 				continue
 			}
 			door := b.DoorCell()
-			if cellSet[door] {
+			touches := cellSet[door]
+			if !touches && b.IsCellLot() {
+				for _, c := range b.Cells {
+					if cellSet[c] {
+						touches = true
+						break
+					}
+				}
+			}
+			if touches {
 				entities = append(entities, entityInfo{
 					id:   b.ID,
 					kind: KindBuilding,

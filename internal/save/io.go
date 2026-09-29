@@ -5,6 +5,8 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
+	"math"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"sort"
@@ -236,6 +238,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 			X:               b.Pos[0],
 			Z:               b.Pos[1],
 			Rotation:        b.Rotation,
+			Cells:           b.Cells,
 			MaxCars:         b.MaxCars,
 			CurrentCars:     b.CurrentCars,
 			DrivewayNodeIDs: b.DrivewayNodeIDs,
@@ -372,6 +375,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 			gd.DayTicketDue = g.DayTicketDue
 			gd.DayTicketPaid = g.DayTicketPaid
 			gd.HasDayTicket = g.HasDayTicket
+			gd.RemainingBudget = g.RemainingBudget
 			gd.Pos = [3]float32{g.Pos[0], g.Pos[1], g.Pos[2]}
 			gd.Heading = g.Heading
 			gd.Path = g.Path
@@ -441,10 +445,19 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		}
 	}
 
+	simTime := w.SimTime
+	if forScenario {
+		// New games from a starter scenario open on its day's morning.
+		day := math.Floor(simTime / world.SecondsPerSimDay)
+		simTime = day*world.SecondsPerSimDay + world.NewGameStartHour*world.SimSecondsPerHour
+	}
 	return ScenarioData{
 		Name:       "scenario",
 		Seed:       w.Seed,
-		SimTime:    w.SimTime,
+		SimTime:    simTime,
+		DaySec:     world.SecondsPerSimDay,
+		OpenHour:   w.OpenHour,
+		CloseHour:  w.CloseHour,
 		StartDate:  w.StartDate.Format(startDateLayout),
 		Width:      t.Width,
 		Height:     t.Height,
@@ -461,6 +474,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		Parcels:    parcels,
 		Cash:       w.Cash,
 		DayTicket:  &w.DayTicketPrice,
+		Parking:    w.ParkingPrice,
 		ResortOpen: w.ResortOpen,
 
 		CreditLimit:     &w.CreditLimit,
@@ -474,6 +488,24 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 
 // eventsToData captures the event feed oldest-first. Returns nil for an
 // empty feed so msgpack omits the field.
+// isLegacySkillEnum reports whether guests were saved when Skill was a
+// Beginner/Intermediate/Advanced enum (0/1/2) rather than a [0, 1]
+// float. A value of 2 can only come from the enum; every value must be
+// a whole tier number too.
+func isLegacySkillEnum(guests []GuestData) bool {
+	sawTwo := false
+	for _, gd := range guests {
+		switch gd.Skill {
+		case 0, 1:
+		case 2:
+			sawTwo = true
+		default:
+			return false
+		}
+	}
+	return sawTwo
+}
+
 func eventsToData(l *world.EventLog) []EventData {
 	if l.Len() == 0 {
 		return nil
@@ -613,6 +645,7 @@ func dataToWorld(data ScenarioData) *world.World {
 	if data.DayTicket != nil {
 		w.DayTicketPrice = *data.DayTicket
 	}
+	w.ParkingPrice = data.Parking
 	w.ResortOpen = data.ResortOpen
 	if data.CreditLimit != nil {
 		w.CreditLimit = *data.CreditLimit
@@ -641,19 +674,16 @@ func dataToWorld(data ScenarioData) *world.World {
 			b.ID = bd.ID
 		}
 		b.Rotation = bd.Rotation
-		// Parking-only state. MaxCars/CurrentCars default to zero on
-		// older saves; the placement defaults from PlaceBuildingType
-		// already populated MaxCars to a reasonable value above. The
-		// driveway node is restored via the road-node pass below; we
-		// just relink the building's pointer here. PlaceBuildingType
-		// doesn't auto-create driveways, so there's no conflict to
-		// undo first.
+		// Parking-only state. The footprint comes from the saved cells
+		// (or the default rectangle for pre-painting saves); MaxCars is
+		// re-derived from it. The driveway node is restored via the
+		// road-node pass below; we just relink the building's pointer
+		// here. PlaceBuildingType doesn't auto-create driveways, so
+		// there's no conflict to undo first.
 		if b.Type == world.BuildingParking {
-			if bd.MaxCars > 0 {
-				b.MaxCars = bd.MaxCars
-			}
-			b.CurrentCars = bd.CurrentCars
 			b.DrivewayNodeIDs = bd.DrivewayNodeIDs
+			w.SetParkingLotCells(b, bd.Cells)
+			b.CurrentCars = bd.CurrentCars
 		}
 		b.SnowGunEnabled = bd.SnowGunEnabled
 	}
@@ -753,7 +783,11 @@ func dataToWorld(data ScenarioData) *world.World {
 	// w.Guests (the master catchment, including dormant entries); rows with
 	// State==OnMountain also get a pointer into w.OnMountain so the sim
 	// ticks them. IDs are preserved so chair / queue references resolve.
+	legacySkill := isLegacySkillEnum(data.Guests)
 	for _, gd := range data.Guests {
+		if legacySkill {
+			gd.Skill = world.SkillInTier(int(gd.Skill), rand.New(rand.NewSource(int64(gd.ID))))
+		}
 		var id uint64
 		if gd.ID != 0 {
 			id = gd.ID
@@ -763,6 +797,7 @@ func dataToWorld(data ScenarioData) *world.World {
 		traits := ai.TraitsFor(gd.Skill)
 		traits.LikesGlades = gd.LikesGlades
 		traits.PrefersGroomed = gd.PrefersGroomed
+		traits.DailyBudget = world.DailyBudgetFor(gd.Skill)
 		g := &world.Guest{
 			ID:               id,
 			Name:             gd.Name,
@@ -783,6 +818,7 @@ func dataToWorld(data ScenarioData) *world.World {
 			g.DayTicketDue = gd.DayTicketDue
 			g.DayTicketPaid = gd.DayTicketPaid
 			g.HasDayTicket = gd.HasDayTicket
+			g.RemainingBudget = gd.RemainingBudget
 			g.Pos = mgl32.Vec3{gd.Pos[0], gd.Pos[1], gd.Pos[2]}
 			g.Heading = gd.Heading
 			g.Path = gd.Path
@@ -923,6 +959,7 @@ func dataToWorld(data ScenarioData) *world.World {
 	// saves that predate the driveway field and any corrupted graphs.
 	for _, b := range w.Buildings {
 		if b.Type == world.BuildingParking {
+			w.RefreshParkingLot(b, false)
 			w.EnsureParkingDriveway(b)
 		}
 	}
@@ -992,6 +1029,27 @@ func dataToWorld(data ScenarioData) *world.World {
 	if d, err := time.Parse(startDateLayout, data.StartDate); err == nil {
 		w.StartDate = d
 	}
+	if data.OpenHour > 0 || data.CloseHour > 0 {
+		w.OpenHour, w.CloseHour = data.OpenHour, data.CloseHour
+	}
+	daySec := data.DaySec
+	if daySec == 0 {
+		daySec = world.LegacySecondsPerSimDay
+	}
+	if daySec != world.SecondsPerSimDay {
+		rescaleClocks(w, world.SecondsPerSimDay/daySec)
+	}
 
 	return w
+}
+
+// rescaleClocks multiplies every absolute sim-clock value in w by k, for
+// saves written with a different day length. Durations (timers, lift
+// progress) are in movement seconds and stay as they are.
+func rescaleClocks(w *world.World, k float64) {
+	w.SimTime *= k
+	w.Events.ScaleTimes(k)
+	for _, g := range w.Guests {
+		g.SeasonPassExpiry *= k
+	}
 }

@@ -91,7 +91,9 @@ Wind is a stochastic event that fires on Clear and Overcast days. Probability is
 
 `applyKindTransition` then updates the **top layer's Kind** on every cell per the transition matrix (see SNOW.md).
 
-`applyMelt` follows, removing SWE from the top layer using a lapse-rate-adjusted temperature (colder at altitude). Rain days also contribute additional melt proportional to `RainMM`.
+Melt is not part of the daily step: `tickHourly` removes SWE from the top layer every clock hour using the hour's lapse-adjusted air temperature and the sun's current position on each cell's slope and aspect (see SNOW.md → Melt). Rain days also contribute additional melt proportional to `RainMM`.
+
+The day's `TempLow`/`TempHigh` drive an hourly curve (`sim/temperature.go`): the low at sunrise, a half-cosine rise to the high at 14:30, then cooling to the next day's forecast low at the next sunrise. `TempNow()` is what the top bar shows and what snow guns check against `SnowGunMinTempC`, so guns run on cold nights even when the afternoon is above freezing.
 
 ### Buried freeze (all sub-freezing days)
 

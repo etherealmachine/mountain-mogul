@@ -63,6 +63,14 @@ func (l *EventLog) Push(e Event) {
 	l.Seq++
 }
 
+// ScaleTimes multiplies every retained event's SimTime by k (save
+// migration between day lengths).
+func (l *EventLog) ScaleTimes(k float64) {
+	for i := range l.entries {
+		l.entries[i].SimTime *= k
+	}
+}
+
 // Len returns the number of events currently retained.
 func (l *EventLog) Len() int { return l.count }
 

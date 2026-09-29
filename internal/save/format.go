@@ -2,11 +2,19 @@ package save
 
 // ScenarioData is the JSON-serialisable representation of a full scenario.
 type ScenarioData struct {
-	Name       string          `json:"name"`
-	Width      int             `json:"width"`
-	Height     int             `json:"height"`
-	Seed       int64           `json:"seed,omitempty"`
-	SimTime    float64         `json:"sim_time,omitempty"` // sim clock in seconds at save time
+	Name    string  `json:"name"`
+	Width   int     `json:"width"`
+	Height  int     `json:"height"`
+	Seed    int64   `json:"seed,omitempty"`
+	SimTime float64 `json:"sim_time,omitempty"` // sim clock in seconds at save time
+	// DaySec is the sim seconds per calendar day the clocks in this save
+	// (SimTime, event times, pass expiries) were written with. Absent =
+	// world.LegacySecondsPerSimDay; the loader rescales to the current day.
+	DaySec float64 `json:"day_sec,omitempty"`
+	// OpenHour/CloseHour are World.OpenHour/CloseHour. Absent loads the
+	// defaults.
+	OpenHour  float32 `json:"open_hour,omitempty"`
+	CloseHour float32 `json:"close_hour,omitempty"`
 	// StartDate is World.StartDate, the date SimTime 0 maps to, as
 	// "2006-01-02". Absent loads world.DefaultStartDate.
 	StartDate  string          `json:"start_date,omitempty"`
@@ -30,12 +38,14 @@ type ScenarioData struct {
 	Bankrupt        bool    `json:"bankrupt,omitempty"`
 	// DayTicket is World.DayTicketPrice. Pointer so a player-set $0 round-
 	// trips; nil (older saves) loads as DefaultDayTicketPrice.
-	DayTicket  *int            `json:"day_ticket,omitempty"`
+	DayTicket *int `json:"day_ticket,omitempty"`
+	// Parking is World.ParkingPrice, per car. Absent loads free.
+	Parking int `json:"parking,omitempty"`
 	// ResortOpen is World.ResortOpen. Absent loads closed.
-	ResortOpen bool            `json:"resort_open,omitempty"`
-	Camera     *CameraData     `json:"camera,omitempty"`
-	History    *HistoryData    `json:"history,omitempty"`
-	Events     []EventData     `json:"events,omitempty"`
+	ResortOpen bool         `json:"resort_open,omitempty"`
+	Camera     *CameraData  `json:"camera,omitempty"`
+	History    *HistoryData `json:"history,omitempty"`
+	Events     []EventData  `json:"events,omitempty"`
 }
 
 // EventData is one entry of the world event feed (world.Event). Saved
@@ -65,11 +75,11 @@ type ParcelData struct {
 // PatrollerData is a saved ski-patrol unit. HutID links it back to its patrol
 // hut; both IDs survive save/load so the patroller → hut chain rehydrates.
 type PatrollerData struct {
-	ID    uint64     `json:"id,omitempty"`
-	HutID uint64     `json:"hut,omitempty"`
-	Pos   [3]float32 `json:"pos"`
-	Heading float32  `json:"heading,omitempty"`
-	State uint8      `json:"state,omitempty"`
+	ID      uint64     `json:"id,omitempty"`
+	HutID   uint64     `json:"hut,omitempty"`
+	Pos     [3]float32 `json:"pos"`
+	Heading float32    `json:"heading,omitempty"`
+	State   uint8      `json:"state,omitempty"`
 }
 
 // TrailData is a saved player-defined ski trail. Cells is the complete
@@ -174,9 +184,11 @@ type BuildingData struct {
 	Z        float32 `json:"z"`
 	Rotation float32 `json:"r,omitempty"`
 
-	// Parking-only state. CurrentCars is the visible population
-	// (rendered as car meshes); MaxCars is the cap. Spawn timing /
-	// skier pool lives elsewhere (future demand system).
+	// Parking-only state. Cells is the painted lot footprint; absent on
+	// saves from before lots were painted, which load as the old default
+	// rectangle. CurrentCars is the visible population (rendered as car
+	// meshes); MaxCars is the cap, re-derived from Cells on load.
+	Cells           [][2]int `json:"cells,omitempty"`
 	MaxCars         int      `json:"max_cars,omitempty"`
 	CurrentCars     float32  `json:"cur_cars,omitempty"`
 	DrivewayNodeIDs []uint64 `json:"driveway_ids,omitempty"` // road-network attach nodes, one per parking mesh slot
@@ -274,22 +286,26 @@ type GuestData struct {
 	DayTicketPaid int  `json:"dtp,omitempty"`
 	HasDayTicket  bool `json:"hdt,omitempty"`
 
+	// RemainingBudget is what's left of the day's spending money after
+	// ticket, parking and food (OnMountain only).
+	RemainingBudget float32 `json:"rb,omitempty"`
+
 	// Visit state. 0 = AtHome (default), 1 = OnMountain.
 	State uint8 `json:"state,omitempty"`
 
 	// Sim scratch — only populated when State == OnMountain.
-	Pos        [3]float32 `json:"pos,omitempty"`
-	Heading    float32    `json:"heading,omitempty"`
-	Path       [][2]int   `json:"path,omitempty"`
-	PathIdx    int        `json:"path_idx,omitempty"`
-	Speed      float32    `json:"speed,omitempty"`
-	TargetID   uint64     `json:"target_id,omitempty"`
-	OnLiftID   uint64     `json:"on_lift_id,omitempty"`
-	Queued     bool       `json:"queued,omitempty"`
-	Patience float32 `json:"patience,omitempty"`
-	Energy   float32 `json:"energy,omitempty"`
-	Hunger float32 `json:"hunger,omitempty"`
-	Thirst float32 `json:"thirst,omitempty"`
+	Pos      [3]float32 `json:"pos,omitempty"`
+	Heading  float32    `json:"heading,omitempty"`
+	Path     [][2]int   `json:"path,omitempty"`
+	PathIdx  int        `json:"path_idx,omitempty"`
+	Speed    float32    `json:"speed,omitempty"`
+	TargetID uint64     `json:"target_id,omitempty"`
+	OnLiftID uint64     `json:"on_lift_id,omitempty"`
+	Queued   bool       `json:"queued,omitempty"`
+	Patience float32    `json:"patience,omitempty"`
+	Energy   float32    `json:"energy,omitempty"`
+	Hunger   float32    `json:"hunger,omitempty"`
+	Thirst   float32    `json:"thirst,omitempty"`
 	// Plan steps and cursor so agents resume mid-plan after load rather than
 	// replanning from an anchor-zero in-transit snapshot. GoalName and Target
 	// are re-derived by onPlanStepStart; only Steps+Step are stored.

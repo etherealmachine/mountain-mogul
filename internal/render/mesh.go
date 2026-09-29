@@ -9,22 +9,22 @@ import (
 
 // Mesh ID constants — also mirrored in world/objects.go to avoid circular imports.
 const (
-	MeshTree        uint32 = 0
-	MeshTree2       uint32 = 1
-	MeshTree3       uint32 = 2
-	MeshRock        uint32 = 3
-	MeshStump       uint32 = 4
-	MeshBuilding    uint32 = 5
-	MeshTower       uint32 = 6
-	MeshSkier       uint32 = 7 // skier figure; instanced per world.Guest
-	MeshLiftStation uint32 = 8
-	MeshChair       uint32 = 9
-	MeshShed        uint32 = 10
-	MeshSnowcat     uint32 = 11
-	MeshParkingPad  uint32 = 12 // flat asphalt-coloured pad for a parking lot footprint
-	MeshCar         uint32 = 13 // small box used per parked car (dynamic instance per lot)
-	MeshRoadConnect uint32 = 14 // yellow-flag marker for road-network edge connections (editor-placed)
-	MeshRoadNode    uint32 = 15 // small procedural post used as a hover/snap target marker for road nodes
+	MeshTree         uint32 = 0
+	MeshTree2        uint32 = 1
+	MeshTree3        uint32 = 2
+	MeshRock         uint32 = 3
+	MeshStump        uint32 = 4
+	MeshBuilding     uint32 = 5
+	MeshTower        uint32 = 6
+	MeshSkier        uint32 = 7 // skier figure; instanced per world.Guest
+	MeshLiftStation  uint32 = 8
+	MeshChair        uint32 = 9
+	MeshShed         uint32 = 10
+	MeshSnowcat      uint32 = 11
+	MeshParkingPad   uint32 = 12 // flat asphalt-coloured pad for a parking lot footprint
+	MeshCar          uint32 = 13 // small box used per parked car (dynamic instance per lot)
+	MeshRoadConnect  uint32 = 14 // yellow-flag marker for road-network edge connections (editor-placed)
+	MeshRoadNode     uint32 = 15 // small procedural post used as a hover/snap target marker for road nodes
 	MeshChairQuad    uint32 = 16 // 4-seat fixed grip chair; second chair variant
 	MeshChair6Pack   uint32 = 17 // 6-seat high-speed detachable chair
 	MeshGondolaCabin uint32 = 18 // MDG gondola cabin (8-person enclosed)
@@ -33,6 +33,7 @@ const (
 	MeshHelicopter   uint32 = 21 // heli-ski helicopter (dynamic — one per HeliLift)
 	MeshSnowGun      uint32 = 22 // snowmaking cannon on a tripod
 	MeshBar          uint32 = 23 // bar/restaurant (half-size lodge)
+	MeshTicketOffice uint32 = 24 // ticket booth with service windows
 )
 
 // Mesh wraps a GPU vertex/index buffer.
@@ -100,6 +101,14 @@ func NewMesh(vertices []float32, indices []uint32, layout []int, locations []uin
 func (m *Mesh) Draw() {
 	gl.BindVertexArray(m.VAO)
 	gl.DrawElements(gl.TRIANGLES, m.IndexCount, gl.UNSIGNED_INT, unsafe.Pointer(nil))
+	gl.BindVertexArray(0)
+}
+
+// DrawPatches draws the mesh as GL_PATCHES for tessellation shaders.
+func (m *Mesh) DrawPatches() {
+	gl.PatchParameteri(gl.PATCH_VERTICES, 3)
+	gl.BindVertexArray(m.VAO)
+	gl.DrawElements(gl.PATCHES, m.IndexCount, gl.UNSIGNED_INT, unsafe.Pointer(nil))
 	gl.BindVertexArray(0)
 }
 

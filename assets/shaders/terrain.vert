@@ -9,8 +9,6 @@ layout(location = 5) in float aSnowDepth;    // SnowDepth in metres, per cell-co
 layout(location = 6) in vec3  aSmoothNormal;      // per-corner smoothed normal (non-flat varying)
 layout(location = 7) in float aInstabilityScore;  // Cell.InstabilityScore(); 0=stable, ≥1=release threshold
 
-uniform mat4 uViewProj;
-
 flat out vec3  vNormal;
 out vec3  vWorldPos;
 out float vSmoothY;
@@ -29,5 +27,6 @@ void main() {
     vSnowDepth         = aSnowDepth;
     vSmoothNormal      = aSmoothNormal;
     vInstabilityScore  = aInstabilityScore;
-    gl_Position        = uViewProj * vec4(aPos, 1.0);
+    // World-space position — TES applies displacement then projects.
+    gl_Position        = vec4(aPos, 1.0);
 }

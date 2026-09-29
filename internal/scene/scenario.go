@@ -215,6 +215,10 @@ const apronInnerFraction = float32(0.7)
 // apron is raise-only with a small buildup — buildings fit the natural
 // slope but won't sink into mogul fields or ungroomed powder.
 func applyBuildingPlacementEffects(t *world.Terrain, b *world.Building) {
+	if b.IsCellLot() {
+		applyParkingLotEffects(t, b)
+		return
+	}
 	halfX, halfZ := buildingFootprint(b.Type)
 	// Size each axis of the apron so its inner flat zone extends exactly
 	// buildingApronBareGround beyond the pad on every side. Solving
@@ -243,19 +247,22 @@ func applyBuildingPlacementEffects(t *world.Terrain, b *world.Building) {
 	// inner core, smoothstep down to nothing at the edge). The two passes'
 	// "back edges" meet flush at the building centre, producing a single
 	// uniform pad with no internal seam.
-	buildStationApron(t, b.Pos, mgl32.Vec2{1, 0}, +1, apronHalfZ, apronHalfX, target, true)
-	buildStationApron(t, b.Pos, mgl32.Vec2{1, 0}, -1, apronHalfZ, apronHalfX, target, true)
+	// The passes run along the mesh's local X so the pad turns with the
+	// building.
+	axis, _ := b.Footprint().Axes()
+	buildStationApron(t, b.Pos, axis, +1, apronHalfZ, apronHalfX, target, true)
+	buildStationApron(t, b.Pos, axis, -1, apronHalfZ, apronHalfX, target, true)
 	// Buildings plow off all the snow under their footprint — parking
 	// lots, lodges and sheds sit on bare asphalt / dirt, not a snowdrift.
 	// Lift aprons (in lift_apron.go) skip this step; their packed=1.0
 	// makes the visible snow column shrink without removing the snow.
-	plowApronSnow(t, b.Pos, mgl32.Vec2{1, 0}, +1, apronHalfZ, apronHalfX)
-	plowApronSnow(t, b.Pos, mgl32.Vec2{1, 0}, -1, apronHalfZ, apronHalfX)
+	plowApronSnow(t, b.Pos, axis, +1, apronHalfZ, apronHalfX)
+	plowApronSnow(t, b.Pos, axis, -1, apronHalfZ, apronHalfX)
 
 	// Trees inside the apron zone go to zero density so the building isn't
 	// rendered with trunks pressing through its walls. Same extents as the
 	// apron — the visible clear pad matches the tree-free footprint.
-	clearBuildingTrees(t, b.Pos, apronHalfX, apronHalfZ)
+	clearBuildingTrees(t, b.Pos, apronHalfX, apronHalfZ, b.Rotation)
 
 	// Stamp the door cell as impassable so the stamp path produces the
 	// same blocked-cell state as the original PlaceBuilding call.
@@ -268,32 +275,24 @@ func applyBuildingPlacementEffects(t *world.Terrain, b *world.Building) {
 	t.RestampTreeWells()
 }
 
-// clearBuildingTrees zeros TreeDensity in cells inside the axis-aligned
-// rectangle ±(halfX, halfZ) around `pos`. Matches the apron rectangle so
-// the visible clear pad lines up with the tree-cleared zone.
-func clearBuildingTrees(t *world.Terrain, pos mgl32.Vec2, halfX, halfZ float32) {
+// clearBuildingTrees zeros TreeDensity in cells inside the rectangle
+// ±(halfX, halfZ) around `pos`, turned by rotation like the building.
+// Matches the apron rectangle so the visible clear pad lines up with the
+// tree-cleared zone.
+func clearBuildingTrees(t *world.Terrain, pos mgl32.Vec2, halfX, halfZ, rotation float32) {
 	const cellSize = float32(5.0)
-	x0 := int((pos[0] - halfX) / cellSize)
-	x1 := int((pos[0]+halfX)/cellSize) + 1
-	z0 := int((pos[1] - halfZ) / cellSize)
-	z1 := int((pos[1]+halfZ)/cellSize) + 1
-	for x := x0; x <= x1; x++ {
-		for z := z0; z <= z1; z++ {
+	rect := world.FootprintRect{Center: pos, HalfX: halfX, HalfZ: halfZ, Rotation: rotation}
+	minX, minZ, maxX, maxZ := rect.Bounds()
+	for x := int(minX / cellSize); x <= int(maxX/cellSize)+1; x++ {
+		for z := int(minZ / cellSize); z <= int(maxZ/cellSize)+1; z++ {
 			if !t.InBounds(x, z) {
 				continue
 			}
 			// Cell CENTER, not corner — matches the renderer's tree
 			// anchor at ((x+0.5)*cellSize). Corner-based testing biased
 			// the clear toward +X / +Z by a half cell.
-			cx := (float32(x)+0.5)*cellSize - pos[0]
-			cz := (float32(z)+0.5)*cellSize - pos[1]
-			if cx < 0 {
-				cx = -cx
-			}
-			if cz < 0 {
-				cz = -cz
-			}
-			if cx <= halfX && cz <= halfZ {
+			center := mgl32.Vec2{(float32(x) + 0.5) * cellSize, (float32(z) + 0.5) * cellSize}
+			if rect.Contains(center, 0) {
 				t.Cells[x][z].TreeDensity = 0
 			}
 		}
@@ -342,10 +341,8 @@ func buildStationApron(t *world.Terrain, station, axis mgl32.Vec2, side, halfWid
 	if !t.InBounds(stationCell[0], stationCell[1]) {
 		return
 	}
-	bound := halfWidth
-	if depth > bound {
-		bound = depth
-	}
+	// The diagonal covers the rectangle's corners at any axis angle.
+	bound := float32(math.Hypot(float64(halfWidth), float64(depth)))
 	x0 := int((station[0] - bound) / cellSize)
 	x1 := int((station[0]+bound)/cellSize) + 1
 	z0 := int((station[1] - bound) / cellSize)
@@ -423,10 +420,7 @@ func buildStationApron(t *world.Terrain, station, axis mgl32.Vec2, side, halfWid
 // do NOT — their visual "packed apron" comes from Packed=1.0 alone.
 func plowApronSnow(t *world.Terrain, station, axis mgl32.Vec2, side, halfWidth, depth float32) {
 	const cellSize = float32(5.0)
-	bound := halfWidth
-	if depth > bound {
-		bound = depth
-	}
+	bound := float32(math.Hypot(float64(halfWidth), float64(depth)))
 	x0 := int((station[0] - bound) / cellSize)
 	x1 := int((station[0]+bound)/cellSize) + 1
 	z0 := int((station[1] - bound) / cellSize)
@@ -531,36 +525,36 @@ const (
 	toolNone         toolMode = iota
 	toolBuilding     toolMode = iota // place a lodge
 	toolTicketOffice toolMode = iota // place a ticket office (season pass sales)
-	toolShed        toolMode = iota // place an equipment shed
-	toolParking     toolMode = iota // place a parking lot (skier spawn/despawn)
-	toolLiftBase    toolMode = iota // waiting for first lift click
-	toolLiftTop     toolMode = iota // waiting for second lift click
-	toolRoadStart   toolMode = iota // waiting for first road click
-	toolRoadEnd     toolMode = iota // waiting for second road click
-	toolEdgeConnect toolMode = iota // place a map-edge road connection node (editor only)
-	toolPatrolHut   toolMode = iota // place a ski patrol hut
-	toolBar         toolMode = iota // place a bar (relieve thirst/hunger)
-	toolSnowGun     toolMode = iota // place a snowmaking cannon
-	toolGlade       toolMode = iota // reduce TreeDensity (brush)
-	toolPlantTrees  toolMode = iota // increase TreeDensity (brush, editor only)
-	toolRemove     toolMode = iota // remove building at clicked cell
-	toolTrailPaint toolMode = iota // paint/erase cells on the active trail
-	toolLandBuy    toolMode = iota // click to purchase a land parcel
+	toolShed         toolMode = iota // place an equipment shed
+	toolParking      toolMode = iota // place a parking lot (skier spawn/despawn)
+	toolLiftBase     toolMode = iota // waiting for first lift click
+	toolLiftTop      toolMode = iota // waiting for second lift click
+	toolRoadStart    toolMode = iota // waiting for first road click
+	toolRoadEnd      toolMode = iota // waiting for second road click
+	toolEdgeConnect  toolMode = iota // place a map-edge road connection node (editor only)
+	toolPatrolHut    toolMode = iota // place a ski patrol hut
+	toolBar          toolMode = iota // place a bar (relieve thirst/hunger)
+	toolSnowGun      toolMode = iota // place a snowmaking cannon
+	toolGlade        toolMode = iota // reduce TreeDensity (brush)
+	toolPlantTrees   toolMode = iota // increase TreeDensity (brush, editor only)
+	toolRemove       toolMode = iota // remove building at clicked cell
+	toolTrailPaint   toolMode = iota // paint/erase cells on the active trail
+	toolLandBuy      toolMode = iota // click to purchase a land parcel
 )
 
 // Scenario is the main gameplay scene.
 type Scenario struct {
-	app             *engine.App
-	world           *world.World
-	sim             *sim.Simulation
-	toolBar         *ui.MenuBar      // bottom-of-screen tool palette
-	topBar          *ui.TopBar       // resort-management HUD strip
-	overlayPanel    *ui.OverlayPanel // right-side terrain-overlay toggles
-	chartWindow     *ui.ChartWindow  // resort-stats charts (line + grouped bar)
-	eventPanel      *ui.EventPanel   // left-side world event feed
-	escapeMenu      *EscapeMenu
-	settingsMenu    *SettingsMenu
-	debugConsole    *DebugConsole
+	app              *engine.App
+	world            *world.World
+	sim              *sim.Simulation
+	toolBar          *ui.MenuBar      // bottom-of-screen tool palette
+	topBar           *ui.TopBar       // resort-management HUD strip
+	overlayPanel     *ui.OverlayPanel // right-side terrain-overlay toggles
+	chartWindow      *ui.ChartWindow  // resort-stats charts (line + grouped bar)
+	eventPanel       *ui.EventPanel   // left-side world event feed
+	escapeMenu       *EscapeMenu
+	settingsMenu     *SettingsMenu
+	debugConsole     *DebugConsole
 	toolButtons      map[toolMode]*ui.Button
 	liftDoubleBtn    *ui.Button        // toolbar button for the double-chair lift variant
 	liftQuadBtn      *ui.Button        // toolbar button for the fixed-quad lift variant
@@ -570,41 +564,41 @@ type Scenario struct {
 	liftHeliBtn      *ui.Button        // toolbar button for the helicopter heli-ski lift
 	liftsSubmenu     *ui.SubmenuButton // Lifts group (all chair/gondola/heli variants)
 	opsSubmenu       *ui.SubmenuButton // Operations group (shed, patrol)
-	amenitiesSubmenu  *ui.SubmenuButton // Amenities group (lodge)
-	transportSubmenu  *ui.SubmenuButton // Transport group (parking, road)
-	activeTool      toolMode
-	liftType        world.LiftType // chair variant the toolLiftBase/Top flow will place
-	liftBase        mgl32.Vec2     // first click world position for lift placement
-	roadStart       mgl32.Vec2 // first click world position for road placement (post-snap)
-	scenarioPath    string
-	time            float32
-	rightDragging   bool
+	amenitiesSubmenu *ui.SubmenuButton // Amenities group (lodge)
+	transportSubmenu *ui.SubmenuButton // Transport group (parking, road)
+	activeTool       toolMode
+	liftType         world.LiftType // chair variant the toolLiftBase/Top flow will place
+	liftBase         mgl32.Vec2     // first click world position for lift placement
+	roadStart        mgl32.Vec2     // first click world position for road placement (post-snap)
+	scenarioPath     string
+	time             float32
+	rightDragging    bool
 	hoverCell        [2]int     // terrain cell under the mouse — for cell-based tools
 	hoverWorld       mgl32.Vec3 // continuous terrain hit under the mouse — for placement
 	hoverMouseScreen mgl32.Vec2 // screen-space mouse position, updated with hoverValid
 	hoverValid       bool       // false when the mouse is off-terrain or over the menu bars
-	followGuestID   uint64 // 0 = free camera; >0 = ID of followed skier
-	firstPerson     bool   // V: first-person camera at the followed skier's head
-	debugSteering   bool   // F3: render steering forces on the followed skier
-	debugPlanner    bool   // F4: show goal weights, full plan, snapshot anchors for the followed skier
-	debugTerrainIns bool   // F5: dump cell snow/terrain state under the mouse cursor
+	followGuestID    uint64     // 0 = free camera; >0 = ID of followed skier
+	firstPerson      bool       // V: first-person camera at the followed skier's head
+	debugSteering    bool       // F3: render steering forces on the followed skier
+	debugPlanner     bool       // F4: show goal weights, full plan, snapshot anchors for the followed skier
+	debugTerrainIns  bool       // F5: dump cell snow/terrain state under the mouse cursor
 
 	// fpsSmoothed is an EMA of the wall-clock frame rate, updated every
 	// Update tick. Surfaced in the F5 inspector panel so the player can
 	// monitor frame time while looking at sim state. Initialised lazily
 	// from the first dt so the first frame doesn't read as 0 fps.
-	fpsSmoothed float32
-	paused          bool
-	popup           *ui.Window
-	saveAllowed     bool   // false in testbed mode; gates the Save prompt
-	saveName        string // last name used for Save; pre-fills the prompt next time
-	savePrompt      *savePrompt
-	confirmPrompt   *confirmPrompt // Save as Scenario overwrite check
-	prebuiltWorld   *world.World
-	simSeed         int64                          // 0 = wall-clock; nonzero forces deterministic RNG
-	rebuild         func(seed int64) *world.World // non-nil ⇒ "New Seed" button shown
-	tickHook        func(s *sim.Simulation)       // optional testbed hook; called each frame before Tick
-	queryServer     *sim.QueryServer              // non-nil when -live-query is set; wired into sim on installWorld
+	fpsSmoothed   float32
+	paused        bool
+	popup         *ui.Window
+	saveAllowed   bool   // false in testbed mode; gates the Save prompt
+	saveName      string // last name used for Save; pre-fills the prompt next time
+	savePrompt    *savePrompt
+	confirmPrompt *confirmPrompt // Save as Scenario overwrite check
+	prebuiltWorld *world.World
+	simSeed       int64                         // 0 = wall-clock; nonzero forces deterministic RNG
+	rebuild       func(seed int64) *world.World // non-nil ⇒ "New Seed" button shown
+	tickHook      func(s *sim.Simulation)       // optional testbed hook; called each frame before Tick
+	queryServer   *sim.QueryServer              // non-nil when -live-query is set; wired into sim on installWorld
 
 	// Glade-tool sliders (radius in cells, thin = % density removed per
 	// application; slider 0–10 → 0.00–0.10 density delta). Visible only
@@ -619,14 +613,22 @@ type Scenario struct {
 
 	// Trail-paint mode: while toolTrailPaint is active, the player
 	// drag-paints (left) or erases (right) cells on the active trail.
-	activeTrailID    uint64
-	trailDifficulty  world.TerrainDifficulty // difficulty for the next new trail
+	activeTrailID      uint64
+	trailDifficulty    world.TerrainDifficulty // difficulty for the next new trail
 	lastTrailPaintCell [2]int
-	trailEraseMode   bool // true = left-drag removes cells; false = left-drag adds cells
+	trailEraseMode     bool // true = left-drag removes cells; false = left-drag adds cells
+
+	// parkingPaint is the parking-lot paint session while toolParking is
+	// active: left-drag paints (or erases, in erase mode), right-drag erases.
+	parkingPaint parkingPaint
+
+	// placeRotation is the rotation the next placed building gets,
+	// turned with R / Shift+R while a building tool is active.
+	placeRotation float32
 
 	selectedCatID      uint64 // 0 = none; >0 = ID of cat whose popup is open
 	selectedBuildingID uint64 // 0 = none; >0 = ID of building whose popup is open
-	showCatPath   bool   // true = draw cat's route + transit as debug lines
+	showCatPath        bool   // true = draw cat's route + transit as debug lines
 
 	// hoverParcel is the parcel under the mouse cursor when toolLandBuy is
 	// active. Nil when the cursor is over owned/off-limits land or no parcel
@@ -665,8 +667,8 @@ type Scenario struct {
 	// Trail of world-space positions for the currently followed skier.
 	// Reset when followGuestID changes; appended when at least
 	// trackMinSpacing metres past the last sample.
-	track       []mgl32.Vec3
-	trackOwner  uint64
+	track      []mgl32.Vec3
+	trackOwner uint64
 }
 
 const (
@@ -682,6 +684,16 @@ const (
 // upper preset. Pause is its own button — not in this list.
 var speedOptions = []float64{1, 4, 20}
 
+// turboOptions are the tiers reached by clicking the fastest speed button
+// again while it's already running. Turbo fast-forwards to the next storm
+// and drops to paused 1× just before it (Simulation.NextStormStop).
+// Sim cost grows with the multiplier, so the top tiers only hold their
+// nominal rate on a quiet mountain; maxWallDtSec in Tick keeps a slow
+// frame from stalling.
+var turboOptions = []float64{50, 100, 200, 500}
+
+// stormSearchDays is how far ahead turbo looks for a storm to stop at.
+const stormSearchDays = 90
 
 // NewScenarioFromFile creates a Scenario that loads its initial world from
 // `path`. Used for both New Game (asset scenarios) and Load Game (named
@@ -716,6 +728,18 @@ func (s *Scenario) SetOverlay(mask int) {
 	if s.overlayPanel != nil {
 		s.overlayPanel.SetMask(mask)
 	}
+}
+
+// SetClockHour jumps the sim clock to hour h of the current day (clock
+// hours, e.g. 17.25). Used by the -screenshot harness.
+func (s *Scenario) SetClockHour(h float64) {
+	if s.sim == nil {
+		return
+	}
+	day := int(s.sim.SimTime / world.SecondsPerSimDay)
+	s.sim.SimTime = sim.SimTimeAt(day, h)
+	s.world.SimTime = s.sim.SimTime
+	s.sim.SkipClockEffects()
 }
 
 func (s *Scenario) TerrainSize() (int, int) {
@@ -855,7 +879,7 @@ func (s *Scenario) Init(app *engine.App) error {
 
 	// Transport submenu: Parking, Road
 	s.transportSubmenu = s.toolBar.AddSubmenu(render.IconRoad, "Transport")
-	s.toolButtons[toolParking] = s.transportSubmenu.AddChild(render.IconUsers, "Parking", func() { s.setTool(toolParking) })
+	s.toolButtons[toolParking] = s.transportSubmenu.AddChild(render.IconUsers, "Parking", func() { s.activateParkingTool(0, false) })
 	s.toolButtons[toolRoadStart] = s.transportSubmenu.AddChild(render.IconRoad, "Road", func() { s.setTool(toolRoadStart) })
 
 	// Lifts submenu: all chair/gondola/heli variants
@@ -901,6 +925,9 @@ func (s *Scenario) Init(app *engine.App) error {
 		d := sim.CalendarAt(s.world.StartDate, s.sim.SimTime)
 		return d.Day, d.Month, d.Year
 	}
+	s.topBar.GetClock = func() (float64, float32, bool) {
+		return sim.HourOfDay(s.sim.SimTime), s.sim.TempNow(), s.sim.LiftsRunning()
+	}
 	s.topBar.GetWeather = func() []ui.ForecastDay {
 		today := s.sim.Weather.Today()
 		from := s.sim.DateAt(s.sim.SimTime)
@@ -928,13 +955,25 @@ func (s *Scenario) Init(app *engine.App) error {
 	s.gladeRadiusSlider = ui.NewVSlider(0, 0, 18, 200, 1, 30, float32(gladeRadius), "Radius")
 	s.gladeThinSlider = ui.NewVSlider(0, 0, 18, 200, 1, 5, 2, "Thin")
 	s.lastGladeCell = [2]int{-1, -1}
+	s.parkingPaint.start(0, false)
 
 	onSpeed := make([]func(), len(speedOptions))
 	for i, mult := range speedOptions {
 		mult := mult
 		idx := i
 		onSpeed[idx] = func() {
-			s.sim.TimeScale = mult
+			if idx == len(speedOptions)-1 {
+				switch {
+				case s.paused && s.sim.TimeScale > mult:
+					s.paused = false // resume the turbo tier we paused in
+					s.syncSpeedButtons()
+					return
+				case !s.paused && s.sim.TimeScale >= mult:
+					s.stepTurbo()
+					return
+				}
+			}
+			s.setTimeScale(mult)
 			s.paused = false
 			s.syncSpeedButtons()
 		}
@@ -1415,6 +1454,12 @@ func (s *Scenario) syncSpeedButtons() {
 	if s.topBar == nil {
 		return
 	}
+	last := len(speedOptions) - 1
+	label := ""
+	if s.sim.TimeScale > speedOptions[last] {
+		label = fmt.Sprintf("%gx", s.sim.TimeScale)
+	}
+	s.topBar.SetSpeedLabel(last, label)
 	if s.paused {
 		s.topBar.SetPauseActive(true)
 		return
@@ -1426,7 +1471,59 @@ func (s *Scenario) syncSpeedButtons() {
 			break
 		}
 	}
+	if s.sim.TimeScale > speedOptions[last] {
+		active = last
+	}
 	s.topBar.SetSpeedActive(active)
+}
+
+// setTimeScale sets the sim speed; dropping out of turbo disarms the
+// storm stop.
+func (s *Scenario) setTimeScale(mult float64) {
+	s.sim.TimeScale = mult
+	if mult <= speedOptions[len(speedOptions)-1] {
+		s.sim.StopAt = 0
+	}
+}
+
+// stepTurbo moves up one turbo tier (staying on the top one) and, on
+// entering turbo, arms the stop just before the next storm.
+func (s *Scenario) stepTurbo() {
+	next := turboOptions[len(turboOptions)-1]
+	for _, m := range turboOptions {
+		if m > s.sim.TimeScale {
+			next = m
+			break
+		}
+	}
+	entering := s.sim.TimeScale <= speedOptions[len(speedOptions)-1]
+	s.setTimeScale(next)
+	if entering || s.sim.StopAt <= s.sim.SimTime {
+		s.sim.StopAt = 0
+		if stopAt, _, ok := s.sim.NextStormStop(stormSearchDays); ok {
+			s.sim.StopAt = stopAt
+		}
+	}
+	s.syncSpeedButtons()
+	if s.sim.StopAt > 0 {
+		stormDay := s.sim.DateAt(s.sim.StopAt + sim.StormStopLead)
+		days := int(stormDay.Sub(s.sim.DateAt(s.sim.SimTime)).Hours()/24 + 0.5)
+		s.setToast(fmt.Sprintf("%gx — skipping to the storm on %s (%d days)", next, stormDay.Format("Jan 2"), days))
+	} else {
+		s.setToast(fmt.Sprintf("%gx — no storm in the next %d days", next, stormSearchDays))
+	}
+}
+
+// checkStormStop pauses at 1× once turbo reaches its storm stop.
+func (s *Scenario) checkStormStop() {
+	if s.sim.StopAt <= 0 || s.sim.SimTime < s.sim.StopAt-1e-6 {
+		return
+	}
+	s.sim.StopAt = 0
+	s.sim.TimeScale = 1
+	s.paused = true
+	s.syncSpeedButtons()
+	s.setToast("Storm arriving tonight — paused at 1x. Press play to watch it roll in.")
 }
 
 func (s *Scenario) Update(dt float64) {
@@ -1493,6 +1590,20 @@ func (s *Scenario) Update(dt float64) {
 			deleteSelectedRoad(r, s.world, &s.roadEdit)
 		case s.structureEdit.active():
 			deleteSelectedStructure(r, s.world, &s.structureEdit)
+		}
+	}
+	// R / Shift+R: turn the building about to be placed, or the selected one.
+	if delta := rotateKeyDelta(inp); !typing && delta != 0 {
+		switch {
+		case isBuildingPlacementTool(s.activeTool):
+			s.placeRotation = stepRotation(s.placeRotation, delta)
+			s.setToast("Rotation " + rotationDegrees(s.placeRotation))
+		case s.activeTool == toolNone && s.structureEdit.building != nil:
+			if rotateSelectedBuilding(r, s.world, &s.structureEdit, delta) {
+				s.setToast("Rotation " + rotationDegrees(s.structureEdit.building.Rotation))
+			} else if !s.structureEdit.building.IsCellLot() {
+				s.setToast("Can't rotate here — overlaps another building")
+			}
 		}
 	}
 	if s.settingsMenu.Visible() {
@@ -1719,6 +1830,7 @@ func (s *Scenario) Update(dt float64) {
 		liftBase:   s.liftBase,
 		liftType:   s.liftType,
 		roadStart:  s.roadStart,
+		rotation:   s.placeRotation,
 		tint:       s.placementTint(),
 	})
 	// Highlight every existing road node while the road tool is active so
@@ -1834,6 +1946,11 @@ func (s *Scenario) Update(dt float64) {
 			s.finishTrailPaintStroke()
 			s.lastTrailPaintCell = [2]int{-1, -1}
 		}
+		// Parking regrades terrain on commit, so wait until both buttons
+		// are up rather than committing every frame of a right-drag.
+		if s.activeTool == toolParking && !inp.RightHeld && s.parkingPaint.lastCell != [2]int{-1, -1} {
+			s.parkingPaint.finishStroke(r, s.world)
+		}
 	}
 
 	// Right-held erase for trail paint.
@@ -1842,6 +1959,12 @@ func (s *Scenario) Update(dt float64) {
 		if s.world.Terrain.InBounds(gx, gz) {
 			s.applyTrailErase(gx, gz)
 			s.lastTrailPaintCell = [2]int{gx, gz}
+		}
+	}
+	if s.activeTool == toolParking && inp.RightHeld && s.hoverValid &&
+		s.hoverCell != s.parkingPaint.lastCell && !s.uiCovers(inp.MousePos[0], inp.MousePos[1], float32(r.ScreenWidth())) {
+		if gx, gz := s.hoverCell[0], s.hoverCell[1]; s.world.Terrain.InBounds(gx, gz) {
+			s.applyParkingPaint(gx, gz, true)
 		}
 	}
 
@@ -1855,7 +1978,10 @@ func (s *Scenario) Update(dt float64) {
 		trailDragged := s.activeTool == toolTrailPaint && inp.LeftHeld &&
 			s.lastTrailPaintCell != [2]int{-1, -1} &&
 			s.hoverCell != s.lastTrailPaintCell
-		clickOrDrag := inp.LeftClick || gladeDragged || trailDragged
+		parkingDragged := s.activeTool == toolParking && inp.LeftHeld &&
+			s.parkingPaint.lastCell != [2]int{-1, -1} &&
+			s.hoverCell != s.parkingPaint.lastCell
+		clickOrDrag := inp.LeftClick || gladeDragged || trailDragged || parkingDragged
 		if clickOrDrag && !s.uiCovers(inp.MousePos[0], inp.MousePos[1], screenW) && s.hoverValid {
 			overSlider := s.activeTool == toolGlade &&
 				(s.gladeRadiusSlider.Contains(inp.MousePos[0], inp.MousePos[1]) ||
@@ -1887,6 +2013,7 @@ func (s *Scenario) Update(dt float64) {
 			s.tickHook(s.sim)
 		}
 		s.sim.Tick(dt)
+		s.checkStormStop()
 	}
 	if s.sim != nil && s.sim.QueryServer != nil {
 		s.sim.QueryServer.Tick(s.world, s.sim)
@@ -2012,7 +2139,7 @@ func (s *Scenario) updateOverlay(r *render.Renderer) {
 		}
 
 		lines = make([]render.DebugLine, 0, len(s.track)+8)
-		const trackHover = 0.4 // m above terrain so the line is not buried
+		const trackHover = 0.4                        // m above terrain so the line is not buried
 		const trackR, trackG, trackB = 1.0, 0.55, 0.1 // warm orange
 		for i := 1; i < len(s.track); i++ {
 			p, q := s.track[i-1], s.track[i]
@@ -2056,7 +2183,11 @@ func (s *Scenario) buildCellOverlay() (pixels []uint8, w, h int) {
 	hasActiveTrail := s.activeTrailID != 0
 	hasTrails := len(s.world.Trails) > 0 && (trailOverlayOn || hasActiveTrail)
 	hasLandOverlay := s.hoverParcel != nil // hover highlight when buying land
-	if !hasTrails && !hasLandOverlay {
+	var paintLot *world.Building
+	if s.activeTool == toolParking {
+		paintLot = s.parkingPaint.lot(s.world)
+	}
+	if !hasTrails && !hasLandOverlay && paintLot == nil {
 		return nil, 0, 0
 	}
 
@@ -2117,6 +2248,7 @@ func (s *Scenario) buildCellOverlay() (pixels []uint8, w, h int) {
 			}
 		}
 	}
+	appendParkingOverlay(paintLot, set)
 
 	return pix, tw, th
 }
@@ -2396,9 +2528,9 @@ func skierTarget(w *world.World, a *world.Guest) (mgl32.Vec3, bool) {
 }
 
 const (
-	gladeRadius        = 2     // cells
-	buildingPickRadius = 7.0   // metres — ~one cell width, matches default lodge footprint
-	liftPickRadius     = 5.0   // metres — clicks within this of the base register as a hit
+	gladeRadius        = 2   // cells
+	buildingPickRadius = 7.0 // metres — ~one cell width, matches default lodge footprint
+	liftPickRadius     = 5.0 // metres — clicks within this of the base register as a hit
 )
 
 // applyTool dispatches the active placement / editing tool. Building and
@@ -2420,12 +2552,12 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 				world.LodgeCost, world.LodgeCost-w.Available()))
 			return
 		}
-		if w.BuildingOverlap(world.BuildingLodge, wx, wz) {
+		if w.BuildingOverlap(world.BuildingLodge, wx, wz, s.placeRotation) {
 			s.setToast("Can't place a lodge here — overlaps another building")
 			return
 		}
 		w.Cash -= world.LodgeCost
-		b := w.PlaceBuildingType(world.BuildingLodge, wx, wz)
+		b := placeBuilding(w, world.BuildingLodge, wx, wz, s.placeRotation)
 		s.sim.LogBuildingPlaced(b)
 		applyBuildingPlacementEffects(w.Terrain, b)
 		r.FlushTerrainVerts(w.Terrain)
@@ -2440,12 +2572,12 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 				world.TicketOfficeCost, world.TicketOfficeCost-w.Available()))
 			return
 		}
-		if w.BuildingOverlap(world.BuildingTicketOffice, wx, wz) {
+		if w.BuildingOverlap(world.BuildingTicketOffice, wx, wz, s.placeRotation) {
 			s.setToast("Can't place a ticket office here — overlaps another building")
 			return
 		}
 		w.Cash -= world.TicketOfficeCost
-		b := w.PlaceBuildingType(world.BuildingTicketOffice, wx, wz)
+		b := placeBuilding(w, world.BuildingTicketOffice, wx, wz, s.placeRotation)
 		s.sim.LogBuildingPlaced(b)
 		applyBuildingPlacementEffects(w.Terrain, b)
 		r.FlushTerrainVerts(w.Terrain)
@@ -2460,39 +2592,19 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 				world.ShedCost, world.ShedCost-w.Available()))
 			return
 		}
-		if w.BuildingOverlap(world.BuildingShed, wx, wz) {
+		if w.BuildingOverlap(world.BuildingShed, wx, wz, s.placeRotation) {
 			s.setToast("Can't place a shed here — overlaps another building")
 			return
 		}
 		w.Cash -= world.ShedCost
-		b := w.PlaceBuildingType(world.BuildingShed, wx, wz)
+		b := placeBuilding(w, world.BuildingShed, wx, wz, s.placeRotation)
 		s.sim.LogBuildingPlaced(b)
 		s.sim.InvalidateSections()
 		applyBuildingPlacementEffects(w.Terrain, b)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 	case toolParking:
-		if !w.Terrain.IsAccessible(gx, gz) {
-			s.setToast("Can't build on land you don't own")
-			return
-		}
-		if !w.CanAfford(world.ParkingCost) {
-			s.setToast(fmt.Sprintf("Need $%d for a parking lot — short by $%d",
-				world.ParkingCost, world.ParkingCost-w.Available()))
-			return
-		}
-		if w.BuildingOverlap(world.BuildingParking, wx, wz) {
-			s.setToast("Can't place a parking lot here — overlaps another building")
-			return
-		}
-		w.Cash -= world.ParkingCost
-		b := w.PlaceBuildingType(world.BuildingParking, wx, wz)
-		s.sim.LogBuildingPlaced(b)
-		w.EnsureParkingDriveway(b)
-		applyBuildingPlacementEffects(w.Terrain, b)
-		r.FlushTerrainVerts(w.Terrain)
-		r.RebuildStaticBatch(w)
-		r.RebuildRoads(w)
+		s.applyParkingPaint(gx, gz, s.parkingPaint.erase)
 	case toolPatrolHut:
 		if !w.Terrain.IsAccessible(gx, gz) {
 			s.setToast("Can't build on land you don't own")
@@ -2503,12 +2615,12 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 				world.PatrolHutCost, world.PatrolHutCost-w.Available()))
 			return
 		}
-		if w.BuildingOverlap(world.BuildingPatrolHut, wx, wz) {
+		if w.BuildingOverlap(world.BuildingPatrolHut, wx, wz, s.placeRotation) {
 			s.setToast("Can't place a patrol hut here — overlaps another building")
 			return
 		}
 		w.Cash -= world.PatrolHutCost
-		b := w.PlaceBuildingType(world.BuildingPatrolHut, wx, wz)
+		b := placeBuilding(w, world.BuildingPatrolHut, wx, wz, s.placeRotation)
 		s.sim.LogBuildingPlaced(b)
 		applyBuildingPlacementEffects(w.Terrain, b)
 		r.FlushTerrainVerts(w.Terrain)
@@ -2523,12 +2635,12 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 				world.SnowGunCost, world.SnowGunCost-w.Available()))
 			return
 		}
-		if w.BuildingOverlap(world.BuildingSnowGun, wx, wz) {
+		if w.BuildingOverlap(world.BuildingSnowGun, wx, wz, s.placeRotation) {
 			s.setToast("Can't place a snow gun here — overlaps another building")
 			return
 		}
 		w.Cash -= world.SnowGunCost
-		b := w.PlaceBuildingType(world.BuildingSnowGun, wx, wz)
+		b := placeBuilding(w, world.BuildingSnowGun, wx, wz, s.placeRotation)
 		s.sim.LogBuildingPlaced(b)
 		r.RebuildStaticBatch(w)
 	case toolBar:
@@ -2541,12 +2653,12 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 				world.BarCost, world.BarCost-w.Available()))
 			return
 		}
-		if w.BuildingOverlap(world.BuildingBar, wx, wz) {
+		if w.BuildingOverlap(world.BuildingBar, wx, wz, s.placeRotation) {
 			s.setToast("Can't place a bar here — overlaps another building")
 			return
 		}
 		w.Cash -= world.BarCost
-		b := w.PlaceBuildingType(world.BuildingBar, wx, wz)
+		b := placeBuilding(w, world.BuildingBar, wx, wz, s.placeRotation)
 		s.sim.LogBuildingPlaced(b)
 		applyBuildingPlacementEffects(w.Terrain, b)
 		r.FlushTerrainVerts(w.Terrain)
@@ -2722,7 +2834,6 @@ func (s *Scenario) finishTrailPaintStroke() {
 	s.sim.InvalidateSections()
 }
 
-
 // findBuilding returns the building with the given ID, or nil.
 func (s *Scenario) findBuilding(id uint64) *world.Building {
 	for _, b := range s.world.Buildings {
@@ -2771,6 +2882,9 @@ func (s *Scenario) removeAt(clickPos mgl32.Vec3, r *render.Renderer) {
 	w := s.world
 	pick := mgl32.Vec2{clickPos[0], clickPos[2]}
 	for _, b := range w.Buildings {
+		if b.IsCellLot() {
+			continue
+		}
 		if b.Pos.Sub(pick).Len() <= buildingPickRadius {
 			// Parking lots own a driveway road node + possibly incident
 			// edges; RemoveBuilding drops both, so the road mesh has to
@@ -2794,6 +2908,9 @@ func (s *Scenario) removeAt(clickPos mgl32.Vec3, r *render.Renderer) {
 			return
 		}
 	}
+	if lot := w.ParkingLotAt(int(pick[0]/world.CellSize), int(pick[1]/world.CellSize)); lot != nil {
+		s.deleteParkingLot(lot.ID)
+	}
 }
 
 func (s *Scenario) Render(r *render.Renderer) {
@@ -2804,6 +2921,10 @@ func (s *Scenario) Render(r *render.Renderer) {
 		gx, gz := s.hoverCell[0], s.hoverCell[1]
 		center := mgl32.Vec2{float32(gx)*cellSize + cellSize/2, float32(gz)*cellSize + cellSize/2}
 		r.SetBrush(center, (float32(s.gladeBrushRadius())+0.5)*cellSize)
+	case s.activeTool == toolParking && t.InBounds(s.hoverCell[0], s.hoverCell[1]):
+		gx, gz := s.hoverCell[0], s.hoverCell[1]
+		center := mgl32.Vec2{float32(gx)*cellSize + cellSize/2, float32(gz)*cellSize + cellSize/2}
+		r.SetBrush(center, (float32(parkingBrushRadius)+0.5)*cellSize)
 	default:
 		r.ClearBrush()
 	}
@@ -2834,6 +2955,7 @@ func (s *Scenario) Render(r *render.Renderer) {
 	}
 	s.applyPerceptionCone(r)
 	r.WeatherOverlay = int(s.sim.Weather.Today().State)
+	r.Lighting = render.SunLighting(s.sim.Sun().Dir, r.WeatherOverlay)
 	r.DrawWorld(s.world, s.time)
 	r.ClearBrush()
 	r.ClearRange()
@@ -3112,10 +3234,14 @@ func (s *Scenario) tryOpenPopup(clickPos mgl32.Vec3, screenW, screenH int) {
 		}
 	}
 	for _, b := range s.world.Buildings {
-		if b.Pos.Sub(pick).Len() <= buildingPickRadius {
+		if !b.IsCellLot() && b.Pos.Sub(pick).Len() <= buildingPickRadius {
 			s.openBuildingPopup(b, screenW, screenH)
 			return
 		}
+	}
+	if lot := s.world.ParkingLotAt(int(clickPos[0]/world.CellSize), int(clickPos[2]/world.CellSize)); lot != nil {
+		s.openBuildingPopup(lot, screenW, screenH)
+		return
 	}
 	cableHalfWidth2 := float32(liftPickRadius * liftPickRadius)
 	for _, lift := range s.world.Lifts {
@@ -3332,14 +3458,7 @@ func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 		s.popup = w
 		return
 	case world.BuildingParking:
-		w := ui.NewWindow("Parking Lot", 0, 0)
-		w.AddIntStepper("Day ticket ($)", &s.world.DayTicketPrice, 5, 0, 500)
-		w.AddLabel("Cars", func() string {
-			return fmt.Sprintf("%d / %d", int(bldg.CurrentCars), bldg.MaxCars)
-		})
-		w.Visible = true
-		w.Center(screenW, screenH)
-		s.popup = w
+		s.buildParkingPopup(bldg, false, screenW, screenH)
 		return
 	case world.BuildingSnowGun:
 		w := ui.NewWindow("Snow Gun", 0, 0)
@@ -3356,11 +3475,11 @@ func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 			if !bldg.SnowGunEnabled {
 				return "Off"
 			}
-			low := s.sim.Weather.Today().TempLow
-			if low <= world.SnowGunMinTempC {
-				return fmt.Sprintf("Producing snow (low %s)", settings.FormatTemp(low))
+			now := s.sim.TempNow()
+			if now <= world.SnowGunMinTempC {
+				return fmt.Sprintf("Producing snow (%s)", settings.FormatTemp(now))
 			}
-			return fmt.Sprintf("Too warm (low %s)", settings.FormatTemp(low))
+			return fmt.Sprintf("Too warm (%s; needs %s)", settings.FormatTemp(now), settings.FormatTemp(world.SnowGunMinTempC))
 		})
 		w.Visible = true
 		w.Center(screenW, screenH)
@@ -3384,6 +3503,15 @@ func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 			s.sim.SetResortOpen(!s.world.ResortOpen)
 			s.openBuildingPopup(bldg, screenW, screenH)
 		})
+		const hourStep, minOpenSpan = 0.5, 2
+		w.AddIntStepperFn("Lifts open",
+			func() string { return settings.FormatClock(float64(s.world.OpenHour)) },
+			func() { s.world.OpenHour = max(s.world.OpenHour-hourStep, 5) },
+			func() { s.world.OpenHour = min(s.world.OpenHour+hourStep, s.world.CloseHour-minOpenSpan) })
+		w.AddIntStepperFn("Lifts close",
+			func() string { return settings.FormatClock(float64(s.world.CloseHour)) },
+			func() { s.world.CloseHour = max(s.world.CloseHour-hourStep, s.world.OpenHour+minOpenSpan) },
+			func() { s.world.CloseHour = min(s.world.CloseHour+hourStep, 23) })
 		for _, l := range s.world.Lifts {
 			l := l
 			w.AddLabel(l.Name+" base", func() string { return liftBaseSnowText(s.world, l) })
@@ -3472,6 +3600,32 @@ func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 	default:
 		panic(fmt.Sprintf("openBuildingPopup: unhandled building type %d", bldg.Type))
 	}
+}
+
+// buildParkingPopup builds (or rebuilds) the parking lot popup.
+// confirmDelete true swaps the Delete button for Confirm / Cancel, as the
+// trail popup does for Clear.
+func (s *Scenario) buildParkingPopup(lot *world.Building, confirmDelete bool, screenW, screenH int) {
+	w := ui.NewWindow("Parking Lot", 0, 0)
+	w.AddIntStepper("Parking ($/car)", &s.world.ParkingPrice, 5, 0, 200)
+	w.AddLabel("Cars", func() string {
+		return fmt.Sprintf("%d / %d", int(lot.CurrentCars), lot.MaxCars)
+	})
+	w.AddLabel("Area", func() string {
+		return fmt.Sprintf("%d cells", len(lot.Cells))
+	})
+	w.AddActionButton("Add area", func() { s.activateParkingTool(lot.ID, false) })
+	w.AddActionButton("Remove area", func() { s.activateParkingTool(lot.ID, true) })
+	if confirmDelete {
+		w.AddLabel("Confirm", func() string { return "Delete this lot?" })
+		w.AddActionButton("Confirm", func() { s.deleteParkingLot(lot.ID) })
+		w.AddActionButton("Cancel", func() { s.buildParkingPopup(lot, false, screenW, screenH) })
+	} else {
+		w.AddActionButton("Delete lot", func() { s.buildParkingPopup(lot, true, screenW, screenH) })
+	}
+	w.Visible = true
+	w.Center(screenW, screenH)
+	s.popup = w
 }
 
 // liftBaseSnowText is the ticket office's "is there enough snow?" readout
@@ -3805,6 +3959,9 @@ func (s *Scenario) setTool(t toolMode) {
 		s.activeTool = toolNone
 	} else {
 		s.activeTool = t
+		if isBuildingPlacementTool(t) {
+			s.setToast("R to rotate (Shift+R: 15°)")
+		}
 	}
 	// Activating any tool ends a toolNone-level edit session so the
 	// selection markers disappear and any in-flight drag is dropped.
@@ -3848,8 +4005,88 @@ func (s *Scenario) cancelTool() {
 		s.lastTrailPaintCell = [2]int{-1, -1}
 		s.trailEraseMode = false
 	}
+	if s.activeTool == toolParking {
+		s.parkingPaint.finishStroke(s.app.Renderer, s.world)
+		s.parkingPaint.start(0, false)
+	}
 	s.activeTool = toolNone
 	s.syncToolButtons()
+}
+
+// activateParkingTool enters parking-paint mode. lotID 0 starts a new lot
+// on the first stroke; a lot ID edits that lot (erase selects remove
+// mode). Re-clicking the toolbar button while painting ends the session.
+func (s *Scenario) activateParkingTool(lotID uint64, erase bool) {
+	if s.activeTool == toolParking && lotID == 0 {
+		s.cancelTool()
+		return
+	}
+	if s.activeTool != toolNone {
+		s.cancelTool()
+	}
+	s.roadEdit.clear()
+	s.structureEdit.clear()
+	s.parkingPaint.start(lotID, erase)
+	s.activeTool = toolParking
+	s.syncToolButtons()
+	if s.popup != nil {
+		s.popup.Visible = false
+	}
+	if erase {
+		s.setToast("Drag to remove parking. Esc to finish.")
+	} else {
+		s.setToast(fmt.Sprintf("Drag to paint parking ($%d per cell). Right-drag to erase. Esc to finish.", world.ParkingCostPerCell))
+	}
+}
+
+// applyParkingPaint runs one brush application of the parking tool at
+// (gx, gz). New cells must be on owned land and are charged per cell.
+func (s *Scenario) applyParkingPaint(gx, gz int, erase bool) {
+	w := s.world
+	p := &s.parkingPaint
+	p.lastCell = [2]int{gx, gz}
+	if erase {
+		p.eraseAt(w, gx, gz, parkingBrushRadius)
+		return
+	}
+	cells := p.addableCells(w, gx, gz, parkingBrushRadius, func(c [2]int) bool {
+		return w.Terrain.IsAccessible(c[0], c[1])
+	})
+	if len(cells) == 0 {
+		return
+	}
+	cost := len(cells) * world.ParkingCostPerCell
+	if !w.CanAfford(cost) {
+		s.setToast(fmt.Sprintf("Need $%d for more parking — short by $%d", cost, cost-w.Available()))
+		return
+	}
+	w.Cash -= cost
+	if lot := p.paint(w, cells); lot != nil {
+		s.sim.LogBuildingPlaced(lot)
+	}
+}
+
+// deleteParkingLot tears down a lot and sends any guest whose plan runs
+// through it back to the planner.
+func (s *Scenario) deleteParkingLot(id uint64) {
+	for _, a := range s.world.OnMountain {
+		if a.TargetID == id {
+			a.TargetID = 0
+		}
+		for _, step := range a.Plan.Steps {
+			if step.BldgID == id {
+				a.Plan.Steps = nil
+				break
+			}
+		}
+	}
+	deleteParkingLot(s.app.Renderer, s.world, id)
+	if s.selectedBuildingID == id {
+		s.selectedBuildingID = 0
+	}
+	if s.popup != nil {
+		s.popup.Visible = false
+	}
 }
 
 // barsContain reports whether a screen Y is inside either the top HUD bar
@@ -3943,6 +4180,7 @@ type placementGhostState struct {
 	liftBase   mgl32.Vec2     // first-click position for the two-step lift placement (toolLiftTop only)
 	liftType   world.LiftType // which lift variant is being placed (for ghost style selection)
 	roadStart  mgl32.Vec2     // first-click position for the two-step road placement (toolRoadEnd only)
+	rotation   float32        // building placement rotation (radians about Y)
 	tint       [3]float32     // colour multiplier for the ghost — typically affordable / unaffordable
 }
 
@@ -3964,29 +4202,34 @@ func updatePlacementGhost(r *render.Renderer, t *world.Terrain, st placementGhos
 	}
 
 	switch st.activeTool {
-	case toolBuilding, toolTicketOffice:
+	case toolBuilding:
 		r.SetGhosts(render.MeshBuilding, []render.StaticInstance{
-			buildingInstance(st.hoverPos, t, st.tint),
+			buildingInstance(st.hoverPos, st.rotation, t, st.tint),
+		})
+
+	case toolTicketOffice:
+		r.SetGhosts(render.MeshTicketOffice, []render.StaticInstance{
+			buildingInstance(st.hoverPos, st.rotation, t, st.tint),
 		})
 
 	case toolShed:
 		r.SetGhosts(render.MeshShed, []render.StaticInstance{
-			buildingInstance(st.hoverPos, t, st.tint),
+			buildingInstance(st.hoverPos, st.rotation, t, st.tint),
 		})
 
 	case toolPatrolHut:
 		r.SetGhosts(render.MeshShed, []render.StaticInstance{
-			buildingInstance(st.hoverPos, t, st.tint),
+			buildingInstance(st.hoverPos, st.rotation, t, st.tint),
 		})
 
 	case toolSnowGun:
 		r.SetGhosts(render.MeshSnowGun, []render.StaticInstance{
-			buildingInstance(st.hoverPos, t, st.tint),
+			buildingInstance(st.hoverPos, st.rotation, t, st.tint),
 		})
 
-	case toolParking:
-		r.SetGhosts(render.MeshParkingPad, []render.StaticInstance{
-			buildingInstance(st.hoverPos, t, st.tint),
+	case toolBar:
+		r.SetGhosts(render.MeshBar, []render.StaticInstance{
+			buildingInstance(st.hoverPos, st.rotation, t, st.tint),
 		})
 
 	case toolLiftBase:
@@ -4073,22 +4316,22 @@ func (s *Scenario) placementCost() (cost int, affordable, legal, valid bool) {
 	switch s.activeTool {
 	case toolBuilding:
 		cost = world.LodgeCost
-		legal = cellOwned && !s.world.BuildingOverlap(world.BuildingLodge, pos[0], pos[1])
+		legal = cellOwned && !s.world.BuildingOverlap(world.BuildingLodge, pos[0], pos[1], s.placeRotation)
 	case toolTicketOffice:
 		cost = world.TicketOfficeCost
-		legal = cellOwned && !s.world.BuildingOverlap(world.BuildingTicketOffice, pos[0], pos[1])
+		legal = cellOwned && !s.world.BuildingOverlap(world.BuildingTicketOffice, pos[0], pos[1], s.placeRotation)
 	case toolShed:
 		cost = world.ShedCost
-		legal = cellOwned && !s.world.BuildingOverlap(world.BuildingShed, pos[0], pos[1])
+		legal = cellOwned && !s.world.BuildingOverlap(world.BuildingShed, pos[0], pos[1], s.placeRotation)
 	case toolPatrolHut:
 		cost = world.PatrolHutCost
-		legal = cellOwned && !s.world.BuildingOverlap(world.BuildingPatrolHut, pos[0], pos[1])
+		legal = cellOwned && !s.world.BuildingOverlap(world.BuildingPatrolHut, pos[0], pos[1], s.placeRotation)
 	case toolSnowGun:
 		cost = world.SnowGunCost
-		legal = cellOwned && !s.world.BuildingOverlap(world.BuildingSnowGun, pos[0], pos[1])
-	case toolParking:
-		cost = world.ParkingCost
-		legal = cellOwned && !s.world.BuildingOverlap(world.BuildingParking, pos[0], pos[1])
+		legal = cellOwned && !s.world.BuildingOverlap(world.BuildingSnowGun, pos[0], pos[1], s.placeRotation)
+	case toolBar:
+		cost = world.BarCost
+		legal = cellOwned && !s.world.BuildingOverlap(world.BuildingBar, pos[0], pos[1], s.placeRotation)
 	case toolLiftBase:
 		if s.liftType == world.LiftHeli {
 			cost = world.HelipadCost / 2
@@ -4159,10 +4402,9 @@ func helipadInstance(pos, otherEnd mgl32.Vec2, t *world.Terrain, tint [3]float32
 }
 
 // buildingInstance wraps render.BuildingTransform into a StaticInstance
-// for the ghost-preview path. New buildings have rotation 0 by default;
-// once a placement-rotation control exists, route it through here.
-func buildingInstance(pos mgl32.Vec2, t *world.Terrain, tint [3]float32) render.StaticInstance {
-	m := render.BuildingTransform(pos, 0, t)
+// for the ghost-preview path.
+func buildingInstance(pos mgl32.Vec2, rotation float32, t *world.Terrain, tint [3]float32) render.StaticInstance {
+	m := render.BuildingTransform(pos, rotation, t)
 	inst := render.StaticInstance{ColorTint: tint}
 	copy(inst.Transform[:], m[:])
 	return inst
@@ -4550,7 +4792,7 @@ func (p *terrainInspectPanel) Draw(r *render.Renderer) {
 // snowLayerTooltip renders a hover tooltip showing the two-layer snow state for
 // the cell under the cursor when the Snow overlay is active.
 type snowLayerTooltip struct {
-	base    float32      // KindBase SWE (metres)
+	base    float32 // KindBase SWE (metres)
 	top     world.SnowLayer
 	mouseX  float32
 	mouseY  float32
@@ -4955,12 +5197,12 @@ func (s *Scenario) setToast(text string) {
 // OK / Cancel buttons; the parent Scenario routes input to it whenever
 // non-nil and draws it as the topmost UI element.
 type savePrompt struct {
-	title    string // heading; "Save As" unless the caller sets it
-	input    *ui.TextInput
-	okBtn    *ui.Button
+	title     string // heading; "Save As" unless the caller sets it
+	input     *ui.TextInput
+	okBtn     *ui.Button
 	cancelBtn *ui.Button
-	onSubmit func(string)
-	onCancel func()
+	onSubmit  func(string)
+	onCancel  func()
 }
 
 func newSavePrompt(initial string, onSubmit func(string), onCancel func()) *savePrompt {

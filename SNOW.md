@@ -138,13 +138,18 @@ Key patterns:
 
 ### Melt
 
-On days with locally positive temperature (after lapse-rate adjustment), `Top` loses SWE:
+Melt is an enhanced temperature-index model (`sim/snowmelt.go`), run once per clock hour (`Simulation.meltHour`) on non-snow days. Each hour, every cell loses:
 
 ```
-meltSWE = 0.02 m/°C/day × effectiveTempC
+meltSWE = (0.0015 + 0.0035 × sunExposure) m/°C·day × max(0, T)/24  +  rain share of 0.00025 m/mm × RainMM
 ```
 
-Rain days add `0.001 m SWE / mm` of rainfall. When `Top` is fully melted, `Base` is promoted to `Top` (clearing Grooming and MogulSize), and any remaining melt budget continues consuming the promoted layer. When both are exhausted, bare ground is exposed.
+- **T** is the hour's air temperature from the daily curve (low at sunrise, high at 14:30), lapse-adjusted for the cell's elevation, so a −3 °C clear day peaking at +2 °C still melts a little in the afternoon — and only then.
+- **sunExposure** is the current clear-sky direct beam on the cell's slope and aspect (the sun's real position at 45°N, air-mass attenuated), normalised so a flat cell at the equinox averages 1 over the day, and cut by up to 85% under cloud. It is 0 at night. Terrain shadowing is ignored.
+- Cells that melt mark the snow mesh dirty, so warm afternoons rebuild terrain every clock hour.
+- The resulting melt factor spans ~1.5 mm/°C·day on a December north face to ~8 mm on an April south face, matching field values for seasonal snow.
+
+Typical outcome over a simulated season: a resort that opens by Dec 10 melts out before January about 1% of the time on flat ground (7% on steep south faces, 0% on north faces), and by mid-April south faces hold a third of the north faces' snow. When `Top` is fully melted, `Base` is promoted to `Top` (clearing Grooming and MogulSize), and any remaining melt budget continues consuming the promoted layer. When both are exhausted, bare ground is exposed.
 
 ---
 

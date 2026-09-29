@@ -17,70 +17,75 @@ import (
 
 // Editor is the scenario editor scene (no simulation).
 type Editor struct {
-	app               *engine.App
-	world             *world.World
-	menuBar           *ui.MenuBar
-	topBar            *ui.TopBar       // editor-mode bar: just overlay + settings buttons
-	overlayPanel      *ui.OverlayPanel // right-edge terrain-overlay toggles
-	escapeMenu        *EscapeMenu
-	settingsMenu      *SettingsMenu
-	toolButtons       map[toolMode]*ui.Button
+	app          *engine.App
+	world        *world.World
+	menuBar      *ui.MenuBar
+	topBar       *ui.TopBar       // editor-mode bar: just overlay + settings buttons
+	overlayPanel *ui.OverlayPanel // right-edge terrain-overlay toggles
+	escapeMenu   *EscapeMenu
+	settingsMenu *SettingsMenu
+	toolButtons  map[toolMode]*ui.Button
 	// Submenu groups
 	buildingsSubmenu *ui.SubmenuButton
 	transportSubmenu *ui.SubmenuButton
 	liftsSubmenu     *ui.SubmenuButton
 	terrainSubmenu   *ui.SubmenuButton
 	// Lift variant buttons (outside toolButtons — multiple share toolLiftBase/Top)
-	liftDoubleBtn  *ui.Button
-	liftQuadBtn    *ui.Button
-	liftHSQuadBtn  *ui.Button
-	liftHS6PackBtn *ui.Button
-	liftGondolaBtn *ui.Button
-	liftHeliBtn    *ui.Button
-	liftType       world.LiftType
-	activeTool     toolMode
-	scenarioPath   string // open file; "" for a blank scenario not yet saved
-	dirty          bool   // unsaved edits since load / last save (coarse)
-	time           float32 // editor wall time (s), drives toast expiry
-	toastText      string
-	toastExpiry    float32
-	savePrompt     *savePrompt
-	confirmPrompt  *confirmPrompt
+	liftDoubleBtn    *ui.Button
+	liftQuadBtn      *ui.Button
+	liftHSQuadBtn    *ui.Button
+	liftHS6PackBtn   *ui.Button
+	liftGondolaBtn   *ui.Button
+	liftHeliBtn      *ui.Button
+	liftType         world.LiftType
+	activeTool       toolMode
+	scenarioPath     string  // open file; "" for a blank scenario not yet saved
+	dirty            bool    // unsaved edits since load / last save (coarse)
+	time             float32 // editor wall time (s), drives toast expiry
+	toastText        string
+	toastExpiry      float32
+	savePrompt       *savePrompt
+	confirmPrompt    *confirmPrompt
 	hoverCell        [2]int
 	hoverWorld       mgl32.Vec3
 	hoverMouseScreen mgl32.Vec2
 	hoverValid       bool
-	radiusSlider  *ui.VSlider // shown for any brush tool
-	densitySlider *ui.VSlider // plant tool only
+	radiusSlider     *ui.VSlider // shown for any brush tool
+	densitySlider    *ui.VSlider // plant tool only
 	// Parcel rect-selection state
-	parcelRectStart  [2]int
-	parcelRectActive bool
-	parcelRectIntent parcelRectIntent
-	parcelEditID     uint16      // ID of parcel being modified via rect or popup
-	parcelPopup      *ui.Window
-	autoMaxSlider      *ui.VSlider
-	autoSnowlineSlider *ui.VSlider
-	autoTreelineSlider *ui.VSlider
-	autoCoverageSlider *ui.VSlider
-	autoWindSlider     *ui.VSlider
-	autoSeed           int64
-	autoFields         *elevFields
-	liftBase           mgl32.Vec2
-	roadStart          mgl32.Vec2
-	roadEdit           roadEditSelection
-	structureEdit      structureEditSelection
-	addStormBtn        *ui.Button
-	startDate          *startDatePanel
-	clearLayersBtn     *ui.Button
-	parcelBoundaryDirty        bool // fence geometry needs rebuild
-	suppressBrushUntilRelease  bool // set when a brush tool is activated via toolbar click; cleared on mouse-up
-	pendingScreenshot          bool
+	parcelRectStart           [2]int
+	parcelRectActive          bool
+	parcelRectIntent          parcelRectIntent
+	parcelEditID              uint16 // ID of parcel being modified via rect or popup
+	parcelPopup               *ui.Window
+	lotPopup                  *ui.Window // parking lot opened by clicking it with no tool
+	parkingPaint              parkingPaint
+	placeRotation             float32 // rotation for the next building placed (R / Shift+R)
+	autoMaxSlider             *ui.VSlider
+	autoSnowlineSlider        *ui.VSlider
+	autoTreelineSlider        *ui.VSlider
+	autoCoverageSlider        *ui.VSlider
+	autoWindSlider            *ui.VSlider
+	autoSeed                  int64
+	autoFields                *elevFields
+	liftBase                  mgl32.Vec2
+	roadStart                 mgl32.Vec2
+	roadEdit                  roadEditSelection
+	structureEdit             structureEditSelection
+	addStormBtn               *ui.Button
+	startDate                 *startDatePanel
+	clearLayersBtn            *ui.Button
+	parcelBoundaryDirty       bool // fence geometry needs rebuild
+	suppressBrushUntilRelease bool // set when a brush tool is activated via toolbar click; cleared on mouse-up
+	pendingScreenshot         bool
 }
 
 // NewEditor creates an Editor scene loading from the given path. An empty
 // path starts a blank scenario with no file until the first Save.
 func NewEditor(path string) *Editor {
-	return &Editor{scenarioPath: path}
+	e := &Editor{scenarioPath: path}
+	e.parkingPaint.start(0, false)
+	return e
 }
 
 func (e *Editor) Init(app *engine.App) error {
@@ -138,6 +143,7 @@ func (e *Editor) Init(app *engine.App) error {
 	e.buildingsSubmenu = e.menuBar.AddSubmenu(render.IconHouse, "Buildings")
 	e.toolButtons[toolBuilding] = e.buildingsSubmenu.AddChild(render.IconHouse, "Lodge", func() { e.setTool(toolBuilding) })
 	e.toolButtons[toolShed] = e.buildingsSubmenu.AddChild(render.IconGarage, "Shed", func() { e.setTool(toolShed) })
+	e.toolButtons[toolTicketOffice] = e.buildingsSubmenu.AddChild(render.IconCoin, "Tickets", func() { e.setTool(toolTicketOffice) })
 
 	// Transport submenu: Parking, Road, Edge Connect
 	e.transportSubmenu = e.menuBar.AddSubmenu(render.IconRoad, "Transport")
@@ -202,6 +208,8 @@ func (e *Editor) Init(app *engine.App) error {
 		})
 
 	e.overlayPanel = ui.NewOverlayPanel()
+	e.overlayPanel.AddRow(render.OverlayParcels, "Parcels", render.IconGlobe,
+		mgl32.Vec4{0.95, 0.75, 0.30, 1})
 	e.overlayPanel.Top = topBarH
 	e.overlayPanel.Bottom = float32(app.Renderer.ScreenHeight()) - e.menuBar.H
 	e.topBar.SetOverlayToggle(func() {
@@ -295,7 +303,10 @@ func (e *Editor) Update(dt float64) {
 		case e.activeTool == toolParcelRect && e.parcelRectActive:
 			// Cancel the in-progress selection but stay in the tool.
 			e.parcelRectActive = false
+		case e.lotPopup != nil && e.lotPopup.Visible:
+			e.lotPopup.Visible = false
 		case e.activeTool != toolNone:
+			e.endParkingSession(r)
 			e.activeTool = toolNone
 			e.parcelRectActive = false
 			e.syncToolButtons()
@@ -303,7 +314,7 @@ func (e *Editor) Update(dt float64) {
 			e.escapeMenu.Toggle()
 		}
 	}
-	if (inp.Pressed[glfw.KeyDelete] || inp.Pressed[glfw.KeyBackspace]) {
+	if inp.Pressed[glfw.KeyDelete] || inp.Pressed[glfw.KeyBackspace] {
 		switch {
 		case e.roadEdit.active():
 			deleteSelectedRoad(r, e.world, &e.roadEdit)
@@ -313,6 +324,22 @@ func (e *Editor) Update(dt float64) {
 			deleteSelectedStructure(r, e.world, &e.structureEdit)
 			e.autoFields = nil
 			e.markDirty()
+		}
+	}
+	// R / Shift+R: turn the building about to be placed, or the selected one.
+	if delta := rotateKeyDelta(inp); delta != 0 {
+		switch {
+		case isBuildingPlacementTool(e.activeTool):
+			e.placeRotation = stepRotation(e.placeRotation, delta)
+			e.setToast("Rotation " + rotationDegrees(e.placeRotation))
+		case e.activeTool == toolNone && e.structureEdit.building != nil:
+			if rotateSelectedBuilding(r, e.world, &e.structureEdit, delta) {
+				e.autoFields = nil
+				e.markDirty()
+				e.setToast("Rotation " + rotationDegrees(e.structureEdit.building.Rotation))
+			} else {
+				e.setToast("Can't rotate here — overlaps another building")
+			}
 		}
 	}
 	if e.settingsMenu.Visible() {
@@ -332,6 +359,12 @@ func (e *Editor) Update(dt float64) {
 		if inp.Pressed[glfw.KeyEscape] {
 			e.parcelPopup.Visible = false
 		}
+	}
+	if e.lotPopup != nil && e.lotPopup.Visible {
+		if inp.LeftClick && e.lotPopup.ContainsPoint(inp.MousePos[0], inp.MousePos[1]) {
+			e.markDirty()
+		}
+		e.lotPopup.HandleInput(inp)
 	}
 
 	// C: toggle the contour overlay via the panel so the hotkey and the
@@ -481,7 +514,9 @@ func (e *Editor) Update(dt float64) {
 	// tools. Both gated by the same on-chrome check so hovers over the
 	// top bar / menu bar / overlay panel don't paint a ghost into the world.
 	popupCoversClick := e.parcelPopup != nil && e.parcelPopup.Visible &&
-		e.parcelPopup.ContainsPoint(inp.MousePos[0], inp.MousePos[1])
+		e.parcelPopup.ContainsPoint(inp.MousePos[0], inp.MousePos[1]) ||
+		e.lotPopup != nil && e.lotPopup.Visible &&
+			e.lotPopup.ContainsPoint(inp.MousePos[0], inp.MousePos[1])
 	overChrome := e.menuBar.ContainsY(inp.MousePos[1]) ||
 		e.topBar.ContainsY(inp.MousePos[1]) ||
 		e.startDate.Contains(inp.MousePos[0], inp.MousePos[1]) ||
@@ -512,6 +547,7 @@ func (e *Editor) Update(dt float64) {
 		liftBase:   e.liftBase,
 		liftType:   e.liftType,
 		roadStart:  e.roadStart,
+		rotation:   e.placeRotation,
 		tint:       ghostTint(true, e.placementLegal()),
 	})
 	// Editor mirrors the scenario's node-highlight behaviour while a
@@ -534,6 +570,9 @@ func (e *Editor) Update(dt float64) {
 	// Clear the suppress flag once the mouse button is fully released.
 	if !inp.LeftClick && !inp.LeftHeld {
 		e.suppressBrushUntilRelease = false
+		if e.activeTool == toolParking && e.parkingPaint.lastCell != [2]int{-1, -1} {
+			e.finishParkingStroke(r)
+		}
 	}
 
 	if !sliderActive && !overChrome && !inp.LeftClickConsumed && !e.suppressBrushUntilRelease {
@@ -603,7 +642,11 @@ func (e *Editor) handleToolNoneMouse(r *render.Renderer, leftClick, leftHeld boo
 			e.structureEdit.clear()
 		} else if tryStartStructureEdit(e.world, pos, &e.structureEdit) {
 			e.roadEdit.clear()
-		} else if p := e.world.ParcelAt(e.hoverCell[0], e.hoverCell[1]); p != nil {
+		} else if lot := e.world.ParkingLotAt(e.hoverCell[0], e.hoverCell[1]); lot != nil {
+			e.roadEdit.clear()
+			e.structureEdit.clear()
+			e.openLotPopup(lot.ID, false, r.ScreenWidth(), r.ScreenHeight())
+		} else if p := e.world.ParcelAt(e.hoverCell[0], e.hoverCell[1]); p != nil && e.showParcels() {
 			e.roadEdit.clear()
 			e.structureEdit.clear()
 			e.openParcelPopup(p.ID, r.ScreenWidth(), r.ScreenHeight())
@@ -622,7 +665,7 @@ func (e *Editor) handleToolNoneMouse(r *render.Renderer, leftClick, leftHeld boo
 // or lift placement (click to commit) rather than a held brush.
 func (e *Editor) isPlacementTool() bool {
 	switch e.activeTool {
-	case toolBuilding, toolShed, toolParking, toolLiftBase, toolLiftTop, toolRoadStart, toolRoadEnd, toolEdgeConnect, toolRemove, toolParcelRect:
+	case toolBuilding, toolShed, toolTicketOffice, toolLiftBase, toolLiftTop, toolRoadStart, toolRoadEnd, toolEdgeConnect, toolRemove, toolParcelRect:
 		return true
 	}
 	return false
@@ -638,11 +681,11 @@ func (e *Editor) placementLegal() bool {
 	wx, wz := e.hoverWorld[0], e.hoverWorld[2]
 	switch e.activeTool {
 	case toolBuilding:
-		return !e.world.BuildingOverlap(world.BuildingLodge, wx, wz)
+		return !e.world.BuildingOverlap(world.BuildingLodge, wx, wz, e.placeRotation)
 	case toolShed:
-		return !e.world.BuildingOverlap(world.BuildingShed, wx, wz)
-	case toolParking:
-		return !e.world.BuildingOverlap(world.BuildingParking, wx, wz)
+		return !e.world.BuildingOverlap(world.BuildingShed, wx, wz, e.placeRotation)
+	case toolTicketOffice:
+		return !e.world.BuildingOverlap(world.BuildingTicketOffice, wx, wz, e.placeRotation)
 	case toolEdgeConnect:
 		_, _, ok := projectToMapEdge(e.world.Terrain, mgl32.Vec2{wx, wz}, edgeConnectTolerance)
 		return ok
@@ -660,33 +703,31 @@ func (e *Editor) applyPlacement(r *render.Renderer, shiftHeld bool) {
 	wz := e.hoverWorld[2]
 	switch e.activeTool {
 	case toolBuilding:
-		if w.BuildingOverlap(world.BuildingLodge, wx, wz) {
+		if w.BuildingOverlap(world.BuildingLodge, wx, wz, e.placeRotation) {
 			return
 		}
-		b := w.PlaceBuildingType(world.BuildingLodge, wx, wz)
+		b := placeBuilding(w, world.BuildingLodge, wx, wz, e.placeRotation)
 		applyBuildingPlacementEffects(w.Terrain, b)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 		e.autoFields = nil
 	case toolShed:
-		if w.BuildingOverlap(world.BuildingShed, wx, wz) {
+		if w.BuildingOverlap(world.BuildingShed, wx, wz, e.placeRotation) {
 			return
 		}
-		b := w.PlaceBuildingType(world.BuildingShed, wx, wz)
+		b := placeBuilding(w, world.BuildingShed, wx, wz, e.placeRotation)
 		applyBuildingPlacementEffects(w.Terrain, b)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 		e.autoFields = nil
-	case toolParking:
-		if w.BuildingOverlap(world.BuildingParking, wx, wz) {
+	case toolTicketOffice:
+		if w.BuildingOverlap(world.BuildingTicketOffice, wx, wz, e.placeRotation) {
 			return
 		}
-		b := w.PlaceBuildingType(world.BuildingParking, wx, wz)
-		w.EnsureParkingDriveway(b)
+		b := placeBuilding(w, world.BuildingTicketOffice, wx, wz, e.placeRotation)
 		applyBuildingPlacementEffects(w.Terrain, b)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
-		r.RebuildRoads(w)
 		e.autoFields = nil
 	case toolLiftBase:
 		e.liftBase = mgl32.Vec2{wx, wz}
@@ -751,7 +792,7 @@ func (e *Editor) applyPlacement(r *render.Renderer, shiftHeld bool) {
 	case toolRemove:
 		pick := mgl32.Vec2{wx, wz}
 		for _, b := range w.Buildings {
-			if b.Pos.Sub(pick).Len() <= buildingPickRadius {
+			if !b.IsCellLot() && b.Pos.Sub(pick).Len() <= buildingPickRadius {
 				wasParking := b.Type == world.BuildingParking
 				w.RemoveBuilding(b.ID)
 				r.FlushTerrainVerts(w.Terrain)
@@ -761,6 +802,9 @@ func (e *Editor) applyPlacement(r *render.Renderer, shiftHeld bool) {
 				}
 				return
 			}
+		}
+		if lot := w.ParkingLotAt(e.hoverCell[0], e.hoverCell[1]); lot != nil {
+			e.deleteLot(r, lot.ID)
 		}
 	case toolParcelRect:
 		gx, gz := e.hoverCell[0], e.hoverCell[1]
@@ -798,6 +842,9 @@ func (e *Editor) applyPlacement(r *render.Renderer, shiftHeld bool) {
 // so the player sees the result of the current slider values immediately.
 func (e *Editor) setTool(t toolMode) {
 	prev := e.activeTool
+	if e.app != nil && e.app.Renderer != nil {
+		e.endParkingSession(e.app.Renderer)
+	}
 	isActive := e.activeTool == t ||
 		(t == toolLiftBase && e.activeTool == toolLiftTop) ||
 		(t == toolRoadStart && e.activeTool == toolRoadEnd)
@@ -807,6 +854,9 @@ func (e *Editor) setTool(t toolMode) {
 	} else {
 		e.activeTool = t
 		e.suppressBrushUntilRelease = true
+		if isBuildingPlacementTool(t) {
+			e.setToast("R to rotate (Shift+R: 15°)")
+		}
 	}
 	// Activating any tool ends a toolNone-level edit session — the
 	// selection markers should disappear and a half-finished drag must
@@ -918,9 +968,13 @@ func (e *Editor) regenerateAuto() {
 	)
 	// Re-stamp clearances that generateTreeCover would otherwise overwrite.
 	for _, b := range e.world.Buildings {
+		if b.IsCellLot() {
+			continue
+		}
 		halfX, halfZ := buildingFootprint(b.Type)
-		clearBuildingTrees(e.world.Terrain, b.Pos, halfX, halfZ)
+		clearBuildingTrees(e.world.Terrain, b.Pos, halfX, halfZ, b.Rotation)
 	}
+	replowParkingLots(e.world)
 	for _, lift := range e.world.Lifts {
 		clearLiftCorridor(e.world.Terrain, lift.Base, lift.Top, liftCorridorHalfWidth)
 	}
@@ -1005,7 +1059,7 @@ func (e *Editor) brushRadius() int {
 // toolUsesRadiusSlider reports whether the radius slider is relevant for
 // the active tool.
 func (e *Editor) toolUsesRadiusSlider() bool {
-	return e.activeTool == toolPlantTrees || e.activeTool == toolGlade
+	return e.activeTool == toolPlantTrees || e.activeTool == toolGlade || e.activeTool == toolParking
 }
 
 // toolUsesDensitySlider reports whether the density slider is relevant for
@@ -1019,6 +1073,17 @@ func (e *Editor) applyEditorTool(gx, gz int, r *render.Renderer, dt float32) {
 	e.markDirty()
 	w := e.world
 	switch e.activeTool {
+	case toolParking:
+		p := &e.parkingPaint
+		if p.lastCell == [2]int{gx, gz} {
+			return
+		}
+		p.lastCell = [2]int{gx, gz}
+		if p.erase {
+			p.eraseAt(w, gx, gz, e.brushRadius())
+		} else {
+			p.paint(w, p.addableCells(w, gx, gz, e.brushRadius(), nil))
+		}
 	case toolPlantTrees:
 		target := e.densitySlider.Value / 100
 		applyDensityBrushUpTo(w.Terrain, gx, gz, e.brushRadius(), 0.3, target)
@@ -1459,6 +1524,86 @@ func (e *Editor) openParcelPopup(id uint16, screenW, screenH int) {
 	e.parcelPopup = win
 }
 
+// finishParkingStroke commits the parking stroke that just ended.
+func (e *Editor) finishParkingStroke(r *render.Renderer) {
+	if e.parkingPaint.dirty {
+		e.markDirty()
+		e.autoFields = nil // grading moved ground
+	}
+	e.parkingPaint.finishStroke(r, e.world)
+}
+
+// endParkingSession commits any open stroke and forgets the lot being
+// edited, so the next Parking activation starts a fresh lot.
+func (e *Editor) endParkingSession(r *render.Renderer) {
+	if e.activeTool != toolParking {
+		return
+	}
+	e.finishParkingStroke(r)
+	e.parkingPaint.start(0, false)
+}
+
+// activateParkingTool enters the parking brush editing lot id (erase
+// selects remove mode).
+func (e *Editor) activateParkingTool(id uint64, erase bool) {
+	if e.activeTool != toolParking {
+		e.setTool(toolParking)
+	}
+	e.parkingPaint.start(id, erase)
+	if e.lotPopup != nil {
+		e.lotPopup.Visible = false
+	}
+}
+
+// deleteLot removes a parking lot and closes its popup.
+func (e *Editor) deleteLot(r *render.Renderer, id uint64) {
+	deleteParkingLot(r, e.world, id)
+	e.markDirty()
+	if e.lotPopup != nil {
+		e.lotPopup.Visible = false
+	}
+}
+
+// openLotPopup shows the editor's parking lot popup. confirmDelete swaps
+// the Delete button for Confirm / Cancel.
+func (e *Editor) openLotPopup(id uint64, confirmDelete bool, screenW, screenH int) {
+	lot := func() *world.Building {
+		for _, b := range e.world.Buildings {
+			if b.ID == id {
+				return b
+			}
+		}
+		return nil
+	}
+	if e.parcelPopup != nil {
+		e.parcelPopup.Visible = false
+	}
+	win := ui.NewWindow("Parking Lot", 0, 0)
+	win.AddLabel("Cells", func() string {
+		if b := lot(); b != nil {
+			return fmt.Sprintf("%d", len(b.Cells))
+		}
+		return "0"
+	})
+	win.AddLabel("Stalls", func() string {
+		if b := lot(); b != nil {
+			return fmt.Sprintf("%d", len(b.Stalls))
+		}
+		return "0"
+	})
+	win.AddActionButton("Add area", func() { e.activateParkingTool(id, false) })
+	win.AddActionButton("Remove area", func() { e.activateParkingTool(id, true) })
+	if confirmDelete {
+		win.AddActionButton("Confirm delete", func() { e.deleteLot(e.app.Renderer, id) })
+		win.AddActionButton("Cancel", func() { e.openLotPopup(id, false, screenW, screenH) })
+	} else {
+		win.AddActionButton("Delete lot", func() { e.openLotPopup(id, true, screenW, screenH) })
+	}
+	win.Visible = true
+	win.Center(screenW, screenH)
+	e.lotPopup = win
+}
+
 // paintParcelBrush assigns all cells within the current brush radius to a
 // parcel of the given state, creating the parcel if it doesn't exist yet.
 func (e *Editor) paintParcelBrush(cx, cz int, state world.ParcelState) {
@@ -1533,14 +1678,28 @@ func (e *Editor) removeCellFromAllParcels(cx, cz int) {
 	}
 }
 
+// showParcels reports whether parcel tints and price labels are drawn. Off by
+// default via the Parcels overlay toggle, but forced on while authoring a
+// parcel so the rect preview and popup edits are visible.
+func (e *Editor) showParcels() bool {
+	if e.overlayPanel != nil && e.overlayPanel.Mask()&render.OverlayParcels != 0 {
+		return true
+	}
+	return e.activeTool == toolParcelRect || (e.parcelPopup != nil && e.parcelPopup.Visible)
+}
+
 // buildEditorParcelOverlay returns an RGBA8 cell overlay showing parcel states,
 // the currently-being-edited parcel (brighter), and the live rect selection preview.
 // rectEnd is the current second corner for the preview (may be clamped off-terrain).
 func (e *Editor) buildEditorParcelOverlay(rectEnd [2]int) ([]uint8, int, int) {
 	t := e.world.Terrain
-	hasParcels := len(e.world.Parcels) > 0
+	hasParcels := len(e.world.Parcels) > 0 && e.showParcels()
 	hasRect := e.activeTool == toolParcelRect && e.parcelRectActive
-	if !hasParcels && !hasRect {
+	var paintLot *world.Building
+	if e.activeTool == toolParking {
+		paintLot = e.parkingPaint.lot(e.world)
+	}
+	if !hasParcels && !hasRect && paintLot == nil {
 		return nil, 0, 0
 	}
 	tw, th := t.Width, t.Height
@@ -1553,7 +1712,11 @@ func (e *Editor) buildEditorParcelOverlay(rectEnd [2]int) ([]uint8, int, int) {
 		pix[i], pix[i+1], pix[i+2], pix[i+3] = rv, gv, bv, av
 	}
 	// Parcels: dim tint for others, brighter for the one being edited.
-	for _, p := range e.world.Parcels {
+	parcels := e.world.Parcels
+	if !hasParcels {
+		parcels = nil
+	}
+	for _, p := range parcels {
 		editing := p.ID == e.parcelEditID && e.parcelEditID != 0
 		alpha := uint8(100)
 		if editing {
@@ -1595,6 +1758,7 @@ func (e *Editor) buildEditorParcelOverlay(rectEnd [2]int) ([]uint8, int, int) {
 			set(c[0], c[1], rv, gv, bv, 170)
 		}
 	}
+	appendParkingOverlay(paintLot, set)
 	return pix, tw, th
 }
 
@@ -1610,8 +1774,7 @@ func (e *Editor) Render(r *render.Renderer) {
 		e.parcelBoundaryDirty = false
 	}
 
-	// Parcel cell overlay — always visible when parcels are defined.
-	// When drawing a rect off-terrain, clamp to the map boundary for the preview.
+	// Parcel cell overlay — gated by showParcels. When drawing a rect off-terrain, clamp to the map boundary for the preview.
 	rectEndCell := e.hoverCell
 	if e.activeTool == toolParcelRect && e.parcelRectActive && !e.hoverValid {
 		rectEndCell = e.clampedTerrainCell(r, e.hoverMouseScreen)
@@ -1627,6 +1790,8 @@ func (e *Editor) Render(r *render.Renderer) {
 		r.ClearBrush()
 	}
 
+	r.WeatherOverlay = 0
+	r.Lighting = render.DefaultLighting
 	r.DrawWorld(e.world, 0)
 	r.ClearBrush()
 
@@ -1637,7 +1802,7 @@ func (e *Editor) Render(r *render.Renderer) {
 
 	// Parcel labels — price tag at the centroid of each purchasable parcel,
 	// colored to match its palette entry so it reads as a caption for the tint.
-	if len(e.world.Parcels) > 0 && r.Font != nil {
+	if len(e.world.Parcels) > 0 && e.showParcels() && r.Font != nil {
 		w := e.world
 		edDrawables = append(edDrawables, uiDrawFunc(func(rr *render.Renderer) {
 			for i := range w.Parcels {
@@ -1717,6 +1882,9 @@ func (e *Editor) Render(r *render.Renderer) {
 	if e.parcelPopup != nil && e.parcelPopup.Visible {
 		edDrawables = append(edDrawables, e.parcelPopup)
 	}
+	if e.lotPopup != nil && e.lotPopup.Visible {
+		edDrawables = append(edDrawables, e.lotPopup)
+	}
 	if e.settingsMenu.Visible() {
 		edDrawables = append(edDrawables, e.settingsMenu)
 	}
@@ -1792,7 +1960,6 @@ func (e *Editor) layoutLayerButtons(r *render.Renderer) {
 	e.clearLayersBtn.X = 20 + e.addStormBtn.W + 8
 	e.clearLayersBtn.Y = btnY
 }
-
 
 func (e *Editor) Destroy() {
 	if e.app != nil && e.app.Renderer != nil {

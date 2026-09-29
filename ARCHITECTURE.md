@@ -80,7 +80,16 @@ lifts, snowcats, and the demand/rating system.
 | `Pathfinder` | A* grid navigation for walk segments between buildings and lift bases. |
 
 **Calendar** (`calendar.go`): `DateAt(start, simTime)` is `start` plus
-one day per `secondsPerSimDay` (240 s); `Simulation.DateAt(simTime)`
+one day per `secondsPerSimDay` (4320 s: 24 clock hours of
+`world.SimSecondsPerHour` = 180 s, about 5 real minutes for a 9:00–16:00
+ski day at 4×). `HourOfDay(simTime)` is local solar time (noon = solar
+noon); `sun.go` gives the sun's direction and sunrise/sunset at 45°N,
+`temperature.go` the hourly air temperature (the day's low at sunrise,
+high at 14:30, cooling toward the next day's forecast low), and the
+renderer lights the scene from `Simulation.Sun()` (moonlight at night).
+Lifts turn between `World.OpenHour` and `CloseHour` (default 9–16, set in
+the Ticket Office popup). Saves store `day_sec`; older saves (240 s days)
+have their absolute sim times rescaled on load. `Simulation.DateAt(simTime)`
 passes the sim's `World.StartDate`. `StartDate` is the date SimTime 0
 maps to: `world.DefaultStartDate` (Nov 25, 2026) unless the scenario
 sets one with the editor's **Start date** strip under the top bar. It

@@ -3,16 +3,19 @@ package sim
 import (
 	"math"
 	"time"
+
+	"mountain-mogul/internal/world"
 )
 
 // Calendar maps SimTime to a date. Weather samples its month profile,
 // demand and costs follow World.ResortOpen, and credit bills at month ends.
 
-// secondsPerSimDay sets how fast in-game days tick relative to sim seconds.
-// 240 sim seconds per day at 4× TimeScale = 60 real seconds per day (1 min),
-// so a ~186-day ski season ≈ 3 real hours and a full year ≈ 6 real hours.
-// Pure tuning knob — adjust freely.
-const secondsPerSimDay = 240.0
+// secondsPerSimDay is one calendar day of sim seconds (world.SecondsPerSimDay):
+// 4320 s, or 18 real minutes at 4× TimeScale.
+const (
+	secondsPerSimDay  = world.SecondsPerSimDay
+	simSecondsPerHour = world.SimSecondsPerHour
+)
 
 // Memorial Day (last Monday of May) marks the end of a season for the
 // demand system's season rollover. Whether the resort is open on any
@@ -67,4 +70,46 @@ func DateAt(start time.Time, simTime float64) time.Time {
 // DateAt is DateAt for this simulation's world.
 func (s *Simulation) DateAt(simTime float64) time.Time {
 	return DateAt(s.World.StartDate, simTime)
+}
+
+// HourOfDay returns the clock time of simTime in hours since midnight,
+// in [0, 24). Clock time is local solar time: the sun peaks at 12:00.
+func HourOfDay(simTime float64) float64 {
+	return (simTime - math.Floor(simTime/secondsPerSimDay)*secondsPerSimDay) / simSecondsPerHour
+}
+
+// TimeAt returns the calendar date and clock time of simTime as one
+// time.Time (UTC stands in for local solar time).
+func TimeAt(start time.Time, simTime float64) time.Time {
+	return DateAt(start, simTime).Add(time.Duration(HourOfDay(simTime) * float64(time.Hour)))
+}
+
+// SimTimeAt returns the SimTime of clock hour h on day index day.
+func SimTimeAt(day int, h float64) float64 {
+	return float64(day)*secondsPerSimDay + h*simSecondsPerHour
+}
+
+// dayIndex is the whole-day count of simTime since StartDate.
+func dayIndex(simTime float64) int {
+	return int(math.Floor(simTime / secondsPerSimDay))
+}
+
+// SkipClockEffects marks the hours and polls up to SimTime as already
+// run, after the clock is set directly (a jump within the day), so the
+// sim doesn't replay them.
+func (s *Simulation) SkipClockEffects() {
+	s.lastHour = int(s.SimTime / simSecondsPerHour)
+	s.Demand.LastPoll = s.SimTime
+	s.closedForDay = s.ClosedForDay()
+}
+
+// LiftsRunning reports whether lifts are loading right now: the resort is
+// open for the season and the clock is inside the operating hours.
+func (s *Simulation) LiftsRunning() bool {
+	w := s.World
+	if !w.ResortOpen {
+		return false
+	}
+	h := float32(HourOfDay(s.SimTime))
+	return h >= w.OpenHour && h < w.CloseHour
 }

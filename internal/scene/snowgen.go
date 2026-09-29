@@ -12,13 +12,13 @@ import (
 //
 //   - Snowline gate    — depth tapers off below a user-set elevation cutoff.
 //   - Lapse rate       — depth keeps growing with elevation above the snowline
-//                        (longer accumulation season, less melt, more snow vs rain).
+//     (longer accumulation season, less melt, more snow vs rain).
 //   - Slope shed       — steep slopes lose snow to sluffing / avalanche; cliffs bare.
 //   - Curvature bias   — bowls and gullies catch drifts; ridges scour.
 //   - Drainage drift   — MFD flow accumulation: gullies and lee bowls catch blown snow.
 //   - Wind aspect      — leeward slopes accumulate; windward slopes scour.
 //   - Treeline expo.   — below treeline, the canopy buffers wind so the
-//                        drainage / wind / aspect terms are attenuated.
+//     drainage / wind / aspect terms are attenuated.
 //   - Noise overlay    — low-frequency variation so the field doesn't read as a pure function.
 //
 // Other snow-state scalars (Grooming, Packed, Ice, MogulSize) are left alone:
@@ -27,20 +27,20 @@ import (
 //
 // Parameters:
 //   - maxDepth      — the cap on snow depth in metres for the most-favoured cells.
-//                     All other modifiers reduce or boost this value as a fraction
-//                     that's clamped to [0, 1] before scaling.
+//     All other modifiers reduce or boost this value as a fraction
+//     that's clamped to [0, 1] before scaling.
 //   - snowlineFrac  — elevation cutoff, as a fraction of the map's elevation
-//                     range. 0 = no gating (snow everywhere), 1 = no snow
-//                     anywhere. The gate has a soft 15 %-of-range transition.
+//     range. 0 = no gating (snow everywhere), 1 = no snow
+//     anywhere. The gate has a soft 15 %-of-range transition.
 //   - treelineFrac  — elevation above which trees can't grow, as a fraction
-//                     of the map's elevation range. Wind-driven terms
-//                     (drainage drift, wind aspect) ramp up across the
-//                     treeline; below, the canopy buffers them.
+//     of the map's elevation range. Wind-driven terms
+//     (drainage drift, wind aspect) ramp up across the
+//     treeline; below, the canopy buffers them.
 //   - windDeg       — wind direction, degrees clockwise from north (the
-//                     direction the wind blows TOWARDS). 0 = north (-Z),
-//                     90 = east (+X), 180 = south (+Z), 270 = west (-X).
-//                     Slopes facing along the wind vector (lee side of ridges)
-//                     accumulate; slopes facing against it scour.
+//     direction the wind blows TOWARDS). 0 = north (-Z),
+//     90 = east (+X), 180 = south (+Z), 270 = west (-X).
+//     Slopes facing along the wind vector (lee side of ridges)
+//     accumulate; slopes facing against it scour.
 //   - seed          — drives the low-frequency noise overlay.
 func GenerateSnowCover(t *world.Terrain, maxDepth, snowlineFrac, treelineFrac, windDeg float32, seed int64) {
 	computeElevFields(t).generateSnowCover(t, maxDepth, snowlineFrac, treelineFrac, windDeg, seed)
@@ -257,4 +257,3 @@ func (f *elevFields) applySnowAccum(t *world.Terrain, maxDepth, snowlineFrac, tr
 	}
 	t.SnowDirty = true
 }
-

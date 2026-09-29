@@ -70,6 +70,12 @@ func NewOverlayPanel() *OverlayPanel {
 	return p
 }
 
+// AddRow appends a toggle row, for scenes that need overlays beyond the
+// shared terrain set (e.g. the editor's parcel view).
+func (p *OverlayPanel) AddRow(bit int, label string, icon render.IconName, tint mgl32.Vec4) {
+	p.rows = append(p.rows, &overlayRow{bit: bit, label: label, icon: icon, tint: tint})
+}
+
 // Toggle flips visibility. Returns the new state for callers that want
 // to update an associated icon-button active flag.
 func (p *OverlayPanel) Toggle() bool {

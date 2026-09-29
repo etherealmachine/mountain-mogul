@@ -81,6 +81,14 @@ resort from any Ticket Office popup; new games and scenarios start
 closed. Closing mid-day stops arrivals at once: guests in lift lines
 leave them and head for the parking lot, riders unload at the top and
 ski home, and no lift loads anyone until the resort reopens.
+
+Within an open day, arrivals follow the clock. Each poll's share of the
+day's arrivals (`arrivalShare`) is an exponential decay starting half an
+hour before `OpenHour` (τ = 1.5 h) and stopping an hour before
+`CloseHour`, so the lot fills in the morning and nobody drives up for the
+last hour. Early guests queue at the lifts without losing patience until
+opening. At `CloseHour` lift lines empty and everyone on the mountain
+heads home; overnight (`ClosedForDay`) nobody arrives.
 The season rollover check still runs first, so `VisitsThisSeason`
 resets on Nov 1, before opening day.
 
@@ -89,8 +97,8 @@ capacity = Σ lifts: chairs × seats × (1 / loopTime) × avgSessionSec
 occupancy = len(World.OnMountain) / capacity
 
 for each g in World.Guests where g.State == AtHome:
-    priceFactor = dayTicketPriceFactor(g, rating)
-    if priceFactor == 0: continue   // day ticket above their budget
+    priceFactor = visitPriceFactor(g, rating)
+    if priceFactor == 0: continue   // ticket + parking share above their budget
     match = terrainMatch(g.Traits.Skill)
     if match == 0: continue   // no lifts they'd ride
     dailyRate = g.VisitsPerSeason / seasonDaysApprox
@@ -120,15 +128,21 @@ Advanced→Black), else 0.
 everyone else pays `World.DayTicketPrice` and is ok only if
 `Traits.DailyBudget` covers it.
 
-**`dayTicketPriceFactor(w, g, simTime, rating)`** is the price elasticity
-term, in [0, 1]:
+**`visitPriceFactor(w, g, simTime, rating)`** is the price elasticity
+term, in [0, 1]. The price is the day ticket plus the guest's share of the
+parking fee (`ParkingPrice / GuestsPerCar`):
 
 ```
-ref = DayTicketReferencePrice × (1 + DayTicketRatingPremium × (rating − 0.5))
+price = ticket (0 for pass holders) + ParkingPrice / GuestsPerCar
+ref   = ParkingReferencePrice / GuestsPerCar
+      + DayTicketReferencePrice × (1 + DayTicketRatingPremium × (rating − 0.5))   (non-pass holders only)
 priceFactor = 0                                          if price > budget
-            = 1                                          if price ≤ ref (or pass holder)
+            = 1                                          if price ≤ ref
             = ((budget − price) / (budget − ref))^DayTicketElasticity   otherwise
 ```
+
+With free parking (the default) this is exactly the day-ticket curve
+below; parking up to `ParkingReferencePrice` ($20/car) costs no demand.
 
 Rating shifts the reference rather than scaling the factor: with the
 defaults ($60, premium 1.0) the no-penalty price runs from $30 at rating 0
@@ -167,10 +181,15 @@ Revenue is per visit, not per ride (VISION §7). The day ticket is
 **priced at arrival and paid at the ticket window**:
 
 - `World.DayTicketPrice` (dollars; default `DefaultDayTicketPrice` = $60
-  in `world.go`) is set by the player from the parking lot or ticket
-  office popup, and persisted in the save (`day_ticket`).
+  in `world.go`) is set by the player from the ticket office popup, and
+  persisted in the save (`day_ticket`).
+- **Parking** is `World.ParkingPrice` per car (default free), set from the
+  parking lot popup and saved as `parking`. Each arriving guest pays their
+  share at the lot in `spawnGuest`, pass holders included; shares rotate
+  so every `GuestsPerCar` arrivals pay exactly one fee. It counts as
+  revenue and comes out of `RemainingBudget` alongside the ticket.
 - **No ticket office, no day guests.** The demand poll still weighs the
-  price at arrival (`dayTicketPriceFactor`: that is when guests decide
+  price at arrival (`visitPriceFactor`: that is when guests decide
   whether to come), but a guest without a valid pass is turned away when
   the world has no `BuildingTicketOffice`. The event feed says
   "Guests turned away: no ticket office", at most once per sim day.

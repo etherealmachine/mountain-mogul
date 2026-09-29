@@ -94,14 +94,14 @@ type Guest struct {
 	TargetID uint64
 
 	// Implicit-state markers.
-	OnLiftID   uint64 // nonzero ⇒ riding the named lift's chair (locomotion is suspended)
-	Queued     bool   // in some lift.Queue, waiting to board
-	Fallen     bool   // briefly immobilised after a fall; clears when FallTimer expires
-	FallTimer  float32
+	OnLiftID        uint64 // nonzero ⇒ riding the named lift's chair (locomotion is suspended)
+	Queued          bool   // in some lift.Queue, waiting to board
+	Fallen          bool   // briefly immobilised after a fall; clears when FallTimer expires
+	FallTimer       float32
 	Injured         bool    // injured after a severe fall; cannot self-recover
 	InjuryWaitTimer float32 // counts down while Injured; on expiry guest gives up and crawls home
 	OnPatrollerID   uint64  // nonzero ⇒ being transported by this patroller; locomotion suspended
-	AtTrailEnd uint64 // nonzero ⇒ arrived at a trail-to-trail junction (ID = destination trail)
+	AtTrailEnd      uint64  // nonzero ⇒ arrived at a trail-to-trail junction (ID = destination trail)
 
 	// AI state — populated by sim package.
 	Plan         ai.Plan
@@ -343,7 +343,6 @@ func (g *Guest) LastThought() ai.Thought {
 	}
 	return ai.Thought{}
 }
-
 
 // ResetForDeparture clears every transient sim field on g so the same
 // pointer can be re-used by a future arrival. Identity + career stats are

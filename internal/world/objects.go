@@ -4,35 +4,36 @@ package world
 type ObjectType uint8
 
 const (
-	ObjTree  ObjectType = iota
+	ObjTree ObjectType = iota
 	ObjRock
 	ObjStump
 )
 
 // MeshID constants mirror render.Mesh* constants to avoid circular imports.
 const (
-	MeshTree       uint32 = 0
-	MeshTree2      uint32 = 1
-	MeshTree3      uint32 = 2
-	MeshRock       uint32 = 3
-	MeshStump      uint32 = 4
-	MeshBuilding   uint32 = 5
-	MeshTower      uint32 = 6
-	MeshSkier      uint32 = 7
-	MeshChair      uint32 = 9
-	MeshShed        uint32 = 10
-	MeshParkingPad  uint32 = 12
-	MeshRoadConnect uint32 = 14
-	MeshRoadNode    uint32 = 15
-	MeshChairQuad   uint32 = 16 // 4-seat fixed grip chair
-	MeshChair6Pack  uint32 = 17 // 6-seat high-speed detachable chair
-	MeshGondolaCabin uint32 = 18 // MDG gondola cabin (8-person enclosed)
-	MeshWalker       uint32 = 19 // guest with skis off (building footprints, bare ground)
-	MeshHelipad      uint32 = 20 // flat pad with H marking at heli-ski base and drop zone
-	MeshHelicopter   uint32 = 21 // heli-ski helicopter (dynamic — one per HeliLift)
-	MeshSnowGun      uint32 = 22 // snowmaking cannon on a tripod
+	MeshTree         uint32 = 0
+	MeshTree2        uint32 = 1
+	MeshTree3        uint32 = 2
+	MeshRock         uint32 = 3
+	MeshStump        uint32 = 4
+	MeshBuilding     uint32 = 5
+	MeshTower        uint32 = 6
+	MeshSkier        uint32 = 7
+	MeshChair        uint32 = 9
+	MeshShed         uint32 = 10
+	MeshParkingPad   uint32 = 12
+	MeshRoadConnect  uint32 = 14
+	MeshRoadNode     uint32 = 15
+	MeshChairQuad    uint32 = 16       // 4-seat fixed grip chair
+	MeshChair6Pack   uint32 = 17       // 6-seat high-speed detachable chair
+	MeshGondolaCabin uint32 = 18       // MDG gondola cabin (8-person enclosed)
+	MeshWalker       uint32 = 19       // guest with skis off (building footprints, bare ground)
+	MeshHelipad      uint32 = 20       // flat pad with H marking at heli-ski base and drop zone
+	MeshHelicopter   uint32 = 21       // heli-ski helicopter (dynamic — one per HeliLift)
+	MeshSnowGun      uint32 = 22       // snowmaking cannon on a tripod
 	MeshPatrolHut    uint32 = MeshShed // patrol hut reuses shed mesh
-	MeshBar          uint32 = 23     // bar/restaurant (half-size lodge mesh)
+	MeshBar          uint32 = 23       // bar/restaurant (half-size lodge mesh)
+	MeshTicketOffice uint32 = 24       // ticket booth with service windows
 )
 
 // MeshSlot is an anchor point baked into a mesh by the SCAD pipeline
@@ -97,7 +98,9 @@ func (t BuildingType) MeshID() uint32 {
 		return MeshSnowGun
 	case BuildingBar:
 		return MeshBar
-	case BuildingLodge, BuildingTicketOffice:
+	case BuildingTicketOffice:
+		return MeshTicketOffice
+	case BuildingLodge:
 		fallthrough
 	default:
 		return MeshBuilding

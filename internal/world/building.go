@@ -32,26 +32,29 @@ const (
 // CurrentCars; the lot itself carries no spawn machinery.
 //
 // Pos is the building's anchor in continuous world XZ coordinates (metres).
-// Y is derived from terrain elevation at use time. Footprints are still
-// effectively a single cell for passability rasterisation; oriented-AABB
-// footprints are a future extension.
+// Y is derived from terrain elevation at use time. Rotation turns the
+// mesh and its footprint about Y (FootprintRect); passability is still
+// just the door cell under the anchor.
 type Building struct {
 	ID       uint64
 	Type     BuildingType
 	Pos      mgl32.Vec2
-	Rotation float32
+	Rotation float32 // radians about +Y, the renderer's HomogRotate3DY convention; ignored by painted lots
 
-	// Parking-only state. MaxCars caps how many cars the lot can hold;
+	// Parking-only state. Cells is the painted footprint (sorted x, z);
+	// Stalls and MaxCars are derived from it by RefreshParkingLot.
 	// CurrentCars is the visible count the renderer floors to instance
-	// N car models in a grid pattern. The demand system (future) drives
-	// CurrentCars; the lot itself is passive.
-	// DrivewayNodeIDs holds the road-graph attach points auto-created
-	// from the parking mesh's MOGUL_META slot table — one node per slot,
-	// in slot-index order. Empty on non-parking buildings and on parking
-	// lots that haven't had EnsureParkingDriveway called yet.
+	// N cars on the first N stalls; the demand system drives it.
+	// DrivewayNodeIDs holds the road-graph attach points on the lot edge.
+	// New lots get one; saves from the fixed-pad era may carry more.
+	// Empty on non-parking buildings and on lots that haven't had
+	// EnsureParkingDriveway called yet.
+	Cells           [][2]int
+	Stalls          []ParkingStall
 	MaxCars         int
 	CurrentCars     float32
 	DrivewayNodeIDs []uint64
+	cellSet         map[[2]int]struct{}
 
 	// SnowGun-only state. Enabled defaults to true on placement; the player
 	// can toggle it off from the popup to stop snow production and operating costs.
@@ -67,37 +70,109 @@ func (b *Building) DoorCell() [2]int {
 	return cellOf(b.Pos)
 }
 
-// FootprintAABB returns the axis-aligned ground bounding box of a building
-// of typ centred at (x, z) in world XZ coords. Buildings are currently
-// placed with Rotation=0 so the AABB is the mesh footprint at the anchor;
-// once placement rotation lands this needs an OBB query.
-// Returns a zero-extent box at (x, z) if no footprint is registered.
-func FootprintAABB(typ BuildingType, x, z float32) (minX, minZ, maxX, maxZ float32) {
-	fp, ok := FootprintFor(typ.MeshID())
-	if !ok {
-		return x, z, x, z
-	}
-	return x - fp.HalfX, z - fp.HalfZ, x + fp.HalfX, z + fp.HalfZ
+// FootprintRect is a building's oriented ground rectangle: half-extents
+// along the mesh's local X and Z, turned by Rotation about Y.
+type FootprintRect struct {
+	Center       mgl32.Vec2
+	HalfX, HalfZ float32
+	Rotation     float32
 }
 
-// BuildingOverlap reports whether a building of typ centred at (x, z)
-// would overlap any existing building's footprint AABB.
-func (w *World) BuildingOverlap(typ BuildingType, x, z float32) bool {
-	return w.BuildingOverlapExcept(typ, x, z, 0)
+// Axes returns the world XZ directions of the mesh-local X and Z axes,
+// matching the renderer's HomogRotate3DY: (1,0,0) → (cos, −sin) and
+// (0,0,1) → (sin, cos).
+func (r FootprintRect) Axes() (ax, az mgl32.Vec2) {
+	cos := float32(math.Cos(float64(r.Rotation)))
+	sin := float32(math.Sin(float64(r.Rotation)))
+	return mgl32.Vec2{cos, -sin}, mgl32.Vec2{sin, cos}
+}
+
+// Local returns world point p in the rectangle's frame: offsets from
+// Center along the local X and Z axes.
+func (r FootprintRect) Local(p mgl32.Vec2) (lx, lz float32) {
+	ax, az := r.Axes()
+	d := p.Sub(r.Center)
+	return d.Dot(ax), d.Dot(az)
+}
+
+// Contains reports whether world point p lies inside the rectangle grown
+// by margin metres on every side.
+func (r FootprintRect) Contains(p mgl32.Vec2, margin float32) bool {
+	lx, lz := r.Local(p)
+	return abs32(lx) <= r.HalfX+margin && abs32(lz) <= r.HalfZ+margin
+}
+
+// Bounds returns the world-XZ bounding box of the rectangle.
+func (r FootprintRect) Bounds() (minX, minZ, maxX, maxZ float32) {
+	ax, az := r.Axes()
+	ex := r.HalfX*abs32(ax[0]) + r.HalfZ*abs32(az[0])
+	ez := r.HalfX*abs32(ax[1]) + r.HalfZ*abs32(az[1])
+	return r.Center[0] - ex, r.Center[1] - ez, r.Center[0] + ex, r.Center[1] + ez
+}
+
+// Overlaps reports whether two rectangles' interiors intersect
+// (separating-axis test); rectangles that only touch don't overlap.
+func (r FootprintRect) Overlaps(o FootprintRect) bool {
+	const eps = 1e-3 // absorbs trig round-off so flush neighbours don't collide
+	rx, rz := r.Axes()
+	ox, oz := o.Axes()
+	d := o.Center.Sub(r.Center)
+	for _, a := range [4]mgl32.Vec2{rx, rz, ox, oz} {
+		rr := r.HalfX*abs32(rx.Dot(a)) + r.HalfZ*abs32(rz.Dot(a))
+		ro := o.HalfX*abs32(ox.Dot(a)) + o.HalfZ*abs32(oz.Dot(a))
+		if abs32(d.Dot(a)) >= rr+ro-eps {
+			return false
+		}
+	}
+	return true
+}
+
+func abs32(v float32) float32 {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
+// BuildingFootprint returns the footprint of a building of typ anchored
+// at (x, z) with the given rotation. Zero extents when no footprint is
+// registered for the type's mesh.
+func BuildingFootprint(typ BuildingType, x, z, rotation float32) FootprintRect {
+	r := FootprintRect{Center: mgl32.Vec2{x, z}, Rotation: rotation}
+	if fp, ok := FootprintFor(typ.MeshID()); ok {
+		r.HalfX, r.HalfZ = fp.HalfX, fp.HalfZ
+	}
+	return r
+}
+
+// Footprint returns b's oriented footprint rectangle.
+func (b *Building) Footprint() FootprintRect {
+	return BuildingFootprint(b.Type, b.Pos[0], b.Pos[1], b.Rotation)
+}
+
+// BuildingOverlap reports whether a building of typ anchored at (x, z)
+// with the given rotation would overlap any existing building.
+func (w *World) BuildingOverlap(typ BuildingType, x, z, rotation float32) bool {
+	return w.BuildingOverlapExcept(typ, x, z, rotation, 0)
 }
 
 // BuildingOverlapExcept is BuildingOverlap with one building excluded
-// from the collision check by ID. Used by the move tool to ask "would
-// this position overlap any building OTHER than the one I'm dragging?"
+// from the collision check by ID. Used by the move and rotate edits to
+// ask "would this overlap any building OTHER than the one I'm editing?"
 // Passing exceptID == 0 reproduces BuildingOverlap exactly.
-func (w *World) BuildingOverlapExcept(typ BuildingType, x, z float32, exceptID uint64) bool {
-	minX, minZ, maxX, maxZ := FootprintAABB(typ, x, z)
+func (w *World) BuildingOverlapExcept(typ BuildingType, x, z, rotation float32, exceptID uint64) bool {
+	fp := BuildingFootprint(typ, x, z, rotation)
 	for _, b := range w.Buildings {
 		if b.ID == exceptID {
 			continue
 		}
-		bMinX, bMinZ, bMaxX, bMaxZ := FootprintAABB(b.Type, b.Pos[0], b.Pos[1])
-		if maxX > bMinX && minX < bMaxX && maxZ > bMinZ && minZ < bMaxZ {
+		if b.IsCellLot() {
+			if b.cellsOverlapRect(fp) {
+				return true
+			}
+			continue
+		}
+		if fp.Overlaps(b.Footprint()) {
 			return true
 		}
 	}
@@ -105,14 +180,16 @@ func (w *World) BuildingOverlapExcept(typ BuildingType, x, z float32, exceptID u
 }
 
 // DrivewayPositions returns the world XZ positions of a parking lot's
-// driveway attach points — one per MOGUL_META slot declared by the
-// parking mesh, in slot-index order. Each mesh-local slot position is
-// rotated by the building's Y rotation before being added to the
-// anchor. Returns nil for non-parking buildings or when no slots are
-// registered (e.g. before the OBJ has been rebuilt).
-func (b *Building) DrivewayPositions() []mgl32.Vec2 {
+// driveway attach points. Painted lots have a single entrance on the
+// lot edge (see parkingEntrance). Legacy mesh-pad lots use one point per
+// MOGUL_META slot declared by the parking mesh, rotated by the
+// building's Y rotation. Returns nil for non-parking buildings.
+func (w *World) DrivewayPositions(b *Building) []mgl32.Vec2 {
 	if b.Type != BuildingParking {
 		return nil
+	}
+	if b.IsCellLot() {
+		return []mgl32.Vec2{w.parkingEntrance(b)}
 	}
 	slots := SlotsFor(b.Type.MeshID())
 	if len(slots) == 0 {
@@ -135,19 +212,27 @@ func (b *Building) DrivewayPositions() []mgl32.Vec2 {
 }
 
 // EnsureParkingDriveway creates the road-network attach nodes for a
-// parking lot — one per MOGUL_META slot from the parking mesh. Each
-// slot's stored node ID is reused if it still resolves to a live
-// RoadNode; missing ones get freshly created. Slot ordering is
-// preserved so DrivewayNodeIDs[i] always corresponds to slot i.
+// parking lot. A painted lot that already has a live driveway node keeps
+// it (RefreshParkingLot keeps it on the lot edge); otherwise one node is
+// created per DrivewayPositions entry, reusing any stored ID that still
+// resolves to a live RoadNode so DrivewayNodeIDs[i] matches position i.
 //
 // Idempotent — safe to call multiple times. No-op for non-parking
-// buildings; no-op for parking lots without registered slots (which
+// buildings; no-op for legacy lots without registered mesh slots (which
 // keeps the placement path from crashing during a missing-asset run).
 func (w *World) EnsureParkingDriveway(b *Building) {
 	if b == nil || b.Type != BuildingParking {
 		return
 	}
-	positions := b.DrivewayPositions()
+	if b.IsCellLot() {
+		for _, id := range b.DrivewayNodeIDs {
+			if w.RoadNodeByID(id) != nil {
+				return
+			}
+		}
+		b.DrivewayNodeIDs = b.DrivewayNodeIDs[:0]
+	}
+	positions := w.DrivewayPositions(b)
 	if len(positions) == 0 {
 		return
 	}
@@ -163,6 +248,9 @@ func (w *World) EnsureParkingDriveway(b *Building) {
 		}
 		n := w.AddRoadNode(pos, RoadNodeParkingDriveway)
 		b.DrivewayNodeIDs[i] = n.ID
+	}
+	if b.IsCellLot() {
+		sortStallsFrom(b.Stalls, positions[0])
 	}
 }
 

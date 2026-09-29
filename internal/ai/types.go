@@ -96,9 +96,9 @@ func TraitsFor(skill float32) GuestTraits {
 type GoalKind int
 
 const (
-	GoalNone        GoalKind = iota
+	GoalNone GoalKind = iota
 	GoalLift
-	GoalDepart      // heading to a parking lot / bus stop / train station to leave the resort
+	GoalDepart        // heading to a parking lot / bus stop / train station to leave the resort
 	GoalRelieveThirst // heading to a bar to drink something
 )
 
@@ -222,7 +222,7 @@ type GuestEventKind uint8
 const (
 	EventFall   GuestEventKind = iota // L1 controller detected Balance ≤ 0
 	EventRun                          // agent completed a descent (any ActSkiTo* or ActSkiTrail)
-	EventInjury                        // fall severe enough to require rescue
+	EventInjury                       // fall severe enough to require rescue
 )
 
 // GuestEvent is one row in an agent's per-session log. Time is sim-time
@@ -275,7 +275,7 @@ const (
 	ThoughtExhausted // min(Patience,Energy) critically low; guest departs
 
 	// Budget events.
-	ThoughtTooExpensive // RemainingBudget < cheapest lift ticket; guest departs
+	ThoughtTooExpensive   // RemainingBudget < cheapest lift ticket; guest departs
 	ThoughtNoTicketWindow // no reachable ticket office to buy a day ticket; guest departs
 
 	thoughtKindSentinel // must stay last; equals the total count
@@ -298,35 +298,49 @@ var ThoughtSatisfactionWeight = [ThoughtKindCount]float64{
 	ThoughtAbandoned:      -0.30,
 	ThoughtLongLine:       -0.08,
 	ThoughtLineTooLong:    -0.08,
-	ThoughtNeedsLodge: -0.06,
-	ThoughtHungry:       -0.08,
-	ThoughtThirsty:      -0.08,
-	ThoughtTired:        -0.05,
-	ThoughtExhausted:    -0.15,
-	ThoughtTooExpensive: -0.20,
+	ThoughtNeedsLodge:     -0.06,
+	ThoughtHungry:         -0.08,
+	ThoughtThirsty:        -0.08,
+	ThoughtTired:          -0.05,
+	ThoughtExhausted:      -0.15,
+	ThoughtTooExpensive:   -0.20,
 	ThoughtNoTicketWindow: -0.20,
 }
 
-// ThoughtLabel is the short chart label for each thought kind. An empty
-// string means the thought is intentionally excluded from charts (only
-// ThoughtNone). Any new ThoughtKind MUST get a non-empty label here so
-// it automatically appears in both the in-resort and exit-thought charts.
-var ThoughtLabel = [ThoughtKindCount]string{
-	ThoughtLovingGlades:   "Loving glades",
-	ThoughtScaredInTrees:  "Scared in trees",
-	ThoughtLovingCorduroy: "Loving corduroy",
-	ThoughtFell:           "Fell",
-	ThoughtInjured:        "Injured",
-	ThoughtAbandoned:      "Abandoned",
-	ThoughtLongLine:       "Long line",
-	ThoughtLineTooLong:    "Line too long",
-	ThoughtNeedsLodge:   "Needs lodge",
-	ThoughtHungry:       "Hungry",
-	ThoughtThirsty:      "Thirsty",
-	ThoughtTired:        "Need a break",
-	ThoughtExhausted:    "Too tired to ski",
-	ThoughtTooExpensive: "Too expensive",
-	ThoughtNoTicketWindow: "No ticket window",
+// thoughtText is the canonical base text for each ThoughtKind — the
+// fallback used by Display() when no entity context is available, and
+// the source for ThoughtLabel (wrapped in quotes). Define each thought
+// string exactly once here; Display() and ThoughtLabel are both derived
+// from it. A new ThoughtKind only needs an entry added here.
+var thoughtText = [ThoughtKindCount]string{
+	ThoughtLovingGlades:   "loving these glades",
+	ThoughtScaredInTrees:  "too many trees!",
+	ThoughtLovingCorduroy: "this corduroy is perfect",
+	ThoughtFell:           "ouch, that hurt",
+	ThoughtInjured:        "I'm hurt, I can't move",
+	ThoughtAbandoned:      "no one came to help me",
+	ThoughtLongLine:       "this line is way too long",
+	ThoughtLineTooLong:    "that line will take forever",
+	ThoughtNeedsLodge:     "this place needs a lodge",
+	ThoughtHungry:         "I could really use a meal",
+	ThoughtThirsty:        "I need something to drink",
+	ThoughtTired:          "I need a break",
+	ThoughtExhausted:      "I'm too tired to ski",
+	ThoughtTooExpensive:   "I can't afford this",
+	ThoughtNoTicketWindow: "couldn't find where to buy a ticket",
+}
+
+// ThoughtLabel is the chart series label for each thought kind — the
+// base text from thoughtText wrapped in double-quotes. Derived in init().
+// An empty string excludes the kind from charts (only ThoughtNone).
+var ThoughtLabel [ThoughtKindCount]string
+
+func init() {
+	for k := ThoughtKind(1); int(k) < ThoughtKindCount; k++ {
+		if thoughtText[k] != "" {
+			ThoughtLabel[k] = `"` + thoughtText[k] + `"`
+		}
+	}
 }
 
 // ThoughtChartColor is the RGBA bar colour for each thought kind in charts.
@@ -340,12 +354,12 @@ var ThoughtChartColor = [ThoughtKindCount][4]float32{
 	ThoughtAbandoned:      {0.60, 0.10, 0.80, 1},
 	ThoughtLongLine:       {0.80, 0.45, 0.70, 1},
 	ThoughtLineTooLong:    {0.70, 0.30, 0.60, 1},
-	ThoughtNeedsLodge:   {0.60, 0.50, 0.80, 1},
-	ThoughtHungry:       {0.95, 0.60, 0.20, 1},
-	ThoughtThirsty:      {0.25, 0.65, 0.90, 1},
-	ThoughtTired:        {0.80, 0.70, 0.30, 1},
-	ThoughtExhausted:    {0.65, 0.50, 0.20, 1},
-	ThoughtTooExpensive: {0.95, 0.85, 0.20, 1},
+	ThoughtNeedsLodge:     {0.60, 0.50, 0.80, 1},
+	ThoughtHungry:         {0.95, 0.60, 0.20, 1},
+	ThoughtThirsty:        {0.25, 0.65, 0.90, 1},
+	ThoughtTired:          {0.80, 0.70, 0.30, 1},
+	ThoughtExhausted:      {0.65, 0.50, 0.20, 1},
+	ThoughtTooExpensive:   {0.95, 0.85, 0.20, 1},
 	ThoughtNoTicketWindow: {0.85, 0.40, 0.30, 1},
 }
 
@@ -362,6 +376,7 @@ type Thought struct {
 // names substituted in. resolve maps an entity ID to a human-readable name
 // (e.g. lift name, trail name); it is called once per Context slot. If an
 // ID resolves to an empty string the slot is omitted from the output.
+// Falls back to thoughtText[t.Kind] for thoughts without entity context.
 func (t Thought) Display(resolve func(uint64) string) string {
 	name := func(i int) string {
 		if i < len(t.Context) && t.Context[i] != 0 {
@@ -371,45 +386,27 @@ func (t Thought) Display(resolve func(uint64) string) string {
 		}
 		return ""
 	}
+	// Only thoughts that embed an entity name mid-sentence need cases here;
+	// everything else falls through to the canonical thoughtText string.
 	switch t.Kind {
-	case ThoughtLovingGlades:
-		return "loving these glades"
-	case ThoughtScaredInTrees:
-		return "too many trees!"
-	case ThoughtLovingCorduroy:
-		return "this corduroy is perfect"
 	case ThoughtFell:
 		if n := name(0); n != "" {
 			return "ouch, that hurt on " + n
 		}
-		return "ouch, that hurt"
 	case ThoughtInjured:
 		if n := name(0); n != "" {
 			return "I'm hurt on " + n + ", I can't move"
 		}
-		return "I'm hurt, I can't move"
-	case ThoughtAbandoned:
-		return "no one came to help me"
 	case ThoughtLongLine:
 		if n := name(0); n != "" {
 			return "the " + n + " line is way too long"
 		}
-		return "this line is way too long"
 	case ThoughtLineTooLong:
 		if n := name(0); n != "" {
 			return "the " + n + " line will take forever"
 		}
-		return "that line will take forever"
-	case ThoughtNeedsLodge:
-		return "this place needs a lodge"
-	case ThoughtHungry:
-		return "I could really use a meal"
-	case ThoughtThirsty:
-		return "I need something to drink"
-	case ThoughtNoTicketWindow:
-		return "couldn't find where to buy a ticket"
 	}
-	return ""
+	return thoughtText[t.Kind]
 }
 
 // ThoughtTTL is the sim-time window during which a thought counts as
