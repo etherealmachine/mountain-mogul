@@ -51,3 +51,35 @@ func TestSunExposureByAspect(t *testing.T) {
 		t.Errorf("overcast exposure = %v, want ≤0.2", cloudy)
 	}
 }
+
+// A flat cell just north of a ridge sits in its shadow under the low
+// December noon sun and melts at the shade rate; a flat cell south of the
+// ridge gets the full beam.
+func TestRidgeShadowSlowsMelt(t *testing.T) {
+	w := scene(40, 60).build()
+	tr := w.Terrain
+	for x := 0; x < 40; x++ {
+		for z := 25; z < 28; z++ {
+			tr.Cells[x][z].GroundElevation = 40
+		}
+	}
+	tr.RecomputeSlopes()
+	shaded, open := [2]int{20, 20}, [2]int{20, 45}
+	for _, c := range [][2]int{shaded, open} {
+		tr.Cells[c[0]][c[1]].Top.Accumulation = 0.3
+		tr.Cells[c[0]][c[1]].Base = 0
+	}
+	s := NewSimulationWithSeed(w, 1)
+	date := time.Date(2026, 12, 21, 0, 0, 0, 0, time.UTC)
+	const tempC, frac = 5, float32(1.0 / 24)
+	s.meltHour(DayWeather{State: WeatherClear}, date, 12, tempC, frac)
+
+	lost := func(c [2]int) float32 { return 0.3 - tr.Cells[c[0]][c[1]].Top.Accumulation }
+	wantShade := meltFactorShade * tempC * frac
+	if got := lost(shaded); math.Abs(float64(got-wantShade)) > 1e-6 {
+		t.Errorf("shaded cell melted %v, want the shade rate %v", got, wantShade)
+	}
+	if lost(open) < 1.5*lost(shaded) {
+		t.Errorf("open cell melted %v, shaded %v; want the sun to add well over half again", lost(open), lost(shaded))
+	}
+}

@@ -13,6 +13,8 @@ type Lighting struct {
 	SunColor mgl32.Vec3 // key light colour × intensity
 	Ambient  mgl32.Vec3 // fill light colour × intensity
 	Sky      mgl32.Vec3 // background clear colour
+	Night    float32    // 0 in daylight → 1 after dusk; scales vehicle lamps
+	Shadows  bool       // terrain casts shadows from SunDir (horizon map)
 }
 
 // DefaultLighting is the fixed midday light used when there's no clock
@@ -134,6 +136,8 @@ func SunLighting(sunDir mgl32.Vec3, weather int) Lighting {
 	glow := twilight * smoothstep(-6*deg, 0, elev) * (0.35 + 0.65*clear)
 	sky := lerp3(nightSky, weatherSky(weather), dayF)
 	l.Sky = lerp3(sky, glowSky, glow*0.35)
+	l.Night = 1 - smoothstep(-4*deg, 8*deg, elev)
+	l.Shadows = true
 	return l
 }
 

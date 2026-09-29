@@ -12,16 +12,24 @@ const (
 
 	arriveCellSlack = world.CellSize * 0.5
 
-	// sectionGroomThreshold is the average grooming level below which a cat
-	// will head out to re-groom its section. 0.5 means "half the corduroy
-	// has faded" — the section needs another pass.
-	sectionGroomThreshold = 0.5
+	// sectionGroomThreshold: a cat heads out for its nightly pass when any
+	// snow-covered cell in its section has Grooming below this. Skiers wear
+	// down only the lanes they use, so a section average can stay high
+	// while the skied line is scraped bare; any cell skied since the last
+	// pass trips it, untouched corduroy is left alone.
+	sectionGroomThreshold = 0.9
 )
+
+// nightIndex identifies the night containing simTime: the evening after
+// day d's opening hour through the next morning share index d.
+func nightIndex(w *world.World, simTime float64) int {
+	return dayIndex(simTime - float64(w.OpenHour)*simSecondsPerHour)
+}
 
 // tickSnowcats advances the grooming fleet one step. Standby cats park at
 // their shed, as does the whole fleet while the mountain is open. After
-// hours, active cats follow their assigned section route, starting a new
-// pass whenever the section average drops below the grooming threshold.
+// hours, each active cat makes one pass of its section per night if the
+// section's grooming has dropped below sectionGroomThreshold.
 func (s *Simulation) tickSnowcats(dt float64) {
 	w := s.World
 
@@ -33,6 +41,10 @@ func (s *Simulation) tickSnowcats(dt float64) {
 	// Cats groom only while the mountain is closed for the day, and head
 	// back to the shed before the morning's first guests arrive.
 	offShift := !s.ClosedForDay()
+	night := nightIndex(w, s.SimTime)
+	if s.catPassNight == nil {
+		s.catPassNight = map[uint64]int{}
+	}
 
 	for _, cat := range w.Snowcats {
 		shed := findBuilding(w, cat.ShedID)
@@ -49,6 +61,9 @@ func (s *Simulation) tickSnowcats(dt float64) {
 		// Active: follow the current route or decide what to do next.
 		if len(cat.Route) > 0 {
 			advanceCat(w, cat, dt)
+			if len(cat.Route) == 0 {
+				s.catPassNight[cat.ID] = night
+			}
 			continue
 		}
 
@@ -57,7 +72,8 @@ func (s *Simulation) tickSnowcats(dt float64) {
 			continue
 		}
 
-		if sectionAvgGrooming(w, cat) < sectionGroomThreshold {
+		done, ok := s.catPassNight[cat.ID]
+		if (!ok || done != night) && sectionNeedsGrooming(w, cat) {
 			planRoute(w, cat)
 			advanceCat(w, cat, dt)
 		} else {
@@ -450,28 +466,26 @@ func reassignAllSections(w *world.World) {
 
 }
 
-// sectionAvgGrooming returns the average Grooming value across all cells
-// in cat's assigned section. Returns 1.0 if the section is empty.
-func sectionAvgGrooming(w *world.World, cat *world.Snowcat) float32 {
-	var sum float32
-	var n int
+// sectionNeedsGrooming reports whether any snow-covered cell in cat's
+// section has Grooming below sectionGroomThreshold. Bare cells are
+// ignored: the cat can't groom them.
+func sectionNeedsGrooming(w *world.World, cat *world.Snowcat) bool {
 	for _, col := range cat.Section {
 		trail := findTrail(w, col.TrailID)
-		if trail == nil {
+		if trail == nil || !trail.Groomed {
 			continue
 		}
 		for _, c := range trail.Cells {
 			if c[0] != col.X || !w.Terrain.InBounds(c[0], c[1]) {
 				continue
 			}
-			sum += w.Terrain.Cells[c[0]][c[1]].Grooming
-			n++
+			cell := &w.Terrain.Cells[c[0]][c[1]]
+			if cell.TopLayer() != nil && cell.Grooming < sectionGroomThreshold {
+				return true
+			}
 		}
 	}
-	if n == 0 {
-		return 1.0
-	}
-	return sum / float32(n)
+	return false
 }
 
 // findTrail returns the trail with the given ID, or nil.

@@ -48,7 +48,7 @@ domain helpers (entity lookup, coordinate conversion, ID allocation).
 | `Guest` | Resort visitor. Identity + career stats (`Visits`, `LastRating`); on-mountain transient state (position, speed, energy, fun, fear, `Plan`, `Balance`); `Thoughts` ring for RCT-style feedback. |
 | `Lift` | Cable lift. Base/top positions, speed, per-ride fare (heli only; cable lifts are covered by the day ticket), `[]Chair` loop, queue of waiting guests. |
 | `Building` | Placed structure (lodge, shed, parking lot). Sheds own snowcats and a painted grooming route. |
-| `Snowcat` | Grooming machine. Drives to route cells, applies corduroy (raises `Packed`, lowers `SnowDepth`). |
+| `Snowcat` | Grooming machine. Drives to route cells, applies corduroy (raises `Packed`, lowers `SnowDepth`). Parked while the lifts run; after closing, each active cat makes one pass of its section per night if any snow-covered cell in it is below 90% groomed. |
 | `RoadNode / RoadEdge` | Road graph vertices and segments. Nodes typed: freestanding, edge-connection, parking driveway, auto-intersection. |
 | `History` | Daily ring of resort stats (guests on mountain, arrivals, departures, cash). Feeds the in-game charts. |
 | `EventLog` | `World.Events`: bounded ring (256) of `Event`s — kind, sim time, message, optional XZ position + entity ID. Written by the sim (avalanche, patrol rescue, lift holds, day recap) and by the scene for player actions (builds, lift open/close) via `Simulation.Log*`. Shown in the left-side event panel (top-bar flag button); clicking a positioned event centres the camera there. |
@@ -87,6 +87,15 @@ noon); `sun.go` gives the sun's direction and sunrise/sunset at 45°N,
 `temperature.go` the hourly air temperature (the day's low at sunrise,
 high at 14:30, cooling toward the next day's forecast low), and the
 renderer lights the scene from `Simulation.Sun()` (moonlight at night).
+Terrain casts shadows through `world.HorizonMap` (per-cell horizon
+angles in 16 directions, recomputed lazily after `RecomputeSlopes`): the
+renderer turns it into a per-cell sun-visibility texture for the current
+key light, and hourly melt uses the same visibility. Objects (trees,
+buildings, lifts, chairs, vehicles, guests) cast through a 4096² directional
+shadow map (`render/shadow_map.go`) fitted to the visible ground each frame
+and texel-snapped so it doesn't shimmer; every lit shader multiplies the key
+light by `keyLightVisibility()` in `lighting.glsl`. Object shadows are
+visual only; melt ignores them.
 Lifts turn between `World.OpenHour` and `CloseHour` (default 9–16, set in
 the Ticket Office popup). Saves store `day_sec`; older saves (240 s days)
 have their absolute sim times rescaled on load. `Simulation.DateAt(simTime)`

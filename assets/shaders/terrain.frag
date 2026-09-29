@@ -276,6 +276,8 @@ void main() {
     const float wrap = 0.5;
     float ndl  = dot(Nshading, L);
     float diff = clamp((ndl + wrap) / (1.0 + wrap), 0.0, 1.0);
+    float sunVis = keyLightVisibility(vWorldPos, N); // 0 behind ridges and in object shadows
+    diff *= sunVis;
 
     // Cool-shadow / warm-highlight tint, applied to snow surfaces only.
     vec3 cool    = vec3(0.55, 0.65, 0.85);
@@ -285,6 +287,9 @@ void main() {
 
     // Ambient + diffuse, multiplied by baked AO to deepen valleys / cliff bases.
     vec3 lit = shaded * (uAmbient + 0.85 * diff * uSunColor) * vAO;
+    if (uLampCount > 0) {
+        lit += base * lampLight(vWorldPos, Nshading) * vAO;
+    }
 
     // Groomed snow visual. Three layered cues:
     //   1. Corduroy stripes — a sine pattern projected along the
@@ -363,7 +368,7 @@ void main() {
     if (snowness > 0.0) {
         vec3  V    = normalize(uCameraPos - vWorldPos);
         vec3  H    = normalize(L + V);
-        float spec = pow(max(dot(Nshading, H), 0.0), 256.0) * dot(uSunColor, vec3(1.0 / 3.0));
+        float spec = pow(max(dot(Nshading, H), 0.0), 256.0) * dot(uSunColor, vec3(1.0 / 3.0)) * sunVis;
         vec3  cell = floor(vWorldPos * 2.0 + uTime * 0.07); // ~50 cm cells
         float gate = step(0.985 - ice * 0.05, hash3(cell));
         // Debris doesn't sparkle — dirty rock/soil mixture kills specular glint.
@@ -373,7 +378,7 @@ void main() {
         // Reads as a sheen across icy slopes — distinct from the rough-snow
         // sparkle.
         if (ice > 0.0) {
-            float broadSpec = pow(max(dot(Nshading, H), 0.0), 32.0) * dot(uSunColor, vec3(1.0 / 3.0));
+            float broadSpec = pow(max(dot(Nshading, H), 0.0), 32.0) * dot(uSunColor, vec3(1.0 / 3.0)) * sunVis;
             lit += broadSpec * snowness * ice * 0.45 * vec3(0.92, 0.96, 1.10) * (1.0 - isDebris);
         }
     }

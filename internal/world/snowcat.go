@@ -98,6 +98,24 @@ func (c *Snowcat) DriveToward(targetWX, targetWZ float32, dt float64, arriveDist
 	return dist-step <= arriveDist
 }
 
+// CatWorking reports whether the cat is out on the hill — on a grooming
+// pass or driving to or from its shed — rather than parked at the door.
+func (w *World) CatWorking(c *Snowcat) bool {
+	if len(c.Route) > 0 {
+		return true
+	}
+	for _, b := range w.Buildings {
+		if b.ID != c.ShedID {
+			continue
+		}
+		door := b.DoorCell()
+		dx := (float32(door[0])+0.5)*CellSize - c.Pos[0]
+		dz := (float32(door[1])+0.5)*CellSize - c.Pos[2]
+		return dx*dx+dz*dz > CellSize*CellSize
+	}
+	return false
+}
+
 // CatsOwnedBy returns the snowcats whose ShedID matches `shedID`.
 // Allocates a fresh slice; not on a hot path.
 func (w *World) CatsOwnedBy(shedID uint64) []*Snowcat {

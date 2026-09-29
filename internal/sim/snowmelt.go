@@ -137,7 +137,7 @@ func (b instantSun) exposure(gx, gz float32) float32 {
 
 // exposure is the day's direct sun on a surface with elevation gradient
 // (gx, gz), relative to flat ground at a clear equinox. Terrain shadowing
-// is ignored.
+// is ignored here; only the hourly model (meltHour) applies it.
 func (d daySun) exposure(gx, gz float32) float32 {
 	nx, ny, nz := float64(-gx), 1.0, float64(-gz)
 	inv := 1 / math.Sqrt(nx*nx+ny*ny+nz*nz)

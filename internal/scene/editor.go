@@ -1087,14 +1087,10 @@ func (e *Editor) applyEditorTool(gx, gz int, r *render.Renderer, dt float32) {
 	case toolPlantTrees:
 		target := e.densitySlider.Value / 100
 		applyDensityBrushUpTo(w.Terrain, gx, gz, e.brushRadius(), 0.3, target)
-		w.Terrain.RestampTreeWells()
-		r.FlushTerrainVerts(w.Terrain)
-		r.RebuildStaticBatch(w)
+		refreshTreesAround(r, w, gx, gz, e.brushRadius())
 	case toolGlade:
 		applyDensityBrush(w.Terrain, gx, gz, e.brushRadius(), -0.4)
-		w.Terrain.RestampTreeWells()
-		r.FlushTerrainVerts(w.Terrain)
-		r.RebuildStaticBatch(w)
+		refreshTreesAround(r, w, gx, gz, e.brushRadius())
 	}
 }
 

@@ -21,6 +21,7 @@ uniform float uSpinRate; // rad/s for spin_y / spin_z modes; 0 for all others
 
 out vec3 vColor;
 flat out vec3 vNormal;
+out vec3 vWorldPos;
 
 void main() {
     // Heading is computed as atan2(dx, dz) — angle from +Z toward +X —
@@ -71,5 +72,7 @@ void main() {
 
     vColor = iColor * aBaseColor;
     vNormal = mat3(rotY) * aNormal;
-    gl_Position = uViewProj * model * vec4(animPos, 1.0);
+    vec4 world = model * vec4(animPos, 1.0);
+    vWorldPos = world.xyz;
+    gl_Position = uViewProj * world;
 }

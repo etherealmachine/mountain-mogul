@@ -91,6 +91,39 @@ func TestZeroChannelClearsButPreservesOthers(t *testing.T) {
 	}
 }
 
+// A brush-sized restamp must leave the G channel exactly as a full
+// restamp would, and mark only the brush area dirty.
+func TestRestampTreeWellsCellsMatchesFull(t *testing.T) {
+	terrain := NewTerrain(24, 24)
+	for x := 0; x < 24; x++ {
+		for z := 0; z < 24; z++ {
+			terrain.Cells[x][z].TreeDensity = float32((x*7+z*13)%10) / 9
+		}
+	}
+	terrain.RestampTreeWells()
+	for x := 8; x <= 12; x++ {
+		for z := 9; z <= 13; z++ {
+			terrain.Cells[x][z].TreeDensity *= 0.3
+		}
+	}
+	terrain.Surface.Dirty = false
+	terrain.RestampTreeWellsCells(8, 9, 12, 13)
+	got := append([]uint8(nil), terrain.Surface.Pixels...)
+	box := terrain.Surface.DirtyBox
+
+	terrain.RestampTreeWells()
+	want := terrain.Surface.Pixels
+	for i := chTreeWell; i < len(want); i += 4 {
+		if got[i] != want[i] {
+			px := i / 4
+			t.Fatalf("G differs at px (%d, %d): local %d, full %d", px%terrain.Surface.PxWidth, px/terrain.Surface.PxWidth, got[i], want[i])
+		}
+	}
+	if full := terrain.Surface.PxWidth * terrain.Surface.PxHeight; box.Dx()*box.Dy() > full/4 {
+		t.Errorf("dirty box %v covers too much of the %d px buffer", box, full)
+	}
+}
+
 func TestRestampTreeWellsFillsGNearTrees(t *testing.T) {
 	terrain := NewTerrain(20, 20)
 	// One dense cell well inside the visible (W-1)×(H-1) tree region.

@@ -438,6 +438,11 @@ type Terrain struct {
 	// in-bounds cells are accessible (no parcel system). Maintained by
 	// World.ApplyParcels and World.BuyParcel.
 	accessible [][]bool
+
+	// horizon is the derived terrain horizon map (see horizon.go);
+	// horizonStale is set by RecomputeSlopes after elevation changes.
+	horizon      *HorizonMap
+	horizonStale bool
 }
 
 // DefaultSnowAccumulation is the baseline SWE applied to fresh terrain
@@ -471,6 +476,7 @@ func NewTerrain(w, h int) *Terrain {
 // batch change to GroundElevation (terrain import, save load, lift grading,
 // testbed setup). The sim's avalanche logic reads Cell.Slope directly.
 func (t *Terrain) RecomputeSlopes() {
+	t.horizonStale = true
 	for x := range t.Cells {
 		for z := range t.Cells[x] {
 			gx, gz := t.GradientAt(x, z)

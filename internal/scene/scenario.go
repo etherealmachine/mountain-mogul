@@ -125,6 +125,15 @@ func applyDensityBrush(t *world.Terrain, cx, cz, radius int, delta float32) {
 	}
 }
 
+// refreshTreesAround redraws after a density brush changed the cells
+// within `radius` of (cx, cz): tree wells and avalanche instability are
+// patched locally, and the tree instances rebuilt.
+func refreshTreesAround(r *render.Renderer, w *world.World, cx, cz, radius int) {
+	w.Terrain.RestampTreeWellsCells(cx-radius, cz-radius, cx+radius, cz+radius)
+	r.FlushInstabilityCells(w.Terrain, cx-radius, cz-radius, cx+radius, cz+radius)
+	r.RebuildStaticBatch(w)
+}
+
 // gladeStrokeCost returns the cost of one glade-brush application centred at
 // (cx, cz) with the given radius and removal strength. Charges
 // GladeCostPerCell × density_actually_removed per cell, so the total cost
@@ -2675,9 +2684,7 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		}
 		w.Cash -= cost
 		applyDensityBrush(w.Terrain, gx, gz, s.gladeBrushRadius(), -strength)
-		w.Terrain.RestampTreeWells()
-		r.FlushTerrainVerts(w.Terrain)
-		r.RebuildStaticBatch(w)
+		refreshTreesAround(r, w, gx, gz, s.gladeBrushRadius())
 	case toolLiftBase:
 		if !w.Terrain.IsAccessible(gx, gz) {
 			s.setToast("Can't place a lift on land you don't own")

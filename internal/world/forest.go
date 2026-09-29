@@ -198,11 +198,11 @@ func minF32(a, b float32) float32 {
 }
 
 // RestampTreeWells zeros the G channel of Surface and writes a
-// Gaussian-falloff disk for every tree in the terrain. Use after any
-// bulk change to TreeDensity (auto-forest regenerate, Glade/Plant brush,
-// world load, lift/road clears that zero density). Cheap — the whole map
-// runs sub-ms even at PxPerCell=20 — so we restamp wholesale rather
-// than tracking which cells dirtied.
+// Gaussian-falloff disk for every tree in the terrain. Use after bulk
+// changes to TreeDensity (auto-forest regenerate, world load, lift/road
+// clears that zero density). It walks every tree and marks the whole
+// texture for re-upload, which on a large map costs tens of ms plus a
+// full-texture upload; brushes use RestampTreeWellsCells instead.
 //
 // Visual scale: 2.0 m radius matches the per-tree footprint the doc
 // calls for; peak 255 (full G) at the trunk so the shader's `well`
@@ -221,6 +221,41 @@ func (t *Terrain) RestampTreeWells() {
 	})
 }
 
+// RestampTreeWellsCells redoes tree wells for the cell rectangle
+// [x0, x1] × [z0, z1] (inclusive) after its TreeDensity changed, and marks
+// only the surrounding area dirty. A well spills at most 0.7 m into the
+// neighbouring cell (1.2 m jitter + 2 m radius from a cell centre 2.5 m
+// in), so the clear covers one extra cell and trees two cells out are
+// restamped; where their wells fall outside the cleared area,
+// max-stamping rewrites the same values.
+func (t *Terrain) RestampTreeWellsCells(x0, z0, x1, z1 int) {
+	if t == nil || t.Surface == nil {
+		return
+	}
+	sd := t.Surface
+	x0, z0 = max(x0-1, 0), max(z0-1, 0)
+	x1, z1 = min(x1+1, t.Width-1), min(z1+1, t.Height-1)
+	if x0 > x1 || z0 > z1 {
+		return
+	}
+	box := image.Rect(x0*PxPerCell, z0*PxPerCell, (x1+1)*PxPerCell, (z1+1)*PxPerCell).
+		Intersect(image.Rect(0, 0, sd.PxWidth, sd.PxHeight))
+	stride := sd.PxWidth * 4
+	for z := box.Min.Y; z < box.Max.Y; z++ {
+		row := z * stride
+		for x := box.Min.X; x < box.Max.X; x++ {
+			sd.Pixels[row+x*4+chTreeWell] = 0
+		}
+	}
+	const wellRadiusM = float32(2.0)
+	ppm := PxPerMeter()
+	radiusPx := wellRadiusM * ppm
+	t.forEachTreeIn(x0-1, z0-1, x1+1, z1+1, 0, func(ti TreeInstance) {
+		sd.stampMaxChannelDisk(ti.WX*ppm, ti.WZ*ppm, radiusPx, chTreeWell, 255)
+	})
+	sd.MarkDirty(box)
+}
+
 // ForEachTree iterates every visible tree on the terrain at the same
 // world XZ the renderer uses. Skips the right/back cell edge because the
 // visible terrain is (W-1)×(H-1) quads — trees in Cells[W-1][*] /
@@ -230,8 +265,16 @@ func (t *Terrain) RestampTreeWells() {
 // doesn't care about variant — typical for sim/world consumers that only
 // need positions). Sub-cell passes (tree wells) should pass 0.
 func (t *Terrain) ForEachTree(variantBase uint32, fn func(TreeInstance)) {
-	for z := 0; z < t.Height-1; z++ {
-		for x := 0; x < t.Width-1; x++ {
+	t.forEachTreeIn(0, 0, t.Width-2, t.Height-2, variantBase, fn)
+}
+
+// forEachTreeIn is ForEachTree limited to cells [x0, x1] × [z0, z1]
+// (inclusive, clipped to the visible grid).
+func (t *Terrain) forEachTreeIn(x0, z0, x1, z1 int, variantBase uint32, fn func(TreeInstance)) {
+	x0, z0 = max(x0, 0), max(z0, 0)
+	x1, z1 = min(x1, t.Width-2), min(z1, t.Height-2)
+	for z := z0; z <= z1; z++ {
+		for x := x0; x <= x1; x++ {
 			density := t.Cells[x][z].TreeDensity
 			count := TreeCountFromDensity(density, TreeInstanceHash(x, z, -1))
 			if count == 0 {

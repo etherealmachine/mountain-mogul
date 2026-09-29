@@ -71,6 +71,10 @@ type Renderer struct {
 	chair6PackBatch       *Batch
 	gondolaBatch          *Batch
 	snowcatBatch          *Batch
+	catLensBatch          *Batch // emissive headlight / work-light lenses
+	catBeaconBatch        *Batch // emissive amber roof beacon
+	terrainShadow         terrainShadow
+	shadowMap             shadowMap
 	patrollerBatch        *Batch // ski patrol snowmobiles (red snowcat mesh when active)
 	carBatch              *Batch
 	helicopterBodyBatch   *Batch      // rigid fuselage, tail, skids
@@ -197,6 +201,8 @@ func NewRenderer(w, h int, assetDir string) (*Renderer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("static shader: %w", err)
 	}
+
+	r.shadowMap.init(shaderDir)
 
 	r.DynamicShader, err = LoadShader(shaderDir+"dynamic.vert", shaderDir+"dynamic.frag", lightingPath)
 	if err != nil {
@@ -400,6 +406,9 @@ func (r *Renderer) initStaticMeshes() {
 	// sitting in the static batches.
 	snowcatMesh, snowcatTexID := LoadOBJ(modelDir + "snowcat.obj")
 	r.snowcatBatch = NewDynamicBatch(snowcatMesh, snowcatTexID)
+	// Lamp lenses and roof beacon, drawn unlit on top of the cat mesh.
+	r.catLensBatch = NewDynamicBatch(NewBoxMesh(0.14, 0.24, 0.42), r.whiteTexID)
+	r.catBeaconBatch = NewDynamicBatch(NewBoxMesh(0.3, 0.26, 0.3), r.whiteTexID)
 
 	// Ski patrol snowmobiles — dedicated snowmobile mesh, drawn with a red
 	// tint when active so they're visually distinct from grooming snowcats.
@@ -1155,6 +1164,76 @@ func (r *Renderer) FlushTerrainVerts(t *world.Terrain) {
 	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
 }
 
+// FlushInstabilityCells refreshes aInstabilityScore on the vertices
+// around cells [x0, x1] × [z0, z1] (inclusive) and uploads just those
+// rows of the vertex buffer. For edits that change only instability,
+// e.g. tree density (trees anchor the snowpack). Vertex order must match
+// buildTerrainVerts: row-major quads, six vertices each.
+func (r *Renderer) FlushInstabilityCells(t *world.Terrain, x0, z0, x1, z1 int) {
+	if r.scene.terrainMesh == nil || r.scene.terrainVerts == nil {
+		return
+	}
+	verts := r.scene.terrainVerts
+	first, last := patchInstability(verts, r.scene.terrainSurfaceVerts, t, x0, z0, x1, z1)
+	if first >= last {
+		return
+	}
+	gl.BindBuffer(gl.ARRAY_BUFFER, r.scene.terrainVBO)
+	gl.BufferSubData(gl.ARRAY_BUFFER, first*4, (last-first)*4, gl.Ptr(verts[first:last]))
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+}
+
+// patchInstability is the CPU half of FlushInstabilityCells. It returns
+// the float range [first, last) of verts that it rewrote.
+func patchInstability(verts []float32, surfaceVerts int, t *world.Terrain, x0, z0, x1, z1 int) (first, last int) {
+	const stride = 17
+	const isOffset = 16
+	W, H := t.Width, t.Height
+	// Same summation order and 1/n scaling as buildTerrainVerts' snowAt,
+	// so patched values are bit-identical to a rebuild.
+	corner := func(cx, cz int) float32 {
+		var is, n float32
+		for z := max(cz-1, 0); z <= min(cz, H-1); z++ {
+			for x := max(cx-1, 0); x <= min(cx, W-1); x++ {
+				is += t.Cells[x][z].InstabilityScore()
+				n++
+			}
+		}
+		if n == 0 {
+			return 0
+		}
+		inv := 1.0 / n
+		return is * inv
+	}
+	// Cells feed the corners [x0, x1+1] × [z0, z1+1], which belong to
+	// quads one further out.
+	qx0, qz0 := max(x0-1, 0), max(z0-1, 0)
+	qx1, qz1 := min(x1+1, W-2), min(z1+1, H-2)
+	if qx0 > qx1 || qz0 > qz1 {
+		return 0, 0
+	}
+	first = qz0 * (W - 1) * 6 * stride
+	last = min((qz1+1)*(W-1)*6*stride, surfaceVerts*stride)
+	for z := qz0; z <= qz1; z++ {
+		for x := qx0; x <= qx1; x++ {
+			var cs [6][2]int
+			if (x+z)%2 == 0 {
+				cs = [6][2]int{{x, z}, {x + 1, z}, {x + 1, z + 1}, {x, z}, {x + 1, z + 1}, {x, z + 1}}
+			} else {
+				cs = [6][2]int{{x, z}, {x + 1, z}, {x, z + 1}, {x + 1, z}, {x + 1, z + 1}, {x, z + 1}}
+			}
+			vi := (z*(W-1) + x) * 6
+			for i, c := range cs {
+				if vi+i >= surfaceVerts {
+					return first, last
+				}
+				verts[(vi+i)*stride+isOffset] = corner(c[0], c[1])
+			}
+		}
+	}
+	return first, last
+}
+
 // FlushSnowState rewrites the per-corner snow-state attributes on the
 // cached terrain vertex array and uploads. AO, smoothY, jitter, and
 // corner positions are NOT recomputed — they don't depend on snow
@@ -1846,15 +1925,30 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		light = DefaultLighting
 		light.Sky = weatherSky(r.WeatherOverlay)
 	}
+	r.shadowMap.ready = false
+	if light.Shadows && w.Terrain != nil {
+		t := r.Camera.Target
+		r.shadowMap.render(r, light.SunDir, w.Terrain.InterpolatedSurfaceElevationAt(t[0], t[2]))
+	}
+	r.shadowMap.bind()
+
 	gl.ClearColor(light.Sky[0], light.Sky[1], light.Sky[2], 1.0)
 	gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
 	vp := r.Camera.ViewProj()
+	lamps, lenses, beacons := snowcatLights(w, w.Snowcats, r.Camera.WorldPos(), time)
+	if light.Shadows && w.Terrain != nil {
+		r.terrainShadow.update(w.Terrain, light.SunDir)
+	}
+	r.terrainShadow.bind()
 
 	// Terrain pass
 	if r.scene.terrainMesh != nil {
 		r.TerrainShader.Use()
 		light.apply(r.TerrainShader)
+		applyLamps(r.TerrainShader, lamps, light.Night)
+		r.terrainShadow.apply(r.TerrainShader, light.Shadows)
+		r.shadowMap.apply(r.TerrainShader, light.Shadows)
 		r.TerrainShader.SetMat4("uViewProj", vp)
 		r.TerrainShader.SetVec2("uBrushCenter", r.brushCenter)
 		r.TerrainShader.SetFloat("uBrushRadius", r.brushRadius)
@@ -1894,6 +1988,9 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	// Static pass
 	r.StaticShader.Use()
 	light.apply(r.StaticShader)
+	applyLamps(r.StaticShader, lamps, light.Night)
+	r.terrainShadow.apply(r.StaticShader, light.Shadows)
+	r.shadowMap.apply(r.StaticShader, light.Shadows)
 	r.StaticShader.SetMat4("uViewProj", vp)
 	r.StaticShader.SetInt("uTexture", 0)
 	r.StaticShader.SetFloat("uAlpha", 1.0)
@@ -1975,6 +2072,9 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	// Dynamic pass (agents)
 	r.DynamicShader.Use()
 	light.apply(r.DynamicShader)
+	r.DynamicShader.SetFloat("uEmissive", 0)
+	r.terrainShadow.apply(r.DynamicShader, light.Shadows)
+	r.shadowMap.apply(r.DynamicShader, light.Shadows)
 	r.DynamicShader.SetMat4("uViewProj", vp)
 	r.DynamicShader.SetFloat("uTime", time)
 	r.DynamicShader.SetFloat("uSpinRate", 0) // default; overridden per rotor draw
@@ -2045,6 +2145,13 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		}
 		r.snowcatBatch.SetDynamic(catInstances)
 		r.snowcatBatch.Draw()
+
+		r.DynamicShader.SetFloat("uEmissive", 1)
+		r.catLensBatch.SetDynamic(lenses)
+		r.catLensBatch.Draw()
+		r.catBeaconBatch.SetDynamic(beacons)
+		r.catBeaconBatch.Draw()
+		r.DynamicShader.SetFloat("uEmissive", 0)
 	}
 
 	// Ski patrol snowmobiles — red when active, white when at hut.

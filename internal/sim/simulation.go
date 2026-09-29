@@ -116,6 +116,11 @@ type Simulation struct {
 	// fleet or trail configuration changes.
 	sectionsStale bool
 
+	// catPassNight records, per snowcat ID, the night (nightIndex) on
+	// which the cat last finished a full pass of its section, so each cat
+	// grooms its section once per night.
+	catPassNight map[uint64]int
+
 	// QueryServer, if non-nil, services live SQL queries from the HTTP
 	// endpoint. Tick() drains pending requests on the game thread.
 	QueryServer *QueryServer
@@ -947,7 +952,8 @@ func (s *Simulation) applyDayMelt(dw DayWeather) {
 // meltHour removes one step of melt (days of it: frac) from every cell at
 // base-area air temperature tempC, using the melt model in snowmelt.go:
 // degree-days at the cell's lapsed temperature, scaled by its direct sun
-// at this moment for its slope and aspect.
+// at this moment for its slope and aspect, cut to the shade rate while
+// surrounding terrain hides the sun (world.HorizonMap).
 func (s *Simulation) meltHour(dw DayWeather, date time.Time, hour float64, tempC, frac float32) {
 	t := s.World.Terrain
 	rainMelt := dw.RainMM * rainMeltPerMM * frac
@@ -955,7 +961,13 @@ func (s *Simulation) meltHour(dw DayWeather, date time.Time, hour float64, tempC
 		return // even the base area is below freezing, and it's dry
 	}
 	baseElev := terrainMinElevation(t)
-	beam := newInstantSun(SunAt(date, hour), dw.CloudCover)
+	sun := SunAt(date, hour)
+	beam := newInstantSun(sun, dw.CloudCover)
+	var horizon *world.HorizonMap
+	if beam.weight > 0 {
+		horizon = t.Horizon()
+	}
+	sunDir := [3]float32{sun.Dir[0], sun.Dir[1], sun.Dir[2]}
 	melted := false
 	for x := range t.Cells {
 		for z := range t.Cells[x] {
@@ -966,7 +978,11 @@ func (s *Simulation) meltHour(dw DayWeather, date time.Time, hour float64, tempC
 			melt := rainMelt
 			if temp := tempC - lapseRate*(c.GroundElevation-baseElev); temp > 0 {
 				gx, gz := t.GradientAt(x, z)
-				melt += meltFactor(beam.exposure(gx, gz)) * temp * frac
+				exposure := beam.exposure(gx, gz)
+				if exposure > 0 {
+					exposure *= horizon.SunVisibility(x, z, sunDir)
+				}
+				melt += meltFactor(exposure) * temp * frac
 			}
 			if melt > 0 {
 				meltCell(c, melt)

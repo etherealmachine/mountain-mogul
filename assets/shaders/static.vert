@@ -28,6 +28,7 @@ out vec3 vColor;
 flat out vec3 vNormal;
 out vec2 vTexCoord;
 flat out float vPerceived;
+out vec3 vWorldPos;
 
 void main() {
     mat4 iTransform = mat4(iTransform0, iTransform1, iTransform2, iTransform3);
@@ -49,5 +50,7 @@ void main() {
         }
     }
 
-    gl_Position = uViewProj * iTransform * vec4(aPos, 1.0);
+    vec4 world = iTransform * vec4(aPos, 1.0);
+    vWorldPos = world.xyz;
+    gl_Position = uViewProj * world;
 }
