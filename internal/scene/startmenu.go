@@ -13,9 +13,9 @@ import (
 
 // StartMenu is the main menu scene.
 type StartMenu struct {
-	app          *engine.App
-	buttons      []*ui.Button
-	hasContinue  bool // true when buttons currently include the Continue entry
+	app         *engine.App
+	buttons     []*ui.Button
+	hasContinue bool // true when buttons currently include the Continue entry
 }
 
 // NewStartMenu creates a StartMenu scene.

@@ -16,7 +16,7 @@ type node struct {
 
 type nodeHeap []*node
 
-func (h nodeHeap) Len() int            { return len(h) }
+func (h nodeHeap) Len() int           { return len(h) }
 func (h nodeHeap) Less(i, j int) bool { return h[i].f < h[j].f }
 func (h nodeHeap) Swap(i, j int) {
 	h[i], h[j] = h[j], h[i]

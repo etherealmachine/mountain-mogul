@@ -19,7 +19,7 @@ import (
 type tisState int
 
 const (
-	tisSearch    tisState = iota
+	tisSearch tisState = iota
 	tisSearching
 	tisResults
 	tisMap

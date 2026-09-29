@@ -6,15 +6,15 @@ import (
 )
 
 const (
-	avyMaxChance        = float32(0.60)  // maximum stochastic release probability
-	avyRunoutSlope      = float32(0.25)  // threshold: above → gains momentum; below → deposits
-	avyTreeStop         = float32(0.70)  // wave halts when tree density exceeds this
-	avyHopsPerSec       = float32(2.0)   // front advances 2 cells/wall-second ≈ 10 m/s
-	avyMomentumGain     = float32(2.0)   // momentum change per unit slope vs runout threshold
-	avyMomentumMax      = float32(8.0)   // cap on wave momentum
-	avyLateralSpread    = float32(0.30)  // allow spread to neighbours up to this slope uphill
-	avyDebrisMark       = float32(0.02)  // minimum SWE left as a debris marker on steep cells
-	avyMinSnow          = float32(0.00001) // wave dies when SWE in transit drops below this
+	avyMaxChance     = float32(0.60)    // maximum stochastic release probability
+	avyRunoutSlope   = float32(0.25)    // threshold: above → gains momentum; below → deposits
+	avyTreeStop      = float32(0.70)    // wave halts when tree density exceeds this
+	avyHopsPerSec    = float32(2.0)     // front advances 2 cells/wall-second ≈ 10 m/s
+	avyMomentumGain  = float32(2.0)     // momentum change per unit slope vs runout threshold
+	avyMomentumMax   = float32(8.0)     // cap on wave momentum
+	avyLateralSpread = float32(0.30)    // allow spread to neighbours up to this slope uphill
+	avyDebrisMark    = float32(0.02)    // minimum SWE left as a debris marker on steep cells
+	avyMinSnow       = float32(0.00001) // wave dies when SWE in transit drops below this
 )
 
 // avySqrt2 is the distance multiplier for diagonal Moore-neighbourhood steps.

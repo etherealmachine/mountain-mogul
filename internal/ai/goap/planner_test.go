@@ -48,14 +48,14 @@ func TestPlanFromParking(t *testing.T) {
 	w, parking, _, _ := buildSmokeWorld(t)
 
 	snap := WorldSnapshot{
-		Pos:       mgl32.Vec3{parking.Pos[0], 0, parking.Pos[1]},
-		Patience:    1.0,
-		Energy:      1.0,
-		Hunger:      1.0,
-		Thirst:      1.0,
-		Skill:       1.0,
+		Pos:             mgl32.Vec3{parking.Pos[0], 0, parking.Pos[1]},
+		Patience:        1.0,
+		Energy:          1.0,
+		Hunger:          1.0,
+		Thirst:          1.0,
+		Skill:           1.0,
 		RemainingBudget: 1000,
-		AtParking: parking.ID,
+		AtParking:       parking.ID,
 	}
 	goal := SelectGoal(&snap, w)
 	if goal == nil {
@@ -91,15 +91,15 @@ func TestExplorePrefersUnridden(t *testing.T) {
 
 	// Agent at top of A (just unloaded), already rode A once.
 	snap := WorldSnapshot{
-		Pos:        mgl32.Vec3{liftA.Top[0], 0, liftA.Top[1]},
-		Patience:     0.7,
-		Energy:       1.0,
-		Hunger:       1.0,
-		Thirst:       1.0,
-		Skill:        1.0,
+		Pos:             mgl32.Vec3{liftA.Top[0], 0, liftA.Top[1]},
+		Patience:        0.7,
+		Energy:          1.0,
+		Hunger:          1.0,
+		Thirst:          1.0,
+		Skill:           1.0,
 		RemainingBudget: 1000,
-		AtLiftTop:  liftA.ID,
-		RidenLifts: []ai.RideCount{{LiftID: liftA.ID, Count: 1}},
+		AtLiftTop:       liftA.ID,
+		RidenLifts:      []ai.RideCount{{LiftID: liftA.ID, Count: 1}},
 	}
 
 	p := NewPlanner()
@@ -123,7 +123,7 @@ func TestExplorePrefersUnridden(t *testing.T) {
 // TestRestAtLowPatience: low Patience makes Rest dominate, and the planner
 // should produce a plan that ends in RestAtLodge.
 func TestRestAtLowPatience(t *testing.T) {
-    // ... (unchanged)
+	// ... (unchanged)
 }
 
 func TestRelieveThirst(t *testing.T) {
@@ -132,14 +132,14 @@ func TestRelieveThirst(t *testing.T) {
 
 	// Agent at top of A, thirsty.
 	snap := WorldSnapshot{
-		Pos:       mgl32.Vec3{liftA.Top[0], 0, liftA.Top[1]},
-		Patience:    1.0,
-		Energy:      1.0,
-		Hunger:      1.0,
-		Thirst:      0.1,
-		Skill:       1.0,
+		Pos:             mgl32.Vec3{liftA.Top[0], 0, liftA.Top[1]},
+		Patience:        1.0,
+		Energy:          1.0,
+		Hunger:          1.0,
+		Thirst:          0.1,
+		Skill:           1.0,
 		RemainingBudget: 1000,
-		AtLiftTop: liftA.ID,
+		AtLiftTop:       liftA.ID,
 	}
 	goal := SelectGoal(&snap, w)
 	if goal.Name() != "RelieveThirst" {

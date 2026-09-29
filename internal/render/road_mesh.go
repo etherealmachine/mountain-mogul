@@ -21,6 +21,7 @@ import (
 //   - the chain-effects closest-sample query overestimates true
 //     curve-perpDist by ~1 sample spacing, leaving a few cm of
 //     residual snow at the inner-clearance boundary.
+//
 // 20 cm is well above either error source and still reads as a flat
 // surface at the gameplay camera distance.
 const roadHoverOffset = float32(0.20)

@@ -12,19 +12,19 @@ type Input struct {
 	Released    map[glfw.Key]bool
 	MousePos    mgl32.Vec2
 	MouseDelta  mgl32.Vec2
-	LeftClick    bool
-	LeftHeld     bool
-	LeftRelease  bool
+	LeftClick   bool
+	LeftHeld    bool
+	LeftRelease bool
 	// LeftClickConsumed is set by UI handlers when they process this
 	// frame's click within their hit-box. World tools should gate on
 	// !LeftClickConsumed so the same click doesn't pass through to
 	// terrain/agents underneath. Cleared each frame in BeginFrame.
 	LeftClickConsumed bool
-	RightClick   bool
-	RightHeld    bool
-	RightRelease bool
-	ScrollDelta  float32
-	CharInput   []rune // Unicode characters typed this frame
+	RightClick        bool
+	RightHeld         bool
+	RightRelease      bool
+	ScrollDelta       float32
+	CharInput         []rune // Unicode characters typed this frame
 
 	// internal state for building deltas
 	prevMousePos mgl32.Vec2

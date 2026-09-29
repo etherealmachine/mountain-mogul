@@ -206,8 +206,8 @@ func (w *Window) AddDifficultyToggles(label string, has func(bit uint8) bool, to
 		color [3]float32
 		bit   uint8
 	}{
-		{toggleDisc, [3]float32{0.18, 0.78, 0.30}, 1 << 0},   // green
-		{toggleSquare, [3]float32{0.18, 0.55, 0.92}, 1 << 1}, // blue
+		{toggleDisc, [3]float32{0.18, 0.78, 0.30}, 1 << 0},    // green
+		{toggleSquare, [3]float32{0.18, 0.55, 0.92}, 1 << 1},  // blue
 		{toggleDiamond, [3]float32{0.05, 0.05, 0.08}, 1 << 2}, // black
 	} {
 		bit := t.bit
@@ -272,7 +272,7 @@ func (w *Window) rebuildLayout() {
 	// Width: derive from widest label + fixed value area, floored by title width.
 	maxLabelPx := float32(0)
 	for _, row := range w.rows {
-		lw := float32((len(row.label)+1)*render.GlyphAdvance) // +1 for ':'
+		lw := float32((len(row.label) + 1) * render.GlyphAdvance) // +1 for ':'
 		if lw > maxLabelPx {
 			maxLabelPx = lw
 		}
@@ -459,9 +459,9 @@ func (w *Window) Draw(r *render.Renderer) {
 		return
 	}
 
-	bgColor    := mgl32.Vec4{0.08, 0.10, 0.14, 0.95}
-	titleBg    := mgl32.Vec4{0.15, 0.20, 0.35, 1.0}
-	textColor  := mgl32.Vec4{0.9, 0.95, 1.0, 1.0}
+	bgColor := mgl32.Vec4{0.08, 0.10, 0.14, 0.95}
+	titleBg := mgl32.Vec4{0.15, 0.20, 0.35, 1.0}
+	textColor := mgl32.Vec4{0.9, 0.95, 1.0, 1.0}
 	labelColor := mgl32.Vec4{0.6, 0.7, 0.85, 1.0}
 
 	r.DrawColorRect(w.X, w.Y, w.width, w.height, bgColor)
@@ -548,7 +548,7 @@ func drawToggleEntry(r *render.Renderer, t *toggleEntry) {
 	cx := t.x + t.w/2
 	cy := t.y + t.w/2
 	// Inset so the glyph doesn't kiss the slot border.
-	gr := t.w*0.40
+	gr := t.w * 0.40
 	switch t.shape {
 	case toggleDisc:
 		r.DrawColorDisc(cx, cy, gr, col)

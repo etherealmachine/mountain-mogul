@@ -173,7 +173,7 @@ func flattenValue(name string, v reflect.Value, row Row) {
 		}
 	case reflect.Array:
 		flattenArray(name, v, row)
-	// Slices, maps, funcs, chans, ptrs-to-non-struct: skip
+		// Slices, maps, funcs, chans, ptrs-to-non-struct: skip
 	}
 }
 

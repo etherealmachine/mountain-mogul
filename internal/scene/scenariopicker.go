@@ -19,8 +19,8 @@ import (
 // which one the Scenario Editor opens. Models on TestbedMenu's
 // centred-button-stack pattern; Back returns to the start menu.
 type ScenarioPicker struct {
-	app     *engine.App
-	buttons []*ui.Button
+	app       *engine.App
+	buttons   []*ui.Button
 	forEditor bool // pick opens the editor, plus a "New blank scenario" entry
 }
 

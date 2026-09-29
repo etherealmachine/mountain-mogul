@@ -200,8 +200,8 @@ var roadEditSelectionTint = [3]float32{1.00, 0.45, 0.10}
 // Stamped as a non-uniform scale on top of RoadNodeMarkerTransform so
 // the underlying cylinder mesh stays shared with the placement path.
 const (
-	roadEditMarkerRadiusScale = float32(1.6)
-	roadEditMarkerHeightScale = float32(8.0)
+	roadEditMarkerRadiusScale    = float32(1.6)
+	roadEditMarkerHeightScale    = float32(8.0)
 	roadEditSelectionRadiusScale = float32(2.0)
 	roadEditSelectionHeightScale = float32(12.0)
 )

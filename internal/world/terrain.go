@@ -10,17 +10,17 @@ import (
 type SnowKind uint8
 
 const (
-	KindPowder         SnowKind = iota // cold dry storm; light, deep, floaty
-	KindPackedPowder                   // groomed or skied-in; fast and predictable
-	KindCement                         // warm storm; dense, wet, heavy
-	KindWindSlab                       // wind-consolidated; hollow feel, can shatter
-	KindCrust                          // sun/wind surface glaze; breakable, edge-catching
-	KindBoilerplate                    // hard frozen surface; very fast, no edge
-	KindSlush                          // saturated wet snow; slow, heavy, poor edge
-	KindFrozenGranular                 // refrozen slush; icy grains, some texture
-	KindCorn                           // spring granular; buttery, fast, great grip
-	KindBase                           // compacted season base; firm, dense, not icy
-	KindAvalancheDebris               // tumbled runout snow mixed with rock and soil
+	KindPowder          SnowKind = iota // cold dry storm; light, deep, floaty
+	KindPackedPowder                    // groomed or skied-in; fast and predictable
+	KindCement                          // warm storm; dense, wet, heavy
+	KindWindSlab                        // wind-consolidated; hollow feel, can shatter
+	KindCrust                           // sun/wind surface glaze; breakable, edge-catching
+	KindBoilerplate                     // hard frozen surface; very fast, no edge
+	KindSlush                           // saturated wet snow; slow, heavy, poor edge
+	KindFrozenGranular                  // refrozen slush; icy grains, some texture
+	KindCorn                            // spring granular; buttery, fast, great grip
+	KindBase                            // compacted season base; firm, dense, not icy
+	KindAvalancheDebris                 // tumbled runout snow mixed with rock and soil
 )
 
 // KindName returns a display name for a snow kind.
@@ -203,7 +203,7 @@ func KindEdgeMult(k SnowKind) float32 {
 
 // SnowLayer is the active surface snow stratum. Visible depth = Accumulation / KindDensity(Kind).
 type SnowLayer struct {
-	Accumulation float32  // SWE metres, conserved under kind transitions
+	Accumulation float32 // SWE metres, conserved under kind transitions
 	Kind         SnowKind
 }
 

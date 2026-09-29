@@ -12,8 +12,8 @@ import (
 // left-aligned (default) or centred with even space-around distribution.
 type MenuBar struct {
 	Y, H         float32
-	Buttons      []*Button     // tool palette (includes submenu parent buttons)
-	RightButtons []*Button     // right-aligned cluster (e.g. speed controls)
+	Buttons      []*Button        // tool palette (includes submenu parent buttons)
+	RightButtons []*Button        // right-aligned cluster (e.g. speed controls)
 	Submenus     []*SubmenuButton // popup submenus registered in this bar
 
 	// Centered switches the layout for `Buttons` from left-packed to a

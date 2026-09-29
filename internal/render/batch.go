@@ -17,10 +17,11 @@ type StaticInstance struct {
 
 // DynamicInstance holds per-instance data for dynamic objects (agents,
 // chairs, snowcats, cars). SpinMode drives animation in dynamic.vert:
-//   0.0 = rigid (vehicles, chairs, cars)
-//   1.0 = limb-bob (skiers, walkers: upper vertices oscillate ±5 cm)
-//   2.0 = spin_y (spin around game Y / vertical axis — helicopter main rotor)
-//   3.0 = spin_z (spin around game Z axis — helicopter tail rotor)
+//
+//	0.0 = rigid (vehicles, chairs, cars)
+//	1.0 = limb-bob (skiers, walkers: upper vertices oscillate ±5 cm)
+//	2.0 = spin_y (spin around game Y / vertical axis — helicopter main rotor)
+//	3.0 = spin_z (spin around game Z axis — helicopter tail rotor)
 type DynamicInstance struct {
 	Position [3]float32
 	Heading  float32

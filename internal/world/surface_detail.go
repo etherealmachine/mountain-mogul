@@ -94,10 +94,10 @@ func (s *SurfaceDetail) MarkAllDirty() {
 
 // channel indices into the per-pixel RGBA byte stream.
 const (
-	chTrack    = 0 // R — skier track intensity
-	chTreeWell = 1 // G — tree-well depth
+	chTrack     = 0 // R — skier track intensity
+	chTreeWell  = 1 // G — tree-well depth
 	chGroomEdge = 2 // B — groom-edge mask
-	chReserved = 3 // A
+	chReserved  = 3 // A
 )
 
 // stampMaxChannelDisk writes a Gaussian-falloff disk into one channel,

@@ -46,9 +46,9 @@ func (c *DebugConsole) SetSim(s *sim.Simulation, flushTerrain func()) {
 	c.flushTerrain = flushTerrain
 }
 
-func (c *DebugConsole) Visible() bool  { return c.visible }
-func (c *DebugConsole) Toggle()        { c.visible = !c.visible }
-func (c *DebugConsole) Show()          { c.visible = true }
+func (c *DebugConsole) Visible() bool { return c.visible }
+func (c *DebugConsole) Toggle()       { c.visible = !c.visible }
+func (c *DebugConsole) Show()         { c.visible = true }
 
 func (c *DebugConsole) HandleInput(inp *engine.Input) {
 	c.input.HandleInput(inp)

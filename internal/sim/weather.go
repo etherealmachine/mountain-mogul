@@ -10,10 +10,10 @@ type WeatherState uint8
 
 const (
 	WeatherClear     WeatherState = iota // sunny, no precipitation
-	WeatherOvercast                       // cloudy, no precipitation
-	WeatherLightSnow                      // light to moderate snowfall
-	WeatherHeavySnow                      // heavy snow / blizzard
-	WeatherRain                           // above-freezing precipitation
+	WeatherOvercast                      // cloudy, no precipitation
+	WeatherLightSnow                     // light to moderate snowfall
+	WeatherHeavySnow                     // heavy snow / blizzard
+	WeatherRain                          // above-freezing precipitation
 	weatherStateCount
 )
 

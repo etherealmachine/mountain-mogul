@@ -10,14 +10,14 @@ import (
 // vertically centred and left-padded as before.
 type Button struct {
 	X, Y, W, H  float32
-	Label        string
-	Icon         render.IconName // optional; empty means text-only
-	Color        mgl32.Vec4
-	HoverColor   mgl32.Vec4
-	ActiveColor  mgl32.Vec4
-	active       bool
-	hovered      bool
-	onClick      func()
+	Label       string
+	Icon        render.IconName // optional; empty means text-only
+	Color       mgl32.Vec4
+	HoverColor  mgl32.Vec4
+	ActiveColor mgl32.Vec4
+	active      bool
+	hovered     bool
+	onClick     func()
 }
 
 // NewButton creates a button with default colors.

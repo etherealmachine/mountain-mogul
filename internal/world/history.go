@@ -16,13 +16,13 @@ const HistoryCapacity = 376
 // pushes one of these; the readers iterate via History.Ordered to walk
 // them oldest-first regardless of where the ring head currently sits.
 type DailySample struct {
-	Day              time.Time // calendar date this sample covers
-	GuestsOnMountain int       // active OnMountain count at EOD
-	ArrivalsToday    int       // spawns during this day
-	DeparturesToday  int       // departures during this day
-	Cash             int       // resort cash balance at EOD
-	Revenue          int       // lift ticket income this day
-	Costs            int       // operational costs this day (attendants + snowcats)
+	Day               time.Time                // calendar date this sample covers
+	GuestsOnMountain  int                      // active OnMountain count at EOD
+	ArrivalsToday     int                      // spawns during this day
+	DeparturesToday   int                      // departures during this day
+	Cash              int                      // resort cash balance at EOD
+	Revenue           int                      // lift ticket income this day
+	Costs             int                      // operational costs this day (attendants + snowcats)
 	ThoughtCounts     [ai.ThoughtKindCount]int // per-kind thought totals emitted during the day
 	ExitThoughtCounts [ai.ThoughtKindCount]int // last thought of each departing guest, by kind
 }
@@ -38,9 +38,9 @@ type History struct {
 	Filled  bool // false until the ring has wrapped at least once
 
 	// Day-in-progress counters. Reset by Push.
-	ArrivalsToday      int
-	DeparturesToday    int
-	RevenueToday       int
+	ArrivalsToday          int
+	DeparturesToday        int
+	RevenueToday           int
 	ThoughtCountsToday     [ai.ThoughtKindCount]int
 	ExitThoughtCountsToday [ai.ThoughtKindCount]int
 }

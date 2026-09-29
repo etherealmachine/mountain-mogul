@@ -7,32 +7,32 @@ import (
 )
 
 const (
-	patrollerSpeed            = float32(12.0) // m/s — fast enough to reach an injured skier quickly
-	patrollerArriveRadius     = float32(5.0)  // m — close enough to act
-	PatrollerOnSceneSeconds   = float32(4.0)  // s — countdown while loading patient
+	patrollerSpeed          = float32(12.0) // m/s — fast enough to reach an injured skier quickly
+	patrollerArriveRadius   = float32(5.0)  // m — close enough to act
+	PatrollerOnSceneSeconds = float32(4.0)  // s — countdown while loading patient
 )
 
 // PatrollerState is the active phase of a ski patroller's work cycle.
 type PatrollerState uint8
 
 const (
-	PatrollerAtHut    PatrollerState = iota // waiting at patrol hut
-	PatrollerEnRoute                        // driving to injured guest
-	PatrollerOnScene                        // on-scene loading patient (timer)
-	PatrollerReturning                      // driving to parking lot with patient
+	PatrollerAtHut     PatrollerState = iota // waiting at patrol hut
+	PatrollerEnRoute                         // driving to injured guest
+	PatrollerOnScene                         // on-scene loading patient (timer)
+	PatrollerReturning                       // driving to parking lot with patient
 )
 
 // Patroller is a ski-patrol unit (person + snowmobile). One is spawned per
 // patrol hut. Its state machine is driven by sim/patrol.go every tick.
 type Patroller struct {
 	ID            uint64
-	HutID         uint64         // owning patrol hut; despawns when hut is removed
+	HutID         uint64 // owning patrol hut; despawns when hut is removed
 	Pos           mgl32.Vec3
 	Heading       float32
 	State         PatrollerState
-	TargetGuestID uint64        // guest being rescued; 0 when idle
-	TargetPos     mgl32.Vec3   // current drive destination
-	ActionTimer   float32       // counts down during PatrollerOnScene
+	TargetGuestID uint64     // guest being rescued; 0 when idle
+	TargetPos     mgl32.Vec3 // current drive destination
+	ActionTimer   float32    // counts down during PatrollerOnScene
 }
 
 // SpawnPatroller creates a new patroller parked at the patrol hut's door.
