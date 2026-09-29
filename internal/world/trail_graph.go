@@ -93,12 +93,20 @@ func BuildTrailGraph(w *World) *TrailGraph {
 		}
 
 		for _, b := range w.Buildings {
-			if b.Type != BuildingLodge && b.Type != BuildingParking {
+			if b.Type != BuildingLodge && b.Type != BuildingParking || !b.Usable() {
 				continue
 			}
 			door := b.DoorCell()
 			touches := cellSet[door]
-			if !touches && b.IsCellLot() {
+			if b.IsShell() {
+				touches = false
+				for _, d := range b.DoorCells {
+					if trailTouchesDoor(cellSet, d) {
+						door, touches = d, true
+						break
+					}
+				}
+			} else if !touches && b.IsCellLot() {
 				for _, c := range b.Cells {
 					if cellSet[c] {
 						touches = true
@@ -238,4 +246,18 @@ func (w *World) ServicesForLift(liftID uint64) TerrainDifficulty {
 		}
 	}
 	return services
+}
+
+// trailTouchesDoor reports whether a trail covers door cell d or one of
+// its 4-neighbours (shell cells themselves are never trail cells).
+func trailTouchesDoor(cellSet map[[2]int]bool, d [2]int) bool {
+	if cellSet[d] {
+		return true
+	}
+	for _, o := range [4][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}} {
+		if cellSet[[2]int{d[0] + o[0], d[1] + o[1]}] {
+			return true
+		}
+	}
+	return false
 }

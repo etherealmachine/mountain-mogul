@@ -792,7 +792,7 @@ func (e *Editor) applyPlacement(r *render.Renderer, shiftHeld bool) {
 	case toolRemove:
 		pick := mgl32.Vec2{wx, wz}
 		for _, b := range w.Buildings {
-			if !b.IsCellLot() && b.Pos.Sub(pick).Len() <= buildingPickRadius {
+			if !b.IsPainted() && b.Pos.Sub(pick).Len() <= buildingPickRadius {
 				wasParking := b.Type == world.BuildingParking
 				w.RemoveBuilding(b.ID)
 				r.FlushTerrainVerts(w.Terrain)
@@ -803,7 +803,7 @@ func (e *Editor) applyPlacement(r *render.Renderer, shiftHeld bool) {
 				return
 			}
 		}
-		if lot := w.ParkingLotAt(e.hoverCell[0], e.hoverCell[1]); lot != nil {
+		if lot := w.PaintedBuildingAt(e.hoverCell[0], e.hoverCell[1]); lot != nil {
 			e.deleteLot(r, lot.ID)
 		}
 	case toolParcelRect:
@@ -968,7 +968,7 @@ func (e *Editor) regenerateAuto() {
 	)
 	// Re-stamp clearances that generateTreeCover would otherwise overwrite.
 	for _, b := range e.world.Buildings {
-		if b.IsCellLot() {
+		if b.IsPainted() {
 			continue
 		}
 		halfX, halfZ := buildingFootprint(b.Type)
@@ -1553,7 +1553,7 @@ func (e *Editor) activateParkingTool(id uint64, erase bool) {
 
 // deleteLot removes a parking lot and closes its popup.
 func (e *Editor) deleteLot(r *render.Renderer, id uint64) {
-	deleteParkingLot(r, e.world, id)
+	removePaintedBuilding(r, e.world, id)
 	e.markDirty()
 	if e.lotPopup != nil {
 		e.lotPopup.Visible = false

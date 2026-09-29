@@ -28,6 +28,7 @@ var AllGoals = []Goal{
 	KeepSkiing{},
 	Rest{},
 	RelieveThirst{},
+	RelieveHunger{},
 	Explore{},
 	GoHome{},
 }
@@ -145,6 +146,25 @@ func (RelieveThirst) Weight(s *WorldSnapshot, w *world.World) float32 {
 		w2 = 1.2
 	}
 	return w2
+}
+
+// RelieveHunger fires once hunger drops below 0.25 and is satisfied by a
+// meal at a lodge food court. Its weight starts above KeepSkiing's max so
+// a hungry guest heads for lunch; with no reachable food court the
+// planner falls through to the next goal.
+type RelieveHunger struct{}
+
+func (RelieveHunger) Name() string { return "RelieveHunger" }
+
+func (RelieveHunger) IsSatisfied(s *WorldSnapshot, w *world.World) bool {
+	return s.Hunger >= 0.25
+}
+
+func (RelieveHunger) Weight(s *WorldSnapshot, w *world.World) float32 {
+	if s.Hunger >= 0.25 {
+		return 0
+	}
+	return 1.05 + (0.25 - s.Hunger)
 }
 
 // Explore is satisfied once every skill-accessible lift has been ridden at

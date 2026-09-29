@@ -45,8 +45,8 @@ type WorldSnapshot struct {
     Pos        mgl32.Vec3
     Patience   float32          // 0..1 — drains queuing, restored by skiing/riding/lodge
     Energy     float32          // 0..1 — drains skiing, restored by RestAtLodge
-    Hunger     float32          // 0..1 — fixed drain, never restored; hits 0 → GoHome
-    Thirst     float32          // 0..1 — altitude+exertion drain, never restored; hits 0 → GoHome
+    Hunger     float32          // 0..1 — fixed drain, restored by EatAtFoodCourt; hits 0 → GoHome
+    Thirst     float32          // 0..1 — altitude+exertion drain, restored at a bar; hits 0 → GoHome
     AtLiftBase uint64           // 0 or lift ID
     AtLiftTop  uint64           // 0 or lift ID
     Queued     uint64           // 0 or lift ID
@@ -76,6 +76,7 @@ assignment.
 | `SkiToLodge(B)` | `AtLiftTop != 0`; ≥20 m descent to `B` | `AtLodge = B`; `AtLiftTop = 0` | `dist / skiSpeedMps` |
 | `SkiToParking(B)` | `AtLiftTop != 0`; ≥20 m descent to `B` | `AtParking = B`; `AtLiftTop = 0` | `dist / skiSpeedMps` |
 | `RestAtLodge(B)` | `AtLodge == B` | `Patience = 1` | `restDurationSec` (≈60 s) |
+| `EatAtFoodCourt(B)` | `AtLodge == B`; `B` has a food court and a door; `Diners < Seats`; budget ≥ `MealPrice` | `Hunger = 1`; budget −= `MealPrice` | `mealDurationSec` (90 s) |
 | `Depart(B)` | `AtParking == B` | `Removed = true` | `0` (terminal) |
 
 Boarding the chair is folded into `RideLift` — no separate `BoardChair`
@@ -102,6 +103,7 @@ matches the actual rating outcome.
 | `KeepSkiing` | `AtLiftTop != 0` | `Patience` (×0.5 if `Patience < 0.2`) | lapping fallback when Explore done |
 | `Rest` | `Patience ≥ 0.85` | `(1 − Patience)²` | fires a `SkiToLodge + RestAtLodge` plan |
 | `Explore` | every **accessible** lift ridden once | `unridden_accessible_frac × Patience` | filtered by guest skill level |
+| `RelieveHunger` | `Hunger ≥ 0.25` | `1.05 + (0.25 − Hunger)` below 0.25, else 0 | fires a trip to the nearest food court; skipped when none is reachable |
 | `GoHome` | `Removed` | `1.0` if `min(Patience,Energy) < 0.05` or `Hunger < 0.05` or `Thirst < 0.05`, else `0` | fires on exhaustion, starvation, or dehydration |
 
 **Goal priority**: `SelectGoal` picks the highest-weighted *unsatisfied* goal
@@ -383,16 +385,19 @@ flowchart TB
   (`Rest.Weight = (1 − Patience)²`), producing a `SkiToLodge +
   RestAtLodge` plan. `GoHome` fires when Patience < 0.05. The skier
   physics pipeline never reads Patience itself.
-- **Hunger and Thirst** are one-way countdown timers. Both are
-  randomised to `[0.5, 1.0)` at spawn and drain continuously during
-  every skiing tick; neither is ever restored. Hunger drains at a fixed
-  `1/14400` per sim-second (~4 h full drain). Thirst drains at
-  `1/10800 × altitudeFactor × exertionMultiplier` — altitude adds
+- **Hunger and Thirst** are countdown timers. Both are randomised to
+  `[0.5, 1.0)` at spawn and drain continuously during every skiing tick.
+  A food-court meal restores Hunger; a bar restores Thirst. Hunger
+  drains at a fixed `1/900` per sim-second (five clock hours to empty).
+  Thirst drains at
+  `1/900 × altitudeFactor × exertionMultiplier` — altitude adds
   `+0.05%` per metre above sea level; the exertion table matches the
   energy-drain skill×terrain tiers but is capped at 3×. When either
   drops below 0.15, `ThoughtHungry` / `ThoughtThirsty` is emitted each
   TTL window. When either hits 0.05, `GoHome` fires and the guest
-  departs. Lodges do not restore either stat.
+  departs. Guests reach a lodge only through its doors
+  (`NearestEntrance`); a meal holds one of the food court's seats for
+  90 s and charges the lodge's `MealPrice`.
 
 ---
 
@@ -406,9 +411,10 @@ at 1.0 on arrival. When it reaches 0, `GoHome` fires and the guest leaves.
 `Energy` (0..1) is the physical fatigue budget. Drains while skiing; restored
 by `RestAtLodge`. When it reaches 0, `GoHome` fires.
 
-`Hunger` and `Thirst` (0..1) are one-way countdown timers — no mechanism
-restores them. Both start at a random value in `[0.5, 1.0)` at spawn. When
-either reaches 0, `GoHome` fires. See the L1–L3 notes above for drain rates.
+`Hunger` and `Thirst` (0..1) are countdown timers, restored by a food-court
+meal and a bar drink respectively. Both start at a random value in
+`[0.5, 1.0)` at spawn. When either reaches 0, `GoHome` fires. See the L1–L3
+notes above for drain rates.
 
 **Write sites:**
 
@@ -482,8 +488,9 @@ distinct gameplay paths and it matters which one fired:
 day on the mountain and is physically spent or simply ran out of food and
 water. Energy drains at 1/7200 per sim-second (~2 h continuous to empty);
 falls add a −0.30 one-shot hit; overmatched terrain drains up to 6× faster.
-Hunger drains at 1/14400 per sim-second (~4 h); Thirst at 1/10800 × altitude
-× exertion. All three start at natural levels (Energy = 1.0; Hunger and
+Hunger drains at 1/900 per sim-second (five clock hours); Thirst at 1/900 ×
+altitude × exertion. A resort with food courts and bars keeps guests out
+longer. All three start at natural levels (Energy = 1.0; Hunger and
 Thirst randomised to 0.5–1.0 at spawn). `ThoughtHungry` / `ThoughtThirsty`
 appear in the ring as the guest gets low, so the departure thought reflects
 the cause. No guest satisfaction penalty — the player did nothing wrong.

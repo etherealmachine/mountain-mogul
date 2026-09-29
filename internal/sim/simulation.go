@@ -483,6 +483,32 @@ func parkingWorldPos(w *world.World, b *world.Building) mgl32.Vec3 {
 	return mgl32.Vec3{b.Pos[0], w.Terrain.SurfaceElevationAt(cell[0], cell[1]), b.Pos[1]}
 }
 
+// entranceWorldPos is parkingWorldPos for the building entrance nearest
+// from: a lodge shell's closest door, or the building anchor otherwise.
+func entranceWorldPos(w *world.World, b *world.Building, from mgl32.Vec3) mgl32.Vec3 {
+	if !b.IsShell() {
+		return parkingWorldPos(w, b)
+	}
+	p, cell := b.NearestEntrance(mgl32.Vec2{from[0], from[2]})
+	return mgl32.Vec3{p[0], w.Terrain.SurfaceElevationAt(cell[0], cell[1]), p[1]}
+}
+
+// countDiners recounts each lodge's seated diners from guests mid-meal.
+// onPlanStepStart bumps the count as guests sit so seats fill within a tick.
+func countDiners(w *world.World) {
+	for _, b := range w.Buildings {
+		b.Diners = 0
+	}
+	for _, a := range w.OnMountain {
+		if a.RestTimer <= 0 || a.Plan.Head().Kind != ai.ActEat {
+			continue
+		}
+		if b := findBuildingByID(w, a.Plan.Head().BldgID); b != nil {
+			b.Diners++
+		}
+	}
+}
+
 // liftBaseWorldPos returns the lift base anchor as a world-space Vec3.
 func liftBaseWorldPos(w *world.World, l *world.Lift) mgl32.Vec3 {
 	cell := l.QueueCell()
@@ -499,6 +525,7 @@ func liftBaseWorldPos(w *world.World, l *world.Lift) mgl32.Vec3 {
 // mid-pass.
 func (s *Simulation) tickGuests(dt float64) {
 	w := s.World
+	countDiners(w)
 	// Pre-pass: correct stale SkisOn state introduced between ticks (e.g.
 	// by heatwave or other external snow mutations applied outside the
 	// substep loop).
@@ -838,6 +865,7 @@ func (s *Simulation) applyDailyWeather(dw DayWeather) {
 	switch dw.State {
 	case WeatherLightSnow, WeatherHeavySnow:
 		s.pushSnowLayer(dw)
+		s.World.ClearLodgeFloors()
 	default:
 		// Determine the non-precipitation event type.
 		var evt weatherEvent
@@ -1049,6 +1077,9 @@ func meltCell(c *world.Cell, melt float32) {
 // RestAtLodge as ~60 s and tickResting counts down for the same
 // duration so plan cost and runtime stay in sync.
 const restAtLodgeSec = 60.0
+
+// mealSec mirrors goap.mealDurationSec — how long a diner holds a seat.
+const mealSec = 90.0
 
 // tickPlanning is the per-agent replan / advance check. Runs first in
 // the per-agent loop so any implicit state it sets (Queued, TargetID,
@@ -1273,7 +1304,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 			a.Plan.Goal = ai.GoalNone
 		}
 		a.Plan.GoalID = b.ID
-		a.Plan.Target = parkingWorldPos(w, b)
+		a.Plan.Target = entranceWorldPos(w, b, a.Pos)
 	case ai.ActSkiToParking:
 		a.RunGroomingSum = 0
 		a.RunGroomingSamples = 0
@@ -1308,7 +1339,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 				a.Plan.Goal = ai.GoalNone
 			}
 			a.Plan.GoalID = b.ID
-			a.Plan.Target = parkingWorldPos(w, b)
+			a.Plan.Target = entranceWorldPos(w, b, a.Pos)
 		default:
 			// Trail-to-trail: steer toward destination trail's centroid.
 			if t := w.FindTrail(step.TrailID); t != nil {
@@ -1398,6 +1429,18 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		a.RestTimer = 30.0 // brief stop for a drink
 		a.Speed = 0
 		a.TargetID = 0
+	case ai.ActEat:
+		b := findBuildingByID(w, step.BldgID)
+		if b == nil {
+			return
+		}
+		a.RestTimer = mealSec
+		a.Speed = 0
+		a.TargetID = 0
+		b.Diners++
+		w.Cash += b.MealPrice
+		w.History.RecordRevenue(world.RevenueFood, b.MealPrice)
+		a.RemainingBudget -= float32(b.MealPrice)
 	case ai.ActDepart:
 		// Capture session stats (LastScore, LifetimeVisits, LastVisit,
 		// VisitsThisSeason) on the persistent Guest record before the
@@ -1479,7 +1522,7 @@ func planActionComplete(step ai.PlanAction, a *world.Guest, snap goap.WorldSnaps
 		return true // executed atomically in onPlanStepStart
 	case ai.ActRestAtLodge:
 		return a.RestTimer <= 0
-	case ai.ActRelieveThirst:
+	case ai.ActRelieveThirst, ai.ActEat:
 		return a.RestTimer <= 0
 	case ai.ActDepart:
 		// Terminal — the Removed flag is the real signal; this is
@@ -1511,7 +1554,11 @@ func planActionPreconditionHolds(step ai.PlanAction, snap goap.WorldSnapshot, w 
 		return l != nil && l.Open && !l.OnHold
 	case ai.ActSkiToLodge, ai.ActSkiToParking, ai.ActRestAtLodge, ai.ActRelieveThirst,
 		ai.ActDepart, ai.ActWalkToTicketOffice, ai.ActBuySeasonPass, ai.ActBuyDayTicket:
-		return findBuildingByID(w, step.BldgID) != nil
+		b := findBuildingByID(w, step.BldgID)
+		return b != nil && b.Usable()
+	case ai.ActEat:
+		b := findBuildingByID(w, step.BldgID)
+		return b != nil && b.ServesFood()
 	case ai.ActSkiTrail:
 		// Destination entity must still exist.
 		if step.LiftID != 0 {
@@ -1541,6 +1588,8 @@ func (s *Simulation) tickResting(a *world.Guest, dt float64) {
 			a.Energy = 1
 		case ai.ActRelieveThirst:
 			a.Thirst = 1
+		case ai.ActEat:
+			a.Hunger = 1
 		}
 	}
 }
@@ -1570,7 +1619,7 @@ func planTargetWorldPos(w *world.World, a *world.Guest) (mgl32.Vec3, bool) {
 		}
 	case ai.ActSkiToLodge, ai.ActSkiToParking, ai.ActWalkToTicketOffice:
 		if b := findBuildingByID(w, step.BldgID); b != nil {
-			return parkingWorldPos(w, b), true
+			return entranceWorldPos(w, b, a.Pos), true
 		}
 	case ai.ActSkiTrail:
 		return a.Plan.Target, a.Plan.Target != (mgl32.Vec3{})
@@ -1791,7 +1840,7 @@ func (s *Simulation) tickLocomote(agent *world.Guest, dt float64) {
 	var targetPos mgl32.Vec3
 	if agent.TargetID != 0 {
 		var ok bool
-		targetPos, ok = resolveTarget(w, agent.TargetID)
+		targetPos, ok = resolveTarget(w, agent.TargetID, agent.Pos)
 		if !ok {
 			// Target vanished — drop it; tickPlanning's precondition check
 			// will re-plan on the next tick.
@@ -1890,7 +1939,7 @@ func (s *Simulation) tickWalkToward(agent *world.Guest, target mgl32.Vec3, dt fl
 // when the ID matches nothing (e.g. the entity was removed mid-plan —
 // tickPlanning's precondition check will re-plan on the next tick).
 // Y is taken from the terrain mesh under the entity's cell.
-func resolveTarget(w *world.World, id uint64) (mgl32.Vec3, bool) {
+func resolveTarget(w *world.World, id uint64, from mgl32.Vec3) (mgl32.Vec3, bool) {
 	for _, l := range w.Lifts {
 		if l.ID == id {
 			// Aim for the back of the queue, not the base anchor —
@@ -1902,7 +1951,7 @@ func resolveTarget(w *world.World, id uint64) (mgl32.Vec3, bool) {
 	}
 	for _, b := range w.Buildings {
 		if b.ID == id {
-			return parkingWorldPos(w, b), true
+			return entranceWorldPos(w, b, from), true
 		}
 	}
 	return mgl32.Vec3{}, false

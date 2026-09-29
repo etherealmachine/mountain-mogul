@@ -63,7 +63,10 @@ type Renderer struct {
 	// by ResetSceneState on every scene transition.
 	scene *SceneResources
 
-	staticBatches         map[uint32]*Batch
+	staticBatches map[uint32]*Batch
+	// cutawayLodgeID is the lodge drawn roofless with low walls so its
+	// floor plan shows while it's being edited; 0 for none.
+	cutawayLodgeID        uint64
 	dynamicBatch          *Batch // skier mesh (SkisOn == true)
 	walkerBatch           *Batch // walker mesh (SkisOn == false)
 	chairBatch            *Batch
@@ -361,6 +364,11 @@ func (r *Renderer) initStaticMeshes() {
 		if slots := LoadOBJSlots(objPath); len(slots) > 0 {
 			world.RegisterMeshSlots(def.id, slots)
 		}
+	}
+
+	for kind, name := range lodgeTileNames {
+		mesh, texID := LoadOBJ(modelDir + name + ".obj")
+		r.staticBatches[MeshLodgeTileBase+uint32(kind)] = NewStaticBatch(mesh, texID)
 	}
 
 	// Road node marker — procedural disc (thin cylinder slice). Sits
@@ -1525,6 +1533,10 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 		if bldg.IsCellLot() {
 			continue // drawn procedurally by RebuildParkingLots
 		}
+		if bldg.IsShell() {
+			r.addLodgeShell(w, bldg)
+			continue
+		}
 		meshID := MeshBuilding
 		switch bldg.Type {
 		case world.BuildingShed:
@@ -1617,6 +1629,45 @@ func RoadNodeMarkerTransform(pos mgl32.Vec2, terrain *world.Terrain) mgl32.Mat4 
 // BuildingTransform builds the world-space transform for a building
 // placed at world XZ pos with the given Y rotation. Used by both live
 // placement (RebuildStaticBatch) and ghost preview.
+// addLodgeShell instances lodge b's resolved kit tiles on its floor.
+func (r *Renderer) addLodgeShell(w *world.World, b *world.Building) {
+	floor := w.ShellFloorY(b)
+	wallTint, roofTint := world.ShellPalette(b.StyleSeed)
+	cutaway := b.ID == r.cutawayLodgeID
+	for _, t := range world.ResolveLodgeShell(b) {
+		if cutaway && (t.Kind.IsRoof() || t.Kind == world.TileChimney) {
+			continue
+		}
+		batch, ok := r.staticBatches[MeshLodgeTileBase+uint32(t.Kind)]
+		if !ok {
+			continue
+		}
+		tint := wallTint
+		if t.Kind.IsRoof() {
+			tint = roofTint
+		}
+		m := mgl32.Translate3D(t.Pos[0], floor+t.Pos[1], t.Pos[2]).Mul4(mgl32.HomogRotate3DY(t.Rot))
+		if cutaway {
+			m = m.Mul4(mgl32.Scale3D(1, lodgeCutawayWallScale, 1))
+		}
+		batch.AddStatic(m, tint)
+	}
+}
+
+// lodgeCutawayWallScale squashes a cutaway lodge's walls to about 1.25 m
+// so the floor plan reads from the default camera pitch.
+const lodgeCutawayWallScale = 0.25
+
+// SetLodgeCutaway picks the lodge drawn as a cutaway (0 for none) and
+// rebuilds the static batch when that changes.
+func (r *Renderer) SetLodgeCutaway(w *world.World, id uint64) {
+	if id == r.cutawayLodgeID {
+		return
+	}
+	r.cutawayLodgeID = id
+	r.RebuildStaticBatch(w)
+}
+
 func BuildingTransform(pos mgl32.Vec2, rotation float32, terrain *world.Terrain) mgl32.Mat4 {
 	y := VisualElevationAt(terrain, pos[0], pos[1])
 	return mgl32.Translate3D(pos[0], y, pos[1]).Mul4(mgl32.HomogRotate3DY(rotation))
@@ -2801,6 +2852,7 @@ func (r *Renderer) ResetSceneState() {
 		r.scene.Delete()
 	}
 	r.scene = newSceneResources()
+	r.cutawayLodgeID = 0
 
 	// Engine-owned static-batch shells survive scene transitions, but their
 	// per-world instance lists must be cleared so trees/buildings/lifts from

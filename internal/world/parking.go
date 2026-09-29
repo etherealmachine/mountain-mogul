@@ -77,7 +77,7 @@ func (b *Building) rebuildCellSet() {
 // FootprintContains reports whether world XZ (x, z) lies on the
 // building's footprint, grown by margin metres on every side.
 func (b *Building) FootprintContains(x, z, margin float32) bool {
-	if b.IsCellLot() {
+	if b.IsPainted() {
 		for _, p := range [5]mgl32.Vec2{
 			{x, z}, {x - margin, z - margin}, {x + margin, z - margin},
 			{x - margin, z + margin}, {x + margin, z + margin},
@@ -132,28 +132,7 @@ func (w *World) ParkingLotAt(cx, cz int) *Building {
 // (0 for a lot that doesn't exist yet): in bounds, not part of another
 // lot, and not under another building's footprint.
 func (w *World) ParkingCellFree(c [2]int, lotID uint64) bool {
-	if !w.Terrain.InBounds(c[0], c[1]) {
-		return false
-	}
-	cell := cellRect(c)
-	for _, b := range w.Buildings {
-		if b.ID == lotID {
-			continue
-		}
-		if b.IsCellLot() {
-			if b.HasCell(c) {
-				return false
-			}
-			continue
-		}
-		if b.Type == BuildingSnowGun {
-			continue
-		}
-		if cell.Overlaps(b.Footprint()) {
-			return false
-		}
-	}
-	return true
+	return w.PaintedCellFree(c, lotID)
 }
 
 // PlaceParkingLot creates a parking lot covering cells. The caller

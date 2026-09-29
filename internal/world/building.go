@@ -59,6 +59,17 @@ type Building struct {
 	// SnowGun-only state. Enabled defaults to true on placement; the player
 	// can toggle it off from the popup to stop snow production and operating costs.
 	SnowGunEnabled bool
+
+	// Lodge-only state (see lodge.go). Cells is the painted shell;
+	// DoorCells are perimeter shell cells guests enter by (Pos sits on
+	// the first); FoodCourtCells are shell cells fitted out as a food
+	// court. StyleSeed picks facade variants and the palette. Diners is
+	// the sim's live count of guests eating here (not saved).
+	DoorCells      [][2]int
+	FoodCourtCells [][2]int
+	StyleSeed      uint32
+	MealPrice      int
+	Diners         int
 }
 
 // DoorCell returns the grid cell containing the building's anchor — the
@@ -166,7 +177,7 @@ func (w *World) BuildingOverlapExcept(typ BuildingType, x, z, rotation float32, 
 		if b.ID == exceptID {
 			continue
 		}
-		if b.IsCellLot() {
+		if b.IsPainted() {
 			if b.cellsOverlapRect(fp) {
 				return true
 			}

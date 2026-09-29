@@ -54,6 +54,8 @@ const (
 	// recovery ticks so the planner doesn't need to chain dozens of small
 	// rest actions to satisfy the Rest goal.
 	restDurationSec = 60.0
+	// mealDurationSec mirrors sim.mealSec.
+	mealDurationSec = 90.0
 
 	// Minimum vertical drop for a SkiTo* action to be applicable. Below
 	// this, the destination is effectively at the same elevation as the
@@ -264,7 +266,7 @@ func (a *SkiToLodge) Precondition(s *WorldSnapshot, w *world.World) bool {
 	}
 	src := findLift(w, s.AtLiftTop)
 	dst := findBuilding(w, a.LodgeID, world.BuildingLodge)
-	if src == nil || dst == nil {
+	if src == nil || dst == nil || !dst.Usable() {
 		return false
 	}
 	return liftTopElev(w, src)-buildingElev(w, dst) >= minDescentMeters
@@ -494,6 +496,34 @@ func (a *RestAtLodge) Cost(s *WorldSnapshot, w *world.World) float32 {
 	return restDurationSec
 }
 
+// EatAtFoodCourt buys a meal at a lodge food court: restores Hunger and
+// spends MealPrice. Needs a free seat, so a packed food court turns
+// hungry guests away.
+type EatAtFoodCourt struct{ LodgeID uint64 }
+
+func (a *EatAtFoodCourt) Name() string {
+	return fmt.Sprintf("EatAtFoodCourt(%d)", a.LodgeID)
+}
+
+func (a *EatAtFoodCourt) Precondition(s *WorldSnapshot, w *world.World) bool {
+	if s.Removed || s.AtLodge != a.LodgeID {
+		return false
+	}
+	b := findBuilding(w, a.LodgeID, world.BuildingLodge)
+	return b != nil && b.ServesFood() && b.Diners < b.Seats() && s.RemainingBudget >= float32(b.MealPrice)
+}
+
+func (a *EatAtFoodCourt) Apply(s *WorldSnapshot, w *world.World) {
+	s.Hunger = 1
+	if b := findBuilding(w, a.LodgeID, world.BuildingLodge); b != nil {
+		s.RemainingBudget -= float32(b.MealPrice)
+	}
+}
+
+func (a *EatAtFoodCourt) Cost(s *WorldSnapshot, w *world.World) float32 {
+	return mealDurationSec
+}
+
 // RelieveThirstAtBar is an atomic recovery action — restores Thirst and sets
 // ThirstRelieved = true.
 type RelieveThirstAtBar struct{ BarID uint64 }
@@ -606,6 +636,9 @@ func ApplicableActions(s *WorldSnapshot, w *world.World) []Action {
 		if a.Precondition(s, w) {
 			out = append(out, a)
 		}
+		if e := (&EatAtFoodCourt{LodgeID: s.AtLodge}); e.Precondition(s, w) {
+			out = append(out, e)
+		}
 	}
 	if s.AtBar != 0 {
 		a := &RelieveThirstAtBar{BarID: s.AtBar}
@@ -688,6 +721,9 @@ func ToPlanActions(actions []Action, snap WorldSnapshot, w *world.World) []ai.Pl
 		case *RelieveThirstAtBar:
 			pa.Kind = ai.ActRelieveThirst
 			pa.BldgID = t.BarID
+		case *EatAtFoodCourt:
+			pa.Kind = ai.ActEat
+			pa.BldgID = t.LodgeID
 		case *Depart:
 			pa.Kind = ai.ActDepart
 			pa.BldgID = t.LotID
@@ -740,6 +776,8 @@ func PlanActionLabel(pa ai.PlanAction, w *world.World) string {
 		return "RestAtLodge(" + buildingLabel(w, pa.BldgID) + ")"
 	case ai.ActRelieveThirst:
 		return "RelieveThirst(" + buildingLabel(w, pa.BldgID) + ")"
+	case ai.ActEat:
+		return "Eat(" + buildingLabel(w, pa.BldgID) + ")"
 	case ai.ActDepart:
 		return "Depart(" + buildingLabel(w, pa.BldgID) + ")"
 	case ai.ActWalkToTicketOffice:
@@ -783,6 +821,8 @@ func DisplayName(a Action, w *world.World) string {
 		return "RestAtLodge(" + buildingLabel(w, act.LodgeID) + ")"
 	case *RelieveThirstAtBar:
 		return "RelieveThirst(" + buildingLabel(w, act.BarID) + ")"
+	case *EatAtFoodCourt:
+		return "Eat(" + buildingLabel(w, act.LodgeID) + ")"
 	case *Depart:
 		return "Depart(" + buildingLabel(w, act.LotID) + ")"
 	case *WalkToTicketOffice:

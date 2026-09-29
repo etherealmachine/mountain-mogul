@@ -28,7 +28,7 @@ type WorldSnapshot struct {
 	Pos      mgl32.Vec3
 	Patience float32 // 0..1; drains while queuing, restored by skiing/riding/lodge
 	Energy   float32 // 0..1; drains while skiing, restored by RestAtLodge
-	Hunger   float32 // 0..1; fixed drain, cannot be restored; hits 0 → GoHome
+	Hunger   float32 // 0..1; fixed drain, restored by a food-court meal; hits 0 → GoHome
 	Thirst   float32 // 0..1; drain scales with altitude and exertion; hits 0 → GoHome
 	Skill    float32
 
@@ -166,7 +166,11 @@ func Extract(a *world.Guest, w *world.World) WorldSnapshot {
 		}
 	}
 	for _, b := range w.Buildings {
-		if sqDistXZ(a.Pos, b.Pos[0], b.Pos[1]) >= r2 {
+		if !b.Usable() {
+			continue
+		}
+		p, _ := b.NearestEntrance(mgl32.Vec2{a.Pos[0], a.Pos[2]})
+		if sqDistXZ(a.Pos, p[0], p[1]) >= r2 {
 			continue
 		}
 		switch b.Type {

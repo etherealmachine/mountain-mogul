@@ -243,6 +243,10 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 			CurrentCars:     b.CurrentCars,
 			DrivewayNodeIDs: b.DrivewayNodeIDs,
 			SnowGunEnabled:  b.SnowGunEnabled,
+			DoorCells:       b.DoorCells,
+			FoodCourtCells:  b.FoodCourtCells,
+			StyleSeed:       b.StyleSeed,
+			MealPrice:       b.MealPrice,
 		}
 		if forScenario {
 			buildings[i].CurrentCars = 0
@@ -681,8 +685,17 @@ func dataToWorld(data ScenarioData) *world.World {
 
 	// Restore buildings, preserving IDs so agent.TargetID references stay
 	// valid. Old saves without an `id` field fall back to a fresh ID.
+	var legacyLodges []*world.Building
 	for _, bd := range data.Buildings {
-		b := w.PlaceBuildingType(world.BuildingType(bd.Type), bd.X, bd.Z)
+		var b *world.Building
+		if world.BuildingType(bd.Type) == world.BuildingLodge {
+			b = loadLodge(w, bd)
+			if len(bd.Cells) == 0 {
+				legacyLodges = append(legacyLodges, b)
+			}
+		} else {
+			b = w.PlaceBuildingType(world.BuildingType(bd.Type), bd.X, bd.Z)
+		}
 		// PlaceBuildingType auto-spawns one cat for sheds; clear that
 		// so we can restore the saved fleet (and route) verbatim
 		// instead of double-spawning.
@@ -893,6 +906,12 @@ func dataToWorld(data ScenarioData) *world.World {
 		guestByID[a.ID] = a
 	}
 
+	// Converted lodges face their door at the nearest lift, which only
+	// exists now.
+	for _, b := range legacyLodges {
+		w.ResetDefaultDoor(b)
+	}
+
 	for li, ld := range data.Lifts {
 		lift := w.Lifts[li]
 		// Chairs: re-link passengers by ID. Drop refs that don't resolve.
@@ -1071,4 +1090,22 @@ func rescaleClocks(w *world.World, k float64) {
 	for _, g := range w.Guests {
 		g.SeasonPassExpiry *= k
 	}
+}
+
+// loadLodge restores a lodge shell with its doors and food court. Saves
+// from before shells carry no cells; those lodges convert to the old
+// footprint and get their door reset once lifts have loaded.
+func loadLodge(w *world.World, bd BuildingData) *world.Building {
+	if len(bd.Cells) == 0 {
+		return w.PlaceBuildingType(world.BuildingLodge, bd.X, bd.Z)
+	}
+	b := w.PlaceLodgeShell(bd.Cells, bd.StyleSeed)
+	for _, d := range bd.DoorCells {
+		w.ToggleDoor(b, d)
+	}
+	b.SetFoodCourtCells(bd.FoodCourtCells)
+	if bd.MealPrice > 0 {
+		b.MealPrice = bd.MealPrice
+	}
+	return b
 }

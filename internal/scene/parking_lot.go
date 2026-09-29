@@ -40,7 +40,7 @@ func (p gradePlane) at(c [2]int) float32 {
 
 // fitParkingPlane least-squares fits GroundElevation over the lot cells,
 // degrading to a 1-D fit for single-row lots and to flat for a lone cell.
-func fitParkingPlane(t *world.Terrain, cells [][2]int) gradePlane {
+func fitParkingPlane(t *world.Terrain, cells [][2]int, maxGrade float32) gradePlane {
 	var p gradePlane
 	n := float32(len(cells))
 	for _, c := range cells {
@@ -72,7 +72,7 @@ func fitParkingPlane(t *world.Terrain, cells [][2]int) gradePlane {
 	case szz > eps:
 		p.gz = sze / szz
 	}
-	maxPerCell := parkingMaxGrade * world.CellSize
+	maxPerCell := maxGrade * world.CellSize
 	if g := float32(math.Hypot(float64(p.gx), float64(p.gz))); g > maxPerCell {
 		p.gx *= maxPerCell / g
 		p.gz *= maxPerCell / g
@@ -109,10 +109,17 @@ func plowParkingCell(c *world.Cell) {
 // a reshape regrades the whole lot to the new fit. Like the building
 // apron it is one-way — erased cells keep their graded ground.
 func applyParkingLotEffects(t *world.Terrain, b *world.Building) {
+	gradePaintedPad(t, b, parkingMaxGrade)
+}
+
+// gradePaintedPad cuts and fills a painted footprint and its shoulder onto
+// a best-fit plane no steeper than maxGrade (0 for a level pad), plows it
+// bare and blends the edge back to natural terrain.
+func gradePaintedPad(t *world.Terrain, b *world.Building, maxGrade float32) {
 	if len(b.Cells) == 0 {
 		return
 	}
-	plane := fitParkingPlane(t, b.Cells)
+	plane := fitParkingPlane(t, b.Cells, maxGrade)
 	pad := parkingPadCells(t, b)
 	var edge [][2]int // pad cells bordering non-pad ground
 	x0, z0, x1, z1 := t.Width, t.Height, -1, -1
@@ -163,11 +170,12 @@ func applyParkingLotEffects(t *world.Terrain, b *world.Building) {
 	t.RestampTreeWells()
 }
 
-// replowParkingLots clears snow and trees back off every lot pad without
-// regrading — for editor passes that regenerate snow and forest cover.
+// replowParkingLots clears snow and trees back off every painted pad (lots
+// and lodge shells) without regrading — for editor passes that regenerate
+// snow and forest cover.
 func replowParkingLots(w *world.World) {
 	for _, b := range w.Buildings {
-		if !b.IsCellLot() {
+		if !b.IsPainted() {
 			continue
 		}
 		for c := range parkingPadCells(w.Terrain, b) {
@@ -263,7 +271,7 @@ func (p *parkingPaint) finishStroke(r *render.Renderer, w *world.World) (deleted
 		return false
 	}
 	if len(lot.Cells) == 0 {
-		deleteParkingLot(r, w, lot.ID)
+		removePaintedBuilding(r, w, lot.ID)
 		p.lotID = 0
 		return true
 	}
@@ -278,9 +286,10 @@ func (p *parkingPaint) finishStroke(r *render.Renderer, w *world.World) (deleted
 	return false
 }
 
-// deleteParkingLot removes a lot along with its driveway node and any road
-// edges attached to it. The graded pad stays, like every other building.
-func deleteParkingLot(r *render.Renderer, w *world.World, id uint64) {
+// removePaintedBuilding removes a lot (with its driveway node and any road
+// edges attached to it) or a lodge shell. The graded pad stays, like every
+// other building.
+func removePaintedBuilding(r *render.Renderer, w *world.World, id uint64) {
 	w.RemoveBuilding(id)
 	r.RebuildStaticBatch(w)
 	r.RebuildRoads(w)

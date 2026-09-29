@@ -320,7 +320,7 @@ func (w *World) OperatingCosts() CostBreakdown {
 	for _, b := range w.Buildings {
 		switch b.Type {
 		case BuildingLodge:
-			c[CostBuildings] += LodgeDailyCost
+			c[CostBuildings] += LodgeUpkeep(b)
 		case BuildingBar:
 			c[CostBuildings] += BarDailyCost
 		case BuildingTicketOffice:
@@ -426,7 +426,7 @@ func (w *World) PlaceBuildingType(typ BuildingType, x, z float32) *Building {
 	case BuildingParking:
 		b.Cells = defaultParkingCells(w.Terrain, x, z, 0)
 	case BuildingLodge:
-		// Lodges are reserved for future rest/lunch features.
+		b.MealPrice = DefaultMealPrice
 	case BuildingShed:
 		// No per-shed state; cats are tracked globally in World.Snowcats.
 		// SpawnSnowcat is called after the building is appended so the
@@ -439,6 +439,12 @@ func (w *World) PlaceBuildingType(typ BuildingType, x, z float32) *Building {
 		b.SnowGunEnabled = true
 	}
 	w.Buildings = append(w.Buildings, b)
+	if typ == BuildingLodge {
+		// Point-placed lodges (testbeds, old saves) get the old mesh's
+		// footprint as a shell with a default door.
+		w.ConvertLegacyLodge(b)
+		return b
+	}
 	// Snow guns are narrow pole-mounted devices — don't block any cell.
 	if typ != BuildingSnowGun {
 		cell := b.DoorCell()
@@ -466,7 +472,13 @@ func (w *World) PlaceBuildingType(typ BuildingType, x, z float32) *Building {
 func (w *World) RemoveBuilding(id uint64) {
 	for i, b := range w.Buildings {
 		if b.ID == id {
-			if b.Type != BuildingSnowGun {
+			if b.IsShell() {
+				for _, c := range b.Cells {
+					if w.Terrain.InBounds(c[0], c[1]) {
+						w.Terrain.Cells[c[0]][c[1]].Passable = true
+					}
+				}
+			} else if b.Type != BuildingSnowGun {
 				cell := b.DoorCell()
 				if w.Terrain.InBounds(cell[0], cell[1]) {
 					w.Terrain.Cells[cell[0]][cell[1]].Passable = true

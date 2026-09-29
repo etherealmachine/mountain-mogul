@@ -171,6 +171,15 @@ Reference: `~/Downloads/lift.jpg` (Norwegian T-bar bottom station).
 * Height: 5–10 m for a single-storey day lodge; up to 15 m with a
   second storey
 
+Painted lodges are assembled from the `lodge_*.scad` tile kit rather
+than one mesh. Every piece includes `lib/lodge_kit.scad`, whose
+parameters (2.5 m tile, 5 m walls, 2.1 m roof rise per tile) must match
+the `Shell*` constants in `internal/world/lodge_shell.go`. Wall pieces
+are one tile wide with their outside face toward SCAD −Y. Roof tiles
+are `roof_tile([a, b, c, d])` with each corner 0 or 1 rise units high,
+corners ordered (−X,+Y), (+X,+Y), (+X,−Y), (−X,−Y). Vertex colours are
+near-white on walls and roofs so the per-lodge tint shows through.
+
 ### Chair (chairlift seat)
 
 * Per-seat width: ~0.6 m

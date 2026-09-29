@@ -458,6 +458,46 @@ var Testbeds = []Testbed{
 		//   Parcel 2 (purchasable, $50k): z=0..29
 		//   Skier: (15,35) — in owned zone, GOAP plans
 		//   Cash: $60k (can afford the parcel purchase)
+		// Lodge shells: an L-shaped lodge with two doors and a food
+		// court in its east wing, a small box, and a big block whose
+		// roof caps flat. Flat ground; for eyeballing the shell kit.
+		Name: "Lodge shells showcase",
+		Seed: 1,
+		Build: func() *world.World {
+			return scene(60, 50).flat(0).
+				lodgeShell(0, append(rectCells(10, 10, 6, 3), rectCells(10, 13, 3, 4)...),
+					[][2]int{{13, 10}, {11, 16}}, rectCells(14, 10, 2, 3)).
+				lodgeShell(7, rectCells(30, 12, 5, 4), [][2]int{{32, 15}}, nil).
+				lodgeShell(13, rectCells(20, 25, 10, 8), [][2]int{{24, 32}, {29, 28}}, rectCells(26, 25, 4, 8)).
+				build()
+		},
+	},
+	{
+		// Hungry guests at a lift base with a lodge beside it. The trail
+		// from the lift top passes the lodge's west door; the food court
+		// fills the east end. Guests should ride, ski to the door, eat
+		// (Hunger → 1, food revenue booked) and carry on skiing.
+		Name: "Lunch at the food court",
+		Seed: 1,
+		Build: func() *world.World {
+			waypoints := [][2]int{{20, 8}, {24, 40}, {23, 70}, {21, 86}, {20, 90}}
+			b := scene(40, 100).runout(60, 15, 3).
+				parkingAt(20, 98).
+				liftFromTo(20, 90, 20, 8).
+				paintTrail(world.DiffBlue, world.PolylineCells(waypoints, 2)).
+				groomPolyline(waypoints, 2).
+				lodgeShell(3, rectCells(24, 84, 4, 4), [][2]int{{24, 86}}, rectCells(26, 84, 2, 4))
+			for i := 0; i < 8; i++ {
+				b.goapSkierAt(18+i%4, 92+i/4, 0.6, 1)
+				a := b.w.OnMountain[len(b.w.OnMountain)-1]
+				a.Energy, a.Thirst, a.Hunger = 1, 1, 0.3
+				a.HasSeasonPass, a.SeasonPassExpiry = true, 1e12
+				a.RemainingBudget = 200
+			}
+			return b.build()
+		},
+	},
+	{
 		Name: "Land ownership boundary",
 		Seed: 42,
 		Build: func() *world.World {
@@ -640,6 +680,28 @@ func (b *builder) lodgeAt(gx, gz int) *builder {
 	lodge := b.w.PlaceBuilding((float32(gx)+0.5)*cellSize, (float32(gz)+0.5)*cellSize)
 	b.lastLodge = lodge
 	return b
+}
+
+// lodgeShell paints a lodge over cells with the given doors and
+// food-court cells.
+func (b *builder) lodgeShell(seed uint32, cells, doors, food [][2]int) *builder {
+	l := b.w.PlaceLodgeShell(cells, seed)
+	for _, d := range doors {
+		b.w.ToggleDoor(l, d)
+	}
+	l.SetFoodCourtCells(food)
+	b.lastLodge = l
+	return b
+}
+
+func rectCells(x0, z0, nx, nz int) [][2]int {
+	var out [][2]int
+	for x := x0; x < x0+nx; x++ {
+		for z := z0; z < z0+nz; z++ {
+			out = append(out, [2]int{x, z})
+		}
+	}
+	return out
 }
 
 // skier spawns a single skier at the top centre of the grid (z = 1,

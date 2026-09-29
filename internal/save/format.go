@@ -199,6 +199,13 @@ type BuildingData struct {
 
 	// SnowGun-only state.
 	SnowGunEnabled bool `json:"sg_on,omitempty"`
+
+	// Lodge-only state. Cells (above) is the painted shell; lodges saved
+	// before shells have none and are converted on load.
+	DoorCells      [][2]int `json:"doors,omitempty"`
+	FoodCourtCells [][2]int `json:"food,omitempty"`
+	StyleSeed      uint32   `json:"style,omitempty"`
+	MealPrice      int      `json:"meal,omitempty"`
 }
 
 // SnowcatData is a saved cat. ShedID links it back to its shed; both

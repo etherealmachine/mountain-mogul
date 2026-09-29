@@ -123,6 +123,7 @@ const (
 	ActBuySeasonPass      // purchase a season pass at the ticket office
 	ActRelieveThirst      // stop at a bar to drink something
 	ActBuyDayTicket       // buy today's day ticket at the ticket office
+	ActEat                // buy a meal at a lodge food court
 )
 
 // PlanAction is one step in the stored L0 plan — plain data, no behaviour.

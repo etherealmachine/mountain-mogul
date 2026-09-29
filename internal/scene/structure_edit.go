@@ -43,8 +43,8 @@ func (s *structureEditSelection) clear() {
 // building even if a lift cable happens to be near.
 func tryStartStructureEdit(w *world.World, pos mgl32.Vec2, sel *structureEditSelection) bool {
 	for _, b := range w.Buildings {
-		if b.IsCellLot() {
-			continue // painted lots are reshaped from their popup, not dragged
+		if b.IsPainted() {
+			continue // painted lots and lodges are reshaped from their popup, not dragged
 		}
 		if b.Pos.Sub(pos).Len() <= buildingPickRadius {
 			sel.building = b
@@ -189,7 +189,7 @@ func placeBuilding(w *world.World, typ world.BuildingType, x, z, rotation float3
 // turned footprint would overlap another building.
 func rotateSelectedBuilding(r *render.Renderer, w *world.World, sel *structureEditSelection, delta float32) bool {
 	b := sel.building
-	if b == nil || b.IsCellLot() {
+	if b == nil || b.IsPainted() {
 		return false
 	}
 	rot := stepRotation(b.Rotation, delta)

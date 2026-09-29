@@ -36,6 +36,9 @@ build/3mf:
 build/3mf/%.3mf: models-src/%.scad | build/3mf
 	$(OPENSCAD) -o $@ $< 2> $(@:.3mf=.echo)
 
+# Lodge shell tiles share their dimensions and modules through lib/.
+$(filter build/3mf/lodge_%,$(TMF_FILES)): models-src/lib/lodge_kit.scad
+
 assets/models/%.obj: build/3mf/%.3mf tools/scad2obj/main.go
 	go run ./tools/scad2obj $< $(<:.3mf=.echo) $@
 

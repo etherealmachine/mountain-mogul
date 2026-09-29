@@ -228,6 +228,10 @@ func applyBuildingPlacementEffects(t *world.Terrain, b *world.Building) {
 		applyParkingLotEffects(t, b)
 		return
 	}
+	if b.IsShell() {
+		gradePaintedPad(t, b, 0)
+		return
+	}
 	halfX, halfZ := buildingFootprint(b.Type)
 	// Size each axis of the apron so its inner flat zone extends exactly
 	// buildingApronBareGround beyond the pad on every side. Solving
@@ -549,6 +553,7 @@ const (
 	toolRemove       toolMode = iota // remove building at clicked cell
 	toolTrailPaint   toolMode = iota // paint/erase cells on the active trail
 	toolLandBuy      toolMode = iota // click to purchase a land parcel
+	toolLodge        toolMode = iota // paint a lodge shell, doors or food court
 )
 
 // Scenario is the main gameplay scene.
@@ -631,6 +636,8 @@ type Scenario struct {
 	// parkingPaint is the parking-lot paint session while toolParking is
 	// active: left-drag paints (or erases, in erase mode), right-drag erases.
 	parkingPaint parkingPaint
+	// lodgePaint is the lodge edit session while toolLodge is active.
+	lodgePaint lodgePaint
 
 	// placeRotation is the rotation the next placed building gets,
 	// turned with R / Shift+R while a building tool is active.
@@ -887,7 +894,7 @@ func (s *Scenario) Init(app *engine.App) error {
 
 	// Amenities submenu: Lodge, Ticket Office, Bar
 	s.amenitiesSubmenu = s.toolBar.AddSubmenu(render.IconHouse, "Amenities")
-	s.toolButtons[toolBuilding] = s.amenitiesSubmenu.AddChild(render.IconHouse, "Lodge", func() { s.setTool(toolBuilding) })
+	s.toolButtons[toolLodge] = s.amenitiesSubmenu.AddChild(render.IconHouse, "Lodge", func() { s.activateLodgeTool(0, lodgeEditShell, false) })
 	s.toolButtons[toolTicketOffice] = s.amenitiesSubmenu.AddChild(render.IconCoin, "Tickets", func() { s.setTool(toolTicketOffice) })
 	s.toolButtons[toolBar] = s.amenitiesSubmenu.AddChild(render.IconCocktail, "Bar", func() { s.setTool(toolBar) })
 
@@ -1624,7 +1631,7 @@ func (s *Scenario) Update(dt float64) {
 		case s.activeTool == toolNone && s.structureEdit.building != nil:
 			if rotateSelectedBuilding(r, s.world, &s.structureEdit, delta) {
 				s.setToast("Rotation " + rotationDegrees(s.structureEdit.building.Rotation))
-			} else if !s.structureEdit.building.IsCellLot() {
+			} else if !s.structureEdit.building.IsPainted() {
 				s.setToast("Can't rotate here — overlaps another building")
 			}
 		}
@@ -1977,6 +1984,11 @@ func (s *Scenario) Update(dt float64) {
 		if s.activeTool == toolParking && !inp.RightHeld && s.parkingPaint.lastCell != [2]int{-1, -1} {
 			s.parkingPaint.finishStroke(r, s.world)
 		}
+		if s.activeTool == toolLodge && !inp.RightHeld && s.lodgePaint.lastCell != [2]int{-1, -1} {
+			if s.lodgePaint.finishStroke(r, s.world) {
+				s.cancelTool()
+			}
+		}
 	}
 
 	// Right-held erase for trail paint.
@@ -1993,6 +2005,12 @@ func (s *Scenario) Update(dt float64) {
 			s.applyParkingPaint(gx, gz, true)
 		}
 	}
+	if s.activeTool == toolLodge && s.lodgePaint.mode != lodgeEditDoors && inp.RightHeld && s.hoverValid &&
+		s.hoverCell != s.lodgePaint.lastCell && !s.uiCovers(inp.MousePos[0], inp.MousePos[1], float32(r.ScreenWidth())) {
+		if gx, gz := s.hoverCell[0], s.hoverCell[1]; s.world.Terrain.InBounds(gx, gz) {
+			s.applyLodgePaint(gx, gz, true)
+		}
+	}
 
 	if !inp.LeftClickConsumed && !sliderActive {
 		// Drag-painting: apply once when the cursor moves into a new cell
@@ -2007,7 +2025,10 @@ func (s *Scenario) Update(dt float64) {
 		parkingDragged := s.activeTool == toolParking && inp.LeftHeld &&
 			s.parkingPaint.lastCell != [2]int{-1, -1} &&
 			s.hoverCell != s.parkingPaint.lastCell
-		clickOrDrag := inp.LeftClick || gladeDragged || trailDragged || parkingDragged
+		lodgeDragged := s.activeTool == toolLodge && s.lodgePaint.mode != lodgeEditDoors && inp.LeftHeld &&
+			s.lodgePaint.lastCell != [2]int{-1, -1} &&
+			s.hoverCell != s.lodgePaint.lastCell
+		clickOrDrag := inp.LeftClick || gladeDragged || trailDragged || parkingDragged || lodgeDragged
 		if clickOrDrag && !s.uiCovers(inp.MousePos[0], inp.MousePos[1], screenW) && s.hoverValid {
 			overSlider := s.activeTool == toolGlade &&
 				(s.gladeRadiusSlider.Contains(inp.MousePos[0], inp.MousePos[1]) ||
@@ -2124,6 +2145,12 @@ func (s *Scenario) updateOverlay(r *render.Renderer) {
 		s.parcelBoundaryDirty = false
 	}
 
+	var cutaway uint64
+	if b := s.editedLodge(); b != nil {
+		cutaway = b.ID
+	}
+	r.SetLodgeCutaway(s.world, cutaway)
+
 	// Cell overlay texture (trails + grooming routes) — always updated.
 	pix, ow, oh := s.buildCellOverlay()
 	r.SetCellOverlay(pix, ow, oh)
@@ -2213,7 +2240,9 @@ func (s *Scenario) buildCellOverlay() (pixels []uint8, w, h int) {
 	if s.activeTool == toolParking {
 		paintLot = s.parkingPaint.lot(s.world)
 	}
-	if !hasTrails && !hasLandOverlay && paintLot == nil {
+	editedLodge := s.editedLodge()
+	lodgeEditing := s.activeTool == toolLodge || editedLodge != nil
+	if !hasTrails && !hasLandOverlay && paintLot == nil && !lodgeEditing {
 		return nil, 0, 0
 	}
 
@@ -2275,6 +2304,11 @@ func (s *Scenario) buildCellOverlay() (pixels []uint8, w, h int) {
 		}
 	}
 	appendParkingOverlay(paintLot, set)
+	if s.activeTool == toolLodge {
+		appendLodgeOverlay(&s.lodgePaint, s.world, s.hoverCell, s.hoverValid, set)
+	} else if editedLodge != nil {
+		appendLodgeOverlay(&lodgePaint{lodgeID: editedLodge.ID}, s.world, s.hoverCell, false, set)
+	}
 
 	return pix, tw, th
 }
@@ -2568,26 +2602,6 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 	gx, gz := s.hoverCell[0], s.hoverCell[1]
 	wx, wz := s.hoverWorld[0], s.hoverWorld[2]
 	switch s.activeTool {
-	case toolBuilding:
-		if !w.Terrain.IsAccessible(gx, gz) {
-			s.setToast("Can't build on land you don't own")
-			return
-		}
-		if !w.CanAfford(world.LodgeCost) {
-			s.setToast(fmt.Sprintf("Need $%d for a lodge — short by $%d",
-				world.LodgeCost, world.LodgeCost-w.Available()))
-			return
-		}
-		if w.BuildingOverlap(world.BuildingLodge, wx, wz, s.placeRotation) {
-			s.setToast("Can't place a lodge here — overlaps another building")
-			return
-		}
-		w.Cash -= world.LodgeCost
-		b := placeBuilding(w, world.BuildingLodge, wx, wz, s.placeRotation)
-		s.sim.LogBuildingPlaced(b)
-		applyBuildingPlacementEffects(w.Terrain, b)
-		r.FlushTerrainVerts(w.Terrain)
-		r.RebuildStaticBatch(w)
 	case toolTicketOffice:
 		if !w.Terrain.IsAccessible(gx, gz) {
 			s.setToast("Can't build on land you don't own")
@@ -2631,6 +2645,8 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		r.RebuildStaticBatch(w)
 	case toolParking:
 		s.applyParkingPaint(gx, gz, s.parkingPaint.erase)
+	case toolLodge:
+		s.applyLodgePaint(gx, gz, s.lodgePaint.erase)
 	case toolPatrolHut:
 		if !w.Terrain.IsAccessible(gx, gz) {
 			s.setToast("Can't build on land you don't own")
@@ -2906,7 +2922,7 @@ func (s *Scenario) removeAt(clickPos mgl32.Vec3, r *render.Renderer) {
 	w := s.world
 	pick := mgl32.Vec2{clickPos[0], clickPos[2]}
 	for _, b := range w.Buildings {
-		if b.IsCellLot() {
+		if b.IsPainted() {
 			continue
 		}
 		if b.Pos.Sub(pick).Len() <= buildingPickRadius {
@@ -2932,8 +2948,8 @@ func (s *Scenario) removeAt(clickPos mgl32.Vec3, r *render.Renderer) {
 			return
 		}
 	}
-	if lot := w.ParkingLotAt(int(pick[0]/world.CellSize), int(pick[1]/world.CellSize)); lot != nil {
-		s.deleteParkingLot(lot.ID)
+	if b := w.PaintedBuildingAt(int(pick[0]/world.CellSize), int(pick[1]/world.CellSize)); b != nil {
+		s.deletePaintedBuilding(b.ID)
 	}
 }
 
@@ -3261,12 +3277,12 @@ func (s *Scenario) tryOpenPopup(clickPos mgl32.Vec3, screenW, screenH int) {
 		}
 	}
 	for _, b := range s.world.Buildings {
-		if !b.IsCellLot() && b.Pos.Sub(pick).Len() <= buildingPickRadius {
+		if !b.IsPainted() && b.Pos.Sub(pick).Len() <= buildingPickRadius {
 			s.openBuildingPopup(b, screenW, screenH)
 			return
 		}
 	}
-	if lot := s.world.ParkingLotAt(int(clickPos[0]/world.CellSize), int(clickPos[2]/world.CellSize)); lot != nil {
+	if lot := s.world.PaintedBuildingAt(int(clickPos[0]/world.CellSize), int(clickPos[2]/world.CellSize)); lot != nil {
 		s.openBuildingPopup(lot, screenW, screenH)
 		return
 	}
@@ -3592,19 +3608,7 @@ func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 		s.popup = w
 		return
 	case world.BuildingLodge:
-		w := ui.NewWindow("Lodge", 0, 0)
-		w.AddLabel("Inbound", func() string {
-			count := 0
-			for _, a := range s.world.OnMountain {
-				if a.TargetID == bldg.ID {
-					count++
-				}
-			}
-			return fmt.Sprintf("%d", count)
-		})
-		w.Visible = true
-		w.Center(screenW, screenH)
-		s.popup = w
+		s.buildLodgePopup(bldg, false, screenW, screenH)
 		return
 	case world.BuildingBar:
 		w := ui.NewWindow("Bar", 0, 0)
@@ -3645,7 +3649,7 @@ func (s *Scenario) buildParkingPopup(lot *world.Building, confirmDelete bool, sc
 	w.AddActionButton("Remove area", func() { s.activateParkingTool(lot.ID, true) })
 	if confirmDelete {
 		w.AddLabel("Confirm", func() string { return "Delete this lot?" })
-		w.AddActionButton("Confirm", func() { s.deleteParkingLot(lot.ID) })
+		w.AddActionButton("Confirm", func() { s.deletePaintedBuilding(lot.ID) })
 		w.AddActionButton("Cancel", func() { s.buildParkingPopup(lot, false, screenW, screenH) })
 	} else {
 		w.AddActionButton("Delete lot", func() { s.buildParkingPopup(lot, true, screenW, screenH) })
@@ -4036,6 +4040,11 @@ func (s *Scenario) cancelTool() {
 		s.parkingPaint.finishStroke(s.app.Renderer, s.world)
 		s.parkingPaint.start(0, false)
 	}
+	if s.activeTool == toolLodge {
+		s.activeTool = toolNone
+		s.finishLodgeSession()
+		s.lodgePaint.start(0, lodgeEditShell, false)
+	}
 	s.activeTool = toolNone
 	s.syncToolButtons()
 }
@@ -4093,9 +4102,9 @@ func (s *Scenario) applyParkingPaint(gx, gz int, erase bool) {
 	}
 }
 
-// deleteParkingLot tears down a lot and sends any guest whose plan runs
+// deletePaintedBuilding tears down a lot or lodge shell and sends any guest whose plan runs
 // through it back to the planner.
-func (s *Scenario) deleteParkingLot(id uint64) {
+func (s *Scenario) deletePaintedBuilding(id uint64) {
 	for _, a := range s.world.OnMountain {
 		if a.TargetID == id {
 			a.TargetID = 0
@@ -4107,7 +4116,7 @@ func (s *Scenario) deleteParkingLot(id uint64) {
 			}
 		}
 	}
-	deleteParkingLot(s.app.Renderer, s.world, id)
+	removePaintedBuilding(s.app.Renderer, s.world, id)
 	if s.selectedBuildingID == id {
 		s.selectedBuildingID = 0
 	}
@@ -4344,9 +4353,6 @@ func (s *Scenario) placementCost() (cost int, affordable, legal, valid bool) {
 	gx, gz := s.hoverCell[0], s.hoverCell[1]
 	cellOwned := s.world.Terrain.IsAccessible(gx, gz)
 	switch s.activeTool {
-	case toolBuilding:
-		cost = world.LodgeCost
-		legal = cellOwned && !s.world.BuildingOverlap(world.BuildingLodge, pos[0], pos[1], s.placeRotation)
 	case toolTicketOffice:
 		cost = world.TicketOfficeCost
 		legal = cellOwned && !s.world.BuildingOverlap(world.BuildingTicketOffice, pos[0], pos[1], s.placeRotation)

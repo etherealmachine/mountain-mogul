@@ -5,6 +5,7 @@ import (
 	"unsafe"
 
 	"github.com/go-gl/gl/v4.1-core/gl"
+	"mountain-mogul/internal/world"
 )
 
 // Mesh ID constants — also mirrored in world/objects.go to avoid circular imports.
@@ -34,7 +35,30 @@ const (
 	MeshSnowGun      uint32 = 22 // snowmaking cannon on a tripod
 	MeshBar          uint32 = 23 // bar/restaurant (half-size lodge)
 	MeshTicketOffice uint32 = 24 // ticket booth with service windows
+
+	// MeshLodgeTileBase + world.ShellTileKind is the lodge shell kit
+	// (models-src/lodge_*.scad); see lodgeTileNames.
+	MeshLodgeTileBase uint32 = 40
 )
+
+// lodgeTileNames maps world.ShellTileKind to the kit's OBJ names.
+var lodgeTileNames = [world.ShellTileKindCount]string{
+	world.TileWall:          "lodge_wall",
+	world.TileWallWindow:    "lodge_wall_window",
+	world.TileWallWindowAlt: "lodge_wall_window_alt",
+	world.TileWallGlazed:    "lodge_wall_glazed",
+	world.TileDoor:          "lodge_door",
+	world.TileCornerOuter:   "lodge_corner_outer",
+	world.TileCornerInner:   "lodge_corner_inner",
+	world.TileRoofFlat:      "lodge_roof_flat",
+	world.TileRoofSlope:     "lodge_roof_slope",
+	world.TileRoofHip:       "lodge_roof_hip",
+	world.TileRoofValley:    "lodge_roof_valley",
+	world.TileRoofSaddle:    "lodge_roof_saddle",
+	world.TileEave:          "lodge_eave",
+	world.TileEaveCorner:    "lodge_eave_corner",
+	world.TileChimney:       "lodge_chimney",
+}
 
 // Mesh wraps a GPU vertex/index buffer.
 //
