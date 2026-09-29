@@ -19,6 +19,8 @@ const (
 // and matches the defaults applied by Init.
 type Settings struct {
 	Units Units `json:"units"`
+	// HideDailyReport stops the profit/loss recap opening each midnight.
+	HideDailyReport bool `json:"hide_daily_report,omitempty"`
 }
 
 var global = &Settings{Units: Imperial}

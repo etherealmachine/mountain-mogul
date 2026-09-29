@@ -558,7 +558,10 @@ func historyFromData(hd *HistoryData) *world.History {
 			Cash:             s.Cash,
 			Revenue:          s.Revenue,
 			Costs:            s.Costs,
+			Open:             s.Open,
 		}
+		copy(sample.RevenueByKind[:], s.RevenueByKind)
+		copy(sample.CostsByKind[:], s.CostsByKind)
 		if s.DayUnix != 0 {
 			sample.Day = time.Unix(s.DayUnix, 0).UTC()
 		}
@@ -570,6 +573,7 @@ func historyFromData(hd *HistoryData) *world.History {
 	h.ArrivalsToday = hd.ArrivalsToday
 	h.DeparturesToday = hd.DeparturesToday
 	h.RevenueToday = hd.RevenueToday
+	copy(h.RevenueByKindToday[:], hd.RevenueByKind)
 	return h
 }
 
@@ -590,6 +594,9 @@ func historyToData(h *world.History) *HistoryData {
 			Cash:             s.Cash,
 			Revenue:          s.Revenue,
 			Costs:            s.Costs,
+			RevenueByKind:    intsOrNil(s.RevenueByKind[:]),
+			CostsByKind:      intsOrNil(s.CostsByKind[:]),
+			Open:             s.Open,
 		}
 		if !s.Day.IsZero() {
 			samples[i].DayUnix = s.Day.Unix()
@@ -600,7 +607,19 @@ func historyToData(h *world.History) *HistoryData {
 		ArrivalsToday:   h.ArrivalsToday,
 		DeparturesToday: h.DeparturesToday,
 		RevenueToday:    h.RevenueToday,
+		RevenueByKind:   intsOrNil(h.RevenueByKindToday[:]),
 	}
+}
+
+// intsOrNil copies v, or returns nil when every entry is zero so the
+// field is omitted from the save.
+func intsOrNil(v []int) []int {
+	for _, x := range v {
+		if x != 0 {
+			return append([]int(nil), v...)
+		}
+	}
+	return nil
 }
 
 func dataToWorld(data ScenarioData) *world.World {

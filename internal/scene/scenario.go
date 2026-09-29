@@ -560,6 +560,7 @@ type Scenario struct {
 	topBar           *ui.TopBar       // resort-management HUD strip
 	overlayPanel     *ui.OverlayPanel // right-side terrain-overlay toggles
 	chartWindow      *ui.ChartWindow  // resort-stats charts (line + grouped bar)
+	dayReport        *ui.Window       // profit/loss recap opened at each midnight
 	eventPanel       *ui.EventPanel   // left-side world event feed
 	escapeMenu       *EscapeMenu
 	settingsMenu     *SettingsMenu
@@ -749,6 +750,15 @@ func (s *Scenario) SetClockHour(h float64) {
 	s.sim.SimTime = sim.SimTimeAt(day, h)
 	s.world.SimTime = s.sim.SimTime
 	s.sim.SkipClockEffects()
+}
+
+// SetTimeScale runs the sim at mult× and unpauses it (for -screenshot).
+func (s *Scenario) SetTimeScale(mult float64) {
+	if s.sim == nil {
+		return
+	}
+	s.paused = false
+	s.setTimeScale(mult)
 }
 
 func (s *Scenario) TerrainSize() (int, int) {
@@ -1316,7 +1326,11 @@ func (s *Scenario) installWorld(w *world.World) {
 	}
 	// Plow roads and parking lots at each day rollover so freshly-fallen
 	// snow doesn't accumulate on asphalt.
-	s.sim.OnDayRollover = applyRoadCellState
+	s.dayReport = nil
+	s.sim.OnDayRollover = func(w *world.World) {
+		applyRoadCellState(w)
+		s.onDayRollover()
+	}
 	if s.queryServer != nil {
 		s.sim.QueryServer = s.queryServer
 	} else {
@@ -1862,7 +1876,10 @@ func (s *Scenario) Update(dt float64) {
 		s.chartWindow.HandleInput(inp)
 		s.topBar.SetChartsActive(s.chartWindow.Visible)
 	}
-	if s.popup != nil && s.popup.Visible {
+	if s.dayReport != nil && s.dayReport.Visible {
+		s.dayReport.HandleInput(inp)
+	}
+	if s.popup != nil && s.popup.Visible && !inp.LeftClickConsumed {
 		s.popup.HandleInput(inp)
 	}
 
@@ -3084,6 +3101,9 @@ func (s *Scenario) Render(r *render.Renderer) {
 	if s.chartWindow != nil && s.chartWindow.Visible {
 		drawables = append(drawables, s.chartWindow)
 	}
+	if s.dayReport != nil && s.dayReport.Visible {
+		drawables = append(drawables, s.dayReport)
+	}
 	if s.settingsMenu.Visible() {
 		drawables = append(drawables, s.settingsMenu)
 	}
@@ -4127,6 +4147,9 @@ func (s *Scenario) uiCovers(x, y float32, screenW float32) bool {
 		return true
 	}
 	if s.chartWindow != nil && s.chartWindow.ContainsPoint(x, y) {
+		return true
+	}
+	if s.dayReport != nil && s.dayReport.ContainsPoint(x, y) {
 		return true
 	}
 	return false

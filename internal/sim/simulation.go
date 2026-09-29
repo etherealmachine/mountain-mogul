@@ -409,7 +409,7 @@ func (s *Simulation) tickHeliLift(lift *world.Lift, dt float64) {
 			// day ticket bought at the ticket window.
 			if fare := lift.RideFare(); fare > 0 && !agent.HasSeasonPass {
 				w.Cash += fare
-				w.History.RecordRevenue(fare)
+				w.History.RecordRevenue(world.RevenueHeli, fare)
 				agent.RemainingBudget -= float32(fare)
 			}
 			s.replanOnBoard(agent, lift)
@@ -603,7 +603,7 @@ func (s *Simulation) spawnGuest(lot *world.Building, g *world.Guest) bool {
 	s.parkedGuests++
 	if parking > 0 {
 		w.Cash += parking
-		w.History.RecordRevenue(parking)
+		w.History.RecordRevenue(world.RevenueParking, parking)
 	}
 	w.History.RecordArrival()
 	return true
@@ -636,13 +636,14 @@ func (s *Simulation) maybeSampleHistory() {
 
 		// Debit the day's costs: operating if the resort was open at any
 		// point in the day, standby if it stayed closed.
-		costs := w.DailyStandbyCost()
-		if s.openToday {
-			costs = w.DailyOperatingCost()
+		costs := w.StandbyCosts()
+		wasOpen := s.openToday
+		if wasOpen {
+			costs = w.OperatingCosts()
 		}
 		s.openToday = w.ResortOpen
-		w.Cash -= costs
-		costs += s.applyCredit(dayIdx)
+		w.Cash -= costs.Total()
+		costs[world.CostInterest] = s.applyCredit(dayIdx)
 
 		sample := world.DailySample{
 			Day:               s.DateAt(float64(dayIdx) * secondsPerSimDay),
@@ -651,7 +652,10 @@ func (s *Simulation) maybeSampleHistory() {
 			DeparturesToday:   w.History.DeparturesToday,
 			Cash:              w.Cash,
 			Revenue:           w.History.RevenueToday,
-			Costs:             costs,
+			Costs:             costs.Total(),
+			RevenueByKind:     w.History.RevenueByKindToday,
+			CostsByKind:       costs,
+			Open:              wasOpen,
 			ThoughtCounts:     w.History.ThoughtCountsToday,
 			ExitThoughtCounts: w.History.ExitThoughtCountsToday,
 		}
@@ -1349,7 +1353,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		a.HasDayTicket = true
 		if price > 0 {
 			w.Cash += price
-			w.History.RecordRevenue(price)
+			w.History.RecordRevenue(world.RevenueDayTickets, price)
 		}
 
 	case ai.ActBuySeasonPass:
@@ -1372,7 +1376,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		a.DayTicketPaid = 0
 		a.DayTicketDue = 0
 		w.Cash += price
-		w.History.RecordRevenue(price)
+		w.History.RecordRevenue(world.RevenueSeasonPasses, price)
 		a.RemainingBudget -= float32(spend)
 		// Expiry = end of the current season.
 		now := s.DateAt(s.SimTime)

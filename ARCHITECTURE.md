@@ -50,7 +50,7 @@ domain helpers (entity lookup, coordinate conversion, ID allocation).
 | `Building` | Placed structure (lodge, shed, parking lot). Sheds own snowcats and a painted grooming route. |
 | `Snowcat` | Grooming machine. Drives to route cells, applies corduroy (raises `Packed`, lowers `SnowDepth`). Parked while the lifts run; after closing, each active cat makes one pass of its section per night if any snow-covered cell in it is below 90% groomed. |
 | `RoadNode / RoadEdge` | Road graph vertices and segments. Nodes typed: freestanding, edge-connection, parking driveway, auto-intersection. |
-| `History` | Daily ring of resort stats (guests on mountain, arrivals, departures, cash). Feeds the in-game charts. |
+| `History` | Daily ring of resort stats (guests on mountain, arrivals, departures, cash, revenue by `RevenueKind`, costs by `CostKind`). Feeds the in-game charts and the nightly report. |
 | `EventLog` | `World.Events`: bounded ring (256) of `Event`s — kind, sim time, message, optional XZ position + entity ID. Written by the sim (avalanche, patrol rescue, lift holds, day recap) and by the scene for player actions (builds, lift open/close) via `Simulation.Log*`. Shown in the left-side event panel (top-bar flag button); clicking a positioned event centres the camera there. |
 | `GuestPool` | Master roster of all guests (on-mountain + departed). Tracks per-guest career across visits. |
 
@@ -107,8 +107,10 @@ begins on that date with SimTime 0. The calendar runs through the
 whole year; there is no off-season jump. Whether the resort is open is
 the player's call, not the calendar's: `World.ResortOpen`, flipped by
 `Simulation.SetResortOpen` from the Ticket Office popup (`resort.go`).
-The day rollover (`maybeSampleHistory`) charges `DailyOperatingCost` on
-days the resort was open at any point and `DailyStandbyCost` otherwise,
+The day rollover (`maybeSampleHistory`) charges `OperatingCosts` on
+days the resort was open at any point and `StandbyCosts` otherwise
+(both broken down by `CostKind`; the scene opens the day's profit/loss
+report from `OnDayRollover`, `scene/day_report.go`),
 bills credit interest at each month end (`credit.go`), and advances the
 weather chain, which samples all twelve month profiles by date. The
 sim also samples the chain once at creation, so day 1's weather matches

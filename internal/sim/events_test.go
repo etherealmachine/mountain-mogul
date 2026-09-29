@@ -53,6 +53,39 @@ func TestDaySummaryEventAtRollover(t *testing.T) {
 	}
 }
 
+func TestDailySampleBreakdown(t *testing.T) {
+	s := newEventTestSim(t)
+	w := s.World
+	w.PlaceLift(world.LiftDouble, 20, 20, 120, 120)
+	s.openToday = true
+	w.History.RecordRevenue(world.RevenueDayTickets, 300)
+	w.History.RecordRevenue(world.RevenueParking, 40)
+	wantCosts := w.OperatingCosts()
+
+	s.SimTime = secondsPerSimDay + 1
+	s.maybeSampleHistory()
+
+	d := w.History.Ordered()[0]
+	if !d.Open {
+		t.Fatalf("sample not marked open")
+	}
+	if d.Revenue != 340 || d.RevenueByKind[world.RevenueDayTickets] != 300 || d.RevenueByKind[world.RevenueParking] != 40 {
+		t.Fatalf("revenue = %d %v, want 340 split 300/40", d.Revenue, d.RevenueByKind)
+	}
+	if d.CostsByKind != wantCosts || d.Costs != wantCosts.Total() || d.CostsByKind[world.CostLifts] == 0 {
+		t.Fatalf("costs = %d %v, want %v", d.Costs, d.CostsByKind, wantCosts)
+	}
+
+	// A closed day charges the standby rate.
+	w.ResortOpen = false
+	s.openToday = false
+	s.SimTime = 2*secondsPerSimDay + 1
+	s.maybeSampleHistory()
+	if d := w.History.Ordered()[1]; d.Open || d.CostsByKind != w.StandbyCosts() {
+		t.Fatalf("closed day = open %v costs %v, want standby %v", d.Open, d.CostsByKind, w.StandbyCosts())
+	}
+}
+
 func TestLiftHoldEmitsEvents(t *testing.T) {
 	s := newEventTestSim(t)
 	w := s.World

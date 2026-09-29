@@ -299,56 +299,66 @@ func LiftCost(typ LiftType, base, top mgl32.Vec2) int {
 }
 
 // DailyOperatingCost returns the resort's operating cost for one open
-// in-game day in dollars: lift attendants and running costs, cats by
-// status, staffed buildings, and enabled snow guns.
-func (w *World) DailyOperatingCost() int {
-	costs := 0
+// in-game day in dollars. See OperatingCosts for the breakdown.
+func (w *World) DailyOperatingCost() int { return w.OperatingCosts().Total() }
+
+// OperatingCosts is one open day's operating cost by category: lift
+// attendants and running costs, cats by status, staffed buildings, and
+// enabled snow guns.
+func (w *World) OperatingCosts() CostBreakdown {
+	var c CostBreakdown
 	for _, l := range w.Lifts {
-		costs += 2*LiftAttendantDailyCost + l.Type.RunningCostDay()
+		c[CostLifts] += 2*LiftAttendantDailyCost + l.Type.RunningCostDay()
 	}
 	for _, cat := range w.Snowcats {
 		if cat.Status == CatActive {
-			costs += CatActiveCostDay
+			c[CostSnowcats] += CatActiveCostDay
 		} else {
-			costs += CatStandbyCostDay
+			c[CostSnowcats] += CatStandbyCostDay
 		}
 	}
 	for _, b := range w.Buildings {
 		switch b.Type {
 		case BuildingLodge:
-			costs += LodgeDailyCost
+			c[CostBuildings] += LodgeDailyCost
 		case BuildingBar:
-			costs += BarDailyCost
+			c[CostBuildings] += BarDailyCost
 		case BuildingTicketOffice:
-			costs += TicketOfficeDailyCost
+			c[CostBuildings] += TicketOfficeDailyCost
 		case BuildingPatrolHut:
-			costs += PatrolHutDailyCost
+			c[CostBuildings] += PatrolHutDailyCost
 		case BuildingSnowGun:
 			if b.SnowGunEnabled {
-				costs += SnowGunActiveCostDay
+				c[CostSnowGuns] += SnowGunActiveCostDay
 			}
 		}
 	}
-	return costs
+	return c
 }
 
 // DailyStandbyCost returns what the resort costs per in-game day while
-// closed, in dollars: idle lifts, every cat parked, staffed buildings
-// unstaffed. Snow guns still cost their active rate when enabled, since
-// snowmaking before opening is the point of having them.
-func (w *World) DailyStandbyCost() int {
-	costs := len(w.Lifts)*LiftStandbyCostDay + len(w.Snowcats)*CatStandbyCostDay
+// closed, in dollars. See StandbyCosts for the breakdown.
+func (w *World) DailyStandbyCost() int { return w.StandbyCosts().Total() }
+
+// StandbyCosts is one closed day's cost by category: idle lifts, every
+// cat parked, staffed buildings unstaffed. Snow guns still cost their
+// active rate when enabled, since snowmaking before opening is the point
+// of having them.
+func (w *World) StandbyCosts() CostBreakdown {
+	var c CostBreakdown
+	c[CostLifts] = len(w.Lifts) * LiftStandbyCostDay
+	c[CostSnowcats] = len(w.Snowcats) * CatStandbyCostDay
 	for _, b := range w.Buildings {
 		switch b.Type {
 		case BuildingLodge, BuildingBar, BuildingTicketOffice, BuildingPatrolHut, BuildingShed:
-			costs += BuildingStandbyCostDay
+			c[CostBuildings] += BuildingStandbyCostDay
 		case BuildingSnowGun:
 			if b.SnowGunEnabled {
-				costs += SnowGunActiveCostDay
+				c[CostSnowGuns] += SnowGunActiveCostDay
 			}
 		}
 	}
-	return costs
+	return c
 }
 
 // NextID returns the next unique entity ID.

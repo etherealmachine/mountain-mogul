@@ -49,6 +49,7 @@ func main() {
 	camPitch := flag.Float64("camera-pitch", math.NaN(), "initial camera pitch in degrees for -screenshot or -testbed UI mode. Default: 45.")
 	camZoom := flag.Float64("camera-zoom", math.NaN(), "initial camera OrthoScale (world units per half-viewport-height) for -screenshot or -testbed UI mode. Default: auto-fit terrain.")
 	clockHour := flag.Float64("clock-hour", math.NaN(), "-screenshot: jump the clock to this hour of the current day (e.g. 7.5 for 7:30) before capture")
+	timeScale := flag.Float64("time-scale", 0, "-screenshot: run the sim at this speed multiplier during warmup (0 = the save's speed)")
 	overlayMode := flag.Int("overlay-mode", 0, "-screenshot terrain overlay bitmask (render.Overlay*: contour=1, slope=2, snow-depth=4, grooming=8, packed=16, ice=32, mogul=64, bump-normal=128)")
 	skipIntro := flag.Bool("skip-intro", false, "skip the Minty Fresh splash and jump straight to the start menu")
 	profile := flag.Bool("profile", false, "run a headless 50× sim profile (representative resort, demand on) → cpu.prof + mem.prof")
@@ -95,6 +96,7 @@ func main() {
 			seed:         *seed,
 			overlayMode:  *overlayMode,
 			clockHour:    *clockHour,
+			timeScale:    *timeScale,
 		})
 		return
 	}
@@ -246,6 +248,7 @@ type screenshotOpts struct {
 	seed                   int64   // forwarded to NewSimulationWithSeed when loading a testbed
 	overlayMode            int     // render.Overlay* bitmask applied before capture
 	clockHour              float64 // NaN = leave the clock alone; else jump to this hour today
+	timeScale              float64 // 0 = leave the sim speed alone
 }
 
 // runScreenshot opens a window, loads either a registered testbed (when
@@ -311,6 +314,11 @@ func runScreenshot(opt screenshotOpts) {
 	if !math.IsNaN(opt.clockHour) {
 		sc.SetClockHour(opt.clockHour)
 		fmt.Printf("screenshot: clock set to %.2f h\n", opt.clockHour)
+	}
+
+	if opt.timeScale > 0 {
+		sc.SetTimeScale(opt.timeScale)
+		fmt.Printf("screenshot: time scale %gx\n", opt.timeScale)
 	}
 
 	if opt.overlayMode != 0 {

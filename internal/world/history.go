@@ -12,6 +12,73 @@ import (
 // downsample older entries into monthly buckets rather than grow this.
 const HistoryCapacity = 376
 
+// RevenueKind is a daily income category.
+type RevenueKind int
+
+const (
+	RevenueDayTickets RevenueKind = iota
+	RevenueSeasonPasses
+	RevenueHeli
+	RevenueParking
+	RevenueKindCount
+)
+
+// Label is the category's name in the daily report.
+func (k RevenueKind) Label() string {
+	switch k {
+	case RevenueDayTickets:
+		return "Day tickets"
+	case RevenueSeasonPasses:
+		return "Season passes"
+	case RevenueHeli:
+		return "Heli fares"
+	case RevenueParking:
+		return "Parking"
+	}
+	return "Other"
+}
+
+// CostKind is a daily expense category.
+type CostKind int
+
+const (
+	CostLifts CostKind = iota // attendants and running costs
+	CostSnowcats
+	CostBuildings
+	CostSnowGuns
+	CostInterest // credit-line interest, charged at month end
+	CostKindCount
+)
+
+// Label is the category's name in the daily report.
+func (k CostKind) Label() string {
+	switch k {
+	case CostLifts:
+		return "Lifts"
+	case CostSnowcats:
+		return "Snowcats"
+	case CostBuildings:
+		return "Buildings"
+	case CostSnowGuns:
+		return "Snow guns"
+	case CostInterest:
+		return "Interest"
+	}
+	return "Other"
+}
+
+// CostBreakdown is one day's costs by category.
+type CostBreakdown [CostKindCount]int
+
+// Total sums every category.
+func (c CostBreakdown) Total() int {
+	t := 0
+	for _, v := range c {
+		t += v
+	}
+	return t
+}
+
 // DailySample is one row in the History ring. Each in-game day rollover
 // pushes one of these; the readers iterate via History.Ordered to walk
 // them oldest-first regardless of where the ring head currently sits.
@@ -21,8 +88,11 @@ type DailySample struct {
 	ArrivalsToday     int                      // spawns during this day
 	DeparturesToday   int                      // departures during this day
 	Cash              int                      // resort cash balance at EOD
-	Revenue           int                      // lift ticket income this day
-	Costs             int                      // operational costs this day (attendants + snowcats)
+	Revenue           int                      // all income this day
+	Costs             int                      // all costs this day (operating + interest)
+	RevenueByKind     [RevenueKindCount]int    // Revenue split by category
+	CostsByKind       CostBreakdown            // Costs split by category
+	Open              bool                     // the resort was open at some point in the day
 	ThoughtCounts     [ai.ThoughtKindCount]int // per-kind thought totals emitted during the day
 	ExitThoughtCounts [ai.ThoughtKindCount]int // last thought of each departing guest, by kind
 }
@@ -41,6 +111,7 @@ type History struct {
 	ArrivalsToday          int
 	DeparturesToday        int
 	RevenueToday           int
+	RevenueByKindToday     [RevenueKindCount]int
 	ThoughtCountsToday     [ai.ThoughtKindCount]int
 	ExitThoughtCountsToday [ai.ThoughtKindCount]int
 }
@@ -69,13 +140,14 @@ func (h *History) RecordDeparture() {
 	h.DeparturesToday++
 }
 
-// RecordRevenue adds amount to the in-progress revenue counter. Safe to
+// RecordRevenue adds amount to the in-progress revenue counters. Safe to
 // call when h is nil — does nothing.
-func (h *History) RecordRevenue(amount int) {
+func (h *History) RecordRevenue(kind RevenueKind, amount int) {
 	if h == nil {
 		return
 	}
 	h.RevenueToday += amount
+	h.RevenueByKindToday[kind] += amount
 }
 
 // RecordThought increments ThoughtCountsToday for one kind. Called at the
@@ -114,6 +186,7 @@ func (h *History) Push(sample DailySample) {
 	h.ArrivalsToday = 0
 	h.DeparturesToday = 0
 	h.RevenueToday = 0
+	h.RevenueByKindToday = [RevenueKindCount]int{}
 	h.ThoughtCountsToday = [ai.ThoughtKindCount]int{}
 	h.ExitThoughtCountsToday = [ai.ThoughtKindCount]int{}
 }

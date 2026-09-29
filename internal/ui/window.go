@@ -32,6 +32,8 @@ const (
 	rowActionButton                // single full-width button row
 	rowTextInput                   // label + editable text field; captures keyboard focus
 	rowToggles                     // label + N small toggle buttons drawn as shape glyphs
+	rowSection                     // bold-ish heading, no value
+	rowAmount                      // label + right-aligned coloured value (statements)
 )
 
 type windowRow struct {
@@ -62,6 +64,11 @@ type windowRow struct {
 	// own onClick when clicked; the renderer reads `active` each frame
 	// so callers don't have to update the row when external state changes.
 	toggles []*toggleEntry
+
+	// rowAmount — value colour, and whether to rule a line above it
+	// (subtotals).
+	color mgl32.Vec4
+	total bool
 }
 
 // toggleShape selects how a toggleEntry is drawn.
@@ -109,6 +116,20 @@ func NewWindow(title string, x, y float32) *Window {
 // AddLabel adds a read-only row.
 func (w *Window) AddLabel(label string, getText func() string) {
 	w.rows = append(w.rows, &windowRow{kind: rowLabel, label: label, getText: getText})
+	w.rebuildLayout()
+}
+
+// AddSection adds a heading row that groups the rows below it.
+func (w *Window) AddSection(title string) {
+	w.rows = append(w.rows, &windowRow{kind: rowSection, label: title})
+	w.rebuildLayout()
+}
+
+// AddAmount adds a statement row: label on the left, value right-aligned
+// in color. total rules a line above the value, for subtotals.
+func (w *Window) AddAmount(label, value string, color mgl32.Vec4, total bool) {
+	w.rows = append(w.rows, &windowRow{kind: rowAmount, label: label,
+		getText: func() string { return value }, color: color, total: total})
 	w.rebuildLayout()
 }
 
@@ -483,6 +504,14 @@ func (w *Window) Draw(r *render.Renderer) {
 			y += winRowH
 			continue
 		}
+		if row.kind == rowSection {
+			if r.Font != nil {
+				r.Font.DrawText(r, row.label, w.X+winPadding, y+textOffY, textColor)
+			}
+			r.DrawColorRect(w.X+winPadding, y+winRowH-3, w.width-2*winPadding, 1, mgl32.Vec4{0.3, 0.38, 0.55, 1})
+			y += winRowH
+			continue
+		}
 		if r.Font != nil {
 			r.Font.DrawText(r, row.label+":", w.X+winPadding, y+textOffY, labelColor)
 		}
@@ -519,6 +548,15 @@ func (w *Window) Draw(r *render.Renderer) {
 			}
 			row.minusBtn.Draw(r)
 			row.plusBtn.Draw(r)
+		case rowAmount:
+			if r.Font != nil {
+				val := row.getText()
+				right := w.X + w.width - winPadding
+				r.Font.DrawText(r, val, right-r.Font.TextWidth(val), y+textOffY, row.color)
+			}
+			if row.total {
+				r.DrawColorRect(w.X+w.labelW, y+1, w.width-w.labelW-winPadding, 1, labelColor)
+			}
 		case rowTextInput:
 			row.textInput.Draw(r)
 		case rowToggles:
