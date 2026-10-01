@@ -248,11 +248,11 @@ func (s *Simulation) nextParkingFee() int {
 	return price*(k+1)/GuestsPerCar - price*k/GuestsPerCar
 }
 
-// hasTicketOffice reports whether w has a ticket office to sell day
-// tickets.
+// hasTicketOffice reports whether w has a ticket window guests can get
+// into to buy day tickets.
 func hasTicketOffice(w *world.World) bool {
 	for _, b := range w.Buildings {
-		if b.Type == world.BuildingTicketOffice {
+		if b.Offers(world.ServiceTickets) {
 			return true
 		}
 	}

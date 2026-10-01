@@ -108,18 +108,24 @@ func plowParkingCell(c *world.Cell) {
 // beyond blends ground, snow and trees back to natural. Re-running after
 // a reshape regrades the whole lot to the new fit. Like the building
 // apron it is one-way — erased cells keep their graded ground.
-func applyParkingLotEffects(t *world.Terrain, b *world.Building) {
-	gradePaintedPad(t, b, parkingMaxGrade)
+func applyParkingLotEffects(w *world.World, b *world.Building) {
+	gradePaintedPad(w, b, parkingMaxGrade)
 }
 
 // gradePaintedPad cuts and fills a painted footprint and its shoulder onto
 // a best-fit plane no steeper than maxGrade (0 for a level pad), plows it
-// bare and blends the edge back to natural terrain.
-func gradePaintedPad(t *world.Terrain, b *world.Building, maxGrade float32) {
+// bare and ramps the ground beyond onto an embankment (leaving other
+// painted pads and structure cells alone), blending snow and trees back
+// to natural.
+func gradePaintedPad(w *world.World, b *world.Building, maxGrade float32) {
 	if len(b.Cells) == 0 {
 		return
 	}
+	t := w.Terrain
 	plane := fitParkingPlane(t, b.Cells, maxGrade)
+	if b.IsShell() && b.FloorSet {
+		plane = gradePlane{e: b.FloorY}
+	}
 	pad := parkingPadCells(t, b)
 	var edge [][2]int // pad cells bordering non-pad ground
 	x0, z0, x1, z1 := t.Width, t.Height, -1, -1
@@ -137,9 +143,12 @@ func gradePaintedPad(t *world.Terrain, b *world.Building, maxGrade float32) {
 		}
 	}
 
+	claimed := claimedGround(w, b, nil)
 	const reach = parkingBlendCells + 1
-	for x := x0 - parkingBlendCells; len(edge) > 0 && x <= x1+parkingBlendCells; x++ {
-		for z := z0 - parkingBlendCells; z <= z1+parkingBlendCells; z++ {
+	const cellSize = float32(5.0)
+	span := int(embankmentReach / cellSize)
+	for x := x0 - span; len(edge) > 0 && x <= x1+span; x++ {
+		for z := z0 - span; z <= z1+span; z++ {
 			c := [2]int{x, z}
 			if pad[c] || !t.InBounds(x, z) {
 				continue
@@ -152,16 +161,22 @@ func gradePaintedPad(t *world.Terrain, b *world.Building, maxGrade float32) {
 				}
 			}
 			d := float32(math.Sqrt(float64(bestD2)))
+			if d*cellSize > embankmentReach {
+				continue
+			}
+			cell := &t.Cells[x][z]
+			padElev := plane.at(nearest)
+			if cell.Passable && !claimed[c] {
+				cell.GroundElevation = clampToEmbankment(cell.GroundElevation, padElev, d*cellSize, true, true)
+			}
 			if d >= reach {
 				continue
 			}
-			w := 1 - smoothstep32(0, reach, d)
-			cell := &t.Cells[x][z]
-			cell.GroundElevation += (plane.at(nearest) - cell.GroundElevation) * w
-			cell.Base *= 1 - w
-			cell.Top.Accumulation *= 1 - w
-			cell.MogulSize *= 1 - w
-			if w > 0.5 {
+			blend := 1 - smoothstep32(0, reach, d)
+			cell.Base *= 1 - blend
+			cell.Top.Accumulation *= 1 - blend
+			cell.MogulSize *= 1 - blend
+			if blend > 0.5 {
 				cell.TreeDensity = 0
 			}
 		}
@@ -277,7 +292,7 @@ func (p *parkingPaint) finishStroke(r *render.Renderer, w *world.World) (deleted
 	}
 	w.RefreshParkingLot(lot, true)
 	w.EnsureParkingDriveway(lot)
-	applyParkingLotEffects(w.Terrain, lot)
+	applyParkingLotEffects(w, lot)
 	applyRoadCellState(w)
 	r.FlushTerrainVerts(w.Terrain)
 	r.RebuildStaticBatch(w)

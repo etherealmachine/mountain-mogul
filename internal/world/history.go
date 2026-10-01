@@ -21,6 +21,7 @@ const (
 	RevenueHeli
 	RevenueParking
 	RevenueFood
+	RevenueBar
 	RevenueKindCount
 )
 
@@ -37,6 +38,8 @@ func (k RevenueKind) Label() string {
 		return "Parking"
 	case RevenueFood:
 		return "Food court"
+	case RevenueBar:
+		return "Bar"
 	}
 	return "Other"
 }

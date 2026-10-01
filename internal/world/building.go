@@ -60,16 +60,20 @@ type Building struct {
 	// can toggle it off from the popup to stop snow production and operating costs.
 	SnowGunEnabled bool
 
-	// Lodge-only state (see lodge.go). Cells is the painted shell;
-	// DoorCells are perimeter shell cells guests enter by (Pos sits on
-	// the first); FoodCourtCells are shell cells fitted out as a food
-	// court. StyleSeed picks facade variants and the palette. Diners is
-	// the sim's live count of guests eating here (not saved).
-	DoorCells      [][2]int
-	FoodCourtCells [][2]int
-	StyleSeed      uint32
-	MealPrice      int
-	Diners         int
+	// Service-building state (see lodge.go). Cells is the tiled shell and
+	// Tiles each cell's service. Doors are derived by RefreshDoors (Pos
+	// sits on the first). FloorY is the floor height, fixed by the first
+	// tile so the building doesn't shift as it grows. StyleSeed picks
+	// facade variants and the palette. Diners is the sim's live count of
+	// guests eating here (not saved).
+	Tiles      map[[2]int]Service
+	Doors      []Door
+	FloorY     float32
+	FloorSet   bool
+	StyleSeed  uint32
+	MealPrice  int
+	DrinkPrice int
+	Diners     int
 }
 
 // DoorCell returns the grid cell containing the building's anchor — the
@@ -159,6 +163,19 @@ func BuildingFootprint(typ BuildingType, x, z, rotation float32) FootprintRect {
 // Footprint returns b's oriented footprint rectangle.
 func (b *Building) Footprint() FootprintRect {
 	return BuildingFootprint(b.Type, b.Pos[0], b.Pos[1], b.Rotation)
+}
+
+// BuildingByID returns the building with id, or nil.
+func (w *World) BuildingByID(id uint64) *Building {
+	if id == 0 {
+		return nil
+	}
+	for _, b := range w.Buildings {
+		if b.ID == id {
+			return b
+		}
+	}
+	return nil
 }
 
 // BuildingOverlap reports whether a building of typ anchored at (x, z)
@@ -288,6 +305,28 @@ func (w *World) RemoveRoadNode(id uint64) {
 			return
 		}
 	}
+}
+
+// Label names b for the player: a service building by its one service,
+// or "Lodge" when it mixes them; anything else by its type.
+func (b *Building) Label() string {
+	if !b.IsShell() {
+		return b.Type.Label()
+	}
+	only := ServiceNone
+	for sv := ServiceLounge; sv < ServiceCount; sv++ {
+		if b.TileCount(sv) == 0 {
+			continue
+		}
+		if only != ServiceNone {
+			return "Lodge"
+		}
+		only = sv
+	}
+	if only == ServiceNone || only == ServiceLounge {
+		return "Lodge"
+	}
+	return only.Label()
 }
 
 // Label returns a short human-readable name for HUD / event-feed display.

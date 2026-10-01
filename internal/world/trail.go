@@ -175,6 +175,8 @@ func (w *World) RemoveTrailCells(id uint64, cells [][2]int) {
 // RebuildTrailGraph recomputes the connectivity graph from current trail
 // cell data and stores it on the world. Called after any trail mutation.
 func (w *World) RebuildTrailGraph() {
+	// Doors face lifts and parking, and trails end at doors.
+	w.RefreshAllDoors()
 	w.TrailGraph = BuildTrailGraph(w)
 }
 

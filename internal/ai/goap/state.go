@@ -173,22 +173,36 @@ func Extract(a *world.Guest, w *world.World) WorldSnapshot {
 		if sqDistXZ(a.Pos, p[0], p[1]) >= r2 {
 			continue
 		}
-		switch b.Type {
-		case world.BuildingLodge:
-			snap.AtLodge = b.ID
-			return snap
-		case world.BuildingBar:
-			snap.AtBar = b.ID
-			return snap
-		case world.BuildingParking:
-			snap.AtParking = b.ID
-			return snap
-		case world.BuildingTicketOffice:
-			snap.AtTicketOffice = b.ID
+		if setAtBuilding(&snap, b) {
 			return snap
 		}
 	}
 	return snap
+}
+
+// setAtBuilding anchors s at building b: a parking lot, or every service
+// b offers (a service building is one place inside, whichever door the
+// guest came in by). Clears the other building anchors. Reports whether
+// b is somewhere guests can be.
+func setAtBuilding(s *WorldSnapshot, b *world.Building) bool {
+	s.AtLodge, s.AtBar, s.AtParking, s.AtTicketOffice = 0, 0, 0, 0
+	switch {
+	case b.Type == world.BuildingParking:
+		s.AtParking = b.ID
+	case b.IsShell():
+		if b.OffersRest() {
+			s.AtLodge = b.ID
+		}
+		if b.Offers(world.ServiceBar) {
+			s.AtBar = b.ID
+		}
+		if b.Offers(world.ServiceTickets) {
+			s.AtTicketOffice = b.ID
+		}
+	default:
+		return false
+	}
+	return true
 }
 
 // ExtractLookahead returns a WorldSnapshot as if agent a has just unloaded

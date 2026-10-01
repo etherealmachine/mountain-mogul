@@ -76,9 +76,11 @@ func SeedGuests(w *World, seed int64, count int) {
 
 // DailyBudgetFor is the dollars a guest of the given skill will spend on
 // one visit (ticket, parking, food). Not persisted: save load derives it
-// from skill again, so it must stay a pure function of skill.
+// from skill again, so it must stay a pure function of skill. The floor
+// covers a default day ticket, a parking share and a meal, so even the
+// greenest beginner can eat at the resort.
 func DailyBudgetFor(skill float32) float32 {
-	return 40 + skill*160
+	return 90 + skill*150
 }
 
 // rollSkill biases toward beginners — the real-world resort split is

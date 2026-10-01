@@ -1642,15 +1642,55 @@ func (r *Renderer) addLodgeShell(w *world.World, b *world.Building) {
 		if !ok {
 			continue
 		}
-		tint := wallTint
-		if t.Kind.IsRoof() {
-			tint = roofTint
-		}
+		tint := shellTileTint(t, wallTint, roofTint)
 		m := mgl32.Translate3D(t.Pos[0], floor+t.Pos[1], t.Pos[2]).Mul4(mgl32.HomogRotate3DY(t.Rot))
 		if cutaway {
 			m = m.Mul4(mgl32.Scale3D(1, lodgeCutawayWallScale, 1))
 		}
 		batch.AddStatic(m, tint)
+	}
+}
+
+// shellTileTint is a kit tile's colour: the roof palette on roofs, the
+// wall palette elsewhere, with walls shaded by their tile's service.
+func shellTileTint(t world.ShellTile, wall, roof mgl32.Vec3) mgl32.Vec3 {
+	if t.Kind.IsRoof() {
+		return roof
+	}
+	if t.Service != world.ServiceNone {
+		a := t.Service.Accent()
+		return mgl32.Vec3{wall[0] * a[0], wall[1] * a[1], wall[2] * a[2]}
+	}
+	return wall
+}
+
+// SetShellGhost previews kit tiles at floor height floor, every tile
+// tinted tint and scaled by scale about the tiles' centre (a little over
+// 1 keeps a ghost over an existing tile from z-fighting). The ghost
+// batches are cleared each frame by ClearAllGhosts.
+func (r *Renderer) SetShellGhost(tiles []world.ShellTile, floor, scale float32, tint [3]float32) {
+	if len(tiles) == 0 {
+		return
+	}
+	var c mgl32.Vec3
+	for _, t := range tiles {
+		c = c.Add(t.Pos)
+	}
+	c = c.Mul(1 / float32(len(tiles)))
+	c[1] = 0
+	byMesh := map[uint32][]StaticInstance{}
+	for _, t := range tiles {
+		p := c.Add(t.Pos.Sub(c).Mul(scale))
+		m := mgl32.Translate3D(p[0], floor+p[1], p[2]).
+			Mul4(mgl32.HomogRotate3DY(t.Rot)).
+			Mul4(mgl32.Scale3D(scale, scale, scale))
+		inst := StaticInstance{ColorTint: tint}
+		copy(inst.Transform[:], m[:])
+		id := MeshLodgeTileBase + uint32(t.Kind)
+		byMesh[id] = append(byMesh[id], inst)
+	}
+	for id, insts := range byMesh {
+		r.SetGhosts(id, insts)
 	}
 }
 

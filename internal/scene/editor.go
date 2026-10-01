@@ -707,7 +707,7 @@ func (e *Editor) applyPlacement(r *render.Renderer, shiftHeld bool) {
 			return
 		}
 		b := placeBuilding(w, world.BuildingLodge, wx, wz, e.placeRotation)
-		applyBuildingPlacementEffects(w.Terrain, b)
+		applyBuildingPlacementEffects(w, b)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 		e.autoFields = nil
@@ -716,7 +716,7 @@ func (e *Editor) applyPlacement(r *render.Renderer, shiftHeld bool) {
 			return
 		}
 		b := placeBuilding(w, world.BuildingShed, wx, wz, e.placeRotation)
-		applyBuildingPlacementEffects(w.Terrain, b)
+		applyBuildingPlacementEffects(w, b)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 		e.autoFields = nil
@@ -725,7 +725,7 @@ func (e *Editor) applyPlacement(r *render.Renderer, shiftHeld bool) {
 			return
 		}
 		b := placeBuilding(w, world.BuildingTicketOffice, wx, wz, e.placeRotation)
-		applyBuildingPlacementEffects(w.Terrain, b)
+		applyBuildingPlacementEffects(w, b)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 		e.autoFields = nil
@@ -738,7 +738,7 @@ func (e *Editor) applyPlacement(r *render.Renderer, shiftHeld bool) {
 		if lift.IsHeli() {
 			applyHelipadPlacementEffects(w.Terrain, lift)
 		} else {
-			applyLiftPlacementEffects(w.Terrain, lift)
+			applyLiftPlacementEffects(w, lift)
 			r.AddLiftCable(lift, w.Terrain)
 		}
 		r.FlushTerrainVerts(w.Terrain)

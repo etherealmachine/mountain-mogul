@@ -458,17 +458,17 @@ var Testbeds = []Testbed{
 		//   Parcel 2 (purchasable, $50k): z=0..29
 		//   Skier: (15,35) — in owned zone, GOAP plans
 		//   Cash: $60k (can afford the parcel purchase)
-		// Lodge shells: an L-shaped lodge with two doors and a food
-		// court in its east wing, a small box, and a big block whose
-		// roof caps flat. Flat ground; for eyeballing the shell kit.
+		// Lodge shells: an L-shaped lodge with a food court in its east
+		// wing, a small box, and a big block whose roof caps flat. Flat
+		// ground, no lifts, so doors face downhill; for eyeballing the
+		// shell kit.
 		Name: "Lodge shells showcase",
 		Seed: 1,
 		Build: func() *world.World {
 			return scene(60, 50).flat(0).
-				lodgeShell(0, append(rectCells(10, 10, 6, 3), rectCells(10, 13, 3, 4)...),
-					[][2]int{{13, 10}, {11, 16}}, rectCells(14, 10, 2, 3)).
-				lodgeShell(7, rectCells(30, 12, 5, 4), [][2]int{{32, 15}}, nil).
-				lodgeShell(13, rectCells(20, 25, 10, 8), [][2]int{{24, 32}, {29, 28}}, rectCells(26, 25, 4, 8)).
+				lodgeShell(0, append(rectCells(10, 10, 6, 3), rectCells(10, 13, 3, 4)...), rectCells(14, 10, 2, 3)).
+				lodgeShell(7, rectCells(30, 12, 5, 4), nil).
+				lodgeShell(13, rectCells(20, 25, 10, 8), rectCells(26, 25, 4, 8)).
 				build()
 		},
 	},
@@ -486,11 +486,49 @@ var Testbeds = []Testbed{
 				liftFromTo(20, 90, 20, 8).
 				paintTrail(world.DiffBlue, world.PolylineCells(waypoints, 2)).
 				groomPolyline(waypoints, 2).
-				lodgeShell(3, rectCells(24, 84, 4, 4), [][2]int{{24, 86}}, rectCells(26, 84, 2, 4))
+				lodgeShell(3, rectCells(24, 84, 4, 4), rectCells(26, 84, 2, 4))
 			for i := 0; i < 8; i++ {
 				b.goapSkierAt(18+i%4, 92+i/4, 0.6, 1)
 				a := b.w.OnMountain[len(b.w.OnMountain)-1]
 				a.Energy, a.Thirst, a.Hunger = 1, 1, 0.3
+				a.HasSeasonPass, a.SeasonPassExpiry = true, 1e12
+				a.RemainingBudget = 200
+			}
+			return b.build()
+		},
+	},
+	{
+		// The tile-built service buildings: a lodge at the foot of the
+		// trail mixing lounge, food court and bar tiles (one automatic
+		// door per service), and a ticket window beside the lot. Guests
+		// start tired, hungry or thirsty in turn so each service sees
+		// traffic; arrivals from the lot walk to the ticket door.
+		Name: "Service buildings sandbox",
+		Seed: 1,
+		Build: func() *world.World {
+			waypoints := [][2]int{{20, 8}, {24, 40}, {23, 70}, {21, 86}, {20, 90}}
+			b := scene(40, 100).runout(60, 15, 3).
+				parkingAt(20, 98).
+				liftFromTo(20, 90, 20, 8).
+				paintTrail(world.DiffBlue, world.PolylineCells(waypoints, 2)).
+				groomPolyline(waypoints, 2).
+				serviceBuilding(5,
+					serviceRect{world.ServiceLounge, 25, 80, 3, 3},
+					serviceRect{world.ServiceFood, 28, 80, 3, 3},
+					serviceRect{world.ServiceBar, 25, 83, 2, 2}).
+				serviceBuilding(9, serviceRect{world.ServiceTickets, 26, 94, 2, 2})
+			for i := 0; i < 12; i++ {
+				b.goapSkierAt(17+i%6, 92+i/6, 0.6, 1)
+				a := b.w.OnMountain[len(b.w.OnMountain)-1]
+				a.Energy, a.Thirst, a.Hunger = 1, 1, 1
+				switch i % 3 {
+				case 0:
+					a.Hunger = 0.3
+				case 1:
+					a.Thirst = 0.25
+				default:
+					a.Energy = 0.3
+				}
 				a.HasSeasonPass, a.SeasonPassExpiry = true, 1e12
 				a.RemainingBudget = 200
 			}
@@ -682,16 +720,31 @@ func (b *builder) lodgeAt(gx, gz int) *builder {
 	return b
 }
 
-// lodgeShell paints a lodge over cells with the given doors and
-// food-court cells.
-func (b *builder) lodgeShell(seed uint32, cells, doors, food [][2]int) *builder {
+// lodgeShell builds a lounge over cells with a food court on food.
+// Doors are placed automatically.
+func (b *builder) lodgeShell(seed uint32, cells, food [][2]int) *builder {
 	l := b.w.PlaceLodgeShell(cells, seed)
-	for _, d := range doors {
-		b.w.ToggleDoor(l, d)
-	}
-	l.SetFoodCourtCells(food)
+	b.w.SetFoodCourtCells(l, food)
 	b.lastLodge = l
 	return b
+}
+
+// serviceBuilding builds a service building from rectangles of tiles.
+func (b *builder) serviceBuilding(seed uint32, parts ...serviceRect) *builder {
+	tiles := map[[2]int]world.Service{}
+	for _, p := range parts {
+		for _, c := range rectCells(p.x0, p.z0, p.nx, p.nz) {
+			tiles[c] = p.svc
+		}
+	}
+	b.lastLodge = b.w.PlaceServiceBuilding(tiles, seed)
+	return b
+}
+
+// serviceRect is an nx × nz block of svc tiles at (x0, z0).
+type serviceRect struct {
+	svc            world.Service
+	x0, z0, nx, nz int
 }
 
 func rectCells(x0, z0, nx, nz int) [][2]int {

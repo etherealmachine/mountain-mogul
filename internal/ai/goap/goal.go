@@ -49,7 +49,7 @@ func (GetSeasonPass) Weight(s *WorldSnapshot, w *world.World) float32 {
 		return 0
 	}
 	for _, b := range w.Buildings {
-		if b.Type == world.BuildingTicketOffice {
+		if b.Offers(world.ServiceTickets) {
 			return 0.9 // just below GoHome (1.0) but above all skiing goals
 		}
 	}
@@ -165,6 +165,47 @@ func (RelieveHunger) Weight(s *WorldSnapshot, w *world.World) float32 {
 		return 0
 	}
 	return 1.05 + (0.25 - s.Hunger)
+}
+
+// needGoals pairs each bodily need with the goal that relieves it.
+var needGoals = []struct {
+	need ai.NeedMask
+	goal Goal
+}{
+	{ai.NeedHunger, RelieveHunger{}},
+	{ai.NeedThirst, RelieveThirst{}},
+}
+
+// PressingNeeds returns the needs whose relief goals are unsatisfied.
+func PressingNeeds(s *WorldSnapshot, w *world.World) ai.NeedMask {
+	var m ai.NeedMask
+	for _, n := range needGoals {
+		if !n.goal.IsSatisfied(s, w) {
+			m |= n.need
+		}
+	}
+	return m
+}
+
+// NeedPreempts reports whether a need that was not pressing when plan
+// was made now outweighs the plan's goal, so the guest should replan
+// rather than finish it.
+func NeedPreempts(s *WorldSnapshot, w *world.World, plan *ai.Plan) bool {
+	var planWeight float32
+	for _, g := range AllGoals {
+		if g.Name() == plan.GoalName {
+			planWeight = g.Weight(s, w)
+		}
+	}
+	for _, n := range needGoals {
+		if plan.Pressing&n.need != 0 || n.goal.Name() == plan.GoalName || n.goal.IsSatisfied(s, w) {
+			continue
+		}
+		if n.goal.Weight(s, w) > planWeight {
+			return true
+		}
+	}
+	return false
 }
 
 // Explore is satisfied once every skill-accessible lift has been ridden at

@@ -148,6 +148,12 @@ func (p *Planner) StoredPlanForLookahead(a *world.Guest, liftID uint64, w *world
 // by default. If Rest is unreachable a thought is emitted and the next
 // goal is tried. Falls back to defaultLapPlan when no goal produces a plan.
 func (p *Planner) planFromSnap(snap WorldSnapshot, a *world.Guest, w *world.World, simTime float64) ai.Plan {
+	plan := p.pickPlan(snap, a, w, simTime)
+	plan.Pressing = PressingNeeds(&snap, w)
+	return plan
+}
+
+func (p *Planner) pickPlan(snap WorldSnapshot, a *world.Guest, w *world.World, simTime float64) ai.Plan {
 	for _, gr := range RankedGoals(&snap, w) {
 		if gr.Satisfied || gr.Weight <= 0 {
 			continue

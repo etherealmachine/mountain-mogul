@@ -62,16 +62,7 @@ func (a *SkiTrail) Apply(s *WorldSnapshot, w *world.World) {
 		b := findAnyBuilding(w, a.ToID)
 		if b != nil {
 			s.Pos = mgl32.Vec3{b.Pos[0], s.Pos[1], b.Pos[1]}
-			switch b.Type {
-			case world.BuildingLodge:
-				s.AtLodge = a.ToID
-			case world.BuildingBar:
-				s.AtBar = a.ToID
-			case world.BuildingParking:
-				s.AtParking = a.ToID
-			case world.BuildingTicketOffice:
-				s.AtTicketOffice = a.ToID
-			}
+			setAtBuilding(s, b)
 		}
 	case world.KindTrail:
 		// Arriving at a trail junction. AtTrailEnd is set to the destination

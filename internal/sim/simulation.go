@@ -484,13 +484,35 @@ func parkingWorldPos(w *world.World, b *world.Building) mgl32.Vec3 {
 }
 
 // entranceWorldPos is parkingWorldPos for the building entrance nearest
-// from: a lodge shell's closest door, or the building anchor otherwise.
-func entranceWorldPos(w *world.World, b *world.Building, from mgl32.Vec3) mgl32.Vec3 {
+// from that opens onto service svc: a service building's closest such
+// door, or the building anchor otherwise.
+func entranceWorldPos(w *world.World, b *world.Building, from mgl32.Vec3, svc world.Service) mgl32.Vec3 {
 	if !b.IsShell() {
 		return parkingWorldPos(w, b)
 	}
-	p, cell := b.NearestEntrance(mgl32.Vec2{from[0], from[2]})
+	p, cell := b.NearestServiceEntrance(svc, mgl32.Vec2{from[0], from[2]})
 	return mgl32.Vec3{p[0], w.Terrain.SurfaceElevationAt(cell[0], cell[1]), p[1]}
+}
+
+// visitService is the service guest a is heading to a building for: the
+// one the step after the head uses, so guests walk to the right door.
+func visitService(a *world.Guest) world.Service {
+	if a.Plan.Head().Kind == ai.ActWalkToTicketOffice {
+		return world.ServiceTickets
+	}
+	if next := a.Plan.Step + 1; next < len(a.Plan.Steps) {
+		switch a.Plan.Steps[next].Kind {
+		case ai.ActRestAtLodge:
+			return world.ServiceLounge
+		case ai.ActEat:
+			return world.ServiceFood
+		case ai.ActRelieveThirst:
+			return world.ServiceBar
+		case ai.ActBuyDayTicket, ai.ActBuySeasonPass:
+			return world.ServiceTickets
+		}
+	}
+	return world.ServiceNone
 }
 
 // countDiners recounts each lodge's seated diners from guests mid-meal.
@@ -1085,7 +1107,7 @@ const mealSec = 90.0
 // the per-agent loop so any implicit state it sets (Queued, TargetID,
 // RestTimer, Removed) is visible to the dispatch switch below it.
 //
-// Replan triggers (a deliberate subset of the SKIER_AI.md design):
+// Replan triggers (a deliberate subset of the notes/specs/Guests Spec.md design):
 //
 //   - plan empty / done
 //   - head action complete (snapshot matches the action's post-state)
@@ -1126,6 +1148,12 @@ func (s *Simulation) tickPlanning(a *world.Guest) {
 			a.AtTrailEnd = head.TrailID
 		} else {
 			a.AtTrailEnd = 0
+		}
+		// Step boundaries are the safe points to drop a plan for a need
+		// that turned pressing mid-plan — except in a lift line.
+		if head.Kind != ai.ActJoinQueue && a.Plan.GoalName != "GoHome" && goap.NeedPreempts(&snap, s.World, &a.Plan) {
+			s.replan(a)
+			return
 		}
 		s.advancePlan(a)
 		return
@@ -1298,13 +1326,13 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 			return
 		}
 		a.TargetID = b.ID
-		if b.Type == world.BuildingBar {
+		if visitService(a) == world.ServiceBar {
 			a.Plan.Goal = ai.GoalRelieveThirst
 		} else {
 			a.Plan.Goal = ai.GoalNone
 		}
 		a.Plan.GoalID = b.ID
-		a.Plan.Target = entranceWorldPos(w, b, a.Pos)
+		a.Plan.Target = entranceWorldPos(w, b, a.Pos, visitService(a))
 	case ai.ActSkiToParking:
 		a.RunGroomingSum = 0
 		a.RunGroomingSamples = 0
@@ -1339,7 +1367,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 				a.Plan.Goal = ai.GoalNone
 			}
 			a.Plan.GoalID = b.ID
-			a.Plan.Target = entranceWorldPos(w, b, a.Pos)
+			a.Plan.Target = entranceWorldPos(w, b, a.Pos, visitService(a))
 		default:
 			// Trail-to-trail: steer toward destination trail's centroid.
 			if t := w.FindTrail(step.TrailID); t != nil {
@@ -1359,12 +1387,13 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		a.TargetID = b.ID
 		a.Plan.Goal = ai.GoalNone
 		a.Plan.GoalID = b.ID
-		a.Plan.Target = parkingWorldPos(w, b)
+		a.Plan.Target = entranceWorldPos(w, b, a.Pos, world.ServiceTickets)
 		startCell := [2]int{
 			int(math.Floor(float64(a.Pos[0] / CellSize))),
 			int(math.Floor(float64(a.Pos[2] / CellSize))),
 		}
-		a.Path = s.Pathfinder.FindPath(startCell, b.DoorCell())
+		_, door := b.NearestServiceEntrance(world.ServiceTickets, mgl32.Vec2{a.Pos[0], a.Pos[2]})
+		a.Path = s.Pathfinder.FindPath(startCell, door)
 		a.PathIdx = 0
 		if a.Path == nil && !a.HasSeasonPass && !a.HasDayTicket {
 			// No walkable route to the window: without a ticket there
@@ -1429,6 +1458,11 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		a.RestTimer = 30.0 // brief stop for a drink
 		a.Speed = 0
 		a.TargetID = 0
+		if b := findBuildingByID(w, step.BldgID); b != nil && b.DrinkPrice > 0 {
+			w.Cash += b.DrinkPrice
+			w.History.RecordRevenue(world.RevenueBar, b.DrinkPrice)
+			a.RemainingBudget -= float32(b.DrinkPrice)
+		}
 	case ai.ActEat:
 		b := findBuildingByID(w, step.BldgID)
 		if b == nil {
@@ -1619,7 +1653,7 @@ func planTargetWorldPos(w *world.World, a *world.Guest) (mgl32.Vec3, bool) {
 		}
 	case ai.ActSkiToLodge, ai.ActSkiToParking, ai.ActWalkToTicketOffice:
 		if b := findBuildingByID(w, step.BldgID); b != nil {
-			return entranceWorldPos(w, b, a.Pos), true
+			return entranceWorldPos(w, b, a.Pos, visitService(a)), true
 		}
 	case ai.ActSkiTrail:
 		return a.Plan.Target, a.Plan.Target != (mgl32.Vec3{})
@@ -1840,7 +1874,7 @@ func (s *Simulation) tickLocomote(agent *world.Guest, dt float64) {
 	var targetPos mgl32.Vec3
 	if agent.TargetID != 0 {
 		var ok bool
-		targetPos, ok = resolveTarget(w, agent.TargetID, agent.Pos)
+		targetPos, ok = resolveTarget(w, agent.TargetID, agent)
 		if !ok {
 			// Target vanished — drop it; tickPlanning's precondition check
 			// will re-plan on the next tick.
@@ -1939,7 +1973,7 @@ func (s *Simulation) tickWalkToward(agent *world.Guest, target mgl32.Vec3, dt fl
 // when the ID matches nothing (e.g. the entity was removed mid-plan —
 // tickPlanning's precondition check will re-plan on the next tick).
 // Y is taken from the terrain mesh under the entity's cell.
-func resolveTarget(w *world.World, id uint64, from mgl32.Vec3) (mgl32.Vec3, bool) {
+func resolveTarget(w *world.World, id uint64, a *world.Guest) (mgl32.Vec3, bool) {
 	for _, l := range w.Lifts {
 		if l.ID == id {
 			// Aim for the back of the queue, not the base anchor —
@@ -1951,7 +1985,7 @@ func resolveTarget(w *world.World, id uint64, from mgl32.Vec3) (mgl32.Vec3, bool
 	}
 	for _, b := range w.Buildings {
 		if b.ID == id {
-			return entranceWorldPos(w, b, from), true
+			return entranceWorldPos(w, b, a.Pos, visitService(a)), true
 		}
 	}
 	return mgl32.Vec3{}, false

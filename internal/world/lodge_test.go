@@ -86,19 +86,29 @@ func TestShellRoofHeightTracksWidth(t *testing.T) {
 	}
 }
 
-func TestDoorsStayOnPerimeter(t *testing.T) {
-	w := NewWorld(NewTerrain(20, 20))
-	b := w.PlaceLodgeShell(rectCells(5, 5, 3, 3), 0)
-	if w.ToggleDoor(b, [2]int{6, 6}) {
-		t.Fatal("interior cell accepted a door")
+func TestAutoDoorsPerServiceRun(t *testing.T) {
+	w := NewWorld(NewTerrain(40, 40))
+	w.PlaceLift(LiftDouble, 100, 160, 100, 20)
+	b := w.PlaceLodgeShell(rectCells(18, 18, 3, 3), 0)
+	if len(b.Doors) != 1 || b.Doors[0].Dir != [2]int{0, 1} {
+		t.Fatalf("lounge doors = %v, want one facing the lift base (+Z)", b.Doors)
 	}
-	if !w.ToggleDoor(b, [2]int{6, 5}) || b.Pos != cellCentre([2]int{6, 5}) {
-		t.Fatalf("perimeter door not set as the anchor: doors %v pos %v", b.DoorCells, b.Pos)
+	if b.Pos != cellCentre(b.Doors[0].Cell) {
+		t.Fatalf("anchor %v not on the door", b.Pos)
 	}
-	// Growing the shell past the door moves it off the perimeter; it's dropped.
-	w.SetShellCells(b, append(b.Cells, rectCells(5, 4, 3, 1)...))
-	if len(b.DoorCells) != 0 || b.Usable() {
-		t.Fatalf("buried door kept: %v", b.DoorCells)
+	// A food tile on the corner is its own run with its own door.
+	w.SetTileService(b, [2]int{20, 20}, ServiceFood)
+	if len(b.Doors) != 2 || !b.ServesFood() {
+		t.Fatalf("doors = %v after adding a food tile", b.Doors)
+	}
+	// The centre tile has no outside wall: no door of its own, reached
+	// through the others.
+	w.SetTileService(b, [2]int{19, 19}, ServiceBar)
+	if len(b.Doors) != 2 || !b.Offers(ServiceBar) {
+		t.Fatalf("doors = %v with an enclosed bar", b.Doors)
+	}
+	if _, c := b.NearestServiceEntrance(ServiceFood, mgl32.Vec2{0, 0}); c != [2]int{20, 20} {
+		t.Fatalf("food entrance = %v, want its own door", c)
 	}
 	for _, c := range b.Cells {
 		if w.Terrain.Cells[c[0]][c[1]].Passable {
@@ -106,8 +116,20 @@ func TestDoorsStayOnPerimeter(t *testing.T) {
 		}
 	}
 	w.RemoveBuilding(b.ID)
-	if !w.Terrain.Cells[6][6].Passable {
-		t.Fatal("removing the lodge left its cells blocked")
+	if !w.Terrain.Cells[19][19].Passable {
+		t.Fatal("removing the building left its cells blocked")
+	}
+}
+
+func TestTicketDoorFacesParking(t *testing.T) {
+	w := NewWorld(NewTerrain(40, 40))
+	w.PlaceLift(LiftDouble, 100, 160, 100, 20)
+	w.PlaceParkingLot(rectCells(10, 18, 3, 3))
+	b := w.PlaceServiceBuilding(map[[2]int]Service{{18, 18}: ServiceTickets, {18, 19}: ServiceLounge}, 0)
+	for _, d := range b.Doors {
+		if d.Service == ServiceTickets && d.Dir != [2]int{-1, 0} {
+			t.Fatalf("ticket door faces %v, want the lot to the west", d.Dir)
+		}
 	}
 }
 
@@ -115,28 +137,23 @@ func TestLegacyLodgeConverts(t *testing.T) {
 	w := NewWorld(NewTerrain(40, 40))
 	w.PlaceLift(LiftDouble, 100, 160, 100, 20)
 	b := w.PlaceBuildingType(BuildingLodge, 100, 100)
-	if !b.IsShell() || len(b.Cells) != legacyLodgeCellsX*legacyLodgeCellsZ {
+	if !b.IsShell() || len(b.Cells) != legacyLodgeCellsX*legacyLodgeCellsZ || !b.Offers(ServiceLounge) {
 		t.Fatalf("legacy lodge cells = %d", len(b.Cells))
 	}
-	if len(b.DoorCells) != 1 || !b.IsPerimeterCell(b.DoorCells[0]) {
-		t.Fatalf("legacy lodge doors = %v", b.DoorCells)
-	}
-	// The door faces the lift base to the south (+Z).
-	if door := cellCentre(b.DoorCells[0]); door[1] < 100 {
-		t.Fatalf("door at %v faces away from the lift base", door)
-	}
-	if b.Pos != cellCentre(b.DoorCells[0]) {
-		t.Fatalf("anchor %v not on the door", b.Pos)
+	if len(b.Doors) != 1 || b.Doors[0].Dir != [2]int{0, 1} {
+		t.Fatalf("legacy lodge doors = %v, want one facing the lift base", b.Doors)
 	}
 }
 
-func TestNearestEntrance(t *testing.T) {
-	w := NewWorld(NewTerrain(20, 20))
-	b := w.PlaceLodgeShell(rectCells(5, 5, 4, 1), 0)
-	w.ToggleDoor(b, [2]int{5, 5})
-	w.ToggleDoor(b, [2]int{8, 5})
-	if _, c := b.NearestEntrance(mgl32.Vec2{60, 27}); c != [2]int{8, 5} {
-		t.Fatalf("nearest door to the east = %v", c)
+func TestLegacyBarAndOfficeConvert(t *testing.T) {
+	w := NewWorld(NewTerrain(40, 40))
+	bar := w.PlaceBuildingType(BuildingBar, 100, 100)
+	office := w.PlaceBuildingType(BuildingTicketOffice, 150, 100)
+	if bar.Type != BuildingLodge || !bar.Offers(ServiceBar) || bar.TileCount(ServiceBar) != len(bar.Cells) {
+		t.Fatalf("bar converted to type %v with %d bar tiles", bar.Type, bar.TileCount(ServiceBar))
+	}
+	if office.Type != BuildingLodge || !office.Offers(ServiceTickets) {
+		t.Fatalf("office converted to type %v", office.Type)
 	}
 }
 

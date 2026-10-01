@@ -11,8 +11,9 @@ import (
 // from the painted footprint at half-cell resolution.
 //
 //   - Walls: one tile per half-cell edge between shell and outside.
-//     Door cells get door tiles, food-court cells glazed tiles, the rest
-//     plain or windowed in a rhythm the style seed picks.
+//     A door wall gets a door tile beside a window; food courts are
+//     glazed, bars and ticket windows have their own facades, and lounge
+//     walls are plain or windowed in a rhythm the style seed picks.
 //   - Corners: marching squares over the four half-cells around each
 //     grid vertex — one inside is an outer corner, three is an inner one.
 //   - Roof: height is the Chebyshev (L∞) distance to the outside, capped.
@@ -65,9 +66,10 @@ func (k ShellTileKind) IsRoof() bool {
 // ShellTile is one placed kit tile. Pos is world X/Z and height above
 // the lodge floor.
 type ShellTile struct {
-	Kind ShellTileKind
-	Pos  mgl32.Vec3
-	Rot  float32
+	Kind    ShellTileKind
+	Pos     mgl32.Vec3
+	Rot     float32
+	Service Service // the tile's service, on walls only
 }
 
 // shellGrid answers inside/outside at half-cell resolution.
@@ -131,7 +133,7 @@ func ResolveLodgeShell(b *Building) []ShellTile {
 					along = sz
 				}
 				tiles = append(tiles,
-					ShellTile{Kind: wallKind(b, cell, along, pattern, altWindows), Pos: pos, Rot: rot},
+					ShellTile{Kind: wallKind(b, cell, d, along, pattern, altWindows), Pos: pos, Rot: rot, Service: b.ServiceAt(cell)},
 					ShellTile{Kind: TileEave, Pos: pos.Add(mgl32.Vec3{0, ShellWallHeight, 0}), Rot: rot})
 			}
 		}
@@ -212,15 +214,24 @@ func ResolveLodgeShell(b *Building) []ShellTile {
 	return tiles
 }
 
-// wallKind picks the facade tile for a wall edge of shell cell cell.
-// along is the half-cell index along the wall, which sets the window
-// rhythm: pattern 0 windows every tile, 1 alternates, 2 pairs them.
-func wallKind(b *Building, cell [2]int, along, pattern int, alt bool) ShellTileKind {
-	switch {
-	case b.HasDoor(cell):
+// wallKind picks the facade tile for a wall of shell cell cell facing
+// dir. A door takes the first half of its cell's wall. along is the half-cell index along the wall, which sets the
+// lounge window rhythm: pattern 0 windows every tile, 1 alternates, 2
+// pairs them.
+func wallKind(b *Building, cell, dir [2]int, along, pattern int, alt bool) ShellTileKind {
+	if b.HasDoorFace(cell, dir) && along&1 == 0 {
 		return TileDoor
-	case b.HasFoodCourt(cell):
+	}
+	switch b.ServiceAt(cell) {
+	case ServiceFood:
 		return TileWallGlazed
+	case ServiceBar:
+		if alt {
+			return TileWallWindow
+		}
+		return TileWallWindowAlt
+	case ServiceTickets:
+		return TileWallWindow
 	}
 	window := TileWallWindow
 	if alt {
@@ -317,9 +328,12 @@ func roofTile(o [4]bool) (ShellTileKind, float32) {
 	return TileRoofFlat, 0
 }
 
-// ShellFloorY is the lodge floor elevation: the mean ground height over
-// the shell (the pad is graded flat when painted).
+// ShellFloorY is the building's floor elevation: FloorY once set by the
+// first tile, else the mean ground height over the shell.
 func (w *World) ShellFloorY(b *Building) float32 {
+	if b.FloorSet {
+		return b.FloorY
+	}
 	if len(b.Cells) == 0 {
 		return 0
 	}

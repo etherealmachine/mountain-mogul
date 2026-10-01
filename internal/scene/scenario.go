@@ -223,15 +223,16 @@ const apronInnerFraction = float32(0.7)
 // margin so each building gets visual breathing room. Unlike lifts the
 // apron is raise-only with a small buildup — buildings fit the natural
 // slope but won't sink into mogul fields or ungroomed powder.
-func applyBuildingPlacementEffects(t *world.Terrain, b *world.Building) {
+func applyBuildingPlacementEffects(w *world.World, b *world.Building) {
 	if b.IsCellLot() {
-		applyParkingLotEffects(t, b)
+		applyParkingLotEffects(w, b)
 		return
 	}
 	if b.IsShell() {
-		gradePaintedPad(t, b, 0)
+		gradePaintedPad(w, b, 0)
 		return
 	}
+	t := w.Terrain
 	halfX, halfZ := buildingFootprint(b.Type)
 	// Size each axis of the apron so its inner flat zone extends exactly
 	// buildingApronBareGround beyond the pad on every side. Solving
@@ -263,8 +264,9 @@ func applyBuildingPlacementEffects(t *world.Terrain, b *world.Building) {
 	// The passes run along the mesh's local X so the pad turns with the
 	// building.
 	axis, _ := b.Footprint().Axes()
-	buildStationApron(t, b.Pos, axis, +1, apronHalfZ, apronHalfX, target, true)
-	buildStationApron(t, b.Pos, axis, -1, apronHalfZ, apronHalfX, target, true)
+	claimed := claimedGround(w, b, nil)
+	buildStationApron(t, b.Pos, axis, +1, apronHalfZ, apronHalfX, target, true, claimed)
+	buildStationApron(t, b.Pos, axis, -1, apronHalfZ, apronHalfX, target, true, claimed)
 	// Buildings plow off all the snow under their footprint — parking
 	// lots, lodges and sheds sit on bare asphalt / dirt, not a snowdrift.
 	// Lift aprons (in lift_apron.go) skip this step; their packed=1.0
@@ -345,7 +347,7 @@ func clearBuildingTrees(t *world.Terrain, pos mgl32.Vec2, halfX, halfZ, rotation
 // buildings call it, lift terminals don't (they get the "packed pad"
 // look from Packed=1.0 alone, since visible depth = accumulation /
 // density(Packed) automatically shrinks).
-func buildStationApron(t *world.Terrain, station, axis mgl32.Vec2, side, halfWidth, depth, target float32, cut bool) {
+func buildStationApron(t *world.Terrain, station, axis mgl32.Vec2, side, halfWidth, depth, target float32, cut bool, claimed map[[2]int]bool) {
 	const cellSize = float32(5.0)
 	stationCell := [2]int{
 		int(station[0] / cellSize),
@@ -423,6 +425,7 @@ func buildStationApron(t *world.Terrain, station, axis mgl32.Vec2, side, halfWid
 			cell.MogulSize *= 1 - w
 		}
 	}
+	fillApronEmbankment(t, station, axis, side, halfWidth, depth, target, claimed)
 }
 
 // plowApronSnow zeros SnowAccumulation across the inner zone of a
@@ -546,14 +549,13 @@ const (
 	toolRoadEnd      toolMode = iota // waiting for second road click
 	toolEdgeConnect  toolMode = iota // place a map-edge road connection node (editor only)
 	toolPatrolHut    toolMode = iota // place a ski patrol hut
-	toolBar          toolMode = iota // place a bar (relieve thirst/hunger)
 	toolSnowGun      toolMode = iota // place a snowmaking cannon
 	toolGlade        toolMode = iota // reduce TreeDensity (brush)
 	toolPlantTrees   toolMode = iota // increase TreeDensity (brush, editor only)
 	toolRemove       toolMode = iota // remove building at clicked cell
 	toolTrailPaint   toolMode = iota // paint/erase cells on the active trail
 	toolLandBuy      toolMode = iota // click to purchase a land parcel
-	toolLodge        toolMode = iota // paint a lodge shell, doors or food court
+	toolService      toolMode = iota // build service-building tiles
 )
 
 // Scenario is the main gameplay scene.
@@ -636,8 +638,10 @@ type Scenario struct {
 	// parkingPaint is the parking-lot paint session while toolParking is
 	// active: left-drag paints (or erases, in erase mode), right-drag erases.
 	parkingPaint parkingPaint
-	// lodgePaint is the lodge edit session while toolLodge is active.
-	lodgePaint lodgePaint
+	// serviceTool is the build session while toolService is active.
+	serviceTool serviceTool
+	// serviceButtons are the Amenities palette, one per service.
+	serviceButtons map[world.Service]*ui.Button
 
 	// placeRotation is the rotation the next placed building gets,
 	// turned with R / Shift+R while a building tool is active.
@@ -882,7 +886,7 @@ func (s *Scenario) Init(app *engine.App) error {
 	}
 	s.debugConsole = newDebugConsole(s.world, s.setToast)
 	r := s.app.Renderer
-	s.debugConsole.SetSim(s.sim, func() { r.FlushTerrainVerts(s.world.Terrain) })
+	s.debugConsole.SetSim(s.sim, func() { r.FlushTerrainVerts(s.world.Terrain) }, func() { r.RebuildStaticBatch(s.world) })
 
 	// Bottom tool bar — palette of construction tools, centred along the
 	// bottom edge. Y is set each frame in Update() based on the current
@@ -892,11 +896,21 @@ func (s *Scenario) Init(app *engine.App) error {
 	s.toolBar = ui.NewMenuBar(0, toolBarH)
 	s.toolBar.Centered = true
 
-	// Amenities submenu: Lodge, Ticket Office, Bar
+	// Amenities submenu: one button per building service
 	s.amenitiesSubmenu = s.toolBar.AddSubmenu(render.IconHouse, "Amenities")
-	s.toolButtons[toolLodge] = s.amenitiesSubmenu.AddChild(render.IconHouse, "Lodge", func() { s.activateLodgeTool(0, lodgeEditShell, false) })
-	s.toolButtons[toolTicketOffice] = s.amenitiesSubmenu.AddChild(render.IconCoin, "Tickets", func() { s.setTool(toolTicketOffice) })
-	s.toolButtons[toolBar] = s.amenitiesSubmenu.AddChild(render.IconCocktail, "Bar", func() { s.setTool(toolBar) })
+	s.serviceButtons = map[world.Service]*ui.Button{}
+	for _, sv := range []struct {
+		svc  world.Service
+		icon render.IconName
+	}{
+		{world.ServiceLounge, render.IconHouse},
+		{world.ServiceFood, render.IconUsers},
+		{world.ServiceBar, render.IconCocktail},
+		{world.ServiceTickets, render.IconCoin},
+	} {
+		svc := sv.svc
+		s.serviceButtons[svc] = s.amenitiesSubmenu.AddChild(sv.icon, svc.Label(), func() { s.activateServiceTool(svc) })
+	}
 
 	// Operations submenu: Shed, Patrol
 	s.opsSubmenu = s.toolBar.AddSubmenu(render.IconGarage, "Operations")
@@ -1344,7 +1358,7 @@ func (s *Scenario) installWorld(w *world.World) {
 		s.sim.QueryServer = globalQueryServer
 	}
 	if s.debugConsole != nil {
-		s.debugConsole.SetSim(s.sim, func() { r.FlushTerrainVerts(s.world.Terrain) })
+		s.debugConsole.SetSim(s.sim, func() { r.FlushTerrainVerts(s.world.Terrain) }, func() { r.RebuildStaticBatch(s.world) })
 	}
 	// Saved cells already carry every apron / road / corridor stamp that
 	// was in effect at save time. Testbeds set their own cell state
@@ -1851,6 +1865,10 @@ func (s *Scenario) Update(dt float64) {
 		s.hoverParcel = nil
 	}
 
+	if s.activeTool == toolService {
+		s.updateServicePick(r, inp.MousePos)
+	}
+
 	// Ghost preview for placement tools — uses the continuous hover so
 	// the preview tracks the cursor without snapping.
 	updatePlacementGhost(r, s.world.Terrain, placementGhostState{
@@ -1863,6 +1881,9 @@ func (s *Scenario) Update(dt float64) {
 		rotation:   s.placeRotation,
 		tint:       s.placementTint(),
 	})
+	if s.activeTool == toolService {
+		s.serviceGhost(r)
+	}
 	// Highlight every existing road node while the road tool is active so
 	// the player can see snap targets. The snap-target node (or the
 	// projected snap point on an edge) is rendered brighter. While
@@ -1984,11 +2005,6 @@ func (s *Scenario) Update(dt float64) {
 		if s.activeTool == toolParking && !inp.RightHeld && s.parkingPaint.lastCell != [2]int{-1, -1} {
 			s.parkingPaint.finishStroke(r, s.world)
 		}
-		if s.activeTool == toolLodge && !inp.RightHeld && s.lodgePaint.lastCell != [2]int{-1, -1} {
-			if s.lodgePaint.finishStroke(r, s.world) {
-				s.cancelTool()
-			}
-		}
 	}
 
 	// Right-held erase for trail paint.
@@ -2005,10 +2021,13 @@ func (s *Scenario) Update(dt float64) {
 			s.applyParkingPaint(gx, gz, true)
 		}
 	}
-	if s.activeTool == toolLodge && s.lodgePaint.mode != lodgeEditDoors && inp.RightHeld && s.hoverValid &&
-		s.hoverCell != s.lodgePaint.lastCell && !s.uiCovers(inp.MousePos[0], inp.MousePos[1], float32(r.ScreenWidth())) {
-		if gx, gz := s.hoverCell[0], s.hoverCell[1]; s.world.Terrain.InBounds(gx, gz) {
-			s.applyLodgePaint(gx, gz, true)
+	// A right click that doesn't pan removes the service tile under it.
+	if s.activeTool == toolService {
+		if inp.RightClick {
+			s.serviceTool.rightDown = inp.MousePos
+		}
+		if inp.RightRelease && inp.MousePos.Sub(s.serviceTool.rightDown).Len() < 4 {
+			s.removeServiceTile()
 		}
 	}
 
@@ -2025,10 +2044,7 @@ func (s *Scenario) Update(dt float64) {
 		parkingDragged := s.activeTool == toolParking && inp.LeftHeld &&
 			s.parkingPaint.lastCell != [2]int{-1, -1} &&
 			s.hoverCell != s.parkingPaint.lastCell
-		lodgeDragged := s.activeTool == toolLodge && s.lodgePaint.mode != lodgeEditDoors && inp.LeftHeld &&
-			s.lodgePaint.lastCell != [2]int{-1, -1} &&
-			s.hoverCell != s.lodgePaint.lastCell
-		clickOrDrag := inp.LeftClick || gladeDragged || trailDragged || parkingDragged || lodgeDragged
+		clickOrDrag := inp.LeftClick || gladeDragged || trailDragged || parkingDragged
 		if clickOrDrag && !s.uiCovers(inp.MousePos[0], inp.MousePos[1], screenW) && s.hoverValid {
 			overSlider := s.activeTool == toolGlade &&
 				(s.gladeRadiusSlider.Contains(inp.MousePos[0], inp.MousePos[1]) ||
@@ -2241,8 +2257,7 @@ func (s *Scenario) buildCellOverlay() (pixels []uint8, w, h int) {
 		paintLot = s.parkingPaint.lot(s.world)
 	}
 	editedLodge := s.editedLodge()
-	lodgeEditing := s.activeTool == toolLodge || editedLodge != nil
-	if !hasTrails && !hasLandOverlay && paintLot == nil && !lodgeEditing {
+	if !hasTrails && !hasLandOverlay && paintLot == nil && editedLodge == nil {
 		return nil, 0, 0
 	}
 
@@ -2304,11 +2319,7 @@ func (s *Scenario) buildCellOverlay() (pixels []uint8, w, h int) {
 		}
 	}
 	appendParkingOverlay(paintLot, set)
-	if s.activeTool == toolLodge {
-		appendLodgeOverlay(&s.lodgePaint, s.world, s.hoverCell, s.hoverValid, set)
-	} else if editedLodge != nil {
-		appendLodgeOverlay(&lodgePaint{lodgeID: editedLodge.ID}, s.world, s.hoverCell, false, set)
-	}
+	appendServiceOverlay(editedLodge, set)
 
 	return pix, tw, th
 }
@@ -2602,26 +2613,6 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 	gx, gz := s.hoverCell[0], s.hoverCell[1]
 	wx, wz := s.hoverWorld[0], s.hoverWorld[2]
 	switch s.activeTool {
-	case toolTicketOffice:
-		if !w.Terrain.IsAccessible(gx, gz) {
-			s.setToast("Can't build on land you don't own")
-			return
-		}
-		if !w.CanAfford(world.TicketOfficeCost) {
-			s.setToast(fmt.Sprintf("Need $%d for a ticket office — short by $%d",
-				world.TicketOfficeCost, world.TicketOfficeCost-w.Available()))
-			return
-		}
-		if w.BuildingOverlap(world.BuildingTicketOffice, wx, wz, s.placeRotation) {
-			s.setToast("Can't place a ticket office here — overlaps another building")
-			return
-		}
-		w.Cash -= world.TicketOfficeCost
-		b := placeBuilding(w, world.BuildingTicketOffice, wx, wz, s.placeRotation)
-		s.sim.LogBuildingPlaced(b)
-		applyBuildingPlacementEffects(w.Terrain, b)
-		r.FlushTerrainVerts(w.Terrain)
-		r.RebuildStaticBatch(w)
 	case toolShed:
 		if !w.Terrain.IsAccessible(gx, gz) {
 			s.setToast("Can't build on land you don't own")
@@ -2640,13 +2631,13 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		b := placeBuilding(w, world.BuildingShed, wx, wz, s.placeRotation)
 		s.sim.LogBuildingPlaced(b)
 		s.sim.InvalidateSections()
-		applyBuildingPlacementEffects(w.Terrain, b)
+		applyBuildingPlacementEffects(w, b)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 	case toolParking:
 		s.applyParkingPaint(gx, gz, s.parkingPaint.erase)
-	case toolLodge:
-		s.applyLodgePaint(gx, gz, s.lodgePaint.erase)
+	case toolService:
+		s.applyServicePick()
 	case toolPatrolHut:
 		if !w.Terrain.IsAccessible(gx, gz) {
 			s.setToast("Can't build on land you don't own")
@@ -2664,7 +2655,7 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		w.Cash -= world.PatrolHutCost
 		b := placeBuilding(w, world.BuildingPatrolHut, wx, wz, s.placeRotation)
 		s.sim.LogBuildingPlaced(b)
-		applyBuildingPlacementEffects(w.Terrain, b)
+		applyBuildingPlacementEffects(w, b)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 	case toolSnowGun:
@@ -2684,26 +2675,6 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		w.Cash -= world.SnowGunCost
 		b := placeBuilding(w, world.BuildingSnowGun, wx, wz, s.placeRotation)
 		s.sim.LogBuildingPlaced(b)
-		r.RebuildStaticBatch(w)
-	case toolBar:
-		if !w.Terrain.IsAccessible(gx, gz) {
-			s.setToast("Can't build on land you don't own")
-			return
-		}
-		if !w.CanAfford(world.BarCost) {
-			s.setToast(fmt.Sprintf("Need $%d for a bar — short by $%d",
-				world.BarCost, world.BarCost-w.Available()))
-			return
-		}
-		if w.BuildingOverlap(world.BuildingBar, wx, wz, s.placeRotation) {
-			s.setToast("Can't place a bar here — overlaps another building")
-			return
-		}
-		w.Cash -= world.BarCost
-		b := placeBuilding(w, world.BuildingBar, wx, wz, s.placeRotation)
-		s.sim.LogBuildingPlaced(b)
-		applyBuildingPlacementEffects(w.Terrain, b)
-		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
 	case toolGlade:
 		// Slider value 0–10 = % density delta per application. Each click
@@ -2755,7 +2726,7 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		if lift.IsHeli() {
 			applyHelipadPlacementEffects(w.Terrain, lift)
 		} else {
-			applyLiftPlacementEffects(w.Terrain, lift)
+			applyLiftPlacementEffects(w, lift)
 		}
 		r.FlushTerrainVerts(w.Terrain)
 		r.AddLiftCable(lift, w.Terrain) // no-op for helilifts
@@ -3528,61 +3499,6 @@ func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 		w.Center(screenW, screenH)
 		s.popup = w
 		return
-	case world.BuildingTicketOffice:
-		w := ui.NewWindow("Ticket Office", 0, 0)
-		w.AddLabel("Resort", func() string {
-			if s.world.ResortOpen {
-				return "Open"
-			}
-			return "Closed"
-		})
-		// Rebuild the popup on click so the button label tracks the state,
-		// as the lift popup's Open/Close Lift button does.
-		toggleLabel := "Open resort"
-		if s.world.ResortOpen {
-			toggleLabel = "Close resort"
-		}
-		w.AddActionButton(toggleLabel, func() {
-			s.sim.SetResortOpen(!s.world.ResortOpen)
-			s.openBuildingPopup(bldg, screenW, screenH)
-		})
-		const hourStep, minOpenSpan = 0.5, 2
-		w.AddIntStepperFn("Lifts open",
-			func() string { return settings.FormatClock(float64(s.world.OpenHour)) },
-			func() { s.world.OpenHour = max(s.world.OpenHour-hourStep, 5) },
-			func() { s.world.OpenHour = min(s.world.OpenHour+hourStep, s.world.CloseHour-minOpenSpan) })
-		w.AddIntStepperFn("Lifts close",
-			func() string { return settings.FormatClock(float64(s.world.CloseHour)) },
-			func() { s.world.CloseHour = max(s.world.CloseHour-hourStep, s.world.OpenHour+minOpenSpan) },
-			func() { s.world.CloseHour = min(s.world.CloseHour+hourStep, 23) })
-		for _, l := range s.world.Lifts {
-			l := l
-			w.AddLabel(l.Name+" base", func() string { return liftBaseSnowText(s.world, l) })
-		}
-		w.AddIntStepper("Day ticket ($)", &s.world.DayTicketPrice, 5, 0, 500)
-		w.AddIntStepper("Pass price ($)", &s.world.SeasonPassPrice, 10, 0, 1000)
-		w.AddLabel("Pass holders", func() string {
-			count := 0
-			for _, a := range s.world.OnMountain {
-				if a.HasSeasonPass {
-					count++
-				}
-			}
-			return fmt.Sprintf("%d on mountain", count)
-		})
-		w.AddLabel("Inbound", func() string {
-			count := 0
-			for _, a := range s.world.OnMountain {
-				if a.TargetID == bldg.ID {
-					count++
-				}
-			}
-			return fmt.Sprintf("%d", count)
-		})
-		w.Visible = true
-		w.Center(screenW, screenH)
-		s.popup = w
-		return
 	case world.BuildingPatrolHut:
 		w := ui.NewWindow("Patrol Hut", 0, 0)
 		w.AddLabel("Patroller", func() string {
@@ -3609,24 +3525,6 @@ func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 		return
 	case world.BuildingLodge:
 		s.buildLodgePopup(bldg, false, screenW, screenH)
-		return
-	case world.BuildingBar:
-		w := ui.NewWindow("Bar", 0, 0)
-		w.AddLabel("Inbound", func() string {
-			count := 0
-			for _, a := range s.world.OnMountain {
-				if a.TargetID == bldg.ID {
-					count++
-				}
-			}
-			return fmt.Sprintf("%d", count)
-		})
-		w.AddLabel("Daily cost", func() string {
-			return fmt.Sprintf("$%d/day", world.BarDailyCost)
-		})
-		w.Visible = true
-		w.Center(screenW, screenH)
-		s.popup = w
 		return
 	default:
 		panic(fmt.Sprintf("openBuildingPopup: unhandled building type %d", bldg.Type))
@@ -4040,10 +3938,8 @@ func (s *Scenario) cancelTool() {
 		s.parkingPaint.finishStroke(s.app.Renderer, s.world)
 		s.parkingPaint.start(0, false)
 	}
-	if s.activeTool == toolLodge {
-		s.activeTool = toolNone
-		s.finishLodgeSession()
-		s.lodgePaint.start(0, lodgeEditShell, false)
+	if s.activeTool == toolService {
+		s.serviceTool = serviceTool{}
 	}
 	s.activeTool = toolNone
 	s.syncToolButtons()
@@ -4173,6 +4069,9 @@ func (s *Scenario) syncToolButtons() {
 		btn.SetActive(s.activeTool == mode ||
 			(mode == toolRoadStart && s.activeTool == toolRoadEnd))
 	}
+	for svc, btn := range s.serviceButtons {
+		btn.SetActive(s.activeTool == toolService && s.serviceTool.svc == svc)
+	}
 	liftActive := s.activeTool == toolLiftBase || s.activeTool == toolLiftTop
 	if s.liftDoubleBtn != nil {
 		s.liftDoubleBtn.SetActive(liftActive && s.liftType == world.LiftDouble)
@@ -4266,11 +4165,6 @@ func updatePlacementGhost(r *render.Renderer, t *world.Terrain, st placementGhos
 			buildingInstance(st.hoverPos, st.rotation, t, st.tint),
 		})
 
-	case toolBar:
-		r.SetGhosts(render.MeshBar, []render.StaticInstance{
-			buildingInstance(st.hoverPos, st.rotation, t, st.tint),
-		})
-
 	case toolLiftBase:
 		if st.liftType == world.LiftHeli {
 			r.SetGhosts(render.MeshHelipad, []render.StaticInstance{
@@ -4353,9 +4247,6 @@ func (s *Scenario) placementCost() (cost int, affordable, legal, valid bool) {
 	gx, gz := s.hoverCell[0], s.hoverCell[1]
 	cellOwned := s.world.Terrain.IsAccessible(gx, gz)
 	switch s.activeTool {
-	case toolTicketOffice:
-		cost = world.TicketOfficeCost
-		legal = cellOwned && !s.world.BuildingOverlap(world.BuildingTicketOffice, pos[0], pos[1], s.placeRotation)
 	case toolShed:
 		cost = world.ShedCost
 		legal = cellOwned && !s.world.BuildingOverlap(world.BuildingShed, pos[0], pos[1], s.placeRotation)
@@ -4365,9 +4256,6 @@ func (s *Scenario) placementCost() (cost int, affordable, legal, valid bool) {
 	case toolSnowGun:
 		cost = world.SnowGunCost
 		legal = cellOwned && !s.world.BuildingOverlap(world.BuildingSnowGun, pos[0], pos[1], s.placeRotation)
-	case toolBar:
-		cost = world.BarCost
-		legal = cellOwned && !s.world.BuildingOverlap(world.BuildingBar, pos[0], pos[1], s.placeRotation)
 	case toolLiftBase:
 		if s.liftType == world.LiftHeli {
 			cost = world.HelipadCost / 2

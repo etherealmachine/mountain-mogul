@@ -243,10 +243,14 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 			CurrentCars:     b.CurrentCars,
 			DrivewayNodeIDs: b.DrivewayNodeIDs,
 			SnowGunEnabled:  b.SnowGunEnabled,
-			DoorCells:       b.DoorCells,
-			FoodCourtCells:  b.FoodCourtCells,
 			StyleSeed:       b.StyleSeed,
 			MealPrice:       b.MealPrice,
+			DrinkPrice:      b.DrinkPrice,
+		}
+		if b.IsShell() {
+			buildings[i].Cells = nil
+			buildings[i].Tiles = saveTiles(b)
+			buildings[i].FloorY, buildings[i].FloorSet = b.FloorY, b.FloorSet
 		}
 		if forScenario {
 			buildings[i].CurrentCars = 0
@@ -685,15 +689,12 @@ func dataToWorld(data ScenarioData) *world.World {
 
 	// Restore buildings, preserving IDs so agent.TargetID references stay
 	// valid. Old saves without an `id` field fall back to a fresh ID.
-	var legacyLodges []*world.Building
 	for _, bd := range data.Buildings {
 		var b *world.Building
-		if world.BuildingType(bd.Type) == world.BuildingLodge {
-			b = loadLodge(w, bd)
-			if len(bd.Cells) == 0 {
-				legacyLodges = append(legacyLodges, b)
-			}
-		} else {
+		switch world.BuildingType(bd.Type) {
+		case world.BuildingLodge, world.BuildingBar, world.BuildingTicketOffice:
+			b = loadServiceBuilding(w, bd)
+		default:
 			b = w.PlaceBuildingType(world.BuildingType(bd.Type), bd.X, bd.Z)
 		}
 		// PlaceBuildingType auto-spawns one cat for sheds; clear that
@@ -705,7 +706,9 @@ func dataToWorld(data ScenarioData) *world.World {
 		if bd.ID != 0 {
 			b.ID = bd.ID
 		}
-		b.Rotation = bd.Rotation
+		if !b.IsShell() {
+			b.Rotation = bd.Rotation
+		}
 		// Parking-only state. The footprint comes from the saved cells
 		// (or the default rectangle for pre-painting saves); MaxCars is
 		// re-derived from it. The driveway node is restored via the
@@ -906,11 +909,8 @@ func dataToWorld(data ScenarioData) *world.World {
 		guestByID[a.ID] = a
 	}
 
-	// Converted lodges face their door at the nearest lift, which only
-	// exists now.
-	for _, b := range legacyLodges {
-		w.ResetDefaultDoor(b)
-	}
+	// Doors face the nearest lift or parking lot, which only exist now.
+	w.RefreshAllDoors()
 
 	for li, ld := range data.Lifts {
 		lift := w.Lifts[li]
@@ -1092,20 +1092,42 @@ func rescaleClocks(w *world.World, k float64) {
 	}
 }
 
-// loadLodge restores a lodge shell with its doors and food court. Saves
-// from before shells carry no cells; those lodges convert to the old
-// footprint and get their door reset once lifts have loaded.
-func loadLodge(w *world.World, bd BuildingData) *world.Building {
-	if len(bd.Cells) == 0 {
-		return w.PlaceBuildingType(world.BuildingLodge, bd.X, bd.Z)
+// loadServiceBuilding restores a service building's tiles. Saves from
+// the paint-the-interior era carry cells plus food-court cells (the rest
+// become lounge); saves from before shells carry none, and those
+// lodges, bars and ticket offices convert to their old footprint.
+func loadServiceBuilding(w *world.World, bd BuildingData) *world.Building {
+	var b *world.Building
+	switch {
+	case len(bd.Tiles) > 0:
+		tiles := make(map[[2]int]world.Service, len(bd.Tiles))
+		for _, t := range bd.Tiles {
+			tiles[[2]int{t[0], t[1]}] = world.Service(t[2])
+		}
+		b = w.PlaceServiceBuilding(tiles, bd.StyleSeed)
+	case len(bd.Cells) > 0:
+		b = w.PlaceLodgeShell(bd.Cells, bd.StyleSeed)
+		w.SetFoodCourtCells(b, bd.FoodCourtCells)
+	default:
+		b = w.PlaceBuildingType(world.BuildingType(bd.Type), bd.X, bd.Z)
 	}
-	b := w.PlaceLodgeShell(bd.Cells, bd.StyleSeed)
-	for _, d := range bd.DoorCells {
-		w.ToggleDoor(b, d)
+	if bd.FloorSet {
+		b.FloorY, b.FloorSet = bd.FloorY, true
 	}
-	b.SetFoodCourtCells(bd.FoodCourtCells)
 	if bd.MealPrice > 0 {
 		b.MealPrice = bd.MealPrice
 	}
+	if bd.DrinkPrice > 0 {
+		b.DrinkPrice = bd.DrinkPrice
+	}
 	return b
+}
+
+// saveTiles lists a service building's cells with their services.
+func saveTiles(b *world.Building) [][3]int {
+	out := make([][3]int, len(b.Cells))
+	for i, c := range b.Cells {
+		out[i] = [3]int{c[0], c[1], int(b.ServiceAt(c))}
+	}
+	return out
 }

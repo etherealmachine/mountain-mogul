@@ -153,7 +153,18 @@ type Plan struct {
 	Steps    []PlanAction
 	Step     int
 	Prefs    Prefs
+	// Needs already pressing when the plan was made. A need that turns
+	// pressing mid-plan can preempt it at the next step boundary.
+	Pressing NeedMask
 }
+
+// NeedMask is a set of bodily needs (hunger, thirst).
+type NeedMask uint8
+
+const (
+	NeedHunger NeedMask = 1 << iota
+	NeedThirst
+)
 
 // Done reports whether the plan is exhausted — no steps or the cursor has
 // advanced past the last one. The simulation re-plans when this is true.

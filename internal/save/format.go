@@ -200,12 +200,19 @@ type BuildingData struct {
 	// SnowGun-only state.
 	SnowGunEnabled bool `json:"sg_on,omitempty"`
 
-	// Lodge-only state. Cells (above) is the painted shell; lodges saved
-	// before shells have none and are converted on load.
+	// Service-building state. Tiles is each shell cell with its
+	// world.Service; doors are derived on load. Older saves carry Cells
+	// plus FoodCourtCells (the rest lounge) and player-placed DoorCells
+	// (ignored now); lodges, bars and ticket offices saved before shells
+	// have no cells and are converted on load.
+	Tiles          [][3]int `json:"tiles,omitempty"`
+	FloorY         float32  `json:"floor,omitempty"`
+	FloorSet       bool     `json:"floor_set,omitempty"`
 	DoorCells      [][2]int `json:"doors,omitempty"`
 	FoodCourtCells [][2]int `json:"food,omitempty"`
 	StyleSeed      uint32   `json:"style,omitempty"`
 	MealPrice      int      `json:"meal,omitempty"`
+	DrinkPrice     int      `json:"drink,omitempty"`
 }
 
 // SnowcatData is a saved cat. ShedID links it back to its shed; both

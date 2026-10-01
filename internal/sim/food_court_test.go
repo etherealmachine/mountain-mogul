@@ -13,15 +13,15 @@ func foodCourtWorld(t *testing.T) (*Simulation, *world.Building) {
 	t.Helper()
 	s := newEventTestSim(t)
 	w := s.World
-	var cells [][2]int
+	tiles := map[[2]int]world.Service{}
 	for x := 10; x < 14; x++ {
 		for z := 10; z < 13; z++ {
-			cells = append(cells, [2]int{x, z})
+			tiles[[2]int{x, z}] = world.ServiceLounge
 		}
 	}
-	b := w.PlaceLodgeShell(cells, 1)
-	w.ToggleDoor(b, [2]int{11, 12})
-	b.SetFoodCourtCells([][2]int{{12, 10}, {13, 10}})
+	tiles[[2]int{12, 10}] = world.ServiceFood
+	tiles[[2]int{13, 10}] = world.ServiceFood
+	b := w.PlaceServiceBuilding(tiles, 1)
 	b.MealPrice = 20
 	return s, b
 }
@@ -69,7 +69,15 @@ func TestFullFoodCourtTurnsGuestsAway(t *testing.T) {
 func TestDoorlessLodgeIsUnreachable(t *testing.T) {
 	s, b := foodCourtWorld(t)
 	g := hungryGuestAtDoor(s, b)
-	s.World.ToggleDoor(b, [2]int{11, 12})
+	// Wall the building in so no outside wall opens onto walkable ground.
+	for x := 9; x < 15; x++ {
+		for z := 9; z < 14; z++ {
+			if !b.HasCell([2]int{x, z}) {
+				s.World.Terrain.Cells[x][z].Passable = false
+			}
+		}
+	}
+	s.World.RefreshDoors(b)
 	if b.Usable() || b.ServesFood() {
 		t.Fatal("lodge without doors should be unusable")
 	}

@@ -112,7 +112,7 @@ func dragStructure(r *render.Renderer, w *world.World, sel *structureEditSelecti
 		if sel.building.Type == world.BuildingParking {
 			refreshParkingDriveways(w, sel.building)
 		}
-		applyBuildingPlacementEffects(w.Terrain, sel.building)
+		applyBuildingPlacementEffects(w, sel.building)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildRoads(w)
 	case sel.lift != nil:
@@ -127,7 +127,7 @@ func dragStructure(r *render.Renderer, w *world.World, sel *structureEditSelecti
 			}
 			sel.lift.Top = target
 		}
-		applyLiftPlacementEffects(w.Terrain, sel.lift)
+		applyLiftPlacementEffects(w, sel.lift)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RemoveLiftCable(sel.lift.ID)
 		r.AddLiftCable(sel.lift, w.Terrain)
@@ -170,7 +170,7 @@ func rotationDegrees(rot float32) string {
 // building.
 func isBuildingPlacementTool(t toolMode) bool {
 	switch t {
-	case toolBuilding, toolTicketOffice, toolShed, toolPatrolHut, toolBar, toolSnowGun:
+	case toolBuilding, toolTicketOffice, toolShed, toolPatrolHut, toolSnowGun:
 		return true
 	}
 	return false
@@ -201,7 +201,7 @@ func rotateSelectedBuilding(r *render.Renderer, w *world.World, sel *structureEd
 		refreshParkingDriveways(w, b)
 		r.RebuildRoads(w)
 	}
-	applyBuildingPlacementEffects(w.Terrain, b)
+	applyBuildingPlacementEffects(w, b)
 	r.FlushTerrainVerts(w.Terrain)
 	r.RebuildStaticBatch(w)
 	return true

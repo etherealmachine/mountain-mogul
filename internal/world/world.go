@@ -56,7 +56,6 @@ const (
 	ParkingReferencePrice = 20 // dollars per car
 
 	TicketOfficeCost       = 80_000
-	BarCost                = 100_000                      // bar/restaurant; a VISION "module" ($50–150k)
 	DefaultSeasonPassPrice = 150                          // one-time fee per guest per season; guests with sufficient budget buy it on arrival
 	HelipadCost            = 2_000_000                    // flat cost for a heli-ski operation (two pads + helicopter); the post-gondola unlock
 	PatrolHutCost          = 120_000                      // patrol hut + one patroller/snowmobile
@@ -70,9 +69,6 @@ const (
 	// (see DailyOperatingCost). Lift running costs are per LiftType
 	// (LiftType.RunningCostDay) on top of the two attendants.
 	LiftAttendantDailyCost = 250 // per attendant; each lift requires one top + one bottom
-	LodgeDailyCost         = 600 // lodge staff
-	BarDailyCost           = 500 // bar staff
-	TicketOfficeDailyCost  = 300 // ticket window staff
 	PatrolHutDailyCost     = 800 // patrollers on shift
 
 	// Standby (closed-resort) costs, dollars per in-game day. What the
@@ -99,8 +95,6 @@ func BuildingCost(t BuildingType) int {
 		return SnowGunCost
 	case BuildingTicketOffice:
 		return TicketOfficeCost
-	case BuildingBar:
-		return BarCost
 	}
 	return LodgeCost
 }
@@ -321,10 +315,6 @@ func (w *World) OperatingCosts() CostBreakdown {
 		switch b.Type {
 		case BuildingLodge:
 			c[CostBuildings] += LodgeUpkeep(b)
-		case BuildingBar:
-			c[CostBuildings] += BarDailyCost
-		case BuildingTicketOffice:
-			c[CostBuildings] += TicketOfficeDailyCost
 		case BuildingPatrolHut:
 			c[CostBuildings] += PatrolHutDailyCost
 		case BuildingSnowGun:
@@ -425,8 +415,9 @@ func (w *World) PlaceBuildingType(typ BuildingType, x, z float32) *Building {
 	switch typ {
 	case BuildingParking:
 		b.Cells = defaultParkingCells(w.Terrain, x, z, 0)
-	case BuildingLodge:
+	case BuildingLodge, BuildingBar, BuildingTicketOffice:
 		b.MealPrice = DefaultMealPrice
+		b.DrinkPrice = DefaultDrinkPrice
 	case BuildingShed:
 		// No per-shed state; cats are tracked globally in World.Snowcats.
 		// SpawnSnowcat is called after the building is appended so the
@@ -439,10 +430,10 @@ func (w *World) PlaceBuildingType(typ BuildingType, x, z float32) *Building {
 		b.SnowGunEnabled = true
 	}
 	w.Buildings = append(w.Buildings, b)
-	if typ == BuildingLodge {
-		// Point-placed lodges (testbeds, old saves) get the old mesh's
-		// footprint as a shell with a default door.
-		w.ConvertLegacyLodge(b)
+	if typ == BuildingLodge || typ == BuildingBar || typ == BuildingTicketOffice {
+		// Point-placed lodges, bars and ticket offices (testbeds, old
+		// saves) become service buildings over the old mesh's footprint.
+		w.ConvertLegacyBuilding(b)
 		return b
 	}
 	// Snow guns are narrow pole-mounted devices — don't block any cell.

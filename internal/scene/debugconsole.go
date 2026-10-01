@@ -20,6 +20,7 @@ type DebugConsole struct {
 	toast        func(string)
 	sim          *sim.Simulation
 	flushTerrain func()
+	flushStatic  func()
 }
 
 func newDebugConsole(w *world.World, toast func(string)) *DebugConsole {
@@ -38,12 +39,14 @@ func newDebugConsole(w *world.World, toast func(string)) *DebugConsole {
 	return c
 }
 
-// SetSim gives the console access to the running simulation and a callback to
-// flush terrain vertices after weather cheats modify the snow layer stack.
+// SetSim gives the console access to the running simulation, a callback to
+// flush terrain vertices after weather cheats modify the snow layer stack,
+// and one to rebuild static instances (trees) after ground edits.
 // Called each time a new simulation is started (new game, load, testbed).
-func (c *DebugConsole) SetSim(s *sim.Simulation, flushTerrain func()) {
+func (c *DebugConsole) SetSim(s *sim.Simulation, flushTerrain, flushStatic func()) {
 	c.sim = s
 	c.flushTerrain = flushTerrain
+	c.flushStatic = flushStatic
 }
 
 func (c *DebugConsole) Visible() bool { return c.visible }
@@ -89,6 +92,15 @@ func (c *DebugConsole) exec(cmd string) {
 			c.flushTerrain()
 		}
 		c.toast("Avalanche!")
+	case "regrade":
+		regradeEmbankments(c.world)
+		if c.flushTerrain != nil {
+			c.flushTerrain()
+		}
+		if c.flushStatic != nil {
+			c.flushStatic()
+		}
+		c.toast("Embankments regraded")
 	}
 }
 

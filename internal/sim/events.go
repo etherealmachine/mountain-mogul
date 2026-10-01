@@ -15,7 +15,7 @@ import (
 // LogBuildingPlaced records a player-placed building in the event feed.
 func (s *Simulation) LogBuildingPlaced(b *world.Building) {
 	s.World.LogEventAt(world.EventBuildPlaced, s.SimTime,
-		fmt.Sprintf("Built %s", b.Type.Label()), b.Pos, b.ID)
+		fmt.Sprintf("Built %s", b.Label()), b.Pos, b.ID)
 }
 
 // LogLiftPlaced records a player-placed lift in the event feed. The event

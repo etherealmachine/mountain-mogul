@@ -266,7 +266,7 @@ func (a *SkiToLodge) Precondition(s *WorldSnapshot, w *world.World) bool {
 	}
 	src := findLift(w, s.AtLiftTop)
 	dst := findBuilding(w, a.LodgeID, world.BuildingLodge)
-	if src == nil || dst == nil || !dst.Usable() {
+	if src == nil || dst == nil || !dst.OffersRest() {
 		return false
 	}
 	return liftTopElev(w, src)-buildingElev(w, dst) >= minDescentMeters
@@ -278,11 +278,8 @@ func (a *SkiToLodge) Apply(s *WorldSnapshot, w *world.World) {
 		return
 	}
 	s.AtLiftTop = 0
-	s.AtBar = 0
-	s.AtParking = 0
-	s.AtTicketOffice = 0
 	s.AtTrailEnd = 0
-	s.AtLodge = b.ID
+	setAtBuilding(s, b)
 	s.Pos = mgl32.Vec3{b.Pos[0], s.Pos[1], b.Pos[1]}
 }
 
@@ -308,30 +305,27 @@ func (a *SkiToBar) Precondition(s *WorldSnapshot, w *world.World) bool {
 		return false
 	}
 	src := findLift(w, s.AtLiftTop)
-	dst := findBuilding(w, a.BarID, world.BuildingBar)
-	if src == nil || dst == nil {
+	dst := findBuilding(w, a.BarID, world.BuildingLodge)
+	if src == nil || dst == nil || !dst.Offers(world.ServiceBar) {
 		return false
 	}
 	return liftTopElev(w, src)-buildingElev(w, dst) >= minDescentMeters
 }
 
 func (a *SkiToBar) Apply(s *WorldSnapshot, w *world.World) {
-	b := findBuilding(w, a.BarID, world.BuildingBar)
+	b := findBuilding(w, a.BarID, world.BuildingLodge)
 	if b == nil {
 		return
 	}
 	s.AtLiftTop = 0
-	s.AtLodge = 0
-	s.AtParking = 0
-	s.AtTicketOffice = 0
 	s.AtTrailEnd = 0
-	s.AtBar = b.ID
+	setAtBuilding(s, b)
 	s.Pos = mgl32.Vec3{b.Pos[0], s.Pos[1], b.Pos[1]}
 }
 
 func (a *SkiToBar) Cost(s *WorldSnapshot, w *world.World) float32 {
 	src := findLift(w, s.AtLiftTop)
-	dst := findBuilding(w, a.BarID, world.BuildingBar)
+	dst := findBuilding(w, a.BarID, world.BuildingLodge)
 	if src == nil || dst == nil {
 		return math.MaxFloat32
 	}
@@ -400,24 +394,23 @@ func (a *WalkToTicketOffice) Precondition(s *WorldSnapshot, w *world.World) bool
 	if s.HasDayTicket && s.RemainingBudget < passCost(s, w) {
 		return false
 	}
-	return findBuilding(w, a.OfficeID, world.BuildingTicketOffice) != nil
+	b := findBuilding(w, a.OfficeID, world.BuildingLodge)
+	return b != nil && b.Offers(world.ServiceTickets)
 }
 
 func (a *WalkToTicketOffice) Apply(s *WorldSnapshot, w *world.World) {
-	b := findBuilding(w, a.OfficeID, world.BuildingTicketOffice)
+	b := findBuilding(w, a.OfficeID, world.BuildingLodge)
 	if b == nil {
 		return
 	}
-	s.AtLodge = 0
-	s.AtBar = 0
-	s.AtParking = 0
 	s.AtTrailEnd = 0
-	s.AtTicketOffice = b.ID
-	s.Pos = mgl32.Vec3{b.Pos[0], s.Pos[1], b.Pos[1]}
+	setAtBuilding(s, b)
+	p, _ := b.NearestServiceEntrance(world.ServiceTickets, mgl32.Vec2{s.Pos[0], s.Pos[2]})
+	s.Pos = mgl32.Vec3{p[0], s.Pos[1], p[1]}
 }
 
 func (a *WalkToTicketOffice) Cost(s *WorldSnapshot, w *world.World) float32 {
-	b := findBuilding(w, a.OfficeID, world.BuildingTicketOffice)
+	b := findBuilding(w, a.OfficeID, world.BuildingLodge)
 	if b == nil {
 		return math.MaxFloat32
 	}
@@ -533,11 +526,18 @@ func (a *RelieveThirstAtBar) Name() string {
 }
 
 func (a *RelieveThirstAtBar) Precondition(s *WorldSnapshot, w *world.World) bool {
-	return !s.Removed && s.AtBar == a.BarID
+	if s.Removed || s.AtBar != a.BarID {
+		return false
+	}
+	b := findBuilding(w, a.BarID, world.BuildingLodge)
+	return b != nil && b.Offers(world.ServiceBar) && s.RemainingBudget >= float32(b.DrinkPrice)
 }
 
 func (a *RelieveThirstAtBar) Apply(s *WorldSnapshot, w *world.World) {
 	s.Thirst = 1
+	if b := findBuilding(w, a.BarID, world.BuildingLodge); b != nil {
+		s.RemainingBudget -= float32(b.DrinkPrice)
+	}
 }
 
 func (a *RelieveThirstAtBar) Cost(s *WorldSnapshot, w *world.World) float32 {
@@ -612,13 +612,10 @@ func ApplicableActions(s *WorldSnapshot, w *world.World) []Action {
 		for _, b := range w.Buildings {
 			switch b.Type {
 			case world.BuildingLodge:
-				a := &SkiToLodge{LodgeID: b.ID}
-				if a.Precondition(s, w) {
+				if a := (&SkiToLodge{LodgeID: b.ID}); a.Precondition(s, w) {
 					out = append(out, a)
 				}
-			case world.BuildingBar:
-				a := &SkiToBar{BarID: b.ID}
-				if a.Precondition(s, w) {
+				if a := (&SkiToBar{BarID: b.ID}); a.Precondition(s, w) {
 					out = append(out, a)
 				}
 			case world.BuildingParking:
@@ -655,7 +652,7 @@ func ApplicableActions(s *WorldSnapshot, w *world.World) []Action {
 	// Walk to ticket office from any ground position (not on a lift or in a queue).
 	if !s.Removed && !s.HasSeasonPass && s.OnLift == 0 && s.Queued == 0 && s.AtLiftBase == 0 && s.AtLiftTop == 0 {
 		for _, b := range w.Buildings {
-			if b.Type != world.BuildingTicketOffice {
+			if !b.Offers(world.ServiceTickets) {
 				continue
 			}
 			a := &WalkToTicketOffice{OfficeID: b.ID}
@@ -854,12 +851,8 @@ func buildingLabel(w *world.World, id uint64) string {
 		switch b.Type {
 		case world.BuildingLodge:
 			return fmt.Sprintf("Lodge#%d", id)
-		case world.BuildingBar:
-			return fmt.Sprintf("Bar#%d", id)
 		case world.BuildingParking:
 			return fmt.Sprintf("Lot#%d", id)
-		case world.BuildingTicketOffice:
-			return fmt.Sprintf("TicketOffice#%d", id)
 		}
 	}
 	return fmt.Sprintf("#%d", id)

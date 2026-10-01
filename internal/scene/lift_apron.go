@@ -44,7 +44,8 @@ const (
 // Lives outside world.PlaceLift so save loading and testbed setup can
 // reconstruct lifts without re-applying ground edits the player may
 // have made afterward.
-func applyLiftPlacementEffects(t *world.Terrain, lift *world.Lift) {
+func applyLiftPlacementEffects(w *world.World, lift *world.Lift) {
+	t := w.Terrain
 	clearLiftCorridor(t, lift.Base, lift.Top, liftCorridorHalfWidth)
 	axis := mgl32.Vec2{
 		lift.Top[0] - lift.Base[0],
@@ -67,8 +68,9 @@ func applyLiftPlacementEffects(t *world.Terrain, lift *world.Lift) {
 	// No snow plow on lift aprons — Packed=1.0 (set by buildStationApron's
 	// inner zone) shrinks the visible column on its own, which reads as
 	// the packed-down boarding pad without removing snow under the skiers.
-	buildStationApron(t, lift.Top, axis, +1, liftApronHalfWidth, liftApronDepth, topTarget, true)
-	buildStationApron(t, lift.Base, axis, -1, liftApronHalfWidth, liftApronDepth, baseTarget, false)
+	claimed := claimedGround(w, nil, lift)
+	buildStationApron(t, lift.Top, axis, +1, liftApronHalfWidth, liftApronDepth, topTarget, true, claimed)
+	buildStationApron(t, lift.Base, axis, -1, liftApronHalfWidth, liftApronDepth, baseTarget, false, claimed)
 	groomLiftApron(t, lift.Top, axis, +1)
 	groomLiftApron(t, lift.Base, axis, -1)
 	// Stamp queue + top cells impassable so the structure-stamp path
