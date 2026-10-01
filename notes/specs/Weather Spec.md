@@ -1,3 +1,8 @@
+---
+title: Weather Spec
+kind: spec
+---
+
 # Weather System
 
 ## Overview
@@ -89,9 +94,9 @@ A **weather event** is derived from the state:
 
 Wind is a stochastic event that fires on Clear and Overcast days. Probability is temperature-driven: 20 % below −5 °C, 12 % between −5 and 0 °C, 5 % above 0 °C. Wind takes priority over Cold/Warm Clear.
 
-`applyKindTransition` then updates the **top layer's Kind** on every cell per the transition matrix (see SNOW.md).
+`applyKindTransition` then updates the **top layer's Kind** on every cell per the transition matrix (see [[Snow Spec]]).
 
-Melt is not part of the daily step: `tickHourly` removes SWE from the top layer every clock hour using the hour's lapse-adjusted air temperature and the sun's current position on each cell's slope and aspect (see SNOW.md → Melt). Rain days also contribute additional melt proportional to `RainMM`.
+Melt is not part of the daily step: `tickHourly` removes SWE from the top layer every clock hour using the hour's lapse-adjusted air temperature and the sun's current position on each cell's slope and aspect (see [[Snow Spec]] → Melt). Rain days also contribute additional melt proportional to `RainMM`.
 
 The day's `TempLow`/`TempHigh` drive an hourly curve (`sim/temperature.go`): the low at sunrise, a half-cosine rise to the high at 14:30, then cooling to the next day's forecast low at the next sunrise. `TempNow()` is what the top bar shows and what snow guns check against `SnowGunMinTempC`, so guns run on cold nights even when the afternoon is above freezing.
 

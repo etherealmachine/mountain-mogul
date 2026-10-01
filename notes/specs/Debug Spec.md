@@ -1,3 +1,8 @@
+---
+title: Debug Spec
+kind: spec
+---
+
 # Debug Utilities
 
 All debug features are only active during normal interactive play (not headless/testbed mode).

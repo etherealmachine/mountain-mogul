@@ -1,3 +1,8 @@
+---
+title: Demand Spec
+kind: spec
+---
+
 # Demand system — global skier pool + resort rating
 
 The demand system is the source of skiers in the simulation. It walks
@@ -77,7 +82,7 @@ once per frame; it short-circuits unless
 `s.SimTime - LastPoll >= demandPollInterval` (currently **30 sim-seconds**).
 It also spawns nobody, pass holders included, while the resort is
 closed (`World.ResortOpen` false). The player opens and closes the
-resort from any Ticket Office popup; new games and scenarios start
+resort from the popup of any building with Tickets tiles; new games and scenarios start
 closed. Closing mid-day stops arrivals at once: guests in lift lines
 leave them and head for the parking lot, riders unload at the top and
 ski home, and no lift loads anyone until the resort reopens.
@@ -152,24 +157,26 @@ counts twice: once for "is this place any good" and once for "is it worth
 the price". Elasticity 0.5 bows the curve, so a guest keeps most of their
 interest until the price gets close to their budget.
 
-Worked numbers for the seeded catchment (`DailyBudget = 40 + 160 × skill`,
-60/30/10 beginner/intermediate/advanced, so budgets run $40–$200 and 60%
-sit below $93). "Share" is the pool-average price factor, which is the
-fraction of the no-price arrival rate that still comes:
+Worked numbers for the seeded catchment (`DailyBudget = 90 + 150 × skill`,
+60/30/10 beginner/intermediate/advanced, so budgets run $90–$240 and 60%
+sit below $140). The $90 floor covers a default ticket, a parking share
+and a food-court meal, so beginners have money left to spend on site.
+"Share" is the pool-average price factor, which is the fraction of the
+no-price arrival rate that still comes:
 
-| Day ticket | rating 0.5 (ref $60) | rating 1.0 (ref $90) |
+| Day ticket | rating 0.5 (ref $65) | rating 1.0 (ref $95) |
 |---|---|---|
 | $30 | 100% | 100% |
-| $60 (default) | 77% | 77% |
-| $90 | 29% | 43% |
-| $120 (2× default) | 12.5% | 15% |
-| $150 | 4% | 5% |
-| $201 (above every budget) | 0% | 0% |
+| $60 (default) | 100% | 100% |
+| $90 | 74% | 100% |
+| $120 (2× default) | 36% | 44% |
+| $150 | 16% | 18.5% |
+| $180 | 6% | 6% |
+| $241 (above every budget) | 0% | 0% |
 
-At the default price and neutral rating the factor is exactly the old
-binary budget gate (77%), so default arrivals are unchanged. Doubling
-from $60 to $120 cuts arrivals by about 84%. The hard budget cutoff alone
-accounts for 68 points of that, because only 24% of guests have a $120
+Every guest can afford the default price, so it costs no demand. Doubling
+from $60 to $120 cuts arrivals by about 64%. The hard budget cutoff alone
+accounts for 36 points of that, because only 64% of guests have a $120
 budget. The budget distribution, not the elasticity, dominates the
 response to large price moves.
 
@@ -181,7 +188,7 @@ Revenue is per visit, not per ride (VISION §7). The day ticket is
 **priced at arrival and paid at the ticket window**:
 
 - `World.DayTicketPrice` (dollars; default `DefaultDayTicketPrice` = $60
-  in `world.go`) is set by the player from the ticket office popup, and
+  in `world.go`) is set by the player from a Tickets building's popup, and
   persisted in the save (`day_ticket`).
 - **Parking** is `World.ParkingPrice` per car (default free), set from the
   parking lot popup and saved as `parking`. Each arriving guest pays their
@@ -191,7 +198,7 @@ Revenue is per visit, not per ride (VISION §7). The day ticket is
 - **No ticket office, no day guests.** The demand poll still weighs the
   price at arrival (`visitPriceFactor`: that is when guests decide
   whether to come), but a guest without a valid pass is turned away when
-  the world has no `BuildingTicketOffice`. The event feed says
+  no building offers `ServiceTickets` through a door. The event feed says
   "Guests turned away: no ticket office", at most once per sim day.
   Pass holders still come.
 - At spawn the price is set aside from the budget so the planner sees
@@ -261,7 +268,7 @@ case ai.ActDepart:
 Rating therefore reflects *completed* sessions — word-of-mouth from guests
 who finished their day — rather than a snapshot of whoever is mid-run.
 
-See **GUESTS.md** for how `Satisfaction` is built up during the session
+See [[Guests Spec]] for how `Satisfaction` is built up during the session
 (terrain-quality drift + discrete event spikes).
 
 ---

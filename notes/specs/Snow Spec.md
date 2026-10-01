@@ -1,3 +1,8 @@
+---
+title: Snow Spec
+kind: spec
+---
+
 # Snow System
 
 The terrain is two stacked structures — ground (rock/dirt) and a snow column on top whose depth and character vary across the map and evolve over time. The snow column is a **stack of layers**, one per depositional event or major transition. Most of the game reads the *surface* (ground + total snow depth); only a few things care about what is buried beneath.
@@ -99,7 +104,7 @@ Three scalars live on `Cell` rather than in any layer because they describe the 
 
 ## Weather-driven transitions
 
-See WEATHER.md for the full daily rollover sequence. Snow-relevant effects:
+See [[Weather Spec]] for the full daily rollover sequence. Snow-relevant effects:
 
 ### Snowfall — update Top (or fold into Base)
 
@@ -190,8 +195,17 @@ When a lift or lodge is placed, a one-shot apron pass runs over the structure's 
 2. Clamps snow depth to ~5 cm (thin packed pad).
 3. Sets top layer Kind → **Packed Powder**, weight-scaled by the falloff.
 4. Zeros `MogulSize` proportionally.
+5. Ramps the ground beyond the pad onto an embankment no steeper than
+   `embankmentGrade` (0.2, about 11°, the beginners' comfort slope) for
+   up to `embankmentReach` (60 m), easing back to natural over the last
+   15 m. Lift and building aprons only fill. Painted pads (parking lots,
+   lodges) cut and fill. Other structures' graded cells are left alone.
+   Without this, a raised pad on a slope left a wall that guests skied off.
 
 The apron is a terrain edit; it is serialised into the save and not re-applied on load.
+Saves graded before embankments existed can be repaired with the `regrade`
+debug-console command, which ramps the ground around every lift station and
+painted pad at their current heights.
 
 ---
 

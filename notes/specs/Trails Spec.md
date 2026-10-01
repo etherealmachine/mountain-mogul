@@ -1,3 +1,8 @@
+---
+title: Trails Spec
+kind: spec
+---
+
 # Trails
 
 ## Core concept: trails are areas, not routes

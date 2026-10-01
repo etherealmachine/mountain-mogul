@@ -1,3 +1,8 @@
+---
+title: Vision
+kind: spec
+---
+
 # Vision — The Road to the Gondola
 
 This document describes the happy path for the next iteration of Mountain
@@ -563,4 +568,4 @@ Hotels, condos, and real estate · train station · heli beyond what already
 exists · snowboard physics · wall-by-wall building construction ·
 construction time on buildings or lifts · night skiing and lit runs · summer operations
 (hiking, biking, sightseeing rides) · audio · modding. All remain in
-DESIGN.md or are deliberately excluded; none are needed for the arc above.
+[[Next Steps]] or are deliberately excluded; none are needed for the arc above.

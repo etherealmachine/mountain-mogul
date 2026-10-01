@@ -1,3 +1,8 @@
+---
+title: Guests Spec
+kind: spec
+---
+
 # Guest AI — pipeline overview
 
 The guest AI is split into two layers:
@@ -76,7 +81,7 @@ assignment.
 | `SkiToLodge(B)` | `AtLiftTop != 0`; ≥20 m descent to `B` | `AtLodge = B`; `AtLiftTop = 0` | `dist / skiSpeedMps` |
 | `SkiToParking(B)` | `AtLiftTop != 0`; ≥20 m descent to `B` | `AtParking = B`; `AtLiftTop = 0` | `dist / skiSpeedMps` |
 | `RestAtLodge(B)` | `AtLodge == B` | `Patience = 1` | `restDurationSec` (≈60 s) |
-| `EatAtFoodCourt(B)` | `AtLodge == B`; `B` has a food court and a door; `Diners < Seats`; budget ≥ `MealPrice` | `Hunger = 1`; budget −= `MealPrice` | `mealDurationSec` (90 s) |
+| `EatAtFoodCourt(B)` | `AtLodge == B`; `B` has Food tiles and a door; `Diners < Seats`; budget ≥ `MealPrice` | `Hunger = 1`; budget −= `MealPrice` | `mealDurationSec` (90 s) |
 | `Depart(B)` | `AtParking == B` | `Removed = true` | `0` (terminal) |
 
 Boarding the chair is folded into `RideLift` — no separate `BoardChair`
@@ -184,6 +189,18 @@ stored with a prepended `RideLift` step so `advancePlan` at unload lands
 directly on the first post-ride action. Guests always have a plan visible
 while riding; the player sees intent the whole time.
 
+**Need preemption at step boundaries**: each plan records which needs
+(hunger, thirst) were already pressing when it was made
+(`Plan.Pressing`). When a head step completes, `goap.NeedPreempts`
+checks whether a need has since crossed its goal threshold and now
+outweighs the plan's goal; if so the guest replans instead of advancing.
+A hungry skier mid-lap heads for lunch at the next lift top or run end
+rather than finishing a plan drawn up before they got hungry. It never
+fires on leaving `JoinQueue` (the guest is in the lift line) or on a
+`GoHome` plan. A need already pressing at plan time, such as hunger with
+no reachable food court, doesn't preempt again, so there's no replan
+loop.
+
 There is **no periodic safety re-check.** Future coverage (lift closure,
 queue spike) should land as explicit event hooks, not a wall-clock poll.
 
@@ -234,7 +251,7 @@ Guests arrive without a ticket. `JoinQueue` requires `HasSeasonPass ||
 HasDayTicket`, so every riding plan for a guest without a pass starts
 `WalkToTicketOffice` → `BuyDayTicket` (or `BuySeasonPass` when the
 `GetSeasonPass` goal wins and the guest can afford it). The planner picks
-the office by walk cost. `BuyDayTicket` pays `DayTicketDue`, which spawn
+the Tickets door by walk cost. `BuyDayTicket` pays `DayTicketDue`, which spawn
 already set aside from `RemainingBudget`, so the planner's budget math
 already reflects it. The planner's closed-set key includes both ticket
 flags.
@@ -243,7 +260,7 @@ A guest who can't get a ticket gives up: if the pathfinder finds no route
 to the office, or no riding goal can be planned while the guest has no
 ticket, they think "couldn't find where to buy a ticket"
 (`ThoughtNoTicketWindow`) and head home. Without any ticket office, the
-demand poll doesn't send guests without a pass at all (see DEMAND.md).
+demand poll doesn't send guests without a pass at all (see [[Demand Spec]]).
 
 `NewSimulationWithSeed` walks any pre-existing agents (testbeds, save-
 restored) and calls `onPlanStepStart` for each non-empty plan so the
@@ -314,7 +331,7 @@ flowchart TB
   subgraph L3["L3 · Apply — physics integration"]
     direction TB
     Head["<b>heading</b><br/>rotateToward(desired) capped at headingRateMax (40°/s)<br/>— matches realistic edge-transfer rate"]
-    Fric["<b>effectiveFriction</b> — snow-modulated (muBase, muEdge)<br/>Grooming · Packed · Powder gate · MogulSize · Ice<br/>each shifts the corduroy baseline (see SNOW.md)"]
+    Fric["<b>effectiveFriction</b> — snow-modulated (muBase, muEdge)<br/>Grooming · Packed · Powder gate · MogulSize · Ice<br/>each shifts the corduroy baseline (see Snow Spec)"]
     Accel["<b>acceleration</b><br/>a = g·sinθ·cos(off) <br/>− μ_base·g·cosθ<br/>− μ_edge·g·cosθ·|sin(off)|<br/>− k_drag·v²<br/>− dec.Scrub"]
     Pos["<b>position</b><br/>pos.xz += (sin h, cos h)·speed·dt<br/>pos.y = surface elevation<br/>floor speed ≥ skiWalkSpeed (2 m/s)"]
     Head --> Fric --> Accel --> Pos
@@ -367,7 +384,7 @@ flowchart TB
   cruising rhythm, not slalom.
 - **Snow-modulated friction.** `effectiveFriction` reads `SnowAt(pos)` and
   shifts the (muBase, muEdge) pair per Grooming / Packed / Powder /
-  MogulSize / Ice. See `SNOW.md` for the multiplier table.
+  MogulSize / Ice. See [[Snow Spec]] for the multiplier table.
 - **Grooming preference in steering.** `sampleTactical` integrates per-
   segment `Grooming` along each candidate arc (centre-only — the edge of
   a groomed strip is still groomed) and adds `0.5 · Σgrooming` to the
@@ -395,9 +412,12 @@ flowchart TB
   energy-drain skill×terrain tiers but is capped at 3×. When either
   drops below 0.15, `ThoughtHungry` / `ThoughtThirsty` is emitted each
   TTL window. When either hits 0.05, `GoHome` fires and the guest
-  departs. Guests reach a lodge only through its doors
-  (`NearestEntrance`); a meal holds one of the food court's seats for
-  90 s and charges the lodge's `MealPrice`.
+  departs. Guests reach a building only through its doors, and head
+  for the door of the service the next step needs
+  (`NearestServiceEntrance`: Lounge to rest, Food to eat, Bar to
+  drink, Tickets to buy); a meal holds one of the food court's seats
+  for 90 s and charges the building's `MealPrice`, a drink its
+  `DrinkPrice`.
 
 ---
 

@@ -1,3 +1,8 @@
+---
+title: Architecture Spec
+kind: spec
+---
+
 # Architecture
 
 ## Entry point
@@ -44,10 +49,10 @@ domain helpers (entity lookup, coordinate conversion, ID allocation).
 |---|---|
 | `World` | Master container. Holds `Terrain`, guest pool, buildings, lifts, snowcats, roads, cash balance. |
 | `Terrain` | Height-map grid. Each `Cell` stores `GroundElevation`, `SnowDepth`, `Grooming`, `Packed`, `Ice`, `MogulSize`, `TreeDensity`, `Passable`. |
-| `SurfaceDetail` | 1 m-resolution RGBA8 texture (5× cell grid). R = skier tracks, G = tree wells, B = groom-edge mask. See [SNOW.md](SNOW.md). |
+| `SurfaceDetail` | 1 m-resolution RGBA8 texture (5× cell grid). R = skier tracks, G = tree wells, B = groom-edge mask. See [[Snow Spec]]. |
 | `Guest` | Resort visitor. Identity + career stats (`Visits`, `LastRating`); on-mountain transient state (position, speed, energy, fun, fear, `Plan`, `Balance`); `Thoughts` ring for RCT-style feedback. |
 | `Lift` | Cable lift. Base/top positions, speed, per-ride fare (heli only; cable lifts are covered by the day ticket), `[]Chair` loop, queue of waiting guests. |
-| `Building` | Placed structure (lodge, shed, parking lot). Sheds own snowcats and a painted grooming route. Parking lots and lodges are *painted*: `Cells` is the footprint. A lodge shell also carries player-marked `DoorCells` (guests enter only through these; no door = unusable) and `FoodCourtCells` (seats = 10 per cell; meals at `MealPrice` restore hunger and book `RevenueFood`). `world/lodge_shell.go` resolves a shell into tile instances on a 2.5 m half-cell grid: walls, windows, doors and glazing on outside edges, corners by marching squares, and a hip roof from each tile's Chebyshev distance to the outside. Older point-placed lodges convert to a 4×3-cell shell with one door on load. |
+| `Building` | Placed structure (lodge, shed, parking lot). Sheds own snowcats and a painted grooming route. Parking lots and service buildings are *painted*: `Cells` is the footprint. A service building (`BuildingLodge`) gives every cell a `Service` in `Tiles`: Lounge (rest), Food court (seats = 10 per tile; meals at `MealPrice` restore hunger and book `RevenueFood`), Bar (drinks at `DrinkPrice`, `RevenueBar`) or Tickets (day tickets, passes, and the resort-wide controls in its popup). `FloorY` is fixed by the first tile. Doors are automatic (`RefreshDoors`, rerun by `RebuildTrailGraph`): each 4-connected run of one service gets one door on an outside wall that opens onto free walkable ground, on the side nearest the parking lot for Tickets and the nearest lift base otherwise. Guests treat the whole building as one place and walk to the door of the service they want. `world/lodge_shell.go` resolves a shell into tile instances on a 2.5 m half-cell grid: walls, windows, doors and glazing on outside edges, corners by marching squares, and a hip roof from each tile's Chebyshev distance to the outside. Older point-placed lodges convert to a 4×3 block of Lounge tiles, and standalone bars and ticket offices to Bar or Tickets tiles over their footprint (`ConvertLegacyBuilding`, on placement and on load). |
 | `Snowcat` | Grooming machine. Drives to route cells, applies corduroy (raises `Packed`, lowers `SnowDepth`). Parked while the lifts run; after closing, each active cat makes one pass of its section per night if any snow-covered cell in it is below 90% groomed. |
 | `RoadNode / RoadEdge` | Road graph vertices and segments. Nodes typed: freestanding, edge-connection, parking driveway, auto-intersection. |
 | `History` | Daily ring of resort stats (guests on mountain, arrivals, departures, cash, revenue by `RevenueKind`, costs by `CostKind`). Feeds the in-game charts and the nightly report. |
@@ -97,7 +102,7 @@ and texel-snapped so it doesn't shimmer; every lit shader multiplies the key
 light by `keyLightVisibility()` in `lighting.glsl`. Object shadows are
 visual only; melt ignores them.
 Lifts turn between `World.OpenHour` and `CloseHour` (default 9–16, set in
-the Ticket Office popup). Saves store `day_sec`; older saves (240 s days)
+a Tickets building's popup). Saves store `day_sec`; older saves (240 s days)
 have their absolute sim times rescaled on load. `Simulation.DateAt(simTime)`
 passes the sim's `World.StartDate`. `StartDate` is the date SimTime 0
 maps to: `world.DefaultStartDate` (Nov 25, 2026) unless the scenario
@@ -106,7 +111,7 @@ is saved as `start_date` ("2006-01-02"), so a New Game from a scenario
 begins on that date with SimTime 0. The calendar runs through the
 whole year; there is no off-season jump. Whether the resort is open is
 the player's call, not the calendar's: `World.ResortOpen`, flipped by
-`Simulation.SetResortOpen` from the Ticket Office popup (`resort.go`).
+`Simulation.SetResortOpen` from a Tickets building's popup (`resort.go`).
 The day rollover (`maybeSampleHistory`) charges `OperatingCosts` on
 days the resort was open at any point and `StandbyCosts` otherwise
 (both broken down by `CostKind`; the scene opens the day's profit/loss
@@ -118,7 +123,7 @@ the start month.
 
 Skiing is the hot path: `tickSkier` runs the full L1–L3 pipeline
 (perception → steering → physics integration → balance/fall check) once
-per guest per tick. See [GUESTS.md](GUESTS.md).
+per guest per tick. See [[Guests Spec]].
 
 ---
 
@@ -157,13 +162,17 @@ toolbar, top bar, charts, debug panels), `StartMenu`, `ScenarioPicker`,
 
 Tool modes in `Scenario`: lift placement (2-click), building placement,
 road placement, terrain brushes (raise/lower/glade/plant), snowcat route
-painting, parking-lot painting, and the lodge tool (`lodge_tools.go`):
-paint the shell cell by cell (graded to a level pad), mark doors on its
-outer cells, and paint a food court inside it. The lodge popup reopens
-each mode and sets the meal price. While a lodge is being edited or its
-popup is open it renders as a cutaway (`Renderer.SetLodgeCutaway`): no
-roof, walls squashed to ~1.25 m, and the cell overlay shows the shell,
-food court and doors on its floor.
+painting, parking-lot painting, and the service tool (`service_tools.go`).
+The Amenities submenu picks a service; the cursor ray is tested against
+each tile's box (`pickService`). Clicking the ground starts a building
+(or joins one beside it), clicking a wall adds a tile on that side,
+clicking a roof switches that tile's service, and a right click that
+doesn't pan removes a tile. New ground is graded to the building's
+`FloorY`. A ghost tile (`Renderer.SetShellGhost`) previews the click,
+red when it can't go ahead. While a building's popup is open it renders
+as a cutaway (`Renderer.SetLodgeCutaway`): no roof, walls squashed to
+~1.25 m, and the cell overlay colours its floor by service and marks
+the doors.
 
 ---
 
