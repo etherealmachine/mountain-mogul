@@ -29,7 +29,7 @@ const (
 
 // applyRoadCellState walks every road chain in the world and stamps
 // the carriageway footprint onto adjacent terrain cells: SnowAccumulation=0
-// inside the snow band, TreeDensity=0 inside the (wider) tree band.
+// inside the snow band, and removes the trees inside the (wider) tree band.
 //
 // Idempotent — running it twice produces the same final state, so the
 // cheapest correct call pattern is "run after any change to the road
@@ -59,6 +59,8 @@ func applyChainCellState(t *world.Terrain, samples []mgl32.Vec2) {
 	const cellSize = float32(5.0)
 
 	treeR2 := roadTreeClearRadius * roadTreeClearRadius
+	treeReach := roadTreeClearRadius + cellSize*math.Sqrt2/2
+	treeReach2 := treeReach * treeReach
 	snowInnerR2 := roadSnowInnerRadius * roadSnowInnerRadius
 	snowOuterR2 := roadSnowOuterRadius * roadSnowOuterRadius
 	snowFalloff := roadSnowOuterRadius - roadSnowInnerRadius
@@ -82,10 +84,10 @@ func applyChainCellState(t *world.Terrain, samples []mgl32.Vec2) {
 			maxZ = s[1]
 		}
 	}
-	minX -= roadTreeClearRadius
-	maxX += roadTreeClearRadius
-	minZ -= roadTreeClearRadius
-	maxZ += roadTreeClearRadius
+	minX -= treeReach
+	maxX += treeReach
+	minZ -= treeReach
+	maxZ += treeReach
 
 	x0 := int(minX / cellSize)
 	x1 := int(maxX/cellSize) + 1
@@ -97,36 +99,24 @@ func applyChainCellState(t *world.Terrain, samples []mgl32.Vec2) {
 			if !t.InBounds(x, z) {
 				continue
 			}
-			// Reference point is the CELL CENTER — same anchor the
-			// renderer uses to place tree instances ((x+0.5)*cellSize).
-			// Measuring from the corner produced a half-cell side-bias:
-			// cells whose corners sat on the +X / +Z side of the road
-			// always tested closer, so the corridor cleared visibly
-			// further on that side than the other.
+			// Snow is measured from the CELL CENTER. Measuring from the
+			// corner produced a half-cell side-bias: cells whose corners
+			// sat on the +X / +Z side of the road always tested closer,
+			// so the corridor cleared visibly further on that side.
 			cx := (float32(x) + 0.5) * cellSize
 			cz := (float32(z) + 0.5) * cellSize
-			cell := mgl32.Vec2{cx, cz}
+			d2 := roadDistSq(mgl32.Vec2{cx, cz}, samples)
 
-			// Point-to-segment distance — treat the sample polyline as
-			// the actual sequence of line segments and project onto
-			// each. Symmetric across the curve (closest-sample wasn't:
-			// cells on the inside of a curve sit close to multiple
-			// samples and got over-cleared, while cells on the outside
-			// at the same perpendicular distance got under-cleared).
-			var d2 float32 = treeR2 + 1
-			for i := 0; i < len(samples)-1; i++ {
-				cp := world.ClosestPointOnRoadSegment(cell, samples[i], samples[i+1])
-				dx := cx - cp[0]
-				dz := cz - cp[1]
-				sd := dx*dx + dz*dz
-				if sd < d2 {
-					d2 = sd
-				}
+			// Trees are measured from their own trunks; any cell whose
+			// centre is within a half-diagonal of the band may hold one.
+			if d2 <= treeReach2 && t.Cells[x][z].TreeCount > 0 {
+				t.RemoveTreesIn(x, z, x, z, func(tr world.Tree) bool {
+					return roadDistSq(mgl32.Vec2{tr.X, tr.Z}, samples) <= treeR2
+				})
 			}
 			if d2 > treeR2 {
 				continue
 			}
-			t.Cells[x][z].TreeDensity = 0
 
 			switch {
 			case d2 <= snowInnerR2:
@@ -147,4 +137,21 @@ func applyChainCellState(t *world.Terrain, samples []mgl32.Vec2) {
 			}
 		}
 	}
+}
+
+// roadDistSq is the squared distance from p to the sampled road
+// polyline, projecting onto each segment. Symmetric across the curve
+// (closest-sample wasn't: points on the inside of a curve sit close to
+// several samples and got over-cleared, while points on the outside at
+// the same perpendicular distance got under-cleared).
+func roadDistSq(p mgl32.Vec2, samples []mgl32.Vec2) float32 {
+	best := float32(math.MaxFloat32)
+	for i := 0; i < len(samples)-1; i++ {
+		cp := world.ClosestPointOnRoadSegment(p, samples[i], samples[i+1])
+		dx, dz := p[0]-cp[0], p[1]-cp[1]
+		if d := dx*dx + dz*dz; d < best {
+			best = d
+		}
+	}
+	return best
 }

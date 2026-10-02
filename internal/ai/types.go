@@ -259,7 +259,7 @@ type ThoughtKind uint8
 const (
 	ThoughtNone ThoughtKind = iota
 
-	// Glade-trait reactions to TreeDensity > threshold.
+	// Glade-trait reactions to the tree cover underfoot.
 	ThoughtLovingGlades  // LikesGlades = true, in trees
 	ThoughtScaredInTrees // LikesGlades = false, in trees
 
@@ -290,6 +290,9 @@ const (
 	ThoughtTooExpensive   // RemainingBudget < cheapest lift ticket; guest departs
 	ThoughtNoTicketWindow // no reachable ticket office to buy a day ticket; guest departs
 
+	// Tree events.
+	ThoughtHitTree // skied into a tree trunk and fell
+
 	thoughtKindSentinel // must stay last; equals the total count
 )
 
@@ -317,6 +320,7 @@ var ThoughtSatisfactionWeight = [ThoughtKindCount]float64{
 	ThoughtExhausted:      -0.15,
 	ThoughtTooExpensive:   -0.20,
 	ThoughtNoTicketWindow: -0.20,
+	ThoughtHitTree:        -0.15,
 }
 
 // thoughtText is the canonical base text for each ThoughtKind — the
@@ -340,6 +344,7 @@ var thoughtText = [ThoughtKindCount]string{
 	ThoughtExhausted:      "I'm too tired to ski",
 	ThoughtTooExpensive:   "I can't afford this",
 	ThoughtNoTicketWindow: "couldn't find where to buy a ticket",
+	ThoughtHitTree:        "I hit a tree!",
 }
 
 // ThoughtLabel is the chart series label for each thought kind — the
@@ -373,6 +378,7 @@ var ThoughtChartColor = [ThoughtKindCount][4]float32{
 	ThoughtExhausted:      {0.65, 0.50, 0.20, 1},
 	ThoughtTooExpensive:   {0.95, 0.85, 0.20, 1},
 	ThoughtNoTicketWindow: {0.85, 0.40, 0.30, 1},
+	ThoughtHitTree:        {0.55, 0.35, 0.15, 1},
 }
 
 // Thought is one entry in a Guest's bounded thoughts ring. Persists in

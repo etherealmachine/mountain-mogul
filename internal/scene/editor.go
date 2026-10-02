@@ -2,6 +2,7 @@ package scene
 
 import (
 	"fmt"
+	"math/rand"
 	"path/filepath"
 	"time"
 
@@ -45,6 +46,7 @@ type Editor struct {
 	toastText        string
 	toastExpiry      float32
 	savePrompt       *savePrompt
+	detailsPrompt    *scenarioDetailsPrompt
 	confirmPrompt    *confirmPrompt
 	hoverCell        [2]int
 	hoverWorld       mgl32.Vec3
@@ -184,6 +186,7 @@ func (e *Editor) Init(app *engine.App) error {
 	})
 	e.menuBar.AddIconButton(render.IconFloppyDisk, "Save", e.saveCurrent)
 	e.menuBar.AddIconButton(render.IconFloppyDisk, "Save As", e.openSaveAsPrompt)
+	e.menuBar.AddIconButton(render.IconFlag, "Details", e.openDetailsPrompt)
 
 	e.settingsMenu = NewSettingsMenu(app, func() { e.escapeMenu.Show() })
 	openSettings := func() {
@@ -192,6 +195,7 @@ func (e *Editor) Init(app *engine.App) error {
 	}
 	e.escapeMenu = NewEscapeMenu(app, e.saveCurrent, nil, openSettings)
 	e.escapeMenu.InsertButton(2, "Save As...", e.openSaveAsPrompt) // right after Save
+	e.escapeMenu.InsertButton(3, "Scenario details...", e.openDetailsPrompt)
 
 	// Top bar — editor-mode only has overlay-panel toggle + settings (gear)
 	// and the open scenario's name in the centre. No stats, date/weather, or
@@ -289,6 +293,10 @@ func (e *Editor) Update(dt float64) {
 	}
 	if e.savePrompt != nil {
 		e.savePrompt.HandleInput(inp, float32(r.ScreenWidth()), float32(r.ScreenHeight()))
+		return
+	}
+	if e.detailsPrompt != nil {
+		e.detailsPrompt.HandleInput(inp, float32(r.ScreenWidth()), float32(r.ScreenHeight()))
 		return
 	}
 
@@ -1042,6 +1050,11 @@ func (e *Editor) activateLiftTool(typ world.LiftType) {
 
 const defaultBrushRadius = 2 // cells
 
+// editorGladeShare is the share of the trees under the brush each editor
+// glade application takes. The editor applies it every frame the mouse
+// is held, so a short hold clears a stand.
+const editorGladeShare = 0.4
+
 // brushRadius returns the current radius for tools that use the slider, or
 // the default for tools that don't. Centralising it keeps applyEditorTool
 // and the hover preview in lockstep.
@@ -1086,11 +1099,11 @@ func (e *Editor) applyEditorTool(gx, gz int, r *render.Renderer, dt float32) {
 		}
 	case toolPlantTrees:
 		target := e.densitySlider.Value / 100
-		applyDensityBrushUpTo(w.Terrain, gx, gz, e.brushRadius(), 0.3, target)
+		plantTreesUpTo(w.Terrain, gx, gz, e.brushRadius(), target, rand.Float32)
 		refreshTreesAround(r, w, gx, gz, e.brushRadius())
 	case toolGlade:
-		applyDensityBrush(w.Terrain, gx, gz, e.brushRadius(), -0.4)
-		refreshTreesAround(r, w, gx, gz, e.brushRadius())
+		removeTrees(w.Terrain, gladeSelection(w.Terrain, gx, gz, e.brushRadius(), editorGladeShare))
+		refreshTreesAround(r, w, gx, gz, e.brushRadius()+1)
 	}
 }
 
@@ -1889,6 +1902,9 @@ func (e *Editor) Render(r *render.Renderer) {
 	}
 	if e.toastText != "" && e.time < e.toastExpiry {
 		edDrawables = append(edDrawables, &toastLabel{text: e.toastText})
+	}
+	if e.detailsPrompt != nil {
+		edDrawables = append(edDrawables, e.detailsPrompt)
 	}
 	if e.savePrompt != nil {
 		edDrawables = append(edDrawables, e.savePrompt)

@@ -8,11 +8,13 @@ import (
 	"mountain-mogul/internal/world"
 )
 
-// GenerateTreeCover overwrites Terrain.TreeDensity with patches produced by
-// multi-octave value noise plus a drainage boost from D8 flow accumulation,
-// then modulated so trees thin out above the treeline and on cliff-steep
-// slopes. Existing density is replaced — pair this with a "fresh" map; the
-// per-cell brushes remain the way to refine afterwards.
+// GenerateTreeCover replaces every tree on the map with forest patches.
+// A per-cell density comes from multi-octave value noise plus a drainage
+// boost from D8 flow accumulation, modulated so trees thin out above the
+// treeline and on cliff-steep slopes; each cell then gets density ×
+// MaxTreesPerCell trees at random spaced positions. Existing trees are
+// removed — pair this with a "fresh" map; the brushes remain the way to
+// refine afterwards.
 //
 // patchScale is roughly "cells per patch" of the largest octave (24 ≈ 120 m
 // patches at 5 m cells). coverage in [0, 1] sets how much of the map is
@@ -45,6 +47,7 @@ func (f *elevFields) generateTreeCover(t *world.Terrain, patchScale, coverage, t
 
 	rng := rand.New(rand.NewSource(seed))
 	hashSeed := int(rng.Int31())
+	t.ClearAllTrees()
 
 	minE, maxE := f.minE, f.maxE
 	span := maxE - minE
@@ -184,7 +187,9 @@ func (f *elevFields) generateTreeCover(t *world.Terrain, patchScale, coverage, t
 			if !t.Cells[x][z].Passable {
 				d = 0
 			}
-			t.Cells[x][z].TreeDensity = d
+			if n := world.TreeCountFromDensity(d, world.TreeInstanceHash(x, z, hashSeed)); n > 0 {
+				placeTreesInCell(t, x, z, n, rng.Float32)
+			}
 		}
 	}
 }

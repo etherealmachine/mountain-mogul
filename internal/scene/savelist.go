@@ -23,6 +23,9 @@ type SaveList struct {
 
 func NewSaveList() *SaveList { return &SaveList{} }
 
+// saveListBtnW fits a save name, its scenario, and the age on one row.
+const saveListBtnW = float32(480)
+
 func (s *SaveList) Init(app *engine.App) error {
 	s.app = app
 	saves := save.ListSaves()
@@ -30,15 +33,19 @@ func (s *SaveList) Init(app *engine.App) error {
 	now := time.Now()
 	for _, info := range saves {
 		path := info.Path
-		label := fmt.Sprintf("%s   %s", info.Name, relativeTime(now, info.ModTime))
-		btn := ui.NewButton(0, 0, 360, 40, label, func() {
+		label := info.Name
+		if sc, err := save.ReadScenarioInfo(path); err == nil && sc.Name != "" {
+			label += "  -  " + sc.Name
+		}
+		label += "   " + relativeTime(now, info.ModTime)
+		btn := ui.NewButton(0, 0, saveListBtnW, 40, label, func() {
 			s.app.ReplaceScene(NewScenarioFromFile(path))
 		})
 		btn.Color = mgl32.Vec4{0.15, 0.25, 0.45, 0.95}
 		btn.HoverColor = mgl32.Vec4{0.25, 0.45, 0.75, 0.95}
 		s.buttons = append(s.buttons, btn)
 	}
-	back := ui.NewButton(0, 0, 360, 40, "Back", func() { s.app.PopScene() })
+	back := ui.NewButton(0, 0, saveListBtnW, 40, "Back", func() { s.app.PopScene() })
 	back.Color = mgl32.Vec4{0.4, 0.25, 0.25, 0.95}
 	back.HoverColor = mgl32.Vec4{0.6, 0.4, 0.4, 0.95}
 	s.buttons = append(s.buttons, back)
@@ -48,7 +55,7 @@ func (s *SaveList) Init(app *engine.App) error {
 func (s *SaveList) layout() {
 	sw := float32(s.app.Renderer.ScreenWidth())
 	sh := float32(s.app.Renderer.ScreenHeight())
-	const btnW, btnH, spacing = float32(360), float32(40), float32(12)
+	const btnW, btnH, spacing = saveListBtnW, float32(40), float32(12)
 	n := float32(len(s.buttons))
 	totalH := n*btnH + (n-1)*spacing
 	startY := (sh - totalH) / 2

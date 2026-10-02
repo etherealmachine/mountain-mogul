@@ -194,6 +194,80 @@ func LoadScenario(path string) (*world.World, *CameraData, error) {
 	return dataToWorld(data), data.Camera, nil
 }
 
+// legacyScenarioName is the Name every save carried before scenarios had
+// real names.
+const legacyScenarioName = "scenario"
+
+func scenarioInfoOf(data ScenarioData) world.ScenarioInfo {
+	name := data.Name
+	if name == legacyScenarioName {
+		name = ""
+	}
+	return world.ScenarioInfo{
+		Name:        name,
+		Description: data.Description,
+		Location:    data.Location,
+		Difficulty:  data.Difficulty,
+		Order:       data.Order,
+		Tutorial:    data.Tutorial,
+	}
+}
+
+// ReadScenarioInfo reads just the scenario's name, description, and
+// campaign placing from a save, without decoding the terrain. Lists of
+// saves and scenarios call it once per file.
+func ReadScenarioInfo(path string) (world.ScenarioInfo, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return world.ScenarioInfo{}, err
+	}
+	defer f.Close()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return world.ScenarioInfo{}, fmt.Errorf("save %q: %w", path, err)
+	}
+	defer gz.Close()
+	dec := msgpack.NewDecoder(gz)
+	n, err := dec.DecodeMapLen()
+	if err != nil {
+		return world.ScenarioInfo{}, fmt.Errorf("save %q: %w", path, err)
+	}
+	var data ScenarioData
+	for i := 0; i < n; i++ {
+		key, err := dec.DecodeString()
+		if err != nil {
+			return world.ScenarioInfo{}, fmt.Errorf("save %q: %w", path, err)
+		}
+		var dst any
+		switch key {
+		case "name":
+			dst = &data.Name
+		case "description":
+			dst = &data.Description
+		case "location":
+			dst = &data.Location
+		case "difficulty":
+			dst = &data.Difficulty
+		case "order":
+			dst = &data.Order
+		case "tutorial":
+			dst = &data.Tutorial
+		case "cells":
+			// The info fields are written before the cells.
+			return scenarioInfoOf(data), nil
+		}
+		if dst == nil {
+			err = dec.Skip()
+		} else {
+			err = dec.Decode(dst)
+		}
+		if err != nil {
+			return world.ScenarioInfo{}, fmt.Errorf("save %q: %w", path, err)
+		}
+	}
+	return scenarioInfoOf(data), nil
+}
+
 // worldToData snapshots w. forScenario drops today's in-flight state
 // (see SaveStarterScenario).
 func worldToData(w *world.World, forScenario bool) ScenarioData {
@@ -215,10 +289,14 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 				Grooming:     c.Grooming,
 				MogulSize:    c.MogulSize,
 				SkierTraffic: c.SkierTraffic,
-				TreeDensity:  c.TreeDensity,
 			})
 		}
 	}
+
+	trees := make([]float32, 0, 2*t.TotalTrees())
+	t.ForEachStoredTree(func(tr world.Tree) {
+		trees = append(trees, tr.X, tr.Z)
+	})
 
 	objects := make([]ObjectData, len(w.Objects))
 	for i, obj := range w.Objects {
@@ -460,7 +538,13 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		simTime = day*world.SecondsPerSimDay + world.NewGameStartHour*world.SimSecondsPerHour
 	}
 	return ScenarioData{
-		Name:       "scenario",
+		Name:        w.Scenario.Name,
+		Description: w.Scenario.Description,
+		Location:    w.Scenario.Location,
+		Difficulty:  w.Scenario.Difficulty,
+		Order:       w.Scenario.Order,
+		Tutorial:    w.Scenario.Tutorial,
+
 		Seed:       w.Seed,
 		SimTime:    simTime,
 		DaySec:     world.SecondsPerSimDay,
@@ -471,6 +555,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		Height:     t.Height,
 		Cells:      cells,
 		Objects:    objects,
+		Trees:      trees,
 		Buildings:  buildings,
 		Lifts:      lifts,
 		Trails:     trails,
@@ -643,7 +728,9 @@ func dataToWorld(data ScenarioData) *world.World {
 				t.Cells[x][z].Grooming = c.Grooming
 				t.Cells[x][z].MogulSize = c.MogulSize
 				t.Cells[x][z].SkierTraffic = c.SkierTraffic
-				t.Cells[x][z].TreeDensity = c.TreeDensity
+				if c.TreeDensity > 0 {
+					t.SetCellTreesFromDensity(x, z, c.TreeDensity)
+				}
 				// ls[]=[] → bare ground; ls=[1] → Top only; ls=[2] → Base+Top.
 				// Old saves with >2 layers: treat last as Top, second-to-last as Base.
 				switch n := len(c.Layers); n {
@@ -661,6 +748,9 @@ func dataToWorld(data ScenarioData) *world.World {
 			}
 			idx++
 		}
+	}
+	for i := 0; i+1 < len(data.Trees); i += 2 {
+		t.AddTree(world.Tree{X: data.Trees[i], Z: data.Trees[i+1]})
 	}
 	t.RecomputeSlopes()
 
@@ -681,8 +771,16 @@ func dataToWorld(data ScenarioData) *world.World {
 	w.DaysBelowFloor = data.DaysBelowFloor
 	w.Bankrupt = data.Bankrupt
 
-	// Restore objects (no cross-references, fresh IDs are fine).
+	// Restore objects (no cross-references, fresh IDs are fine). Lone
+	// trees from older saves join the stored trees at their cell centre.
 	for _, od := range data.Objects {
+		if world.ObjectType(od.Type) == world.ObjTree {
+			t.AddTree(world.Tree{
+				X: (float32(od.X) + 0.5) * world.CellSize,
+				Z: (float32(od.Z) + 0.5) * world.CellSize,
+			})
+			continue
+		}
 		obj := w.PlaceObject(world.ObjectType(od.Type), od.X, od.Z)
 		obj.Rotation = od.Rotation
 	}
@@ -1067,6 +1165,7 @@ func dataToWorld(data ScenarioData) *world.World {
 	if d, err := time.Parse(startDateLayout, data.StartDate); err == nil {
 		w.StartDate = d
 	}
+	w.Scenario = scenarioInfoOf(data)
 	if data.OpenHour > 0 || data.CloseHour > 0 {
 		w.OpenHour, w.CloseHour = data.OpenHour, data.CloseHour
 	}

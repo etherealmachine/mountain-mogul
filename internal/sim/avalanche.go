@@ -150,7 +150,7 @@ func (s *Simulation) spreadAvyCell(t *world.Terrain, x, z int) {
 				continue
 			}
 			nc := &t.Cells[nx][nz]
-			if !nc.Passable || nc.TreeDensity > avyTreeStop {
+			if !nc.Passable || nc.TreeCover() > avyTreeStop {
 				continue
 			}
 			dist := float32(CellSize)

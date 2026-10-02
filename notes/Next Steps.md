@@ -12,7 +12,15 @@ Everything planned, in one place. A step big enough to need its own design gets 
 
 In the order to work on them:
 
-1. [[Stored Trees]]: store individual trees so the glade tool can preview and price exactly what it removes
+1. [[Scenario Goals and Rules]]: objectives, win and lose, per-scenario rules, and unlocking in order. In this order:
+   1. Goal and rule data saved with the scenario, and goal progress saved in player saves. Save the resort rating (today it resets to 0.5 on load) and record it in each day's history sample.
+   2. A daily check at rollover that updates progress and decides won, lost, or still playing, with entries in the [[Event Feed]].
+   3. An in-game goals panel (also where the description can be reread), plus "Scenario complete" (keep playing) and "Scenario failed" (Retry, Quit to menu) panels.
+   4. A Goals tab in the editor's Scenario details dialog for goals and rule switches.
+   5. The no-grooming rule: hide and refuse the cat shed and snowcats, and guests judge powder instead of corduroy. Other rules ship with the scenarios that need them.
+   6. Unlocking in campaign order, with progress kept in a small file next to the saves.
+   7. Boreal's goals: open the resort, a guest count in one day, a decent rating through a weekend; a second lift as a bonus. Targets need playtesting with [[First Week Balance]].
+2. The [[Scenario Campaign]] scenarios, starting with [[Kirkwood]], each pulling in the features it needs
 
 The rest is not ranked yet. Move items up here as they get prioritized.
 
@@ -26,9 +34,6 @@ Collected from the old `NEXT.md`, `MVP.md`, and `DESIGN.md` (all now deleted) an
 
 ### Scenarios ([[Scenarios]])
 
-- [[Scenario Metadata]]: a display name, description, location, and difficulty for each scenario; Boreal becomes the named tutorial
-- [[Scenario Goals and Rules]]: win conditions, per-scenario rules (no grooming, no cars, skiers only), climate, and unlocking in order
-- [[Scenario Campaign]]: eight real resorts from [[Boreal]] to [[Palisades Tahoe]], each needing features listed elsewhere on this page
 - Road closures that stop arrivals, for [[Alta]]
 - A rating per guest skill level, for [[Kirkwood]]
 
@@ -99,6 +104,8 @@ Collected from the old `NEXT.md`, `MVP.md`, and `DESIGN.md` (all now deleted) an
 - Backcountry trails beyond the boundary: gates, no patrol or grooming, expert guests only (pairs with the bootpacking easter egg)
 - Better cliffs: steep faces that read as rock and that guests avoid or drop
 - Rivers and frozen lakes
+- Glade-loving and tree-shy guests reacting to trunks nearby rather than the cell's cover ([[Trees]])
+- A glade highlight and thinning slider in the editor, matching the play tool ([[Trees]])
 - Biomes (forested, sub-alpine, alpine) changing build cost, grooming quality, and injury risk
 
 ### Safety ([[Ski Patrol]])
@@ -146,3 +153,5 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-01: Created from `NEXT.md`, `MVP.md`, `DESIGN.md`, and the cards, then deleted those three files. Only Stored Trees is ranked.
 - 2026-10-01: Added the Scenarios section.
 - 2026-10-02: Merged the user's Google Keep list: added First Week Balance, a Staff section, skill wants, glaciers, climate data, backcountry, cliffs and water, and more activities.
+- 2026-10-02: Shipped [[Stored Trees]] and moved its leftovers into Uplift and terrain.
+- 2026-10-02: Shipped [[Scenario Metadata]]. Ranked the campaign: Goals and Rules, then the scenarios.

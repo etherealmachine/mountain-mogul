@@ -15,7 +15,6 @@ import (
 
 	xdraw "golang.org/x/image/draw"
 
-	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
 	"github.com/go-gl/mathgl/mgl32"
 	"mountain-mogul/internal/ai"
@@ -101,68 +100,13 @@ func screenToWorld(cam *render.Camera, terrain *world.Terrain, mousePos mgl32.Ve
 	return mgl32.Vec3{}, false
 }
 
-// applyDensityBrush modifies TreeDensity within `radius` cells of (cx, cz) by `delta`.
-// Clamps each cell's density to [0, 1].
-func applyDensityBrush(t *world.Terrain, cx, cz, radius int, delta float32) {
-	r2 := radius * radius
-	for dz := -radius; dz <= radius; dz++ {
-		for dx := -radius; dx <= radius; dx++ {
-			if dx*dx+dz*dz > r2 {
-				continue
-			}
-			x, z := cx+dx, cz+dz
-			if !t.InBounds(x, z) {
-				continue
-			}
-			d := t.Cells[x][z].TreeDensity + delta
-			if d < 0 {
-				d = 0
-			} else if d > 1 {
-				d = 1
-			}
-			t.Cells[x][z].TreeDensity = d
-		}
-	}
-}
-
-// refreshTreesAround redraws after a density brush changed the cells
+// refreshTreesAround redraws after a tree brush changed the cells
 // within `radius` of (cx, cz): tree wells and avalanche instability are
 // patched locally, and the tree instances rebuilt.
 func refreshTreesAround(r *render.Renderer, w *world.World, cx, cz, radius int) {
 	w.Terrain.RestampTreeWellsCells(cx-radius, cz-radius, cx+radius, cz+radius)
 	r.FlushInstabilityCells(w.Terrain, cx-radius, cz-radius, cx+radius, cz+radius)
 	r.RebuildStaticBatch(w)
-}
-
-// gladeStrokeCost returns the cost of one glade-brush application centred at
-// (cx, cz) with the given radius and removal strength. Charges
-// GladeCostPerCell × density_actually_removed per cell, so the total cost
-// across all strokes to fully clear a cell equals exactly GladeCostPerCell
-// regardless of how many strokes it takes. Zero when no trees are in range.
-func gladeStrokeCost(t *world.Terrain, cx, cz, radius int, strength float32) int {
-	r2 := radius * radius
-	var total float32
-	for dz := -radius; dz <= radius; dz++ {
-		for dx := -radius; dx <= radius; dx++ {
-			if dx*dx+dz*dz > r2 {
-				continue
-			}
-			x, z := cx+dx, cz+dz
-			if !t.InBounds(x, z) {
-				continue
-			}
-			d := t.Cells[x][z].TreeDensity
-			if d <= 0 {
-				continue
-			}
-			removed := strength
-			if removed > d {
-				removed = d
-			}
-			total += removed
-		}
-	}
-	return int(total*float32(world.GladeCostPerCell) + 0.5)
 }
 
 // applyLiftPlacementEffects, applyLiftStationApron and clearLiftCorridor
@@ -290,28 +234,16 @@ func applyBuildingPlacementEffects(w *world.World, b *world.Building) {
 	t.RestampTreeWells()
 }
 
-// clearBuildingTrees zeros TreeDensity in cells inside the rectangle
-// ±(halfX, halfZ) around `pos`, turned by rotation like the building.
-// Matches the apron rectangle so the visible clear pad lines up with the
-// tree-cleared zone.
+// clearBuildingTrees removes the trees inside the rectangle ±(halfX,
+// halfZ) around `pos`, turned by rotation like the building. Matches the
+// apron rectangle so the visible clear pad lines up with the cleared
+// trees.
 func clearBuildingTrees(t *world.Terrain, pos mgl32.Vec2, halfX, halfZ, rotation float32) {
 	const cellSize = float32(5.0)
 	rect := world.FootprintRect{Center: pos, HalfX: halfX, HalfZ: halfZ, Rotation: rotation}
 	minX, minZ, maxX, maxZ := rect.Bounds()
-	for x := int(minX / cellSize); x <= int(maxX/cellSize)+1; x++ {
-		for z := int(minZ / cellSize); z <= int(maxZ/cellSize)+1; z++ {
-			if !t.InBounds(x, z) {
-				continue
-			}
-			// Cell CENTER, not corner — matches the renderer's tree
-			// anchor at ((x+0.5)*cellSize). Corner-based testing biased
-			// the clear toward +X / +Z by a half cell.
-			center := mgl32.Vec2{(float32(x) + 0.5) * cellSize, (float32(z) + 0.5) * cellSize}
-			if rect.Contains(center, 0) {
-				t.Cells[x][z].TreeDensity = 0
-			}
-		}
-	}
+	t.RemoveTreesIn(int(minX/cellSize), int(minZ/cellSize), int(maxX/cellSize)+1, int(maxZ/cellSize)+1,
+		func(tr world.Tree) bool { return rect.Contains(mgl32.Vec2{tr.X, tr.Z}, 0) })
 }
 
 // buildStationApron grades a rectangular pad whose back edge sits flush
@@ -505,35 +437,6 @@ func minF(a, b float32) float32 {
 	return b
 }
 
-// applyDensityBrushUpTo ramps TreeDensity within `radius` cells of (cx, cz)
-// upward by `step`, but caps each cell at `target` (so the slider acts as a
-// ceiling). Cells already at or above target are left alone, so reducing the
-// slider after painting doesn't erase existing forest — use the glade tool
-// for that.
-func applyDensityBrushUpTo(t *world.Terrain, cx, cz, radius int, step, target float32) {
-	r2 := radius * radius
-	for dz := -radius; dz <= radius; dz++ {
-		for dx := -radius; dx <= radius; dx++ {
-			if dx*dx+dz*dz > r2 {
-				continue
-			}
-			x, z := cx+dx, cz+dz
-			if !t.InBounds(x, z) {
-				continue
-			}
-			cur := t.Cells[x][z].TreeDensity
-			if cur >= target {
-				continue
-			}
-			d := cur + step
-			if d > target {
-				d = target
-			}
-			t.Cells[x][z].TreeDensity = d
-		}
-	}
-}
-
 // toolMode represents the active placement tool.
 type toolMode int
 
@@ -617,9 +520,9 @@ type Scenario struct {
 	tickHook      func(s *sim.Simulation)       // optional testbed hook; called each frame before Tick
 	queryServer   *sim.QueryServer              // non-nil when -live-query is set; wired into sim on installWorld
 
-	// Glade-tool sliders (radius in cells, thin = % density removed per
-	// application; slider 0–10 → 0.00–0.10 density delta). Visible only
-	// while toolGlade is active; mirrors the editor's two-slider layout.
+	// Glade-tool sliders (radius in cells, thin = % of the trees under
+	// the brush removed per application). Visible only while toolGlade
+	// is active; mirrors the editor's two-slider layout.
 	// lastGladeCell is the cell most recently glade-applied this stroke;
 	// drag-paint fires only when the cursor crosses into a new cell so
 	// stationary holding doesn't pulse and a slow careful click doesn't
@@ -627,6 +530,7 @@ type Scenario struct {
 	gladeRadiusSlider *ui.VSlider
 	gladeThinSlider   *ui.VSlider
 	lastGladeCell     [2]int
+	gladePreview      []world.Tree // this frame's gladeSelection, highlighted and priced
 
 	// Trail-paint mode: while toolTrailPaint is active, the player
 	// drag-paints (left) or erases (right) cells on the active trail.
@@ -989,11 +893,10 @@ func (s *Scenario) Init(app *engine.App) error {
 	}
 
 	// Glade-tool sliders. Default radius matches the previous fixed
-	// gladeRadius; Thin range 1–5 % per application keeps drag-painting
-	// gradual at the high end (~20 cells across a stand to fully clear)
-	// and lets the player do fine selective work at the low end.
+	// gladeRadius. Thin is the share of trees under the brush each
+	// application takes: 5 % picks out single trees, 100 % clear-cuts.
 	s.gladeRadiusSlider = ui.NewVSlider(0, 0, 18, 200, 1, 30, float32(gladeRadius), "Radius")
-	s.gladeThinSlider = ui.NewVSlider(0, 0, 18, 200, 1, 5, 2, "Thin")
+	s.gladeThinSlider = ui.NewVSlider(0, 0, 18, 200, 5, 100, 25, "Thin")
 	s.lastGladeCell = [2]int{-1, -1}
 	s.parkingPaint.start(0, false)
 
@@ -1869,6 +1772,11 @@ func (s *Scenario) Update(dt float64) {
 		s.updateServicePick(r, inp.MousePos)
 	}
 
+	s.gladePreview = nil
+	if s.activeTool == toolGlade {
+		s.gladePreview = s.gladeSelection()
+	}
+
 	// Ghost preview for placement tools — uses the continuous hover so
 	// the preview tracks the cursor without snapping.
 	updatePlacementGhost(r, s.world.Terrain, placementGhostState{
@@ -1880,6 +1788,7 @@ func (s *Scenario) Update(dt float64) {
 		roadStart:  s.roadStart,
 		rotation:   s.placeRotation,
 		tint:       s.placementTint(),
+		gladeTrees: s.gladePreview,
 	})
 	if s.activeTool == toolService {
 		s.serviceGhost(r)
@@ -2677,18 +2586,21 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		s.sim.LogBuildingPlaced(b)
 		r.RebuildStaticBatch(w)
 	case toolGlade:
-		// Slider value 0–10 = % density delta per application. Each click
-		// or drag-into-new-cell event fires one application; stationary
-		// holding does nothing further (see lastGladeCell gate in Update).
-		strength := s.gladeThinSlider.Value / 100
-		cost := gladeStrokeCost(w.Terrain, gx, gz, s.gladeBrushRadius(), strength)
-		if cost > 0 && !w.CanAfford(cost) {
+		// Each click or drag-into-new-cell event removes the highlighted
+		// trees; stationary holding does nothing further (see
+		// lastGladeCell gate in Update).
+		trees := s.gladeSelection()
+		if len(trees) == 0 {
+			return
+		}
+		cost := gladeCost(trees)
+		if !w.CanAfford(cost) {
 			s.setToast(fmt.Sprintf("Need $%d to clear here — short by $%d", cost, cost-w.Available()))
 			return
 		}
 		w.Cash -= cost
-		applyDensityBrush(w.Terrain, gx, gz, s.gladeBrushRadius(), -strength)
-		refreshTreesAround(r, w, gx, gz, s.gladeBrushRadius())
+		removeTrees(w.Terrain, trees)
+		refreshTreesAround(r, w, gx, gz, s.gladeBrushRadius()+1)
 	case toolLiftBase:
 		if !w.Terrain.IsAccessible(gx, gz) {
 			s.setToast("Can't place a lift on land you don't own")
@@ -2853,6 +2765,16 @@ func (s *Scenario) findBuilding(id uint64) *world.Building {
 		}
 	}
 	return nil
+}
+
+// gladeSelection is the trees a glade click at the hovered cell would
+// remove, given the radius and thinning sliders.
+func (s *Scenario) gladeSelection() []world.Tree {
+	if !s.hoverValid {
+		return nil
+	}
+	return gladeSelection(s.world.Terrain, s.hoverCell[0], s.hoverCell[1],
+		s.gladeBrushRadius(), s.gladeThinSlider.Value/100)
 }
 
 // gladeBrushRadius reads the glade radius slider, clamped to a sane min.
@@ -4113,6 +4035,7 @@ func (s *Scenario) syncToolButtons() {
 // (the editor is always free; the scenario red-tints when over-budget).
 type placementGhostState struct {
 	activeTool toolMode
+	gladeTrees []world.Tree   // trees the glade brush would remove (toolGlade only)
 	hoverPos   mgl32.Vec2     // continuous world XZ under the cursor
 	hoverValid bool           // false when the cursor isn't on the terrain
 	liftBase   mgl32.Vec2     // first-click position for the two-step lift placement (toolLiftTop only)
@@ -4140,6 +4063,9 @@ func updatePlacementGhost(r *render.Renderer, t *world.Terrain, st placementGhos
 	}
 
 	switch st.activeTool {
+	case toolGlade:
+		setGladeHighlight(r, t, st.gladeTrees)
+
 	case toolBuilding:
 		r.SetGhosts(render.MeshBuilding, []render.StaticInstance{
 			buildingInstance(st.hoverPos, st.rotation, t, st.tint),
@@ -4275,6 +4201,11 @@ func (s *Scenario) placementCost() (cost int, affordable, legal, valid bool) {
 	case toolRoadEnd:
 		end := resolveRoadEndpoint(s.world, pos)
 		cost = world.RoadCost(s.roadStart, end.pos)
+	case toolGlade:
+		if len(s.gladePreview) == 0 {
+			return 0, false, true, false
+		}
+		cost = gladeCost(s.gladePreview)
 	default:
 		return 0, false, true, false
 	}
@@ -4707,7 +4638,7 @@ func (p *terrainInspectPanel) Draw(r *render.Renderer) {
 			c.Base/world.KindDensity(world.KindBase)))
 	}
 	rows = append(rows, "",
-		fmt.Sprintf("TreeDens   = %.3f", c.TreeDensity),
+		fmt.Sprintf("Trees      = %d", c.TreeCount),
 		fmt.Sprintf("Passable   = %v", c.Passable),
 	)
 	drawHUDBox(r, rows, 460, mgl32.Vec4{0.85, 0.95, 1, 1}, false)
@@ -5177,9 +5108,6 @@ func (p *savePrompt) Draw(r *render.Renderer) {
 	sw := float32(r.ScreenWidth())
 	sh := float32(r.ScreenHeight())
 	p.layout(sw, sh)
-	gl.Enable(gl.BLEND)
-	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-	defer gl.Disable(gl.BLEND)
 	r.DrawColorRect(0, 0, sw, sh, mgl32.Vec4{0, 0, 0, 0.55})
 	x := (sw - savePromptW) / 2
 	y := (sh - savePromptH) / 2

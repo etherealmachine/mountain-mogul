@@ -204,8 +204,7 @@ func runOnceForAggregate(tb *Testbed, seed int64, simSeconds float64, cx, cz flo
 	return res
 }
 
-// treePatchCenter returns the world-space centroid of cells with non-zero
-// TreeDensity. Works for any builder-stamped patch (circular, irregular,
+// treePatchCenter returns the world-space centroid of cells holding trees. Works for any builder-stamped patch (circular, irregular,
 // or composite) since it averages all tree cells equally. ok=false when
 // the testbed has no trees.
 func treePatchCenter(w *world.World) (cx, cz float32, ok bool) {
@@ -214,7 +213,7 @@ func treePatchCenter(w *world.World) (cx, cz float32, ok bool) {
 	var sumX, sumZ, count int
 	for x := 0; x < t.Width; x++ {
 		for z := 0; z < t.Height; z++ {
-			if t.Cells[x][z].TreeDensity > 0 {
+			if t.Cells[x][z].TreeCount > 0 {
 				sumX += x
 				sumZ += z
 				count++

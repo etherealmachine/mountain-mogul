@@ -256,9 +256,9 @@ type Cell struct {
 	MogulSize       float32   // 0..1; mogul amplitude (visual + physics roughness)
 	SkierTraffic    float32   // accumulated traffic; drives kind transitions
 
-	Passable    bool    // hard structural block (buildings, lift endpoints)
-	TreeDensity float32 // 0.0 = clear, 1.0 = dense old-growth
-	Slope       float32 // rise/run magnitude; set by Terrain.RecomputeSlopes
+	Passable  bool    // hard structural block (buildings, lift endpoints)
+	TreeCount uint8   // stored trees in this cell; kept in step by Terrain's tree methods (trees.go)
+	Slope     float32 // rise/run magnitude; set by Terrain.RecomputeSlopes
 
 	AvySnow     float32 // SWE of snow in transit through this cell (0 = inactive)
 	AvyMomentum float32 // wave momentum at this cell
@@ -328,7 +328,7 @@ func (c *Cell) InstabilityScore() float32 {
 		slopeExcess = 1
 	}
 	kindMult := avyKindMult(c.Top.Kind)
-	treeAnchor := c.TreeDensity * 0.4
+	treeAnchor := c.TreeCover() * 0.4
 	return (c.Top.Accumulation / avyLoadScale) * slopeExcess * kindMult * (1 - treeAnchor)
 }
 
@@ -411,11 +411,15 @@ func (c Cell) SurfaceElevation() float32 {
 	return c.GroundElevation + c.VisibleSnowDepth()
 }
 
+// WalkBlockTrees is how many trunks in one cell make it impassable on
+// foot. A single trunk leaves room to walk around it.
+const WalkBlockTrees = 2
+
 // Walkable returns true if an agent on foot can enter this cell.
-// Dense forest (density >= 0.5) is treated as impenetrable on foot;
-// hard structural obstacles (Passable == false) always block.
+// A cell with WalkBlockTrees or more trunks is treated as impenetrable
+// on foot; hard structural obstacles (Passable == false) always block.
 func (c Cell) Walkable() bool {
-	return c.Passable && c.TreeDensity < 0.5
+	return c.Passable && c.TreeCount < WalkBlockTrees
 }
 
 // Terrain is the heightmap grid used for both simulation and rendering.
@@ -438,6 +442,10 @@ type Terrain struct {
 	// in-bounds cells are accessible (no parcel system). Maintained by
 	// World.ApplyParcels and World.BuyParcel.
 	accessible [][]bool
+
+	// trees holds each cell's stored trees, indexed x*Height+z. Written
+	// only through trees.go so Cell.TreeCount stays in step.
+	trees [][]Tree
 
 	// horizon is the derived terrain horizon map (see horizon.go);
 	// horizonStale is set by RecomputeSlopes after elevation changes.
@@ -468,6 +476,7 @@ func NewTerrain(w, h int) *Terrain {
 		Height:  h,
 		Cells:   cells,
 		Surface: NewSurfaceDetail(w, h),
+		trees:   make([][]Tree, w*h),
 	}
 }
 
@@ -573,16 +582,14 @@ func (t *Terrain) bilinearIndices(wx, wz, cellSize float32) (xi, zi int, fx, fz 
 	return xi, zi, fx, fz
 }
 
-// TreeDensityAt returns the tree density at the given world-space XZ point
-// using nearest-cell sampling. Out-of-bounds returns 0 (clear).
-func (t *Terrain) TreeDensityAt(wx, wz float32) float32 {
-	const cellSize = float32(5.0)
-	xi := int(wx / cellSize)
-	zi := int(wz / cellSize)
-	if !t.InBounds(xi, zi) {
+// TreeCoverAt returns Cell.TreeCover for the cell holding world XZ
+// (wx, wz). Out-of-bounds returns 0 (clear).
+func (t *Terrain) TreeCoverAt(wx, wz float32) float32 {
+	x, z, ok := t.treeCellOf(wx, wz)
+	if !ok {
 		return 0
 	}
-	return t.Cells[xi][zi].TreeDensity
+	return t.Cells[x][z].TreeCover()
 }
 
 // SnowAt returns the snow-state at the given world-space XZ point.

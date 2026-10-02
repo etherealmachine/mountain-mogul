@@ -1,7 +1,7 @@
 ---
 title: Stored Trees
 kind: plan
-status: planned
+status: shipped
 ---
 
 # Stored Trees
@@ -43,13 +43,20 @@ Rejected: keeping density and making the glade brush preview threshold crossings
 
 Steps 1, 2, and 6 together should look exactly like today, which makes them a safe first change to check the conversion before anything else moves.
 
-## Open questions
+## Open questions (resolved)
 
-- Trunk radius for collisions, and how close a near miss has to be to count.
-- Whether skiing reads raw trunks every tick or a per-cell summary rebuilt when trees change. Profile against the 150-skier case that made the skier spatial grid necessary.
-- How to retune [[Testbeds]] that stamp a density, such as the symmetric tree patch, so their outcomes stay comparable.
-- How many trees the renderer can afford once the two-per-cell cap is gone.
+- **Trunk radius.** Steering feels trunks within 3 m, falling off with distance. A hit needs a trunk within 0.6 m while the skier heads at it faster than 2 m/s. Near misses aren't counted yet.
+- **Raw trunks or a summary.** Skiing reads raw trunks each tick, but skips the lookup when the cell is already full cover. A micro-benchmark put the full lookup at about 26 ns per call, against 2.7 ns for the cell read alone.
+- **Testbeds.** They still stamp a density, through the same conversion old saves use. The tree-patch and curving-trail testbeds give the same outcomes as before.
+- **Renderer budget.** Unchanged. Generators still place about two trees per full-cover cell, so the tutorial map has 63,154 trees, about the same as before.
+
+## Not done
+
+- Glade-loving and tree-shy guests still react to the cell's cover, not to trunks nearby.
+- The editor's glade brush has no highlight and a fixed 40% share.
 
 ## Log
 
 - 2026-10-01: Chose explicit tree positions with gameplay reading trunks. Nothing implemented yet.
+- 2026-10-02: Shipped all six steps; see [[Trees]] for how it works now. Checked that converted saves keep the same trunk positions (tutorial screenshots before and after), that the glade preview matches what a click removes (tests and a screenshot), that saves round-trip, and that testbed outcomes are unchanged.
+- 2026-10-02: `tutorial.save` re-saved in the stored-tree format (1.44 MB, against 1.49 MB) while adding its scenario name.

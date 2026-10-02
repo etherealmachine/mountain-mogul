@@ -110,6 +110,15 @@ const (
 	// catches them well before the skier brushes through.
 	towerHazardRadius = 5.0 // lift towers are 0.6–0.9 m poles; the radius gives ~4 m of carving room
 	skierHazardRadius = 2.5 // ski-width is ~0.6 m; the radius is "don't ski into someone's blind spot"
+	trunkHazardRadius = 3.0 // a trunk is ~0.4 m across; the radius steers a skier around one specific tree
+
+	// Tree collisions: a skier whose position comes within trunkHitRadius
+	// of a trunk while moving toward it faster than trunkHitMinSpeed hits
+	// it and falls. Injury chance scales with speed, reaching
+	// trunkInjuryChanceMax at injuryMaxSpeed.
+	trunkHitRadius       = float32(0.6)
+	trunkHitMinSpeed     = float32(2.0)
+	trunkInjuryChanceMax = float32(0.6)
 
 	// Fall-line attenuation. Identical to prior model — gentle terrain has
 	// noisy gradients, so we ignore the fall direction below flatSlopeL.
@@ -302,7 +311,7 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 	var surfKind world.SnowKind
 	if s.World.Terrain.InBounds(cx, cz) {
 		cell := s.World.Terrain.Cells[cx][cz]
-		treeDensity = cell.TreeDensity
+		treeDensity = cell.TreeCover()
 		grooming = cell.Grooming
 		if top := cell.TopLayer(); top != nil {
 			surfKind = top.Kind
@@ -432,6 +441,12 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 			recordFrame(s, a, target, dist, perc, dec)
 			return false
 		}
+	}
+
+	if !a.Fallen && hitsTrunk(s.World.Terrain, a) {
+		s.treeHit(a)
+		recordFrame(s, a, target, dist, perc, dec)
+		return false
 	}
 
 	// Balance + fall.
@@ -706,7 +721,7 @@ func perceive(t *world.Terrain, a *world.Guest, target mgl32.Vec3) Perception {
 		axisDir = axisXZ.Mul(1.0 / axisDist)
 	}
 
-	atCell := t.TreeDensityAt(pos[0], pos[2])
+	atCell := t.TreeCoverAt(pos[0], pos[2])
 	return Perception{
 		Pos:           pos,
 		Heading:       a.Heading,
@@ -891,20 +906,31 @@ func collectTowerXZs(w *world.World) []mgl32.Vec2 {
 
 // hazardDensityAt returns a [0, 1]-ish penalty at world (x, z), combining:
 //
-//   - terrain TreeDensity (the existing signal)
+//   - terrain tree cover (Cell.TreeCover), so whole stands are avoided
+//   - linear falloff inside trunkHazardRadius of any trunk
 //   - linear falloff inside towerHazardRadius of any lift tower
 //   - linear falloff inside skierHazardRadius of any other skier
 //
-// Combination is max(): one big hazard dominates. Tree-only paths score
-// the same as before this function existed; tower/skier presence raises
-// the penalty so the candidate-fan scorer routes around them.
+// Combination is max(): one big hazard dominates. Cover keeps skiers out
+// of stands; the trunk, tower, and skier terms route them around single
+// obstacles the cover is too coarse to see.
 //
 // The agent term uses a spatial grid bucketed once per Tick — without
 // it, this function dominated the profile (70% CPU) once active agent
 // count crossed ~150 because every probe point iterated every other
 // agent. With the grid, hazardDensityAt is O(towers + nearby) per call.
 func hazardDensityAt(t *world.Terrain, towers []mgl32.Vec2, grid *spatialGrid, selfID uint64, x, z float32) float32 {
-	d := t.TreeDensityAt(x, z)
+	d := t.TreeCoverAt(x, z)
+
+	if d < 1 {
+		const trunkR2 = trunkHazardRadius * trunkHazardRadius
+		t.ForEachTreeNear(x, z, trunkHazardRadius, func(tr world.Tree, _, _ int) {
+			dx, dz := tr.X-x, tr.Z-z
+			if f := 1 - (dx*dx+dz*dz)/trunkR2; f > d {
+				d = f
+			}
+		})
+	}
 
 	const towerR2 = towerHazardRadius * towerHazardRadius
 	for _, p := range towers {
@@ -1158,6 +1184,50 @@ func apply(t *world.Terrain, a *world.Guest, dec Decision, perc Perception, dt f
 	a.Pos[0] += hx * step
 	a.Pos[2] += hz * step
 	a.Pos[1] = t.InterpolatedSurfaceElevationAt(a.Pos[0], a.Pos[2])
+}
+
+// hitsTrunk reports whether the guest is within trunkHitRadius of a trunk
+// while moving toward it fast enough to hit it. Moving away doesn't
+// count, so a skier who fell against a tree can push off again.
+func hitsTrunk(t *world.Terrain, a *world.Guest) bool {
+	if a.Speed < trunkHitMinSpeed {
+		return false
+	}
+	hx := float32(math.Sin(float64(a.Heading)))
+	hz := float32(math.Cos(float64(a.Heading)))
+	hit := false
+	t.ForEachTreeNear(a.Pos[0], a.Pos[2], trunkHitRadius, func(tr world.Tree, _, _ int) {
+		if (tr.X-a.Pos[0])*hx+(tr.Z-a.Pos[2])*hz > 0 {
+			hit = true
+		}
+	})
+	return hit
+}
+
+// treeHit knocks the guest down after skiing into a trunk: a fall, and an
+// injury with a chance that grows with speed.
+func (s *Simulation) treeHit(a *world.Guest) {
+	a.Balance = 0
+	a.Fallen = true
+	a.Energy = clamp32(a.Energy-energyFallDrain, 0, 1)
+	a.Events = append(a.Events, ai.GuestEvent{Kind: ai.EventFall, Time: s.SimTime})
+	injuryChance := clamp32(a.Speed/injuryMaxSpeed, 0, 1) * trunkInjuryChanceMax
+	a.Speed = 0
+	s.addThought(a, ai.ThoughtHitTree)
+	if rng.Global().Float32() < injuryChance {
+		a.Injured = true
+		a.InjuryWaitTimer = injuryWaitTime
+		a.Events = append(a.Events, ai.GuestEvent{Kind: ai.EventInjury, Time: s.SimTime})
+		if step := a.Plan.Head(); step.Kind == ai.ActSkiTrail {
+			s.addThought(a, ai.ThoughtInjured, step.TrailID)
+		} else {
+			s.addThought(a, ai.ThoughtInjured)
+		}
+		a.Satisfaction = clamp32(a.Satisfaction-0.25, 0, 1)
+		return
+	}
+	a.FallTimer = float32(fallRecoverTime)
+	a.Satisfaction = clamp32(a.Satisfaction-0.15, 0, 1)
 }
 
 // =============================================================================

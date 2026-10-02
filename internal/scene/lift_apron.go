@@ -214,7 +214,7 @@ func flattenCircle(t *world.Terrain, pos mgl32.Vec2, radius, targetElev float32)
 	}
 }
 
-// clearCircle zeros TreeDensity within radius metres of pos.
+// clearCircle removes the trees within radius metres of pos.
 func clearCircle(t *world.Terrain, pos mgl32.Vec2, radius float32) {
 	const cellSize = float32(5.0)
 	r2 := radius * radius
@@ -222,20 +222,10 @@ func clearCircle(t *world.Terrain, pos mgl32.Vec2, radius float32) {
 	x1 := int((pos[0]+radius)/cellSize) + 1
 	z0 := int((pos[1] - radius) / cellSize)
 	z1 := int((pos[1]+radius)/cellSize) + 1
-	for x := x0; x <= x1; x++ {
-		for z := z0; z <= z1; z++ {
-			if !t.InBounds(x, z) {
-				continue
-			}
-			cx := (float32(x) + 0.5) * cellSize
-			cz := (float32(z) + 0.5) * cellSize
-			dx := cx - pos[0]
-			dz := cz - pos[1]
-			if dx*dx+dz*dz <= r2 {
-				t.Cells[x][z].TreeDensity = 0
-			}
-		}
-	}
+	t.RemoveTreesIn(x0, z0, x1, z1, func(tr world.Tree) bool {
+		dx, dz := tr.X-pos[0], tr.Z-pos[1]
+		return dx*dx+dz*dz <= r2
+	})
 }
 
 // groomCircle sets Grooming=1 within radius metres of pos.
@@ -262,8 +252,8 @@ func groomCircle(t *world.Terrain, pos mgl32.Vec2, radius float32) {
 	}
 }
 
-// clearLiftCorridor zeros TreeDensity in cells within `halfWidth` metres
-// of the line segment between two world XZ points. Models the standard
+// clearLiftCorridor removes the trees within `halfWidth` metres of the
+// line segment between two world XZ points. Models the standard
 // chairlift maintenance lane — trees would otherwise foul cables, towers,
 // and the over-snow grooming machines that service the line.
 func clearLiftCorridor(t *world.Terrain, base, top mgl32.Vec2, halfWidth float32) {
@@ -277,16 +267,7 @@ func clearLiftCorridor(t *world.Terrain, base, top mgl32.Vec2, halfWidth float32
 	z0 := int(minZ / cellSize)
 	z1 := int(maxZ/cellSize) + 1
 	hw2 := halfWidth * halfWidth
-	for x := x0; x <= x1; x++ {
-		for z := z0; z <= z1; z++ {
-			if !t.InBounds(x, z) {
-				continue
-			}
-			cx := (float32(x) + 0.5) * cellSize
-			cz := (float32(z) + 0.5) * cellSize
-			if pointSegmentDistSq(mgl32.Vec2{cx, cz}, base, top) <= hw2 {
-				t.Cells[x][z].TreeDensity = 0
-			}
-		}
-	}
+	t.RemoveTreesIn(x0, z0, x1, z1, func(tr world.Tree) bool {
+		return pointSegmentDistSq(mgl32.Vec2{tr.X, tr.Z}, base, top) <= hw2
+	})
 }

@@ -360,7 +360,7 @@ func (w *World) SetTiles(b *Building, tiles map[[2]int]Service) {
 	for _, c := range b.Cells {
 		if t.InBounds(c[0], c[1]) {
 			t.Cells[c[0]][c[1]].Passable = false
-			clearShellFloor(&t.Cells[c[0]][c[1]])
+			clearShellFloor(t, c[0], c[1])
 		}
 	}
 	w.RefreshDoors(b)
@@ -428,17 +428,18 @@ func (w *World) ClearLodgeFloors() {
 		}
 		for _, c := range b.Cells {
 			if t.InBounds(c[0], c[1]) {
-				clearShellFloor(&t.Cells[c[0]][c[1]])
+				clearShellFloor(t, c[0], c[1])
 			}
 		}
 	}
 }
 
-func clearShellFloor(c *Cell) {
+func clearShellFloor(t *Terrain, x, z int) {
+	c := &t.Cells[x][z]
 	c.Base = 0
 	c.Top = SnowLayer{}
-	c.TreeDensity = 0
 	c.MogulSize = 0
+	t.ClearTreesInCell(x, z)
 }
 
 func (w *World) refreshLodgeAnchor(b *Building) {

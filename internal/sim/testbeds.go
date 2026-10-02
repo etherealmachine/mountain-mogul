@@ -814,9 +814,9 @@ func (b *builder) skierAt(gx, gz int, skill float32) *builder {
 	return b
 }
 
-// treePatch stamps a circular grove of the given density at (cx, cz). The
-// density value is set absolutely on cells inside the circle — existing
-// values are overwritten rather than added to.
+// treePatch plants a circular grove of the given density at (cx, cz):
+// each cell inside the circle gets the trees the old per-cell density
+// rule drew, replacing whatever trees it held.
 func (b *builder) treePatch(cx, cz, radius int, density float32) *builder {
 	t := b.w.Terrain
 	for x := cx - radius; x <= cx+radius; x++ {
@@ -829,15 +829,15 @@ func (b *builder) treePatch(cx, cz, radius int, density float32) *builder {
 			if dx*dx+dz*dz > radius*radius {
 				continue
 			}
-			t.Cells[x][z].TreeDensity = density
+			t.SetCellTreesFromDensity(x, z, density)
 		}
 	}
 	return b
 }
 
-// treeRect stamps a rectangular grove [x1, x2] × [z1, z2] (inclusive) at
-// the given density. Used for trail walls / corridors. Density is set
-// absolutely.
+// treeRect plants a rectangular grove [x1, x2] × [z1, z2] (inclusive) at
+// the given density, the same way as treePatch. Used for trail walls /
+// corridors.
 func (b *builder) treeRect(x1, z1, x2, z2 int, density float32) *builder {
 	t := b.w.Terrain
 	for x := x1; x <= x2; x++ {
@@ -845,7 +845,7 @@ func (b *builder) treeRect(x1, z1, x2, z2 int, density float32) *builder {
 			if !t.InBounds(x, z) {
 				continue
 			}
-			t.Cells[x][z].TreeDensity = density
+			t.SetCellTreesFromDensity(x, z, density)
 		}
 	}
 	return b

@@ -5,13 +5,13 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
 	"github.com/go-gl/mathgl/mgl32"
 	"mountain-mogul/internal/engine"
 	"mountain-mogul/internal/render"
 	"mountain-mogul/internal/save"
 	"mountain-mogul/internal/ui"
+	"mountain-mogul/internal/world"
 )
 
 // editorToastSeconds is how long an editor toast stays on screen (s).
@@ -26,12 +26,15 @@ func (e *Editor) scenarioName() string {
 	return strings.TrimSuffix(filepath.Base(e.scenarioPath), save.SaveExt)
 }
 
-// editorTitle is the top-bar caption: the scenario name plus a "*" marker
-// while there are unsaved edits.
+// editorTitle is the top-bar caption: the scenario's display name and file
+// name, plus a "*" marker while there are unsaved edits.
 func (e *Editor) editorTitle() string {
 	name := e.scenarioName()
-	if name == "" {
+	switch {
+	case name == "":
 		name = "Untitled scenario"
+	case e.world.Scenario.Name != "":
+		name = e.world.Scenario.Name + " (" + name + ")"
 	}
 	if e.dirty {
 		name += " *"
@@ -47,6 +50,22 @@ func (e *Editor) markDirty() { e.dirty = true }
 func (e *Editor) setToast(text string) {
 	e.toastText = text
 	e.toastExpiry = e.time + editorToastSeconds
+}
+
+// openDetailsPrompt edits the scenario's name, description, and campaign
+// placing (World.Scenario).
+func (e *Editor) openDetailsPrompt() {
+	e.escapeMenu.Hide()
+	e.detailsPrompt = newScenarioDetailsPrompt(e.world.Scenario,
+		func(info world.ScenarioInfo) {
+			e.detailsPrompt = nil
+			if info != e.world.Scenario {
+				e.world.Scenario = info
+				e.markDirty()
+			}
+		},
+		func() { e.detailsPrompt = nil },
+	)
 }
 
 // saveCurrent overwrites the open file. A blank scenario has no file yet,
@@ -159,9 +178,6 @@ func (p *confirmPrompt) Draw(r *render.Renderer) {
 	sw := float32(r.ScreenWidth())
 	sh := float32(r.ScreenHeight())
 	p.layout(sw, sh)
-	gl.Enable(gl.BLEND)
-	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-	defer gl.Disable(gl.BLEND)
 	r.DrawColorRect(0, 0, sw, sh, mgl32.Vec4{0, 0, 0, 0.55})
 	x := (sw - confirmPromptW) / 2
 	y := (sh - confirmPromptH) / 2

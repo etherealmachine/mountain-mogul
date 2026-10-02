@@ -5,17 +5,29 @@ import (
 	"math"
 )
 
-// MaxTreesPerCell is the per-cell cap used by TreeCountFromDensity. With
-// 5×5 m cells this is 800 trees/ha at density 1.0 — slightly under the
-// densest subalpine stands but a sensible ceiling given camera distance
-// and the GPU cost of every extra instance.
+// MaxTreesPerCell is how many trees a cell holds at density 1.0. With
+// 5×5 m cells this is 800 trees/ha — slightly under the densest
+// subalpine stands but a sensible ceiling given camera distance and the
+// GPU cost of every extra instance. Writers that think in density
+// (generator, plant brush, old-save conversion) scale by it, and
+// Cell.TreeCover divides by it.
 const MaxTreesPerCell = 2
 
-// TreeInstanceHash returns a stable 64-bit hash for deriving per-tree
-// visual properties (position offset, scale, rotation, variant). Trees
-// within the same cell are distinguished by their per-tree index `i`;
-// pass -1 when computing the cell-level "should this cell have any tree
-// at all?" hash used by TreeCountFromDensity.
+// TreeMinSpacing is the closest two trunks may stand when a writer
+// places trees by sampling (metres).
+const TreeMinSpacing = float32(1.8)
+
+// Tree is one stored tree: its trunk's world-space XZ in metres.
+// Rotation, scale, and model variant derive from a hash of the position
+// (TreeInstanceOf), so they aren't stored and survive save/load.
+type Tree struct {
+	X, Z float32
+}
+
+// TreeInstanceHash returns a stable 64-bit hash of three integers. The
+// old density rule used it per cell (x, z) and tree index i, with i = -1
+// for the cell's "any tree at all?" roll; stored trees hash their
+// centimetre-quantised position.
 func TreeInstanceHash(x, z, i int) uint64 {
 	h := uint64(uint32(x)*2654435761 ^ uint32(z)*2246822519 ^ uint32(i)*2692343)
 	h ^= h >> 33
@@ -24,10 +36,10 @@ func TreeInstanceHash(x, z, i int) uint64 {
 	return h
 }
 
-// TreeCountFromDensity maps a cell's TreeDensity to a per-cell tree count
+// TreeCountFromDensity maps a density in [0, 1] to a per-cell tree count
 // in [0, MaxTreesPerCell]. Density × max gives the expected count; we
 // emit the whole part deterministically and roll the fractional part
-// against cellHash so the slider scales smoothly through every count
+// against cellHash so density scales smoothly through every count
 // without dead zones.
 func TreeCountFromDensity(density float32, cellHash uint64) int {
 	if density <= 0 {
@@ -46,11 +58,9 @@ func TreeCountFromDensity(density float32, cellHash uint64) int {
 	return whole
 }
 
-// TreeInstance is one rendered tree's derived placement values. World XZ
-// (wx, wz) come from the cell centre plus a per-tree hash-driven offset
-// in ±1.2 m. The renderer reads Rotation, Scale, and Variant; sub-cell
-// passes (tree wells, glade trip-hazard derivations) typically only
-// need WX/WZ.
+// TreeInstance is one stored tree with its derived visual values. The
+// renderer reads Rotation, Scale, and Variant; sub-cell passes (tree
+// wells) only need WX/WZ.
 type TreeInstance struct {
 	X, Z     int     // owning cell index
 	WX, WZ   float32 // world-space XZ in metres
@@ -199,8 +209,8 @@ func minF32(a, b float32) float32 {
 
 // RestampTreeWells zeros the G channel of Surface and writes a
 // Gaussian-falloff disk for every tree in the terrain. Use after bulk
-// changes to TreeDensity (auto-forest regenerate, world load, lift/road
-// clears that zero density). It walks every tree and marks the whole
+// tree changes (auto-forest regenerate, world load, lift/road clears).
+// It walks every tree and marks the whole
 // texture for re-upload, which on a large map costs tens of ms plus a
 // full-texture upload; brushes use RestampTreeWellsCells instead.
 //
@@ -222,12 +232,11 @@ func (t *Terrain) RestampTreeWells() {
 }
 
 // RestampTreeWellsCells redoes tree wells for the cell rectangle
-// [x0, x1] × [z0, z1] (inclusive) after its TreeDensity changed, and marks
-// only the surrounding area dirty. A well spills at most 0.7 m into the
-// neighbouring cell (1.2 m jitter + 2 m radius from a cell centre 2.5 m
-// in), so the clear covers one extra cell and trees two cells out are
-// restamped; where their wells fall outside the cleared area,
-// max-stamping rewrites the same values.
+// [x0, x1] × [z0, z1] (inclusive) after its trees changed, and marks
+// only the surrounding area dirty. A well spills at most its 2 m radius
+// into the neighbouring cell, so the clear covers one extra cell and
+// trees two cells out are restamped; where their wells fall outside the
+// cleared area, max-stamping rewrites the same values.
 func (t *Terrain) RestampTreeWellsCells(x0, z0, x1, z1 int) {
 	if t == nil || t.Surface == nil {
 		return
@@ -275,29 +284,47 @@ func (t *Terrain) forEachTreeIn(x0, z0, x1, z1 int, variantBase uint32, fn func(
 	x1, z1 = min(x1, t.Width-2), min(z1, t.Height-2)
 	for z := z0; z <= z1; z++ {
 		for x := x0; x <= x1; x++ {
-			density := t.Cells[x][z].TreeDensity
-			count := TreeCountFromDensity(density, TreeInstanceHash(x, z, -1))
-			if count == 0 {
-				continue
-			}
-			for i := 0; i < count; i++ {
-				h := TreeInstanceHash(x, z, i)
-				offsetX := (float32(h&0xFF)/127.5 - 1.0) * 1.2
-				offsetZ := (float32((h>>8)&0xFF)/127.5 - 1.0) * 1.2
-				rotation := float32((h>>16)&0xFFFF) / 65535.0 * 2 * math.Pi
-				scale := 1.55 + float32((h>>32)&0xFF)/255.0*0.4
-				variant := variantBase + uint32((h>>40)%3)
-
-				wx := (float32(x)+0.5)*float32(CellSize) + offsetX
-				wz := (float32(z)+0.5)*float32(CellSize) + offsetZ
-				fn(TreeInstance{
-					X: x, Z: z,
-					WX: wx, WZ: wz,
-					Rotation: rotation,
-					Scale:    scale,
-					Variant:  variant,
-				})
+			for _, tr := range t.trees[x*t.Height+z] {
+				fn(TreeInstanceOf(tr, x, z, variantBase))
 			}
 		}
 	}
+}
+
+// TreeInstanceOf derives a stored tree's visual values from a hash of
+// its centimetre-quantised position, so the same tree looks the same
+// after save/load. (x, z) is the owning cell.
+func TreeInstanceOf(tr Tree, x, z int, variantBase uint32) TreeInstance {
+	h := treeHash(tr)
+	return TreeInstance{
+		X: x, Z: z,
+		WX: tr.X, WZ: tr.Z,
+		Rotation: float32((h>>16)&0xFFFF) / 65535.0 * 2 * math.Pi,
+		Scale:    1.55 + float32((h>>32)&0xFF)/255.0*0.4,
+		Variant:  variantBase + uint32((h>>40)%3),
+	}
+}
+
+func treeHash(tr Tree) uint64 {
+	qx := int(math.Round(float64(tr.X) * 100))
+	qz := int(math.Round(float64(tr.Z) * 100))
+	return TreeInstanceHash(qx, qz, 0x7EE5)
+}
+
+// legacyTreePositions returns where the old density rule put a cell's
+// trees: the count from TreeCountFromDensity, each offset within ±1.2 m
+// of the cell centre by the per-tree hash.
+func legacyTreePositions(x, z int, density float32) []Tree {
+	count := TreeCountFromDensity(density, TreeInstanceHash(x, z, -1))
+	out := make([]Tree, 0, count)
+	for i := 0; i < count; i++ {
+		h := TreeInstanceHash(x, z, i)
+		offsetX := (float32(h&0xFF)/127.5 - 1.0) * 1.2
+		offsetZ := (float32((h>>8)&0xFF)/127.5 - 1.0) * 1.2
+		out = append(out, Tree{
+			X: (float32(x)+0.5)*float32(CellSize) + offsetX,
+			Z: (float32(z)+0.5)*float32(CellSize) + offsetZ,
+		})
+	}
+	return out
 }

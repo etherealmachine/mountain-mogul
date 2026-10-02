@@ -36,7 +36,7 @@ const (
 
 	DefaultParcelPrice = 250_000 // dollars; editor default for a newly painted purchasable parcel
 
-	GladeCostPerCell = 200 // cost per in-radius cell with trees cleared by the glade brush
+	GladeCostPerTree = 100 // per tree the glade brush removes; a full cell (MaxTreesPerCell) costs $200
 
 	DefaultTicketPrice    = 10 // dollars per heli ride; only heli charges per ride, player adjusts via the lift popup
 	DefaultDayTicketPrice = 60 // dollars per visit, paid once at the ticket window (VISION §7: $60–90); pass holders pay nothing
@@ -240,6 +240,9 @@ type World struct {
 	// Authored per scenario in the editor; defaults to DefaultStartDate.
 	StartDate time.Time
 
+	// Scenario is the scenario's name, description, and campaign placing.
+	Scenario ScenarioInfo
+
 	// FocusedGuestID is the ID of the guest currently being followed by the
 	// camera (0 = none). Written by the scene layer; exposed to the query
 	// system so "WHERE followed = 1" works in live SQL queries.
@@ -368,7 +371,7 @@ func (w *World) SetMinNextID(n uint64) {
 }
 
 // PlaceObject places a decorative natural object (rock, stump, lone tree).
-// Passability is not affected — trees use TreeDensity, rocks/stumps are decorative.
+// Passability is not affected; rocks and stumps are decorative. Forest trees are stored on the Terrain (trees.go).
 func (w *World) PlaceObject(t ObjectType, x, z int) *PlacedObject {
 	obj := &PlacedObject{
 		ID:   w.NextID(),

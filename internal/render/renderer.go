@@ -1454,6 +1454,33 @@ func (r *Renderer) SetCellOverlay(pixels []uint8, w, h int) {
 	r.scene.cellOverlayTex = tex
 }
 
+// treeMatrix places one forest tree, its scale multiplied by grow.
+// Trees root in the ground, then poke through the snow above: the mesh
+// is anchored just above ground, capped by the visible snow column so
+// light snow lets the full trunk show while deeper snow raises the
+// anchor and hides the lower trunk below the surface mesh. Mesh trees
+// are ~7 m tall in model units; ti.Scale brings them to ~11–14 m.
+func treeMatrix(t *world.Terrain, ti world.TreeInstance, grow float32) mgl32.Mat4 {
+	elev := t.GroundElevationAt(ti.X, ti.Z)
+	if snow := t.Cells[ti.X][ti.Z].VisibleSnowDepth(); snow > 0 {
+		const maxBury = float32(1.5)
+		elev += min(snow, maxBury)
+	}
+	s := ti.Scale * grow
+	return mgl32.Translate3D(ti.WX, elev, ti.WZ).
+		Mul4(mgl32.HomogRotate3DY(ti.Rotation)).
+		Mul4(mgl32.Scale3D(s, s, s))
+}
+
+// TreeTransform is treeMatrix as a StaticInstance transform, for ghost
+// overlays that sit on a forest tree.
+func TreeTransform(t *world.Terrain, ti world.TreeInstance, grow float32) [16]float32 {
+	m := treeMatrix(t, ti, grow)
+	var out [16]float32
+	copy(out[:], m[:])
+	return out
+}
+
 // RebuildStaticBatch rebuilds all static instance buffers from world state.
 func (r *Renderer) RebuildStaticBatch(w *world.World) {
 	// Clear all static batches
@@ -1463,33 +1490,11 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 
 	const cellSize = float32(5.0)
 
-	// Forest layer — derive tree instances from terrain cell TreeDensity
-	// via the shared world iterator so other passes (tree-well surface
-	// stamp, glade trip-hazard derivations) see the same positions.
+	// Forest layer — the stored trees, via the same iterator the
+	// tree-well stamp uses.
 	w.Terrain.ForEachTree(MeshTree, func(ti world.TreeInstance) {
-		// Trees root in the ground, then poke through the snow above.
-		// We anchor the rendered mesh just above ground (capped by the
-		// visible snow column so light snow lets the full trunk show;
-		// deeper snow raises the visible anchor and the lower trunk
-		// disappears below the surface mesh).
-		elev := w.Terrain.GroundElevationAt(ti.X, ti.Z)
-		if snow := w.Terrain.Cells[ti.X][ti.Z].VisibleSnowDepth(); snow > 0 {
-			const maxBury = float32(1.5)
-			if snow < maxBury {
-				elev += snow
-			} else {
-				elev += maxBury
-			}
-		}
-		// Mesh trees are ~7 m tall in model units; the iterator scales
-		// them into ~11–14 m world-tall (a tighter range than legacy
-		// 10–15 m) so stands read as a coherent species mix.
-		transform := mgl32.Translate3D(ti.WX, elev, ti.WZ).
-			Mul4(mgl32.HomogRotate3DY(ti.Rotation)).
-			Mul4(mgl32.Scale3D(ti.Scale, ti.Scale, ti.Scale))
-
 		if batch, ok := r.staticBatches[ti.Variant]; ok {
-			batch.AddStatic(transform, treeTintForVariant(ti.Variant))
+			batch.AddStatic(treeMatrix(w.Terrain, ti, 1), treeTintForVariant(ti.Variant))
 		}
 	})
 

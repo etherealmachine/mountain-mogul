@@ -18,7 +18,7 @@ import (
 // shader samples it to render sub-cell features the 5 m mesh can't carry
 // (skier tracks, tree wells, sharper groomed/ungroomed edges).
 //
-// The buffer is fully re-derivable: G from per-cell TreeDensity, B from
+// The buffer is fully re-derivable: G from the stored trees, B from
 // per-cell Grooming, R resets to zero on load. So it is not saved.
 type SurfaceDetail struct {
 	PxWidth, PxHeight int

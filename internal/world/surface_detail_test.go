@@ -97,13 +97,13 @@ func TestRestampTreeWellsCellsMatchesFull(t *testing.T) {
 	terrain := NewTerrain(24, 24)
 	for x := 0; x < 24; x++ {
 		for z := 0; z < 24; z++ {
-			terrain.Cells[x][z].TreeDensity = float32((x*7+z*13)%10) / 9
+			terrain.SetCellTreesFromDensity(x, z, float32((x*7+z*13)%10)/9)
 		}
 	}
 	terrain.RestampTreeWells()
 	for x := 8; x <= 12; x++ {
 		for z := 9; z <= 13; z++ {
-			terrain.Cells[x][z].TreeDensity *= 0.3
+			terrain.SetCellTreesFromDensity(x, z, float32((x*7+z*13)%10)/9*0.3)
 		}
 	}
 	terrain.Surface.Dirty = false
@@ -127,7 +127,7 @@ func TestRestampTreeWellsCellsMatchesFull(t *testing.T) {
 func TestRestampTreeWellsFillsGNearTrees(t *testing.T) {
 	terrain := NewTerrain(20, 20)
 	// One dense cell well inside the visible (W-1)×(H-1) tree region.
-	terrain.Cells[10][10].TreeDensity = 1.0
+	terrain.SetCellTreesFromDensity(10, 10, 1.0)
 
 	terrain.RestampTreeWells()
 

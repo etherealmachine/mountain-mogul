@@ -2,7 +2,16 @@ package save
 
 // ScenarioData is the JSON-serialisable representation of a full scenario.
 type ScenarioData struct {
-	Name    string  `json:"name"`
+	// Name through Tutorial are world.ScenarioInfo. They come first so
+	// ReadScenarioInfo can stop decoding before the cells. Older saves
+	// wrote the placeholder Name "scenario", which loads as no name.
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Location    string `json:"location,omitempty"`
+	Difficulty  int    `json:"difficulty,omitempty"`
+	Order       int    `json:"order,omitempty"`
+	Tutorial    bool   `json:"tutorial,omitempty"`
+
 	Width   int     `json:"width"`
 	Height  int     `json:"height"`
 	Seed    int64   `json:"seed,omitempty"`
@@ -17,9 +26,12 @@ type ScenarioData struct {
 	CloseHour float32 `json:"close_hour,omitempty"`
 	// StartDate is World.StartDate, the date SimTime 0 maps to, as
 	// "2006-01-02". Absent loads world.DefaultStartDate.
-	StartDate  string          `json:"start_date,omitempty"`
-	Cells      []CellData      `json:"cells"` // flat array, row-major (x-major)
-	Objects    []ObjectData    `json:"objects"`
+	StartDate string       `json:"start_date,omitempty"`
+	Cells     []CellData   `json:"cells"` // flat array, row-major (x-major)
+	Objects   []ObjectData `json:"objects"`
+	// Trees is every stored tree as flat world-XZ pairs: x0, z0, x1, z1, …
+	// Older saves have none and carry per-cell TreeDensity instead.
+	Trees      []float32       `json:"trees,omitempty"`
 	Buildings  []BuildingData  `json:"buildings"`
 	Lifts      []LiftData      `json:"lifts"`
 	Trails     []TrailData     `json:"trails,omitempty"`
@@ -165,7 +177,9 @@ type CellData struct {
 	Grooming     float32     `json:"gr,omitempty"`
 	MogulSize    float32     `json:"mg,omitempty"`
 	SkierTraffic float32     `json:"st,omitempty"`
-	TreeDensity  float32     `json:"td,omitempty"`
+	// TreeDensity is the old per-cell forest density. Read on load and
+	// converted to stored trees (ScenarioData.Trees); never written.
+	TreeDensity float32 `json:"td,omitempty"`
 }
 
 // ObjectData is a placed natural object.

@@ -96,11 +96,12 @@ func parkingPadCells(t *world.Terrain, b *world.Building) map[[2]int]bool {
 }
 
 // plowParkingCell strips a pad cell to bare, tree-free ground.
-func plowParkingCell(c *world.Cell) {
+func plowParkingCell(t *world.Terrain, x, z int) {
+	c := &t.Cells[x][z]
 	c.Base = 0
 	c.Top = world.SnowLayer{}
-	c.TreeDensity = 0
 	c.MogulSize = 0
+	t.ClearTreesInCell(x, z)
 }
 
 // applyParkingLotEffects grades a painted lot: the lot and its shoulder
@@ -132,7 +133,7 @@ func gradePaintedPad(w *world.World, b *world.Building, maxGrade float32) {
 	for c := range pad {
 		cell := &t.Cells[c[0]][c[1]]
 		cell.GroundElevation = plane.at(c)
-		plowParkingCell(cell)
+		plowParkingCell(t, c[0], c[1])
 		x0, z0 = min(x0, c[0]), min(z0, c[1])
 		x1, z1 = max(x1, c[0]), max(z1, c[1])
 		for _, d := range [4][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}} {
@@ -177,7 +178,7 @@ func gradePaintedPad(w *world.World, b *world.Building, maxGrade float32) {
 			cell.Top.Accumulation *= 1 - blend
 			cell.MogulSize *= 1 - blend
 			if blend > 0.5 {
-				cell.TreeDensity = 0
+				t.ClearTreesInCell(x, z)
 			}
 		}
 	}
@@ -194,7 +195,7 @@ func replowParkingLots(w *world.World) {
 			continue
 		}
 		for c := range parkingPadCells(w.Terrain, b) {
-			plowParkingCell(&w.Terrain.Cells[c[0]][c[1]])
+			plowParkingCell(w.Terrain, c[0], c[1])
 		}
 	}
 }

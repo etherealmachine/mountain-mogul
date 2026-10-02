@@ -6,7 +6,7 @@ import (
 	"mountain-mogul/internal/world"
 )
 
-// Patching instability after a tree-density edit must leave the vertex
+// Patching instability after a tree edit must leave the vertex
 // stream exactly as a full rebuild would.
 func TestPatchInstabilityMatchesRebuild(t *testing.T) {
 	const n = 20
@@ -16,14 +16,14 @@ func TestPatchInstabilityMatchesRebuild(t *testing.T) {
 			c := &tr.Cells[x][z]
 			c.Slope = 0.6 + float32((x+z)%5)*0.05
 			c.Top.Accumulation = 0.3
-			c.TreeDensity = float32((x*3+z)%4) / 3
+			tr.SetCellTreesFromDensity(x, z, float32((x*3+z)%4)/3)
 		}
 	}
 	verts, _, _, _, surfaceVerts := buildTerrainVerts(tr)
 
 	for x := 6; x <= 10; x++ {
 		for z := 4; z <= 8; z++ {
-			tr.Cells[x][z].TreeDensity *= 0.2
+			tr.SetCellTreesFromDensity(x, z, float32((x*3+z)%4)/3*0.2)
 		}
 	}
 	first, last := patchInstability(verts, surfaceVerts, tr, 6, 4, 10, 8)

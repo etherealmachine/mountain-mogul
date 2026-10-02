@@ -7,17 +7,25 @@ import (
 	"mountain-mogul/internal/render"
 )
 
-// TextInput is a single-line editable text field. It consumes app.Input
-// (CharInput, Pressed) directly so callers don't have to plumb characters
-// through. Submit and cancel callbacks let the parent close the modal that
-// hosts the field.
+// TextInput is an editable text field, single-line unless Multiline. It
+// consumes app.Input (CharInput, Pressed) directly so callers don't have
+// to plumb characters through. Submit and cancel callbacks let the parent
+// close the modal that hosts the field.
 type TextInput struct {
 	X, Y, W, H float32
 	Text       string
 	MaxLen     int
 
+	// Multiline wraps the text to the field's width, and Enter starts a
+	// new line instead of submitting.
+	Multiline bool
+
 	OnSubmit func(text string)
 	OnCancel func()
+
+	// HideCursor stops Draw showing the cursor, for a field in a form
+	// that doesn't have focus.
+	HideCursor bool
 
 	// blink animates the cursor; ticks once per call to HandleInput so it
 	// blinks regardless of the underlying scene's frame rate.
@@ -59,7 +67,12 @@ func (t *TextInput) HandleInput(in *engine.Input) {
 		t.Text = string(runes[:len(runes)-1])
 	}
 	if in.Pressed[glfw.KeyEnter] || in.Pressed[glfw.KeyKPEnter] {
-		if t.OnSubmit != nil {
+		switch {
+		case t.Multiline:
+			if len(t.Text) < t.MaxLen {
+				t.Text += "\n"
+			}
+		case t.OnSubmit != nil:
 			t.OnSubmit(t.Text)
 		}
 	}
@@ -79,11 +92,36 @@ func (t *TextInput) Draw(r *render.Renderer) {
 	}
 	textX := t.X + 8
 	textY := t.Y + (t.H-float32(render.GlyphH))/2
-	r.Font.DrawText(r, t.Text, textX, textY, mgl32.Vec4{1, 1, 1, 1})
+	last := t.Text
+	if t.Multiline {
+		lines := WrapText(t.Text, t.W-16, r.Font.TextWidth)
+		lineH := float32(render.GlyphH) + 4
+		// Keep the end of the text, where typing happens, in view.
+		visible := int((t.H - 12) / lineH)
+		if visible < 1 {
+			visible = 1
+		}
+		if len(lines) > visible {
+			lines = lines[len(lines)-visible:]
+		}
+		textY = t.Y + 6
+		for i, line := range lines {
+			r.Font.DrawText(r, line, textX, textY+float32(i)*lineH, mgl32.Vec4{1, 1, 1, 1})
+		}
+		textY += float32(len(lines)-1) * lineH
+		last = lines[len(lines)-1]
+	} else {
+		r.Font.DrawText(r, t.Text, textX, textY, mgl32.Vec4{1, 1, 1, 1})
+	}
 
 	// Blinking cursor: visible roughly half the time at ~1 Hz @ 60 fps.
-	if (t.blink/30)%2 == 0 {
-		cursorX := textX + r.Font.TextWidth(t.Text)
+	if !t.HideCursor && (t.blink/30)%2 == 0 {
+		cursorX := textX + r.Font.TextWidth(last)
 		r.DrawColorRect(cursorX, textY, 2, float32(render.GlyphH), mgl32.Vec4{1, 1, 1, 1})
 	}
+}
+
+// Contains reports whether the point is over the field.
+func (t *TextInput) Contains(mx, my float32) bool {
+	return mx >= t.X && mx <= t.X+t.W && my >= t.Y && my <= t.Y+t.H
 }
