@@ -13,7 +13,7 @@ A separate scene for authoring the scenarios New Game starts from, with no simul
 - automatic forest from layered noise and drainage, thinned above treeline and on cliffs (see [[Terrain]])
 - the scenario's start date, which sets day one of the [[Calendar]]
 
-Files open and save in `assets/scenarios/` in the [[Save Format]], with an unsaved-changes marker in the title. New maps come from [[Terrain Import]].
+Files open and save in `assets/scenarios/` in the [[Save Format]], with an unsaved-changes marker in the title. New maps come from [[Terrain Import]]. What it makes are [[Scenarios]]; the title shows the file name, since scenarios have no display name yet ([[Scenario Metadata]]).
 
 Code: `internal/scene/editor*.go`, `snowgen.go`, `forestgen.go`, `autogen.go`.
 

@@ -12,7 +12,9 @@ The resort rating is a slow running average of each departing guest's [[Satisfac
 
 A guest without a pass is turned away if no building sells [[Tickets]]. On arrival, guests pay for parking at the lot (see [[Parking and Roads]]), and the ticket price is set aside from their budget. That money, and their spending on [[Amenities]], lands in [[Finance]].
 
-Not built yet: [[Weather]] affecting arrivals, per-lot weighting, and guests remembering their last visit.
+The catchment is a fixed 10,000 people whatever the resort's size. [[First Week Balance]] plans to scale it with land, lifts, and trails, and to weight skill toward the terrain that's built.
+
+Not built yet: [[Weather]] affecting arrivals, per-lot weighting, guests remembering their last visit, and what each skill level wants beyond terrain (rentals, food and rest, no crowds).
 
 Spec: [[Demand Spec]]. Code: `internal/sim/demand.go`.
 

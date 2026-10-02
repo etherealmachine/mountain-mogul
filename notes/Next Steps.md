@@ -24,10 +24,17 @@ Collected from the old `NEXT.md`, `MVP.md`, and `DESIGN.md` (all now deleted) an
 
 - "Release cat is wrong" (from the old `NEXT.md`; needs a better description)
 
+### Scenarios ([[Scenarios]])
+
+- [[Scenario Metadata]]: a display name, description, location, and difficulty for each scenario; Boreal becomes the named tutorial
+- [[Scenario Goals and Rules]]: win conditions, per-scenario rules (no grooming, no cars, skiers only), climate, and unlocking in order
+- [[Scenario Campaign]]: eight real resorts from [[Boreal]] to [[Palisades Tahoe]], each needing features listed elsewhere on this page
+- Road closures that stop arrivals, for [[Alta]]
+- A rating per guest skill level, for [[Kirkwood]]
+
 ### Lifts and lines ([[Lifts]])
 
 - Spawn arriving riders on both sides of the lift line
-- Lift attendants: two required (top and bottom), a third speeds loading on multi-seat chairs
 - Chairs that don't always fill, more often with beginners in line
 - Lift lines that wrap around buildings instead of through them
 - Wear, breakdowns, and a maintenance contract
@@ -35,18 +42,29 @@ Collected from the old `NEXT.md`, `MVP.md`, and `DESIGN.md` (all now deleted) an
 
 ### Base area ([[Amenities]], [[Lodge Shell]], [[Pathfinding]])
 
+- [[Building Interiors]]: a legend for the cutaway's colors and doors, then procedurally placed furniture
 - [[Rental Shop]]: the next amenity and the first staffing puzzle
-- Staffing for rental, food court, and bar
+- Amenities with views and quality, which change how attractive they are to [[GOAP]] and what they can charge
 - Door queues and service rates
 - Lockers and ski school
 - Painted footpaths between buildings, with guests walking skis-off
 - Ski racks where paths meet the snow
 - Lodge storeys, a style choice, and a shuffle button
 
+### Staff
+
+- Employees as people: they drive in, park in an employee lot, and walk to their work stations
+- [[GOAP]] for employees (get to work, take breaks, go home), not only guests
+- Employee housing, so the resort can staff up where commuting is hard
+- Lift attendants: two required (top and bottom), a third speeds loading on multi-seat chairs. Each lift is already charged for two attendants a day, but there are no attendants on the map
+- Staffing for rental, food court, and bar
+
 ### Mountain ([[Weather]], [[Avalanche]], [[Trails]])
 
 - Weather affecting arrivals and guest mood
 - A daily wind direction instead of one per scenario
+- Weather tailored to each scenario from real-world climate data (monthly snowfall, temperatures, storm frequency); see [[Scenario Goals and Rules]]
+- Glaciers: year-round snow at the top of high resorts like [[Zermatt]]
 - Avalanche control: explosives, closures, barriers
 - An avalanche risk overlay before release
 - Trail closures and slow zones
@@ -54,7 +72,8 @@ Collected from the old `NEXT.md`, `MVP.md`, and `DESIGN.md` (all now deleted) an
 ### Economy ([[Demand]], [[Finance]])
 
 - "Loans" (from the old `NEXT.md`; a credit line already exists, so this needs scoping)
-- A full rebalance of build and operating costs
+- [[First Week Balance]]: starting cash buys a parking lot, a short lift, and a cat shed; the guest pool scales with the resort; a week of revenue buys about one lift
+- A full rebalance of build and operating costs, after First Week Balance
 - Parking choice weighted by distance to the lifts
 - Guests remembering their last visit
 
@@ -64,6 +83,8 @@ Collected from the old `NEXT.md`, `MVP.md`, and `DESIGN.md` (all now deleted) an
 
 ### Guests ([[GOAP]], [[Satisfaction]])
 
+- What each skill wants: beginners want rentals and easy terrain; intermediates want terrain plus plenty of food and places to rest; advanced skiers want terrain and no crowds. Feeds [[Demand]], [[Satisfaction]], and [[Kirkwood]]
+- Non-skiing guests who come for the other activities, the food, and the village
 - Guest goals beyond lapping: hunt powder, find the shortest line, go to après-ski, stay near the lodge
 - Guests who like moguls, and an expert bombing a mogul run entertaining the lift above it
 - Rating feedback that names the top complaints (long lines, wrong difficulty, falls, full parking)
@@ -74,7 +95,10 @@ Collected from the old `NEXT.md`, `MVP.md`, and `DESIGN.md` (all now deleted) an
 - Surface lifts for beginners: magic carpet, T-bar, rope tow
 - Cat skiing for advanced guests
 - Cat trails: easy ways down for beginners that get crowded
-- A ski area boundary, with injuries outside patrol coverage hitting the rating hard
+- A ski area boundary tied to land purchase ([[Parcels]]), with injuries outside patrol coverage hitting the rating hard
+- Backcountry trails beyond the boundary: gates, no patrol or grooming, expert guests only (pairs with the bootpacking easter egg)
+- Better cliffs: steep faces that read as rock and that guests avoid or drop
+- Rivers and frozen lakes
 - Biomes (forested, sub-alpine, alpine) changing build cost, grooming quality, and injury risk
 
 ### Safety ([[Ski Patrol]])
@@ -90,12 +114,13 @@ Collected from the old `NEXT.md`, `MVP.md`, and `DESIGN.md` (all now deleted) an
 - Houses: more income than condos, more land
 - Zoning the base area for parking, hotels, condos, and retail
 - Shops
-- Non-ski attractions: an ice rink and a sledding hill
+- Non-ski attractions: an ice rink, a sledding hill, snowmobile tours, and cross-country trails
 
 ### Engine ([[Rendering]], [[Model Pipeline]])
 
+- [[Hiding the Grid]]: smooth the parcel fence, trail and other painted overlays, and groomed runs so the 5 m cells don't show
 - Choose an animation approach: procedural in the shader as now, glTF skinned meshes, baked keyframes, or blended poses
-- More environmental variety: deciduous trees, dead snags, saplings, shrubs, rocks
+- More environmental variety: tree species, deciduous trees, dead snags, saplings, shrubs and other plants, rocks
 - Terrain look: snow sparkle and blue-shifted shadows, drifts on lee slopes
 - Performance toward 5,000 guests: persistent buffers, culling the guest batch, lower-detail skier meshes
 
@@ -111,10 +136,13 @@ Things that happen on their own when conditions are right, not placed by the pla
 
 ### New content
 
-- Snowboarders
+- Snowboarder behavior: guests already roll Snowboard, but they still ski and look like skiers (see [[Guest Types]])
+- Children and families, as their own guest type ([[Guest Types]])
 - Tunnels
 - Trains, as a second way to arrive without a parking footprint
 
 ## Log
 
 - 2026-10-01: Created from `NEXT.md`, `MVP.md`, `DESIGN.md`, and the cards, then deleted those three files. Only Stored Trees is ranked.
+- 2026-10-01: Added the Scenarios section.
+- 2026-10-02: Merged the user's Google Keep list: added First Week Balance, a Staff section, skill wants, glaciers, climate data, backcountry, cliffs and water, and more activities.

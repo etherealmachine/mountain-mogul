@@ -17,7 +17,7 @@ In the game now:
 
 [[Rental Shop]] is the next one in the season story. Lockers, ski school, ski racks, and door queues are in the same part of [[Vision]] and do not have cards yet.
 
-Guests reach these through [[GOAP]], not by wandering the shell.
+Guests reach these through [[GOAP]], not by wandering the shell. Planned in [[Next Steps]]: views and a quality level that make an amenity more attractive and let it charge more, and staff who show up to run it.
 
 ## Log
 

@@ -14,6 +14,8 @@ Light follows the [[Calendar]] sun with moonlight at night. Terrain shadows come
 
 Meshes come from the [[Model Pipeline]].
 
+Gameplay runs on 5 m cells, and the parcel fence, painted overlays, and grooming draw those cells directly, so the grid shows. [[Hiding the Grid]] plans smoothing each from the cell data.
+
 Code: `internal/render/`, shaders in `assets/shaders/`.
 
 ## Log

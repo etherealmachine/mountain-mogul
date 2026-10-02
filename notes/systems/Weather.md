@@ -10,7 +10,7 @@ A daily Markov chain with five states: clear, overcast, light snow, storm, and r
 
 Each day's weather feeds [[Snow]]: new layers on snow days, surface changes on dry days (rain, cold clear, warm clear, wind), and melt through the hourly temperature curve. A big snowfall or a rain day triggers an [[Avalanche]] check. The hourly temperature also decides whether [[Snowmaking]] can run. [[Calendar]] fast-forward can stop just before the next storm.
 
-Weather does not yet affect [[Demand]] or [[Satisfaction]], and wind direction is fixed per scenario rather than changing daily.
+Weather does not yet affect [[Demand]] or [[Satisfaction]], and wind direction is fixed per scenario rather than changing daily. Every map shares the same monthly odds; the plan is to tailor them per scenario from real-world climate data ([[Scenario Goals and Rules]]).
 
 Spec: [[Weather Spec]]. Code: `internal/sim/weather.go`, `temperature.go`, `storm.go`.
 

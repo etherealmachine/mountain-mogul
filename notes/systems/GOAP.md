@@ -6,7 +6,7 @@ status: partial
 
 # GOAP
 
-The guest's strategic layer, in `internal/ai/goap/`. Each guest has a snapshot of their own state, a handful of goals, and actions with preconditions, effects, and costs. At a replan the highest-weighted unsatisfied goal wins, and a search picks the cheapest chain of actions that satisfies it. The head action is what the skiing controller steers toward. New behavior is a goal plus an action, not a new state machine.
+The guest's strategic layer, in `internal/ai/goap/`. Each guest has a snapshot of their own state, a handful of goals, and actions with preconditions, effects, and costs. At a replan the highest-weighted unsatisfied goal wins, and a search picks the cheapest chain of actions that satisfies it. The head action is what the skiing controller steers toward. New behavior is a goal plus an action, not a new state machine. Every guest weighs the same global goal list today; non-skiers, children, and staff will need their own sets (see [[Guest Types]]).
 
 It replans when the plan is empty, when the head action finishes, or when that action's precondition breaks. A need that crosses its threshold mid-plan can preempt the next step, so a guest who gets hungry on a lap heads for food instead of finishing the lap. It does not poll on a timer.
 
