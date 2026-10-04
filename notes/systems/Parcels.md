@@ -10,6 +10,8 @@ The scenario divides the map into named parcels that are owned, for sale, or off
 
 In the season story, buying the mid-mountain bowl and later the alpine face is how the resort grows; see [[Vision]]. Parcels are drawn on the [[Terrain]] when a scenario is authored. A rope fence marks the edge of owned land; it follows cell edges, so diagonal boundaries look like staircases ([[Hiding the Grid]]).
 
+A ski area boundary, better land purchase, and protected land and buildings are planned in [[Land and Boundaries]].
+
 Code: `internal/world/parcel.go`.
 
 ## Log

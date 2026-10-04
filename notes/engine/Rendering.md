@@ -18,6 +18,8 @@ Gameplay runs on 5 m cells, and the parcel fence, painted overlays, and grooming
 
 Code: `internal/render/`, shaders in `assets/shaders/`.
 
+Rock on cliffs, water, and snow sparkle are planned in [[Terrain Realism]].
+
 ## Log
 
 - 2026-10-01: Passes, snow shading, detail texture, overlays, sun and horizon shadows, object shadow map, night lamps, and weather overlay are in.

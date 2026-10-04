@@ -12,7 +12,7 @@ Lift types run from a fixed double through the fixed quad, high-speed quad, high
 
 The [[Trails]] off a lift's top decide which skill levels it serves.
 
-Not built yet, from [[Vision]] and [[Next Steps]]: wear, breakdowns, and a maintenance contract; wind holds that spare the gondola; lift attendants as people on the map (each lift already pays for two a day); partly filled chairs; and lift lines that wrap around buildings.
+Not built yet, from [[Vision]] and [[Next Steps]]: wear, breakdowns, wind holds, downloading, and refusing overlapping lifts ([[Lift Operations]]); lift attendants as people on the map (each lift already pays for two a day); partly filled chairs; and lift lines that wrap around buildings.
 
 Code: `internal/world/lift.go`. Upgrades: `UpgradeLift` in `internal/world/world.go`.
 

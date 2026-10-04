@@ -14,6 +14,8 @@ Placing a lift station or a painted pad grades the ground beneath it into a leve
 
 Spec: the elevation contract and apron pass in [[Snow Spec]]. Code: `internal/world/terrain.go`, `forest.go`, `internal/geo/`, `internal/scene/embankment.go`.
 
+Cliffs, creeks, and a less uniform look are planned in [[Terrain Realism]].
+
 ## Log
 
 - 2026-10-01: Real-world import, brushes, trees, aprons, and embankments are in.

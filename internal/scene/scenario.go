@@ -453,8 +453,8 @@ const (
 	toolEdgeConnect  toolMode = iota // place a map-edge road connection node (editor only)
 	toolPatrolHut    toolMode = iota // place a ski patrol hut
 	toolSnowGun      toolMode = iota // place a snowmaking cannon
-	toolGlade        toolMode = iota // reduce TreeDensity (brush)
-	toolPlantTrees   toolMode = iota // increase TreeDensity (brush, editor only)
+	toolGlade        toolMode = iota // remove trees (brush)
+	toolPlantTrees   toolMode = iota // plant trees (brush, editor only)
 	toolRemove       toolMode = iota // remove building at clicked cell
 	toolTrailPaint   toolMode = iota // paint/erase cells on the active trail
 	toolLandBuy      toolMode = iota // click to purchase a land parcel

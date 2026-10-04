@@ -14,6 +14,8 @@ Cats cost a purchase price and a daily cost that differs between active and stan
 
 Spec: [[Snow Spec]]. Code: `internal/sim/snowcats.go`, `internal/world/snowcat.go`.
 
+Corduroy that looks real in the terrain shader (lit ridges, lane seams, turn marks) is in [[Next Steps]], after [[Hiding the Grid]].
+
 ## Log
 
 - 2026-10-01: Sheds, routes, sections, nightly passes, and active and standby costs are in.

@@ -10,7 +10,7 @@ A scenario is the starting state for a new game: a save file in `assets/scenario
 
 Each scenario also carries a display name, location, difficulty (1 to 5), campaign order, tutorial flag, and description, set in the editor's Scenario details dialog ([[Scenario Metadata]]). The picker lists scenarios by name, tutorial first and then in campaign order, and a pick opens a panel with the description before Play. Games started from a scenario keep its info, so the save list shows which mountain each save is on.
 
-The only scenario is [[Boreal]] (`tutorial.save`).
+There are two scenarios: [[Boreal]] (`tutorial.save`), the tutorial, and [[Kirkwood]] (`kirkwood.save`), step 2 of the [[Scenario Campaign]].
 
 What a scenario can't do yet: set goals or rules. A scenario sets where you start, not what you're trying to do or what's different about this mountain.
 
@@ -22,3 +22,4 @@ Code: `internal/scene/scenariopicker.go`, `editor_file.go`, `editor_details.go`;
 
 - 2026-10-01: One scenario (Boreal, as `tutorial.save`). No names, descriptions, goals, or rules.
 - 2026-10-02: Scenarios have names, descriptions, locations, difficulty, and campaign order, shown in the picker and set in the editor.
+- 2026-10-03: Added Kirkwood, the second scenario.

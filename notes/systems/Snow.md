@@ -20,6 +20,8 @@ A lift whose base has no snow goes on hold (see [[Lifts]]).
 
 Spec: [[Snow Spec]].
 
+Snow that varies with sun and aspect from the start, and looks less plastic, is planned in [[Terrain Realism]].
+
 ## Log
 
 - 2026-10-01: Layers, kinds, weather transitions, sun-aware melt, traffic, moguls, and the 1 m track texture are in.

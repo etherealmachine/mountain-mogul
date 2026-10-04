@@ -34,3 +34,4 @@ Not ranked or written up yet:
 ## Log
 
 - 2026-10-01: Sketched eight scenarios and five more ideas. Only Boreal exists.
+- 2026-10-03: Kirkwood exists as `kirkwood.save`. Boreal and Kirkwood are playable; the other six are still ideas.

@@ -21,6 +21,7 @@ In the order to work on them:
    6. Unlocking in campaign order, with progress kept in a small file next to the saves.
    7. Boreal's goals: open the resort, a guest count in one day, a decent rating through a weekend; a second lift as a bonus. Targets need playtesting with [[First Week Balance]].
 2. The [[Scenario Campaign]] scenarios, starting with [[Kirkwood]], each pulling in the features it needs
+3. [[Terrain Realism]]: cliffs, a finer terrain mesh around cliffs and creeks, creeks as terrain shape, snow that doesn't look plastic, then auto-snow from climate parameters stored in each scenario
 
 The rest is not ranked yet. Move items up here as they get prioritized.
 
@@ -31,6 +32,7 @@ Collected from the old `NEXT.md`, `MVP.md`, and `DESIGN.md` (all now deleted) an
 ### Bugs
 
 - "Release cat is wrong" (from the old `NEXT.md`; needs a better description)
+- In a headless two-day run of Boreal and of Kirkwood, with a ticket office and green, blue, and black trails added by the test, every guest left with "couldn't find where to buy a ticket" and none rode the lift. Possibly the same cause as the failing `internal/ai/goap` planner tests (no plan for KeepSkiing from parking), or the test's ticket office placement; needs a look in the real game
 
 ### Scenarios ([[Scenarios]])
 
@@ -42,8 +44,7 @@ Collected from the old `NEXT.md`, `MVP.md`, and `DESIGN.md` (all now deleted) an
 - Spawn arriving riders on both sides of the lift line
 - Chairs that don't always fill, more often with beginners in line
 - Lift lines that wrap around buildings instead of through them
-- Wear, breakdowns, and a maintenance contract
-- Wind holds that spare the gondola
+- [[Lift Operations]]: no overlapping lifts, then breakdowns and a maintenance contract, wind holds that spare the gondola, and guests downloading
 
 ### Base area ([[Amenities]], [[Lodge Shell]], [[Pathfinding]])
 
@@ -76,6 +77,7 @@ Collected from the old `NEXT.md`, `MVP.md`, and `DESIGN.md` (all now deleted) an
 
 ### Economy ([[Demand]], [[Finance]])
 
+- [[Money Feedback]]: a floating "-$600" when you spend, cost previews for every tool that costs money, and income and cost flashes on the top-bar cash display
 - "Loans" (from the old `NEXT.md`; a credit line already exists, so this needs scoping)
 - [[First Week Balance]]: starting cash buys a parking lot, a short lift, and a cat shed; the guest pool scales with the resort; a week of revenue buys about one lift
 - A full rebalance of build and operating costs, after First Week Balance
@@ -100,10 +102,8 @@ Collected from the old `NEXT.md`, `MVP.md`, and `DESIGN.md` (all now deleted) an
 - Surface lifts for beginners: magic carpet, T-bar, rope tow
 - Cat skiing for advanced guests
 - Cat trails: easy ways down for beginners that get crowded
-- A ski area boundary tied to land purchase ([[Parcels]]), with injuries outside patrol coverage hitting the rating hard
+- [[Land and Boundaries]]: a ski area boundary, land purchase as a real decision, protected land, and protected buildings ([[Parcels]])
 - Backcountry trails beyond the boundary: gates, no patrol or grooming, expert guests only (pairs with the bootpacking easter egg)
-- Better cliffs: steep faces that read as rock and that guests avoid or drop
-- Rivers and frozen lakes
 - Glade-loving and tree-shy guests reacting to trunks nearby rather than the cell's cover ([[Trees]])
 - A glade highlight and thinning slider in the editor, matching the play tool ([[Trees]])
 - Biomes (forested, sub-alpine, alpine) changing build cost, grooming quality, and injury risk
@@ -126,9 +126,10 @@ Collected from the old `NEXT.md`, `MVP.md`, and `DESIGN.md` (all now deleted) an
 ### Engine ([[Rendering]], [[Model Pipeline]])
 
 - [[Hiding the Grid]]: smooth the parcel fence, trail and other painted overlays, and groomed runs so the 5 m cells don't show
+- Real grooming in the terrain shader: corduroy as fine ridges lit by the sun, cat lanes with seams where passes overlap, turn marks at the ends, and skier tracks wearing it away. Builds on drawing grooming from where the cat drove ([[Hiding the Grid]], step 3) ([[Grooming]])
 - Choose an animation approach: procedural in the shader as now, glTF skinned meshes, baked keyframes, or blended poses
 - More environmental variety: tree species, deciduous trees, dead snags, saplings, shrubs and other plants, rocks
-- Terrain look: snow sparkle and blue-shifted shadows, drifts on lee slopes
+- Drifts on lee slopes
 - Performance toward 5,000 guests: persistent buffers, culling the guest batch, lower-detail skier meshes
 
 ### Easter eggs
@@ -155,3 +156,7 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-02: Merged the user's Google Keep list: added First Week Balance, a Staff section, skill wants, glaciers, climate data, backcountry, cliffs and water, and more activities.
 - 2026-10-02: Shipped [[Stored Trees]] and moved its leftovers into Uplift and terrain.
 - 2026-10-02: Shipped [[Scenario Metadata]]. Ranked the campaign: Goals and Rules, then the scenarios.
+- 2026-10-03: Added [[Money Feedback]].
+- 2026-10-03: Added the ticket-window bug seen while testing [[Kirkwood]].
+- 2026-10-04: Added [[Terrain Realism]] as priority 3, folding in the cliffs, water, and snow sparkle lines.
+- 2026-10-05: Added [[Land and Boundaries]], [[Lift Operations]] (replacing the wear and wind-hold lines), and real grooming in the shader.
