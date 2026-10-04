@@ -29,6 +29,8 @@ flat out vec3 vNormal;
 out vec2 vTexCoord;
 flat out float vPerceived;
 out vec3 vWorldPos;
+out float vLocalY;          // height within the model, model units
+flat out float vInstanceHash; // 0..1, stable per instance
 
 void main() {
     mat4 iTransform = mat4(iTransform0, iTransform1, iTransform2, iTransform3);
@@ -36,6 +38,8 @@ void main() {
     vNormal = normalMatrix * aNormal;
     vColor = iColorTint * aBaseColor;
     vTexCoord = aTexCoord;
+    vLocalY = aPos.y;
+    vInstanceHash = fract(sin(dot(iTransform3.xz, vec2(12.9898, 78.233))) * 43758.5453);
 
     // Per-instance perception-fan test. Trees are point-instanced, so testing
     // the instance origin (translation column of iTransform) gives a uniform

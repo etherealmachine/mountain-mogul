@@ -2888,6 +2888,7 @@ func (s *Scenario) Render(r *render.Renderer) {
 	}
 	s.applyPerceptionCone(r)
 	r.WeatherOverlay = int(s.sim.Weather.Today().State)
+	r.CanopySnow = render.CanopySnowFor(r.WeatherOverlay)
 	r.Lighting = render.SunLighting(s.sim.Sun().Dir, r.WeatherOverlay)
 	r.DrawWorld(s.world, s.time)
 	r.ClearBrush()

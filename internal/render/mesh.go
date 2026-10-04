@@ -71,6 +71,7 @@ type Mesh struct {
 	IndexCount    int32
 	Layout        []int    // per-vertex attribute sizes in floats
 	Locations     []uint32 // optional GL location overrides per layout entry; nil → 0..N-1
+	MaxY          float32  // top of the model in model units (OBJ meshes only)
 }
 
 // VertexColorLoc is the GL attribute location reserved for per-vertex base

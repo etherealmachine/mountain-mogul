@@ -309,6 +309,9 @@ func loadOBJFile(path string) (*Mesh, uint32, error) {
 	}
 
 	mesh := NewMesh(vertices, indices, []int{3, 3, 2, 3}, []uint32{0, 1, 2, VertexColorLoc})
+	for _, p := range positions {
+		mesh.MaxY = max(mesh.MaxY, p[1])
+	}
 
 	// Load texture from MTL if present
 	texID := whiteTexture()

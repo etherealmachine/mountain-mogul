@@ -39,7 +39,7 @@ Switches set per scenario:
 - **No grooming.** Snowcats and sheds are hidden and refused, and guests judge the resort on powder instead of corduroy ([[Grooming]]).
 - **No cars.** Roads and parking lots are hidden and refused; guests arrive by train ([[Parking and Roads]]). Needs a train arrival, so this rule ships with [[Zermatt]].
 - **Skiers only.** No snowboarders in the catchment ([[Guest Types]]).
-- **No snowmaking**, or a water budget ([[Snowmaking]]).
+- **No snowmaking** ([[Snowmaking]]).
 - **Locals' resort.** A local-feel score that drops with crowding, high prices, and too few pass holders. Usable as a goal ("keep local feel above 60%") rather than a hard switch.
 - **Climate.** Each scenario picks its own monthly [[Weather]] profiles, ideally fitted to real-world climate data. A southern-hemisphere resort also needs the season to run June to October.
 

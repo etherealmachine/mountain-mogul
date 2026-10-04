@@ -1800,6 +1800,7 @@ func (e *Editor) Render(r *render.Renderer) {
 	}
 
 	r.WeatherOverlay = 0
+	r.CanopySnow = 0
 	r.Lighting = render.DefaultLighting
 	r.DrawWorld(e.world, 0)
 	r.ClearBrush()

@@ -120,6 +120,10 @@ type Renderer struct {
 	// calling DrawWorld; defaults to 0 (no overlay).
 	WeatherOverlay int
 
+	// CanopySnow is how much snow sits on tree branches, 0..1. Set by the
+	// scene each frame (see CanopySnowFor); 0 in the editor.
+	CanopySnow float32
+
 	// Lighting is the sun, fill and sky for this frame, set by the scene
 	// from the sim clock before DrawWorld. The zero value draws with
 	// DefaultLighting (fixed midday).
@@ -656,10 +660,11 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 
 	// ── Per-vertex AO (heightfield horizon sampling) ──────────────────────────
 	// For each grid point, march 8 azimuthal rays at 3 increasing radii and
-	// estimate the elevation angle to the highest blocker. Sum the saturating
-	// occlusion contributions; the result deepens valleys and the bases of
-	// cliffs without any additional GPU work. Reuses jit[] so AO sees the
-	// exact mesh surface, jitter included.
+	// estimate the elevation angle to the highest blocker above the local
+	// slope plane, so an even slope isn't darkened just for being tilted.
+	// Sum the saturating occlusion contributions; the result deepens
+	// valleys and the bases of cliffs without any additional GPU work.
+	// Reuses jit[] so AO sees the exact mesh surface, jitter included.
 	const aoRadiusMax = float32(30.0)
 	const aoRings = 3
 	const aoDirs = 8
@@ -702,6 +707,10 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 		for x := 0; x < t.Width; x++ {
 			for z := 0; z < t.Height; z++ {
 				p := jit[x*t.Height+z]
+				// Local slope plane from central differences one ring out.
+				r1 := aoRadiusMax / float32(aoRings) / cellSize
+				gx := (bilinearJit(float32(x)+r1, float32(z)) - bilinearJit(float32(x)-r1, float32(z))) / (2 * r1 * cellSize)
+				gz := (bilinearJit(float32(x), float32(z)+r1) - bilinearJit(float32(x), float32(z)-r1)) / (2 * r1 * cellSize)
 				occ := float32(0)
 				for ring := 1; ring <= aoRings; ring++ {
 					rWorld := aoRadiusMax * float32(ring) / float32(aoRings)
@@ -710,7 +719,8 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 						sx := float32(x) + rCells*cosTab[d]
 						sz := float32(z) + rCells*sinTab[d]
 						sy := bilinearJit(sx, sz)
-						tan := (sy - p - aoEpsilon) / rWorld
+						plane := p + (gx*cosTab[d]+gz*sinTab[d])*rWorld
+						tan := (sy - plane - aoEpsilon) / rWorld
 						if tan <= 0 {
 							continue
 						}
@@ -872,7 +882,7 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 	surfaceVerts = len(verts) / floatsPerVert
 
 	// ── Skirt (walls + bottom) ────────────────────────────────────────────────
-	const wallAO = float32(0.40)
+	const wallAO = float32(0.75)
 	const floorAO = float32(0.20)
 
 	emitTri := func(a, b, c, n [3]float32, ao float32) {
@@ -885,7 +895,7 @@ func buildTerrainVerts(t *world.Terrain) (verts []float32, indices []uint32, min
 				0, 0, 0, 0, // skirts get no snow-state shading
 				0,                // and no snow depth
 				n[0], n[1], n[2], // skirts: smooth normal == flat normal
-				0, // no instability score on skirts
+				-1, // marks skirt vertices for the terrain shader
 			)
 		}
 		indices = append(indices, idx, idx+1, idx+2)
@@ -2042,6 +2052,7 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	if r.scene.terrainMesh != nil {
 		r.TerrainShader.Use()
 		light.apply(r.TerrainShader)
+		r.applyHaze(r.TerrainShader)
 		applyLamps(r.TerrainShader, lamps, light.Night)
 		r.terrainShadow.apply(r.TerrainShader, light.Shadows)
 		r.shadowMap.apply(r.TerrainShader, light.Shadows)
@@ -2084,6 +2095,7 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	// Static pass
 	r.StaticShader.Use()
 	light.apply(r.StaticShader)
+	r.applyHaze(r.StaticShader)
 	applyLamps(r.StaticShader, lamps, light.Night)
 	r.terrainShadow.apply(r.StaticShader, light.Shadows)
 	r.shadowMap.apply(r.StaticShader, light.Shadows)
@@ -2094,6 +2106,7 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	r.StaticShader.SetVec2("uPerceptionForwardXZ", r.perceptionForwardXZ)
 	r.StaticShader.SetFloat("uPerceptionCosHalfAngle", r.perceptionCosHalfAngle)
 	r.StaticShader.SetFloat("uPerceptionRadius", r.perceptionRadius)
+	r.StaticShader.SetFloat("uCanopySnow", r.CanopySnow)
 	gl.ActiveTexture(gl.TEXTURE0)
 
 	// Road pass — drawn before the static batch so buildings/trees sit on
@@ -2121,9 +2134,16 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		r.scene.parkingStripesMesh.Draw()
 	}
 
-	for _, batch := range r.staticBatches {
+	for id, batch := range r.staticBatches {
+		if isTreeMesh(id) {
+			r.StaticShader.SetInt("uFoliage", 1)
+			r.StaticShader.SetFloat("uFoliageHeight", batch.mesh.MaxY)
+		} else {
+			r.StaticShader.SetInt("uFoliage", 0)
+		}
 		batch.Draw()
 	}
+	r.StaticShader.SetInt("uFoliage", 0)
 
 	// Cable pass — world-space meshes, drawn with identity instance
 	// transform. Towers are instanced through the static batch above.
@@ -2168,6 +2188,7 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	// Dynamic pass (agents)
 	r.DynamicShader.Use()
 	light.apply(r.DynamicShader)
+	r.applyHaze(r.DynamicShader)
 	r.DynamicShader.SetFloat("uEmissive", 0)
 	r.terrainShadow.apply(r.DynamicShader, light.Shadows)
 	r.shadowMap.apply(r.DynamicShader, light.Shadows)
@@ -3038,6 +3059,25 @@ func setParkingStripeTransformAttribs() {
 	gl.VertexAttrib4f(5, 0, 0, 1, 0)
 	gl.VertexAttrib4f(6, 0, 0, 0, 1)
 	gl.VertexAttrib3f(7, 0.90, 0.90, 0.88)
+}
+
+// applyHaze sets the atmospheric haze uniforms (lighting.glsl applyHaze)
+// from the camera and the terrain's elevation range.
+func (r *Renderer) applyHaze(s *Shader) {
+	if r.Camera.Perspective || r.scene.terrainMaxY <= r.scene.terrainMinY {
+		s.SetInt("uHazeOn", 0)
+		return
+	}
+	s.SetInt("uHazeOn", 1)
+	s.SetVec3("uHazeOrigin", r.Camera.Target)
+	s.SetVec3("uHazeForward", r.Camera.Target.Sub(r.Camera.WorldPos()).Normalize())
+	s.SetVec2("uHazeLowHigh", mgl32.Vec2{r.scene.terrainMinY, r.scene.terrainMaxY})
+}
+
+// isTreeMesh reports whether a static batch ID is one of the conifer meshes,
+// which the static shader lights as foliage.
+func isTreeMesh(id uint32) bool {
+	return id == MeshTree || id == MeshTree2 || id == MeshTree3
 }
 
 // treeTintForVariant returns the per-instance ColorTint for a tree variant.

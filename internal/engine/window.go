@@ -18,6 +18,7 @@ func CreateWindow(title string, width, height int) (*glfw.Window, error) {
 	glfw.WindowHint(glfw.OpenGLProfile, glfw.OpenGLCoreProfile)
 	glfw.WindowHint(glfw.OpenGLForwardCompatible, glfw.True)
 	glfw.WindowHint(glfw.Resizable, glfw.True)
+	glfw.WindowHint(glfw.Samples, 4)
 
 	win, err := glfw.CreateWindow(width, height, title, nil, nil)
 	if err != nil {

@@ -7,7 +7,7 @@ in float vAO;
 in vec4  vSnow;             // (Grooming, Packed, Ice, MogulSize)
 in float vSnowDepth;        // SnowDepth in metres
 in vec3  vSmoothNormal;     // per-corner smoothed normal, interpolated across triangles
-in float vInstabilityScore; // Cell.InstabilityScore(); 0=stable, 1.0=release threshold
+in float vInstabilityScore; // Cell.InstabilityScore(); 0=stable, 1.0=release threshold; -1 on map-edge skirts
 
 uniform vec2  uBrushCenter;
 uniform float uBrushRadius;
@@ -125,14 +125,15 @@ void main() {
     float rocky     = 1.0 - smoothstep(0.55, 0.78, slope);
     vec3  ground    = mix(groundFlat, rock, rocky);
 
-    // Snow palette — the previous topographic gradient. Packed reads
-    // slightly bluer / ~5 % darker than fresh powder; modulate before
-    // mixing with ground so packed never leaks onto bare rock.
-    vec3 lowFlat   = vec3(0.82, 0.85, 0.92);             // cool shadow tint
-    vec3 midPowder = vec3(0.92, 0.94, 0.97);
-    vec3 highWhite = vec3(0.99, 0.99, 1.00);
-    vec3 snow      = mix(lowFlat, midPowder, smoothstep(0.20, 0.55, h));
-         snow      = mix(snow,    highWhite, smoothstep(0.65, 0.95, h));
+    // Snow albedo. Packed reads slightly bluer / darker than fresh powder;
+    // modulate before mixing with ground so packed never leaks onto bare
+    // rock. Shade colour comes from the sky fill, not from elevation.
+    vec3 snow      = vec3(0.95, 0.96, 0.98);
+    // Broad patchiness so a snowfield isn't one flat sheet: sheltered
+    // patches a touch brighter and warmer, scoured ones greyer and cooler.
+    float patchN = valueNoise(vWorldPos.xz / 40.0 + vec2(71.3, 12.9)) * 0.65
+                 + valueNoise(vWorldPos.xz / 9.0 + vec2(5.1, 33.7)) * 0.35;
+    snow *= mix(vec3(0.95, 0.96, 0.99), vec3(1.02, 1.01, 0.99), patchN);
     // Packed-snow tint — noticeably cooler and a touch darker than
     // fresh powder. The geometric depth step at a groomed/powder
     // boundary is only a soft 2-cell ramp (corner Y is 4-cell averaged),
@@ -190,6 +191,18 @@ void main() {
 
     vec3  base     = mix(ground, snow, snowness);
 
+    // Map-edge skirt: a cross-section of banded rock, darker with depth.
+    if (vInstabilityScore < -0.5) {
+        float depthBelow = clamp((uTerrainMaxY - vWorldPos.y) / max(uTerrainMaxY - uTerrainMinY + 50.0, 1.0), 0.0, 1.0);
+        float n      = valueNoise(vec2(vWorldPos.x + vWorldPos.z, vWorldPos.y) / 3.0);
+        float y      = vWorldPos.y + n * 2.0;
+        float strata = 0.5 + 0.3 * sin(y * 0.45) + 0.2 * sin(y * 1.7 + 1.3);
+        vec3  rockA  = vec3(0.62, 0.58, 0.53);
+        vec3  rockB  = vec3(0.44, 0.42, 0.40);
+        base = mix(rockB, rockA, strata);
+        base *= mix(1.0, 0.8, depthBelow);
+    }
+
     // Procedural normal-map for sub-cell surface character. The terrain
     // mesh is one quad per 5 m cell; details finer than that — powder
     // pillows and mogul bumps — are added here as per-fragment normal
@@ -217,6 +230,19 @@ void main() {
             const float powderAmp = 0.10; // metres — matches the prior VS disp
             kick.x -= (hx - h0) / bumpEps * powderAmp * powderness;
             kick.z -= (hz - h0) / bumpEps * powderAmp * powderness;
+        }
+        // Wind drifts: broad, gentle undulation on untracked snow, tens of
+        // metres across, so lighting varies across open slopes.
+        float driftness = (1.0 - grooming) * smoothstep(0.05, 0.4, effDepth) * (1.0 - isDebris);
+        if (driftness > 0.05) {
+            vec2 off = vec2(311.7, 47.3);
+            const float driftEps = 2.0;
+            float d0 = valueNoise(vWorldPos.xz / 22.0 + off);
+            float dx = valueNoise((vWorldPos.xz + vec2(driftEps, 0)) / 22.0 + off);
+            float dz = valueNoise((vWorldPos.xz + vec2(0, driftEps)) / 22.0 + off);
+            const float driftAmp = 0.6; // metres
+            kick.x -= (dx - d0) / driftEps * driftAmp * driftness;
+            kick.z -= (dz - d0) / driftEps * driftAmp * driftness;
         }
         if (mogul > 0.01 && snowness > 0.1) {
             vec2 p0 = vWorldPos.xz;
@@ -273,20 +299,21 @@ void main() {
 
     // Wrap lighting — soft terminator that hints at sub-surface scatter on snow.
     vec3  L    = uSunDir;
-    const float wrap = 0.5;
+    const float wrap = 0.25;
     float ndl  = dot(Nshading, L);
     float diff = clamp((ndl + wrap) / (1.0 + wrap), 0.0, 1.0);
     float sunVis = keyLightVisibility(vWorldPos, N); // 0 behind ridges and in object shadows
     diff *= sunVis;
 
     // Cool-shadow / warm-highlight tint, applied to snow surfaces only.
-    vec3 cool    = vec3(0.55, 0.65, 0.85);
+    vec3 cool    = vec3(0.92, 0.95, 1.00);
     vec3 warm    = vec3(1.00, 0.95, 0.85);
     vec3 tint    = mix(cool, warm, diff);
     vec3 shaded  = base * mix(vec3(1.0), tint, snowness);
 
-    // Ambient + diffuse, multiplied by baked AO to deepen valleys / cliff bases.
-    vec3 lit = shaded * (uAmbient + 0.85 * diff * uSunColor) * vAO;
+    // Baked AO shades only the sky fill (valleys and cliff bases see less
+    // sky); direct sun is already handled by sunVis.
+    vec3 lit = shaded * (fillLight(Nshading) * vAO + 0.85 * diff * uSunColor);
     if (uLampCount > 0) {
         lit += base * lampLight(vWorldPos, Nshading) * vAO;
     }
@@ -362,17 +389,21 @@ void main() {
         }
     }
 
-    // Per-fragment sparkle: high-freq world-cell hash gated by tight specular
-    // alignment, drifting in time so cells flicker on/off without the camera
-    // having to move. Snow-only. Ice boosts specular intensity dramatically.
+    // Sparkle: every ~25 cm cell is an ice crystal facet tilted at random
+    // off the surface. It glints only when that facet mirrors the sun into
+    // the camera, so glints twinkle as the view or the sun moves and hold
+    // still otherwise. Snow-only. Ice boosts specular intensity.
     if (snowness > 0.0) {
         vec3  V    = normalize(uCameraPos - vWorldPos);
         vec3  H    = normalize(L + V);
-        float spec = pow(max(dot(Nshading, H), 0.0), 256.0) * dot(uSunColor, vec3(1.0 / 3.0)) * sunVis;
-        vec3  cell = floor(vWorldPos * 2.0 + uTime * 0.07); // ~50 cm cells
-        float gate = step(0.985 - ice * 0.05, hash3(cell));
+        vec3  cell = floor(vWorldPos * 4.0);
+        vec3  tilt = vec3(hash3(cell), hash3(cell + 17.0), hash3(cell + 41.0)) * 2.0 - 1.0;
+        vec3  facet = normalize(Nshading + tilt * 0.6);
+        float glint = pow(max(dot(facet, H), 0.0), 600.0);
+        float sparse = step(0.80 - ice * 0.15, hash3(cell + 73.0));
+        float spec = glint * sparse * dot(uSunColor, vec3(1.0 / 3.0)) * sunVis;
         // Debris doesn't sparkle — dirty rock/soil mixture kills specular glint.
-        lit += gate * spec * snowness * (1.0 + ice * 4.0) * vec3(1.4, 1.35, 1.2) * (1.0 - isDebris);
+        lit += spec * snowness * (1.0 + ice * 4.0) * vec3(2.4, 2.3, 2.1) * (1.0 - isDebris);
 
         // Ice broad specular: a wider lobe than the sparkle, no per-cell gate.
         // Reads as a sheen across icy slopes — distinct from the rough-snow
@@ -383,7 +414,7 @@ void main() {
         }
     }
 
-    fragColor = vec4(lit, 1.0);
+    fragColor = vec4(toneMap(applyHaze(lit, vWorldPos)), 1.0);
 
     // ── View overlays ────────────────────────────────────────────────────────
     // uOverlayMode is a bitmask (see render.Overlay* constants). Each

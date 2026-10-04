@@ -9,6 +9,7 @@ import (
 	"os"
 	"runtime"
 	"runtime/pprof"
+	"sort"
 	"time"
 
 	"github.com/go-gl/gl/v4.1-core/gl"
@@ -334,6 +335,9 @@ func runScreenshot(opt screenshotOpts) {
 	const benchSkip = 3
 	prev := time.Now()
 	var benchStart time.Time
+	var gpuQuery uint32
+	gl.GenQueries(1, &gpuQuery)
+	var gpuMs []float64
 	for frame := 0; frame < opt.warmupFrames; frame++ {
 		now := time.Now()
 		dt := now.Sub(prev).Seconds()
@@ -349,7 +353,16 @@ func runScreenshot(opt screenshotOpts) {
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
 		sc.Update(dt)
+		if frame >= benchSkip {
+			gl.BeginQuery(gl.TIME_ELAPSED, gpuQuery)
+		}
 		sc.Render(app.Renderer)
+		if frame >= benchSkip {
+			gl.EndQuery(gl.TIME_ELAPSED)
+			var ns uint64
+			gl.GetQueryObjectui64v(gpuQuery, gl.QUERY_RESULT, &ns)
+			gpuMs = append(gpuMs, float64(ns)/1e6)
+		}
 
 		if frame == opt.warmupFrames-1 {
 			if err := app.Renderer.SaveScreenshot(opt.outPath); err != nil {
@@ -367,6 +380,8 @@ func runScreenshot(opt screenshotOpts) {
 		fps := float64(measured) / elapsed
 		fmt.Printf("screenshot: %d frames in %.3fs = %.1f fps (%.2f ms/frame)\n",
 			measured, elapsed, fps, 1000.0/fps)
+		sort.Float64s(gpuMs)
+		fmt.Printf("screenshot: gpu render median %.2f ms/frame\n", gpuMs[len(gpuMs)/2])
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
 	"mountain-mogul/internal/render"
+	"mountain-mogul/internal/settings"
 )
 
 // App is the main application container.
@@ -58,6 +59,7 @@ func NewApp(title string, width, height int, assetDir string) *App {
 	// passed to NewRenderer, so we must query it explicitly.
 	fbW, fbH := win.GetFramebufferSize()
 	r.SetViewport(fbW, fbH)
+	render.SetAntiAliasing(!settings.Get().NoAntiAliasing)
 
 	// Framebuffer-size callback: only updates gl.Viewport (physical pixels).
 	win.SetFramebufferSizeCallback(func(_ *glfw.Window, w, h int) {

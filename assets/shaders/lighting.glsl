@@ -1,7 +1,22 @@
 // Scene lighting, set per frame from the sim clock (render.Lighting).
 uniform vec3 uSunDir;   // unit vector toward the key light: the sun by day, the moon at night
 uniform vec3 uSunColor; // key light colour × intensity; ~1 at clear noon, dim blue by moonlight
-uniform vec3 uAmbient;  // sky fill light colour × intensity
+uniform vec3 uAmbient;    // sky fill from above, colour × intensity
+uniform vec3 uGroundFill; // bounce fill from below (sunlit snow)
+
+// fillLight is the ambient reaching a surface facing n: sky from above,
+// bounce from the ground below.
+vec3 fillLight(vec3 n) {
+    return mix(uGroundFill, uAmbient, clamp(normalize(n).y * 0.5 + 0.5, 0.0, 1.0));
+}
+
+// toneMap leaves colours below the shoulder alone and rolls brighter
+// values off toward 1, so sunlit snow reads white without clipping.
+vec3 toneMap(vec3 c) {
+    const float knee = 0.85;
+    vec3 over = max(c - knee, 0.0);
+    return min(c, knee) + (1.0 - knee) * (1.0 - exp(-over / (1.0 - knee)));
+}
 
 // Terrain shadow: per-cell visibility of the key light past ridges
 // (world.HorizonMap), one texel per 5 m cell. uSunVisOn = 0 → fully lit.
@@ -51,14 +66,14 @@ float keyLightVisibility(vec3 p, vec3 n) {
 
 vec3 computeLighting(vec3 normal, vec3 baseColor) {
     float diff = max(dot(normalize(normal), uSunDir), 0.0);
-    return baseColor * (uAmbient + diff * uSunColor);
+    return baseColor * (fillLight(normal) + diff * uSunColor);
 }
 
 // computeLightingAt is computeLighting for a surface at world position p,
 // shaded when terrain blocks the key light.
 vec3 computeLightingAt(vec3 normal, vec3 baseColor, vec3 p) {
     float diff = max(dot(normalize(normal), uSunDir), 0.0) * keyLightVisibility(p, normal);
-    return baseColor * (uAmbient + diff * uSunColor);
+    return baseColor * (fillLight(normal) + diff * uSunColor);
 }
 
 // Vehicle lamps (snowcat headlights and work lights): spotlights that
@@ -86,6 +101,27 @@ vec3 lampLight(vec3 p, vec3 n) {
         sum += uLampColor[i] * cone * fall * fall * max(dot(n, l), 0.0);
     }
     return sum;
+}
+
+// Atmospheric haze: thickens with distance beyond the camera's focus and
+// pools in the low valleys of the map. uHazeOn = 0 disables.
+uniform int  uHazeOn;
+uniform vec3 uHazeOrigin;  // camera focus point
+uniform vec3 uHazeForward; // unit view direction
+uniform vec2 uHazeLowHigh; // terrain min / max elevation
+
+vec3 sceneLight();
+
+vec3 applyHaze(vec3 c, vec3 p) {
+    if (uHazeOn == 0) {
+        return c;
+    }
+    float dist   = max(dot(p - uHazeOrigin, uHazeForward), 0.0);
+    float far    = 1.0 - exp(-dist / 2500.0);
+    float relief = max(uHazeLowHigh.y - uHazeLowHigh.x, 1.0);
+    float low    = 1.0 - smoothstep(0.0, 0.35, (p.y - uHazeLowHigh.x) / relief);
+    float f      = clamp(far * 0.5 + low * 0.10, 0.0, 0.35);
+    return mix(c, sceneLight() * vec3(0.82, 0.87, 0.95), f);
 }
 
 // sceneLight is the overall light level (1 ≈ clear midday), for colours

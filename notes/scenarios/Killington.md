@@ -20,7 +20,6 @@ Central Vermont. The "Beast of the East," famous for racing to open first in the
 
 - A per-scenario climate ([[Scenario Goals and Rules]])
 - Fast-forward to a freezing night or a base depth ([[Calendar]])
-- Possibly a snowmaking water budget
 
 ## Log
 

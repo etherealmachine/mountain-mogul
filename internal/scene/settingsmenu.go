@@ -1,7 +1,6 @@
 package scene
 
 import (
-	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/mathgl/mgl32"
 	"mountain-mogul/internal/engine"
 	"mountain-mogul/internal/render"
@@ -18,6 +17,8 @@ type SettingsMenu struct {
 
 	imperialBtn *ui.Button
 	metricBtn   *ui.Button
+	aaOnBtn     *ui.Button
+	aaOffBtn    *ui.Button
 	backBtn     *ui.Button
 }
 
@@ -46,6 +47,22 @@ func NewSettingsMenu(app *engine.App, onBack func()) *SettingsMenu {
 	m.metricBtn.HoverColor = hoverColor
 	m.metricBtn.ActiveColor = activeColor
 
+	m.aaOnBtn = ui.NewButton(0, 0, 95, 36, "On", func() {
+		settings.Get().NoAntiAliasing = false
+		render.SetAntiAliasing(true)
+		_ = settings.Save()
+	})
+	m.aaOffBtn = ui.NewButton(0, 0, 95, 36, "Off", func() {
+		settings.Get().NoAntiAliasing = true
+		render.SetAntiAliasing(false)
+		_ = settings.Save()
+	})
+	for _, b := range []*ui.Button{m.aaOnBtn, m.aaOffBtn} {
+		b.Color = btnColor
+		b.HoverColor = hoverColor
+		b.ActiveColor = activeColor
+	}
+
 	m.backBtn = ui.NewButton(0, 0, 200, 40, "← Back", func() {
 		m.visible = false
 		if onBack != nil {
@@ -62,17 +79,29 @@ func (m *SettingsMenu) Visible() bool { return m.visible }
 func (m *SettingsMenu) Show()         { m.visible = true }
 func (m *SettingsMenu) Hide()         { m.visible = false }
 
+const (
+	settingsPanelW float32 = 280
+	settingsPanelH float32 = 290
+)
+
+// settingsSectionY is the top of section i (0 = units, 1 = anti-aliasing):
+// a label line, then a row of buttons.
+func settingsSectionY(panelY float32, i int) float32 {
+	const pad float32 = 24
+	sectionH := float32(render.GlyphH+4) + 8 + 36 + 16
+	return panelY + pad + float32(render.GlyphH+4) + 8 + float32(i)*sectionH
+}
+
 func (m *SettingsMenu) layout(sw, sh float32) {
-	const panelW float32 = 280
-	const panelH float32 = 200
+	const panelW = settingsPanelW
+	const panelH = settingsPanelH
 	panelX := (sw - panelW) / 2
 	panelY := (sh - panelH) / 2
 
 	const pad float32 = 24
 	const rowH float32 = 36
-	const labelRows float32 = 2 // title + units label
 
-	unitsY := panelY + pad + labelRows*float32(render.GlyphH+4) + 8
+	unitsY := settingsSectionY(panelY, 0) + float32(render.GlyphH+4)
 	m.imperialBtn.X = panelX + pad
 	m.imperialBtn.Y = unitsY
 	m.imperialBtn.W = 95
@@ -82,6 +111,14 @@ func (m *SettingsMenu) layout(sw, sh float32) {
 	m.metricBtn.Y = unitsY
 	m.metricBtn.W = 95
 	m.metricBtn.H = rowH
+
+	aaY := settingsSectionY(panelY, 1) + float32(render.GlyphH+4)
+	for i, b := range []*ui.Button{m.aaOnBtn, m.aaOffBtn} {
+		b.X = panelX + pad + float32(i)*(95+8)
+		b.Y = aaY
+		b.W = 95
+		b.H = rowH
+	}
 
 	m.backBtn.X = (sw - m.backBtn.W) / 2
 	m.backBtn.Y = panelY + panelH - pad - m.backBtn.H
@@ -98,7 +135,7 @@ func (m *SettingsMenu) HandleInput(inp *engine.Input) {
 	}
 
 	mx, my := inp.MousePos[0], inp.MousePos[1]
-	for _, btn := range []*ui.Button{m.imperialBtn, m.metricBtn, m.backBtn} {
+	for _, btn := range []*ui.Button{m.imperialBtn, m.metricBtn, m.aaOnBtn, m.aaOffBtn, m.backBtn} {
 		btn.SetHovered(btn.Contains(mx, my))
 		if inp.LeftClick && btn.Contains(mx, my) {
 			btn.Click()
@@ -113,14 +150,10 @@ func (m *SettingsMenu) Draw(r *render.Renderer) {
 	sh := float32(r.ScreenHeight())
 	m.layout(sw, sh)
 
-	gl.Enable(gl.BLEND)
-	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-	defer gl.Disable(gl.BLEND)
-
 	r.DrawColorRect(0, 0, sw, sh, mgl32.Vec4{0, 0, 0, 0.6})
 
-	const panelW float32 = 280
-	const panelH float32 = 200
+	const panelW = settingsPanelW
+	const panelH = settingsPanelH
 	panelX := (sw - panelW) / 2
 	panelY := (sh - panelH) / 2
 	r.DrawColorRect(panelX, panelY, panelW, panelH, mgl32.Vec4{0.08, 0.12, 0.22, 0.97})
@@ -134,14 +167,20 @@ func (m *SettingsMenu) Draw(r *render.Renderer) {
 	labelCol := mgl32.Vec4{0.78, 0.82, 0.92, 1}
 
 	r.Font.DrawText(r, "Settings", panelX+pad, panelY+pad, textCol)
-	r.Font.DrawText(r, "Units", panelX+pad, panelY+pad+float32(render.GlyphH+4)+8, labelCol)
+	r.Font.DrawText(r, "Units", panelX+pad, settingsSectionY(panelY, 0), labelCol)
+	r.Font.DrawText(r, "Anti-aliasing", panelX+pad, settingsSectionY(panelY, 1), labelCol)
 
 	// Highlight the active unit button.
 	u := settings.Get().Units
 	m.imperialBtn.SetActive(u == settings.Imperial)
 	m.metricBtn.SetActive(u == settings.Metric)
+	aa := !settings.Get().NoAntiAliasing
+	m.aaOnBtn.SetActive(aa)
+	m.aaOffBtn.SetActive(!aa)
 
 	m.imperialBtn.Draw(r)
 	m.metricBtn.Draw(r)
+	m.aaOnBtn.Draw(r)
+	m.aaOffBtn.Draw(r)
 	m.backBtn.Draw(r)
 }
