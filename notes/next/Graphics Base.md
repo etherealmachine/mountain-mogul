@@ -47,7 +47,7 @@ The shader changes together cost about 0.4 ms of GPU time on Boreal and nothing 
 
 Take before and after screenshots with the same flags. `-screenshot` prints the median GPU render time from a timer query, which is the number to compare; wall-clock frame time is swamped by vsync and the sim.
 
-- `-load assets/scenarios/tutorial.save -camera-zoom 150 -clock-hour 11`
+- `-load assets/scenarios/boreal.save -camera-zoom 150 -clock-hour 11`
 - `-load assets/scenarios/kirkwood.save -camera-yaw 180 -camera-zoom 250 -camera-target-x 1800 -camera-target-z 800 -clock-hour 11`
 - `-load assets/scenarios/kirkwood.save -camera-yaw 180 -camera-zoom 60 -camera-target-x 1720 -camera-target-z 620 -clock-hour 11` (close-up of trees and the lot)
 - `-load assets/scenarios/kirkwood.save -camera-yaw 180 -camera-zoom 700 -camera-pitch 30 -camera-target-x 1500 -camera-target-z 1500 -clock-hour 11` (wide, for relief)

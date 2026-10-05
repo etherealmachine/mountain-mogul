@@ -12,7 +12,7 @@ func TestSortScenarios(t *testing.T) {
 		{file: "kirkwood", info: world.ScenarioInfo{Name: "Kirkwood", Order: 3}},
 		{file: "aa-unordered"},
 		{file: "mrg", info: world.ScenarioInfo{Name: "Mad River Glen", Order: 2}},
-		{file: "tutorial", info: world.ScenarioInfo{Name: "Boreal", Order: 1, Tutorial: true}},
+		{file: "boreal", info: world.ScenarioInfo{Name: "Boreal", Order: 1, Tutorial: true}},
 	}
 	sortScenarios(s)
 	want := []string{"Boreal", "Mad River Glen", "Kirkwood", "aa-unordered", "zz-unordered"}

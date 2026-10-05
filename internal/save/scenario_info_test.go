@@ -58,7 +58,7 @@ func TestLegacyScenarioNameIsBlank(t *testing.T) {
 }
 
 func BenchmarkReadScenarioInfoTutorial(b *testing.B) {
-	path := filepath.Join("..", "..", "assets", "scenarios", "tutorial"+SaveExt)
+	path := filepath.Join("..", "..", "assets", "scenarios", "boreal"+SaveExt)
 	for i := 0; i < b.N; i++ {
 		if _, err := ReadScenarioInfo(path); err != nil {
 			b.Fatal(err)

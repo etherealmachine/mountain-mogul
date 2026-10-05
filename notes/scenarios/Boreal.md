@@ -16,9 +16,10 @@ Donner Pass, California. A small, beginner-friendly hill right off the interstat
 
 **Rules.** None. Everything is simple and forgiving.
 
-**Needs.** Playable as `tutorial.save`, named Boreal with its description and marked as the tutorial ([[Scenario Metadata]]). Still needs tutorial goals ([[Scenario Goals and Rules]]).
+**Needs.** Playable as `boreal.save`, named Boreal with its description and marked as the tutorial ([[Scenario Metadata]]). Still needs tutorial goals ([[Scenario Goals and Rules]]).
 
 ## Log
 
 - 2026-10-01: Exists as `tutorial.save`, with no name, description, or goals.
 - 2026-10-02: Named "Boreal" with a location, description, and the tutorial flag.
+- 2026-10-05: Renamed `tutorial.save` to `boreal.save`.

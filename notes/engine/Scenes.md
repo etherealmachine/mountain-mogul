@@ -8,7 +8,7 @@ status: shipped
 
 The app runs a stack of scenes, each with init, update, render, and destroy. Launch shows a studio splash, then the start menu. From there:
 
-- New Game opens the scenario picker, which lists the bundled scenarios in `assets/scenarios/` (only `tutorial.save` today) and starts gameplay from the one picked.
+- New Game opens the scenario picker, which lists the bundled scenarios in `assets/scenarios/` (`boreal.save` and `kirkwood.save`) and starts gameplay from the one picked.
 - Load opens the list of player saves; see [[Save Format]].
 - The [[Scenario Editor]] opens a scenario, or a blank world, with no simulation running.
 - [[Terrain Import]] builds a new map from real-world elevation.

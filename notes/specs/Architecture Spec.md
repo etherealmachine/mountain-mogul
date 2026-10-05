@@ -212,7 +212,7 @@ assets/
     building.obj  shed.obj  parking.obj
     tower.obj  lift_station.obj
     tree.obj  tree2.obj  tree3.obj  rock.obj  stump.obj
-  scenarios/   Bundled save files (e.g. tutorial.save)
+  scenarios/   Bundled save files (e.g. boreal.save)
   shaders/
     terrain.vert / terrain.frag   (main terrain pass)
     static.vert  / static.frag    (instanced buildings, trees)
