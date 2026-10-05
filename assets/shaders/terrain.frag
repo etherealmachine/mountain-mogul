@@ -71,11 +71,39 @@ float fbmNoise(vec2 p) {
     return n / 1.75;
 }
 
+// Value noise with its analytic gradient: (value, d/dp.x, d/dp.y) from one
+// set of four hashes, so normal kicks don't need three offset samples.
+vec3 valueNoiseD(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    float a = hash3(vec3(i.x,     i.y,     0.0));
+    float b = hash3(vec3(i.x + 1, i.y,     0.0));
+    float c = hash3(vec3(i.x,     i.y + 1, 0.0));
+    float d = hash3(vec3(i.x + 1, i.y + 1, 0.0));
+    vec2 u  = f * f * (3.0 - 2.0 * f);
+    vec2 du = 6.0 * f * (1.0 - f);
+    float k = a - b - c + d;
+    return vec3(a + (b - a) * u.x + (c - a) * u.y + k * u.x * u.y,
+                du.x * ((b - a) + k * u.y),
+                du.y * ((c - a) + k * u.x));
+}
+
+// Gradient of fbmNoise. Octaves too fine to see at this pixel footprint
+// (px, in noise units per pixel) are skipped.
+vec2 fbmGrad(vec2 p, float px) {
+    vec2 g = valueNoiseD(p).yz;
+    if (px < 1.0) g += valueNoiseD(p * 2.0).yz;
+    if (px < 0.5) g += valueNoiseD(p * 4.0).yz;
+    return g / 1.75;
+}
+
 void main() {
     float grooming = clamp(vSnow.x, 0.0, 1.0);
     float packed   = clamp(vSnow.y, 0.0, 1.0);
     float ice      = clamp(vSnow.z, 0.0, 1.0);
     float mogul    = clamp(vSnow.w, 0.0, 1.0);
+    // Metres of surface per pixel; fine detail fades out once it's sub-pixel.
+    float pxM = max(length(dFdx(vWorldPos)), length(dFdy(vWorldPos)));
     // Avalanche-debris marker: ice > packed is a combination no weather-formed kind
     // produces (debris is written with packed=0.20, ice=0.45). Drives colour and
     // surface-roughness overrides below; suppresses powder and sparkle.
@@ -167,7 +195,7 @@ void main() {
     // smooth.
     // Debris suppresses powder pillows — it has its own coarser roughness below.
     float powderness = (1.0 - packed) * smoothstep(0.0, 0.5, effDepth) * (1.0 - isDebris);
-    if (powderness > 0.1) {
+    if (powderness > 0.1 && pxM < 0.8) {
         float pgrain = valueNoise(vWorldPos.xz / 0.8) - 0.5;
         snow += vec3(pgrain * 0.04) * powderness;
         snow  = mix(snow, snow * vec3(1.02, 1.00, 0.97), 0.20 * powderness);
@@ -222,38 +250,29 @@ void main() {
     {
         const float bumpEps = 0.5; // world-space sample offset in metres
         vec3 kick = vec3(0);
-        if (powderness > 0.05) {
+        // Powder pillows are a few metres across; gone by 2 m per pixel.
+        float powderK = powderness * (1.0 - smoothstep(1.0, 2.0, pxM));
+        if (powderK > 0.05) {
             vec2 off = vec2(17.3, 91.7); // de-correlates from the mogul phase
-            float h0 = fbmNoise(vWorldPos.xz / 5.0 + off);
-            float hx = fbmNoise((vWorldPos.xz + vec2(bumpEps, 0)) / 5.0 + off);
-            float hz = fbmNoise((vWorldPos.xz + vec2(0, bumpEps)) / 5.0 + off);
+            vec2 g = fbmGrad(vWorldPos.xz / 5.0 + off, pxM / 5.0) / 5.0;
             const float powderAmp = 0.10; // metres — matches the prior VS disp
-            kick.x -= (hx - h0) / bumpEps * powderAmp * powderness;
-            kick.z -= (hz - h0) / bumpEps * powderAmp * powderness;
+            kick.xz -= g * powderAmp * powderK;
         }
         // Wind drifts: broad, gentle undulation on untracked snow, tens of
         // metres across, so lighting varies across open slopes.
         float driftness = (1.0 - grooming) * smoothstep(0.05, 0.4, effDepth) * (1.0 - isDebris);
         if (driftness > 0.05) {
-            vec2 off = vec2(311.7, 47.3);
-            const float driftEps = 2.0;
-            float d0 = valueNoise(vWorldPos.xz / 22.0 + off);
-            float dx = valueNoise((vWorldPos.xz + vec2(driftEps, 0)) / 22.0 + off);
-            float dz = valueNoise((vWorldPos.xz + vec2(0, driftEps)) / 22.0 + off);
+            vec2 g = valueNoiseD(vWorldPos.xz / 22.0 + vec2(311.7, 47.3)).yz / 22.0;
             const float driftAmp = 0.6; // metres
-            kick.x -= (dx - d0) / driftEps * driftAmp * driftness;
-            kick.z -= (dz - d0) / driftEps * driftAmp * driftness;
+            kick.xz -= g * driftAmp * driftness;
         }
-        if (mogul > 0.01 && snowness > 0.1) {
+        float mogulK = mogul * (1.0 - smoothstep(2.0, 4.0, pxM));
+        if (mogulK > 0.01 && snowness > 0.1) {
             vec2 p0 = vWorldPos.xz;
-            vec2 px = p0 + vec2(bumpEps, 0);
-            vec2 pz = p0 + vec2(0, bumpEps);
-            float h0 = fbmNoise(p0 / 3.0) * 0.6 + fbmNoise(p0 * 2.1 / 3.0) * 0.4;
-            float hx = fbmNoise(px / 3.0) * 0.6 + fbmNoise(px * 2.1 / 3.0) * 0.4;
-            float hz = fbmNoise(pz / 3.0) * 0.6 + fbmNoise(pz * 2.1 / 3.0) * 0.4;
+            vec2 g = fbmGrad(p0 / 3.0, pxM / 3.0) / 3.0 * 0.6
+                   + fbmGrad(p0 * 0.7, pxM * 0.7) * 0.7 * 0.4;
             const float mogulAmp = 0.8;
-            kick.x -= (hx - h0) / bumpEps * mogulAmp * mogul;
-            kick.z -= (hz - h0) / bumpEps * mogulAmp * mogul;
+            kick.xz -= g * mogulAmp * mogulK;
         }
         if (well > 0.01) {
             // ∇G via offset samples — the well texture is in metres of
@@ -287,12 +306,9 @@ void main() {
         // Fires instead of the powder kick (powderness is zeroed on debris cells).
         if (isDebris > 0.0 && snowness > 0.1) {
             vec2 doff = vec2(53.1, 17.8); // de-correlates from powder/mogul phases
-            float dd0 = fbmNoise(vWorldPos.xz / 2.0 + doff);
-            float ddx = fbmNoise((vWorldPos.xz + vec2(bumpEps, 0)) / 2.0 + doff);
-            float ddz = fbmNoise((vWorldPos.xz + vec2(0, bumpEps)) / 2.0 + doff);
+            vec2 g = fbmGrad(vWorldPos.xz / 2.0 + doff, pxM / 2.0) / 2.0;
             const float debrisAmp = 0.30; // metres — 3× powder, reads as chunky rubble
-            kick.x -= (ddx - dd0) / bumpEps * debrisAmp * isDebris;
-            kick.z -= (ddz - dd0) / bumpEps * debrisAmp * isDebris;
+            kick.xz -= g * debrisAmp * isDebris;
         }
         Nshading = normalize(N + kick);
     }
@@ -396,14 +412,18 @@ void main() {
     if (snowness > 0.0) {
         vec3  V    = normalize(uCameraPos - vWorldPos);
         vec3  H    = normalize(L + V);
-        vec3  cell = floor(vWorldPos * 4.0);
-        vec3  tilt = vec3(hash3(cell), hash3(cell + 17.0), hash3(cell + 41.0)) * 2.0 - 1.0;
-        vec3  facet = normalize(Nshading + tilt * 0.6);
-        float glint = pow(max(dot(facet, H), 0.0), 600.0);
-        float sparse = step(0.80 - ice * 0.15, hash3(cell + 73.0));
-        float spec = glint * sparse * dot(uSunColor, vec3(1.0 / 3.0)) * sunVis;
-        // Debris doesn't sparkle — dirty rock/soil mixture kills specular glint.
-        lit += spec * snowness * (1.0 + ice * 4.0) * vec3(2.4, 2.3, 2.1) * (1.0 - isDebris);
+        // Facets are 25 cm; past ~1.5 m per pixel they'd only shimmer.
+        float sparkleK = 1.0 - smoothstep(0.75, 1.5, pxM);
+        if (sparkleK > 0.0 && sunVis > 0.0) {
+            vec3  cell = floor(vWorldPos * 4.0);
+            vec3  tilt = vec3(hash3(cell), hash3(cell + 17.0), hash3(cell + 41.0)) * 2.0 - 1.0;
+            vec3  facet = normalize(Nshading + tilt * 0.6);
+            float glint = pow(max(dot(facet, H), 0.0), 600.0);
+            float sparse = step(0.80 - ice * 0.15, hash3(cell + 73.0));
+            float spec = glint * sparse * dot(uSunColor, vec3(1.0 / 3.0)) * sunVis * sparkleK;
+            // Debris doesn't sparkle — dirty rock/soil mixture kills specular glint.
+            lit += spec * snowness * (1.0 + ice * 4.0) * vec3(2.4, 2.3, 2.1) * (1.0 - isDebris);
+        }
 
         // Ice broad specular: a wider lobe than the sparkle, no per-cell gate.
         // Reads as a sheen across icy slopes — distinct from the rough-snow

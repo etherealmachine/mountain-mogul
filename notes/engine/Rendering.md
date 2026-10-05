@@ -26,3 +26,4 @@ Cliffs, creeks, and finer terrain are planned in [[Terrain Realism]]. Gamma-corr
 
 - 2026-10-01: Passes, snow shading, detail texture, overlays, sun and horizon shadows, object shadow map, night lamps, and weather overlay are in.
 - 2026-10-05: [[Graphics Base]]: anti-aliasing with a setting, sky and bounce fill, exposure and tone curve, AO fix, uniform snow albedo with patches and drifts, facet sparkle, foliage shading and bough snow, haze, rock map edge.
+- 2026-10-05: Fresh snow after a storm cost about 4 ms of GPU time zoomed out. The terrain shader's normal kicks (powder, drifts, moguls, debris) now use an analytic noise gradient instead of three samples, and powder, moguls, and sparkle fade out once they're smaller than a pixel. Zoomed-out Boreal after a storm: 10.6 → 7.2 ms.

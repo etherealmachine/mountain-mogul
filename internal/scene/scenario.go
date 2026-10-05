@@ -668,6 +668,19 @@ func (s *Scenario) SetClockHour(h float64) {
 }
 
 // SetTimeScale runs the sim at mult× and unpauses it (for -screenshot).
+// ForceStorm drops one heavy-snow day on the terrain and makes today a
+// heavy-snow day, so the snowfall overlay and canopy snow draw too.
+func (s *Scenario) ForceStorm() {
+	if s.sim == nil {
+		return
+	}
+	s.sim.TriggerStorm()
+	today := s.sim.Weather.Today()
+	today.State = sim.WeatherHeavySnow
+	today.CloudCover = 0.95
+	s.sim.Weather.SetToday(today)
+}
+
 func (s *Scenario) SetTimeScale(mult float64) {
 	if s.sim == nil {
 		return

@@ -51,6 +51,7 @@ func main() {
 	camZoom := flag.Float64("camera-zoom", math.NaN(), "initial camera OrthoScale (world units per half-viewport-height) for -screenshot or -testbed UI mode. Default: auto-fit terrain.")
 	clockHour := flag.Float64("clock-hour", math.NaN(), "-screenshot: jump the clock to this hour of the current day (e.g. 7.5 for 7:30) before capture")
 	timeScale := flag.Float64("time-scale", 0, "-screenshot: run the sim at this speed multiplier during warmup (0 = the save's speed)")
+	storm := flag.Bool("storm", false, "-screenshot: drop a heavy-snow day on the terrain and make today a heavy-snow day before capture")
 	overlayMode := flag.Int("overlay-mode", 0, "-screenshot terrain overlay bitmask (render.Overlay*: contour=1, slope=2, snow-depth=4, grooming=8, packed=16, ice=32, mogul=64, bump-normal=128)")
 	skipIntro := flag.Bool("skip-intro", false, "skip the Minty Fresh splash and jump straight to the start menu")
 	profile := flag.Bool("profile", false, "run a headless 50× sim profile (representative resort, demand on) → cpu.prof + mem.prof")
@@ -98,6 +99,7 @@ func main() {
 			overlayMode:  *overlayMode,
 			clockHour:    *clockHour,
 			timeScale:    *timeScale,
+			storm:        *storm,
 		})
 		return
 	}
@@ -250,6 +252,7 @@ type screenshotOpts struct {
 	overlayMode            int     // render.Overlay* bitmask applied before capture
 	clockHour              float64 // NaN = leave the clock alone; else jump to this hour today
 	timeScale              float64 // 0 = leave the sim speed alone
+	storm                  bool
 }
 
 // runScreenshot opens a window, loads either a registered testbed (when
@@ -317,6 +320,11 @@ func runScreenshot(opt screenshotOpts) {
 		fmt.Printf("screenshot: clock set to %.2f h\n", opt.clockHour)
 	}
 
+	if opt.storm {
+		sc.ForceStorm()
+		fmt.Println("screenshot: forced a heavy-snow day")
+	}
+
 	if opt.timeScale > 0 {
 		sc.SetTimeScale(opt.timeScale)
 		fmt.Printf("screenshot: time scale %gx\n", opt.timeScale)
@@ -337,7 +345,7 @@ func runScreenshot(opt screenshotOpts) {
 	var benchStart time.Time
 	var gpuQuery uint32
 	gl.GenQueries(1, &gpuQuery)
-	var gpuMs []float64
+	var gpuMs, updateMs, renderMs []float64
 	for frame := 0; frame < opt.warmupFrames; frame++ {
 		now := time.Now()
 		dt := now.Sub(prev).Seconds()
@@ -352,13 +360,17 @@ func runScreenshot(opt screenshotOpts) {
 
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
+		t0 := time.Now()
 		sc.Update(dt)
+		t1 := time.Now()
 		if frame >= benchSkip {
 			gl.BeginQuery(gl.TIME_ELAPSED, gpuQuery)
 		}
 		sc.Render(app.Renderer)
 		if frame >= benchSkip {
 			gl.EndQuery(gl.TIME_ELAPSED)
+			updateMs = append(updateMs, t1.Sub(t0).Seconds()*1000)
+			renderMs = append(renderMs, time.Since(t1).Seconds()*1000)
 			var ns uint64
 			gl.GetQueryObjectui64v(gpuQuery, gl.QUERY_RESULT, &ns)
 			gpuMs = append(gpuMs, float64(ns)/1e6)
@@ -381,7 +393,11 @@ func runScreenshot(opt screenshotOpts) {
 		fmt.Printf("screenshot: %d frames in %.3fs = %.1f fps (%.2f ms/frame)\n",
 			measured, elapsed, fps, 1000.0/fps)
 		sort.Float64s(gpuMs)
+		sort.Float64s(updateMs)
+		sort.Float64s(renderMs)
 		fmt.Printf("screenshot: gpu render median %.2f ms/frame\n", gpuMs[len(gpuMs)/2])
+		fmt.Printf("screenshot: cpu update median %.2f ms, max %.2f; cpu render median %.2f ms, max %.2f\n",
+			updateMs[len(updateMs)/2], updateMs[len(updateMs)-1], renderMs[len(renderMs)/2], renderMs[len(renderMs)-1])
 	}
 }
 

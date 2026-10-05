@@ -16,7 +16,7 @@ In-game, after clicking a skier to follow them:
 
 The tilde console has cheats: more or less money, more snow, a heatwave, a forced [[Avalanche]], and `regrade` to rebuild embankments on old saves.
 
-`-screenshot` also prints a benchmark: wall-clock frame time and the median GPU render time from a timer query, which isn't thrown off by vsync or the sim.
+`-screenshot` also prints a benchmark: wall-clock frame time, the median GPU render time from a timer query (which isn't thrown off by vsync or the sim), and median and worst CPU time for the sim update and the render submission. `-storm` drops a heavy-snow day on the terrain and makes today a heavy-snow day first, for checking how fresh snow renders and performs.
 
 From the command line: `-trace` serves pprof and logs slow frames, `-cpuprofile` and `-memprofile` write profiles on exit, `-profile` runs a headless benchmark, and `-screenshot` renders one frame with chosen overlays. [[Sim Queries]] can inspect a live game with SQL.
 
@@ -26,3 +26,4 @@ Spec: [[Debug Spec]]. Console: `internal/scene/debugconsole.go`.
 
 - 2026-10-01: Overlays, the planner panel, the cell inspector, the CSV log, screenshots, the console, and profiling flags are in.
 - 2026-10-05: `-screenshot` reports median GPU render time.
+- 2026-10-05: `-screenshot` reports CPU update and render time; added `-storm`.

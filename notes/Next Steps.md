@@ -14,7 +14,7 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 
 In the order to work on them:
 
-1. [[Graphics Base]]: steps 1–6 shipped (anti-aliasing, light balance, snow breakup, trees, haze, map edge). Left: bough snow that lingers after a storm (needs a recent-snowfall value in the weather sim), gamma-correct lighting, and post-processing.
+1. [[Graphics Base]]: steps 1–6 shipped (anti-aliasing, light balance, snow breakup, trees, haze, map edge), and fresh snow after a storm is cheap again. Left: check for sim lag after a storm in a busy game (see **Storm lag** under Rendering), bough snow that lingers after a storm (needs a recent-snowfall value in the weather sim), gamma-correct lighting, and post-processing.
 2. **Real grooming**: corduroy that looks real. In this order:
    1. Grooming drawn from where the cat drove, not per cell ([[Hiding the Grid]] step 3).
    2. Corduroy as fine ridges lit by the sun, seams where passes overlap, turn marks at the ends, and skier tracks wearing it away ([[Grooming]]). *Needs* step 1 and the light balance from [[Graphics Base]].
@@ -175,3 +175,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-05: Ranked [[Graphics Base]] first and Real grooming second (with [[Hiding the Grid]] step 3), ahead of [[Terrain Realism]]. Moved sparkle and blue shade from Terrain Realism step 4 into Graphics Base.
 - 2026-10-05: [[Terrain Realism]] now starts with mesh subdivision, with cliffs and creeks pre-baked into the mesh.
 - 2026-10-05: Shipped [[Graphics Base]] steps 1–6; its leftovers stay at priority 1.
+- 2026-10-05: Fixed the GPU cost of fresh snow after a storm; added **Storm lag** to check the sim side.

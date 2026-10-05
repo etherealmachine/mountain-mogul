@@ -75,6 +75,10 @@ func NewChain() *Chain {
 // Today returns the most recently generated day's weather without advancing.
 func (c *Chain) Today() DayWeather { return c.today }
 
+// SetToday overrides today's weather without touching the chain state.
+// Used by debug tooling to force conditions for rendering checks.
+func (c *Chain) SetToday(d DayWeather) { c.today = d }
+
 // Advance steps to the next day and returns its weather. It uses a
 // deterministic per-day seed derived from the current chain state and the
 // target calendar date, so Forecast called before this day will have
