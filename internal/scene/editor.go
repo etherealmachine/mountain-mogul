@@ -116,6 +116,7 @@ func (e *Editor) Init(app *engine.App) error {
 	// structures get their footprint stamped at placement time.
 	r.BuildTerrainMesh(w.Terrain)
 	r.BuildSnowSurfaceTex(w.Terrain)
+	r.BuildGroomTex(w.Terrain)
 	r.RebuildStaticBatch(w)
 	r.RebuildRoads(w)
 	for _, lift := range w.Lifts {
@@ -935,7 +936,7 @@ func (e *Editor) clearAllLayers() {
 			t.Cells[x][z].Top = world.SnowLayer{}
 		}
 	}
-	t.RecomputeGroomEdges()
+	t.Groom.Clear()
 	if e.app != nil && e.app.Renderer != nil {
 		e.app.Renderer.FlushTerrainVerts(e.world.Terrain)
 		e.app.Renderer.RebuildStaticBatch(e.world)
@@ -1155,6 +1156,7 @@ func (e *Editor) applyImportedTerrain(elevs [][]float32, r *render.Renderer) {
 	r.ResetSceneState()
 	r.BuildTerrainMesh(t)
 	r.BuildSnowSurfaceTex(t)
+	r.BuildGroomTex(t)
 	r.RebuildStaticBatch(e.world)
 
 	// Centre the camera on the imported terrain.

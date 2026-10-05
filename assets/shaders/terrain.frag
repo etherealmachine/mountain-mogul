@@ -20,15 +20,19 @@ uniform float uTerrainMinY;
 uniform float uTerrainMaxY;
 
 // Sub-cell surface-detail texture, mirrored from world.SurfaceDetail.
-// Resolution = (Width*5, Height*5) pixels at 1 m per pixel. Channels:
+// Channels:
 //   R = skier track intensity (decays in sim time)
 //   G = tree-well depth      (persistent until tree edits)
-//   B = groom-edge mask      (derived from per-cell Grooming)
-//   A = reserved
+//   B, A = reserved
 // uWorldSize is the terrain extent in metres = cells × 5, so
 // vWorldPos.xz / uWorldSize is the texture's UV.
 uniform sampler2D uSnowSurface;
 uniform vec2      uWorldSize;
+
+// Where snowcats groomed, mirrored from world.GroomMap at 1 m per texel:
+//   R = groomed, GB = cat heading as (cos 2θ, sin 2θ) mapped to 0..1,
+//   A = sideways offset from the pass centreline, ±2.5 m mapped to 0..1.
+uniform sampler2D uGroomMap;
 
 // Per-cell RGBA8 overlay: trails (green/blue/black) and grooming routes (cyan).
 // One texel per terrain cell; linear filtering feathers cell edges.
@@ -110,18 +114,24 @@ void main() {
     float isDebris = step(packed + 0.02, ice);
 
     // Surface-detail sample — sub-cell features rendered from the
-    // 1 m-resolution texture written by the simulation. R = skier
-    // tracks (step 4), G = tree-well depth, B = groom-edge (step 3).
+    // texture written by the simulation. R = skier tracks, G = tree-well
+    // depth.
     vec4 surf = texture(uSnowSurface, vWorldPos.xz / uWorldSize);
     // Normalise raw R (additive splats, 0.25 per pass) so one pass reads
     // as half-intensity and two saturate. This caps the crossing peak at
     // the same visual level as a single pass, fixing the blobby gradient
-    // artifact where ∇R → 0 at a local maximum.
-    // Tracks are suppressed on groomed snow — fresh corduroy visually
-    // overpowers light ski marks, so scale them down proportionally.
-    float track = smoothstep(0.0, 0.5, surf.r) * (1.0 - grooming * 0.85);
+    // artifact where ∇R → 0 at a local maximum. The cat wipes tracks as
+    // it grooms, so any on corduroy are fresh wear and show in full.
+    float track = smoothstep(0.0, 0.5, surf.r);
     float well  = surf.g;
-    float edge  = surf.b;
+
+    // Groomed look follows the cat's swath, faded by per-cell wear.
+    vec4  gm       = texture(uGroomMap, vWorldPos.xz / uWorldSize);
+    float stamp    = gm.r;
+    float groomVis = stamp * smoothstep(0.1, 0.6, grooming);
+    // A groomed cell's packing spills past the curved swath when it's
+    // averaged to corners; outside the swath, read it as untouched snow.
+    packed = mix(packed, min(packed, 0.2), grooming * (1.0 - stamp));
 
     // Tree wells: each well drops the visible snow column by up to
     // 0.5 m at the trunk so the surrounding ground starts showing
@@ -246,6 +256,34 @@ void main() {
     // un-perturbed normal so rocky-ness and the cliff-vs-snow blend
     // aren't fooled by sub-cell roughness; only the lighting and
     // specular calculations see Nshading.
+    // Corduroy geometry, outside any branch so derivatives stay defined.
+    // Ridges sit at fixed steps of the run's lateral coordinate, stored
+    // as the angle φ (one turn per 40 m), so they follow the lanes and
+    // carry across seams. 160φ turns a whole number of times per wrap of
+    // atan, so the ridge phase never jumps.
+    vec2  cordV      = gm.gb * 2.0 - 1.0;
+    float cordPhase  = atan(cordV.y, cordV.x) * 160.0;
+    float cordStripe = sin(cordPhase);
+    // Across-lane direction: the world-space gradient of φ, from its
+    // screen derivatives (taken on cos/sin, which don't wrap).
+    float cordInvL2  = 1.0 / max(dot(cordV, cordV), 1e-4);
+    float dPhiX      = (cordV.x * dFdx(cordV.y) - cordV.y * dFdx(cordV.x)) * cordInvL2;
+    float dPhiY      = (cordV.x * dFdy(cordV.y) - cordV.y * dFdy(cordV.x)) * cordInvL2;
+    vec2  dWx        = dFdx(vWorldPos.xz);
+    vec2  dWy        = dFdy(vWorldPos.xz);
+    float cordDet    = dWx.x * dWy.y - dWx.y * dWy.x;
+    vec2  cordGrad   = vec2(dPhiX * dWy.y - dPhiY * dWx.y, dWx.x * dPhiY - dWy.x * dPhiX) / (abs(cordDet) > 1e-8 ? cordDet : 1e-8);
+    vec2  cordAcross = cordGrad * inversesqrt(max(dot(cordGrad, cordGrad), 1e-8));
+    // Overlapping swaths dip the stamp to ~0.75 between lanes: the seam.
+    // Where lanes planned apart meet, φ disagrees: the blended vector
+    // shortens.
+    float cordMis    = 1.0 - smoothstep(0.6, 0.85, length(cordV));
+    float seam       = max(smoothstep(0.62, 0.72, stamp) * (1.0 - smoothstep(0.82, 0.97, stamp)),
+                           cordMis * smoothstep(0.6, 0.9, stamp));
+    // Fade once a ridge spans too few pixels to resolve.
+    float cordAA     = 1.0 - smoothstep(1.6, 4.0, 160.0 * (abs(dPhiX) + abs(dPhiY)));
+    float cordAmp    = groomVis * (1.0 - track * 0.8) * (1.0 - seam * 0.6) * (1.0 - cordMis) * cordAA * smoothstep(0.6, 0.9, stamp);
+
     vec3 Nshading = N;
     {
         const float bumpEps = 0.5; // world-space sample offset in metres
@@ -260,7 +298,7 @@ void main() {
         }
         // Wind drifts: broad, gentle undulation on untracked snow, tens of
         // metres across, so lighting varies across open slopes.
-        float driftness = (1.0 - grooming) * smoothstep(0.05, 0.4, effDepth) * (1.0 - isDebris);
+        float driftness = (1.0 - groomVis) * smoothstep(0.05, 0.4, effDepth) * (1.0 - isDebris);
         if (driftness > 0.05) {
             vec2 g = valueNoiseD(vWorldPos.xz / 22.0 + vec2(311.7, 47.3)).yz / 22.0;
             const float driftAmp = 0.6; // metres
@@ -310,6 +348,12 @@ void main() {
             const float debrisAmp = 0.30; // metres — 3× powder, reads as chunky rubble
             kick.xz -= g * debrisAmp * isDebris;
         }
+        // Corduroy: ridges run along the cat's heading, about 25 cm apart
+        // (exaggerated so they read from the game camera), and are lit as
+        // bumps so they catch a low sun. Fresh skier tracks flatten them.
+        if (cordAmp > 0.01) {
+            kick.xz -= cordAcross * cos(cordPhase) * 0.35 * cordAmp;
+        }
         Nshading = normalize(N + kick);
     }
 
@@ -334,74 +378,34 @@ void main() {
         lit += base * lampLight(vWorldPos, Nshading) * vAO;
     }
 
-    // Groomed snow visual. Three layered cues:
-    //   1. Corduroy stripes — a sine pattern projected along the
-    //      contour direction (perpendicular to the local fall line).
-    //      Direction comes from smoothN.xz, the heavily filtered
-    //      CPU-side normal (5-tap binomial × 2 passes before vert
-    //      shader); its horizontal projection is the smoothed fall
-    //      direction. Per-fragment interpolation produces continuous
-    //      contour-following stripes that gently curve with the
-    //      terrain, which is what real corduroy looks like on a
-    //      curving piste. Gated on slope so flat aprons don't pick
-    //      up garbage from noisy near-zero gradients, and faded in
-    //      over the slope threshold so groomed flats blend cleanly
-    //      into pitched groomed runs.
-    //   2. A subtle low-amplitude 2D value-noise grain — fine snow
-    //      texture between the cords.
-    //   3. A slight cool tint — packed-and-smoothed snow reads
-    //      bluer than fresh powder.
-    if (grooming > 0.01 && snowness > 0.1) {
-        vec2 horizN = N.xz;
-        float horizLen = length(horizN);
-        if (horizLen > 0.05) {
-            vec2 fallDir    = horizN / horizLen;
-            vec2 contourDir = vec2(-fallDir.y, fallDir.x);
-            const float stripesPerMeter = 4.0;
-            float phase  = dot(vWorldPos.xz, contourDir) * stripesPerMeter * 6.2831853;
-            float stripe = sin(phase);
-            // Anti-alias: fade the stripe out when one period spans
-            // less than a few pixels on screen. fwidth(phase) gives the
-            // total phase change across a 2×2 pixel quad, so we fade
-            // once that exceeds ~π (Nyquist) toward ~3π where the
-            // moiré would otherwise dominate.
-            float phaseFW = fwidth(phase);
-            float aaFade  = 1.0 - smoothstep(1.6, 4.0, phaseFW);
-            float slopeFade = smoothstep(0.05, 0.15, horizLen);
-            // Stripe amplitude is the strongest grooming signal — a
-            // single groomed cell only reads ~25 % grooming at its
-            // corners after the 4-cell average, so the base amplitude
-            // has to be loud enough that 25 % × amp is still visible.
-            lit *= 1.0 + stripe * 0.15 * grooming * slopeFade * aaFade;
-        }
-        float grain = valueNoise(vWorldPos.xz / 1.5) - 0.5; // ±0.5 around zero
-        lit *= 1.0 + grain * 0.04 * grooming;
-        // Subtle cool tint and brightness lift — the primary grooming
-        // signal is the cord stripes plus the depth step revealed by
-        // the divergence-driven flat-normal lighting, so colour shifts
-        // stay quiet.
-        lit  = mix(lit, lit * vec3(0.95, 0.97, 1.02), 0.15 * grooming);
-        lit *= 1.0 + 0.04 * grooming;
+    // Groomed snow: the cool tint and fine grain of packed corduroy, a
+    // darker line along seams between passes, and the swath edge — a
+    // bright powder lip outside, a cooler scrape line inside. The ridges
+    // themselves are in the normal kick above.
+    if (groomVis > 0.01 && snowness > 0.1) {
+        lit *= 1.0 + cordStripe * 0.05 * cordAmp;
+        float grain = valueNoise(vWorldPos.xz / 1.5) - 0.5;
+        lit *= 1.0 + grain * 0.04 * groomVis;
+        lit  = mix(lit, lit * vec3(0.95, 0.97, 1.02), 0.15 * groomVis);
+        lit *= 1.0 + 0.04 * groomVis;
+        lit *= 1.0 - 0.08 * seam * groomVis;
     }
-
-    // Groomed/ungroomed edge from the surface-detail B channel. The
-    // mask reads non-zero in the 1 m band on either side of any
-    // cell-to-cell grooming step. We split sides by the current
-    // fragment's grooming: on the powder side we lift toward white
-    // (the natural shoulder where un-tracked snow piles up against
-    // the cat's swath), and on the groomed side we deepen toward a
-    // cool grey (the compacted scrape line). Replaces the previous
-    // soft 2-cell colour ramp with a crisp line; the geometric step
-    // is still doing most of the depth work.
+    float wear = smoothstep(0.1, 0.6, grooming);
+    float edge = clamp(1.0 - abs(stamp - 0.35) * 3.5, 0.0, 1.0) * wear;
     if (edge > 0.01 && snowness > 0.1) {
-        if (grooming < 0.5) {
-            // Powder shoulder — bright, warm white lip.
-            float lip = edge;
-            lit = mix(lit, vec3(1.02, 1.02, 1.00) * sceneLight(), lip * 0.30);
+        // Only the rim of the groomed area has an edge: gaps between lane
+        // ends inside it are groomed all around.
+        vec2 o = vec2(3.0, 0.0) / uWorldSize;
+        vec2 uv = vWorldPos.xz / uWorldSize;
+        float around = min(min(textureLod(uGroomMap, uv + o.xy, 0.0).r, textureLod(uGroomMap, uv - o.xy, 0.0).r),
+                           min(textureLod(uGroomMap, uv + o.yx, 0.0).r, textureLod(uGroomMap, uv - o.yx, 0.0).r));
+        edge *= 1.0 - smoothstep(0.3, 0.7, around);
+    }
+    if (edge > 0.01 && snowness > 0.1) {
+        if (stamp < 0.35) {
+            lit = mix(lit, vec3(1.02, 1.02, 1.00) * sceneLight(), edge * 0.30);
         } else {
-            // Groomed scrape edge — cooler, slightly darker.
-            float scrape = edge;
-            lit = mix(lit, lit * vec3(0.80, 0.86, 0.95), scrape * 0.45);
+            lit = mix(lit, lit * vec3(0.80, 0.86, 0.95), edge * 0.45);
         }
     }
 

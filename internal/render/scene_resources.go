@@ -20,11 +20,14 @@ type SceneResources struct {
 
 	// snowSurfaceTex is the GPU mirror of Terrain.Surface — a 1 m
 	// resolution RGBA8 texture sampled by terrain.frag for sub-cell
-	// features (skier tracks, tree wells, groom edges). Sized to
+	// features (skier tracks, tree wells). Sized to
 	// (Width*PxPerCell, Height*PxPerCell).
 	snowSurfaceTex  uint32
 	snowSurfaceTexW int32
 	snowSurfaceTexH int32
+
+	// groomTex is the GPU mirror of Terrain.Groom, one texel per metre.
+	groomTex uint32
 
 	// cellOverlayTex is a per-cell RGBA8 overlay texture (one texel per
 	// terrain cell). The terrain shader alpha-blends it over the surface.
@@ -87,6 +90,10 @@ func (s *SceneResources) Delete() {
 	if s.cellOverlayTex != 0 {
 		gl.DeleteTextures(1, &s.cellOverlayTex)
 		s.cellOverlayTex = 0
+	}
+	if s.groomTex != 0 {
+		gl.DeleteTextures(1, &s.groomTex)
+		s.groomTex = 0
 	}
 	for id, m := range s.liftUpCables {
 		m.Delete()

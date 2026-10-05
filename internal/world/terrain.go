@@ -438,6 +438,9 @@ type Terrain struct {
 	// tree wells, groom edges). See world/surface_detail.go.
 	Surface *SurfaceDetail
 
+	// Groom records where snowcats groomed, at 1 m. See groom_map.go.
+	Groom *GroomMap
+
 	// accessible is a derived per-cell land-ownership grid. nil means all
 	// in-bounds cells are accessible (no parcel system). Maintained by
 	// World.ApplyParcels and World.BuyParcel.
@@ -476,6 +479,7 @@ func NewTerrain(w, h int) *Terrain {
 		Height:  h,
 		Cells:   cells,
 		Surface: NewSurfaceDetail(w, h),
+		Groom:   NewGroomMap(w, h),
 		trees:   make([][]Tree, w*h),
 	}
 }

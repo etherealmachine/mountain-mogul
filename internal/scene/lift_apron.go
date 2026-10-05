@@ -169,6 +169,7 @@ func groomLiftApron(t *world.Terrain, station, axis mgl32.Vec2, side float32) {
 				continue
 			}
 			t.Cells[x][z].Grooming = 1
+			t.Groom.StampCell(x, z, axis[0], axis[1])
 		}
 	}
 }
@@ -247,6 +248,8 @@ func groomCircle(t *world.Terrain, pos mgl32.Vec2, radius float32) {
 			dz := cz - pos[1]
 			if dx*dx+dz*dz <= r2 {
 				t.Cells[x][z].Grooming = 1
+				fx, fz := t.FallLineAt(x, z)
+				t.Groom.StampCell(x, z, fx, fz)
 			}
 		}
 	}

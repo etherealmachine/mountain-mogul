@@ -556,6 +556,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		Cells:      cells,
 		Objects:    objects,
 		Trees:      trees,
+		Groom:      groomPixels(t),
 		Buildings:  buildings,
 		Lifts:      lifts,
 		Trails:     trails,
@@ -753,6 +754,9 @@ func dataToWorld(data ScenarioData) *world.World {
 		t.AddTree(world.Tree{X: data.Trees[i], Z: data.Trees[i+1]})
 	}
 	t.RecomputeSlopes()
+	if !t.Groom.Load(data.Groom) {
+		t.RestampGroomFromCells()
+	}
 
 	w := world.NewWorld(t)
 	w.Seed = data.Seed
@@ -1229,4 +1233,12 @@ func saveTiles(b *world.Building) [][3]int {
 		out[i] = [3]int{c[0], c[1], int(b.ServiceAt(c))}
 	}
 	return out
+}
+
+// groomPixels is the groom map to save, or nil when nothing is groomed.
+func groomPixels(t *world.Terrain) []byte {
+	if t.Groom.Empty() {
+		return nil
+	}
+	return t.Groom.Bytes()
 }

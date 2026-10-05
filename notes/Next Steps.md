@@ -15,10 +15,7 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 In the order to work on them:
 
 1. [[Graphics Base]]: steps 1–6 shipped (anti-aliasing, light balance, snow breakup, trees, haze, map edge), and fresh snow after a storm is cheap again. Left: check for sim lag after a storm in a busy game (see **Storm lag** under Rendering), bough snow that lingers after a storm (needs a recent-snowfall value in the weather sim), gamma-correct lighting, and post-processing.
-2. **Real grooming**: corduroy that looks real. In this order:
-   1. Grooming drawn from where the cat drove, not per cell ([[Hiding the Grid]] step 3).
-   2. Corduroy as fine ridges lit by the sun, seams where passes overlap, turn marks at the ends, and skier tracks wearing it away ([[Grooming]]). *Needs* step 1 and the light balance from [[Graphics Base]].
-3. [[Terrain Realism]]: make imported mountains look and behave like the real place. In this order:
+2. [[Terrain Realism]]: make imported mountains look and behave like the real place. In this order:
    1. Mesh subdivision: a chunked terrain mesh, finer where a detail pass says so, on top of the 5 m sim grid.
    2. Cliffs baked into the refined mesh by a detail pass after import, with a rock mask for the shader; instanced rock meshes only if needed. *Needs* step 1.
    3. Creeks baked into the refined mesh by the same pass, so pathing follows from slope; frozen flats for lakes. *Needs* step 1.
@@ -143,7 +140,9 @@ Not ranked yet: everything below.
 
 ## Rendering and engine ([[Rendering]], [[Model Pipeline]])
 
-- [[Hiding the Grid]]: smooth the parcel fence, painted overlays, and groomed runs so the 5 m cells don't show. Step 3 (grooming follows the cat) is part of Real grooming in Priority.
+- [[Hiding the Grid]]: smooth the parcel fence and painted overlays so the 5 m cells don't show. Step 3 (grooming follows the cat) shipped with [[Real Grooming]].
+- **Groomed edge artifacts**: some artifacts still show along the edge of groomed areas after [[Real Grooming]]; capture close-ups with `-groom-now` and clean up the edge in `terrain.frag` ([[Grooming]]).
+- **Grooming over tracks**: decide how a cat pass treats skier tracks already in the snow: wipe them under the swath, fade them, or keep cutting them through the corduroy in the shader as now ([[Grooming]], [[Real Grooming]]).
 - **Environmental variety**: tree species, deciduous trees, dead snags, saplings, shrubs, and rocks. Rocks overlap with cliffs in [[Terrain Realism]].
 - **Animation approach**: choose between procedural in the shader (as now), glTF skinned meshes, baked keyframes, or blended poses.
 - **Storm lag**: lag was reported after a heavy storm at [[Boreal]]. The GPU half is fixed (fresh snow zoomed out: 10.6 → 7.2 ms). The sim half is unchecked, because the tutorial save has no guests; play a busy game through a storm with `-cpuprofile` to see if deep powder or avalanche checks slow the sim ([[Debug Tools]]).
@@ -177,3 +176,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-05: [[Terrain Realism]] now starts with mesh subdivision, with cliffs and creeks pre-baked into the mesh.
 - 2026-10-05: Shipped [[Graphics Base]] steps 1–6; its leftovers stay at priority 1.
 - 2026-10-05: Fixed the GPU cost of fresh snow after a storm; added **Storm lag** to check the sim side.
+- 2026-10-05: Shipped [[Real Grooming]]; [[Terrain Realism]] moves up to priority 2.

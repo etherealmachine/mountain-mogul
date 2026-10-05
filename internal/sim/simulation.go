@@ -121,6 +121,12 @@ type Simulation struct {
 	// grooms its section once per night.
 	catPassNight map[uint64]int
 
+	// groomable is every cell of a groomed trail, rebuilt with sections.
+	// catGroomed records, per cat, the cells its current route has
+	// groomed, so each gets one pass a night.
+	groomable  map[[2]int]bool
+	catGroomed map[uint64]map[[2]int]bool
+
 	// QueryServer, if non-nil, services live SQL queries from the HTTP
 	// endpoint. Tick() drains pending requests on the game thread.
 	QueryServer *QueryServer
@@ -961,6 +967,9 @@ func (s *Simulation) pushSnowLayer(dw DayWeather) {
 	trackFactor := float32(1.0) - burialFactor
 	if trackFactor < 1.0 {
 		t.Surface.DecayTracks(trackFactor)
+	}
+	if burialFactor >= 1 {
+		t.Groom.Clear()
 	}
 }
 

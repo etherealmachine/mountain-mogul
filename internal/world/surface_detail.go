@@ -11,27 +11,20 @@ import (
 //
 //	R — skier track intensity (decays in sim time)
 //	G — tree-well depth      (persistent until tree edits)
-//	B — groom-edge mask      (derived from per-cell Grooming)
-//	A — reserved             (ice patches, footprints, …)
+//	B, A — reserved          (ice patches, footprints, …)
 //
 // The renderer mirrors this to a GL_RGBA8 texture; the terrain fragment
 // shader samples it to render sub-cell features the 5 m mesh can't carry
-// (skier tracks, tree wells, sharper groomed/ungroomed edges).
+// (skier tracks, tree wells). Grooming has its own map (groom_map.go).
 //
-// The buffer is fully re-derivable: G from the stored trees, B from
-// per-cell Grooming, R resets to zero on load. So it is not saved.
+// The buffer is fully re-derivable: G from the stored trees, R resets
+// to zero on load. So it is not saved.
 type SurfaceDetail struct {
 	PxWidth, PxHeight int
 	Pixels            []uint8 // flat RGBA8, row-major (px-major)
 	Dirty             bool
 	DirtyBox          image.Rectangle // px-space, inclusive on Min, exclusive on Max
 
-	// EdgeCells[cx*Hcells + cz] is true if the cell was a groom-edge
-	// cell at the most recent RecomputeGroomEdges call. Lets the
-	// recompute skip the PxPerCell² per-pixel clear walk on cells that
-	// never had an edge — without this, the steady-state scan was
-	// ~1.5 M memory loads on a 60×60 map.
-	EdgeCells []bool
 }
 
 // PxPerCell is the surface-detail resolution multiplier: each 5 m terrain
@@ -54,10 +47,9 @@ func NewSurfaceDetail(wCells, hCells int) *SurfaceDetail {
 	pw := wCells * PxPerCell
 	ph := hCells * PxPerCell
 	return &SurfaceDetail{
-		PxWidth:   pw,
-		PxHeight:  ph,
-		Pixels:    make([]uint8, pw*ph*4),
-		EdgeCells: make([]bool, wCells*hCells),
+		PxWidth:  pw,
+		PxHeight: ph,
+		Pixels:   make([]uint8, pw*ph*4),
 	}
 }
 
@@ -83,7 +75,7 @@ func (s *SurfaceDetail) MarkDirty(r image.Rectangle) {
 }
 
 // MarkAllDirty flags the entire buffer for re-upload. Used after bulk
-// regeneration passes (e.g. after RestampTreeWells or RecomputeGroomEdges).
+// regeneration passes (e.g. after RestampTreeWells).
 func (s *SurfaceDetail) MarkAllDirty() {
 	if s == nil {
 		return
@@ -94,10 +86,8 @@ func (s *SurfaceDetail) MarkAllDirty() {
 
 // channel indices into the per-pixel RGBA byte stream.
 const (
-	chTrack     = 0 // R — skier track intensity
-	chTreeWell  = 1 // G — tree-well depth
-	chGroomEdge = 2 // B — groom-edge mask
-	chReserved  = 3 // A
+	chTrack    = 0 // R — skier track intensity
+	chTreeWell = 1 // G — tree-well depth
 )
 
 // stampMaxChannelDisk writes a Gaussian-falloff disk into one channel,
@@ -269,6 +259,47 @@ func (s *SurfaceDetail) DecayTracks(factor float32) {
 	}
 	if any {
 		s.MarkAllDirty()
+	}
+}
+
+// ClearTrackSwath zeros R within halfWidth metres of the world-space
+// segment (x0, z0)→(x1, z1). Used by snowcats: grooming wipes tracks.
+func (s *SurfaceDetail) ClearTrackSwath(x0, z0, x1, z1, halfWidth float32) {
+	if s == nil {
+		return
+	}
+	ppm := PxPerMeter()
+	box := image.Rect(
+		int(math.Floor(float64((min(x0, x1)-halfWidth)*ppm))), int(math.Floor(float64((min(z0, z1)-halfWidth)*ppm))),
+		int(math.Ceil(float64((max(x0, x1)+halfWidth)*ppm))), int(math.Ceil(float64((max(z0, z1)+halfWidth)*ppm))),
+	).Intersect(image.Rect(0, 0, s.PxWidth, s.PxHeight))
+	if box.Empty() {
+		return
+	}
+	dx, dz := x1-x0, z1-z0
+	l2 := dx*dx + dz*dz
+	stride := s.PxWidth * 4
+	any := false
+	for pz := box.Min.Y; pz < box.Max.Y; pz++ {
+		for px := box.Min.X; px < box.Max.X; px++ {
+			off := pz*stride + px*4 + chTrack
+			if s.Pixels[off] == 0 {
+				continue
+			}
+			cx, cz := (float32(px)+0.5)/ppm, (float32(pz)+0.5)/ppm
+			t := float32(0)
+			if l2 > 0 {
+				t = min(max(((cx-x0)*dx+(cz-z0)*dz)/l2, 0), 1)
+			}
+			ex, ez := cx-(x0+dx*t), cz-(z0+dz*t)
+			if ex*ex+ez*ez <= halfWidth*halfWidth {
+				s.Pixels[off] = 0
+				any = true
+			}
+		}
+	}
+	if any {
+		s.MarkDirty(box)
 	}
 }
 

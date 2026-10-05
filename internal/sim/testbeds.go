@@ -375,6 +375,23 @@ var Testbeds = []Testbed{
 		},
 	},
 	{
+		// A wide run that curves from the fall line toward a traverse,
+		// plus a narrow cat track across the slope. Lanes should follow
+		// the curve on the run and run lengthwise on the cat track. Cats
+		// only groom at night; screenshot with -groom-now.
+		Name: "Snowcat curving run and cat track",
+		Seed: 1,
+		Build: func() *world.World {
+			run := world.PolylineCells([][2]int{{14, 2}, {16, 18}, {26, 32}, {46, 40}}, 4)
+			track := rectCells(4, 50, 52, 3)
+			return scene(60, 60).slope(14).
+				groomedTrail(world.DiffBlue, run).
+				groomedTrail(world.DiffGreen, track).
+				shedAt(30, 56).
+				build()
+		},
+	},
+	{
 		// Steep V-shaped couloir feeding into a flat runout. The upper zone is
 		// loaded with a wind slab over a firm base; checkAvalanches fires at
 		// t=5 s to trigger release. Watch the walls shed inward, debris funnel
@@ -861,11 +878,7 @@ func (b *builder) groomPolyline(waypoints [][2]int, radius int) *builder {
 		if !t.InBounds(c[0], c[1]) {
 			continue
 		}
-		cell := &t.Cells[c[0]][c[1]]
-		cell.Grooming = 1.0
-		if top := cell.TopLayer(); top != nil {
-			top.Kind = world.KindPackedPowder
-		}
+		t.GroomCell(c[0], c[1])
 	}
 	return b
 }
@@ -879,11 +892,7 @@ func (b *builder) groomRect(x1, z1, x2, z2 int) *builder {
 			if !t.InBounds(x, z) {
 				continue
 			}
-			c := &t.Cells[x][z]
-			c.Grooming = 1.0
-			if top := c.TopLayer(); top != nil {
-				top.Kind = world.KindPackedPowder
-			}
+			t.GroomCell(x, z)
 		}
 	}
 	return b
@@ -930,11 +939,7 @@ func (b *builder) groomPolygon(pts [][2]float32) *builder {
 				continue
 			}
 			if pointInPolygon(float32(x)+0.5, float32(z)+0.5, pts) {
-				c := &t.Cells[x][z]
-				c.Grooming = 1.0
-				if top := c.TopLayer(); top != nil {
-					top.Kind = world.KindPackedPowder
-				}
+				t.GroomCell(x, z)
 			}
 		}
 	}

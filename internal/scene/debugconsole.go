@@ -74,6 +74,15 @@ func (c *DebugConsole) exec(cmd string) {
 			c.flushTerrain()
 		}
 		c.toast("Storm incoming!")
+	case "groom":
+		if c.sim == nil {
+			return
+		}
+		c.sim.GroomAllNow()
+		if c.flushTerrain != nil {
+			c.flushTerrain()
+		}
+		c.toast("Groomed every section")
 	case "heatwave":
 		if c.sim == nil {
 			return

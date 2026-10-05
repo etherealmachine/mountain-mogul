@@ -51,6 +51,7 @@ func main() {
 	camZoom := flag.Float64("camera-zoom", math.NaN(), "initial camera OrthoScale (world units per half-viewport-height) for -screenshot or -testbed UI mode. Default: auto-fit terrain.")
 	clockHour := flag.Float64("clock-hour", math.NaN(), "-screenshot: jump the clock to this hour of the current day (e.g. 7.5 for 7:30) before capture")
 	timeScale := flag.Float64("time-scale", 0, "-screenshot: run the sim at this speed multiplier during warmup (0 = the save's speed)")
+	groomNow := flag.Bool("groom-now", false, "-screenshot: give every snowcat's section a full grooming pass before capture")
 	storm := flag.Bool("storm", false, "-screenshot: drop a heavy-snow day on the terrain and make today a heavy-snow day before capture")
 	overlayMode := flag.Int("overlay-mode", 0, "-screenshot terrain overlay bitmask (render.Overlay*: contour=1, slope=2, snow-depth=4, grooming=8, packed=16, ice=32, mogul=64, bump-normal=128)")
 	skipIntro := flag.Bool("skip-intro", false, "skip the Minty Fresh splash and jump straight to the start menu")
@@ -100,6 +101,7 @@ func main() {
 			clockHour:    *clockHour,
 			timeScale:    *timeScale,
 			storm:        *storm,
+			groomNow:     *groomNow,
 		})
 		return
 	}
@@ -253,6 +255,7 @@ type screenshotOpts struct {
 	clockHour              float64 // NaN = leave the clock alone; else jump to this hour today
 	timeScale              float64 // 0 = leave the sim speed alone
 	storm                  bool
+	groomNow               bool
 }
 
 // runScreenshot opens a window, loads either a registered testbed (when
@@ -323,6 +326,11 @@ func runScreenshot(opt screenshotOpts) {
 	if opt.storm {
 		sc.ForceStorm()
 		fmt.Println("screenshot: forced a heavy-snow day")
+	}
+
+	if opt.groomNow {
+		sc.GroomNow()
+		fmt.Println("screenshot: groomed every section")
 	}
 
 	if opt.timeScale > 0 {

@@ -1437,6 +1437,57 @@ func (r *Renderer) FlushSnowSurface(t *world.Terrain) {
 	sd.DirtyBox = image.Rectangle{}
 }
 
+// groomTexUnit is the terrain pass's texture unit for the groom map.
+const groomTexUnit = 5
+
+// BuildGroomTex (re)allocates the GPU mirror of Terrain.Groom and uploads
+// it. Later stamps go through FlushGroom.
+func (r *Renderer) BuildGroomTex(t *world.Terrain) {
+	if t == nil || t.Groom == nil {
+		return
+	}
+	g := t.Groom
+	if r.scene.groomTex != 0 {
+		gl.DeleteTextures(1, &r.scene.groomTex)
+	}
+	gl.GenTextures(1, &r.scene.groomTex)
+	gl.BindTexture(gl.TEXTURE_2D, r.scene.groomTex)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 2)
+	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA16, int32(g.W), int32(g.H), 0,
+		gl.RGBA, gl.UNSIGNED_SHORT, gl.Ptr(g.Pixels))
+	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 4)
+	gl.BindTexture(gl.TEXTURE_2D, 0)
+	g.Dirty = false
+	g.DirtyBox = image.Rectangle{}
+}
+
+// FlushGroom uploads the dirty sub-region of Terrain.Groom.
+func (r *Renderer) FlushGroom(t *world.Terrain) {
+	if t == nil || t.Groom == nil || r.scene.groomTex == 0 {
+		return
+	}
+	g := t.Groom
+	box := g.DirtyBox
+	g.Dirty = false
+	g.DirtyBox = image.Rectangle{}
+	if box.Empty() {
+		return
+	}
+	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 2)
+	gl.PixelStorei(gl.UNPACK_ROW_LENGTH, int32(g.W))
+	gl.BindTexture(gl.TEXTURE_2D, r.scene.groomTex)
+	gl.TexSubImage2D(gl.TEXTURE_2D, 0,
+		int32(box.Min.X), int32(box.Min.Y), int32(box.Dx()), int32(box.Dy()),
+		gl.RGBA, gl.UNSIGNED_SHORT, gl.Ptr(g.Pixels[(box.Min.Y*g.W+box.Min.X)*4:]))
+	gl.PixelStorei(gl.UNPACK_ROW_LENGTH, 0)
+	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 4)
+	gl.BindTexture(gl.TEXTURE_2D, 0)
+}
+
 // SetCellOverlay uploads a per-cell RGBA8 overlay texture (w×h texels, one
 // per terrain cell). The terrain shader linearly interpolates and alpha-blends
 // this over the surface, so cell boundaries feather naturally. Pass nil pixels
@@ -2084,6 +2135,13 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		gl.ActiveTexture(gl.TEXTURE2)
 		if r.scene.cellOverlayTex != 0 {
 			gl.BindTexture(gl.TEXTURE_2D, r.scene.cellOverlayTex)
+		} else {
+			gl.BindTexture(gl.TEXTURE_2D, r.transparentTexID)
+		}
+		r.TerrainShader.SetInt("uGroomMap", groomTexUnit)
+		gl.ActiveTexture(gl.TEXTURE0 + groomTexUnit)
+		if r.scene.groomTex != 0 {
+			gl.BindTexture(gl.TEXTURE_2D, r.scene.groomTex)
 		} else {
 			gl.BindTexture(gl.TEXTURE_2D, r.transparentTexID)
 		}

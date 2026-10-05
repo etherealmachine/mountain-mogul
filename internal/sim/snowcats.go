@@ -1,7 +1,7 @@
 package sim
 
 import (
-	"image"
+	"math"
 	"sort"
 
 	"mountain-mogul/internal/world"
@@ -34,7 +34,7 @@ func (s *Simulation) tickSnowcats(dt float64) {
 	w := s.World
 
 	if s.sectionsStale {
-		reassignAllSections(w)
+		s.reassignAllSections()
 		s.sectionsStale = false
 	}
 
@@ -42,6 +42,7 @@ func (s *Simulation) tickSnowcats(dt float64) {
 	// back to the shed before the morning's first guests arrive.
 	offShift := !s.ClosedForDay()
 	night := nightIndex(w, s.SimTime)
+	w.Terrain.Groom.Night = uint16(night + 1)
 	if s.catPassNight == nil {
 		s.catPassNight = map[uint64]int{}
 	}
@@ -60,7 +61,7 @@ func (s *Simulation) tickSnowcats(dt float64) {
 
 		// Active: follow the current route or decide what to do next.
 		if len(cat.Route) > 0 {
-			advanceCat(w, cat, dt)
+			s.advanceCat(cat, dt)
 			if len(cat.Route) == 0 {
 				s.catPassNight[cat.ID] = night
 			}
@@ -74,240 +75,169 @@ func (s *Simulation) tickSnowcats(dt float64) {
 
 		done, ok := s.catPassNight[cat.ID]
 		if (!ok || done != night) && sectionNeedsGrooming(w, cat) {
-			planRoute(w, cat)
-			advanceCat(w, cat, dt)
+			s.planRoute(cat)
+			s.advanceCat(cat, dt)
 		} else {
 			driveToDoor(w, cat, shed, dt)
 		}
 	}
 }
 
-// advanceCat moves the cat one step along its pre-planned route.
-// Each cell in Route is already the correct next position — no BFS at
-// runtime. The cat grooms every cell it arrives at (column cells and
-// BFS connector cells alike).
-func advanceCat(w *world.World, cat *world.Snowcat, dt float64) {
+// advanceCat drives the cat along its route for dt seconds, through as
+// many waypoints as its speed covers. Tiller-down steps stamp the groom
+// map, wipe skier tracks under the swath, and groom the cells they cross.
+func (s *Simulation) advanceCat(cat *world.Snowcat, dt float64) {
+	w := s.World
+	budget := float32(world.SnowcatSpeed * dt)
+	for budget > 0 && cat.RouteIdx < len(cat.Route) {
+		step := cat.Route[cat.RouteIdx]
+		dx, dz := step.P[0]-cat.Pos[0], step.P[1]-cat.Pos[2]
+		dist := float32(math.Sqrt(float64(dx*dx + dz*dz)))
+		if dist > 0 {
+			cat.Heading = float32(math.Atan2(float64(dx), float64(dz)))
+		}
+		if dist > budget {
+			cat.Pos[0] += dx / dist * budget
+			cat.Pos[2] += dz / dist * budget
+			break
+		}
+		cat.Pos[0], cat.Pos[2] = step.P[0], step.P[1]
+		budget -= dist
+		if step.Groom && cat.RouteIdx > 0 {
+			s.groomAlong(cat, cat.Route[cat.RouteIdx-1].P, step)
+		}
+		cat.RouteIdx++
+	}
+	cat.Pos[1] = w.Terrain.InterpolatedSurfaceElevationAt(cat.Pos[0], cat.Pos[2])
 	if cat.RouteIdx >= len(cat.Route) {
 		cat.Route = nil
-		return
-	}
-	target := cat.Route[cat.RouteIdx]
-	// Skip bare-ground cells — cats can't cross non-snow terrain and
-	// there's nothing to groom anyway.
-	if t := w.Terrain; t.InBounds(target[0], target[1]) && t.Cells[target[0]][target[1]].TopLayer() == nil {
-		cat.RouteIdx++
-		return
-	}
-	tx := (float32(target[0]) + 0.5) * world.CellSize
-	tz := (float32(target[1]) + 0.5) * world.CellSize
-	arrived := cat.DriveToward(tx, tz, dt, arriveCellSlack)
-	cat.Pos[1] = w.Terrain.InterpolatedSurfaceElevationAt(cat.Pos[0], cat.Pos[2])
-	if arrived {
-		groomCell(w, target)
-		cat.RouteIdx++
 	}
 }
 
-// planRoute builds the full cell sequence for cat's next grooming pass
-// using a boustrophedon (back-and-forth) sweep: columns are traversed one
-// at a time as straight up/down runs, alternating direction so consecutive
-// runs connect with a single lateral step at the top or bottom.
-func planRoute(w *world.World, cat *world.Snowcat) {
-	sectionCells := buildSectionCells(w, cat)
-	if len(sectionCells) == 0 {
-		return
-	}
-
-	catCX := int(cat.Pos[0] / world.CellSize)
-	catCZ := int(cat.Pos[2] / world.CellSize)
-
-	comps := sectionComponents(sectionCells)
-	comps = orderByNearest(comps, catCX, catCZ)
-
-	var route [][2]int
-	curX, curZ := catCX, catCZ
-	for _, comp := range comps {
-		seg := boustrophedon(comp, curX, curZ)
-		route = append(route, seg...)
-		if len(seg) > 0 {
-			last := seg[len(seg)-1]
-			curX, curZ = last[0], last[1]
-		}
-	}
-
-	cat.Route = route
-	cat.RouteIdx = 0
-}
-
-// boustrophedon produces a back-and-forth route over comp by sweeping
-// column-by-column (constant X, varying Z). Each column is one straight
-// run; direction alternates so consecutive runs connect at top or bottom
-// with a single lateral hop. Column order and initial direction are chosen
-// to minimise dead-heading from (startX, startZ).
-func boustrophedon(comp map[[2]int]bool, startX, startZ int) [][2]int {
-	xSet := map[int]bool{}
-	for c := range comp {
-		xSet[c[0]] = true
-	}
-	xs := make([]int, 0, len(xSet))
-	for x := range xSet {
-		xs = append(xs, x)
-	}
-	sort.Ints(xs)
-
-	if len(xs) == 0 {
-		return nil
-	}
-
-	// Start from whichever end is closer to the cat.
-	if absInt(xs[len(xs)-1]-startX) < absInt(xs[0]-startX) {
-		for l, r := 0, len(xs)-1; l < r; l, r = l+1, r-1 {
-			xs[l], xs[r] = xs[r], xs[l]
-		}
-	}
-
-	// Initial up/down direction: go down if cat is near the top of the first
-	// column, go up if near the bottom.
-	firstX := xs[0]
-	minZ, maxZ := int(^uint(0)>>1), -int(^uint(0)>>1)-1
-	for c := range comp {
-		if c[0] == firstX {
-			if c[1] < minZ {
-				minZ = c[1]
-			}
-			if c[1] > maxZ {
-				maxZ = c[1]
-			}
-		}
-	}
-	goDown := absInt(startZ-minZ) <= absInt(startZ-maxZ)
-
-	var route [][2]int
-	for _, x := range xs {
-		var col [][2]int
-		for c := range comp {
-			if c[0] == x {
-				col = append(col, c)
-			}
-		}
-		sort.Slice(col, func(i, j int) bool { return col[i][1] < col[j][1] })
-		if !goDown {
-			for l, r := 0, len(col)-1; l < r; l, r = l+1, r-1 {
-				col[l], col[r] = col[r], col[l]
-			}
-		}
-		route = append(route, col...)
-		goDown = !goDown
-	}
-	return route
-}
-
-func absInt(n int) int {
-	if n < 0 {
-		return -n
-	}
-	return n
-}
-
-// buildSectionCells returns the set of all trail cells assigned to cat's section.
-func buildSectionCells(w *world.World, cat *world.Snowcat) map[[2]int]bool {
-	cells := map[[2]int]bool{}
-	for _, col := range cat.Section {
-		trail := findTrail(w, col.TrailID)
-		if trail == nil || !trail.Groomed {
-			continue
-		}
-		for _, c := range trail.Cells {
-			if c[0] == col.X {
-				cells[c] = true
-			}
-		}
-	}
-	return cells
-}
-
-// nearestCell returns the cell in set with minimum Manhattan distance to (cx, cz).
-func nearestCell(cells map[[2]int]bool, cx, cz int) [2]int {
-	best, bestD, first := [2]int{}, int(^uint(0)>>1), true
-	for c := range cells {
-		dx, dz := c[0]-cx, c[1]-cz
-		if dx < 0 {
-			dx = -dx
-		}
-		if dz < 0 {
-			dz = -dz
-		}
-		if d := dx + dz; first || d < bestD {
-			best, bestD, first = c, d, false
-		}
-	}
-	return best
-}
-
-// sectionComponents finds 4-connected components within the cell set.
-func sectionComponents(cells map[[2]int]bool) []map[[2]int]bool {
-	dirs := [4][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}
-	visited := map[[2]int]bool{}
-	var out []map[[2]int]bool
-	for seed := range cells {
-		if visited[seed] {
-			continue
-		}
-		comp := map[[2]int]bool{}
-		queue := [][2]int{seed}
-		for len(queue) > 0 {
-			c := queue[0]
-			queue = queue[1:]
-			if visited[c] {
+// groomAlong applies one tiller-down step from a to b.
+func (s *Simulation) groomAlong(cat *world.Snowcat, a [2]float32, step world.RouteStep) {
+	t := s.World.Terrain
+	b := step.P
+	t.Groom.StampSegment(a[0], a[1], b[0], b[1], step.LatFrom, step.Lat, step.Sign)
+	t.Surface.ClearTrackSwath(a[0], a[1], b[0], b[1], world.SnowcatTillerWidth/2)
+	done := s.catGroomed[cat.ID]
+	cx, cz := int(b[0]/world.CellSize), int(b[1]/world.CellSize)
+	for dx := -1; dx <= 1; dx++ {
+		for dz := -1; dz <= 1; dz++ {
+			c := [2]int{cx + dx, cz + dz}
+			if done[c] || !s.groomable[c] {
 				continue
 			}
-			visited[c] = true
-			comp[c] = true
-			for _, d := range dirs {
-				nb := [2]int{c[0] + d[0], c[1] + d[1]}
-				if cells[nb] && !visited[nb] {
-					queue = append(queue, nb)
+			ex := (float32(c[0])+0.5)*world.CellSize - b[0]
+			ez := (float32(c[1])+0.5)*world.CellSize - b[1]
+			if ex*ex+ez*ez <= passCoverDist*passCoverDist {
+				groomCell(s.World, c)
+				if done != nil {
+					done[c] = true
 				}
 			}
 		}
-		out = append(out, comp)
 	}
-	return out
 }
 
-// orderByNearest reorders components by greedy nearest-neighbour from (startX, startZ).
-func orderByNearest(comps []map[[2]int]bool, startX, startZ int) []map[[2]int]bool {
-	n := len(comps)
-	used := make([]bool, n)
-	ordered := make([]map[[2]int]bool, 0, n)
-	curX, curZ := startX, startZ
-	for len(ordered) < n {
-		best, bestD := -1, int(^uint(0)>>1)
-		for i, comp := range comps {
-			if used[i] {
+// Turns between neighbouring passes: a pass end this close to the next
+// pass start is joined by a looping turn with the tiller down (where it
+// stays on the trail), leaving turn marks; farther ones are transits.
+const (
+	turnMaxGap = float32(15)
+	turnReach  = float32(4)
+)
+
+// planRoute chains the section's passes into tonight's route: from the
+// cat's position, always on to the nearest free pass end, so neighbouring
+// lanes are driven back and forth.
+func (s *Simulation) planRoute(cat *world.Snowcat) {
+	if len(cat.Section) == 0 {
+		return
+	}
+	used := make([]bool, len(cat.Section))
+	pos := vec2{cat.Pos[0], cat.Pos[2]}
+	var lastDir vec2
+	havePrev := false
+	var route []world.RouteStep
+	for range cat.Section {
+		best, rev, bestD := -1, false, float32(math.MaxFloat32)
+		for i, ps := range cat.Section {
+			if used[i] || len(ps.Pts) == 0 {
 				continue
 			}
-			near := nearestCell(comp, curX, curZ)
-			dx, dz := near[0]-curX, near[1]-curZ
-			if dx < 0 {
-				dx = -dx
-			}
-			if dz < 0 {
-				dz = -dz
-			}
-			if d := dx + dz; best < 0 || d < bestD {
-				best, bestD = i, d
+			for _, end := range [2]int{0, len(ps.Pts) - 1} {
+				q := ps.Pts[end]
+				d := (q[0]-pos[0])*(q[0]-pos[0]) + (q[1]-pos[1])*(q[1]-pos[1])
+				if d < bestD {
+					best, rev, bestD = i, end != 0, d
+				}
 			}
 		}
 		if best < 0 {
 			break
 		}
 		used[best] = true
-		ordered = append(ordered, comps[best])
-		near := nearestCell(comps[best], curX, curZ)
-		curX, curZ = near[0], near[1]
+		pts := append([][2]float32(nil), cat.Section[best].Pts...)
+		lats := append([]float32(nil), cat.Section[best].Lats...)
+		if rev {
+			for l, r := 0, len(pts)-1; l < r; l, r = l+1, r-1 {
+				pts[l], pts[r] = pts[r], pts[l]
+				lats[l], lats[r] = lats[r], lats[l]
+			}
+		}
+		sign := cat.Section[best].Sign
+		if rev {
+			sign = -sign
+		}
+		start := pts[0]
+		dir0 := lastDir
+		if len(pts) > 1 {
+			dir0 = norm2(vec2{pts[1][0] - start[0], pts[1][1] - start[1]})
+		}
+		if havePrev && bestD <= turnMaxGap*turnMaxGap {
+			route = append(route, s.turnSteps(pos, lastDir, start, dir0)...)
+		} else {
+			route = append(route, world.RouteStep{P: start})
+		}
+		for k := 1; k < len(pts); k++ {
+			route = append(route, world.RouteStep{P: pts[k], Groom: true, LatFrom: lats[k-1], Lat: lats[k], Sign: sign})
+		}
+		pos = pts[len(pts)-1]
+		if len(pts) > 1 {
+			prev := pts[len(pts)-2]
+			lastDir = norm2(vec2{pos[0] - prev[0], pos[1] - prev[1]})
+		} else {
+			lastDir = dir0
+		}
+		havePrev = true
 	}
-	return ordered
+	cat.Route = route
+	cat.RouteIdx = 0
+	if s.catGroomed == nil {
+		s.catGroomed = map[uint64]map[[2]int]bool{}
+	}
+	s.catGroomed[cat.ID] = map[[2]int]bool{}
+}
+
+// turnSteps is a cubic curve from e (heading de) to st (heading ds), in
+// steps of about a metre, with the tiller down where it's over a trail.
+func (s *Simulation) turnSteps(e, de, st, ds vec2) []world.RouteStep {
+	p1 := vec2{e[0] + de[0]*turnReach, e[1] + de[1]*turnReach}
+	p2 := vec2{st[0] - ds[0]*turnReach, st[1] - ds[1]*turnReach}
+	approx := float32(math.Hypot(float64(st[0]-e[0]), float64(st[1]-e[1]))) + 2*turnReach
+	n := max(int(approx/passStep), 2)
+	steps := make([]world.RouteStep, 0, n)
+	prev := e
+	for i := 1; i <= n; i++ {
+		u := float32(i) / float32(n)
+		a, b, c, d := (1-u)*(1-u)*(1-u), 3*(1-u)*(1-u)*u, 3*(1-u)*u*u, u*u*u
+		q := vec2{a*e[0] + b*p1[0] + c*p2[0] + d*st[0], a*e[1] + b*p1[1] + c*p2[1] + d*st[1]}
+		mid := [2]int{int((prev[0] + q[0]) / 2 / world.CellSize), int((prev[1] + q[1]) / 2 / world.CellSize)}
+		steps = append(steps, world.RouteStep{P: q, Groom: s.groomable[mid], Sign: 1})
+		prev = q
+	}
+	return steps
 }
 
 // driveToDoor steers cat toward its shed door cell.
@@ -319,21 +249,72 @@ func driveToDoor(w *world.World, cat *world.Snowcat, shed *world.Building, dt fl
 	cat.Pos[1] = w.Terrain.InterpolatedSurfaceElevationAt(cat.Pos[0], cat.Pos[2])
 }
 
-// reassignAllSections performs a capacity-weighted Voronoi partition of groomed
-// trail columns across all active cats. Each (trail, x-column) pair is assigned
-// to the shed with the best score = distance² / catCount², so a shed with N
-// active cats has N× the effective pull radius of a single-cat shed. Within
-// each shed the assigned columns are divided evenly among the active cats.
-// Standby cats receive no section. Called when sectionsStale is set.
-func reassignAllSections(w *world.World) {
-	// Clear all existing assignments and routes.
+// GroomAllNow gives every active cat's section a full pass at once and
+// parks the cats again. Used by the debug console and screenshots.
+func (s *Simulation) GroomAllNow() {
+	s.reassignAllSections()
+	s.sectionsStale = false
+	s.World.Terrain.Groom.Night++
+	for _, cat := range s.World.Snowcats {
+		shed := findBuilding(s.World, cat.ShedID)
+		if shed == nil || len(cat.Section) == 0 {
+			continue
+		}
+		s.planRoute(cat)
+		s.advanceCat(cat, math.MaxFloat32)
+		cat.Route = nil
+		cat.Pos = s.World.SnowcatParkPos(shed)
+	}
+}
+
+// reassignAllSections plans passes for every groomed trail and shares
+// them out. Each pass goes to the shed with the best score =
+// distance² / catCount² from its midpoint, so a shed with N active cats
+// has N× the pull radius of a single-cat shed. Within a shed, passes are
+// ordered across each trail and split among its cats by length. Standby
+// cats receive no section. Called when sectionsStale is set.
+func (s *Simulation) reassignAllSections() {
+	w := s.World
 	for _, cat := range w.Snowcats {
 		cat.Section = nil
+		cat.SectionCells = nil
 		cat.Route = nil
 		cat.RouteIdx = 0
 	}
 
-	// Collect active cats and the set of sheds that have them.
+	type planned struct {
+		pass   world.GroomPass
+		mid    vec2
+		key    float32 // position across the trail, for ordering lanes
+		length float32
+	}
+	s.groomable = map[[2]int]bool{}
+	var all []planned
+	for _, trail := range w.Trails {
+		if !trail.Groomed || len(trail.Cells) == 0 {
+			continue
+		}
+		for _, c := range trail.Cells {
+			s.groomable[c] = true
+		}
+		passes := planTrailPasses(w.Terrain, trail)
+		// The trail's mean lane direction, as a doubled angle.
+		var axis vec2
+		for _, ps := range passes {
+			if n := len(ps.Pts); n > 1 {
+				d := norm2(vec2{ps.Pts[n-1][0] - ps.Pts[0][0], ps.Pts[n-1][1] - ps.Pts[0][1]})
+				axis[0] += d[0]*d[0] - d[1]*d[1]
+				axis[1] += 2 * d[0] * d[1]
+			}
+		}
+		half := math.Atan2(float64(axis[1]), float64(axis[0])) / 2
+		across := vec2{-float32(math.Sin(half)), float32(math.Cos(half))}
+		for _, ps := range passes {
+			mid := ps.Pts[len(ps.Pts)/2]
+			all = append(all, planned{pass: ps, mid: mid, key: dot2(mid, across), length: max(ps.Length(), passStep)})
+		}
+	}
+
 	var activeCats []*world.Snowcat
 	for _, cat := range w.Snowcats {
 		if cat.Status == world.CatActive {
@@ -344,18 +325,14 @@ func reassignAllSections(w *world.World) {
 		return
 	}
 
-	// Count active cats per shed for capacity weighting.
 	shedCatCount := map[uint64]int{}
 	for _, cat := range activeCats {
 		shedCatCount[cat.ShedID]++
 	}
-
-	// Build shed door world-positions for sheds with active cats.
 	type shedSite struct {
-		id    uint64
-		wx    float32
-		wz    float32
-		nCats float32 // active cat count, precast to float for scoring
+		id     uint64
+		wx, wz float32
+		nCats  float32
 	}
 	shedByID := map[uint64]*world.Building{}
 	for _, b := range w.Buildings {
@@ -377,125 +354,68 @@ func reassignAllSections(w *world.World) {
 			nCats: float32(n),
 		})
 	}
-	// Sort sites by ID for deterministic tie-breaking.
 	sort.Slice(sites, func(i, j int) bool { return sites[i].id < sites[j].id })
 
-	// Precompute centroid Z per trail (all columns share the same trail centroid Z
-	// for the proximity metric; column X is used directly for the X distance).
-	trailCentZ := map[uint64]float32{}
-	for _, trail := range w.Trails {
-		if !trail.Groomed || len(trail.Cells) == 0 {
-			continue
-		}
-		var sumZ float32
-		for _, c := range trail.Cells {
-			sumZ += (float32(c[1]) + 0.5) * world.CellSize
-		}
-		trailCentZ[trail.ID] = sumZ / float32(len(trail.Cells))
-	}
-
-	// Voronoi: assign each (trail, xCol) to the nearest shed site.
-	shedCols := map[uint64][]world.CatColumn{}
-	for _, trail := range w.Trails {
-		if !trail.Groomed || len(trail.Cells) == 0 {
-			continue
-		}
-		centZ := trailCentZ[trail.ID]
-		xSet := map[int]bool{}
-		for _, c := range trail.Cells {
-			xSet[c[0]] = true
-		}
-		for x := range xSet {
-			colWX := (float32(x) + 0.5) * world.CellSize
-			var bestID uint64
-			var bestScore float32
-			for _, site := range sites {
-				dx := colWX - site.wx
-				dz := centZ - site.wz
-				// score = d² / n²: a shed with N cats wins columns up to N×
-				// farther away than a single-cat shed at the same distance.
-				score := (dx*dx + dz*dz) / (site.nCats * site.nCats)
-				if bestID == 0 || score < bestScore {
-					bestID = site.id
-					bestScore = score
-				}
+	shedPasses := map[uint64][]planned{}
+	for _, p := range all {
+		var bestID uint64
+		var bestScore float32
+		for _, site := range sites {
+			dx, dz := p.mid[0]-site.wx, p.mid[1]-site.wz
+			score := (dx*dx + dz*dz) / (site.nCats * site.nCats)
+			if bestID == 0 || score < bestScore {
+				bestID, bestScore = site.id, score
 			}
-			if bestID != 0 {
-				shedCols[bestID] = append(shedCols[bestID], world.CatColumn{TrailID: trail.ID, X: x})
-			}
+		}
+		if bestID != 0 {
+			shedPasses[bestID] = append(shedPasses[bestID], p)
 		}
 	}
 
-	// Within each shed sort columns then divide evenly among active cats.
 	shedActiveCats := map[uint64][]*world.Snowcat{}
 	for _, cat := range activeCats {
 		shedActiveCats[cat.ShedID] = append(shedActiveCats[cat.ShedID], cat)
 	}
-
-	for shedID, cols := range shedCols {
+	keep := func(c [2]int) bool { return s.groomable[c] }
+	for shedID, passes := range shedPasses {
 		cats := shedActiveCats[shedID]
 		if len(cats) == 0 {
 			continue
 		}
-		sort.Slice(cols, func(i, j int) bool {
-			if cols[i].TrailID != cols[j].TrailID {
-				return cols[i].TrailID < cols[j].TrailID
+		sort.SliceStable(passes, func(i, j int) bool {
+			if passes[i].pass.TrailID != passes[j].pass.TrailID {
+				return passes[i].pass.TrailID < passes[j].pass.TrailID
 			}
-			return cols[i].X < cols[j].X
+			return passes[i].key < passes[j].key
 		})
 		sort.Slice(cats, func(i, j int) bool { return cats[i].ID < cats[j].ID })
-
-		n := len(cats)
-		for i, cat := range cats {
-			lo := i * len(cols) / n
-			hi := (i + 1) * len(cols) / n
-			if lo >= hi {
-				hi = lo + 1
-			}
-			if hi > len(cols) {
-				hi = len(cols)
-			}
-			if lo >= len(cols) {
-				continue // more cats than columns; this cat sits idle
-			}
-			section := make([]world.CatColumn, hi-lo)
-			copy(section, cols[lo:hi])
-			cat.Section = section
+		var total float32
+		for _, p := range passes {
+			total += p.length
+		}
+		var cum float32
+		for _, p := range passes {
+			i := min(int((cum+p.length/2)/total*float32(len(cats))), len(cats)-1)
+			cats[i].Section = append(cats[i].Section, p.pass)
+			cum += p.length
+		}
+		for _, cat := range cats {
+			cat.SectionCells = passCells(w.Terrain, cat.Section, keep)
 		}
 	}
-
 }
 
-// sectionNeedsGrooming reports whether any snow-covered cell in cat's
-// section has Grooming below sectionGroomThreshold. Bare cells are
+// sectionNeedsGrooming reports whether any snow-covered cell under cat's
+// passes has Grooming below sectionGroomThreshold. Bare cells are
 // ignored: the cat can't groom them.
 func sectionNeedsGrooming(w *world.World, cat *world.Snowcat) bool {
-	for _, col := range cat.Section {
-		trail := findTrail(w, col.TrailID)
-		if trail == nil || !trail.Groomed {
-			continue
-		}
-		for _, c := range trail.Cells {
-			if c[0] != col.X || !w.Terrain.InBounds(c[0], c[1]) {
-				continue
-			}
-			cell := &w.Terrain.Cells[c[0]][c[1]]
-			if cell.TopLayer() != nil && cell.Grooming < sectionGroomThreshold {
-				return true
-			}
+	for _, c := range cat.SectionCells {
+		cell := &w.Terrain.Cells[c[0]][c[1]]
+		if cell.TopLayer() != nil && cell.Grooming < sectionGroomThreshold {
+			return true
 		}
 	}
 	return false
-}
-
-// findTrail returns the trail with the given ID, or nil.
-func findTrail(w *world.World, id uint64) *world.Trail {
-	for _, t := range w.Trails {
-		if t.ID == id {
-			return t
-		}
-	}
-	return nil
 }
 
 // groomCell applies a single cat pass to cell c.
@@ -510,14 +430,5 @@ func groomCell(w *world.World, c [2]int) {
 	cell.Grooming = 1.0
 	cell.SkierTraffic = 0
 	cell.MogulSize *= groomMogulDecay
-
-	if w.Terrain.Surface != nil {
-		px0 := c[0] * world.PxPerCell
-		pz0 := c[1] * world.PxPerCell
-		w.Terrain.Surface.ClearTrackBox(image.Rect(
-			px0, pz0,
-			px0+world.PxPerCell, pz0+world.PxPerCell,
-		))
-	}
 	w.Terrain.SnowDirty = true
 }

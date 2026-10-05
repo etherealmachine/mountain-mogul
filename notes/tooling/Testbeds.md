@@ -15,3 +15,4 @@ Code: `internal/sim/testbeds.go`, `headless.go`, `aggregate.go`.
 ## Log
 
 - 2026-10-01: Testbed catalogue, the in-game menu, headless runs, end-of-run queries, and seed sweeps are in.
+- 2026-10-05: Added "Snowcat curving run and cat track" for [[Real Grooming]]; snowcat testbeds groom at night, so screenshot them with `-groom-now`.

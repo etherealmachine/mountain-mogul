@@ -31,7 +31,10 @@ type ScenarioData struct {
 	Objects   []ObjectData `json:"objects"`
 	// Trees is every stored tree as flat world-XZ pairs: x0, z0, x1, z1, …
 	// Older saves have none and carry per-cell TreeDensity instead.
-	Trees      []float32       `json:"trees,omitempty"`
+	Trees []float32 `json:"trees,omitempty"`
+	// Groom is the 1 m groom map (world.GroomMap pixels); empty when
+	// nothing is groomed. Saves without it rebuild from cell grooming.
+	Groom      []byte          `json:"groom,omitempty"`
 	Buildings  []BuildingData  `json:"buildings"`
 	Lifts      []LiftData      `json:"lifts"`
 	Trails     []TrailData     `json:"trails,omitempty"`

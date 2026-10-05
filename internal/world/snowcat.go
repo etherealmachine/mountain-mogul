@@ -15,9 +15,12 @@ const (
 	SnowcatSpeed = 4.0
 
 	// SnowcatTillerWidth is the lateral width of the rear comb that
-	// lays corduroy, in metres. Real machines are 4–6 m; we pick one
-	// cell width so a cat grooms exactly the cell it stands in.
+	// lays corduroy, in metres. Real machines are 4–6 m.
 	SnowcatTillerWidth = 5.0
+
+	// SnowcatLaneSpacing is how far apart neighbouring passes run, so
+	// each overlaps the last by half a metre and leaves a seam.
+	SnowcatLaneSpacing = 4.5
 
 	// CatPurchasePrice is the one-time cost to add a cat to the global fleet.
 	// The first cat is bundled into ShedCost; every additional cat costs this.
@@ -42,11 +45,35 @@ const (
 	CatStandby CatStatus = 1 // parked at shed, lower daily cost
 )
 
-// CatColumn is one (trail, x-column) pair in a cat's assigned section.
-// Cats own a slice of these; the slice may span columns from multiple trails.
-type CatColumn struct {
+// GroomPass is one tiller-down run of a grooming plan: points about 1 m
+// apart in world metres (x, z), driven from either end. Lats is the run's
+// lateral coordinate at each point on the centreline; it grows by Sign
+// per metre toward the left of the Pts order (see GroomMap).
+type GroomPass struct {
 	TrailID uint64
-	X       int
+	Pts     [][2]float32
+	Lats    []float32
+	Sign    float32
+}
+
+// Length is the pass length in metres.
+func (p GroomPass) Length() float32 {
+	var l float32
+	for i := 1; i < len(p.Pts); i++ {
+		dx, dz := p.Pts[i][0]-p.Pts[i-1][0], p.Pts[i][1]-p.Pts[i-1][1]
+		l += float32(math.Sqrt(float64(dx*dx + dz*dz)))
+	}
+	return l
+}
+
+// RouteStep is one waypoint of a cat's route, in world metres.
+type RouteStep struct {
+	P     [2]float32
+	Groom bool // tiller down on the way to P
+	// Lateral coordinate, as in GroomPass, at the previous waypoint and
+	// at P, for this step's direction of travel.
+	LatFrom, Lat float32
+	Sign         float32
 }
 
 // Snowcat is a single grooming machine. Lives in World.Snowcats with a
@@ -60,15 +87,14 @@ type Snowcat struct {
 	Heading float32
 	Status  CatStatus // Active (grooming) or Standby (parked, cheaper)
 
-	// Section — the (trail, x-column) pairs this cat is responsible for.
+	// Section — the passes this cat grooms, and the cells under them.
 	// Assigned globally by reassignAllSections; nil means unassigned.
-	Section []CatColumn
+	Section      []GroomPass
+	SectionCells [][2]int
 
-	// Route — pre-planned full sequence of terrain cells for the current
-	// grooming pass. BFS connectors between columns (and across intra-column
-	// gaps) are baked in at plan time, so advanceCat only needs to drive to
-	// the next cell and groom it. Nil means idle.
-	Route    [][2]int
+	// Route — waypoints for the current night's pass of the section:
+	// grooming passes joined by turns and transits. Nil means idle.
+	Route    []RouteStep
 	RouteIdx int
 }
 

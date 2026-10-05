@@ -681,6 +681,13 @@ func (s *Scenario) ForceStorm() {
 	s.sim.Weather.SetToday(today)
 }
 
+// GroomNow gives every cat's section a full grooming pass at once.
+func (s *Scenario) GroomNow() {
+	if s.sim != nil {
+		s.sim.GroomAllNow()
+	}
+}
+
 func (s *Scenario) SetTimeScale(mult float64) {
 	if s.sim == nil {
 		return
@@ -1281,12 +1288,11 @@ func (s *Scenario) installWorld(w *world.World) {
 	// directly in the builder (no aprons by default). Either way the
 	// terrain is authoritative as loaded — no global re-stamp needed.
 	r.BuildTerrainMesh(w.Terrain)
-	// Stamp sub-cell features into the surface-detail buffer before the
-	// initial GPU upload, so tree wells + groom edges are already in
-	// the texture by the time the first frame samples it.
+	// Stamp tree wells into the surface-detail buffer before the initial
+	// GPU upload, so they're in the texture for the first frame.
 	w.Terrain.RestampTreeWells()
-	w.Terrain.RecomputeGroomEdges()
 	r.BuildSnowSurfaceTex(w.Terrain)
+	r.BuildGroomTex(w.Terrain)
 	r.RebuildStaticBatch(w)
 	r.RebuildRoads(w)
 	for _, lift := range w.Lifts {
@@ -2015,11 +2021,6 @@ func (s *Scenario) Update(dt float64) {
 	// stalling the frame budget every time a cat groomed.
 	if s.world.Terrain.SnowDirty {
 		r.FlushSnowState(s.world.Terrain)
-		// Grooming may have changed (cat passes, brush apply) — recompute
-		// the groom-edge mask on the same dirty signal. Cheap enough to
-		// run on any SnowDirty flush; the alternative is a separate
-		// GroomingDirty flag and the savings aren't worth the bookkeeping.
-		s.world.Terrain.RecomputeGroomEdges()
 		s.world.Terrain.SnowDirty = false
 	}
 
@@ -2029,6 +2030,9 @@ func (s *Scenario) Update(dt float64) {
 	// active skier).
 	if sd := s.world.Terrain.Surface; sd != nil && sd.Dirty {
 		r.FlushSnowSurface(s.world.Terrain)
+	}
+	if g := s.world.Terrain.Groom; g != nil && g.Dirty {
+		r.FlushGroom(s.world.Terrain)
 	}
 
 	// Camera follow: track the selected agent using the freshest positions.
@@ -3713,13 +3717,13 @@ func (s *Scenario) openSnowcatPopup(cat *world.Snowcat, screenW, screenH int) {
 		return "Standby"
 	})
 	w.AddLabel("Section", func() string {
-		return fmt.Sprintf("%d columns", len(c.Section))
+		return fmt.Sprintf("%d passes", len(c.Section))
 	})
 	w.AddLabel("Route", func() string {
 		if len(c.Route) == 0 {
 			return "idle"
 		}
-		return fmt.Sprintf("%d / %d cells", c.RouteIdx, len(c.Route))
+		return fmt.Sprintf("%d%%", c.RouteIdx*100/len(c.Route))
 	})
 	w.AddActionButton("Go to shed", func() {
 		r := s.app.Renderer
@@ -3792,18 +3796,17 @@ func (s *Scenario) catPathLines() []render.DebugLine {
 	color := [3]float32{0.0, 0.0, 0.0}
 
 	var lines []render.DebugLine
+	t := s.world.Terrain
 	for i := cat.RouteIdx; i+1 < len(cat.Route); i++ {
-		a, b := cat.Route[i], cat.Route[i+1]
-		ax := (float32(a[0]) + 0.5) * world.CellSize
-		az := (float32(a[1]) + 0.5) * world.CellSize
-		bx := (float32(b[0]) + 0.5) * world.CellSize
-		bz := (float32(b[1]) + 0.5) * world.CellSize
-		ay := s.world.Terrain.SurfaceElevationAt(a[0], a[1]) + hover
-		by := s.world.Terrain.SurfaceElevationAt(b[0], b[1]) + hover
+		a, b := cat.Route[i].P, cat.Route[i+1].P
+		c := color
+		if !cat.Route[i+1].Groom {
+			c = [3]float32{0.5, 0.5, 0.5}
+		}
 		lines = append(lines, render.DebugLine{
-			A:     mgl32.Vec3{ax, ay, az},
-			B:     mgl32.Vec3{bx, by, bz},
-			Color: color,
+			A:     mgl32.Vec3{a[0], t.InterpolatedSurfaceElevationAt(a[0], a[1]) + hover, a[1]},
+			B:     mgl32.Vec3{b[0], t.InterpolatedSurfaceElevationAt(b[0], b[1]) + hover, b[1]},
+			Color: c,
 		})
 	}
 	return lines
