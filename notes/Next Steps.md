@@ -15,13 +15,13 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 In the order to work on them:
 
 1. [[Graphics Base]]: steps 1–6 shipped (anti-aliasing, light balance, snow breakup, trees, haze, map edge), and fresh snow after a storm is cheap again. Left: check for sim lag after a storm in a busy game (see **Storm lag** under Rendering), bough snow that lingers after a storm (needs a recent-snowfall value in the weather sim), gamma-correct lighting, and post-processing.
-2. [[Terrain Realism]]: make imported mountains look and behave like the real place. In this order:
-   1. Detail pipeline: a fine 1.25 m height grid (1 m lidar where it exists, starting with Kirkwood) saved in the scenario, with a repair pass, an editor bake, and cell elevations recomputed from it. Mesh subdivision is done.
-   2. Cliffs: a pass that finds and shapes rock, with rock shading from its mask. Kirkwood first. *Needs* step 1.
-   3. Creeks carved from water flow, so pathing follows from slope; frozen flats for lakes. *Needs* step 1.
-   4. Erosion: gullies, fans, and scree. *Needs* step 1.
-   5. Snow that doesn't look plastic: wind texture, distinct powder, crust, ice, and slush, and ground showing through thin snow. *Needs* the light balance and snow breakup from [[Graphics Base]].
-   6. Climate parameters in each scenario (latitude first), a sun term in auto-snow, and a realistic starting snowpack. *For* [[Kirkwood]]'s north and south faces.
+2. [[Terrain Realism]]: make imported mountains look and behave like the real place. Mesh subdivision, lidar import, and the climate block are done. In this order, the first three to get [[Boreal]] back on track, then back to [[Kirkwood]]:
+   1. Smoothing tools: editor brushes to smooth and flatten the ground (Boreal's lidar leaves a clear strip where the highway runs), and auto-smoothing along OpenStreetMap roads at import.
+   2. Auto-snow from the real-world data: a sun term and a realistic starting snowpack from the scenario's climate.
+   3. Separate Auto Trees and Auto Snow, and run both automatically on import. Then re-import Boreal.
+   4. Kirkwood's cliffs: a pass that finds and shapes rock, with rock shading from its mask, on a detail pipeline with a repair pass.
+   5. Creeks and lakes, with OpenStreetMap water marking where they are. Caples Lake at Kirkwood may come along for free.
+   6. Erosion, then snow that doesn't look plastic.
 
 Not ranked yet: everything below.
 
@@ -48,7 +48,7 @@ Not ranked yet: everything below.
 ## Lifts ([[Lifts]])
 
 - [[Lift Operations]]: refuse overlapping lifts, then breakdowns and a maintenance contract, wind holds that spare the gondola, and guests riding down. Wind holds *need* wind that varies by day. Breakdowns are *for* the Turnaround idea in [[Scenario Campaign]].
-- **Surface lifts**: magic carpet, T-bar, and rope tow for beginner areas. *For* [[Kirkwood]], and Portillo in [[Scenario Campaign]].
+- **Surface lifts**: magic carpet first, then T-bar and rope tow, for beginner areas. None are lift types yet (today: double, quad, high-speed quad, 6-pack, gondola, heli). Kirkwood has two magic carpets and a T-bar in OpenStreetMap. *For* [[Kirkwood]], [[Boreal]], and Portillo in [[Scenario Campaign]].
 - **Long gondola spans**: few, tall towers over terrain a chair can't cross ([[Vision]]). *For* [[Palisades Tahoe]], [[Zermatt]].
 - **Riders on both sides of the line**: arriving riders spawn on both sides of the lift line, not one.
 - **Partly filled chairs**: chairs that don't always fill, more often with beginners in line.
@@ -65,11 +65,12 @@ Not ranked yet: everything below.
 - **Cat skiing**: snowcats carry advanced guests to ungroomed terrain. *For* the Revelstoke idea in [[Scenario Campaign]].
 - **Guests react to trunks**: glade-loving and tree-shy guests respond to trunks nearby instead of the cell's tree cover ([[Stored Trees]]). *For* [[Asahidake]].
 - **Editor glade tools**: a glade highlight and thinning slider in the [[Scenario Editor]], matching the play tool.
+- **Real-world features from OpenStreetMap**: pick real lifts, roads, and parking structures in the import panel and build them into the scenario. Needs a selection interface in [[Terrain Import]] (the map overlay already shows them), so it waits.
 - **Biomes**: forested, sub-alpine, and alpine zones changing build cost, grooming quality, and injury risk.
 
 ## Snow, weather, and avalanches ([[Snow]], [[Weather]], [[Avalanche]], [[Calendar]])
 
-- **Per-scenario weather**: daily weather rolls from the scenario's climate (snowfall by month, temperatures, storm frequency) instead of one shared climate. *Needs* the climate parameters from [[Terrain Realism]] step 5. *For* [[Killington]], [[Asahidake]].
+- **Per-scenario weather**: imported scenarios already roll daily weather from their own monthly climate ([[Weather]]). Left: climate for hand-drawn scenarios and places outside the US, and rain or snow chosen by altitude rather than at the base. *For* [[Killington]], [[Asahidake]].
 - **Daily wind**: a wind direction and strength each day instead of one per scenario. Wind holds in [[Lift Operations]] *need* it.
 - **Weather and guests**: weather changes arrivals and guest mood ([[Demand]], [[Satisfaction]]).
 - **Drifts on lee slopes**: wind moves snow from windward faces into lee slopes and gullies. *Needs* daily wind.
@@ -147,7 +148,7 @@ Not ranked yet: everything below.
 - **Environmental variety**: tree species, deciduous trees, dead snags, saplings, shrubs, and rocks. Rocks overlap with cliffs in [[Terrain Realism]].
 - **Animation approach**: choose between procedural in the shader (as now), glTF skinned meshes, baked keyframes, or blended poses.
 - **Storm lag**: lag was reported after a heavy storm at [[Boreal]]. The GPU half is fixed (fresh snow zoomed out: 10.6 → 7.2 ms), and snow changes no longer re-upload the whole terrain vertex buffer every frame ([[Terrain Realism]] step 1). The sim half is unchecked, because the tutorial save has no guests; play a busy game through a storm with `-cpuprofile` to see if deep powder or avalanche checks slow the sim ([[Debug Tools]]).
-- **5,000 guests**: persistent buffers, culling the guest batch, lower-detail skier meshes. Big maps also lean on the terrain chunks from [[Terrain Realism]] step 2.
+- **5,000 guests**: persistent buffers, culling the guest batch, lower-detail skier meshes. Big maps also lean on the terrain chunks from [[Terrain Realism]] step 1.
 
 ## Easter eggs
 
@@ -178,3 +179,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-05: Shipped [[Graphics Base]] steps 1–6; its leftovers stay at priority 1.
 - 2026-10-05: Fixed the GPU cost of fresh snow after a storm; added **Storm lag** to check the sim side.
 - 2026-10-05: Shipped [[Real Grooming]]; [[Terrain Realism]] moves up to priority 2.
+- 2026-10-05: Reordered [[Terrain Realism]] from the user's notes after re-importing Boreal: smoothing tools, auto-snow from real data, and separate auto trees and snow on import come first, then Kirkwood's cliffs and lakes. Added real-world features from OpenStreetMap (later), and magic carpets first among surface lifts.

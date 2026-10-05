@@ -36,26 +36,30 @@ In this order:
    - Each triangle edge picks its subdivision (1, 2, or 4) from its size on screen; neighbours compute the same level for a shared edge, so seams can't crack.
    - A detail height texture at 1.25 m, sampled in grid coordinates so subdivided points land on its texels. `VisualElevationAt` reads the same offsets so guests and objects don't float or sink.
    - First test: all-zero detail looks identical to today; a debug bump pattern shows no cracks across chunks or level changes; zoomed-out GPU time drops well below today's 16 ms at Kirkwood.
-2. **Detail pipeline.** Passes run in Go on a fine 1.25 m height grid, after import or from the editor's "Bake terrain detail", in this order: repair, erosion, cliffs, creeks.
+2. **Smoothing tools.** Boreal's lidar leaves a clear strip where the highway runs, which is a bit annoying on the map.
+   - Editor brushes to smooth and flatten the ground (and probably raise and lower), editing the cells and the 1.25 m detail together, with cells recomputed from the detail under the brush.
+   - Auto-smoothing at import from OpenStreetMap roads (`highway=*`): soften the road cuts and fills in the detail along each road's corridor, so highways stop reading as sharp scars.
+3. **Auto-snow from the real-world data.**
+   - Done: latitude, longitude, time zone, base altitude, and a monthly climate are in the save ([[Save Format]]), filled in at import from Open-Meteo and SNOTEL ([[Weather]]); the sun, melt, and weather use them.
+   - The auto-snow generator adds a sun term using the same sun model and horizon map as melt: south faces and sunny spots lose snow, north faces and shaded gullies keep it.
+   - Scenarios can start with a realistic snowpack for their start date, from the climate parameters, by elevation and aspect. The same parameters feed the per-scenario weather in [[Scenario Goals and Rules]].
+   - Outside the US the reanalysis stands in for SNOTEL.
+   - The goal for Kirkwood: north and south faces look and ski very differently, so a spot that's usually bare in reality, like one near the parking lot that looks inviting for a lift today, is bare in the game too.
+4. **Auto trees and auto snow, separately and on import.** Split the editor's Auto tool, which does both today, into Auto Trees and Auto Snow, and run both automatically after an import. Then re-import Boreal from scratch; steps 2–4 are what it needs to get back on track.
+5. **Detail pipeline.** Passes run in Go on a fine 1.25 m height grid, after import or from the editor's "Bake terrain detail", in this order: repair, erosion, cliffs, creeks.
    - The fine grid starts as a smooth (bicubic) upsample of the 5 m ground, or real 1 m lidar where it exists (USGS 3DEP; check Kirkwood first), then a repair pass fixes spikes, pits, and tile seams.
    - Saved in the scenario as offsets from the smooth base plus rock and creek masks.
    - Each 5 m cell's elevation is recomputed from the fine grid, so snow, pathing, and building see cliffs and creek beds through slope.
    - Built in the order cliffs, creeks, erosion, since cliffs and creeks are the visible win.
-3. **Baked cliffs.** Kirkwood first.
+6. **Baked cliffs.** Kirkwood first, after Boreal is back on track.
    - A detail pass finds rock from slope and curvature (faces past about 45°, and the convex lips above them) and bakes it into the refined mesh: steps, ledges, strata, and broken edges as real geometry, plus a rock mask for the shader.
    - The terrain shader draws rock from the mask: color, strata, and cracks, so the baked shape and the material line up.
    - Instanced rock meshes and greebles only if the baked mesh still reads as a smooth ramp up close. If needed, keep them few, low-poly, and dropped at a distance.
    - Behavior: snow doesn't stick to rock, avalanches start above it ([[Avalanche]]), and guests avoid it ([[Skiing]]), except experts who drop small ones (the "send it" easter egg).
-4. **Baked creeks.** The same pass traces streams from flow accumulation (the forest generator already computes it) and cuts their beds into the refined mesh: a narrow channel with banks, getting deeper and wider downstream. Pathing then handles them through slope alone. Water itself can be a simple tint, ice, or snow over the bed; no water rendering needed. Flat closed basins like Kirkwood's lake become frozen, snow-covered flats. Kirkwood's meadow creek is the first test.
-5. **Erosion.** Hydraulic erosion for gullies and fans, and thermal collapse for scree below cliffs. Runs before cliffs and creeks in the pipeline, built after them.
-6. **Snow that doesn't look plastic.** Builds on [[Graphics Base]], which handles anti-aliasing, light balance, broad snow variation, and view-driven sparkle. This step adds fine wind texture and sastrugi on exposed snow, a soft blue tint in deep snow, different looks for powder, wind crust, ice, and slush ([[Snow]]), and tracks that break up groomed sheets. Where snow is thin, let rock, dirt, and grass show through in patches instead of a uniform fade.
-7. **Auto-snow from the scenario's climate.**
-   - Done: latitude, longitude, time zone, base altitude, and a monthly climate are in the save ([[Save Format]]), filled in at import from Open-Meteo and SNOTEL ([[Weather]]); the sun, melt, and weather use them.
-   - The auto-snow generator adds a sun term using the same sun model and horizon map as melt: south faces and sunny spots lose snow, north faces and shaded gullies keep it.
-   - Scenarios can start with a realistic snowpack for their start date, from the climate parameters, by elevation and aspect. The same parameters feed the per-scenario weather in [[Scenario Goals and Rules]].
-   - Boreal and Kirkwood get them when re-imported; outside the US the reanalysis stands in.
-   - The goal for Kirkwood: north and south faces look and ski very differently, so a spot that's usually bare in reality, like one near the parking lot that looks inviting for a lift today, is bare in the game too.
-
+7. **Baked creeks and lakes.** The same pass traces streams from flow accumulation (the forest generator already computes it) and cuts their beds into the refined mesh: a narrow channel with banks, getting deeper and wider downstream. Pathing then handles them through slope alone. Water itself can be a simple tint, ice, or snow over the bed; no water rendering needed. Flat closed basins like Kirkwood's lake become frozen, snow-covered flats. Kirkwood's meadow creek is the first test.
+   - OpenStreetMap water says where they really are: lakes (`natural=water`) and rivers and streams (`waterway=*`), fetched at import like the lifts overlay. Caples Lake at Kirkwood might come along for free.
+8. **Erosion.** Hydraulic erosion for gullies and fans, and thermal collapse for scree below cliffs. Runs before cliffs and creeks in the pipeline, built after them.
+9. **Snow that doesn't look plastic.** Builds on [[Graphics Base]], which handles anti-aliasing, light balance, broad snow variation, and view-driven sparkle. This step adds fine wind texture and sastrugi on exposed snow, a soft blue tint in deep snow, different looks for powder, wind crust, ice, and slush ([[Snow]]), and tracks that break up groomed sheets. Where snow is thin, let rock, dirt, and grass show through in patches instead of a uniform fade.
 ## Open questions
 
 - Climate beyond the monthly averages: a start-of-season depth curve (SNOTEL has snow depth), and whether wet days should split rain and snow by altitude instead of at the base.
@@ -74,3 +78,4 @@ In this order:
 - 2026-10-05: Detail is now part of the save (`detail`: offsets in centimetres, delta-coded per row; Kirkwood's save goes from 2.8 to 8.2 MB, largest offset 45 m). `tools/lidar -write-save` bakes it into a copy; the preview is `kirkwood-lidar` in the saves folder. The bundled scenario is unchanged.
 - 2026-10-05: Moved lidar into the editor's terrain import instead of patching saves: cells are averaged from the lidar too, gaps fall back to the tiles with a feathered seam, and the import's bounds are saved. Kirkwood's footprint: 100% coverage, 70 s, largest detail offset 24 m (45 m when the cells came from the tiles). The plan is to rebuild Kirkwood from a fresh import.
 - 2026-10-05: The save now carries base altitude, time zone, and climate; imports fill them in. The sun follows the map's latitude, the clock is local time (Kirkwood's December sunrise 7:15, sunset 16:42), the weather chain draws from the climate (Kirkwood's January base averages −2.4 °C, not the generic −10 °C), thirst counts real altitude, and the editor's wind and snowline sliders start from the climate.
+- 2026-10-05: Reordered from the user's notes after re-importing Boreal: smoothing tools (with OpenStreetMap roads for auto-smoothing), auto-snow from the real-world data, and separate auto trees and auto snow run on import come first, to get Boreal back on track. Then Kirkwood's cliffs, and creeks and lakes placed from OpenStreetMap water.
