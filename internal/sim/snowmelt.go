@@ -3,6 +3,8 @@ package sim
 import (
 	"math"
 	"time"
+
+	"mountain-mogul/internal/world"
 )
 
 // Snowmelt uses an enhanced temperature-index model (Hock 1999): daily melt
@@ -12,7 +14,7 @@ import (
 // faster.
 const (
 	// lapseRate is the temperature drop per metre of elevation gain (°C/m).
-	lapseRate = float32(0.0065)
+	lapseRate = world.LapseRate
 
 	// meltFactorShade is metres SWE per positive degree-day with no direct
 	// sun (sensible heat and diffuse light only).
@@ -26,10 +28,6 @@ const (
 	// standing in for the latent and turbulent heat a rain-on-snow day
 	// brings; the rain's own heat is ~25× smaller.
 	rainMeltPerMM = float32(0.00025)
-
-	// resortLatitudeDeg sets the sun path. 45°N sits between the Alps,
-	// Vermont and the Rockies' northern resorts.
-	resortLatitudeDeg = 45.0
 
 	// clearSkyTransmissivity is the fraction of direct beam reaching the
 	// ground through one air mass; lower sun passes through more air.
@@ -73,7 +71,7 @@ type daySun struct {
 // flatEquinox is the daily direct-beam integral on flat ground under a
 // clear sky at the equinox; exposure 1 is defined as that.
 var flatEquinox = func() float64 {
-	d := sunPath(0)
+	d := sunPath(referenceLatitudeDeg, 0)
 	var sum float64
 	for i, v := range d.dirs {
 		sum += v[1] * d.weight[i]
@@ -81,8 +79,8 @@ var flatEquinox = func() float64 {
 	return sum
 }()
 
-func newDaySun(date time.Time, cloud float32) daySun {
-	d := sunPath(solarDeclination(date))
+func newDaySun(latDeg float64, date time.Time, cloud float32) daySun {
+	d := sunPath(latDeg, solarDeclination(date))
 	for i := range d.weight {
 		d.weight[i] /= flatEquinox
 	}
@@ -90,12 +88,13 @@ func newDaySun(date time.Time, cloud float32) daySun {
 	return d
 }
 
-// sunPath samples the sun above the horizon for solar declination decl,
-// with raw (unnormalised) air-mass-attenuated beam weights.
-func sunPath(decl float64) daySun {
+// sunPath samples the sun above the horizon at latitude latDeg for solar
+// declination decl, with raw (unnormalised) air-mass-attenuated beam
+// weights.
+func sunPath(latDeg, decl float64) daySun {
 	var d daySun
 	for i := 0; i < sunSteps; i++ {
-		v := sunVector(decl, (float64(i)+0.5)/sunSteps*2*math.Pi-math.Pi)
+		v := sunVector(latDeg, decl, (float64(i)+0.5)/sunSteps*2*math.Pi-math.Pi)
 		if v[1] <= 0.02 {
 			continue
 		}

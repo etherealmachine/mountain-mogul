@@ -30,7 +30,7 @@ func TestSunExposureByAspect(t *testing.T) {
 	// World +Z is south; a south-facing slope drops toward +Z (gz < 0).
 	south, north, east := [2]float32{0, -slope}, [2]float32{0, slope}, [2]float32{-slope, 0}
 	at := func(month time.Month, g [2]float32) float32 {
-		return newDaySun(time.Date(2026, month, 21, 0, 0, 0, 0, time.UTC), 0).exposure(g[0], g[1])
+		return newDaySun(referenceLatitudeDeg, time.Date(2026, month, 21, 0, 0, 0, 0, time.UTC), 0).exposure(g[0], g[1])
 	}
 
 	if flat := at(time.March, [2]float32{}); math.Abs(float64(flat-1)) > 0.05 {
@@ -46,7 +46,7 @@ func TestSunExposureByAspect(t *testing.T) {
 	if aprFlat := at(time.April, [2]float32{}); aprFlat < 2*decFlat {
 		t.Errorf("April flat %v should be well over twice December flat %v", aprFlat, decFlat)
 	}
-	cloudy := newDaySun(time.Date(2026, time.March, 21, 0, 0, 0, 0, time.UTC), 1).exposure(0, 0)
+	cloudy := newDaySun(referenceLatitudeDeg, time.Date(2026, time.March, 21, 0, 0, 0, 0, time.UTC), 1).exposure(0, 0)
 	if cloudy > 0.2 {
 		t.Errorf("overcast exposure = %v, want ≤0.2", cloudy)
 	}

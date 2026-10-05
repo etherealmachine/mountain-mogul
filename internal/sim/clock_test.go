@@ -35,18 +35,18 @@ func TestSunriseSunset(t *testing.T) {
 		{time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC), 12.13, 45},
 		{time.Date(2026, 6, 21, 0, 0, 0, 0, time.UTC), 15.6, 68.4},
 	} {
-		rise, set := SunriseSunset(tc.date)
+		rise, set := DefaultSite.SunriseSunset(tc.date)
 		if math.Abs((rise+set)/2-12) > 1e-6 {
 			t.Errorf("%s: sunrise %.2f / sunset %.2f not symmetric about noon", tc.date.Format("Jan 2"), rise, set)
 		}
 		if d := set - rise; math.Abs(d-tc.daylight) > 0.15 {
 			t.Errorf("%s: daylight %.2f h, want ~%.2f", tc.date.Format("Jan 2"), d, tc.daylight)
 		}
-		elev := float64(SunAt(tc.date, 12).Elevation) * 180 / math.Pi
+		elev := float64(DefaultSite.SunAt(tc.date, 12).Elevation) * 180 / math.Pi
 		if math.Abs(elev-tc.noonElev) > 1 {
 			t.Errorf("%s: noon elevation %.1f°, want ~%.1f°", tc.date.Format("Jan 2"), elev, tc.noonElev)
 		}
-		if SunAt(tc.date, 0).Elevation >= 0 {
+		if DefaultSite.SunAt(tc.date, 0).Elevation >= 0 {
 			t.Errorf("%s: sun up at midnight", tc.date.Format("Jan 2"))
 		}
 	}
@@ -58,24 +58,24 @@ func TestTempCurve(t *testing.T) {
 	today := DayWeather{TempLow: -8, TempHigh: 3}
 	next := DayWeather{TempLow: -5, TempHigh: 1}
 	after := DayWeather{TempLow: -9, TempHigh: 0}
-	rise, _ := SunriseSunset(date)
+	rise, _ := DefaultSite.SunriseSunset(date)
 
-	if got := tempCurve(date, rise, prev, today, next); got != today.TempLow {
+	if got := tempCurve(DefaultSite, date, rise, prev, today, next); got != today.TempLow {
 		t.Errorf("temp at sunrise = %v, want low %v", got, today.TempLow)
 	}
-	if got := tempCurve(date, peakTempHour, prev, today, next); got != today.TempHigh {
+	if got := tempCurve(DefaultSite, date, peakTempHour, prev, today, next); got != today.TempHigh {
 		t.Errorf("temp at %v h = %v, want high %v", peakTempHour, got, today.TempHigh)
 	}
 	for h := 0.0; h < 24; h += 0.25 {
-		v := tempCurve(date, h, prev, today, next)
+		v := tempCurve(DefaultSite, date, h, prev, today, next)
 		if v < min(today.TempLow, next.TempLow) || v > max(prev.TempHigh, today.TempHigh) {
 			t.Fatalf("temp at %v h = %v, outside the day's range", h, v)
 		}
 	}
 
 	// Midnight hands over to the next day's curve without a jump.
-	late := tempCurve(date, 24-1e-9, prev, today, next)
-	early := tempCurve(date.AddDate(0, 0, 1), 0, today, next, after)
+	late := tempCurve(DefaultSite, date, 24-1e-9, prev, today, next)
+	early := tempCurve(DefaultSite, date.AddDate(0, 0, 1), 0, today, next, after)
 	if math.Abs(float64(late-early)) > 1e-3 {
 		t.Errorf("midnight jump: %v -> %v", late, early)
 	}

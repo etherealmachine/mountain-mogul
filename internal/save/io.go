@@ -176,22 +176,32 @@ func WriteScenarioData(path string, data ScenarioData) error {
 // and, if the save included one, the camera snapshot. cam is nil for
 // saves that predate camera persistence (or never had a camera set).
 func LoadScenario(path string) (*world.World, *CameraData, error) {
-	raw, err := os.ReadFile(path)
+	data, err := ReadScenarioData(path)
 	if err != nil {
 		return nil, nil, err
 	}
+	return dataToWorld(data), data.Camera, nil
+}
+
+// ReadScenarioData decodes a `.save` file without building a world, for
+// tools that patch one field and write it back with WriteScenarioData.
+func ReadScenarioData(path string) (ScenarioData, error) {
+	var data ScenarioData
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return data, err
+	}
 	gz, err := gzip.NewReader(bytes.NewReader(raw))
 	if err != nil {
-		return nil, nil, fmt.Errorf("save %q: %w", path, err)
+		return data, fmt.Errorf("save %q: %w", path, err)
 	}
 	defer gz.Close()
-	var data ScenarioData
 	dec := msgpack.NewDecoder(gz)
 	dec.SetCustomStructTag("json")
 	if err := dec.Decode(&data); err != nil && err != io.EOF {
-		return nil, nil, fmt.Errorf("save %q: %w", path, err)
+		return data, fmt.Errorf("save %q: %w", path, err)
 	}
-	return dataToWorld(data), data.Camera, nil
+	return data, nil
 }
 
 // legacyScenarioName is the Name every save carried before scenarios had
@@ -545,31 +555,36 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		Order:       w.Scenario.Order,
 		Tutorial:    w.Scenario.Tutorial,
 
-		Seed:       w.Seed,
-		SimTime:    simTime,
-		DaySec:     world.SecondsPerSimDay,
-		OpenHour:   w.OpenHour,
-		CloseHour:  w.CloseHour,
-		StartDate:  w.StartDate.Format(startDateLayout),
-		Width:      t.Width,
-		Height:     t.Height,
-		Cells:      cells,
-		Objects:    objects,
-		Trees:      trees,
-		Groom:      groomPixels(t),
-		Buildings:  buildings,
-		Lifts:      lifts,
-		Trails:     trails,
-		Guests:     guests,
-		Snowcats:   snowcats,
-		Patrollers: patrollers,
-		RoadNodes:  roadNodes,
-		RoadEdges:  roadEdges,
-		Parcels:    parcels,
-		Cash:       w.Cash,
-		DayTicket:  &w.DayTicketPrice,
-		Parking:    w.ParkingPrice,
-		ResortOpen: w.ResortOpen,
+		Seed:         w.Seed,
+		SimTime:      simTime,
+		DaySec:       world.SecondsPerSimDay,
+		OpenHour:     w.OpenHour,
+		CloseHour:    w.CloseHour,
+		StartDate:    w.StartDate.Format(startDateLayout),
+		Width:        t.Width,
+		Height:       t.Height,
+		Cells:        cells,
+		Objects:      objects,
+		Trees:        trees,
+		Groom:        groomPixels(t),
+		Detail:       detailBytes(t),
+		Geo:          geoToData(w.Geo),
+		BaseAltitude: w.BaseAltitude,
+		TimeZone:     w.TimeZone,
+		Climate:      climateToData(w.Climate),
+		Buildings:    buildings,
+		Lifts:        lifts,
+		Trails:       trails,
+		Guests:       guests,
+		Snowcats:     snowcats,
+		Patrollers:   patrollers,
+		RoadNodes:    roadNodes,
+		RoadEdges:    roadEdges,
+		Parcels:      parcels,
+		Cash:         w.Cash,
+		DayTicket:    &w.DayTicketPrice,
+		Parking:      w.ParkingPrice,
+		ResortOpen:   w.ResortOpen,
 
 		CreditLimit:     &w.CreditLimit,
 		AccruedInterest: w.AccruedInterest,
@@ -756,6 +771,9 @@ func dataToWorld(data ScenarioData) *world.World {
 	t.RecomputeSlopes()
 	if !t.Groom.Load(data.Groom) {
 		t.RestampGroomFromCells()
+	}
+	if len(data.Detail) > 0 {
+		t.Detail = world.LoadTerrainDetail(t.Width, t.Height, data.Detail)
 	}
 
 	w := world.NewWorld(t)
@@ -1170,6 +1188,12 @@ func dataToWorld(data ScenarioData) *world.World {
 		w.StartDate = d
 	}
 	w.Scenario = scenarioInfoOf(data)
+	if len(data.Geo) == 4 {
+		w.Geo = &world.GeoBounds{MinLat: data.Geo[0], MaxLat: data.Geo[1], MinLon: data.Geo[2], MaxLon: data.Geo[3]}
+	}
+	w.BaseAltitude = data.BaseAltitude
+	w.TimeZone = data.TimeZone
+	w.Climate = climateFromData(data.Climate)
 	if data.OpenHour > 0 || data.CloseHour > 0 {
 		w.OpenHour, w.CloseHour = data.OpenHour, data.CloseHour
 	}
@@ -1241,4 +1265,42 @@ func groomPixels(t *world.Terrain) []byte {
 		return nil
 	}
 	return t.Groom.Bytes()
+}
+
+func geoToData(g *world.GeoBounds) []float64 {
+	if g == nil {
+		return nil
+	}
+	return []float64{g.MinLat, g.MaxLat, g.MinLon, g.MaxLon}
+}
+
+func climateToData(c *world.Climate) *ClimateData {
+	if c == nil {
+		return nil
+	}
+	d := &ClimateData{Source: c.Source, RefAltitude: c.RefAltitude, WindDeg: c.WindDeg, Months: make([]ClimateMonthData, 12)}
+	for i, m := range c.Months {
+		d.Months[i] = ClimateMonthData(m)
+	}
+	return d
+}
+
+// climateFromData is nil for saves without a climate or with a broken one.
+func climateFromData(d *ClimateData) *world.Climate {
+	if d == nil || len(d.Months) != 12 {
+		return nil
+	}
+	c := &world.Climate{Source: d.Source, RefAltitude: d.RefAltitude, WindDeg: d.WindDeg}
+	for i, m := range d.Months {
+		c.Months[i] = world.ClimateMonth(m)
+	}
+	return c
+}
+
+// detailBytes is the terrain detail to save, or nil when there is none.
+func detailBytes(t *world.Terrain) []byte {
+	if t.Detail == nil {
+		return nil
+	}
+	return t.Detail.Bytes()
 }

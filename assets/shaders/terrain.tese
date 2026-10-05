@@ -3,7 +3,15 @@ layout(triangles, equal_spacing, ccw) in;
 
 uniform mat4 uViewProj;
 
+// Sub-cell height detail (world.TerrainDetail): one texel per 1.25 m of
+// the corner grid, added to the flat triangle surface.
+uniform sampler2D uDetail;
+uniform float     uDetailOn;
+uniform vec2      uDetailSize;
+
 patch in vec3  tcNormal;
+      in vec2  tcGrid[];
+      in vec2  tcKind[];
       in float tcSmoothY[];
       in float tcAO[];
       in vec4  tcSnow[];
@@ -60,6 +68,21 @@ void main() {
     float ao        = BARY(tcAO);
     vec3  smoothN   = normalize(BARY(tcSmoothNormal));
     float instab    = BARY(tcInstabilityScore);
+    vec3  faceN     = tcNormal;
+
+    vec2 kind = BARY(tcKind);
+    if (uDetailOn > 0.5 && kind.x > 0.0) {
+        vec2  texel = 1.0 / uDetailSize;
+        vec2  uv    = (BARY(tcGrid) * 4.0 + 0.5) * texel;
+        pos.y += texture(uDetail, uv).r * kind.x;
+        if (kind.y < 0.5) {
+            // Tilt both normals by the detail's slope (1.25 m per texel).
+            float gx = (texture(uDetail, uv + vec2(texel.x, 0.0)).r - texture(uDetail, uv - vec2(texel.x, 0.0)).r) / 2.5;
+            float gz = (texture(uDetail, uv + vec2(0.0, texel.y)).r - texture(uDetail, uv - vec2(0.0, texel.y)).r) / 2.5;
+            faceN   = normalize(vec3(faceN.x / faceN.y - gx, 1.0, faceN.z / faceN.y - gz));
+            smoothN = normalize(vec3(smoothN.x / smoothN.y - gx, 1.0, smoothN.z / smoothN.y - gz));
+        }
+    }
 
     float packed     = clamp(snow.y, 0.0, 1.0);
     float mogul      = clamp(snow.w, 0.0, 1.0);
@@ -84,7 +107,7 @@ void main() {
     }
     pos.y += disp;
 
-    vNormal           = tcNormal;
+    vNormal           = faceN;
     vWorldPos         = pos;
     vSmoothY          = smoothY;
     vAO               = ao;

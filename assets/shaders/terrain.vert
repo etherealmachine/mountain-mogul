@@ -1,16 +1,19 @@
 #version 410 core
 
-layout(location = 0) in vec3  aPos;
-layout(location = 1) in vec3  aNormal;       // per-triangle face normal (flat shaded)
-layout(location = 2) in float aSmoothY;      // low-pass filtered elevation, for contour overlay
-layout(location = 3) in float aAO;           // baked vertex AO in [0, 1]
-layout(location = 4) in vec4  aSnow;         // (Grooming, Packed, Ice, MogulSize) per cell-corner
-layout(location = 5) in float aSnowDepth;    // SnowDepth in metres, per cell-corner
-layout(location = 6) in vec3  aSmoothNormal;      // per-corner smoothed normal (non-flat varying)
-layout(location = 7) in float aInstabilityScore;  // Cell.InstabilityScore(); 0=stable, ≥1=release threshold
+layout(location = 0) in vec3  aPos;          // jittered corner XZ, ground Y
+layout(location = 1) in vec2  aGrid;         // corner-grid coordinate
+layout(location = 2) in vec2  aKind;         // (detail weight, wall flag)
+layout(location = 3) in float aSmoothY;      // low-pass filtered elevation, for contour overlay
+layout(location = 4) in float aAO;           // baked vertex AO in [0, 1]
+layout(location = 5) in vec3  aSmoothNormal; // per-corner smoothed normal; the face normal on walls
 
-flat out vec3  vNormal;
-out vec3  vWorldPos;
+// Per-corner snow state, one texel per corner (see terrain_mesh.go):
+//   A = (Grooming, Packed, Ice, MogulSize), B = (visible depth m, instability)
+uniform sampler2D uCornerSnowA;
+uniform sampler2D uCornerSnowB;
+
+out vec2  vGrid;
+out vec2  vKind;
 out float vSmoothY;
 out float vAO;
 out vec4  vSnow;
@@ -19,14 +22,23 @@ out vec3  vSmoothNormal;
 out float vInstabilityScore;
 
 void main() {
-    vNormal            = aNormal;
-    vWorldPos          = aPos;
-    vSmoothY           = aSmoothY;
-    vAO                = aAO;
-    vSnow              = aSnow;
-    vSnowDepth         = aSnowDepth;
-    vSmoothNormal      = aSmoothNormal;
-    vInstabilityScore  = aInstabilityScore;
+    vGrid         = aGrid;
+    vKind         = aKind;
+    vSmoothY      = aSmoothY;
+    vAO           = aAO;
+    vSmoothNormal = aSmoothNormal;
+    if (aKind.y > 0.5) {
+        // Map-edge skirt: no snow; -1 instability marks it for terrain.frag.
+        vSnow             = vec4(0.0);
+        vSnowDepth        = 0.0;
+        vInstabilityScore = -1.0;
+    } else {
+        ivec2 c           = ivec2(aGrid + 0.5);
+        vSnow             = texelFetch(uCornerSnowA, c, 0);
+        vec2  b           = texelFetch(uCornerSnowB, c, 0).rg;
+        vSnowDepth        = b.x;
+        vInstabilityScore = b.y;
+    }
     // World-space position — TES applies displacement then projects.
-    gl_Position        = vec4(aPos, 1.0);
+    gl_Position = vec4(aPos, 1.0);
 }

@@ -10,11 +10,11 @@ Make imported mountains look and behave like the real place. Boreal reads a litt
 
 ## What's there today
 
-- The terrain is one heightfield on the 5 m grid, drawn as a single mesh with a vertex at every cell corner, shaded as snow or bare ground. Steep faces only differ by being bare. Objects sit on the mesh through `VisualElevationAt`.
+- The terrain is one heightfield on the 5 m grid, drawn as chunked triangle patches with a control point at every cell corner, subdivided on the GPU by on-screen size, with an optional 1.25 m detail height texture on top (step 1). Shaded as snow or bare ground. Steep faces only differ by being bare. Objects sit on the mesh through `VisualElevationAt`.
 - The editor's auto-snow ([[Scenario Editor]]) shapes depth by elevation, slope, curvature, drainage, and wind direction, but not by sun.
-- The sim's melt already uses sun: degree-days scaled by direct sun for the date, slope, and aspect, with ridges casting shade (`world.HorizonMap`). But the sun path is fixed at 45°N for every map (`resortLatitudeDeg` in `sim/snowmelt.go`), and scenarios start with no snow, so a north face and a south face only diverge after weeks of play.
+- The sim's melt already uses sun: degree-days scaled by direct sun for the date, slope, and aspect, with ridges casting shade (`world.HorizonMap`). The sun path follows the map's latitude for imported maps (45°N for drawn ones), but scenarios start with no snow and auto-snow ignores the sun, so a north face and a south face only diverge after weeks of play.
 - No creeks or lakes. Kirkwood's lake at the north edge is just flat ground.
-- Terrain tiles come in at zoom 14, about 7 m per pixel at Tahoe's latitude, so the import can't supply detail finer than the grid.
+- Terrain tiles come in at zoom 14, about 7.5 m per pixel at Tahoe's latitude, so outside lidar coverage the import can't supply detail finer than the grid. Inside it, the import takes cells and 1.25 m detail from USGS 1 m lidar ([[Terrain Import]]).
 
 ## Decisions
 
@@ -22,38 +22,45 @@ Make imported mountains look and behave like the real place. Boreal reads a litt
 - **Subdivide the mesh first; bake rock and creeks into it.** Cliff faces, rock bands, and creek beds become real geometry in a finer terrain mesh, not separate objects. Instanced rock meshes come only if the baked mesh can't carry the look. Size is the constraint: Kirkwood is 600 × 600 cells, and a [[Scenario Campaign|Whistler Blackcomb]]-scale map will be several times that.
 - **Detail is pre-baked, not generated at runtime.** A pass analyzes the heightmap after import (slope, curvature, flow) and writes the refined detail into the scenario. Play just loads it. The editor reruns the pass when terrain changes.
 - **Water barely needs rendering.** What a creek really adds is terrain shape: a watershed has more detail than the 5 m grid holds. Get the shape right and pathing follows on its own, because skiers go down into a creek bed but don't like climbing out again.
+- **Detail is a height grid drawn on the GPU.** Every pass reads and writes a fine 1.25 m height grid plus masks; the renderer draws it through tessellation from a height texture, so rerunning a pass is a re-upload, not a mesh rebuild. A CPU mesh per chunk would only help with overhangs, which no pass makes. Near-vertical faces get their fine detail from rock shading (strata, cracks, side-projected) rather than geometry; 0.625 m only if close-ups look soft.
+- **Real data first where it exists.** Use 1 m lidar (USGS 3DEP) as the fine grid where it covers a map, and procedural passes elsewhere.
+- **Baked detail feeds the sim.** Cell elevations are recomputed from the fine grid after a bake, so the grid stays the sim's source of truth but carries the cliffs and creek beds.
 - **Pond skimming is for later.** A special allowance for a water feature that guests normally path around (already in [[Next Steps]] as an idea).
 
 ## Steps
 
 In this order:
 
-1. **Mesh subdivision.** An adaptive terrain mesh: the 5 m grid by default, finer where a detail pass says so.
-   - Split the terrain into chunks; each chunk carries its own resolution. Chunks also give distance culling and level of detail, which large maps need anyway.
-   - Seams between resolutions must not crack, and `VisualElevationAt` has to read the refined surface so guests and objects don't float or sink.
-   - The sim grid stays the source of truth for snow, pathing, and building. Keep the detail small enough that the grid's heights stay a fair stand-in for the sim.
-   - First test: subdivide with plain interpolation and confirm the mesh, seams, shadows, and snow all still line up, before any detail is added.
-2. **Baked cliffs.**
+1. **Mesh subdivision.** The 5 m grid stays the mesh's control points; the GPU's tessellation stage subdivides it and adds detail from a height texture.
+   - Split the terrain into 32 × 32-cell chunks with shared, indexed vertices (the flat face normal is computed per triangle in the shader), and skip chunks off screen. Snow and instability updates re-upload only the chunks they touch.
+   - Each triangle edge picks its subdivision (1, 2, or 4) from its size on screen; neighbours compute the same level for a shared edge, so seams can't crack.
+   - A detail height texture at 1.25 m, sampled in grid coordinates so subdivided points land on its texels. `VisualElevationAt` reads the same offsets so guests and objects don't float or sink.
+   - First test: all-zero detail looks identical to today; a debug bump pattern shows no cracks across chunks or level changes; zoomed-out GPU time drops well below today's 16 ms at Kirkwood.
+2. **Detail pipeline.** Passes run in Go on a fine 1.25 m height grid, after import or from the editor's "Bake terrain detail", in this order: repair, erosion, cliffs, creeks.
+   - The fine grid starts as a smooth (bicubic) upsample of the 5 m ground, or real 1 m lidar where it exists (USGS 3DEP; check Kirkwood first), then a repair pass fixes spikes, pits, and tile seams.
+   - Saved in the scenario as offsets from the smooth base plus rock and creek masks.
+   - Each 5 m cell's elevation is recomputed from the fine grid, so snow, pathing, and building see cliffs and creek beds through slope.
+   - Built in the order cliffs, creeks, erosion, since cliffs and creeks are the visible win.
+3. **Baked cliffs.** Kirkwood first.
    - A detail pass finds rock from slope and curvature (faces past about 45°, and the convex lips above them) and bakes it into the refined mesh: steps, ledges, strata, and broken edges as real geometry, plus a rock mask for the shader.
    - The terrain shader draws rock from the mask: color, strata, and cracks, so the baked shape and the material line up.
    - Instanced rock meshes and greebles only if the baked mesh still reads as a smooth ramp up close. If needed, keep them few, low-poly, and dropped at a distance.
    - Behavior: snow doesn't stick to rock, avalanches start above it ([[Avalanche]]), and guests avoid it ([[Skiing]]), except experts who drop small ones (the "send it" easter egg).
-3. **Baked creeks.** The same pass traces streams from flow accumulation (the forest generator already computes it) and cuts their beds into the refined mesh: a narrow channel with banks, getting deeper and wider downstream. Pathing then handles them through slope alone. Water itself can be a simple tint, ice, or snow over the bed; no water rendering needed. Flat closed basins like Kirkwood's lake become frozen, snow-covered flats. Kirkwood's meadow creek is the first test.
-4. **Snow that doesn't look plastic.** Builds on [[Graphics Base]], which handles anti-aliasing, light balance, broad snow variation, and view-driven sparkle. This step adds fine wind texture and sastrugi on exposed snow, a soft blue tint in deep snow, different looks for powder, wind crust, ice, and slush ([[Snow]]), and tracks that break up groomed sheets. Where snow is thin, let rock, dirt, and grass show through in patches instead of a uniform fade.
-5. **Auto-snow from the scenario's climate.**
-   - Add climate parameters to the scenario data and save format ([[Save Format]]): latitude first, then snowpack and weather numbers. Melt reads the scenario's latitude instead of the fixed 45°N (Kirkwood is at 38.7°N).
+4. **Baked creeks.** The same pass traces streams from flow accumulation (the forest generator already computes it) and cuts their beds into the refined mesh: a narrow channel with banks, getting deeper and wider downstream. Pathing then handles them through slope alone. Water itself can be a simple tint, ice, or snow over the bed; no water rendering needed. Flat closed basins like Kirkwood's lake become frozen, snow-covered flats. Kirkwood's meadow creek is the first test.
+5. **Erosion.** Hydraulic erosion for gullies and fans, and thermal collapse for scree below cliffs. Runs before cliffs and creeks in the pipeline, built after them.
+6. **Snow that doesn't look plastic.** Builds on [[Graphics Base]], which handles anti-aliasing, light balance, broad snow variation, and view-driven sparkle. This step adds fine wind texture and sastrugi on exposed snow, a soft blue tint in deep snow, different looks for powder, wind crust, ice, and slush ([[Snow]]), and tracks that break up groomed sheets. Where snow is thin, let rock, dirt, and grass show through in patches instead of a uniform fade.
+7. **Auto-snow from the scenario's climate.**
+   - Done: latitude, longitude, time zone, base altitude, and a monthly climate are in the save ([[Save Format]]), filled in at import from Open-Meteo and SNOTEL ([[Weather]]); the sun, melt, and weather use them.
    - The auto-snow generator adds a sun term using the same sun model and horizon map as melt: south faces and sunny spots lose snow, north faces and shaded gullies keep it.
    - Scenarios can start with a realistic snowpack for their start date, from the climate parameters, by elevation and aspect. The same parameters feed the per-scenario weather in [[Scenario Goals and Rules]].
-   - Fill the parameters in for Boreal and Kirkwood from SNOTEL, and guess for scenarios outside the US until better data turns up.
+   - Boreal and Kirkwood get them when re-imported; outside the US the reanalysis stands in.
    - The goal for Kirkwood: north and south faces look and ski very differently, so a spot that's usually bare in reality, like one near the parking lot that looks inviting for a lift today, is bare in the game too.
 
 ## Open questions
 
-- Which climate parameters to store beyond latitude: a snowline, a start-of-season depth curve, storm frequency, typical temperatures?
-- How finely to refine (2.5 m, 1.25 m?), and how much of a large map can be refined before memory and frame time suffer.
-- How to store baked detail in the scenario: refined heights per chunk, or a compact description (offsets, masks) that loads into a mesh. Mind file size on large maps.
-- Where a finer elevation source exists (USGS 3DEP lidar in the US), should the detail pass use it instead of shaping detail procedurally?
-- Whether refined detail ever feeds back into the sim, for example a creek bed so narrow it's lost on the 5 m grid.
+- Climate beyond the monthly averages: a start-of-season depth curve (SNOTEL has snow depth), and whether wet days should split rain and snow by altitude instead of at the base.
+- Whistler-scale maps: a dense 1.25 m grid is about 100 MB of 16-bit heights; may need sparse tiles or a coarser grid away from cliffs and creeks.
+- A creek bed narrower than a cell is averaged away when cells are recomputed from the fine grid; does pathing need the creek mask too?
 
 ## Log
 
@@ -61,3 +68,9 @@ In this order:
 - 2026-10-04: Decisions: climate goes in the scenario file as parameters, found or guessed outside the US. Cliffs get simplified instanced meshes and lean on shaders, with large maps in mind. Creeks matter as terrain shape, not rendered water, and pathing follows from slope. Added an adaptive mesh, finer around cliffs and creeks, as step 2. Pond skimming deferred.
 - 2026-10-05: Sparkle, shade color, and broad snow variation moved to [[Graphics Base]], which comes first.
 - 2026-10-05: Reordered: mesh subdivision first, then cliffs and creeks baked into the mesh by a detail pass after import, pre-baked into the scenario. Instanced rock meshes only if the baked mesh isn't enough.
+- 2026-10-05: Approved the plan: a fine 1.25 m height grid drawn on the GPU through tessellation, a multi-pass detail pipeline (repair, erosion, cliffs, creeks) feeding the sim cells, lidar where it exists, Kirkwood cliffs first. Added erosion as its own step. Started step 1.
+- 2026-10-05: Step 1 done. 32 × 32-cell chunks (362 at Kirkwood) with shared vertices; per-corner snow moved into two textures, so a snow change uploads about 6 MB instead of the whole 146 MB vertex buffer; per-edge subdivision 1–4 (8 with detail); `world.TerrainDetail` at 1.25 m drawn by the tessellation stage, read by `VisualElevationAt` and trees. Kirkwood GPU time: 16.1 → 6.5 ms zoomed out, 7.7 → 3.3 ms zoomed in; CPU render 7.8 → 0.9 ms. Fixed snow being drawn at double depth after any snow change, and `VisualElevationAt` now finds the jittered triangle. `-detail-test` shows no cracks across chunks or levels. 1 m lidar covers Kirkwood (USGS 3DEP projects CA_UpperSouthAmerican_Eldorado_2019 and CA_SierraNevada_B22, 10 km GeoTIFF tiles, UTM zones 10 and 11).
+- 2026-10-05: Fetched Kirkwood lidar with `tools/lidar` (`internal/geo`: TNM search, HTTP range reads of the cloud-optimized GeoTIFFs, LZW plus float predictor). 272 internal tiles in 28 s. Aligned to the map by a shift and scale search: +1.0 m east, −9.5 m south, scale 0.998, misfit 4.45 → 3.50 m RMS. Wrote a 2397² heights file at 1.25 m with no gaps; `-detail-file` draws it. Open snow now shows real gullies, ribs, and benches; the ridge profile gets a ragged rock edge. GPU cost about +0.15 ms. Not yet saved into the scenario.
+- 2026-10-05: Detail is now part of the save (`detail`: offsets in centimetres, delta-coded per row; Kirkwood's save goes from 2.8 to 8.2 MB, largest offset 45 m). `tools/lidar -write-save` bakes it into a copy; the preview is `kirkwood-lidar` in the saves folder. The bundled scenario is unchanged.
+- 2026-10-05: Moved lidar into the editor's terrain import instead of patching saves: cells are averaged from the lidar too, gaps fall back to the tiles with a feathered seam, and the import's bounds are saved. Kirkwood's footprint: 100% coverage, 70 s, largest detail offset 24 m (45 m when the cells came from the tiles). The plan is to rebuild Kirkwood from a fresh import.
+- 2026-10-05: The save now carries base altitude, time zone, and climate; imports fill them in. The sun follows the map's latitude, the clock is local time (Kirkwood's December sunrise 7:15, sunset 16:42), the weather chain draws from the climate (Kirkwood's January base averages −2.4 °C, not the generic −10 °C), thirst counts real altitude, and the editor's wind and snowline sliders start from the climate.

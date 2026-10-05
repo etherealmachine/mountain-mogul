@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
+	"strings"
+	"time"
 )
 
 // SearchResult holds a single Nominatim place result.
@@ -13,14 +16,71 @@ type SearchResult struct {
 	DisplayName string
 	Lat, Lon    float64
 	BBox        [4]float64 // [minLat, maxLat, minLon, maxLon]
+	SkiArea     bool       // OSM tags it as a ski area or resort
 }
 
-// Search queries Nominatim for the given place name, returning up to 5 results.
+// searchLimit is how many results Search returns at most.
+const searchLimit = 8
+
+// Search finds places named query, ski areas first. OSM often only
+// knows a resort by its full name ("Boreal Mountain Resort", not
+// "Boreal"), so unless the query already names a resort it also asks
+// for "<query> resort" and merges the two.
 func Search(query string) ([]SearchResult, error) {
+	query = strings.TrimSpace(query)
+	results, err := nominatimSearch(query)
+	if err != nil {
+		return nil, err
+	}
+	// Ski areas from either search come first, then the places the query
+	// itself found; the extra search's other hits (hotels, campgrounds)
+	// only fill what's left.
+	rank := func(r SearchResult, extra bool) int {
+		switch {
+		case r.SkiArea:
+			return 0
+		case !extra:
+			return 1
+		}
+		return 2
+	}
+	type ranked struct {
+		r    SearchResult
+		rank int
+	}
+	var all []ranked
+	for _, r := range results {
+		all = append(all, ranked{r, rank(r, false)})
+	}
+	if !strings.Contains(strings.ToLower(query), "resort") {
+		// Nominatim's usage policy allows one request a second.
+		time.Sleep(time.Second)
+		if more, err := nominatimSearch(query + " resort"); err == nil {
+			for _, r := range more {
+				all = append(all, ranked{r, rank(r, true)})
+			}
+		}
+	}
+	sort.SliceStable(all, func(i, j int) bool { return all[i].rank < all[j].rank })
+	seen := map[string]bool{}
+	var out []SearchResult
+	for _, a := range all {
+		if !seen[a.r.DisplayName] {
+			seen[a.r.DisplayName] = true
+			out = append(out, a.r)
+		}
+	}
+	if len(out) > searchLimit {
+		out = out[:searchLimit]
+	}
+	return out, nil
+}
+
+func nominatimSearch(query string) ([]SearchResult, error) {
 	params := url.Values{
 		"q":               {query},
 		"format":          {"json"},
-		"limit":           {"5"},
+		"limit":           {strconv.Itoa(searchLimit)},
 		"accept-language": {"en"},
 	}
 	apiURL := "https://nominatim.openstreetmap.org/search?" + params.Encode()
@@ -37,12 +97,17 @@ func Search(query string) ([]SearchResult, error) {
 		return nil, fmt.Errorf("nominatim request: %w", err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("place search: HTTP %s", resp.Status)
+	}
 
 	var raw []struct {
 		DisplayName string   `json:"display_name"`
 		Lat         string   `json:"lat"`
 		Lon         string   `json:"lon"`
 		BoundingBox []string `json:"boundingbox"` // [minLat, maxLat, minLon, maxLon]
+		Class       string   `json:"class"`
+		Type        string   `json:"type"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
 		return nil, fmt.Errorf("nominatim decode: %w", err)
@@ -75,7 +140,30 @@ func Search(query string) ([]SearchResult, error) {
 			Lat:         lat,
 			Lon:         lon,
 			BBox:        bbox,
+			SkiArea:     isSkiArea(item.Class, item.Type, item.DisplayName),
 		})
 	}
 	return results, nil
+}
+
+// isSkiArea reports whether an OSM result is a ski area: tagged as winter
+// sports land, or a sports centre or resort whose name says so (Boreal is
+// mapped as a sports centre). A resort needs "ski" or "mountain" in its
+// name; plain "resort" is usually a hotel.
+func isSkiArea(class, typ, name string) bool {
+	if class == "landuse" && typ == "winter_sports" {
+		return true
+	}
+	if class != "leisure" {
+		return false
+	}
+	first, _, _ := strings.Cut(strings.ToLower(name), ",")
+	ski := strings.Contains(first, "ski") || strings.Contains(first, "mountain")
+	switch typ {
+	case "sports_centre":
+		return ski || strings.Contains(first, "resort")
+	case "resort":
+		return ski
+	}
+	return false
 }

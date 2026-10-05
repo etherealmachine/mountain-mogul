@@ -16,11 +16,12 @@ In the order to work on them:
 
 1. [[Graphics Base]]: steps 1–6 shipped (anti-aliasing, light balance, snow breakup, trees, haze, map edge), and fresh snow after a storm is cheap again. Left: check for sim lag after a storm in a busy game (see **Storm lag** under Rendering), bough snow that lingers after a storm (needs a recent-snowfall value in the weather sim), gamma-correct lighting, and post-processing.
 2. [[Terrain Realism]]: make imported mountains look and behave like the real place. In this order:
-   1. Mesh subdivision: a chunked terrain mesh, finer where a detail pass says so, on top of the 5 m sim grid.
-   2. Cliffs baked into the refined mesh by a detail pass after import, with a rock mask for the shader; instanced rock meshes only if needed. *Needs* step 1.
-   3. Creeks baked into the refined mesh by the same pass, so pathing follows from slope; frozen flats for lakes. *Needs* step 1.
-   4. Snow that doesn't look plastic: wind texture, distinct powder, crust, ice, and slush, and ground showing through thin snow. *Needs* the light balance and snow breakup from [[Graphics Base]].
-   5. Climate parameters in each scenario (latitude first), a sun term in auto-snow, and a realistic starting snowpack. *For* [[Kirkwood]]'s north and south faces.
+   1. Detail pipeline: a fine 1.25 m height grid (1 m lidar where it exists, starting with Kirkwood) saved in the scenario, with a repair pass, an editor bake, and cell elevations recomputed from it. Mesh subdivision is done.
+   2. Cliffs: a pass that finds and shapes rock, with rock shading from its mask. Kirkwood first. *Needs* step 1.
+   3. Creeks carved from water flow, so pathing follows from slope; frozen flats for lakes. *Needs* step 1.
+   4. Erosion: gullies, fans, and scree. *Needs* step 1.
+   5. Snow that doesn't look plastic: wind texture, distinct powder, crust, ice, and slush, and ground showing through thin snow. *Needs* the light balance and snow breakup from [[Graphics Base]].
+   6. Climate parameters in each scenario (latitude first), a sun term in auto-snow, and a realistic starting snowpack. *For* [[Kirkwood]]'s north and south faces.
 
 Not ranked yet: everything below.
 
@@ -145,7 +146,7 @@ Not ranked yet: everything below.
 - **Grooming over tracks**: decide how a cat pass treats skier tracks already in the snow: wipe them under the swath, fade them, or keep cutting them through the corduroy in the shader as now ([[Grooming]], [[Real Grooming]]).
 - **Environmental variety**: tree species, deciduous trees, dead snags, saplings, shrubs, and rocks. Rocks overlap with cliffs in [[Terrain Realism]].
 - **Animation approach**: choose between procedural in the shader (as now), glTF skinned meshes, baked keyframes, or blended poses.
-- **Storm lag**: lag was reported after a heavy storm at [[Boreal]]. The GPU half is fixed (fresh snow zoomed out: 10.6 → 7.2 ms). The sim half is unchecked, because the tutorial save has no guests; play a busy game through a storm with `-cpuprofile` to see if deep powder or avalanche checks slow the sim ([[Debug Tools]]).
+- **Storm lag**: lag was reported after a heavy storm at [[Boreal]]. The GPU half is fixed (fresh snow zoomed out: 10.6 → 7.2 ms), and snow changes no longer re-upload the whole terrain vertex buffer every frame ([[Terrain Realism]] step 1). The sim half is unchecked, because the tutorial save has no guests; play a busy game through a storm with `-cpuprofile` to see if deep powder or avalanche checks slow the sim ([[Debug Tools]]).
 - **5,000 guests**: persistent buffers, culling the guest batch, lower-detail skier meshes. Big maps also lean on the terrain chunks from [[Terrain Realism]] step 2.
 
 ## Easter eggs

@@ -243,6 +243,19 @@ type World struct {
 	// Scenario is the scenario's name, description, and campaign placing.
 	Scenario ScenarioInfo
 
+	// Geo is the real-world area the terrain was imported from, or nil
+	// for drawn maps and imports from before it was recorded.
+	Geo *GeoBounds
+	// BaseAltitude is the height above sea level, in metres, of ground
+	// elevation 0. Zero for drawn maps, which sit at sea level.
+	BaseAltitude float32
+	// TimeZone is the IANA zone of the place, e.g. "America/Los_Angeles".
+	// With Geo it makes the clock local time; empty means the clock is
+	// solar time.
+	TimeZone string
+	// Climate is the place's typical weather, or nil for the generic one.
+	Climate *Climate
+
 	// FocusedGuestID is the ID of the guest currently being followed by the
 	// camera (0 = none). Written by the scene layer; exposed to the query
 	// system so "WHERE followed = 1" works in live SQL queries.

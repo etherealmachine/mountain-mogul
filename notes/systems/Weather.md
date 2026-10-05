@@ -10,10 +10,13 @@ A daily Markov chain with five states: clear, overcast, light snow, storm, and r
 
 Each day's weather feeds [[Snow]]: new layers on snow days, surface changes on dry days (rain, cold clear, warm clear, wind), and melt through the hourly temperature curve. A big snowfall or a rain day triggers an [[Avalanche]] check. The hourly temperature also decides whether [[Snowmaking]] can run. [[Calendar]] fast-forward can stop just before the next storm.
 
-Weather does not yet affect [[Demand]] or [[Satisfaction]], and wind direction is fixed per scenario rather than changing daily. Every map shares the same monthly odds; the plan is to tailor them per scenario from real-world climate data ([[Scenario Goals and Rules]]).
+Imported maps carry a climate from the real place ([[Terrain Import]]): for each month, the mean temperature and daily range, the share of wet days, the precipitation on a wet day, and cloud cover, plus the prevailing storm wind. It comes from Open-Meteo's reanalysis archive anywhere in the world, with temperature and precipitation replaced by the closest-matching SNOTEL snow station within 30 km in the US (Kirkwood uses Carson Pass, 6 km away). The chain builds its monthly odds and amounts from it: wet days split into rain or snow by the base area's temperature, lapsed from the climate's altitude to the map's; dry days into clear or overcast by cloud cover. The draw weights are corrected for each state's persistence, so the long-run shares match the record. Drawn maps keep the generic cold-mountain profile.
+
+Weather does not yet affect [[Demand]] or [[Satisfaction]], and wind direction is fixed per scenario rather than changing daily. A wet day is rain or snow over the whole mountain, chosen at the base, so spring days can rain on the summit too.
 
 Spec: [[Weather Spec]]. Code: `internal/sim/weather.go`, `temperature.go`, `storm.go`.
 
 ## Log
 
 - 2026-10-01: Chain, forecast, snow effects, hourly temperature, and skip-to-storm are in. Weather-driven demand and a daily wind field are listed as future work.
+- 2026-10-05: Per-scenario climate from Open-Meteo and SNOTEL, set at import. Kirkwood over 40 simulated years: monthly mean temperatures within 0.3 °C of the record, precipitation within about 15%.

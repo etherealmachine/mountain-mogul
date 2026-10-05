@@ -87,8 +87,9 @@ lifts, snowcats, and the demand/rating system.
 **Calendar** (`calendar.go`): `DateAt(start, simTime)` is `start` plus
 one day per `secondsPerSimDay` (4320 s: 24 clock hours of
 `world.SimSecondsPerHour` = 180 s, about 5 real minutes for a 9:00–16:00
-ski day at 4×). `HourOfDay(simTime)` is local solar time (noon = solar
-noon); `sun.go` gives the sun's direction and sunrise/sunset at 45°N,
+ski day at 4×). `HourOfDay(simTime)` is the clock hour: local time when the map has a
+time zone, solar time otherwise; `sun.go`'s `Site` (from the world's
+bounds and zone, or 45°N) gives the sun's direction and sunrise/sunset,
 `temperature.go` the hourly air temperature (the day's low at sunrise,
 high at 14:30, cooling toward the next day's forecast low), and the
 renderer lights the scene from `Simulation.Sun()` (moonlight at night).
@@ -188,9 +189,11 @@ from internal renames.
 
 ### `internal/geo`
 Real-world terrain import. Fetches elevation tiles from AWS Terrain Tiles
-(Terrarium, zoom 14), resamples to the target grid, geocodes lat/lon.
+(Terrarium, zoom 14) and, where it exists, USGS 3DEP 1 m lidar (cloud-optimized
+GeoTIFFs read by range request), samples them onto the cell grid and the 1.25 m
+detail lattice, geocodes lat/lon.
 
-**Key functions:** `FetchGrid`, `ResampleToGrid`, `Geocode`, `Preview`
+**Key functions:** `ImportTerrain`, `FetchGrid`, `OpenLidar`, `Geocode`, `Preview`
 
 ---
 

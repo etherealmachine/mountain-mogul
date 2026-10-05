@@ -380,7 +380,7 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 	}
 
 	// Thirst: altitude × exertion scaled drain.
-	altFactor := 1 + a.Pos[1]*thirstAltitudePerMetre
+	altFactor := 1 + (s.World.BaseAltitude+a.Pos[1])*thirstAltitudePerMetre
 	a.Thirst -= thirstDrainPerSec * altFactor * thirstExertionMultiplier(a.Traits.Skill, surfKind, onGroomed) * float32(dt)
 	if a.Thirst < 0 {
 		a.Thirst = 0

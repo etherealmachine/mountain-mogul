@@ -681,6 +681,29 @@ func (s *Scenario) ForceStorm() {
 	s.sim.Weather.SetToday(today)
 }
 
+// FillDetailTest swaps in the synthetic terrain detail pattern, for
+// checking the renderer's seams and levels of detail.
+func (s *Scenario) FillDetailTest() {
+	s.world.Terrain.FillDetailTest()
+	s.app.Renderer.FlushTerrainDetail(s.world.Terrain)
+	s.app.Renderer.RebuildStaticBatch(s.world)
+}
+
+// LoadDetailHeights draws the ground from a detail heights file (see
+// tools/lidar) instead of the plain 5 m mesh.
+func (s *Scenario) LoadDetailHeights(path string) error {
+	w, h, heights, err := world.ReadDetailHeights(path)
+	if err != nil {
+		return err
+	}
+	if err := s.world.Terrain.SetDetailFromHeights(w, h, heights); err != nil {
+		return err
+	}
+	s.app.Renderer.FlushTerrainDetail(s.world.Terrain)
+	s.app.Renderer.RebuildStaticBatch(s.world)
+	return nil
+}
+
 // GroomNow gives every cat's section a full grooming pass at once.
 func (s *Scenario) GroomNow() {
 	if s.sim != nil {

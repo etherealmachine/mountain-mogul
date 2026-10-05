@@ -12,10 +12,10 @@ import (
 // lapseRate.
 const peakTempHour = 14.5
 
-// tempCurve evaluates the daily cycle at clock hour h on date, given the
-// previous, current and next days' weather.
-func tempCurve(date time.Time, h float64, prev, today, next DayWeather) float32 {
-	rise, _ := SunriseSunset(date)
+// tempCurve evaluates the daily cycle at clock hour h on date at site,
+// given the previous, current and next days' weather.
+func tempCurve(site Site, date time.Time, h float64, prev, today, next DayWeather) float32 {
+	rise, _ := site.SunriseSunset(date)
 	switch {
 	case h < rise:
 		// Still cooling from yesterday's peak.
@@ -23,7 +23,7 @@ func tempCurve(date time.Time, h float64, prev, today, next DayWeather) float32 
 	case h < peakTempHour:
 		return cosineBlend(today.TempLow, today.TempHigh, (h-rise)/(peakTempHour-rise))
 	default:
-		nRise, _ := SunriseSunset(date.AddDate(0, 0, 1))
+		nRise, _ := site.SunriseSunset(date.AddDate(0, 0, 1))
 		return cosineBlend(today.TempHigh, next.TempLow, (h-peakTempHour)/(nRise+24-peakTempHour))
 	}
 }
@@ -38,7 +38,7 @@ func cosineBlend(a, b float32, f float64) float32 {
 // TempAt returns the base-area air temperature (°C) at simTime, which
 // must fall on the current sim day.
 func (s *Simulation) TempAt(simTime float64) float32 {
-	return tempCurve(s.DateAt(simTime), HourOfDay(simTime), s.yesterday, s.Weather.Today(), s.tomorrow)
+	return tempCurve(s.Site, s.DateAt(simTime), HourOfDay(simTime), s.yesterday, s.Weather.Today(), s.tomorrow)
 }
 
 // TempNow is the base-area air temperature right now.

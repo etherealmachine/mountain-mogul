@@ -441,6 +441,10 @@ type Terrain struct {
 	// Groom records where snowcats groomed, at 1 m. See groom_map.go.
 	Groom *GroomMap
 
+	// Detail is sub-cell height detail drawn on top of the 5 m mesh, or
+	// nil for none. See terrain_detail.go.
+	Detail *TerrainDetail
+
 	// accessible is a derived per-cell land-ownership grid. nil means all
 	// in-bounds cells are accessible (no parcel system). Maintained by
 	// World.ApplyParcels and World.BuyParcel.

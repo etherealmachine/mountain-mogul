@@ -61,6 +61,8 @@ type Simulation struct {
 	// Weather is the daily Markov-chain weather generator. Advance is called
 	// once per in-game day rollover in maybeSampleHistory.
 	Weather *Chain
+	// Site is where the sun is computed for (SiteOf the world).
+	Site Site
 	// yesterday and tomorrow bracket Weather.Today() for the hourly
 	// temperature curve (TempAt). tomorrow is the deterministic forecast,
 	// so it matches what Advance later produces.
@@ -173,7 +175,8 @@ func NewSimulationWithSeed(w *world.World, seed int64) *Simulation {
 		SimTime:        w.SimTime,
 		Pathfinder:     NewPathfinder(w.Terrain),
 		TimeScale:      4.0,
-		Weather:        NewChain(),
+		Site:           SiteOf(w),
+		Weather:        NewChainFor(w.Climate, w.BaseAltitude+terrainMinElevation(w.Terrain)),
 		Planner:        goap.NewPlanner(),
 		Demand:         NewDemandSystem(),
 		spatial:        newSpatialGrid(widthM, heightM),
@@ -1008,7 +1011,7 @@ func (s *Simulation) applyDayMelt(dw DayWeather) {
 	date := s.DateAt(s.SimTime)
 	for h := 0; h < 24; h++ {
 		hour := float64(h) + 0.5
-		s.meltHour(dw, date, hour, tempCurve(date, hour, dw, dw, dw), 1.0/24)
+		s.meltHour(dw, date, hour, tempCurve(s.Site, date, hour, dw, dw, dw), 1.0/24)
 	}
 }
 
@@ -1024,7 +1027,7 @@ func (s *Simulation) meltHour(dw DayWeather, date time.Time, hour float64, tempC
 		return // even the base area is below freezing, and it's dry
 	}
 	baseElev := terrainMinElevation(t)
-	sun := SunAt(date, hour)
+	sun := s.Site.SunAt(date, hour)
 	beam := newInstantSun(sun, dw.CloudCover)
 	var horizon *world.HorizonMap
 	if beam.weight > 0 {

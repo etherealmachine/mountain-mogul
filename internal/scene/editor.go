@@ -9,6 +9,7 @@ import (
 	"github.com/go-gl/glfw/v3.3/glfw"
 	"github.com/go-gl/mathgl/mgl32"
 	"mountain-mogul/internal/engine"
+	"mountain-mogul/internal/geo"
 	"mountain-mogul/internal/render"
 	"mountain-mogul/internal/save"
 	"mountain-mogul/internal/settings"
@@ -182,7 +183,7 @@ func (e *Editor) Init(app *engine.App) error {
 	e.menuBar.AddIconButton(render.IconGlobe, "Import", func() {
 		app.PushScene(NewTerrainImport(
 			e.world.Terrain.Width,
-			func(elevs [][]float32) { e.applyImportedTerrain(elevs, e.app.Renderer) },
+			func(res *geo.ImportResult) { e.applyImportedTerrain(res, e.app.Renderer) },
 		))
 	})
 	e.menuBar.AddIconButton(render.IconFloppyDisk, "Save", e.saveCurrent)
@@ -1114,9 +1115,11 @@ func (e *Editor) applyEditorTool(gx, gz int, r *render.Renderer, dt float32) {
 // layout would leave lifts dangling in mid-air and trees floating above
 // new mountains. Snow depth starts at zero so the imported terrain reads
 // as bare ground; the Auto-snow generator (and brushes, eventually) is the
-// authoritative way to lay snow on top.
-func (e *Editor) applyImportedTerrain(elevs [][]float32, r *render.Renderer) {
+// authoritative way to lay snow on top. Lidar, where the import found
+// it, becomes the terrain's 1.25 m detail.
+func (e *Editor) applyImportedTerrain(res *geo.ImportResult, r *render.Renderer) {
 	e.markDirty()
+	elevs := res.Cells
 	rows := len(elevs)
 	cols := 0
 	if rows > 0 {
@@ -1147,7 +1150,41 @@ func (e *Editor) applyImportedTerrain(elevs [][]float32, r *render.Renderer) {
 		}
 	}
 	t.RecomputeSlopes()
+	if res.Detail != nil {
+		for k := range res.Detail {
+			res.Detail[k] -= minElev
+		}
+		if err := t.SetDetailFromHeights(res.DetailW, res.DetailH, res.Detail); err != nil {
+			fmt.Println("import:", err)
+		}
+	}
 	e.world = world.NewWorld(t)
+	b := res.Bounds
+	e.world.Geo = &world.GeoBounds{MinLat: b.MinLat, MaxLat: b.MaxLat, MinLon: b.MinLon, MaxLon: b.MaxLon}
+	e.world.BaseAltitude = minElev
+	e.world.TimeZone = res.TimeZone
+	e.world.Climate = res.Climate
+	toast := "Imported without lidar: " + res.LidarNote
+	if t.Detail != nil {
+		toast = fmt.Sprintf("Imported with 1 m lidar (%.0f%% coverage)", 100*res.LidarCoverage)
+	}
+	if c := res.Climate; c != nil {
+		e.autoWindSlider.Value = c.WindDeg
+		var top float32
+		for _, row := range elevs {
+			for _, v := range row {
+				top = max(top, v-minElev)
+			}
+		}
+		if top > 0 {
+			frac := (c.SnowlineAltitude() - minElev) / top
+			e.autoSnowlineSlider.Value = 100 * (1 - min(max(frac, 0), 1))
+		}
+		toast += "; climate from " + c.Source
+	} else {
+		toast += "; no climate: " + res.ClimateNote
+	}
+	e.setToast(toast)
 	e.activeTool = toolNone
 	e.autoFields = nil
 	e.parcelBoundaryDirty = true

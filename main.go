@@ -11,6 +11,7 @@ import (
 	"runtime/pprof"
 	"sort"
 	"time"
+	_ "time/tzdata" // scenario time zones resolve without a system zone database
 
 	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
@@ -18,6 +19,7 @@ import (
 
 	"mountain-mogul/internal/ai"
 	"mountain-mogul/internal/engine"
+	"mountain-mogul/internal/geo"
 	"mountain-mogul/internal/render"
 	"mountain-mogul/internal/save"
 	"mountain-mogul/internal/scene"
@@ -52,7 +54,10 @@ func main() {
 	clockHour := flag.Float64("clock-hour", math.NaN(), "-screenshot: jump the clock to this hour of the current day (e.g. 7.5 for 7:30) before capture")
 	timeScale := flag.Float64("time-scale", 0, "-screenshot: run the sim at this speed multiplier during warmup (0 = the save's speed)")
 	groomNow := flag.Bool("groom-now", false, "-screenshot: give every snowcat's section a full grooming pass before capture")
+	detailFile := flag.String("detail-file", "", "-screenshot: draw the ground from a detail heights file (from tools/lidar)")
+	detailTest := flag.Bool("detail-test", false, "-screenshot: replace terrain detail with a synthetic bump-and-step pattern, for checking mesh seams")
 	storm := flag.Bool("storm", false, "-screenshot: drop a heavy-snow day on the terrain and make today a heavy-snow day before capture")
+	importPreview := flag.String("import-preview", "", "-screenshot: capture the terrain import map at \"lat,lon,zoom\" (e.g. 38.68,-120.07,14) once the map and the OpenStreetMap overlay have loaded")
 	overlayMode := flag.Int("overlay-mode", 0, "-screenshot terrain overlay bitmask (render.Overlay*: contour=1, slope=2, snow-depth=4, grooming=8, packed=16, ice=32, mogul=64, bump-normal=128)")
 	skipIntro := flag.Bool("skip-intro", false, "skip the Minty Fresh splash and jump straight to the start menu")
 	profile := flag.Bool("profile", false, "run a headless 50× sim profile (representative resort, demand on) → cpu.prof + mem.prof")
@@ -83,6 +88,10 @@ func main() {
 	// the iterate-on-shader workflow — pick a testbed that exercises the
 	// surface you care about, dial in a camera angle, and re-render after
 	// every shader tweak without leaving the terminal.
+	if *screenshot != "" && *importPreview != "" {
+		runImportScreenshot(*screenshot, *importPreview)
+		return
+	}
 	if *screenshot != "" {
 		runScreenshot(screenshotOpts{
 			outPath:      *screenshot,
@@ -102,6 +111,8 @@ func main() {
 			timeScale:    *timeScale,
 			storm:        *storm,
 			groomNow:     *groomNow,
+			detailTest:   *detailTest,
+			detailFile:   *detailFile,
 		})
 		return
 	}
@@ -256,6 +267,8 @@ type screenshotOpts struct {
 	timeScale              float64 // 0 = leave the sim speed alone
 	storm                  bool
 	groomNow               bool
+	detailTest             bool
+	detailFile             string
 }
 
 // runScreenshot opens a window, loads either a registered testbed (when
@@ -326,6 +339,19 @@ func runScreenshot(opt screenshotOpts) {
 	if opt.storm {
 		sc.ForceStorm()
 		fmt.Println("screenshot: forced a heavy-snow day")
+	}
+
+	if opt.detailFile != "" {
+		if err := sc.LoadDetailHeights(opt.detailFile); err != nil {
+			fmt.Println("screenshot:", err)
+		} else {
+			fmt.Println("screenshot: terrain detail from", opt.detailFile)
+		}
+	}
+
+	if opt.detailTest {
+		sc.FillDetailTest()
+		fmt.Println("screenshot: synthetic terrain detail")
 	}
 
 	if opt.groomNow {
@@ -406,6 +432,51 @@ func runScreenshot(opt screenshotOpts) {
 		fmt.Printf("screenshot: gpu render median %.2f ms/frame\n", gpuMs[len(gpuMs)/2])
 		fmt.Printf("screenshot: cpu update median %.2f ms, max %.2f; cpu render median %.2f ms, max %.2f\n",
 			updateMs[len(updateMs)/2], updateMs[len(updateMs)-1], renderMs[len(renderMs)/2], renderMs[len(renderMs)-1])
+		drawn, total := app.Renderer.TerrainChunkStats()
+		fmt.Printf("screenshot: terrain chunks drawn %d of %d\n", drawn, total)
+	}
+}
+
+// runImportScreenshot opens the terrain import map at "lat,lon,zoom",
+// runs frames until the map tiles and the overlay have loaded (or a
+// minute passes), and writes the frame to outPath.
+func runImportScreenshot(outPath, at string) {
+	var lat, lon float64
+	var zoom int
+	if _, err := fmt.Sscanf(at, "%f,%f,%d", &lat, &lon, &zoom); err != nil {
+		fmt.Fprintln(os.Stderr, "screenshot: -import-preview wants lat,lon,zoom:", err)
+		os.Exit(1)
+	}
+	app := engine.NewApp("Mountain Mogul (screenshot)", 1280, 720, "assets")
+	defer app.Destroy()
+	ti := scene.NewTerrainImport(0, func(*geo.ImportResult) {})
+	app.PushScene(ti)
+	ti.PreviewAt(lat, lon, zoom)
+
+	deadline := time.Now().Add(time.Minute)
+	prev := time.Now()
+	settledFrames := 0
+	for settledFrames < 3 {
+		now := time.Now()
+		dt := now.Sub(prev).Seconds()
+		prev = now
+		app.Input.BeginFrame()
+		glfw.PollEvents()
+		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+		ti.Update(dt)
+		ti.Render(app.Renderer)
+		if ti.Settled() || now.After(deadline) {
+			settledFrames++
+		}
+		if settledFrames == 3 {
+			if err := app.Renderer.SaveScreenshot(outPath); err != nil {
+				fmt.Fprintln(os.Stderr, "screenshot: write failed:", err)
+				os.Exit(1)
+			}
+			fmt.Println("screenshot: wrote", outPath)
+		}
+		app.Window.SwapBuffers()
+		time.Sleep(16 * time.Millisecond)
 	}
 }
 

@@ -12,7 +12,7 @@ import "github.com/go-gl/gl/v4.1-core/gl"
 // scene transitions.
 type SceneResources struct {
 	terrainMesh   *Mesh
-	terrainVBO    uint32
+	terrainChunks []terrainChunk
 	terrainWidth  int
 	terrainHeight int
 	terrainMinY   float32 // surface min/max Y (skirts excluded), drives topo shader
@@ -35,13 +35,17 @@ type SceneResources struct {
 	// cell edges feather naturally.
 	cellOverlayTex uint32
 
-	// Cached CPU-side terrain vertex array. Held so the snow-state
-	// flush path can rewrite a few floats per vertex and re-upload
-	// without rerunning the expensive AO/smoothY/jitter precompute.
-	// Invalidated by anything that changes ground elevation (terrain
-	// raise/lower, full rebuild on scene load).
-	terrainVerts        []float32
-	terrainSurfaceVerts int // number of leading vertices that hold surface (snow-bearing) cells; the rest are skirt walls/floor
+	// Per-corner snow state read by terrain.vert (see terrain_mesh.go),
+	// and how far snow and its bumps can rise above the ground, for
+	// chunk culling.
+	cornerSnowTexA uint32
+	cornerSnowTexB uint32
+	terrainSnowPad float32
+
+	// detailTex mirrors Terrain.Detail; 0 when the terrain has none.
+	detailTex        uint32
+	detailW, detailH int
+	detailPad        float32
 
 	liftUpCables    map[uint64]*Mesh
 	liftDownCables  map[uint64]*Mesh
@@ -94,6 +98,12 @@ func (s *SceneResources) Delete() {
 	if s.groomTex != 0 {
 		gl.DeleteTextures(1, &s.groomTex)
 		s.groomTex = 0
+	}
+	for _, tex := range []*uint32{&s.cornerSnowTexA, &s.cornerSnowTexB, &s.detailTex} {
+		if *tex != 0 {
+			gl.DeleteTextures(1, tex)
+			*tex = 0
+		}
 	}
 	for id, m := range s.liftUpCables {
 		m.Delete()

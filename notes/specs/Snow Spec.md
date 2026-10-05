@@ -150,7 +150,7 @@ meltSWE = (0.0015 + 0.0035 × sunExposure) m/°C·day × max(0, T)/24  +  rain s
 ```
 
 - **T** is the hour's air temperature from the daily curve (low at sunrise, high at 14:30), lapse-adjusted for the cell's elevation, so a −3 °C clear day peaking at +2 °C still melts a little in the afternoon — and only then.
-- **sunExposure** is the current clear-sky direct beam on the cell's slope and aspect (the sun's real position at 45°N, air-mass attenuated), normalised so a flat cell at the equinox averages 1 over the day, and cut by up to 85% under cloud. It is 0 at night, and 0 while surrounding terrain hides the sun: `world.HorizonMap` stores each cell's horizon angle in 16 compass directions (rays marched up to 3 km), so a bowl under a ridge melts at the shade rate on low midwinter mornings. Trees and buildings don't cast shade.
+- **sunExposure** is the current clear-sky direct beam on the cell's slope and aspect (the sun's real position for the map's latitude, 45°N for drawn maps, air-mass attenuated), normalised so a flat cell at the equinox averages 1 over the day, and cut by up to 85% under cloud. It is 0 at night, and 0 while surrounding terrain hides the sun: `world.HorizonMap` stores each cell's horizon angle in 16 compass directions (rays marched up to 3 km), so a bowl under a ridge melts at the shade rate on low midwinter mornings. Trees and buildings don't cast shade.
 - Cells that melt mark the snow mesh dirty, so warm afternoons rebuild terrain every clock hour.
 - The resulting melt factor spans ~1.5 mm/°C·day on a December north face to ~8 mm on an April south face, matching field values for seasonal snow.
 

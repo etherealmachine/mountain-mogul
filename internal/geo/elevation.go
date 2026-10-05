@@ -12,9 +12,9 @@ const terrainZoom = 14
 const tilePixels = 256
 
 // FetchGrid fetches elevation data covering the bounding box using AWS Terrain
-// Tiles (Terrarium encoding) at zoom 14 (~2.4 m/pixel at mid-latitudes).
-// The cols/rows parameters are ignored; the returned grid is at native tile
-// resolution, cropped to the bounding box. Pass the result to ResampleToGrid.
+// Tiles (Terrarium encoding) at zoom 14 (~9.6 m/pixel at the equator,
+// ~7.5 m at 38°). The cols/rows parameters are ignored; the returned grid
+// is at native tile resolution, cropped to the bounding box.
 func FetchGrid(ctx context.Context, minLat, maxLat, minLon, maxLon float64, _, _ int, progressFn func(float32)) ([][]float32, error) {
 	x0, y0 := lonLatToTile(minLon, maxLat, terrainZoom) // top-left tile
 	x1, y1 := lonLatToTile(maxLon, minLat, terrainZoom) // bottom-right tile

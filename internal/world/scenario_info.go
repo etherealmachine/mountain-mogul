@@ -14,3 +14,10 @@ type ScenarioInfo struct {
 	Order       int    // campaign position, ascending; 0 = unordered (sorts last)
 	Tutorial    bool   // shown first in the picker and marked as the tutorial
 }
+
+// GeoBounds is the latitude/longitude box, in degrees, an imported
+// terrain covers: cell column 0 is MinLon and Width-1 is MaxLon; row 0
+// is MaxLat and Height-1 is MinLat.
+type GeoBounds struct {
+	MinLat, MaxLat, MinLon, MaxLon float64
+}

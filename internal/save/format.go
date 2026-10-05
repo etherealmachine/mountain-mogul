@@ -34,17 +34,27 @@ type ScenarioData struct {
 	Trees []float32 `json:"trees,omitempty"`
 	// Groom is the 1 m groom map (world.GroomMap pixels); empty when
 	// nothing is groomed. Saves without it rebuild from cell grooming.
-	Groom      []byte          `json:"groom,omitempty"`
-	Buildings  []BuildingData  `json:"buildings"`
-	Lifts      []LiftData      `json:"lifts"`
-	Trails     []TrailData     `json:"trails,omitempty"`
-	Guests     []GuestData     `json:"guests"`
-	Snowcats   []SnowcatData   `json:"snowcats,omitempty"`
-	Patrollers []PatrollerData `json:"patrollers,omitempty"`
-	RoadNodes  []RoadNodeData  `json:"road_nodes,omitempty"`
-	RoadEdges  []RoadEdgeData  `json:"road_edges,omitempty"`
-	Parcels    []ParcelData    `json:"parcels,omitempty"`
-	Cash       int             `json:"cash,omitempty"`
+	Groom []byte `json:"groom,omitempty"`
+	// Detail is sub-cell ground detail at 1.25 m (world.TerrainDetail
+	// bytes), e.g. from lidar; empty for the plain 5 m mesh.
+	Detail []byte `json:"detail,omitempty"`
+	// Geo is [minLat, maxLat, minLon, maxLon] of an imported terrain.
+	Geo []float64 `json:"geo,omitempty"`
+	// BaseAltitude, TimeZone and Climate are the World fields of the
+	// same names; absent for drawn maps and older imports.
+	BaseAltitude float32         `json:"base_alt,omitempty"`
+	TimeZone     string          `json:"time_zone,omitempty"`
+	Climate      *ClimateData    `json:"climate,omitempty"`
+	Buildings    []BuildingData  `json:"buildings"`
+	Lifts        []LiftData      `json:"lifts"`
+	Trails       []TrailData     `json:"trails,omitempty"`
+	Guests       []GuestData     `json:"guests"`
+	Snowcats     []SnowcatData   `json:"snowcats,omitempty"`
+	Patrollers   []PatrollerData `json:"patrollers,omitempty"`
+	RoadNodes    []RoadNodeData  `json:"road_nodes,omitempty"`
+	RoadEdges    []RoadEdgeData  `json:"road_edges,omitempty"`
+	Parcels      []ParcelData    `json:"parcels,omitempty"`
+	Cash         int             `json:"cash,omitempty"`
 	// Credit line state. CreditLimit is a pointer so a $0 line round-trips;
 	// nil (older saves) loads as DefaultCreditLimit.
 	CreditLimit     *int    `json:"credit_limit,omitempty"`
@@ -61,6 +71,23 @@ type ScenarioData struct {
 	Camera     *CameraData  `json:"camera,omitempty"`
 	History    *HistoryData `json:"history,omitempty"`
 	Events     []EventData  `json:"events,omitempty"`
+}
+
+// ClimateData is world.Climate.
+type ClimateData struct {
+	Source      string             `json:"source,omitempty"`
+	RefAltitude float32            `json:"ref_alt"`
+	WindDeg     float32            `json:"wind"`
+	Months      []ClimateMonthData `json:"months"`
+}
+
+// ClimateMonthData is world.ClimateMonth.
+type ClimateMonthData struct {
+	TempMean  float32 `json:"t"`
+	TempRange float32 `json:"tr"`
+	WetDays   float32 `json:"wet"`
+	WetMM     float32 `json:"mm"`
+	Cloud     float32 `json:"cloud"`
 }
 
 // EventData is one entry of the world event feed (world.Event). Saved

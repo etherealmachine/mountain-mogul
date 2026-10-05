@@ -3,6 +3,8 @@ package sim
 import (
 	"math/rand"
 	"time"
+
+	"mountain-mogul/internal/world"
 )
 
 // WeatherState is the canonical daily weather condition.
@@ -60,16 +62,30 @@ func (d DayWeather) IsRaining() bool { return d.State == WeatherRain }
 // in-game day rollover, passing the simulation's shared Rng so all weather
 // randomness flows through the single deterministic source.
 type Chain struct {
-	state WeatherState
-	today DayWeather
+	state  WeatherState
+	today  DayWeather
+	months *[12]monthProfile // shared, never written after construction
 }
 
-// NewChain returns a weather chain starting in clear conditions.
+// NewChain returns a weather chain for the generic climate, starting in
+// clear conditions.
 func NewChain() *Chain {
 	return &Chain{
-		state: WeatherClear,
-		today: DayWeather{State: WeatherClear, TempC: -5, TempHigh: 0, TempLow: -10, CloudCover: 0.1},
+		state:  WeatherClear,
+		today:  DayWeather{State: WeatherClear, TempC: -5, TempHigh: 0, TempLow: -10, CloudCover: 0.1},
+		months: &monthProfiles,
 	}
+}
+
+// NewChainFor returns a weather chain for climate c with temperatures at
+// the base area, baseAltitude metres above sea level; the generic one
+// when c is nil.
+func NewChainFor(c *world.Climate, baseAltitude float32) *Chain {
+	ch := NewChain()
+	if c != nil {
+		ch.months = climateProfiles(c, baseAltitude)
+	}
+	return ch
 }
 
 // Today returns the most recently generated day's weather without advancing.
@@ -124,6 +140,56 @@ type monthProfile struct {
 	tendency [weatherStateCount]float32
 	// meanTempC is the baseline daily mean temperature.
 	meanTempC float32
+	// diurnalScale multiplies stateDiurnal; 0 means 1.
+	diurnalScale float32
+	// wetMM is the mean precipitation on a wet day, mm of water; 0 keeps
+	// the generic snow and rain amounts.
+	wetMM float32
+}
+
+// heavySnowShare is the fraction of snow days that are storms. With
+// light days drawing 0.3–1 × the wet-day mean and storms 1–3 ×, it keeps
+// the mean over snow days at the wet-day mean.
+const heavySnowShare = 0.26
+
+// climateProfiles turns c into monthly chain parameters for a base area
+// at baseAltitude. Wet days split into rain and snow by the month's base
+// temperature, dry days into clear and overcast by its cloud cover. The
+// draw weights are divided out by each state's persistence so the
+// chain's long-run share of each state matches the climate, and the
+// mean temperature and daily swing are corrected for the per-state
+// offsets so the month averages to the climate's.
+func climateProfiles(c *world.Climate, baseAltitude float32) *[12]monthProfile {
+	var out [12]monthProfile
+	for m := range out {
+		cm := c.Months[m]
+		temp := c.TempAt(m, baseAltitude)
+		wet := clamp32(cm.WetDays, 0, 1)
+		rain := wet * clamp32((temp+1)/5, 0, 1)
+		snow := wet - rain
+		dry := 1 - wet
+		overcast := dry * clamp32((cm.Cloud-0.15)/0.6, 0.1, 0.9)
+		share := [weatherStateCount]float32{
+			WeatherClear:     dry - overcast,
+			WeatherOvercast:  overcast,
+			WeatherLightSnow: snow * (1 - heavySnowShare),
+			WeatherHeavySnow: snow * heavySnowShare,
+			WeatherRain:      rain,
+		}
+		p := &out[m]
+		var offset, diurnal float32
+		for s, f := range share {
+			p.tendency[s] = f * (1 - persistence[s])
+			offset += f * stateTempOffset[s]
+			diurnal += f * stateDiurnal[s]
+		}
+		p.meanTempC = temp - offset
+		if cm.TempRange > 0 && diurnal > 0 {
+			p.diurnalScale = cm.TempRange / 2 / diurnal
+		}
+		p.wetMM = cm.WetMM
+	}
+	return &out
 }
 
 // monthProfiles is indexed by time.Month-1. All twelve months are present;
@@ -214,7 +280,7 @@ var (
 // sample draws one day of weather for the given month using rng, updates
 // c.state, and returns the result.
 func (c *Chain) sample(rng *rand.Rand, month time.Month) DayWeather {
-	prof := &monthProfiles[month-1]
+	prof := &c.months[month-1]
 
 	// Transition: persist in current state or redraw from monthly tendency.
 	if rng.Float32() >= persistence[c.state] {
@@ -240,6 +306,9 @@ func (c *Chain) sample(rng *rand.Rand, month time.Month) DayWeather {
 
 	// Diurnal high/low: mean ± half-swing with small independent noise.
 	diurnal := stateDiurnal[c.state]
+	if prof.diurnalScale > 0 {
+		diurnal *= prof.diurnalScale
+	}
 	tempHigh := temp + diurnal + float32(rng.NormFloat64())*1.5
 	tempLow := temp - diurnal + float32(rng.NormFloat64())*1.5
 	if tempHigh < tempLow {
@@ -257,18 +326,25 @@ func (c *Chain) sample(rng *rand.Rand, month time.Month) DayWeather {
 	}
 
 	// Snow accumulation (metres SWE).
-	var accumSWE float32
-	switch c.state {
-	case WeatherLightSnow:
-		accumSWE = 0.003 + rng.Float32()*0.009 // 0.3–1.2 cm SWE
-	case WeatherHeavySnow:
-		accumSWE = 0.010 + rng.Float32()*0.025 // 1.0–3.5 cm SWE
-	}
-
-	// Rainfall (mm; no game effect yet — exposed for future use).
-	var rainMM float32
-	if c.state == WeatherRain {
-		rainMM = 2 + rng.Float32()*18 // 2–20 mm
+	var accumSWE, rainMM float32
+	if wet := prof.wetMM; wet > 0 {
+		switch c.state {
+		case WeatherLightSnow:
+			accumSWE = wet * (0.3 + 0.7*rng.Float32()) / 1000
+		case WeatherHeavySnow:
+			accumSWE = wet * (1 + 2*rng.Float32()) / 1000
+		case WeatherRain:
+			rainMM = wet * (0.3 + 1.4*rng.Float32())
+		}
+	} else {
+		switch c.state {
+		case WeatherLightSnow:
+			accumSWE = 0.003 + rng.Float32()*0.009 // 0.3–1.2 cm SWE
+		case WeatherHeavySnow:
+			accumSWE = 0.010 + rng.Float32()*0.025 // 1.0–3.5 cm SWE
+		case WeatherRain:
+			rainMM = 2 + rng.Float32()*18 // 2–20 mm
+		}
 	}
 
 	return DayWeather{

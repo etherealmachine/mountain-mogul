@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"sync"
+	"time"
 
 	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
@@ -14,6 +15,7 @@ import (
 	"mountain-mogul/internal/geo"
 	"mountain-mogul/internal/render"
 	"mountain-mogul/internal/ui"
+	"mountain-mogul/internal/world"
 )
 
 type tisState int
@@ -51,14 +53,25 @@ type tiJob struct {
 	mu            sync.Mutex
 	searchResults []geo.SearchResult
 	mapResult     *geo.PreviewResult
-	elevResult    [][]float32
+	elevResult    *geo.ImportResult
+	stage         string
 	progress      float32
 	err           error
 	done          bool
 	cancel        context.CancelFunc
 }
 
-func (j *tiJob) setProgress(p float32) { j.mu.Lock(); j.progress = p; j.mu.Unlock() }
+func (j *tiJob) setStage(stage string, p float32) {
+	j.mu.Lock()
+	j.stage, j.progress = stage, p
+	j.mu.Unlock()
+}
+
+func (j *tiJob) stageProgress() (string, float32) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.stage, j.progress
+}
 
 func (j *tiJob) finish(err error) {
 	j.mu.Lock()
@@ -67,7 +80,7 @@ func (j *tiJob) finish(err error) {
 	j.mu.Unlock()
 }
 
-func (j *tiJob) snapshot() (progress float32, sr []geo.SearchResult, mr *geo.PreviewResult, elev [][]float32, err error, done bool) {
+func (j *tiJob) snapshot() (progress float32, sr []geo.SearchResult, mr *geo.PreviewResult, elev *geo.ImportResult, err error, done bool) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	return j.progress, j.searchResults, j.mapResult, j.elevResult, j.err, j.done
@@ -77,7 +90,7 @@ func (j *tiJob) snapshot() (progress float32, sr []geo.SearchResult, mr *geo.Pre
 // real-world elevation data into the scenario editor terrain.
 type TerrainImport struct {
 	app      *engine.App
-	onImport func([][]float32)
+	onImport func(*geo.ImportResult)
 
 	// gridSize is the destination grid's side length. The selection
 	// square covers gridSize × importMetersPerCell metres of ground;
@@ -113,14 +126,40 @@ type TerrainImport struct {
 
 	job     *tiJob
 	menuBar *ui.MenuBar
+
+	// OpenStreetMap lifts, runs and ski-area boundaries drawn over the
+	// preview. osmAsked lists every box fetched so far, so the view is
+	// only refetched once it leaves them.
+	osm        geo.SkiMap
+	osmAsked   []geo.Bounds
+	osmJob     *osmJob
+	osmHidden  bool
+	osmNote    string
+	osmRetryAt time.Time
+}
+
+// osmMaxSpanDeg caps an overlay request's side so a zoomed-out view
+// doesn't ask Overpass for a whole mountain range.
+const osmMaxSpanDeg = 0.35
+
+// osmMinZoom is the coarsest preview zoom that loads the overlay.
+const osmMinZoom = 11
+
+type osmJob struct {
+	mu     sync.Mutex
+	asked  geo.Bounds
+	res    *geo.SkiMap
+	err    error
+	done   bool
+	cancel context.CancelFunc
 }
 
 // NewTerrainImport creates the scene.
 // initialGridSize is the starting destination grid side length; the
 // player resizes the imported area inside the map view by dragging the
-// selection-square corners. onImport is called with the resampled
-// elevation grid on success.
-func NewTerrainImport(initialGridSize int, onImport func([][]float32)) *TerrainImport {
+// selection-square corners. onImport is called with the fetched
+// elevation on success.
+func NewTerrainImport(initialGridSize int, onImport func(*geo.ImportResult)) *TerrainImport {
 	g := initialGridSize
 	if g <= 0 {
 		g = importDefaultCells
@@ -144,8 +183,36 @@ func (t *TerrainImport) Init(app *engine.App) error {
 	t.app = app
 	t.menuBar = ui.NewMenuBar(0, 32)
 	t.menuBar.AddButton("Import Terrain", func() {}) // title label
+	t.menuBar.AddButton("Back", t.goBack)
 	t.menuBar.AddButton("Cancel", func() { app.PopScene() })
 	return nil
+}
+
+// goBack steps back one screen: a running fetch to the map, the map to
+// the results (or the search box when the search had a single result),
+// the results to the search box, and the search box out of the import.
+func (t *TerrainImport) goBack() {
+	if t.job != nil {
+		t.job.cancel()
+		t.job = nil
+	}
+	t.mapLoading = false
+	t.resizeActive, t.panActive = false, false
+	t.errMsg = ""
+	switch t.state {
+	case tisFetching:
+		t.state = tisMap
+	case tisMap:
+		if len(t.searchResults) > 1 {
+			t.state = tisResults
+		} else {
+			t.state = tisSearch
+		}
+	case tisResults, tisSearching:
+		t.state = tisSearch
+	default:
+		t.app.PopScene()
+	}
 }
 
 func (t *TerrainImport) Update(dt float64) {
@@ -153,6 +220,10 @@ func (t *TerrainImport) Update(dt float64) {
 	r := t.app.Renderer
 
 	t.menuBar.HandleInput(inp, float32(r.ScreenWidth()), float32(r.ScreenHeight()))
+	if inp.Pressed[glfw.KeyEscape] {
+		t.goBack()
+		return
+	}
 
 	switch t.state {
 	case tisSearch:
@@ -176,10 +247,19 @@ func (t *TerrainImport) Update(dt float64) {
 			break
 		}
 		t.job = nil
-		if err != nil {
-			t.errMsg = err.Error()
+		switch {
+		case err != nil:
+			t.errMsg = "Error: " + err.Error()
 			t.state = tisSearch
-		} else {
+		case len(sr) == 0:
+			t.errMsg = fmt.Sprintf("No places found for %q. Try the resort's full name, e.g. \"Boreal Mountain Resort\".", t.searchBuf)
+			t.state = tisSearch
+		case len(sr) == 1:
+			t.searchResults = sr
+			res := sr[0]
+			t.selectedResult = &res
+			t.loadMapFromResult()
+		default:
 			t.searchResults = sr
 			t.state = tisResults
 		}
@@ -245,6 +325,11 @@ func (t *TerrainImport) updateMap(inp *engine.Input, r *render.Renderer) {
 			}
 		}
 	}
+
+	if inp.Pressed[glfw.KeyO] {
+		t.osmHidden = !t.osmHidden
+	}
+	t.updateOSM(sw, sh)
 
 	// ── Corner-drag: resize selection square ─────────────────────────────────
 	// Tested before pan so grabbing a corner handle doesn't also start
@@ -401,14 +486,120 @@ func (t *TerrainImport) refreshMapCenter() {
 	if t.mapTexW == 0 || t.mapTexH == 0 {
 		return
 	}
-	latSpan := t.mapBounds[1] - t.mapBounds[0]
-	lonSpan := t.mapBounds[3] - t.mapBounds[2]
 	drawW := float64(t.mapTexW * t.mapScale)
 	drawH := float64(t.mapTexH * t.mapScale)
 	fx := 0.5 - float64(t.panAccum[0])/drawW
 	fy := 0.5 - float64(t.panAccum[1])/drawH
-	t.mapCenter[1] = t.mapBounds[2] + fx*lonSpan
-	t.mapCenter[0] = t.mapBounds[1] - fy*latSpan
+	t.mapCenter[0], t.mapCenter[1] = t.texLatLon(fx, fy)
+}
+
+// mapRect is where the preview texture is drawn on screen.
+func (t *TerrainImport) mapRect(sw, sh float32) (x, y, w, h float32) {
+	pan := t.panAccum.Add(t.panDrag)
+	w = t.mapTexW * t.mapScale
+	h = t.mapTexH * t.mapScale
+	return sw/2 - w/2 + pan[0], 32 + (sh-32)/2 - h/2 + pan[1], w, h
+}
+
+// texLatLon maps a fraction across the preview texture (0,0 top-left)
+// to lat/lon. The tiles are Web Mercator: linear in longitude and in
+// Mercator northing, not in latitude.
+func (t *TerrainImport) texLatLon(fx, fy float64) (lat, lon float64) {
+	yTop, yBot := geo.MercatorY(t.mapBounds[1]), geo.MercatorY(t.mapBounds[0])
+	lat = geo.MercatorLat(yTop - fy*(yTop-yBot))
+	lon = t.mapBounds[2] + fx*(t.mapBounds[3]-t.mapBounds[2])
+	return lat, lon
+}
+
+func (t *TerrainImport) screenLatLon(sx, sy, sw, sh float32) (lat, lon float64) {
+	x, y, w, h := t.mapRect(sw, sh)
+	return t.texLatLon(float64((sx-x)/w), float64((sy-y)/h))
+}
+
+// osmProjector precomputes the lat/lon → screen mapping for one frame.
+type osmProjector struct {
+	x, y, w, h      float64
+	minLon, lonSpan float64
+	yTop, mercSpan  float64
+}
+
+func (t *TerrainImport) projector(sw, sh float32) osmProjector {
+	x, y, w, h := t.mapRect(sw, sh)
+	yTop := geo.MercatorY(t.mapBounds[1])
+	return osmProjector{
+		x: float64(x), y: float64(y), w: float64(w), h: float64(h),
+		minLon: t.mapBounds[2], lonSpan: t.mapBounds[3] - t.mapBounds[2],
+		yTop: yTop, mercSpan: yTop - geo.MercatorY(t.mapBounds[0]),
+	}
+}
+
+func (p osmProjector) at(ll geo.LatLon) (float32, float32) {
+	fx := (ll.Lon - p.minLon) / p.lonSpan
+	fy := (p.yTop - geo.MercatorY(ll.Lat)) / p.mercSpan
+	return float32(p.x + fx*p.w), float32(p.y + fy*p.h)
+}
+
+// visibleBounds is the lat/lon box of the map area on screen.
+func (t *TerrainImport) visibleBounds(sw, sh float32) geo.Bounds {
+	maxLat, minLon := t.screenLatLon(0, 32, sw, sh)
+	minLat, maxLon := t.screenLatLon(sw, sh, sw, sh)
+	return geo.Bounds{MinLat: minLat, MaxLat: maxLat, MinLon: minLon, MaxLon: maxLon}
+}
+
+// updateOSM collects a finished overlay fetch and starts the next one
+// when the visible area has moved outside everything already asked for.
+func (t *TerrainImport) updateOSM(sw, sh float32) {
+	if j := t.osmJob; j != nil {
+		j.mu.Lock()
+		done, res, err := j.done, j.res, j.err
+		j.mu.Unlock()
+		if !done {
+			return
+		}
+		t.osmJob = nil
+		if err != nil {
+			t.osmNote = "Couldn't load OpenStreetMap lifts and runs; retrying shortly"
+			t.osmRetryAt = time.Now().Add(30 * time.Second)
+			return
+		}
+		t.osmAsked = append(t.osmAsked, res.Covered)
+		t.osm.Merge(res)
+		t.osmNote = ""
+		if !res.Covered.Contains(j.asked) {
+			t.osmNote = "OpenStreetMap is busy; lifts and runs shown near the centre only"
+			t.osmRetryAt = time.Now().Add(30 * time.Second)
+		}
+	}
+	if t.mapTexID == 0 || t.mapLoading || t.panActive || t.state != tisMap || time.Now().Before(t.osmRetryAt) {
+		return
+	}
+	if t.mapZoom < osmMinZoom {
+		t.osmNote = "Zoom in to see lifts and runs"
+		return
+	}
+	if t.osmNote == "Zoom in to see lifts and runs" {
+		t.osmNote = ""
+	}
+	want := t.visibleBounds(sw, sh).ClampSpan(osmMaxSpanDeg)
+	for _, b := range t.osmAsked {
+		if b.Contains(want) {
+			return
+		}
+	}
+	// Ask for a margin around the view so small pans don't refetch.
+	mLat, mLon := (want.MaxLat-want.MinLat)/4, (want.MaxLon-want.MinLon)/4
+	ask := geo.Bounds{MinLat: want.MinLat - mLat, MaxLat: want.MaxLat + mLat,
+		MinLon: want.MinLon - mLon, MaxLon: want.MaxLon + mLon}.ClampSpan(osmMaxSpanDeg)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	j := &osmJob{asked: ask, cancel: cancel}
+	t.osmJob = j
+	go func() {
+		res, err := geo.FetchSkiMap(ctx, ask)
+		j.mu.Lock()
+		j.res, j.err, j.done = res, err, true
+		j.mu.Unlock()
+	}()
 }
 
 func (t *TerrainImport) startMapReload(w, h int) {
@@ -468,6 +659,21 @@ func (t *TerrainImport) loadMapFromResult() {
 	t.startMapReload(sw, sh-32)
 }
 
+// PreviewAt opens the map screen centred on a point, skipping the
+// search. Used by -screenshot -import-preview.
+func (t *TerrainImport) PreviewAt(lat, lon float64, zoom int) {
+	t.state = tisMap
+	t.mapCenter = [2]float64{lat, lon}
+	t.mapZoom = zoom
+	t.startMapReload(t.app.Renderer.ScreenWidth(), t.app.Renderer.ScreenHeight()-32)
+}
+
+// Settled reports that the map and the overlay for the current view
+// have both finished loading.
+func (t *TerrainImport) Settled() bool {
+	return t.mapTexID != 0 && !t.mapLoading && t.osmJob == nil
+}
+
 func (t *TerrainImport) startSearch() {
 	t.state = tisSearching
 	t.errMsg = ""
@@ -503,27 +709,10 @@ func (t *TerrainImport) startFetch() {
 	sh := float32(t.app.Renderer.ScreenHeight())
 	sx0, sy0, sx1, sy1 := t.selectionSquare(sw, sh)
 
-	// Match the exact draw position used in Render.
-	drawW := t.mapTexW * t.mapScale
-	drawH := t.mapTexH * t.mapScale
-	drawX := sw/2 - drawW/2 + t.panAccum[0]
-	drawY := 32 + (sh-32)/2 - drawH/2 + t.panAccum[1]
-
-	fx0 := float64(sx0-drawX) / float64(drawW)
-	fx1 := float64(sx1-drawX) / float64(drawW)
-	fy0 := float64(sy0-drawY) / float64(drawH)
-	fy1 := float64(sy1-drawY) / float64(drawH)
-
-	latSpan := t.mapBounds[1] - t.mapBounds[0]
-	lonSpan := t.mapBounds[3] - t.mapBounds[2]
-
-	fetchMinLat := t.mapBounds[1] - fy1*latSpan
-	fetchMaxLat := t.mapBounds[1] - fy0*latSpan
-	fetchMinLon := t.mapBounds[2] + fx0*lonSpan
-	fetchMaxLon := t.mapBounds[2] + fx1*lonSpan
-
-	// cols/rows are ignored by the tile fetcher but kept for the function signature.
-	cols, rows := t.gridSize, t.gridSize
+	maxLat, minLon := t.screenLatLon(sx0, sy0, sw, sh)
+	minLat, maxLon := t.screenLatLon(sx1, sy1, sw, sh)
+	bounds := geo.Bounds{MinLat: minLat, MaxLat: maxLat, MinLon: minLon, MaxLon: maxLon}
+	n := t.gridSize
 
 	ctx, cancel := context.WithCancel(context.Background())
 	j := &tiJob{cancel: cancel}
@@ -533,14 +722,13 @@ func (t *TerrainImport) startFetch() {
 	t.job = j
 
 	go func() {
-		grid, err := geo.FetchGrid(ctx, fetchMinLat, fetchMaxLat, fetchMinLon, fetchMaxLon, cols, rows, j.setProgress)
+		res, err := geo.ImportTerrain(ctx, bounds, n, n, world.DetailPerCell, j.setStage)
 		if err != nil {
 			j.finish(err)
 			return
 		}
-		resampled := geo.ResampleToGrid(grid, t.gridSize, t.gridSize)
 		j.mu.Lock()
-		j.elevResult = resampled
+		j.elevResult = res
 		j.mu.Unlock()
 		j.finish(nil)
 	}()
@@ -588,6 +776,9 @@ func (t *TerrainImport) Destroy() {
 	if t.job != nil {
 		t.job.cancel()
 	}
+	if t.osmJob != nil {
+		t.osmJob.cancel()
+	}
 	if t.mapTexID != 0 {
 		gl.DeleteTextures(1, &t.mapTexID)
 	}
@@ -614,7 +805,8 @@ func (d *tiSearchDrawable) Draw(r *render.Renderer) {
 	switch t.state {
 	case tisSearch:
 		if t.errMsg != "" {
-			r.Font.DrawText(r, tiTruncate("Error: "+t.errMsg, 64), sw/2-200, sh/2-80, red)
+			msg := tiTruncate(t.errMsg, 110)
+			r.Font.DrawText(r, msg, sw/2-r.Font.TextWidth(msg)/2, sh/2-80, red)
 		}
 		r.Font.DrawText(r, "Search for a location:", sw/2-120, sh/2-50, grey)
 		fx, fy, fw, fh := sw/2-200, sh/2-26, float32(400), float32(32)
@@ -624,7 +816,7 @@ func (d *tiSearchDrawable) Draw(r *render.Renderer) {
 		r.DrawColorRect(fx, fy, 1, fh, mgl32.Vec4{0.5, 0.5, 0.9, 1})
 		r.DrawColorRect(fx+fw-1, fy, 1, fh, mgl32.Vec4{0.5, 0.5, 0.9, 1})
 		r.Font.DrawText(r, t.searchBuf+"_", fx+6, fy+6, white)
-		r.Font.DrawText(r, "Press Enter to search", sw/2-100, sh/2+14, grey)
+		r.Font.DrawText(r, "Press Enter to search   Esc: back", sw/2-150, sh/2+14, grey)
 
 	case tisSearching:
 		r.Font.DrawText(r, "Searching...", sw/2-60, sh/2-10, grey)
@@ -637,7 +829,11 @@ func (d *tiSearchDrawable) Draw(r *render.Renderer) {
 		for i, res := range t.searchResults {
 			rowY := listY + float32(i)*rowH
 			r.DrawColorRect(listX, rowY, 560, rowH-2, mgl32.Vec4{0.15, 0.2, 0.35, 0.9})
-			r.Font.DrawText(r, tiTruncate(res.DisplayName, 62), listX+8, rowY+12, white)
+			name := res.DisplayName
+			if res.SkiArea {
+				name = "Ski area: " + name
+			}
+			r.Font.DrawText(r, tiTruncate(name, 62), listX+8, rowY+12, white)
 		}
 	}
 }
@@ -662,6 +858,9 @@ func (d *tiMapDrawable) Draw(r *render.Renderer) {
 		drawX := sw/2 - drawW/2 + pan[0]
 		drawY := 32 + (sh-32)/2 - drawH/2 + pan[1]
 		r.DrawTexturedRect(drawX, drawY, drawW, drawH, t.mapTexID, white)
+		if !t.osmHidden {
+			d.drawOSM(r, sw, sh)
+		}
 	}
 
 	if r.Font == nil {
@@ -707,7 +906,8 @@ func (d *tiMapDrawable) Draw(r *render.Renderer) {
 
 	// Hint
 	if t.mapTexID != 0 && t.state != tisFetching {
-		r.Font.DrawText(r, "Left-drag: pan   Scroll: zoom   Drag a corner of the square to resize", 10, sh-22, grey)
+		r.Font.DrawText(r, "Left-drag: pan   Scroll: zoom   Drag a corner of the square to resize   O: lifts & runs   Esc: back", 10, sh-22, grey)
+		d.drawOSMStatus(r, sw, sh)
 	}
 
 	if t.errMsg != "" {
@@ -724,9 +924,12 @@ func (d *tiMapDrawable) Draw(r *render.Renderer) {
 
 	// Elevation fetch progress
 	if t.state == tisFetching && t.job != nil {
-		progress, _, _, _, _, _ := t.job.snapshot()
-		pct := int(progress * 100)
-		r.Font.DrawText(r, fmt.Sprintf("Fetching elevation... %d%%", pct), sw/2-120, sh/2-20, white)
+		stage, progress := t.job.stageProgress()
+		if stage == "" {
+			stage = "Fetching elevation"
+		}
+		label := fmt.Sprintf("%s... %d%%", stage, int(progress*100))
+		r.Font.DrawText(r, label, sw/2-r.Font.TextWidth(label)/2, sh/2-20, white)
 		barX, barY, barW, barH := sw/2-200, sh/2+10, float32(400), float32(20)
 		r.DrawColorRect(barX, barY, barW, barH, mgl32.Vec4{0.1, 0.1, 0.2, 1})
 		r.DrawColorRect(barX, barY, barW*progress, barH, mgl32.Vec4{0.2, 0.6, 0.3, 1})
@@ -770,4 +973,190 @@ func (t *TerrainImport) selectionHalfPx() float32 {
 	}
 	groundMetres := float64(t.gridSize) * importMetersPerCell
 	return float32(groundMetres / mpp / 2)
+}
+
+// ── OpenStreetMap overlay ─────────────────────────────────────────────────────
+
+var (
+	osmLiftColor = mgl32.Vec4{0.95, 0.2, 0.15, 1}
+	osmAreaColor = mgl32.Vec4{1, 1, 1, 0.55}
+	osmDarkHalo  = mgl32.Vec4{0, 0, 0, 0.6}
+	osmLightHalo = mgl32.Vec4{1, 1, 1, 0.75}
+)
+
+// osmRunStyle colours runs the North American way, since that's what
+// piste:difficulty mostly encodes on US maps; double blacks draw wider.
+func osmRunStyle(difficulty string) (color, halo mgl32.Vec4, thick float32) {
+	switch difficulty {
+	case "novice", "easy":
+		return mgl32.Vec4{0.2, 0.85, 0.3, 1}, osmDarkHalo, 2.5
+	case "intermediate":
+		return mgl32.Vec4{0.25, 0.55, 1, 1}, osmDarkHalo, 2.5
+	case "advanced":
+		return mgl32.Vec4{0.05, 0.05, 0.05, 1}, osmLightHalo, 2.5
+	case "expert":
+		return mgl32.Vec4{0.05, 0.05, 0.05, 1}, osmLightHalo, 4
+	case "freeride", "extreme":
+		return mgl32.Vec4{1, 0.55, 0.1, 1}, osmDarkHalo, 2.5
+	}
+	return mgl32.Vec4{0.8, 0.8, 0.8, 1}, osmDarkHalo, 2
+}
+
+func (d *tiMapDrawable) drawOSM(r *render.Renderer, sw, sh float32) {
+	t := d.t
+	p := t.projector(sw, sh)
+	path := func(pts []geo.LatLon, thick float32, c mgl32.Vec4) {
+		px, py := p.at(pts[0])
+		for _, ll := range pts[1:] {
+			x, y := p.at(ll)
+			if x0, y0, x1, y1, ok := clipSegment(px, py, x, y, 0, 32, sw, sh); ok {
+				r.DrawColorLine(x0, y0, x1, y1, thick, c)
+			}
+			px, py = x, y
+		}
+	}
+
+	for _, a := range t.osm.Areas {
+		for _, pts := range a.Paths {
+			path(pts, 1.5, osmAreaColor)
+		}
+	}
+	// Halos in their own pass so one run's halo never covers another's line.
+	for _, run := range t.osm.Runs {
+		_, halo, thick := osmRunStyle(run.Difficulty)
+		if run.Area {
+			thick = 1.5
+		}
+		path(run.Path, thick+2, halo)
+	}
+	for _, run := range t.osm.Runs {
+		c, _, thick := osmRunStyle(run.Difficulty)
+		if run.Area {
+			thick = 1.5
+		}
+		path(run.Path, thick, c)
+	}
+	for _, l := range t.osm.Lifts {
+		path(l.Path, 5, osmDarkHalo)
+	}
+	for _, l := range t.osm.Lifts {
+		path(l.Path, 3, osmLiftColor)
+		for _, end := range []geo.LatLon{l.Path[0], l.Path[len(l.Path)-1]} {
+			x, y := p.at(end)
+			if y > 32 {
+				r.DrawColorDisc(x, y, 4, osmDarkHalo)
+				r.DrawColorDisc(x, y, 3, osmLightHalo)
+			}
+		}
+	}
+
+	if r.Font == nil {
+		return
+	}
+	for _, l := range t.osm.Lifts {
+		if l.Name == "" {
+			continue
+		}
+		x0, y0 := p.at(l.Path[0])
+		x1, y1 := p.at(l.Path[len(l.Path)-1])
+		tw := r.Font.TextWidth(l.Name)
+		if float32(math.Hypot(float64(x1-x0), float64(y1-y0))) < tw+24 {
+			continue
+		}
+		cx, cy := (x0+x1)/2, (y0+y1)/2
+		lx, ly := cx-tw/2, cy-float32(render.GlyphH)/2
+		if ly < 34 || ly > sh || lx > sw || lx+tw < 0 {
+			continue
+		}
+		r.DrawColorRect(lx-3, ly-2, tw+6, float32(render.GlyphH)+4, mgl32.Vec4{0, 0, 0, 0.6})
+		r.Font.DrawText(r, l.Name, lx, ly, mgl32.Vec4{1, 1, 1, 1})
+	}
+}
+
+// drawOSMStatus counts what OpenStreetMap has inside the selection
+// square, and credits it as the ODbL requires.
+func (d *tiMapDrawable) drawOSMStatus(r *render.Renderer, sw, sh float32) {
+	t := d.t
+	grey := mgl32.Vec4{0.85, 0.85, 0.85, 1}
+	panel := mgl32.Vec4{0, 0, 0, 0.6}
+	line := func(s string, y float32) {
+		r.DrawColorRect(6, y-3, r.Font.TextWidth(s)+8, float32(render.GlyphH)+6, panel)
+		r.Font.DrawText(r, s, 10, y, grey)
+	}
+
+	y := float32(42)
+	switch {
+	case t.osmHidden:
+		line("Lifts and runs hidden (O to show)", y)
+		y += 24
+	case len(t.osm.Lifts)+len(t.osm.Runs) > 0:
+		p := t.projector(sw, sh)
+		qx0, qy0, qx1, qy1 := t.selectionSquare(sw, sh)
+		inSquare := func(pts []geo.LatLon) bool {
+			for _, ll := range pts {
+				if x, y := p.at(ll); x >= qx0 && x <= qx1 && y >= qy0 && y <= qy1 {
+					return true
+				}
+			}
+			return false
+		}
+		lifts, runs := 0, 0
+		for _, l := range t.osm.Lifts {
+			if inSquare(l.Path) {
+				lifts++
+			}
+		}
+		for _, run := range t.osm.Runs {
+			if inSquare(run.Path) {
+				runs++
+			}
+		}
+		line(fmt.Sprintf("In the square: %d lifts, %d runs", lifts, runs), y)
+		y += 24
+	}
+	if t.osmJob != nil {
+		line("Loading lifts and runs from OpenStreetMap...", y)
+		y += 24
+	}
+	if t.osmNote != "" {
+		line(t.osmNote, y)
+	}
+
+	credit := "Lifts & runs (c) OpenStreetMap contributors"
+	cw := r.Font.TextWidth(credit)
+	r.DrawColorRect(sw-cw-14, 39, cw+8, float32(render.GlyphH)+6, panel)
+	r.Font.DrawText(r, credit, sw-cw-10, 42, grey)
+}
+
+// clipSegment clips a segment to the rect (Liang–Barsky); ok is false
+// when nothing of it is inside.
+func clipSegment(x0, y0, x1, y1, minX, minY, maxX, maxY float32) (float32, float32, float32, float32, bool) {
+	t0, t1 := float32(0), float32(1)
+	dx, dy := x1-x0, y1-y0
+	for _, e := range [4][2]float32{{-dx, x0 - minX}, {dx, maxX - x0}, {-dy, y0 - minY}, {dy, maxY - y0}} {
+		p, q := e[0], e[1]
+		if p == 0 {
+			if q < 0 {
+				return 0, 0, 0, 0, false
+			}
+			continue
+		}
+		r := q / p
+		if p < 0 {
+			if r > t1 {
+				return 0, 0, 0, 0, false
+			}
+			if r > t0 {
+				t0 = r
+			}
+		} else {
+			if r < t0 {
+				return 0, 0, 0, 0, false
+			}
+			if r < t1 {
+				t1 = r
+			}
+		}
+	}
+	return x0 + t0*dx, y0 + t0*dy, x0 + t1*dx, y0 + t1*dy, true
 }
