@@ -146,6 +146,7 @@ Not ranked yet: everything below.
 - [[Hiding the Grid]]: smooth the parcel fence, painted overlays, and groomed runs so the 5 m cells don't show. Step 3 (grooming follows the cat) is part of Real grooming in Priority.
 - **Environmental variety**: tree species, deciduous trees, dead snags, saplings, shrubs, and rocks. Rocks overlap with cliffs in [[Terrain Realism]].
 - **Animation approach**: choose between procedural in the shader (as now), glTF skinned meshes, baked keyframes, or blended poses.
+- **Storm lag**: lag was reported after a heavy storm at [[Boreal]]. The GPU half is fixed (fresh snow zoomed out: 10.6 → 7.2 ms). The sim half is unchecked, because the tutorial save has no guests; play a busy game through a storm with `-cpuprofile` to see if deep powder or avalanche checks slow the sim ([[Debug Tools]]).
 - **5,000 guests**: persistent buffers, culling the guest batch, lower-detail skier meshes. Big maps also lean on the terrain chunks from [[Terrain Realism]] step 2.
 
 ## Easter eggs
