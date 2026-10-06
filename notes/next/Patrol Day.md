@@ -45,6 +45,7 @@ Made with the user on 2026-10-06:
 - What a guest does in the hour they wait: thoughts, cold, a worsening rating.
 - Patrollers per snowmobile: one each, or shared.
 - A helivac when a hike is too far (later).
+- Ambulances for serious injuries (later): from first aid to hospital by road, arriving from a map-edge entry and driving to the patrol room or the nearest lot, so [[Transit]] traffic and road access matter to patrol.
 - Overtime: patrol stays on duty until the mountain is empty, which can run all night while guests keep skiing after close; paying overtime for those hours would push the player to clear the mountain (later, with staff wages).
 
 ## Log
