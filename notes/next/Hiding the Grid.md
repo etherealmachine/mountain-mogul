@@ -28,7 +28,7 @@ Order: the overlay shader change is the smallest and fixes the most surfaces at 
 
 - Should the noise that roughens overlay edges be fixed per world, so a trail's outline doesn't change while you paint next to it?
 - How much smoothing can the fence take before it visibly cuts across cells the player owns, or leaves out ones they do?
-- Should trail painting itself move off the grid later (a brushed shape that gets rasterised to cells), or is drawing the cells smoothly enough?
+- Should trail painting itself move off the grid later (a brushed shape that gets rasterised to cells), or is drawing the cells smoothly enough? See [[Gridless Drawing]], which goes further: shapes for lots, trails, and buildings.
 
 ## Log
 

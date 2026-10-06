@@ -58,6 +58,7 @@ Not ranked yet: everything below.
 ## Terrain, trails, and land ([[Terrain]], [[Trails]], [[Trees]], [[Parcels]])
 
 - [[Land and Boundaries]]: a ski area boundary, land purchase as a real decision, protected land, and protected buildings. Hand-drawn parcels are *for* [[Kirkwood]]; expensive land is *for* [[Palisades Tahoe]].
+- [[Gridless Drawing]]: draw parking lots, trails, and buildings as shapes instead of painting cells, keeping the grid only underneath for the sim and navigation. An idea for now: first work out what the grid buys each system.
 - **Trail closures and slow zones**: the player closes a run or paints a slow zone; guests respect them, mostly. *For* [[Alta]].
 - **Night skiing**: light chosen trails and lifts, pay to run the lights, and stay open past dark for an evening crowd. Operating hours and the day-night cycle already exist; trail lights need a lighting approach that scales past the 16 spotlights the shader handles today ([[Rendering]]). Lit evenings also cut into the time cats have to groom ([[Grooming]]). *For* [[Boreal]], which really does run at night.
 - **Backcountry**: gates through the boundary to terrain with no patrol or grooming, for experts only. *Needs* the boundary from [[Land and Boundaries]].
