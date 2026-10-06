@@ -16,24 +16,20 @@ In the order to work on them:
 
 0. **Performance check** (the user is testing in the game): coarse terrain levels by zoom shipped (Kirkwood's whole map 13.7 → 8.6 ms GPU, 12 → 1.5 ms CPU). If it still feels slow, the measured leftovers are trees 2.0 ms (a simple far-away tree mesh), anti-aliasing 2.5 ms (already a setting), and the terrain fragment shader 3.4 ms; and the horizon map rebuild (3.9 s of CPU on Kirkwood) after placing a lift may hitch ([[Rendering]]).
 
-1. [[Scenario Goals and Rules]], to get [[Boreal]] to a playable demo. Done: goal data and saving, the rating saved, and the daily check with win and lose, the goals panel with win and lose panels, and the editor's Goals tab. Next: Boreal's goals (three lifts open; a best day of guests in the thousands; a 7-day 70% rating streak; bonus: within season one; no deadline), blocked on balance: a headless three-lift run caps out near 70 guests a day (300 at best, from the guest pool) with the rating stuck near 30% (patrol never rescues, thirst repeats, everyone leaves exhausted, no grooming). See the plan's open questions.
+Next focus: **gameplay before scenario goals**. A headless three-lift Boreal (2026-10-06) runs about 70 guests a day with the rating stuck near 30%, so goals can't be set until guests can have a good day. Start with the investigate-and-report items under Bugs and Guests (patrol, grooming, thirst, exhaustion, falls), then the guest pool per scenario ([[First Week Balance]]). [[Scenario Goals and Rules]] steps 1–4 shipped and are tabled until then.
 
 Not ranked yet: everything below.
 
 ## Bugs
 
-None open.
+Found 2026-10-06 in a headless three-lift [[Boreal]] (three lifts, a green, blue, and black trail, a lodge with tickets, food, bar, and lounge, a patrol hut and an equipment shed, 30 days, about 2,100 visits). Diagnose each first, report the cause, then fix:
+
+- **Patrol never rescues anyone**: every one of about 6,000 injuries also gave "no one came to help me", with a patrol hut placed beside the lift base ([[Ski Patrol]]). Could be the hut placement in the test, patrollers that can't path, or a real bug.
+- **No grooming shows**: with an equipment shed, no guest thought "this corduroy is perfect" in 30 days ([[Grooming]]). Could be the cat having no section or route in the test, or a real bug.
 
 ## Scenarios and campaign ([[Scenarios]], [[Scenario Campaign]])
 
-- [[Scenario Goals and Rules]]: objectives, win and lose, per-scenario rules, and unlocking in order. In this order:
-   1. Goal and rule data saved with the scenario, and goal progress saved in player saves. Save the resort rating (today it resets to 0.5 on load) and record it in each day's history sample.
-   2. A daily check at rollover that updates progress and decides won, lost, or still playing, with entries in the [[Event Feed]].
-   3. An in-game goals panel (also where the description can be reread), plus "Scenario complete" (keep playing) and "Scenario failed" (Retry, Quit to menu) panels.
-   4. A Goals tab in the editor's Scenario details dialog for goals and rule switches.
-   5. The no-grooming rule: hide and refuse the cat shed and snowcats, and guests judge powder instead of corduroy. Other rules ship with the scenarios that need them. *For* [[Asahidake]].
-   6. Unlocking in campaign order, with progress kept in a small file next to the saves.
-   7. Boreal's goals: open the resort, a guest count in one day, a decent rating through a weekend; a second lift as a bonus. *Needs* the ticket-window bug fixed and [[First Week Balance]].
+- [[Scenario Goals and Rules]], tabled until gameplay improves. Done: goal and rule data with progress saved, the rating saved, the daily check with win and lose, the goals panel with win and lose panels, and the editor's Goals tab. Left, in order: Boreal's goals (decided: three lifts open; a best day of guests in the thousands; a 7-day 70% rating streak; bonus: all within season one; no deadline; numbers to confirm with the headless three-lift run once guests can be satisfied), the no-grooming rule (*for* [[Asahidake]]), and unlocking in campaign order.
 - **Campaign scenarios**: build the rest of the [[Scenario Campaign]] in order, each pulling in the features on its note's Needs list. [[Kirkwood]] exists and still needs [[Terrain Realism]], skill-matched goals, and hand-drawn parcels.
 - **Rating per skill level**: separate ratings from beginners, intermediates, and experts, so a resort can't please one group and ignore another. *Needs* skill wants (under Guests). *For* [[Kirkwood]].
 - **Locals score**: a goodwill meter for regulars that crowds, price rises, and heavy building lower. *Needs* guests remembering their visits. *For* [[Mad River Glen]].
@@ -85,6 +81,10 @@ None open.
 
 ## Guests ([[GOAP]], [[Satisfaction]], [[Guest Types]])
 
+- **Thirst and hunger repeat too often**: in the three-lift test, about 35 "I need something to drink" and 10 "I could really use a meal" thoughts per guest visit, with a bar and food court at the base ([[Satisfaction]]). Diagnose: guests not reaching the bar, needs falling too fast, or the thought repeating every tick.
+- **Everyone leaves exhausted**: almost every guest left on "I'm too tired to ski" (−0.15), so the day ends on a bad note even for a good visit. Diagnose whether energy drains too fast, or whether a normal end of day should leave on a neutral or happy thought instead.
+- **Falls**: about 3 falls and 3 injuries per guest visit on plain green, blue, and black trails. Check skill matching and fall rates ([[Skiing]]).
+- **Guest pool per scenario**: the 10,000-guest pool (about 5.6 visits a season each) caps any resort near 300 guests a day at a perfect rating. Make the catchment a scenario setting, so Boreal (Sacramento and the Bay Area) can reach thousands ([[Demand]], [[First Week Balance]]).
 - **What each skill wants**: beginners want rentals and easy terrain; intermediates want terrain plus food and places to rest; advanced skiers want terrain and no crowds. Feeds [[Demand]] and [[Satisfaction]]. *For* [[Kirkwood]].
 - **Snowboarders**: guests already roll Snowboard but still ski and look like skiers.
 - **Children and families**: their own guest type, arriving and moving as a group.
@@ -189,3 +189,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-06: [[Creeks and Lakes]] mostly shipped (OpenStreetMap water, lakes and lake ice, stream tracing, meadows, creek channels); its leftovers moved under Terrain. Performance pass shipped its main fix; priority list cleared for the next pick.
 - 2026-10-06: Fixed the ticket-window bug: the window worked all along; guests were blamed on it when a lift was stopped (lifts start stopped, by design) or had no trail for their level. See [[GOAP]], [[Demand]], [[Tickets]].
 - 2026-10-06: Dropped the "Release cat is wrong" bug: a leftover note from the old `NEXT.md` that no one could reproduce or explain.
+- 2026-10-06: [[Scenario Goals and Rules]] steps 1–4 shipped and tabled; gameplay comes first. Filed the headless three-lift findings as Bugs (patrol, grooming) and Guests items (thirst, exhaustion, falls, guest pool per scenario).

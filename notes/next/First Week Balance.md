@@ -38,3 +38,4 @@ Tune the opening so the first week is a clear, small loop: build a minimal resor
 ## Log
 
 - 2026-10-02: Planned, from the user's notes. Current numbers checked in code.
+- 2026-10-06: A headless three-lift Boreal ran about 70 guests a day with the rating near 30%: patrol never rescues, no grooming shows, thirst repeats about 35 times a visit, everyone leaves exhausted, about 3 falls a visit. The 10,000-guest pool caps any resort near 300 guests a day. Filed as Bugs and Guests items in [[Next Steps]]; these come before tuning.

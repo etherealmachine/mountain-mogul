@@ -1,7 +1,7 @@
 ---
 title: Scenario Goals and Rules
 kind: plan
-status: in progress
+status: partial
 ---
 
 # Scenario Goals and Rules
@@ -77,3 +77,4 @@ Each scenario introduces a feature or two the earlier ones didn't need, so the c
 - 2026-10-06: Step 3: the goals panel and the win and lose panels.
 - 2026-10-06: Step 4: the editor's Goals tab.
 - 2026-10-06: Step 5 blocked: three-lift headless run shows guests capped near 300 a day by the guest pool and a rating stuck near 30% (patrol never rescues, thirst thoughts repeat, everyone leaves exhausted, no grooming). Asked the user which to take first.
+- 2026-10-06: Tabled after step 4 at the user's call: improve gameplay first (the blocked note in Open questions, and the Bugs and Guests items in [[Next Steps]]), then come back for Boreal's goals.
