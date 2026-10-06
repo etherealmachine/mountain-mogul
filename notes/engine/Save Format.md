@@ -27,3 +27,4 @@ Code: `internal/save/`.
 - 2026-10-06: The terrain base keeps OpenStreetMap streams and lakes (`streams`, `lakes`).
 - 2026-10-06: Lakes and their frost and thaw (`lakes`), each cell's lake (`lake_of`), and its estimated depth in decimetres (`lake_depth`).
 - 2026-10-06: The resort rating (`rating`, and `rt` in each daily sample), scenario goals and rules (`goals`, `rules`), and goal progress (`goal_progress`).
+- 2026-10-06: The scenario outcome (`outcome`, `outcome_day`) and the scenario file a game started from (`scenario_file`).
