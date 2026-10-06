@@ -51,7 +51,7 @@ const (
 	DayTicketElasticity     = float32(0.5) // unitless exponent; <1 bows the curve so guests hold on until price nears budget
 
 	// ParkingReferencePrice is the per-car fee guests accept without
-	// complaint; each guest's share (÷ GuestsPerCar) adds to the day
+	// complaint; each guest's share (÷ MeanCarload) adds to the day
 	// ticket in the demand poll, on both the price and the reference.
 	ParkingReferencePrice = 20 // dollars per car
 
@@ -155,7 +155,10 @@ type World struct {
 	Patrollers []*Patroller
 	RoadNodes  []*RoadNode
 	RoadEdges  []*RoadEdge
-	nextID     uint64
+	// Cars are the carloads of guests on the roads and in the lots
+	// (sim/traffic.go).
+	Cars   []*Car
+	nextID uint64
 
 	// History is a daily ring of stats (guest count, cash, arrivals,
 	// departures) feeding the in-game charts window. Nil on a freshly
@@ -441,8 +444,8 @@ func (w *World) PlaceBuilding(x, z float32) *Building {
 // setup can construct entities without re-deducting from the player's
 // balance.
 //
-// Parking lots placed this way get a default rectangular footprint
-// around (x, z); the player-facing path paints cells via PlaceParkingLot.
+// Parking lots placed this way get the default rectangle centred on
+// (x, z); the player-facing path draws one with PlaceRectLot.
 //
 // Multi-cell footprints with rotated AABB rasterisation are a future
 // extension.
@@ -454,7 +457,8 @@ func (w *World) PlaceBuildingType(typ BuildingType, x, z float32) *Building {
 	}
 	switch typ {
 	case BuildingParking:
-		b.Cells = defaultParkingCells(w.Terrain, x, z, 0)
+		r := DefaultLotRect(b.Pos)
+		b.LotSize = mgl32.Vec2{2 * r.HalfX, 2 * r.HalfZ}
 	case BuildingLodge, BuildingBar, BuildingTicketOffice:
 		b.MealPrice = DefaultMealPrice
 		b.DrinkPrice = DefaultDrinkPrice
@@ -538,6 +542,7 @@ func (w *World) RemoveBuilding(id uint64) {
 				w.RemovePatrollersOwnedBy(b.ID)
 			}
 			if b.Type == BuildingParking {
+				w.disconnectLotDriveway(b)
 				for _, id := range b.DrivewayNodeIDs {
 					w.RemoveRoadNode(id)
 				}

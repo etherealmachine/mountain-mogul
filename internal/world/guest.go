@@ -36,6 +36,9 @@ type GuestState uint8
 const (
 	AtHome GuestState = iota
 	OnMountain
+	// InCar: riding in a car to or from the resort, or sitting in it in
+	// the lot waiting for the rest of the carload.
+	InCar
 )
 
 // Guest is one person who comes to the resort. The same struct lives in
@@ -72,6 +75,11 @@ type Guest struct {
 	// =====================================================================
 
 	State GuestState
+	// CarID is the car the guest came in, and CarLot the lot it's parked
+	// in (0 until it parks); guests leave from that lot. Both are 0 at
+	// home.
+	CarID  uint64
+	CarLot uint64
 
 	// =====================================================================
 	// Live sim state — zero/nil when State == AtHome, populated by the

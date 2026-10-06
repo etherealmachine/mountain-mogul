@@ -42,6 +42,10 @@ type WorldSnapshot struct {
 	AtTrailEnd     uint64 // 0 or trail ID — arrived at a trail-to-trail junction
 	AtTicketOffice uint64 // 0 or ticket office building ID
 
+	// CarLot is the lot the guest's car is parked in; they depart only
+	// from there. 0 = any lot.
+	CarLot uint64
+
 	// RemainingBudget is the guest's unspent visit money after the day
 	// ticket (bought or still owed at the window). Decremented by heli
 	// fares (or the season pass fee); when it falls below CheapestTicket
@@ -115,6 +119,7 @@ func Extract(a *world.Guest, w *world.World) WorldSnapshot {
 		OnLift:          a.OnLiftID,
 		AtTrailEnd:      a.AtTrailEnd,
 		RidenLifts:      a.RidenLifts,
+		CarLot:          a.CarLot,
 	}
 	if a.Queued {
 		for _, l := range w.Lifts {

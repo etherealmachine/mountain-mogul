@@ -22,22 +22,18 @@ import (
 //	              * clamp(ResortRating) * terrainMatch(g.Skill) * (1 - occupancy)
 //	              * visitPriceFactor(g, rating)
 //
-// On a hit the guest spawns at a uniform-random parking lot, moves into
-// w.OnMountain, and their State flips to OnMountain. On Depart the same
-// guest returns to AtHome (career stats incremented), ready to be
-// rolled again on a future poll.
+// The poll's winners from each entry share cars, one to four to a car
+// (rollCarload), which drive in from the entry (traffic.go); the guests
+// move into w.OnMountain when the car parks. On Depart a guest waits in
+// the car, and when the carload is aboard it drives home and they
+// return to AtHome (career stats incremented), ready to be rolled again
+// on a future poll.
 //
 // When a guest departs, their final Satisfaction score is folded into
 // ResortRating via an exponential moving average (α = 1/70, ~50-departure
 // half-life). Rating therefore reflects completed sessions — word-of-mouth
 // from guests who finished their day — rather than a snapshot of whoever
 // happens to be mid-run at poll time.
-
-// GuestsPerCar matches the renderer's "one car ≈ four people" mental
-// model. Each spawn bumps CurrentCars by 1/GuestsPerCar (and each
-// departure decrements by the same) so the visible car count tracks
-// guest population at quarter resolution.
-const GuestsPerCar = 4
 
 // demandPollInterval is the sim-time cadence of the per-Guest visit
 // poll. Short enough that arrivals spread continuously through the day
@@ -124,7 +120,7 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 	if tc := TerrainCapacity(s.World); tc > 0 && tc < liftCap {
 		cap = tc
 	}
-	occupancy := float32(len(s.World.OnMountain)) / cap
+	occupancy := float32(len(s.World.OnMountain)+arrivingGuests(s.World)) / cap
 	if occupancy > 1 {
 		occupancy = 1
 	}
@@ -147,6 +143,10 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 	rating := clamp01(s.World.Rating)
 	occFactor := 1 - occupancy
 	hasOffice := hasTicketOffice(s.World)
+	if !hasParking(s.World) {
+		return // no lots → no arrivals
+	}
+	winners := map[uint64][]*world.Guest{} // by home entry
 
 	for _, g := range s.World.Guests {
 		if g.State != world.AtHome {
@@ -171,15 +171,18 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 			d.logTurnedAway(s, "no ticket office")
 			continue
 		}
-		lot := uniformParking(s.World)
-		if lot == nil {
-			return // no lots → no spawns this poll
-		}
-		if s.spawnGuest(lot, g) {
-			lot.CurrentCars += 1.0 / float32(GuestsPerCar)
-			if max := float32(lot.MaxCars); max > 0 && lot.CurrentCars > max {
-				lot.CurrentCars = max
-			}
+		winners[g.HomeEntryID] = append(winners[g.HomeEntryID], g)
+	}
+	entries := []uint64{0}
+	for _, e := range s.World.Entries() {
+		entries = append(entries, e.ID)
+	}
+	for _, e := range entries {
+		gs := winners[e]
+		for len(gs) > 0 {
+			n := min(rollCarload(), len(gs))
+			s.spawnCar(append([]*world.Guest(nil), gs[:n]...), e)
+			gs = gs[n:]
 		}
 	}
 }
@@ -222,7 +225,7 @@ func visitPriceFactor(w *world.World, g *world.Guest, simTime float64, rating fl
 	if p == 0 {
 		return 1 // free ticket (or pass) and free parking
 	}
-	ref := float32(world.ParkingReferencePrice) / GuestsPerCar
+	ref := float32(world.ParkingReferencePrice) / world.MeanCarload
 	if !hasValidPass(g, simTime) {
 		ref += world.DayTicketReferencePrice * (1 + world.DayTicketRatingPremium*(rating-0.5))
 	}
@@ -238,19 +241,7 @@ func parkingShare(w *world.World) float32 {
 	if w.ParkingPrice <= 0 {
 		return 0
 	}
-	return float32(w.ParkingPrice) / GuestsPerCar
-}
-
-// nextParkingFee is the whole-dollar parking share the next arriving
-// guest pays. Shares rotate so every GuestsPerCar arrivals together pay
-// exactly one ParkingPrice.
-func (s *Simulation) nextParkingFee() int {
-	price := s.World.ParkingPrice
-	if price <= 0 {
-		return 0
-	}
-	k := s.parkedGuests % GuestsPerCar
-	return price*(k+1)/GuestsPerCar - price*k/GuestsPerCar
+	return float32(w.ParkingPrice) / world.MeanCarload
 }
 
 // hasTicketOffice reports whether w has a ticket window guests can get
@@ -411,17 +402,12 @@ func clamp01(v float32) float32 {
 	return v
 }
 
-// uniformParking returns a uniformly-chosen Parking building, or nil
-// if the world has none.
-func uniformParking(w *world.World) *world.Building {
-	lots := make([]*world.Building, 0, len(w.Buildings))
+// hasParking reports whether w has a parking lot.
+func hasParking(w *world.World) bool {
 	for _, b := range w.Buildings {
 		if b.Type == world.BuildingParking {
-			lots = append(lots, b)
+			return true
 		}
 	}
-	if len(lots) == 0 {
-		return nil
-	}
-	return lots[rng.Global().Intn(len(lots))]
+	return false
 }

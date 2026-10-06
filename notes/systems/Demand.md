@@ -10,7 +10,7 @@ Where guests come from. A fixed catchment of guests, each with a skill and a dai
 
 The resort rating is a slow running average of each departing guest's [[Satisfaction]]. A better rating draws more guests and lets the resort charge more before they balk.
 
-A guest without a pass is turned away if no building sells [[Tickets]]. On arrival, guests pay for parking at the lot (see [[Parking and Roads]]), and the ticket price is set aside from their budget. That money, and their spending on [[Amenities]], lands in [[Finance]].
+A guest without a pass is turned away if no building sells [[Tickets]]. Each poll's winners from one entry share cars of one to four and drive in (see [[Transit]]); when the car parks, its guests pay their shares of the per-car fee (see [[Parking and Roads]]), and the ticket price is set aside from their budget. That money, and their spending on [[Amenities]], lands in [[Finance]].
 
 The catchment is a fixed 10,000 people whatever the resort's size. [[First Week Balance]] plans to scale it with land, lifts, and trails, and to weight skill toward the terrain that's built.
 
@@ -24,3 +24,4 @@ Spec: [[Demand Spec]]. Code: `internal/sim/demand.go`.
 - 2026-10-06: Guests only come when a running lift (open, not on hold) serves their level, or any running lift for advanced guests, as the planner allows; with the resort open but every lift stopped, nobody comes and the event feed says "Guests turned away: every lift is stopped" once a day.
 - 2026-10-06: The resort rating lives on the world (`World.Rating`) and is saved; it no longer resets to 50% on load.
 - 2026-10-06: The guest pool comes from the road entries' pools when a map has entries (each guest lives beyond one), else the default 10,000 ([[Transit]]).
+- 2026-10-06: Arrivals come in carloads that drive in from their entry ([[Transit]] step 2); guests in arriving cars count toward occupancy, and the parking share in the price factor is the fee ÷ 2.4, the mean carload.

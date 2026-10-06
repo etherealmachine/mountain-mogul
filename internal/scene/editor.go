@@ -62,7 +62,7 @@ type Editor struct {
 	parcelPopup               *ui.Window
 	lotPopup                  *ui.Window // parking lot opened by clicking it with no tool
 	entryPopup                *ui.Window // road entry opened by clicking its post
-	parkingPaint              parkingPaint
+	lotTool                   lotTool
 	placeRotation             float32 // rotation for the next building placed (R / Shift+R)
 	autoMaxSlider             *ui.VSlider
 	autoSnowlineSlider        *ui.VSlider
@@ -89,7 +89,7 @@ type Editor struct {
 // path starts a blank scenario with no file until the first Save.
 func NewEditor(path string) *Editor {
 	e := &Editor{scenarioPath: path}
-	e.parkingPaint.start(0, false)
+	e.lotTool.reset(0)
 	return e
 }
 
@@ -322,6 +322,8 @@ func (e *Editor) Update(dt float64) {
 		case e.activeTool == toolParcelRect && e.parcelRectActive:
 			// Cancel the in-progress selection but stay in the tool.
 			e.parcelRectActive = false
+		case e.activeTool == toolParking && e.lotTool.mode != lotIdle:
+			e.lotTool.reset(e.lotTool.only) // drop the drag, keep the tool
 		case e.lotPopup != nil && e.lotPopup.Visible:
 			e.lotPopup.Visible = false
 		case e.entryPopup != nil && e.entryPopup.Visible:
@@ -350,6 +352,9 @@ func (e *Editor) Update(dt float64) {
 	// R / Shift+R: turn the building about to be placed, or the selected one.
 	if delta := rotateKeyDelta(inp); delta != 0 {
 		switch {
+		case e.activeTool == toolParking:
+			e.lotTool.rotate(e.world, delta)
+			e.setToast("Rotation " + rotationDegrees(e.lotTool.rotation))
 		case isBuildingPlacementTool(e.activeTool):
 			e.placeRotation = stepRotation(e.placeRotation, delta)
 			e.setToast("Rotation " + rotationDegrees(e.placeRotation))
@@ -601,8 +606,8 @@ func (e *Editor) Update(dt float64) {
 	// Clear the suppress flag once the mouse button is fully released.
 	if !inp.LeftClick && !inp.LeftHeld {
 		e.suppressBrushUntilRelease = false
-		if e.activeTool == toolParking && e.parkingPaint.lastCell != [2]int{-1, -1} {
-			e.finishParkingStroke(r)
+		if e.activeTool == toolParking && e.lotTool.mode != lotIdle {
+			e.finishLotDrag(r)
 		}
 	}
 
@@ -632,6 +637,23 @@ func (e *Editor) Update(dt float64) {
 				}
 			} else if e.activeTool == toolNone {
 				e.handleToolNoneMouse(r, inp.LeftClick, inp.LeftHeld)
+			} else if e.activeTool == toolParking {
+				if e.hoverValid {
+					pos := mgl32.Vec2{e.hoverWorld[0], e.hoverWorld[2]}
+					switch {
+					case inp.LeftClick:
+						if e.lotTool.press(e.world, pos) {
+							e.lotTool.move(e.world, pos)
+						}
+					case inp.LeftHeld && e.lotTool.mode != lotIdle:
+						e.lotTool.move(e.world, pos)
+						if e.lotTool.ok {
+							e.setToast(e.lotTool.summary(e.world))
+						} else if e.lotTool.why != "" {
+							e.setToast(e.lotTool.why)
+						}
+					}
+				}
 			} else if inp.LeftClick || inp.LeftHeld {
 				gx, gz := e.hoverCell[0], e.hoverCell[1]
 				if e.world.Terrain.InBounds(gx, gz) {
@@ -1092,7 +1114,7 @@ func (e *Editor) brushRadius() int {
 // toolUsesRadiusSlider reports whether the radius slider is relevant for
 // the active tool.
 func (e *Editor) toolUsesRadiusSlider() bool {
-	return e.activeTool == toolPlantTrees || e.activeTool == toolGlade || e.activeTool == toolParking
+	return e.activeTool == toolPlantTrees || e.activeTool == toolGlade
 }
 
 // toolUsesDensitySlider reports whether the density slider is relevant for
@@ -1106,17 +1128,6 @@ func (e *Editor) applyEditorTool(gx, gz int, r *render.Renderer, dt float32) {
 	e.markDirty()
 	w := e.world
 	switch e.activeTool {
-	case toolParking:
-		p := &e.parkingPaint
-		if p.lastCell == [2]int{gx, gz} {
-			return
-		}
-		p.lastCell = [2]int{gx, gz}
-		if p.erase {
-			p.eraseAt(w, gx, gz, e.brushRadius())
-		} else {
-			p.paint(w, p.addableCells(w, gx, gz, e.brushRadius(), nil))
-		}
 	case toolPlantTrees:
 		target := e.densitySlider.Value / 100
 		plantTreesUpTo(w.Terrain, gx, gz, e.brushRadius(), target, rand.Float32)
@@ -1570,35 +1581,40 @@ func (e *Editor) openParcelPopup(id uint16, screenW, screenH int) {
 	e.parcelPopup = win
 }
 
-// finishParkingStroke commits the parking stroke that just ended.
-func (e *Editor) finishParkingStroke(r *render.Renderer) {
-	if e.parkingPaint.dirty {
-		e.markDirty()
-		e.layerCache.fields = nil // grading moved ground
-	}
-	e.parkingPaint.finishStroke(r, e.world)
-}
-
-// endParkingSession commits any open stroke and forgets the lot being
-// edited, so the next Parking activation starts a fresh lot.
-func (e *Editor) endParkingSession(r *render.Renderer) {
-	if e.activeTool != toolParking {
+// finishLotDrag commits the lot drag that just ended.
+func (e *Editor) finishLotDrag(r *render.Renderer) {
+	t := &e.lotTool
+	defer t.reset(t.only)
+	if !t.ok {
+		if t.why != "" {
+			e.setToast(t.why)
+		}
 		return
 	}
-	e.finishParkingStroke(r)
-	e.parkingPaint.start(0, false)
+	text := t.summary(e.world)
+	commitLot(r, e.world, t.lotID, t.rect)
+	e.markDirty()
+	e.layerCache.fields = nil // grading moved ground
+	e.setToast("Parking lot: " + text)
 }
 
-// activateParkingTool enters the parking brush editing lot id (erase
-// selects remove mode).
-func (e *Editor) activateParkingTool(id uint64, erase bool) {
+// endParkingSession drops any lot drag, so the next Parking activation
+// starts fresh.
+func (e *Editor) endParkingSession(r *render.Renderer) {
+	e.lotTool.reset(0)
+}
+
+// activateParkingTool enters the parking tool limited to resizing lot
+// id.
+func (e *Editor) activateParkingTool(id uint64) {
 	if e.activeTool != toolParking {
 		e.setTool(toolParking)
 	}
-	e.parkingPaint.start(id, erase)
+	e.lotTool.reset(id)
 	if e.lotPopup != nil {
 		e.lotPopup.Visible = false
 	}
+	e.setToast("Drag an edge of the lot to resize it. Esc to finish.")
 }
 
 // deleteLot removes a parking lot and closes its popup.
@@ -1689,11 +1705,11 @@ func (e *Editor) openLotPopup(id uint64, confirmDelete bool, screenW, screenH in
 		e.parcelPopup.Visible = false
 	}
 	win := ui.NewWindow("Parking Lot", 0, 0)
-	win.AddLabel("Cells", func() string {
+	win.AddLabel("Size", func() string {
 		if b := lot(); b != nil {
-			return fmt.Sprintf("%d", len(b.Cells))
+			return fmt.Sprintf("%.0f × %.0f m", max(b.LotSize[0], b.LotSize[1]), min(b.LotSize[0], b.LotSize[1]))
 		}
-		return "0"
+		return "—"
 	})
 	win.AddLabel("Stalls", func() string {
 		if b := lot(); b != nil {
@@ -1701,8 +1717,7 @@ func (e *Editor) openLotPopup(id uint64, confirmDelete bool, screenW, screenH in
 		}
 		return "0"
 	})
-	win.AddActionButton("Add area", func() { e.activateParkingTool(id, false) })
-	win.AddActionButton("Remove area", func() { e.activateParkingTool(id, true) })
+	win.AddActionButton("Resize", func() { e.activateParkingTool(id) })
 	if confirmDelete {
 		win.AddActionButton("Confirm delete", func() { e.deleteLot(e.app.Renderer, id) })
 		win.AddActionButton("Cancel", func() { e.openLotPopup(id, false, screenW, screenH) })
@@ -1805,11 +1820,8 @@ func (e *Editor) buildEditorParcelOverlay(rectEnd [2]int) ([]uint8, int, int) {
 	t := e.world.Terrain
 	hasParcels := len(e.world.Parcels) > 0 && e.showParcels()
 	hasRect := e.activeTool == toolParcelRect && e.parcelRectActive
-	var paintLot *world.Building
-	if e.activeTool == toolParking {
-		paintLot = e.parkingPaint.lot(e.world)
-	}
-	if !hasParcels && !hasRect && paintLot == nil {
+	lotDrag := e.activeTool == toolParking && e.lotTool.mode != lotIdle
+	if !hasParcels && !hasRect && !lotDrag {
 		return nil, 0, 0
 	}
 	tw, th := t.Width, t.Height
@@ -1868,7 +1880,9 @@ func (e *Editor) buildEditorParcelOverlay(rectEnd [2]int) ([]uint8, int, int) {
 			set(c[0], c[1], rv, gv, bv, 170)
 		}
 	}
-	appendParkingOverlay(paintLot, set)
+	if lotDrag {
+		e.lotTool.appendOverlay(e.world, set)
+	}
 	return pix, tw, th
 }
 

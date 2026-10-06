@@ -329,20 +329,21 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 			Rotation:        b.Rotation,
 			Cells:           b.Cells,
 			MaxCars:         b.MaxCars,
-			CurrentCars:     b.CurrentCars,
 			DrivewayNodeIDs: b.DrivewayNodeIDs,
+			DriveEdge:       b.DriveEdge,
+			LotSize:         [2]float32{b.LotSize[0], b.LotSize[1]},
 			SnowGunEnabled:  b.SnowGunEnabled,
 			StyleSeed:       b.StyleSeed,
 			MealPrice:       b.MealPrice,
 			DrinkPrice:      b.DrinkPrice,
 		}
+		if b.Type == world.BuildingParking {
+			buildings[i].Cells = nil // derived from the rectangle
+		}
 		if b.IsShell() {
 			buildings[i].Cells = nil
 			buildings[i].Tiles = saveTiles(b)
 			buildings[i].FloorY, buildings[i].FloorSet = b.FloorY, b.FloorSet
-		}
-		if forScenario {
-			buildings[i].CurrentCars = 0
 		}
 	}
 
@@ -463,6 +464,8 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		}
 		if forScenario {
 			gd.State = uint8(world.AtHome)
+		} else {
+			gd.CarID, gd.CarLot = g.CarID, g.CarLot
 		}
 		if !g.LastVisit.IsZero() {
 			gd.LastVisitUnix = g.LastVisit.Unix()
@@ -501,6 +504,22 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 			}
 		}
 		guests[i] = gd
+	}
+
+	var cars []CarData
+	if !forScenario {
+		for _, c := range w.Cars {
+			cd := CarData{
+				ID: c.ID, Entry: c.Entry, Lot: c.Lot, Stall: c.Stall,
+				State: uint8(c.State), Route: c.Route, Leg: c.Leg, D: c.D,
+				Speed: c.Speed, Pos: [2]float32{c.Pos[0], c.Pos[1]},
+				Heading: c.Heading, InLot: c.InLot,
+			}
+			for _, g := range c.Guests {
+				cd.Guests = append(cd.Guests, g.ID)
+			}
+			cars = append(cars, cd)
+		}
 	}
 
 	roadNodes := make([]RoadNodeData, len(w.RoadNodes))
@@ -589,6 +608,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		Snowcats:     snowcats,
 		Patrollers:   patrollers,
 		RoadNodes:    roadNodes,
+		Cars:         cars,
 		RoadEdges:    roadEdges,
 		Parcels:      parcels,
 		Cash:         w.Cash,
@@ -877,16 +897,23 @@ func dataToWorld(data ScenarioData) *world.World {
 		if !b.IsShell() {
 			b.Rotation = bd.Rotation
 		}
-		// Parking-only state. The footprint comes from the saved cells
-		// (or the default rectangle for pre-painting saves); MaxCars is
-		// re-derived from it. The driveway node is restored via the
-		// road-node pass below; we just relink the building's pointer
-		// here. PlaceBuildingType doesn't auto-create driveways, so
-		// there's no conflict to undo first.
+		// Parking-only state. The lot is its rectangle (X, Z centre,
+		// Rotation, LotSize); a lot saved as painted cells becomes their
+		// bounding box, and one with neither gets the default size.
+		// Stalls and MaxCars are re-derived. The entrance node and
+		// driveway edge come back with the road graph below; we just
+		// relink their IDs here.
 		if b.Type == world.BuildingParking {
 			b.DrivewayNodeIDs = bd.DrivewayNodeIDs
-			w.SetParkingLotCells(b, bd.Cells)
-			b.CurrentCars = bd.CurrentCars
+			b.DriveEdge = bd.DriveEdge
+			r := world.DefaultLotRect(mgl32.Vec2{bd.X, bd.Z})
+			switch {
+			case bd.LotSize[0] > 0 && bd.LotSize[1] > 0:
+				r = world.FootprintRect{Center: mgl32.Vec2{bd.X, bd.Z}, HalfX: bd.LotSize[0] / 2, HalfZ: bd.LotSize[1] / 2, Rotation: bd.Rotation}
+			case len(bd.Cells) > 0:
+				r = world.CellsBoundingRect(bd.Cells)
+			}
+			w.SetLotRect(b, r)
 		}
 		b.SnowGunEnabled = bd.SnowGunEnabled
 	}
@@ -1012,6 +1039,8 @@ func dataToWorld(data ScenarioData) *world.World {
 			LifetimeVisits:   gd.LifetimeVisits,
 			LastScore:        gd.LastScore,
 			State:            world.GuestState(gd.State),
+			CarID:            gd.CarID,
+			CarLot:           gd.CarLot,
 		}
 		if gd.LastVisitUnix != 0 {
 			g.LastVisit = time.Unix(gd.LastVisitUnix, 0).UTC()
@@ -1214,6 +1243,10 @@ func dataToWorld(data ScenarioData) *world.World {
 		if tr.ID > maxID {
 			maxID = tr.ID
 		}
+	}
+	loadCars(w, data.Cars)
+	for _, c := range w.Cars {
+		maxID = max(maxID, c.ID)
 	}
 	w.SetMinNextID(maxID)
 
@@ -1509,4 +1542,38 @@ func detailBytes(t *world.Terrain) []byte {
 		return nil
 	}
 	return t.Detail.Bytes()
+}
+
+// loadCars restores the saved cars and links their guests. A guest whose
+// car didn't survive goes home (in a car) or leaves from any lot (on the
+// mountain).
+func loadCars(w *world.World, data []CarData) {
+	byID := make(map[uint64]*world.Guest, len(w.Guests))
+	for _, g := range w.Guests {
+		byID[g.ID] = g
+	}
+	carIDs := map[uint64]bool{}
+	for _, cd := range data {
+		c := &world.Car{
+			ID: cd.ID, Entry: cd.Entry, Lot: cd.Lot, Stall: cd.Stall,
+			State: world.CarState(cd.State), Route: cd.Route, Leg: cd.Leg, D: cd.D,
+			Speed: cd.Speed, Pos: mgl32.Vec2{cd.Pos[0], cd.Pos[1]},
+			Heading: cd.Heading, InLot: cd.InLot,
+		}
+		for _, id := range cd.Guests {
+			if g := byID[id]; g != nil && g.CarID == c.ID {
+				c.Guests = append(c.Guests, g)
+			}
+		}
+		w.Cars = append(w.Cars, c)
+		carIDs[c.ID] = true
+	}
+	for _, g := range w.Guests {
+		if g.CarID != 0 && !carIDs[g.CarID] {
+			g.CarID, g.CarLot = 0, 0
+			if g.State == world.InCar {
+				g.State = world.AtHome
+			}
+		}
+	}
 }

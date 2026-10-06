@@ -446,10 +446,8 @@ func (r *Renderer) initStaticMeshes() {
 	patrollerMesh, patrollerTexID := LoadOBJ(modelDir + "snowmobile.obj")
 	r.patrollerBatch = NewDynamicBatch(patrollerMesh, patrollerTexID)
 
-	// Cars — dynamic batch. Each parking lot's CurrentCars fluctuates as
-	// skiers arrive / depart; rather than rebuild the whole static batch
-	// every time the count ticks, we draw cars from a per-frame instance
-	// list keyed off live parking-lot state.
+	// Cars — dynamic batch, drawn from a per-frame instance list since
+	// cars drive and park as guests arrive and leave.
 	carMesh, carTexID := LoadOBJ(modelDir + "car.obj")
 	r.carBatch = NewDynamicBatch(carMesh, carTexID)
 
@@ -911,37 +909,34 @@ func BuildingTransform(pos mgl32.Vec2, rotation float32, terrain *world.Terrain)
 	return mgl32.Translate3D(pos[0], y, pos[1]).Mul4(mgl32.HomogRotate3DY(rotation))
 }
 
-// carInstancesFor enumerates the parked-car instances across every parking
-// lot in the world: one car on each of the first CurrentCars stalls, so
-// MaxCars in the lot's popup matches what the renderer actually fills.
+// carInstancesFor is one instance per car on the map (sim/traffic.go):
+// on the road, in a lot aisle, or parked in a stall. Cars still queued
+// at their entry aren't drawn.
 func carInstancesFor(w *world.World) []DynamicInstance {
-	var instances []DynamicInstance
-	for _, b := range w.Buildings {
-		if b.Type != world.BuildingParking {
+	instances := make([]DynamicInstance, 0, len(w.Cars))
+	for _, c := range w.Cars {
+		if c.State == world.CarQueued {
 			continue
 		}
-		count := int(b.CurrentCars)
-		if count > len(b.Stalls) {
-			count = len(b.Stalls)
-		}
-		for i := 0; i < count; i++ {
-			s := b.Stalls[i]
+		var y float32
+		if c.InLot {
 			// A small lift above the stripes keeps the wheels from
 			// z-fighting with the paint.
-			y := parkingSurfaceY(w.Terrain, s.Pos[0], s.Pos[1]) + parkingHoverOffset + parkingStripeHover + 0.02
-			// Subtle deterministic tint variation so the lot doesn't read
-			// as a single flat block — derived from the lot ID and stall
-			// index so the same car at the same stall keeps the same colour.
-			hash := uint32(b.ID*31 + uint64(i)*17)
-			r := 0.35 + float32(hash&0x3f)/255.0
-			g := 0.35 + float32((hash>>6)&0x3f)/255.0
-			bl := 0.35 + float32((hash>>12)&0x3f)/255.0
-			instances = append(instances, DynamicInstance{
-				Position: [3]float32{s.Pos[0], y, s.Pos[1]},
-				Heading:  s.Heading,
-				Color:    [3]float32{r, g, bl},
-			})
+			y = parkingSurfaceY(w.Terrain, c.Pos[0], c.Pos[1]) + parkingHoverOffset + parkingStripeHover + 0.02
+		} else {
+			y = VisualElevationAt(w.Terrain, c.Pos[0], c.Pos[1]) + roadHoverOffset + 0.02
 		}
+		// Subtle deterministic tint per car so traffic and full lots
+		// don't read as one flat colour.
+		hash := uint32(c.ID * 2654435761)
+		r := 0.35 + float32(hash&0x3f)/255.0
+		g := 0.35 + float32((hash>>6)&0x3f)/255.0
+		bl := 0.35 + float32((hash>>12)&0x3f)/255.0
+		instances = append(instances, DynamicInstance{
+			Position: [3]float32{c.Pos[0], y, c.Pos[1]},
+			Heading:  c.Heading,
+			Color:    [3]float32{r, g, bl},
+		})
 	}
 	return instances
 }
@@ -1539,9 +1534,8 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		r.DynamicShader.SetFloat("uSpinRate", 0) // reset after rotor draws
 	}
 
-	// Parked cars — one box per filled parking-lot stall, count driven by
-	// the lot's CurrentCars. Dynamic so the count can fluctuate per tick
-	// without forcing a full static-batch rebuild.
+	// Cars — on the roads and in the lots. Dynamic: they move every
+	// frame.
 	if r.carBatch != nil {
 		carInstances := carInstancesFor(w)
 		if len(carInstances) > 0 {

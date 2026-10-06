@@ -27,9 +27,8 @@ const (
 
 // Building represents a structure placed on the terrain. Lodges are
 // reserved for future rest/lunch buildings. Sheds garage snowcat /
-// snowmobile equipment. Parking lots hold a visible car population
-// (CurrentCars, capped by MaxCars) — the demand system writes
-// CurrentCars; the lot itself carries no spawn machinery.
+// snowmobile equipment. Parking lots hold up to MaxCars parked cars
+// (World.Cars parked in the lot's stalls).
 //
 // Pos is the building's anchor in continuous world XZ coordinates (metres).
 // Y is derived from terrain elevation at use time. Rotation turns the
@@ -41,20 +40,22 @@ type Building struct {
 	Pos      mgl32.Vec2
 	Rotation float32 // radians about +Y, the renderer's HomogRotate3DY convention; ignored by painted lots
 
-	// Parking-only state. Cells is the painted footprint (sorted x, z);
-	// Stalls and MaxCars are derived from it by RefreshParkingLot.
-	// CurrentCars is the visible count the renderer floors to instance
-	// N cars on the first N stalls; the demand system drives it.
-	// DrivewayNodeIDs holds the road-graph attach points on the lot edge.
-	// New lots get one; saves from the fixed-pad era may carry more.
-	// Empty on non-parking buildings and on lots that haven't had
-	// EnsureParkingDriveway called yet.
+	// Parking-only state (parking.go). LotSize is the lot rectangle's
+	// extent along its local X and Z (Pos is its centre, Rotation its
+	// turn). Cells (the cells under it, sorted x, z), Gate (the entrance
+	// on its edge), Stalls and MaxCars are derived by RefreshParkingLot.
+	// DrivewayNodeIDs[0] is the entrance's road node, and DriveEdge the
+	// driveway ConnectLotDriveway built from it to the nearest road (0
+	// for none).
+	LotSize         mgl32.Vec2
 	Cells           [][2]int
+	Gate            mgl32.Vec2
 	Stalls          []ParkingStall
 	MaxCars         int
-	CurrentCars     float32
 	DrivewayNodeIDs []uint64
+	DriveEdge       uint64
 	cellSet         map[[2]int]struct{}
+	lotAisles       []float32 // local V of each aisle, from layoutLot
 
 	// SnowGun-only state. Enabled defaults to true on placement; the player
 	// can toggle it off from the popup to stop snow production and operating costs.
@@ -162,6 +163,9 @@ func BuildingFootprint(typ BuildingType, x, z, rotation float32) FootprintRect {
 
 // Footprint returns b's oriented footprint rectangle.
 func (b *Building) Footprint() FootprintRect {
+	if b.IsRectLot() {
+		return b.LotRect()
+	}
 	return BuildingFootprint(b.Type, b.Pos[0], b.Pos[1], b.Rotation)
 }
 
@@ -207,78 +211,32 @@ func (w *World) BuildingOverlapExcept(typ BuildingType, x, z, rotation float32, 
 	return false
 }
 
-// DrivewayPositions returns the world XZ positions of a parking lot's
-// driveway attach points. Painted lots have a single entrance on the
-// lot edge (see parkingEntrance). Legacy mesh-pad lots use one point per
-// MOGUL_META slot declared by the parking mesh, rotated by the
-// building's Y rotation. Returns nil for non-parking buildings.
+// DrivewayPositions returns the world XZ position of a parking lot's
+// entrance (Gate, on the lot's edge). Returns nil for non-parking
+// buildings.
 func (w *World) DrivewayPositions(b *Building) []mgl32.Vec2 {
 	if b.Type != BuildingParking {
 		return nil
 	}
-	if b.IsCellLot() {
-		return []mgl32.Vec2{w.parkingEntrance(b)}
-	}
-	slots := SlotsFor(b.Type.MeshID())
-	if len(slots) == 0 {
-		return nil
-	}
-	cos := float32(math.Cos(float64(b.Rotation)))
-	sin := float32(math.Sin(float64(b.Rotation)))
-	out := make([]mgl32.Vec2, len(slots))
-	for i, s := range slots {
-		// Mesh-local (X, _, Z) → world delta rotated around Y, matching
-		// the renderer's HomogRotate3DY convention: (1,0,0) →
-		// (cos, 0, -sin) and (0,0,1) → (sin, 0, cos).
-		mx, mz := s.Pos[0], s.Pos[2]
-		out[i] = mgl32.Vec2{
-			b.Pos[0] + mx*cos + mz*sin,
-			b.Pos[1] - mx*sin + mz*cos,
-		}
-	}
-	return out
+	return []mgl32.Vec2{b.Gate}
 }
 
-// EnsureParkingDriveway creates the road-network attach nodes for a
-// parking lot. A painted lot that already has a live driveway node keeps
-// it (RefreshParkingLot keeps it on the lot edge); otherwise one node is
-// created per DrivewayPositions entry, reusing any stored ID that still
-// resolves to a live RoadNode so DrivewayNodeIDs[i] matches position i.
-//
-// Idempotent — safe to call multiple times. No-op for non-parking
-// buildings; no-op for legacy lots without registered mesh slots (which
-// keeps the placement path from crashing during a missing-asset run).
+// EnsureParkingDriveway gives a parking lot its entrance node: a lot
+// that already has a live one keeps it, otherwise one is created at the
+// lot's Gate. Idempotent; no-op for non-parking buildings.
 func (w *World) EnsureParkingDriveway(b *Building) {
 	if b == nil || b.Type != BuildingParking {
 		return
 	}
-	if b.IsCellLot() {
-		for _, id := range b.DrivewayNodeIDs {
-			if w.RoadNodeByID(id) != nil {
-				return
-			}
+	var live []uint64
+	for _, id := range b.DrivewayNodeIDs {
+		if w.RoadNodeByID(id) != nil {
+			live = append(live, id)
 		}
-		b.DrivewayNodeIDs = b.DrivewayNodeIDs[:0]
 	}
-	positions := w.DrivewayPositions(b)
-	if len(positions) == 0 {
-		return
-	}
-	// Grow the ID slice to match the slot count; values default to 0,
-	// which the existence check below treats as "needs a fresh node".
-	for len(b.DrivewayNodeIDs) < len(positions) {
-		b.DrivewayNodeIDs = append(b.DrivewayNodeIDs, 0)
-	}
-	for i, pos := range positions {
-		id := b.DrivewayNodeIDs[i]
-		if id != 0 && w.RoadNodeByID(id) != nil {
-			continue
-		}
-		n := w.AddRoadNode(pos, RoadNodeParkingDriveway)
-		b.DrivewayNodeIDs[i] = n.ID
-	}
-	if b.IsCellLot() {
-		sortStallsFrom(b.Stalls, positions[0])
+	b.DrivewayNodeIDs = live
+	if len(live) == 0 {
+		b.DrivewayNodeIDs = []uint64{w.AddRoadNode(b.Gate, RoadNodeParkingDriveway).ID}
 	}
 }
 

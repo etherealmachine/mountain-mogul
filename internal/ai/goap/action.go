@@ -341,7 +341,7 @@ func (a *SkiToParking) Name() string {
 }
 
 func (a *SkiToParking) Precondition(s *WorldSnapshot, w *world.World) bool {
-	if s.Removed || s.AtLiftTop == 0 {
+	if s.Removed || s.AtLiftTop == 0 || (s.CarLot != 0 && a.LotID != s.CarLot) {
 		return false
 	}
 	src := findLift(w, s.AtLiftTop)
@@ -553,7 +553,7 @@ func (a *Depart) Name() string {
 }
 
 func (a *Depart) Precondition(s *WorldSnapshot, w *world.World) bool {
-	return !s.Removed && s.AtParking == a.LotID
+	return !s.Removed && s.AtParking == a.LotID && (s.CarLot == 0 || s.CarLot == a.LotID)
 }
 
 func (a *Depart) Apply(s *WorldSnapshot, w *world.World) {

@@ -76,9 +76,8 @@ type Simulation struct {
 	// per-30-sim-seconds poll fires from Tick.
 	Demand *DemandSystem
 
-	// parkedGuests counts arrivals, rotating which share of the car's
-	// parking fee the next guest pays (nextParkingFee). Not saved.
-	parkedGuests int
+	// traffic drives the cars (traffic.go).
+	traffic *traffic
 
 	// Recorder, if non-nil, receives one RecorderFrame per skiing tick.
 	// Used by the debug CSV log; default nil.
@@ -179,6 +178,7 @@ func NewSimulationWithSeed(w *world.World, seed int64) *Simulation {
 		Weather:        NewChainFor(w.Climate, w.BaseAltitude+terrainMinElevation(w.Terrain)),
 		Planner:        goap.NewPlanner(),
 		Demand:         NewDemandSystem(),
+		traffic:        newTraffic(),
 		spatial:        newSpatialGrid(widthM, heightM),
 		lastSampledDay: int(w.SimTime / secondsPerSimDay),
 		lastHour:       int(w.SimTime / simSecondsPerHour),
@@ -244,6 +244,7 @@ func (s *Simulation) Tick(dt float64) {
 	if s.StopAt > 0 && s.SimTime+remaining > s.StopAt {
 		remaining = s.StopAt - s.SimTime
 	}
+	simulated := remaining
 	for remaining > 0 {
 		sub := remaining
 		if sub > maxSubstepSec {
@@ -252,6 +253,9 @@ func (s *Simulation) Tick(dt float64) {
 		s.subTick(sub)
 		remaining -= sub
 	}
+	// Cars step once per frame, in steps of up to trafficStep: thousands
+	// of them can't afford the guests' 1/30 s substeps.
+	s.tickTraffic(simulated)
 }
 
 // refillTowersScratch rebuilds s.towersScratch in place from the live
@@ -612,19 +616,28 @@ func (s *Simulation) tickGuests(dt float64) {
 	s.reapDeparted()
 }
 
-// spawnGuest moves an existing dormant Guest onto the mountain: sets
-// State=OnMountain, places them at the lot's anchor, appends to
-// w.OnMountain, and lets the planner lay out their first plan. The
-// Guest record itself is the same pointer that lives in w.Guests, so
-// identity + career stats persist across the visit. Returns false
-// (and rolls back state/slice) when no viable plan can be laid — the
-// caller treats that as a failed spawn and skips the CurrentCars bump.
+// spawnGuest is spawnGuestAt the lot's anchor with no parking fee.
 func (s *Simulation) spawnGuest(lot *world.Building, g *world.Guest) bool {
+	return s.spawnGuestAt(lot, g, lot.Pos, 0)
+}
+
+// spawnGuestAt moves a Guest out of their car and onto the mountain at
+// pos in lot: sets State=OnMountain, appends to w.OnMountain, and lets
+// the planner lay out their first plan. parking is their share of the
+// car's parking fee, paid now. The Guest record itself is the same
+// pointer that lives in w.Guests, so identity + career stats persist
+// across the visit. Returns false (and rolls back state/slice, sending
+// the guest home) when no viable plan can be laid.
+func (s *Simulation) spawnGuestAt(lot *world.Building, g *world.Guest, pos mgl32.Vec2, parking int) bool {
 	w := s.World
-	cell := lot.DoorCell()
-	elev := w.Terrain.SurfaceElevationAt(cell[0], cell[1])
+	cx, cz := int(pos[0]/CellSize), int(pos[1]/CellSize)
+	if !w.Terrain.InBounds(cx, cz) {
+		cell := lot.DoorCell()
+		cx, cz = cell[0], cell[1]
+	}
+	elev := w.Terrain.SurfaceElevationAt(cx, cz)
 	g.State = world.OnMountain
-	g.Pos = mgl32.Vec3{lot.Pos[0], elev, lot.Pos[1]}
+	g.Pos = mgl32.Vec3{pos[0], elev, pos[1]}
 	g.Heading = 0
 	g.Speed = 0
 	g.Balance = 1.0
@@ -641,7 +654,6 @@ func (s *Simulation) spawnGuest(lot *world.Building, g *world.Guest) bool {
 	// Parking is paid at the lot on arrival, so it comes out of the
 	// budget up front too.
 	ticket, _ := dayTicketCharge(w, g, s.SimTime)
-	parking := s.nextParkingFee()
 	g.DayTicketDue = ticket
 	g.DayTicketPaid = 0
 	g.HasDayTicket = false
@@ -659,7 +671,6 @@ func (s *Simulation) spawnGuest(lot *world.Building, g *world.Guest) bool {
 		g.ResetForDeparture()
 		return false
 	}
-	s.parkedGuests++
 	if parking > 0 {
 		w.Cash += parking
 		w.History.RecordRevenue(world.RevenueParking, parking)
@@ -1500,18 +1511,12 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 	case ai.ActDepart:
 		// Capture session stats (LastScore, LifetimeVisits, LastVisit,
 		// VisitsThisSeason) on the persistent Guest record before the
-		// reaper clears sim scratch fields. Decrement the lot's visible
-		// car count (4 departures = -1 car), then flip Removed so
-		// reapDeparted will splice this Guest out of OnMountain.
+		// reaper clears sim scratch fields, then flip Removed so
+		// reapDeparted will splice this Guest out of OnMountain and into
+		// their car.
 		s.Demand.recordDeparture(s.World, a, s.DateAt(s.SimTime))
 		w.History.RecordDeparture()
 		w.History.RecordExitThought(a.LastThought().Kind)
-		if b := findBuildingByID(w, step.BldgID); b != nil {
-			b.CurrentCars -= 1.0 / float32(GuestsPerCar)
-			if b.CurrentCars < 0 {
-				b.CurrentCars = 0
-			}
-		}
 		a.Removed = true
 	}
 }
@@ -1527,6 +1532,10 @@ func (s *Simulation) directHomePlan(a *world.Guest) {
 	for _, b := range w.Buildings {
 		if b.Type != world.BuildingParking {
 			continue
+		}
+		if b.ID == a.CarLot {
+			best = b // their car is here
+			break
 		}
 		dx := b.Pos[0] - a.Pos[0]
 		dz := b.Pos[1] - a.Pos[2]
@@ -1656,8 +1665,11 @@ func (s *Simulation) tickResting(a *world.Guest, dt float64) {
 func (s *Simulation) reapDeparted() {
 	w := s.World
 	for i := len(w.OnMountain) - 1; i >= 0; i-- {
-		if w.OnMountain[i].Removed {
-			w.RemoveFromOnMountain(w.OnMountain[i].ID)
+		if g := w.OnMountain[i]; g.Removed {
+			w.RemoveFromOnMountain(g.ID)
+			if g.CarID != 0 {
+				g.State = world.InCar // waits in the car for the rest of the carload
+			}
 		}
 	}
 }

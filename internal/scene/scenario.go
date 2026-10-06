@@ -540,9 +540,9 @@ type Scenario struct {
 	lastTrailPaintCell [2]int
 	trailEraseMode     bool // true = left-drag removes cells; false = left-drag adds cells
 
-	// parkingPaint is the parking-lot paint session while toolParking is
-	// active: left-drag paints (or erases, in erase mode), right-drag erases.
-	parkingPaint parkingPaint
+	// lotTool is the parking tool's drag (draw a lot, or resize one by an
+	// edge) while toolParking is active.
+	lotTool lotTool
 	// serviceTool is the build session while toolService is active.
 	serviceTool serviceTool
 	// serviceButtons are the Amenities palette, one per service.
@@ -881,7 +881,7 @@ func (s *Scenario) Init(app *engine.App) error {
 
 	// Transport submenu: Parking, Road
 	s.transportSubmenu = s.toolBar.AddSubmenu(render.IconRoad, "Transport")
-	s.toolButtons[toolParking] = s.transportSubmenu.AddChild(render.IconUsers, "Parking", func() { s.activateParkingTool(0, false) })
+	s.toolButtons[toolParking] = s.transportSubmenu.AddChild(render.IconUsers, "Parking", func() { s.activateParkingTool(0) })
 	s.toolButtons[toolRoadStart] = s.transportSubmenu.AddChild(render.IconRoad, "Road", func() { s.setTool(toolRoadStart) })
 
 	// Lifts submenu: all chair/gondola/heli variants
@@ -956,7 +956,7 @@ func (s *Scenario) Init(app *engine.App) error {
 	s.gladeRadiusSlider = ui.NewVSlider(0, 0, 18, 200, 1, 30, float32(gladeRadius), "Radius")
 	s.gladeThinSlider = ui.NewVSlider(0, 0, 18, 200, 5, 100, 25, "Thin")
 	s.lastGladeCell = [2]int{-1, -1}
-	s.parkingPaint.start(0, false)
+	s.lotTool.reset(0)
 
 	onSpeed := make([]func(), len(speedOptions))
 	for i, mult := range speedOptions {
@@ -1583,6 +1583,8 @@ func (s *Scenario) Update(dt float64) {
 		case s.roadEdit.active() || s.structureEdit.active():
 			s.roadEdit.clear()
 			s.structureEdit.clear()
+		case s.activeTool == toolParking && s.lotTool.mode != lotIdle:
+			s.lotTool.reset(s.lotTool.only) // drop the drag, keep the tool
 		case s.activeTool != toolNone:
 			s.cancelTool()
 		default:
@@ -1600,6 +1602,9 @@ func (s *Scenario) Update(dt float64) {
 	// R / Shift+R: turn the building about to be placed, or the selected one.
 	if delta := rotateKeyDelta(inp); !typing && delta != 0 {
 		switch {
+		case s.activeTool == toolParking:
+			s.lotTool.rotate(s.world, delta)
+			s.setToast("Rotation " + rotationDegrees(s.lotTool.rotation))
 		case isBuildingPlacementTool(s.activeTool):
 			s.placeRotation = stepRotation(s.placeRotation, delta)
 			s.setToast("Rotation " + rotationDegrees(s.placeRotation))
@@ -1969,10 +1974,9 @@ func (s *Scenario) Update(dt float64) {
 			s.finishTrailPaintStroke()
 			s.lastTrailPaintCell = [2]int{-1, -1}
 		}
-		// Parking regrades terrain on commit, so wait until both buttons
-		// are up rather than committing every frame of a right-drag.
-		if s.activeTool == toolParking && !inp.RightHeld && s.parkingPaint.lastCell != [2]int{-1, -1} {
-			s.parkingPaint.finishStroke(r, s.world)
+		// A lot commits (and regrades the terrain) when the drag ends.
+		if s.activeTool == toolParking && s.lotTool.mode != lotIdle {
+			s.finishLotDrag()
 		}
 	}
 
@@ -1984,10 +1988,18 @@ func (s *Scenario) Update(dt float64) {
 			s.lastTrailPaintCell = [2]int{gx, gz}
 		}
 	}
-	if s.activeTool == toolParking && inp.RightHeld && s.hoverValid &&
-		s.hoverCell != s.parkingPaint.lastCell && !s.uiCovers(inp.MousePos[0], inp.MousePos[1], float32(r.ScreenWidth())) {
-		if gx, gz := s.hoverCell[0], s.hoverCell[1]; s.world.Terrain.InBounds(gx, gz) {
-			s.applyParkingPaint(gx, gz, true)
+	// Parking: press to start drawing a lot (or grab a lot's edge), drag
+	// to shape it; the release above commits it.
+	if s.activeTool == toolParking && !inp.LeftClickConsumed && s.hoverValid {
+		pos := mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]}
+		switch {
+		case inp.LeftClick && !s.uiCovers(inp.MousePos[0], inp.MousePos[1], float32(r.ScreenWidth())):
+			if s.lotTool.press(s.world, pos) {
+				s.lotTool.move(s.world, pos)
+			}
+		case inp.LeftHeld && s.lotTool.mode != lotIdle:
+			s.lotTool.move(s.world, pos)
+			s.setToast(s.lotDragText())
 		}
 	}
 	// A right click that doesn't pan removes the service tile under it.
@@ -2010,10 +2022,7 @@ func (s *Scenario) Update(dt float64) {
 		trailDragged := s.activeTool == toolTrailPaint && inp.LeftHeld &&
 			s.lastTrailPaintCell != [2]int{-1, -1} &&
 			s.hoverCell != s.lastTrailPaintCell
-		parkingDragged := s.activeTool == toolParking && inp.LeftHeld &&
-			s.parkingPaint.lastCell != [2]int{-1, -1} &&
-			s.hoverCell != s.parkingPaint.lastCell
-		clickOrDrag := inp.LeftClick || gladeDragged || trailDragged || parkingDragged
+		clickOrDrag := (inp.LeftClick && s.activeTool != toolParking) || gladeDragged || trailDragged
 		if clickOrDrag && !s.uiCovers(inp.MousePos[0], inp.MousePos[1], screenW) && s.hoverValid {
 			overSlider := s.activeTool == toolGlade &&
 				(s.gladeRadiusSlider.Contains(inp.MousePos[0], inp.MousePos[1]) ||
@@ -2222,12 +2231,9 @@ func (s *Scenario) buildCellOverlay() (pixels []uint8, w, h int) {
 	hasActiveTrail := s.activeTrailID != 0
 	hasTrails := len(s.world.Trails) > 0 && (trailOverlayOn || hasActiveTrail)
 	hasLandOverlay := s.hoverParcel != nil // hover highlight when buying land
-	var paintLot *world.Building
-	if s.activeTool == toolParking {
-		paintLot = s.parkingPaint.lot(s.world)
-	}
+	lotDrag := s.activeTool == toolParking && s.lotTool.mode != lotIdle
 	editedLodge := s.editedLodge()
-	if !hasTrails && !hasLandOverlay && paintLot == nil && editedLodge == nil {
+	if !hasTrails && !hasLandOverlay && !lotDrag && editedLodge == nil {
 		return nil, 0, 0
 	}
 
@@ -2288,7 +2294,9 @@ func (s *Scenario) buildCellOverlay() (pixels []uint8, w, h int) {
 			}
 		}
 	}
-	appendParkingOverlay(paintLot, set)
+	if lotDrag {
+		s.lotTool.appendOverlay(s.world, set)
+	}
 	appendServiceOverlay(editedLodge, set)
 
 	return pix, tw, th
@@ -2604,8 +2612,6 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		applyBuildingPlacementEffects(w, b)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
-	case toolParking:
-		s.applyParkingPaint(gx, gz, s.parkingPaint.erase)
 	case toolService:
 		s.applyServicePick()
 	case toolPatrolHut:
@@ -2915,10 +2921,6 @@ func (s *Scenario) Render(r *render.Renderer) {
 		gx, gz := s.hoverCell[0], s.hoverCell[1]
 		center := mgl32.Vec2{float32(gx)*cellSize + cellSize/2, float32(gz)*cellSize + cellSize/2}
 		r.SetBrush(center, (float32(s.gladeBrushRadius())+0.5)*cellSize)
-	case s.activeTool == toolParking && t.InBounds(s.hoverCell[0], s.hoverCell[1]):
-		gx, gz := s.hoverCell[0], s.hoverCell[1]
-		center := mgl32.Vec2{float32(gx)*cellSize + cellSize/2, float32(gz)*cellSize + cellSize/2}
-		r.SetBrush(center, (float32(parkingBrushRadius)+0.5)*cellSize)
 	default:
 		r.ClearBrush()
 	}
@@ -3523,13 +3525,12 @@ func (s *Scenario) buildParkingPopup(lot *world.Building, confirmDelete bool, sc
 	w := ui.NewWindow("Parking Lot", 0, 0)
 	w.AddIntStepper("Parking ($/car)", &s.world.ParkingPrice, 5, 0, 200)
 	w.AddLabel("Cars", func() string {
-		return fmt.Sprintf("%d / %d", int(lot.CurrentCars), lot.MaxCars)
+		return fmt.Sprintf("%d / %d", s.world.ParkedCars(lot.ID), lot.MaxCars)
 	})
-	w.AddLabel("Area", func() string {
-		return fmt.Sprintf("%d cells", len(lot.Cells))
+	w.AddLabel("Size", func() string {
+		return fmt.Sprintf("%.0f × %.0f m", max(lot.LotSize[0], lot.LotSize[1]), min(lot.LotSize[0], lot.LotSize[1]))
 	})
-	w.AddActionButton("Add area", func() { s.activateParkingTool(lot.ID, false) })
-	w.AddActionButton("Remove area", func() { s.activateParkingTool(lot.ID, true) })
+	w.AddActionButton("Resize", func() { s.activateParkingTool(lot.ID) })
 	if confirmDelete {
 		w.AddLabel("Confirm", func() string { return "Delete this lot?" })
 		w.AddActionButton("Confirm", func() { s.deletePaintedBuilding(lot.ID) })
@@ -3919,8 +3920,7 @@ func (s *Scenario) cancelTool() {
 		s.trailEraseMode = false
 	}
 	if s.activeTool == toolParking {
-		s.parkingPaint.finishStroke(s.app.Renderer, s.world)
-		s.parkingPaint.start(0, false)
+		s.lotTool.reset(0)
 	}
 	if s.activeTool == toolService {
 		s.serviceTool = serviceTool{}
@@ -3929,10 +3929,10 @@ func (s *Scenario) cancelTool() {
 	s.syncToolButtons()
 }
 
-// activateParkingTool enters parking-paint mode. lotID 0 starts a new lot
-// on the first stroke; a lot ID edits that lot (erase selects remove
-// mode). Re-clicking the toolbar button while painting ends the session.
-func (s *Scenario) activateParkingTool(lotID uint64, erase bool) {
+// activateParkingTool enters the parking tool. lotID 0 draws new lots
+// (and resizes any lot by an edge); a lot ID resizes only that lot.
+// Re-clicking the toolbar button while drawing ends the session.
+func (s *Scenario) activateParkingTool(lotID uint64) {
 	if s.activeTool == toolParking && lotID == 0 {
 		s.cancelTool()
 		return
@@ -3942,44 +3942,73 @@ func (s *Scenario) activateParkingTool(lotID uint64, erase bool) {
 	}
 	s.roadEdit.clear()
 	s.structureEdit.clear()
-	s.parkingPaint.start(lotID, erase)
+	s.lotTool.reset(lotID)
 	s.activeTool = toolParking
 	s.syncToolButtons()
 	if s.popup != nil {
 		s.popup.Visible = false
 	}
-	if erase {
-		s.setToast("Drag to remove parking. Esc to finish.")
+	if lotID != 0 {
+		s.setToast(fmt.Sprintf("Drag an edge of the lot to resize it ($%d per m² added). Esc to finish.", world.ParkingCostPerM2))
 	} else {
-		s.setToast(fmt.Sprintf("Drag to paint parking ($%d per cell). Right-drag to erase. Esc to finish.", world.ParkingCostPerCell))
+		s.setToast(fmt.Sprintf("Drag to draw a parking lot ($%d per m²). R turns it. Drag a lot's edge to resize. Esc to finish.", world.ParkingCostPerM2))
 	}
 }
 
-// applyParkingPaint runs one brush application of the parking tool at
-// (gx, gz). New cells must be on owned land and are charged per cell.
-func (s *Scenario) applyParkingPaint(gx, gz int, erase bool) {
+// lotCost is what committing the lot drag costs: the added area, plus
+// the driveway for a new lot.
+func (s *Scenario) lotCost() int {
+	t := &s.lotTool
+	cost := int(t.addedArea()) * world.ParkingCostPerM2
+	if t.lotID == 0 {
+		cost += s.world.PlanLotGate(t.rect, nil).DrivewayCost()
+	}
+	return cost
+}
+
+// lotDragText is the toast while dragging a lot: its size, stalls and
+// cost, or why it can't go there.
+func (s *Scenario) lotDragText() string {
+	t := &s.lotTool
+	if !t.ok {
+		if t.why == "" {
+			return "Drag to draw a parking lot"
+		}
+		return t.why
+	}
+	return fmt.Sprintf("%s · $%s", t.summary(s.world), world.CommaInt(s.lotCost()))
+}
+
+// finishLotDrag commits the lot drag that just ended: on owned land,
+// paid for, placed or resized.
+func (s *Scenario) finishLotDrag() {
+	t := &s.lotTool
+	defer t.reset(t.only)
 	w := s.world
-	p := &s.parkingPaint
-	p.lastCell = [2]int{gx, gz}
-	if erase {
-		p.eraseAt(w, gx, gz, parkingBrushRadius)
+	if !t.ok {
+		if t.why != "" {
+			s.setToast(t.why)
+		}
 		return
 	}
-	cells := p.addableCells(w, gx, gz, parkingBrushRadius, func(c [2]int) bool {
-		return w.Terrain.IsAccessible(c[0], c[1])
-	})
-	if len(cells) == 0 {
-		return
+	for _, c := range world.LotCells(w.Terrain, t.rect) {
+		if !w.Terrain.IsAccessible(c[0], c[1]) {
+			s.setToast("Parking has to be on land you own")
+			return
+		}
 	}
-	cost := len(cells) * world.ParkingCostPerCell
+	cost := s.lotCost()
 	if !w.CanAfford(cost) {
-		s.setToast(fmt.Sprintf("Need $%d for more parking — short by $%d", cost, cost-w.Available()))
+		s.setToast(fmt.Sprintf("Need $%s for this parking — short by $%s", world.CommaInt(cost), world.CommaInt(cost-w.Available())))
 		return
 	}
+	text := t.summary(w)
 	w.Cash -= cost
-	if lot := p.paint(w, cells); lot != nil {
-		s.sim.LogBuildingPlaced(lot)
+	b := commitLot(s.app.Renderer, w, t.lotID, t.rect)
+	if t.lotID == 0 {
+		s.sim.LogBuildingPlaced(b)
 	}
+	s.setToast(fmt.Sprintf("Parking lot: %s · $%s", text, world.CommaInt(cost)))
 }
 
 // deletePaintedBuilding tears down a lot or lodge shell and sends any guest whose plan runs

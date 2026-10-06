@@ -112,8 +112,10 @@ func buildRoadChainStripVerts(chain world.RoadChain, t *world.Terrain, baseIdx u
 // samples a curve) and the ghost preview path (which uses just two
 // endpoint samples for a straight stub).
 //
-// Y is sampled at each edge vertex independently so the strip always
-// sits roadHoverOffset above whatever the local terrain mesh is doing.
+// Y is sampled at each edge vertex independently, from the drawn terrain
+// mesh (VisualElevationAt), so the strip always sits roadHoverOffset
+// above it — interpolating cell centres instead sinks the road's edges
+// under the mesh beside a fresh cut.
 func buildRoadStripFromSamples(samples []mgl32.Vec2, t *world.Terrain, baseIdx uint32) ([]float32, []uint32) {
 	if len(samples) < 2 {
 		return nil, nil
@@ -146,10 +148,10 @@ func buildRoadStripFromSamples(samples []mgl32.Vec2, t *world.Terrain, baseIdx u
 		cz := samples[i][1]
 		lx := cx - perpX
 		lz := cz - perpZ
-		ly := t.InterpolatedSurfaceElevationAt(lx, lz) + roadHoverOffset
+		ly := VisualElevationAt(t, lx, lz) + roadHoverOffset
 		rx := cx + perpX
 		rz := cz + perpZ
-		ry := t.InterpolatedSurfaceElevationAt(rx, rz) + roadHoverOffset
+		ry := VisualElevationAt(t, rx, rz) + roadHoverOffset
 
 		frac := cumDist[i] / totalLen
 		verts = append(verts,
@@ -237,10 +239,10 @@ func buildRoadChainDashes(chain world.RoadChain, t *world.Terrain, baseIdx uint3
 
 		quadBase := baseIdx + idx
 		verts = append(verts,
-			x0L, t.InterpolatedSurfaceElevationAt(x0L, z0L)+dashOff, z0L, 0, 1, 0, 0, 0,
-			x0R, t.InterpolatedSurfaceElevationAt(x0R, z0R)+dashOff, z0R, 0, 1, 0, 0, 1,
-			x1L, t.InterpolatedSurfaceElevationAt(x1L, z1L)+dashOff, z1L, 0, 1, 0, 1, 0,
-			x1R, t.InterpolatedSurfaceElevationAt(x1R, z1R)+dashOff, z1R, 0, 1, 0, 1, 1,
+			x0L, VisualElevationAt(t, x0L, z0L)+dashOff, z0L, 0, 1, 0, 0, 0,
+			x0R, VisualElevationAt(t, x0R, z0R)+dashOff, z0R, 0, 1, 0, 0, 1,
+			x1L, VisualElevationAt(t, x1L, z1L)+dashOff, z1L, 0, 1, 0, 1, 0,
+			x1R, VisualElevationAt(t, x1R, z1R)+dashOff, z1R, 0, 1, 0, 1, 1,
 		)
 		indices = append(indices,
 			quadBase, quadBase+1, quadBase+2,

@@ -65,6 +65,7 @@ type ScenarioData struct {
 	Patrollers  []PatrollerData  `json:"patrollers,omitempty"`
 	RoadNodes   []RoadNodeData   `json:"road_nodes,omitempty"`
 	RoadEdges   []RoadEdgeData   `json:"road_edges,omitempty"`
+	Cars        []CarData        `json:"cars,omitempty"`
 	Parcels     []ParcelData     `json:"parcels,omitempty"`
 	Cash        int              `json:"cash,omitempty"`
 	// Credit line state. CreditLimit is a pointer so a $0 line round-trips;
@@ -353,14 +354,16 @@ type BuildingData struct {
 	Z        float32 `json:"z"`
 	Rotation float32 `json:"r,omitempty"`
 
-	// Parking-only state. Cells is the painted lot footprint; absent on
-	// saves from before lots were painted, which load as the old default
-	// rectangle. CurrentCars is the visible population (rendered as car
-	// meshes); MaxCars is the cap, re-derived from Cells on load.
-	Cells           [][2]int `json:"cells,omitempty"`
-	MaxCars         int      `json:"max_cars,omitempty"`
-	CurrentCars     float32  `json:"cur_cars,omitempty"`
-	DrivewayNodeIDs []uint64 `json:"driveway_ids,omitempty"` // road-network attach nodes, one per parking mesh slot
+	// Parking-only state. A lot is a rectangle: X, Z is its centre,
+	// Rotation its turn and LotSize its extent along local X and Z.
+	// Cells is a lot's painted footprint on older saves (loaded as its
+	// bounding box) and a service building's shell. MaxCars is the stall
+	// count, re-derived on load. DriveEdge is the lot's driveway edge.
+	Cells           [][2]int   `json:"cells,omitempty"`
+	LotSize         [2]float32 `json:"lot_size,omitempty"`
+	DriveEdge       uint64     `json:"drive_edge,omitempty"`
+	MaxCars         int        `json:"max_cars,omitempty"`
+	DrivewayNodeIDs []uint64   `json:"driveway_ids,omitempty"` // road-network attach nodes, one per parking mesh slot
 
 	// SnowGun-only state.
 	SnowGunEnabled bool `json:"sg_on,omitempty"`
@@ -474,8 +477,12 @@ type GuestData struct {
 	// ticket, parking and food (OnMountain only).
 	RemainingBudget float32 `json:"rb,omitempty"`
 
-	// Visit state. 0 = AtHome (default), 1 = OnMountain.
+	// Visit state. 0 = AtHome (default), 1 = OnMountain, 2 = InCar.
 	State uint8 `json:"state,omitempty"`
+	// CarID and CarLot are world.Guest's: the car they came in and the
+	// lot it's parked in.
+	CarID  uint64 `json:"car,omitempty"`
+	CarLot uint64 `json:"car_lot,omitempty"`
 
 	// Sim scratch — only populated when State == OnMountain.
 	Pos      [3]float32 `json:"pos,omitempty"`
@@ -495,4 +502,22 @@ type GuestData struct {
 	// are re-derived by onPlanStepStart; only Steps+Step are stored.
 	PlanSteps []PlanActionData `json:"plan,omitempty"`
 	PlanStep  int              `json:"plan_step,omitempty"`
+}
+
+// CarData is a saved world.Car. Guests are guest IDs; Route is road node
+// IDs. Scenario files carry no cars.
+type CarData struct {
+	ID      uint64     `json:"id"`
+	Guests  []uint64   `json:"guests,omitempty"`
+	Entry   uint64     `json:"entry,omitempty"`
+	Lot     uint64     `json:"lot,omitempty"`
+	Stall   int        `json:"stall"`
+	State   uint8      `json:"state,omitempty"`
+	Route   []uint64   `json:"route,omitempty"`
+	Leg     int        `json:"leg,omitempty"`
+	D       float32    `json:"d,omitempty"`
+	Speed   float32    `json:"speed,omitempty"`
+	Pos     [2]float32 `json:"pos"`
+	Heading float32    `json:"heading,omitempty"`
+	InLot   bool       `json:"in_lot,omitempty"`
 }

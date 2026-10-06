@@ -8,8 +8,8 @@ import (
 	"mountain-mogul/internal/world"
 )
 
-// Painted parking lots are drawn as one asphalt quad per lot cell plus
-// thin stripes between stalls. Heights follow the terrain mesh's own
+// Parking lots are drawn as an asphalt rectangle with rounded corners
+// plus thin stripes between stalls. Heights follow the terrain mesh's own
 // corner rule (4-cell average, see buildTerrainVerts) so the asphalt
 // sits exactly on the graded pad rather than on the half-cell-shifted
 // InterpolatedSurfaceElevationAt.
@@ -54,33 +54,18 @@ func parkingSurfaceY(t *world.Terrain, x, z float32) float32 {
 }
 
 // generateParkingMeshes builds the asphalt and stall-stripe meshes for
-// every painted lot. Either return is nil when there is nothing to draw.
+// every lot. Either return is nil when there is nothing to draw.
 func generateParkingMeshes(w *world.World) (asphalt, stripes *Mesh) {
 	t := w.Terrain
-	const cs = float32(world.CellSize)
 	var av []float32
 	var ai []uint32
 	var sv []float32
 	var si []uint32
 	for _, b := range w.Buildings {
-		if !b.IsCellLot() {
+		if !b.IsRectLot() {
 			continue
 		}
-		for _, c := range b.Cells {
-			x0, z0 := float32(c[0])*cs, float32(c[1])*cs
-			y00 := terrainCornerY(t, c[0], c[1]) + parkingHoverOffset
-			y10 := terrainCornerY(t, c[0]+1, c[1]) + parkingHoverOffset
-			y01 := terrainCornerY(t, c[0], c[1]+1) + parkingHoverOffset
-			y11 := terrainCornerY(t, c[0]+1, c[1]+1) + parkingHoverOffset
-			base := uint32(len(av) / 8)
-			av = append(av,
-				x0, y00, z0, 0, 1, 0, 0, 0,
-				x0+cs, y10, z0, 0, 1, 0, 1, 0,
-				x0, y01, z0+cs, 0, 1, 0, 0, 1,
-				x0+cs, y11, z0+cs, 0, 1, 0, 1, 1,
-			)
-			ai = append(ai, base, base+2, base+1, base+1, base+2, base+3)
-		}
+		av, ai = appendLotAsphalt(av, ai, t, b.LotRect())
 		sv, si = appendStallStripes(sv, si, t, b.Stalls)
 	}
 	if len(ai) > 0 {
@@ -90,6 +75,76 @@ func generateParkingMeshes(w *world.World) (asphalt, stripes *Mesh) {
 		stripes = NewMesh(sv, si, []int{3, 3, 2}, nil)
 	}
 	return asphalt, stripes
+}
+
+// lotGridStep is the asphalt's grid spacing: fine enough to follow the
+// graded pad (and any snow on it) like the terrain mesh does.
+const lotGridStep = float32(2.5)
+
+// appendLotAsphalt adds a lot rectangle with rounded corners: a grid in
+// the lot's frame whose lines pass through the corner arcs' centres, the
+// corner squares replaced by fans over the arcs.
+func appendLotAsphalt(verts []float32, idx []uint32, t *world.Terrain, r world.FootprintRect) ([]float32, []uint32) {
+	ax, az := r.Axes()
+	rc := min(world.LotCornerRadius, r.HalfX, r.HalfZ)
+	at := func(lx, lz float32) mgl32.Vec2 { return r.Center.Add(ax.Mul(lx)).Add(az.Mul(lz)) }
+	vert := func(p mgl32.Vec2) uint32 {
+		i := uint32(len(verts) / 8)
+		y := parkingSurfaceY(t, p[0], p[1]) + parkingHoverOffset
+		verts = append(verts, p[0], y, p[1], 0, 1, 0, 0, 0)
+		return i
+	}
+	lines := func(half float32) []float32 {
+		out := []float32{-half}
+		inner := 2 * (half - rc)
+		n := max(int(math.Ceil(float64(inner/lotGridStep))), 1)
+		for i := 0; i <= n; i++ {
+			out = append(out, -half+rc+inner*float32(i)/float32(n))
+		}
+		return append(out, half)
+	}
+	xs, zs := lines(r.HalfX), lines(r.HalfZ)
+	grid := make([]uint32, len(xs)*len(zs))
+	for i, x := range xs {
+		for j, z := range zs {
+			grid[i*len(zs)+j] = vert(at(x, z))
+		}
+	}
+	lastX, lastZ := len(xs)-2, len(zs)-2
+	for i := 0; i <= lastX; i++ {
+		for j := 0; j <= lastZ; j++ {
+			if (i == 0 || i == lastX) && (j == 0 || j == lastZ) {
+				continue // corner square: a fan below
+			}
+			a, b := grid[i*len(zs)+j], grid[(i+1)*len(zs)+j]
+			c, d := grid[i*len(zs)+j+1], grid[(i+1)*len(zs)+j+1]
+			idx = append(idx, a, c, b, b, c, d)
+		}
+	}
+	// Corner fans around each arc's centre.
+	const arcSegs = 6
+	for _, sx := range [2]float32{-1, 1} {
+		for _, sz := range [2]float32{-1, 1} {
+			cx, cz := sx*(r.HalfX-rc), sz*(r.HalfZ-rc)
+			centre := vert(at(cx, cz))
+			var prev uint32
+			for k := 0; k <= arcSegs; k++ {
+				ang := float64(k) / arcSegs * math.Pi / 2
+				p := at(cx+sx*rc*float32(math.Cos(ang)), cz+sz*rc*float32(math.Sin(ang)))
+				cur := vert(p)
+				if k > 0 {
+					// Keep the winding facing up whichever corner this is.
+					if sx*sz > 0 {
+						idx = append(idx, centre, cur, prev)
+					} else {
+						idx = append(idx, centre, prev, cur)
+					}
+				}
+				prev = cur
+			}
+		}
+	}
+	return verts, idx
 }
 
 // appendStallStripes adds one painted line along each long side of every

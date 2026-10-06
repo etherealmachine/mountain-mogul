@@ -81,8 +81,8 @@ func fillApronEmbankment(t *world.Terrain, station, axis mgl32.Vec2, side, halfW
 
 // claimedGround returns the cells other structures have graded: painted
 // pads, building aprons and lift station aprons, except skipBuilding's
-// and skipLift's own. Embankments leave these alone so one pad never
-// reshapes another.
+// and skipLift's own, plus the cells under roads. Embankments leave
+// these alone so one pad never reshapes another or cuts into a road.
 func claimedGround(w *world.World, skipBuilding *world.Building, skipLift *world.Lift) map[[2]int]bool {
 	const cellSize = float32(5.0)
 	out := map[[2]int]bool{}
@@ -124,7 +124,29 @@ func claimedGround(w *world.World, skipBuilding *world.Building, skipLift *world
 		markApron(w.Terrain, out, l.Top, axis, +1, liftApronHalfWidth, liftApronDepth)
 		markApron(w.Terrain, out, l.Base, axis, -1, liftApronHalfWidth, liftApronDepth)
 	}
+	markRoadCells(w, out)
 	return out
+}
+
+// markRoadCells adds every cell within a road's half width plus a cell
+// of a road's centreline to out, so the terrain mesh corners under the
+// road's edges all sit on untouched ground.
+func markRoadCells(w *world.World, out map[[2]int]bool) {
+	const cellSize = float32(5.0)
+	reach := world.RoadHalfWidth + cellSize
+	t := w.Terrain
+	for _, ch := range w.FindRoadChains() {
+		for _, p := range world.SampleRoadChain(ch, t, world.RoadChainSamplesPerSegment) {
+			for x := int((p[0] - reach) / cellSize); x <= int((p[0]+reach)/cellSize); x++ {
+				for z := int((p[1] - reach) / cellSize); z <= int((p[1]+reach)/cellSize); z++ {
+					centre := mgl32.Vec2{(float32(x) + 0.5) * cellSize, (float32(z) + 0.5) * cellSize}
+					if t.InBounds(x, z) && centre.Sub(p).Len() <= reach {
+						out[[2]int{x, z}] = true
+					}
+				}
+			}
+		}
+	}
 }
 
 // markApron adds the cells of one station apron rectangle (same geometry
