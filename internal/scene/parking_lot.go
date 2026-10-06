@@ -177,13 +177,37 @@ func gradePaintedPad(w *world.World, b *world.Building, maxGrade float32) {
 			cell.Base *= 1 - blend
 			cell.Top.Accumulation *= 1 - blend
 			cell.MogulSize *= 1 - blend
+			scalePadDetail(t, c, 1-blend)
 			if blend > 0.5 {
 				t.ClearTreesInCell(x, z)
 			}
 		}
 	}
+	// The drawn ground is the cells' mesh plus the sub-cell detail: zero
+	// the detail on the pad so it's as flat as the cells (asphalt and
+	// floors sit on the cells), easing back in over the blend ring above.
+	for c := range pad {
+		scalePadDetail(t, c, 0)
+	}
 	t.RecomputeSlopes()
 	t.RestampTreeWells()
+}
+
+// scalePadDetail scales the terrain detail samples over cell c, edges
+// included, by k.
+func scalePadDetail(t *world.Terrain, c [2]int, k float32) {
+	d := t.Detail
+	if d == nil {
+		return
+	}
+	const per = world.DetailPerCell
+	for j := c[1] * per; j <= min((c[1]+1)*per, d.H-1); j++ {
+		for i := c[0] * per; i <= min((c[0]+1)*per, d.W-1); i++ {
+			if i >= 0 && j >= 0 {
+				d.Off[j*d.W+i] *= k
+			}
+		}
+	}
 }
 
 // replowParkingLots clears snow and trees back off every painted pad (lots
