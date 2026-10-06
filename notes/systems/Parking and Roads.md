@@ -21,3 +21,4 @@ Code: `internal/world/parking.go`, `road.go`, `car.go`, `internal/sim/traffic.go
 - 2026-10-06: Map-edge entries have a name and a guest pool, set in the editor; every guest lives beyond one entry and arrives and leaves by it ([[Transit]]).
 - 2026-10-06: Cars drive: carloads of one to four from their entry to a stall and back, with lanes, following, and junctions taken in turns ([[Transit]] step 2). Road dead ends touching a lot count as its entrances.
 - 2026-10-06: Lots are rectangles instead of painted cells ([[Transit]] step 3). Embankments no longer cut into roads, and roads are drawn on the terrain mesh's own height.
+- 2026-10-06: Grading a lot or building pad also flattens the terrain's sub-cell detail under it (easing back in over the blend ring), so imported ground no longer pokes through the asphalt.
