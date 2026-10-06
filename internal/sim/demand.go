@@ -138,6 +138,12 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 	if pollFractionOfDay <= 0 {
 		return
 	}
+	if !s.World.AnyLiftRunning() {
+		// Open, but every lift is stopped (new lifts start stopped):
+		// say so once a day rather than letting guests come for nothing.
+		d.logTurnedAway(s, "every lift is stopped")
+		return
+	}
 
 	rating := clamp01(d.ResortRating)
 	occFactor := 1 - occupancy
@@ -163,7 +169,7 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 		// Day tickets are sold only at a ticket office; without one,
 		// only pass holders come.
 		if !hasOffice && !hasValidPass(g, s.SimTime) {
-			d.logTurnedAway(s)
+			d.logTurnedAway(s, "no ticket office")
 			continue
 		}
 		lot := uniformParking(s.World)
@@ -261,13 +267,13 @@ func hasTicketOffice(w *world.World) bool {
 
 // logTurnedAway writes "Guests turned away: no ticket office" to the event
 // feed at most once per sim day.
-func (d *DemandSystem) logTurnedAway(s *Simulation) {
+func (d *DemandSystem) logTurnedAway(s *Simulation, why string) {
 	day := int(s.SimTime/secondsPerSimDay) + 1
 	if d.turnedAwayDay == day {
 		return
 	}
 	d.turnedAwayDay = day
-	s.World.LogEvent(world.EventGuestsTurnedAway, s.SimTime, "Guests turned away: no ticket office")
+	s.World.LogEvent(world.EventGuestsTurnedAway, s.SimTime, "Guests turned away: "+why)
 }
 
 // hasValidPass reports whether g holds a season pass that hasn't expired
@@ -354,10 +360,20 @@ func TerrainCapacity(w *world.World) float32 {
 	return float32(len(seen)) * guestsPerTrailCell
 }
 
-// terrainMatch returns 1 if the resort has any painted trail cells
-// matching the guest's skill tier, else 0.
+// terrainMatch returns 1 if the resort has painted trail cells matching
+// the guest's skill tier and a running lift they'd ride (one serving
+// their level, or any for advanced guests, as the planner allows), else
+// 0. Guests don't come to stand at a stopped lift or one with nothing
+// for them off the top.
 func terrainMatch(w *world.World, skill float32) float32 {
 	want := skillToDifficulty(skill)
+	ride := want
+	if skill >= ai.SkillAdvancedThreshold {
+		ride = 0
+	}
+	if !w.RunningLiftFor(ride) {
+		return 0
+	}
 	for _, t := range w.Trails {
 		if t.Difficulty == want && len(t.Cells) > 0 {
 			return 1

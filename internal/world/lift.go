@@ -237,7 +237,9 @@ type Lift struct {
 
 	// Open controls whether guests may join the queue. Closed lifts still
 	// run (chairs keep moving, seated guests complete their ride) but no
-	// new guests board. Defaults to true on placement.
+	// new guests board. A new lift starts stopped (PlaceLift): that's
+	// intentional, the player opens each lift once it's ready, so check
+	// this first when guests won't ride.
 	Open bool
 
 	// OnHold is set automatically when the lift base cell has no snow.

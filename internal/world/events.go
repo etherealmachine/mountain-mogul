@@ -18,7 +18,7 @@ const (
 	EventBuildPlaced      EventKind = 4 // player placed a building or lift
 	EventDaySummary       EventKind = 5 // end-of-day recap written at rollover
 	EventFinance          EventKind = 6 // interest charged, credit floor crossed, bankruptcy
-	EventGuestsTurnedAway EventKind = 7 // guests would have come but couldn't buy a ticket
+	EventGuestsTurnedAway EventKind = 7 // guests would have come but couldn't ski: no ticket office, or every lift stopped
 	EventResortOpened     EventKind = 8 // player opened the resort at a ticket office
 	EventResortClosed     EventKind = 9 // player closed the resort at a ticket office
 )

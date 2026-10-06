@@ -230,6 +230,28 @@ func dist2D(a, b mgl32.Vec2) float32 {
 	return float32(math.Sqrt(dx*dx + dz*dz))
 }
 
+// AnyLiftRunning reports whether some lift is open and not on hold.
+func (w *World) AnyLiftRunning() bool {
+	for _, l := range w.Lifts {
+		if l.Open && !l.OnHold {
+			return true
+		}
+	}
+	return false
+}
+
+// RunningLiftFor reports whether an open lift, not on hold, serves a
+// trail of difficulty diff off its top; diff 0 (advanced guests, who ski
+// anywhere) takes any running lift.
+func (w *World) RunningLiftFor(diff TerrainDifficulty) bool {
+	for _, l := range w.Lifts {
+		if l.Open && !l.OnHold && (diff == 0 || w.ServicesForLift(l.ID).Has(diff)) {
+			return true
+		}
+	}
+	return false
+}
+
 // ServicesForLift returns the union of all trail difficulties whose edges
 // depart from liftID's top station. Returns 0 when no trails connect.
 func (w *World) ServicesForLift(liftID uint64) TerrainDifficulty {

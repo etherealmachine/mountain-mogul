@@ -1198,14 +1198,16 @@ func (s *Simulation) replan(a *world.Guest) {
 	a.AtTrailEnd = 0 // clear any stale junction anchor before re-planning
 	// The planner emits these thoughts itself; tally them into today's
 	// history the same way addThought would.
-	prevNeedsLodge := a.ThoughtCounts[ai.ThoughtNeedsLodge]
-	prevNoTicket := a.ThoughtCounts[ai.ThoughtNoTicketWindow]
-	a.Plan = s.Planner.StoredPlanFor(a, s.World, s.SimTime)
-	if a.ThoughtCounts[ai.ThoughtNeedsLodge] != prevNeedsLodge {
-		s.World.History.RecordThought(ai.ThoughtNeedsLodge)
+	planned := []ai.ThoughtKind{ai.ThoughtNeedsLodge, ai.ThoughtNoTicketWindow, ai.ThoughtLiftsClosed, ai.ThoughtNothingForMe}
+	var prev [4]int
+	for i, k := range planned {
+		prev[i] = a.ThoughtCounts[k]
 	}
-	if a.ThoughtCounts[ai.ThoughtNoTicketWindow] != prevNoTicket {
-		s.World.History.RecordThought(ai.ThoughtNoTicketWindow)
+	a.Plan = s.Planner.StoredPlanFor(a, s.World, s.SimTime)
+	for i, k := range planned {
+		if a.ThoughtCounts[k] != prev[i] {
+			s.World.History.RecordThought(k)
+		}
 	}
 	if !a.Plan.Done() {
 		s.onPlanStepStart(a)

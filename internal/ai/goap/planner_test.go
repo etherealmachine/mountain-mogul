@@ -29,6 +29,8 @@ func buildSmokeWorld(t *testing.T) (*world.World, *world.Building, *world.Lift, 
 	_ = w.PlaceBuildingType(world.BuildingLodge, 60, 60)
 	liftA := w.PlaceLift(world.LiftDouble, 50, 50, 150, 50)
 	liftB := w.PlaceLift(world.LiftDouble, 150, 50, 50, 200)
+	// Lifts start stopped until the player opens them.
+	liftA.Open, liftB.Open = true, true
 
 	return w, parking, liftA, liftB
 }
@@ -55,6 +57,7 @@ func TestPlanFromParking(t *testing.T) {
 		Thirst:          1.0,
 		Skill:           1.0,
 		RemainingBudget: 1000,
+		HasDayTicket:    true, // these tests plan rides, not ticket buying
 		AtParking:       parking.ID,
 	}
 	goal := SelectGoal(&snap, w)
@@ -98,6 +101,7 @@ func TestExplorePrefersUnridden(t *testing.T) {
 		Thirst:          1.0,
 		Skill:           1.0,
 		RemainingBudget: 1000,
+		HasDayTicket:    true, // these tests plan rides, not ticket buying
 		AtLiftTop:       liftA.ID,
 		RidenLifts:      []ai.RideCount{{LiftID: liftA.ID, Count: 1}},
 	}
@@ -130,20 +134,22 @@ func TestRelieveThirst(t *testing.T) {
 	w, _, liftA, _ := buildSmokeWorld(t)
 	_ = w.PlaceBuildingType(world.BuildingBar, 70, 70)
 
-	// Agent at top of A, thirsty.
+	// Agent at top of A, critically thirsty: only below 0.05 does thirst
+	// outweigh skiing at full patience (RelieveThirst.Weight).
 	snap := WorldSnapshot{
 		Pos:             mgl32.Vec3{liftA.Top[0], 0, liftA.Top[1]},
 		Patience:        1.0,
 		Energy:          1.0,
 		Hunger:          1.0,
-		Thirst:          0.1,
+		Thirst:          0.04,
 		Skill:           1.0,
 		RemainingBudget: 1000,
+		HasDayTicket:    true, // these tests plan rides, not ticket buying
 		AtLiftTop:       liftA.ID,
 	}
 	goal := SelectGoal(&snap, w)
 	if goal.Name() != "RelieveThirst" {
-		t.Fatalf("expected RelieveThirst at Thirst=0.1, got %s", goal.Name())
+		t.Fatalf("expected RelieveThirst at Thirst=0.04, got %s", goal.Name())
 	}
 	p := NewPlanner()
 	plan := p.Plan(snap, goal, w)

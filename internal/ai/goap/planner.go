@@ -167,10 +167,10 @@ func (p *Planner) pickPlan(snap WorldSnapshot, a *world.Guest, w *world.World, s
 					a.Satisfaction = 0
 				}
 			}
-			if ridesLift(gr.Goal) && !hasTicket(&snap) {
-				// Every ride needs a ticket first; with none in hand and no
-				// plan, there is no office this guest can get to.
-				a.AddThought(ai.ThoughtNoTicketWindow, simTime)
+			if ridesLift(gr.Goal) {
+				if k := rideBlocker(&snap, w); k != ai.ThoughtNone {
+					a.AddThought(k, simTime)
+				}
 			}
 			continue
 		}
@@ -182,6 +182,22 @@ func (p *Planner) pickPlan(snap WorldSnapshot, a *world.Guest, w *world.World, s
 	}
 	// No unsatisfied goal with positive weight — keep lapping.
 	return defaultLapPlan(snap, a, w)
+}
+
+// rideBlocker is the thought for why a guest can't plan a lift ride,
+// checked in order: no lift running, none running for their level, or
+// (with neither) no ticket and no way to buy one. ThoughtNone when none
+// of these is the reason.
+func rideBlocker(s *WorldSnapshot, w *world.World) ai.ThoughtKind {
+	switch {
+	case !w.AnyLiftRunning():
+		return ai.ThoughtLiftsClosed
+	case !w.RunningLiftFor(skillDiff(s.Skill)):
+		return ai.ThoughtNothingForMe
+	case !hasTicket(s):
+		return ai.ThoughtNoTicketWindow
+	}
+	return ai.ThoughtNone
 }
 
 // ridesLift reports whether goal g can only be met by riding a lift.
