@@ -712,7 +712,7 @@ func runProfile(wallSeconds, scale float64) {
 	fmt.Printf("profile: ran in %.2fs wall (%.0fµs/frame)\n",
 		tElapsed.Seconds(), float64(tElapsed.Microseconds())/float64(frames))
 	fmt.Printf("profile: active agents at end=%d, resort rating=%.3f\n",
-		activeGuests, s.Demand.ResortRating)
+		activeGuests, s.World.Rating)
 	// Report catchment composition: who's currently dormant by skill bucket.
 	var atHomeB, atHomeI, atHomeA int
 	for _, g := range wld.Guests {

@@ -77,10 +77,36 @@ type ScenarioData struct {
 	// Parking is World.ParkingPrice, per car. Absent loads free.
 	Parking int `json:"parking,omitempty"`
 	// ResortOpen is World.ResortOpen. Absent loads closed.
-	ResortOpen bool         `json:"resort_open,omitempty"`
-	Camera     *CameraData  `json:"camera,omitempty"`
-	History    *HistoryData `json:"history,omitempty"`
-	Events     []EventData  `json:"events,omitempty"`
+	ResortOpen bool `json:"resort_open,omitempty"`
+	// Rating is World.Rating; nil (older saves) loads as
+	// world.InitialRating.
+	Rating *float32 `json:"rating,omitempty"`
+	// Goals and Rules are what the scenario asks (world.Goal, world.Rules);
+	// GoalProgress is how each goal stands, player saves only.
+	Goals        []GoalData         `json:"goals,omitempty"`
+	Rules        []string           `json:"rules,omitempty"`
+	GoalProgress []GoalProgressData `json:"goal_progress,omitempty"`
+	Camera       *CameraData        `json:"camera,omitempty"`
+	History      *HistoryData       `json:"history,omitempty"`
+	Events       []EventData        `json:"events,omitempty"`
+}
+
+// GoalData is world.Goal.
+type GoalData struct {
+	Kind   uint8   `json:"k"`
+	Target float64 `json:"t,omitempty"`
+	Days   int     `json:"days,omitempty"`
+	Season int     `json:"season,omitempty"`
+	Bonus  bool    `json:"bonus,omitempty"`
+}
+
+// GoalProgressData is world.GoalProgress.
+type GoalProgressData struct {
+	Met    bool    `json:"met,omitempty"`
+	MetDay int     `json:"day,omitempty"`
+	Streak int     `json:"streak,omitempty"`
+	Best   float64 `json:"best,omitempty"`
+	Failed bool    `json:"failed,omitempty"`
 }
 
 // ClimateData is world.Climate.
@@ -238,16 +264,17 @@ type HistoryData struct {
 // DailySampleData mirrors world.DailySample with msgpack-compact field
 // tags. Day is stored as Unix seconds; non-zero for any persisted row.
 type DailySampleData struct {
-	DayUnix          int64 `json:"d,omitempty"`
-	GuestsOnMountain int   `json:"g,omitempty"`
-	ArrivalsToday    int   `json:"a,omitempty"`
-	DeparturesToday  int   `json:"x,omitempty"`
-	Cash             int   `json:"c,omitempty"`
-	Revenue          int   `json:"r,omitempty"`
-	Costs            int   `json:"co,omitempty"`
-	RevenueByKind    []int `json:"rk,omitempty"` // world.RevenueKind order
-	CostsByKind      []int `json:"ck,omitempty"` // world.CostKind order
-	Open             bool  `json:"o,omitempty"`
+	DayUnix          int64   `json:"d,omitempty"`
+	GuestsOnMountain int     `json:"g,omitempty"`
+	ArrivalsToday    int     `json:"a,omitempty"`
+	DeparturesToday  int     `json:"x,omitempty"`
+	Cash             int     `json:"c,omitempty"`
+	Revenue          int     `json:"r,omitempty"`
+	Costs            int     `json:"co,omitempty"`
+	RevenueByKind    []int   `json:"rk,omitempty"` // world.RevenueKind order
+	CostsByKind      []int   `json:"ck,omitempty"` // world.CostKind order
+	Open             bool    `json:"o,omitempty"`
+	Rating           float32 `json:"rt,omitempty"`
 }
 
 // RoadNodeData is one vertex in the road graph. ID is preserved across

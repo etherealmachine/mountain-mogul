@@ -916,7 +916,7 @@ func (s *Scenario) Init(app *engine.App) error {
 		if s.sim == nil || s.sim.Demand == nil {
 			return 0
 		}
-		return s.sim.Demand.ResortRating
+		return s.world.Rating
 	}
 	s.topBar.GetDate = func() (int, string, int) {
 		d := sim.CalendarAt(s.world.StartDate, s.sim.SimTime)

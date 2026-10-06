@@ -99,6 +99,7 @@ type DailySample struct {
 	RevenueByKind     [RevenueKindCount]int    // Revenue split by category
 	CostsByKind       CostBreakdown            // Costs split by category
 	Open              bool                     // the resort was open at some point in the day
+	Rating            float32                  // resort rating at EOD
 	ThoughtCounts     [ai.ThoughtKindCount]int // per-kind thought totals emitted during the day
 	ExitThoughtCounts [ai.ThoughtKindCount]int // last thought of each departing guest, by kind
 }

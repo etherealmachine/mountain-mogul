@@ -226,6 +226,16 @@ type World struct {
 	// Terrain.accessible from this list.
 	Parcels []Parcel
 
+	// Goals and Rules are what the scenario asks of the player (goals.go);
+	// GoalProgress holds how each goal stands, in the same order.
+	Goals        []Goal
+	Rules        []string
+	GoalProgress []GoalProgress
+
+	// Rating is the resort rating, 0–1: a running average of departing
+	// guests' satisfaction (sim.DemandSystem), shown as the HUD's heart.
+	Rating float32
+
 	// Lakes are the map's lakes and ponds and their ice; their cells are
 	// in Terrain.LakeOf. Set by the Auto material terrain layer.
 	Lakes []Lake
@@ -283,8 +293,12 @@ func NewWorld(terrain *Terrain) *World {
 		DayTicketPrice:  DefaultDayTicketPrice,
 		OpenHour:        DefaultOpenHour,
 		CloseHour:       DefaultCloseHour,
+		Rating:          InitialRating,
 	}
 }
+
+// InitialRating is a new resort's rating, before any guest has left.
+const InitialRating = 0.5
 
 // Available returns what the player can spend right now: cash plus the
 // undrawn part of the credit line. Negative when below the credit floor.

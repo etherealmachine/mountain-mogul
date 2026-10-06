@@ -714,6 +714,7 @@ func (s *Simulation) maybeSampleHistory() {
 			RevenueByKind:     w.History.RevenueByKindToday,
 			CostsByKind:       costs,
 			Open:              wasOpen,
+			Rating:            w.Rating,
 			ThoughtCounts:     w.History.ThoughtCountsToday,
 			ExitThoughtCounts: w.History.ExitThoughtCountsToday,
 		}
@@ -1500,7 +1501,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		// reaper clears sim scratch fields. Decrement the lot's visible
 		// car count (4 departures = -1 car), then flip Removed so
 		// reapDeparted will splice this Guest out of OnMountain.
-		s.Demand.recordDeparture(a, s.DateAt(s.SimTime))
+		s.Demand.recordDeparture(s.World, a, s.DateAt(s.SimTime))
 		w.History.RecordDeparture()
 		w.History.RecordExitThought(a.LastThought().Kind)
 		if b := findBuildingByID(w, step.BldgID); b != nil {

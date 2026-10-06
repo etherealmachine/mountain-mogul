@@ -590,6 +590,10 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		DayTicket:    &w.DayTicketPrice,
 		Parking:      w.ParkingPrice,
 		ResortOpen:   w.ResortOpen,
+		Rating:       &w.Rating,
+		Goals:        goalsToData(w.Goals),
+		Rules:        w.Rules,
+		GoalProgress: progressToData(w.GoalProgress),
 
 		CreditLimit:     &w.CreditLimit,
 		AccruedInterest: w.AccruedInterest,
@@ -673,6 +677,7 @@ func historyFromData(hd *HistoryData) *world.History {
 			Revenue:          s.Revenue,
 			Costs:            s.Costs,
 			Open:             s.Open,
+			Rating:           s.Rating,
 		}
 		copy(sample.RevenueByKind[:], s.RevenueByKind)
 		copy(sample.CostsByKind[:], s.CostsByKind)
@@ -711,6 +716,7 @@ func historyToData(h *world.History) *HistoryData {
 			RevenueByKind:    intsOrNil(s.RevenueByKind[:]),
 			CostsByKind:      intsOrNil(s.CostsByKind[:]),
 			Open:             s.Open,
+			Rating:           s.Rating,
 		}
 		if !s.Day.IsZero() {
 			samples[i].DayUnix = s.Day.Unix()
@@ -805,6 +811,20 @@ func dataToWorld(data ScenarioData) *world.World {
 	}
 	w.ParkingPrice = data.Parking
 	w.ResortOpen = data.ResortOpen
+	if data.Rating != nil {
+		w.Rating = *data.Rating
+	}
+	w.Rules = data.Rules
+	for _, g := range data.Goals {
+		w.Goals = append(w.Goals, world.Goal{Kind: world.GoalKind(g.Kind), Target: g.Target, Days: g.Days, Season: g.Season, Bonus: g.Bonus})
+	}
+	for _, p := range data.GoalProgress {
+		w.GoalProgress = append(w.GoalProgress, world.GoalProgress{Met: p.Met, MetDay: p.MetDay, Streak: p.Streak, Best: p.Best, Failed: p.Failed})
+	}
+	// Progress follows the goals: an edited scenario's goal list wins.
+	if len(w.GoalProgress) != len(w.Goals) {
+		w.GoalProgress = make([]world.GoalProgress, len(w.Goals))
+	}
 	if data.CreditLimit != nil {
 		w.CreditLimit = *data.CreditLimit
 	}
@@ -1447,6 +1467,22 @@ func lakesToData(ls []world.Lake) []LakeData {
 	var out []LakeData
 	for _, l := range ls {
 		out = append(out, LakeData{Name: l.Name, Altitude: l.Altitude, AreaHa: l.AreaHa, MaxDepth: l.MaxDepth, Frost: l.Frost, Thaw: l.Thaw})
+	}
+	return out
+}
+
+func goalsToData(gs []world.Goal) []GoalData {
+	var out []GoalData
+	for _, g := range gs {
+		out = append(out, GoalData{Kind: uint8(g.Kind), Target: g.Target, Days: g.Days, Season: g.Season, Bonus: g.Bonus})
+	}
+	return out
+}
+
+func progressToData(ps []world.GoalProgress) []GoalProgressData {
+	var out []GoalProgressData
+	for _, p := range ps {
+		out = append(out, GoalProgressData{Met: p.Met, MetDay: p.MetDay, Streak: p.Streak, Best: p.Best, Failed: p.Failed})
 	}
 	return out
 }

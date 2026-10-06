@@ -44,10 +44,10 @@ const GuestsPerCar = 4
 // rather than landing all at once.
 const demandPollInterval = 30.0
 
-// initialResortRating bootstraps the score on opening day before any
+// The resort rating itself lives on the world (World.Rating), so it's
+// saved; it bootstraps at world.InitialRating before any
 // guests have departed — neutral, so demand picks up at 50% of the
 // headline rate until real departures start folding in.
-const initialResortRating = 0.5
 
 // ratingEMAAlpha is the blend weight for folding each departing guest's
 // Satisfaction into ResortRating. 1/70 gives a ~50-departure half-life:
@@ -75,8 +75,7 @@ const guestsPerTrailCell = float32(0.10)
 // itself lives on world.World.Guests; this struct only tracks the
 // scalar rating and the timers that gate the per-guest walks.
 type DemandSystem struct {
-	ResortRating float32
-	LastPoll     float64
+	LastPoll float64
 	// Season is the close year (SeasonCloseYearFor) of the season the
 	// last poll ran in; 0 until the first poll. Not persisted — a loaded
 	// save re-seeds it from SimTime without triggering a reset.
@@ -88,7 +87,7 @@ type DemandSystem struct {
 
 // NewDemandSystem bootstraps a fresh demand system with a neutral rating.
 func NewDemandSystem() *DemandSystem {
-	return &DemandSystem{ResortRating: initialResortRating}
+	return &DemandSystem{}
 }
 
 // maybePoll walks the catchment and rolls one Bernoulli per AtHome
@@ -145,7 +144,7 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 		return
 	}
 
-	rating := clamp01(d.ResortRating)
+	rating := clamp01(s.World.Rating)
 	occFactor := 1 - occupancy
 	hasOffice := hasTicketOffice(s.World)
 
@@ -284,10 +283,10 @@ func hasValidPass(g *world.Guest, simTime float64) bool {
 
 // recordDeparture is called once at the moment of ActDepart, before the
 // guest's Removed flag is set. Captures the session Satisfaction as
-// LastScore, folds it into ResortRating via EMA, and bumps career stats.
-func (d *DemandSystem) recordDeparture(g *world.Guest, today time.Time) {
+// LastScore, folds it into World.Rating via EMA, and bumps career stats.
+func (d *DemandSystem) recordDeparture(w *world.World, g *world.Guest, today time.Time) {
 	g.LastScore = g.Satisfaction
-	d.ResortRating += ratingEMAAlpha * (g.Satisfaction - d.ResortRating)
+	w.Rating += ratingEMAAlpha * (g.Satisfaction - w.Rating)
 	g.LifetimeVisits++
 	g.VisitsThisSeason++
 	g.LastVisit = today
