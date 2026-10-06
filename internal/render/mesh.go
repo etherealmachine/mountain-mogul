@@ -36,28 +36,42 @@ const (
 	MeshBar          uint32 = 23 // bar/restaurant (half-size lodge)
 	MeshTicketOffice uint32 = 24 // ticket booth with service windows
 
-	// MeshLodgeTileBase + world.ShellTileKind is the lodge shell kit
-	// (models-src/lodge_*.scad); see lodgeTileNames.
+	// MeshLodgeTileBase + world.ShellMeshIndex(kind, tile) is the shell
+	// kits, one per building kind (models-src/{lodge,tent,shed}_*.scad);
+	// see lodgeTileNames and shellKitPrefix.
 	MeshLodgeTileBase uint32 = 40
 )
 
-// lodgeTileNames maps world.ShellTileKind to the kit's OBJ names.
+// lodgeTileNames maps world.ShellTileKind to the kit's OBJ names, after
+// the kind's prefix.
 var lodgeTileNames = [world.ShellTileKindCount]string{
-	world.TileWall:          "lodge_wall",
-	world.TileWallWindow:    "lodge_wall_window",
-	world.TileWallWindowAlt: "lodge_wall_window_alt",
-	world.TileWallGlazed:    "lodge_wall_glazed",
-	world.TileDoor:          "lodge_door",
-	world.TileCornerOuter:   "lodge_corner_outer",
-	world.TileCornerInner:   "lodge_corner_inner",
-	world.TileRoofFlat:      "lodge_roof_flat",
-	world.TileRoofSlope:     "lodge_roof_slope",
-	world.TileRoofHip:       "lodge_roof_hip",
-	world.TileRoofValley:    "lodge_roof_valley",
-	world.TileRoofSaddle:    "lodge_roof_saddle",
-	world.TileEave:          "lodge_eave",
-	world.TileEaveCorner:    "lodge_eave_corner",
-	world.TileChimney:       "lodge_chimney",
+	world.TileWall:          "wall",
+	world.TileWallWindow:    "wall_window",
+	world.TileWallWindowAlt: "wall_window_alt",
+	world.TileWallGlazed:    "wall_glazed",
+	world.TileDoor:          "door",
+	world.TileCornerOuter:   "corner_outer",
+	world.TileCornerInner:   "corner_inner",
+	world.TileRoofFlat:      "roof_flat",
+	world.TileRoofSlope:     "roof_slope",
+	world.TileRoofHip:       "roof_hip",
+	world.TileRoofValley:    "roof_valley",
+	world.TileRoofSaddle:    "roof_saddle",
+	world.TileEave:          "eave",
+	world.TileEaveCorner:    "eave_corner",
+	world.TileChimney:       "chimney",
+}
+
+// shellKitPrefix is each building kind's kit file prefix.
+var shellKitPrefix = [world.ShellKindCount]string{
+	world.ShellLodge: "lodge_",
+	world.ShellTent:  "tent_",
+	world.ShellShed:  "shed_",
+}
+
+// shellTileMesh is the mesh ID of one kit tile.
+func shellTileMesh(t world.ShellTile) uint32 {
+	return MeshLodgeTileBase + world.ShellMeshIndex(t.Shell, t.Kind)
 }
 
 // Mesh wraps a GPU vertex/index buffer.

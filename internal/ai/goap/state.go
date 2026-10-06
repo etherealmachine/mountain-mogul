@@ -194,7 +194,7 @@ func setAtBuilding(s *WorldSnapshot, b *world.Building) bool {
 	switch {
 	case b.Type == world.BuildingParking:
 		s.AtParking = b.ID
-	case b.IsShell():
+	case b.IsShell() && b.ServesGuests():
 		if b.OffersRest() {
 			s.AtLodge = b.ID
 		}

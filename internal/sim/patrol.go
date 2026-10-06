@@ -9,8 +9,8 @@ import (
 )
 
 // tickPatrollers runs the ski-patrol state machine for every patroller once
-// per sim substep. Patrollers are spawned by PlaceBuildingType when a patrol
-// hut is placed and despawned when the hut is removed.
+// per sim substep. Patrollers are based at a building's patrol service, one
+// per patrol tile (world.SyncFleet), and go with it.
 func (s *Simulation) tickPatrollers(dt float64) {
 	for _, p := range s.World.Patrollers {
 		switch p.State {
@@ -80,16 +80,18 @@ func (s *Simulation) patrollerOnScene(p *world.Patroller, dt float64) {
 	if p.ActionTimer > 0 {
 		return
 	}
-	// Find the nearest parking lot.
+	// Take the patient to the nearest patrol room (first aid); from there
+	// they go home.
 	w := s.World
 	var best *world.Building
 	bestD2 := float32(math.MaxFloat32)
 	for _, b := range w.Buildings {
-		if b.Type != world.BuildingParking {
+		if !b.Offers(world.ServicePatrol) {
 			continue
 		}
-		dx := b.Pos[0] - p.Pos[0]
-		dz := b.Pos[1] - p.Pos[2]
+		home := w.ServiceHome(b, world.ServicePatrol)
+		dx := home[0] - p.Pos[0]
+		dz := home[2] - p.Pos[2]
 		d2 := dx*dx + dz*dz
 		if d2 < bestD2 {
 			best = b
@@ -97,16 +99,17 @@ func (s *Simulation) patrollerOnScene(p *world.Patroller, dt float64) {
 		}
 	}
 	if best == nil {
-		// No parking — drop the patient and go idle.
+		// No patrol room — drop the patient and go idle.
 		s.patrollerDropPatient(p, false)
 		return
 	}
-	p.TargetPos[0] = best.Pos[0]
-	p.TargetPos[2] = best.Pos[1] // Building.Pos is Vec2 (X, Z)
+	home := w.ServiceHome(best, world.ServicePatrol)
+	p.TargetPos[0] = home[0]
+	p.TargetPos[2] = home[2]
 	p.State = world.PatrollerReturning
 }
 
-// patrollerReturning drives to the parking lot with the patient aboard.
+// patrollerReturning drives to the patrol room with the patient aboard.
 func (s *Simulation) patrollerReturning(p *world.Patroller, dt float64) {
 	// Keep the patient glued to the snowmobile.
 	for _, g := range s.World.OnMountain {
@@ -136,7 +139,7 @@ func (s *Simulation) patrollerDropPatient(p *world.Patroller, depart bool) {
 			g.Fallen = false
 			if depart {
 				w.LogEventAt(world.EventRescue, s.SimTime,
-					fmt.Sprintf("Patrol brought %s down to the base", g.Name),
+					fmt.Sprintf("Patrol brought %s down to first aid", g.Name),
 					mgl32.Vec2{p.Pos[0], p.Pos[2]}, g.ID)
 				s.Demand.recordDeparture(s.World, g, s.DateAt(s.SimTime))
 				w.History.RecordDeparture()
@@ -148,12 +151,10 @@ func (s *Simulation) patrollerDropPatient(p *world.Patroller, depart bool) {
 	}
 	p.TargetGuestID = 0
 
-	// Return patroller to its hut door.
+	// Back to its patrol door.
 	for _, b := range w.Buildings {
 		if b.ID == p.HutID {
-			cell := b.DoorCell()
-			p.Pos[0] = float32(cell[0]) * world.CellSize
-			p.Pos[2] = float32(cell[1]) * world.CellSize
+			p.Pos = w.PatrollerHutPos(b)
 			break
 		}
 	}

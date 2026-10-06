@@ -148,7 +148,6 @@ func (e *Editor) Init(app *engine.App) error {
 	// Buildings submenu: Lodge, Shed
 	e.buildingsSubmenu = e.menuBar.AddSubmenu(render.IconHouse, "Buildings")
 	e.toolButtons[toolBuilding] = e.buildingsSubmenu.AddChild(render.IconHouse, "Lodge", func() { e.setTool(toolBuilding) })
-	e.toolButtons[toolShed] = e.buildingsSubmenu.AddChild(render.IconGarage, "Shed", func() { e.setTool(toolShed) })
 	e.toolButtons[toolTicketOffice] = e.buildingsSubmenu.AddChild(render.IconCoin, "Tickets", func() { e.setTool(toolTicketOffice) })
 
 	// Transport submenu: Parking, Road, Edge Connect
@@ -722,7 +721,7 @@ func (e *Editor) handleToolNoneMouse(r *render.Renderer, leftClick, leftHeld boo
 // or lift placement (click to commit) rather than a held brush.
 func (e *Editor) isPlacementTool() bool {
 	switch e.activeTool {
-	case toolBuilding, toolShed, toolTicketOffice, toolLiftBase, toolLiftTop, toolRoadStart, toolRoadEnd, toolEdgeConnect, toolRemove, toolParcelRect:
+	case toolBuilding, toolTicketOffice, toolLiftBase, toolLiftTop, toolRoadStart, toolRoadEnd, toolEdgeConnect, toolRemove, toolParcelRect:
 		return true
 	}
 	return false
@@ -739,8 +738,6 @@ func (e *Editor) placementLegal() bool {
 	switch e.activeTool {
 	case toolBuilding:
 		return !e.world.BuildingOverlap(world.BuildingLodge, wx, wz, e.placeRotation)
-	case toolShed:
-		return !e.world.BuildingOverlap(world.BuildingShed, wx, wz, e.placeRotation)
 	case toolTicketOffice:
 		return !e.world.BuildingOverlap(world.BuildingTicketOffice, wx, wz, e.placeRotation)
 	case toolEdgeConnect:
@@ -764,15 +761,6 @@ func (e *Editor) applyPlacement(r *render.Renderer, shiftHeld bool) {
 			return
 		}
 		b := placeBuilding(w, world.BuildingLodge, wx, wz, e.placeRotation)
-		applyBuildingPlacementEffects(w, b)
-		r.FlushTerrainVerts(w.Terrain)
-		r.RebuildStaticBatch(w)
-		e.layerCache.fields = nil
-	case toolShed:
-		if w.BuildingOverlap(world.BuildingShed, wx, wz, e.placeRotation) {
-			return
-		}
-		b := placeBuilding(w, world.BuildingShed, wx, wz, e.placeRotation)
 		applyBuildingPlacementEffects(w, b)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)

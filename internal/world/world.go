@@ -21,7 +21,6 @@ import (
 // a typical 700 m high-speed quad (~$1.64M).
 const (
 	LodgeCost    = 150_000 // single fixed cost per lodge (VISION: shell $100k + per cell; flat until shells land)
-	ShedCost     = 200_000 // grooming equipment storage; first cat included
 	ParkingCost  = 150_000 // base parking lot
 	StartingCash = 1_000_000
 
@@ -58,7 +57,6 @@ const (
 	TicketOfficeCost       = 80_000
 	DefaultSeasonPassPrice = 150                          // one-time fee per guest per season; guests with sufficient budget buy it on arrival
 	HelipadCost            = 2_000_000                    // flat cost for a heli-ski operation (two pads + helicopter); the post-gondola unlock
-	PatrolHutCost          = 120_000                      // patrol hut + one patroller/snowmobile
 	SnowGunCost            = 40_000                       // snowmaking cannon; operating cost below
 	SnowGunActiveCostDay   = 400                          // dollars per game-day while enabled (water + power)
 	SnowGunRangeCells      = 3                            // spray radius in terrain cells
@@ -69,7 +67,6 @@ const (
 	// (see DailyOperatingCost). Lift running costs are per LiftType
 	// (LiftType.RunningCostDay) on top of the two attendants.
 	LiftAttendantDailyCost = 250 // per attendant; each lift requires one top + one bottom
-	PatrolHutDailyCost     = 800 // patrollers on shift
 
 	// Standby (closed-resort) costs, dollars per in-game day. What the
 	// resort pays while nothing is open: lifts idle with no attendants,
@@ -77,7 +74,7 @@ const (
 	// See DailyStandbyCost. Charged at rollover on days the resort was
 	// closed all day (World.ResortOpen).
 	LiftStandbyCostDay     = 100 // per lift: inspections, idle power
-	BuildingStandbyCostDay = 40  // per staffed building (lodge, bar, office, patrol hut, shed)
+	BuildingStandbyCostDay = 40  // per service building
 	// Snowcat daily costs live in world/snowcat.go (CatActiveCostDay, CatStandbyCostDay).
 )
 
@@ -85,12 +82,8 @@ const (
 // given type.
 func BuildingCost(t BuildingType) int {
 	switch t {
-	case BuildingShed:
-		return ShedCost
 	case BuildingParking:
 		return ParkingCost
-	case BuildingPatrolHut:
-		return PatrolHutCost
 	case BuildingSnowGun:
 		return SnowGunCost
 	case BuildingTicketOffice:
@@ -358,8 +351,6 @@ func (w *World) OperatingCosts() CostBreakdown {
 		switch b.Type {
 		case BuildingLodge:
 			c[CostBuildings] += LodgeUpkeep(b)
-		case BuildingPatrolHut:
-			c[CostBuildings] += PatrolHutDailyCost
 		case BuildingSnowGun:
 			if b.SnowGunEnabled {
 				c[CostSnowGuns] += SnowGunActiveCostDay
@@ -383,7 +374,7 @@ func (w *World) StandbyCosts() CostBreakdown {
 	c[CostSnowcats] = len(w.Snowcats) * CatStandbyCostDay
 	for _, b := range w.Buildings {
 		switch b.Type {
-		case BuildingLodge, BuildingBar, BuildingTicketOffice, BuildingPatrolHut, BuildingShed:
+		case BuildingLodge:
 			c[CostBuildings] += BuildingStandbyCostDay
 		case BuildingSnowGun:
 			if b.SnowGunEnabled {
@@ -462,22 +453,14 @@ func (w *World) PlaceBuildingType(typ BuildingType, x, z float32) *Building {
 	case BuildingLodge, BuildingBar, BuildingTicketOffice:
 		b.MealPrice = DefaultMealPrice
 		b.DrinkPrice = DefaultDrinkPrice
-	case BuildingShed:
-		// No per-shed state; cats are tracked globally in World.Snowcats.
-		// SpawnSnowcat is called after the building is appended so the
-		// first cat reads the shed's ID.
-	case BuildingPatrolHut:
-		// No per-hut state; patrollers are tracked globally in World.Patrollers.
-		// SpawnPatroller is called after the building is appended so the
-		// patroller reads the hut's ID.
 	case BuildingSnowGun:
 		b.SnowGunEnabled = true
 	}
 	w.Buildings = append(w.Buildings, b)
 	if typ == BuildingLodge || typ == BuildingBar || typ == BuildingTicketOffice {
-		// Point-placed lodges, bars and ticket offices (testbeds, old
-		// saves) become service buildings over the old mesh's footprint.
-		w.ConvertLegacyBuilding(b)
+		// Point-placed lodges, bars and ticket offices (tests, testbeds,
+		// the editor's ticket office) become small service buildings.
+		w.placePointService(b)
 		return b
 	}
 	// Snow guns are narrow pole-mounted devices — don't block any cell.
@@ -486,12 +469,6 @@ func (w *World) PlaceBuildingType(typ BuildingType, x, z float32) *Building {
 		if w.Terrain.InBounds(cell[0], cell[1]) {
 			w.Terrain.Cells[cell[0]][cell[1]].Passable = false
 		}
-	}
-	if typ == BuildingShed {
-		w.SpawnSnowcat(b)
-	}
-	if typ == BuildingPatrolHut {
-		w.SpawnPatroller(b)
 	}
 	if typ == BuildingParking {
 		w.RefreshParkingLot(b, false)
@@ -524,7 +501,9 @@ func (w *World) RemoveBuilding(id uint64) {
 	for i, b := range w.Buildings {
 		if b.ID == id {
 			if b.IsShell() {
-				for _, c := range b.Cells {
+				w.RemoveSnowcatsOwnedBy(b.ID)
+				w.RemovePatrollersOwnedBy(b.ID)
+				for _, c := range b.Ground {
 					if w.Terrain.InBounds(c[0], c[1]) {
 						w.Terrain.Cells[c[0]][c[1]].Passable = true
 					}
@@ -534,12 +513,6 @@ func (w *World) RemoveBuilding(id uint64) {
 				if w.Terrain.InBounds(cell[0], cell[1]) {
 					w.Terrain.Cells[cell[0]][cell[1]].Passable = true
 				}
-			}
-			if b.Type == BuildingShed {
-				w.RemoveSnowcatsOwnedBy(b.ID)
-			}
-			if b.Type == BuildingPatrolHut {
-				w.RemovePatrollersOwnedBy(b.ID)
 			}
 			if b.Type == BuildingParking {
 				w.disconnectLotDriveway(b)

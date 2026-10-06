@@ -327,7 +327,6 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 			X:               b.Pos[0],
 			Z:               b.Pos[1],
 			Rotation:        b.Rotation,
-			Cells:           b.Cells,
 			MaxCars:         b.MaxCars,
 			DrivewayNodeIDs: b.DrivewayNodeIDs,
 			DriveEdge:       b.DriveEdge,
@@ -337,11 +336,9 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 			MealPrice:       b.MealPrice,
 			DrinkPrice:      b.DrinkPrice,
 		}
-		if b.Type == world.BuildingParking {
-			buildings[i].Cells = nil // derived from the rectangle
-		}
 		if b.IsShell() {
-			buildings[i].Cells = nil
+			buildings[i].OriginX, buildings[i].OriginZ = b.Origin[0], b.Origin[1]
+			buildings[i].Kind, buildings[i].Storeys = uint8(b.Kind), b.Storeys
 			buildings[i].Tiles = saveTiles(b)
 			buildings[i].FloorY, buildings[i].FloorSet = b.FloorY, b.FloorSet
 		}
@@ -878,52 +875,63 @@ func dataToWorld(data ScenarioData) *world.World {
 	// Restore buildings, preserving IDs so agent.TargetID references stay
 	// valid. Old saves without an `id` field fall back to a fresh ID.
 	for _, bd := range data.Buildings {
+		// Lots and service buildings saved in older forms (painted lot
+		// cells, point-placed lodges) are dropped, not converted, and so
+		// are equipment sheds and patrol huts with their cats and
+		// patrollers.
+		switch world.BuildingType(bd.Type) {
+		case world.BuildingParking:
+			if bd.LotSize[0] <= 0 || bd.LotSize[1] <= 0 {
+				continue
+			}
+		case world.BuildingLodge:
+			if len(bd.Tiles) == 0 {
+				continue
+			}
+		case world.BuildingBar, world.BuildingTicketOffice:
+			continue
+		case world.BuildingShed, world.BuildingPatrolHut:
+			continue // removed; they return as building services
+		}
 		var b *world.Building
 		switch world.BuildingType(bd.Type) {
-		case world.BuildingLodge, world.BuildingBar, world.BuildingTicketOffice:
+		case world.BuildingLodge:
 			b = loadServiceBuilding(w, bd)
 		default:
 			b = w.PlaceBuildingType(world.BuildingType(bd.Type), bd.X, bd.Z)
 		}
-		// PlaceBuildingType auto-spawns one cat for sheds; clear that
-		// so we can restore the saved fleet (and route) verbatim
-		// instead of double-spawning.
-		if b.Type == world.BuildingShed {
-			w.RemoveSnowcatsOwnedBy(b.ID)
-		}
 		if bd.ID != 0 {
 			b.ID = bd.ID
 		}
-		if !b.IsShell() {
+		if !b.IsShell() && b.Type != world.BuildingParking {
 			b.Rotation = bd.Rotation
 		}
 		// Parking-only state. The lot is its rectangle (X, Z centre,
-		// Rotation, LotSize); a lot saved as painted cells becomes their
-		// bounding box, and one with neither gets the default size.
-		// Stalls and MaxCars are re-derived. The entrance node and
-		// driveway edge come back with the road graph below; we just
-		// relink their IDs here.
+		// Rotation, LotSize); stalls and MaxCars are re-derived. The
+		// entrance node and driveway edge come back with the road graph
+		// below; we just relink their IDs here.
 		if b.Type == world.BuildingParking {
 			b.DrivewayNodeIDs = bd.DrivewayNodeIDs
 			b.DriveEdge = bd.DriveEdge
-			r := world.DefaultLotRect(mgl32.Vec2{bd.X, bd.Z})
-			switch {
-			case bd.LotSize[0] > 0 && bd.LotSize[1] > 0:
-				r = world.FootprintRect{Center: mgl32.Vec2{bd.X, bd.Z}, HalfX: bd.LotSize[0] / 2, HalfZ: bd.LotSize[1] / 2, Rotation: bd.Rotation}
-			case len(bd.Cells) > 0:
-				r = world.CellsBoundingRect(bd.Cells)
-			}
-			w.SetLotRect(b, r)
+			w.SetLotRect(b, world.FootprintRect{Center: mgl32.Vec2{bd.X, bd.Z}, HalfX: bd.LotSize[0] / 2, HalfZ: bd.LotSize[1] / 2, Rotation: bd.Rotation})
 		}
 		b.SnowGunEnabled = bd.SnowGunEnabled
 	}
 
-	// Restore snowcats. Each cat's ShedID must already resolve via the
-	// just-restored buildings; otherwise we drop the cat as orphaned.
+	// Restore snowcats and patrollers. Service buildings spawn their
+	// fleets as their tiles load (and saved IDs replace theirs only after),
+	// so start over: restore each saved cat or patroller whose building
+	// still has a garage or patrol, then top up or trim every building to
+	// its tiles.
+	w.Snowcats, w.Patrollers = nil, nil
 	shedByID := make(map[uint64]*world.Building)
+	hutByID := make(map[uint64]*world.Building)
 	for _, b := range w.Buildings {
-		if b.Type == world.BuildingShed {
+		if b.TileCount(world.ServiceGarage) > 0 {
 			shedByID[b.ID] = b
+		}
+		if b.TileCount(world.ServicePatrol) > 0 {
+			hutByID[b.ID] = b
 		}
 	}
 	for _, cd := range data.Snowcats {
@@ -939,16 +947,6 @@ func dataToWorld(data ScenarioData) *world.World {
 		cat.Heading = cd.Heading
 		cat.Status = world.CatStatus(cd.Status)
 	}
-
-	// Restore patrollers. PlaceBuildingType already auto-spawned one per
-	// patrol hut; clear those first so we restore the exact saved state.
-	hutByID := make(map[uint64]*world.Building)
-	for _, b := range w.Buildings {
-		if b.Type == world.BuildingPatrolHut {
-			hutByID[b.ID] = b
-			w.RemovePatrollersOwnedBy(b.ID)
-		}
-	}
 	for _, pd := range data.Patrollers {
 		hut := hutByID[pd.HutID]
 		if hut == nil {
@@ -961,6 +959,11 @@ func dataToWorld(data ScenarioData) *world.World {
 		p.Pos = mgl32.Vec3{pd.Pos[0], pd.Pos[1], pd.Pos[2]}
 		p.Heading = pd.Heading
 		p.State = world.PatrollerState(pd.State)
+	}
+	for _, b := range w.Buildings {
+		if b.IsShell() {
+			w.SyncFleet(b)
+		}
 	}
 
 	// Restore lifts. Chair count is computed from cable length so it's
@@ -1300,25 +1303,15 @@ func rescaleClocks(w *world.World, k float64) {
 	}
 }
 
-// loadServiceBuilding restores a service building's tiles. Saves from
-// the paint-the-interior era carry cells plus food-court cells (the rest
-// become lounge); saves from before shells carry none, and those
-// lodges, bars and ticket offices convert to their old footprint.
+// loadServiceBuilding restores a service building: its grid (Origin,
+// Rotation) and its tiles.
 func loadServiceBuilding(w *world.World, bd BuildingData) *world.Building {
-	var b *world.Building
-	switch {
-	case len(bd.Tiles) > 0:
-		tiles := make(map[[2]int]world.Service, len(bd.Tiles))
-		for _, t := range bd.Tiles {
-			tiles[[2]int{t[0], t[1]}] = world.Service(t[2])
-		}
-		b = w.PlaceServiceBuilding(tiles, bd.StyleSeed)
-	case len(bd.Cells) > 0:
-		b = w.PlaceLodgeShell(bd.Cells, bd.StyleSeed)
-		w.SetFoodCourtCells(b, bd.FoodCourtCells)
-	default:
-		b = w.PlaceBuildingType(world.BuildingType(bd.Type), bd.X, bd.Z)
+	tiles := make(map[[2]int]world.Service, len(bd.Tiles))
+	for _, t := range bd.Tiles {
+		tiles[[2]int{t[0], t[1]}] = world.Service(t[2])
 	}
+	b := w.PlaceServiceBuilding(mgl32.Vec2{bd.OriginX, bd.OriginZ}, bd.Rotation, tiles, bd.StyleSeed)
+	b.Kind, b.Storeys = world.ShellKind(bd.Kind), bd.Storeys
 	if bd.FloorSet {
 		b.FloorY, b.FloorSet = bd.FloorY, true
 	}

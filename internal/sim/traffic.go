@@ -163,9 +163,9 @@ func roadSignature(w *world.World) uint64 {
 	for _, b := range w.Buildings {
 		if b.Type == world.BuildingParking {
 			put(b.ID)
-			put(uint64(len(b.Cells)))
-			if len(b.Cells) > 0 {
-				first, last := b.Cells[0], b.Cells[len(b.Cells)-1]
+			put(uint64(len(b.Ground)))
+			if len(b.Ground) > 0 {
+				first, last := b.Ground[0], b.Ground[len(b.Ground)-1]
 				put(uint64(uint32(first[0]))<<32 | uint64(uint32(first[1])))
 				put(uint64(uint32(last[0]))<<32 | uint64(uint32(last[1])))
 			}

@@ -35,7 +35,8 @@ type Patroller struct {
 	ActionTimer   float32    // counts down during PatrollerOnScene
 }
 
-// SpawnPatroller creates a new patroller parked at the patrol hut's door.
+// SpawnPatroller creates a new patroller parked at hut's patrol door
+// (hut is the building whose patrol service bases them).
 func (w *World) SpawnPatroller(hut *Building) *Patroller {
 	p := &Patroller{
 		ID:    w.NextID(),
@@ -47,11 +48,29 @@ func (w *World) SpawnPatroller(hut *Building) *Patroller {
 	return p
 }
 
-// PatrollerHutPos is where a patroller waits at its hut: the corner of
-// the hut's door cell.
+// PatrollerHutPos is where a patroller waits at its base: just outside
+// the building's patrol door.
 func (w *World) PatrollerHutPos(hut *Building) mgl32.Vec3 {
-	cell := hut.DoorCell()
-	return mgl32.Vec3{float32(cell[0]) * CellSize, 0, float32(cell[1]) * CellSize}
+	return w.ServiceHome(hut, ServicePatrol)
+}
+
+// removePatroller drops one patroller, letting go of any patient.
+func (w *World) removePatroller(id uint64) {
+	for i, p := range w.Patrollers {
+		if p.ID != id {
+			continue
+		}
+		if p.TargetGuestID != 0 {
+			for _, g := range w.OnMountain {
+				if g.ID == p.TargetGuestID {
+					g.OnPatrollerID = 0
+					break
+				}
+			}
+		}
+		w.Patrollers = append(w.Patrollers[:i], w.Patrollers[i+1:]...)
+		return
+	}
 }
 
 // RemovePatrollersOwnedBy drops every patroller whose HutID matches hutID.

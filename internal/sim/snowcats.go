@@ -242,10 +242,8 @@ func (s *Simulation) turnSteps(e, de, st, ds vec2) []world.RouteStep {
 
 // driveToDoor steers cat toward its shed door cell.
 func driveToDoor(w *world.World, cat *world.Snowcat, shed *world.Building, dt float64) {
-	door := shed.DoorCell()
-	tx := (float32(door[0]) + 0.5) * world.CellSize
-	tz := (float32(door[1]) + 0.5) * world.CellSize
-	cat.DriveToward(tx, tz, dt, arriveCellSlack)
+	home := w.SnowcatParkPos(shed)
+	cat.DriveToward(home[0], home[2], dt, arriveCellSlack)
 	cat.Pos[1] = w.Terrain.InterpolatedSurfaceElevationAt(cat.Pos[0], cat.Pos[2])
 }
 
@@ -336,7 +334,7 @@ func (s *Simulation) reassignAllSections() {
 	}
 	shedByID := map[uint64]*world.Building{}
 	for _, b := range w.Buildings {
-		if b.Type == world.BuildingShed {
+		if b.Offers(world.ServiceGarage) {
 			shedByID[b.ID] = b
 		}
 	}
@@ -346,11 +344,11 @@ func (s *Simulation) reassignAllSections() {
 		if shed == nil {
 			continue
 		}
-		door := shed.DoorCell()
+		home := w.SnowcatParkPos(shed)
 		sites = append(sites, shedSite{
 			id:    shedID,
-			wx:    (float32(door[0]) + 0.5) * world.CellSize,
-			wz:    (float32(door[1]) + 0.5) * world.CellSize,
+			wx:    home[0],
+			wz:    home[2],
 			nCats: float32(n),
 		})
 	}

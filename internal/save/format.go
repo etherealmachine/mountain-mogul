@@ -356,10 +356,8 @@ type BuildingData struct {
 
 	// Parking-only state. A lot is a rectangle: X, Z is its centre,
 	// Rotation its turn and LotSize its extent along local X and Z.
-	// Cells is a lot's painted footprint on older saves (loaded as its
-	// bounding box) and a service building's shell. MaxCars is the stall
-	// count, re-derived on load. DriveEdge is the lot's driveway edge.
-	Cells           [][2]int   `json:"cells,omitempty"`
+	// MaxCars is the stall count, re-derived on load. DriveEdge is the
+	// lot's driveway edge.
 	LotSize         [2]float32 `json:"lot_size,omitempty"`
 	DriveEdge       uint64     `json:"drive_edge,omitempty"`
 	MaxCars         int        `json:"max_cars,omitempty"`
@@ -368,19 +366,20 @@ type BuildingData struct {
 	// SnowGun-only state.
 	SnowGunEnabled bool `json:"sg_on,omitempty"`
 
-	// Service-building state. Tiles is each shell cell with its
-	// world.Service; doors are derived on load. Older saves carry Cells
-	// plus FoodCourtCells (the rest lounge) and player-placed DoorCells
-	// (ignored now); lodges, bars and ticket offices saved before shells
-	// have no cells and are converted on load.
-	Tiles          [][3]int `json:"tiles,omitempty"`
-	FloorY         float32  `json:"floor,omitempty"`
-	FloorSet       bool     `json:"floor_set,omitempty"`
-	DoorCells      [][2]int `json:"doors,omitempty"`
-	FoodCourtCells [][2]int `json:"food,omitempty"`
-	StyleSeed      uint32   `json:"style,omitempty"`
-	MealPrice      int      `json:"meal,omitempty"`
-	DrinkPrice     int      `json:"drink,omitempty"`
+	// Service-building state. OriginX, OriginZ and Rotation place the
+	// building's own grid; Tiles is each shell cell in that grid with its
+	// world.Service. Doors are derived on load. Older forms (painted
+	// cells, point-placed lodges, bars and ticket offices) aren't loaded.
+	Kind       uint8    `json:"kind,omitempty"`    // world.ShellKind
+	Storeys    int      `json:"storeys,omitempty"` // 0 or 1: one storey
+	OriginX    float32  `json:"ox,omitempty"`
+	OriginZ    float32  `json:"oz,omitempty"`
+	Tiles      [][3]int `json:"tiles,omitempty"`
+	FloorY     float32  `json:"floor,omitempty"`
+	FloorSet   bool     `json:"floor_set,omitempty"`
+	StyleSeed  uint32   `json:"style,omitempty"`
+	MealPrice  int      `json:"meal,omitempty"`
+	DrinkPrice int      `json:"drink,omitempty"`
 }
 
 // SnowcatData is a saved cat. ShedID links it back to its shed; both

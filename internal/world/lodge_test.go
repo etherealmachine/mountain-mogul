@@ -38,7 +38,7 @@ func TestRoofTileCoversEveryPattern(t *testing.T) {
 
 func TestResolveRectangleShell(t *testing.T) {
 	w := NewWorld(NewTerrain(20, 20))
-	b := w.PlaceLodgeShell(rectCells(5, 5, 2, 1), 0) // 10 × 5 m: 4 × 2 tiles
+	b := w.PlaceLodgeShell(mgl32.Vec2{}, 0, rectCells(5, 5, 2, 1), 0) // 10 × 5 m: 4 × 2 tiles
 	n := countTiles(ResolveLodgeShell(b))
 	walls := n[TileWall] + n[TileWallWindow] + n[TileWallWindowAlt] + n[TileWallGlazed] + n[TileDoor]
 	if walls != 12 || n[TileEave] != 12 {
@@ -55,7 +55,7 @@ func TestResolveRectangleShell(t *testing.T) {
 func TestResolveLShapeHasValley(t *testing.T) {
 	w := NewWorld(NewTerrain(20, 20))
 	cells := append(rectCells(5, 5, 3, 1), rectCells(5, 6, 1, 2)...)
-	b := w.PlaceLodgeShell(cells, 0)
+	b := w.PlaceLodgeShell(mgl32.Vec2{}, 0, cells, 0)
 	n := countTiles(ResolveLodgeShell(b))
 	if n[TileCornerInner] != 1 || n[TileCornerOuter] != 5 {
 		t.Fatalf("corners outer %d inner %d, want 5 and 1", n[TileCornerOuter], n[TileCornerInner])
@@ -76,12 +76,12 @@ func TestShellRoofHeightTracksWidth(t *testing.T) {
 		}
 		return top
 	}
-	narrow := peak(w.PlaceLodgeShell(rectCells(2, 2, 6, 1), 0))
-	wide := peak(w.PlaceLodgeShell(rectCells(2, 10, 12, 12), 0))
+	narrow := peak(w.PlaceLodgeShell(mgl32.Vec2{}, 0, rectCells(2, 2, 6, 1), 0))
+	wide := peak(w.PlaceLodgeShell(mgl32.Vec2{}, 0, rectCells(2, 10, 12, 12), 0))
 	if narrow >= wide {
 		t.Fatalf("narrow roof base %.1f not below wide %.1f", narrow, wide)
 	}
-	if want := ShellWallHeight + float32(ShellRoofMaxLevel)*ShellRoofRise; wide > want+1e-3 {
+	if want := ShellLodge.WallHeight() + float32(ShellRoofMaxLevel)*ShellLodge.RoofRise(); wide > want+1e-3 {
 		t.Fatalf("wide roof %.1f above the cap %.1f", wide, want)
 	}
 }
@@ -89,7 +89,7 @@ func TestShellRoofHeightTracksWidth(t *testing.T) {
 func TestAutoDoorsPerServiceRun(t *testing.T) {
 	w := NewWorld(NewTerrain(40, 40))
 	w.PlaceLift(LiftDouble, 100, 160, 100, 20)
-	b := w.PlaceLodgeShell(rectCells(18, 18, 3, 3), 0)
+	b := w.PlaceLodgeShell(mgl32.Vec2{}, 0, rectCells(18, 18, 3, 3), 0)
 	if len(b.Doors) != 1 || b.Doors[0].Dir != [2]int{0, 1} {
 		t.Fatalf("lounge doors = %v, want one facing the lift base (+Z)", b.Doors)
 	}
@@ -124,8 +124,8 @@ func TestAutoDoorsPerServiceRun(t *testing.T) {
 func TestTicketDoorFacesParking(t *testing.T) {
 	w := NewWorld(NewTerrain(40, 40))
 	w.PlaceLift(LiftDouble, 100, 160, 100, 20)
-	w.PlaceParkingLot(rectCells(10, 18, 3, 3))
-	b := w.PlaceServiceBuilding(map[[2]int]Service{{18, 18}: ServiceTickets, {18, 19}: ServiceLounge}, 0)
+	w.PlaceRectLot(FootprintRect{Center: mgl32.Vec2{57.5, 97.5}, HalfX: 7.5, HalfZ: 7.5})
+	b := w.PlaceServiceBuilding(mgl32.Vec2{}, 0, map[[2]int]Service{{18, 18}: ServiceTickets, {18, 19}: ServiceLounge}, 0)
 	for _, d := range b.Doors {
 		if d.Service == ServiceTickets && d.Dir != [2]int{-1, 0} {
 			t.Fatalf("ticket door faces %v, want the lot to the west", d.Dir)
@@ -133,11 +133,11 @@ func TestTicketDoorFacesParking(t *testing.T) {
 	}
 }
 
-func TestLegacyLodgeConverts(t *testing.T) {
+func TestPointLodge(t *testing.T) {
 	w := NewWorld(NewTerrain(40, 40))
 	w.PlaceLift(LiftDouble, 100, 160, 100, 20)
 	b := w.PlaceBuildingType(BuildingLodge, 100, 100)
-	if !b.IsShell() || len(b.Cells) != legacyLodgeCellsX*legacyLodgeCellsZ || !b.Offers(ServiceLounge) {
+	if !b.IsShell() || len(b.Cells) != pointLodgeCellsX*pointLodgeCellsZ || !b.Offers(ServiceLounge) {
 		t.Fatalf("legacy lodge cells = %d", len(b.Cells))
 	}
 	if len(b.Doors) != 1 || b.Doors[0].Dir != [2]int{0, 1} {
@@ -145,7 +145,7 @@ func TestLegacyLodgeConverts(t *testing.T) {
 	}
 }
 
-func TestLegacyBarAndOfficeConvert(t *testing.T) {
+func TestPointBarAndOffice(t *testing.T) {
 	w := NewWorld(NewTerrain(40, 40))
 	bar := w.PlaceBuildingType(BuildingBar, 100, 100)
 	office := w.PlaceBuildingType(BuildingTicketOffice, 150, 100)
@@ -160,7 +160,7 @@ func TestLegacyBarAndOfficeConvert(t *testing.T) {
 func TestShellFloorsStayClear(t *testing.T) {
 	w := NewWorld(NewTerrain(16, 16))
 	w.Terrain.Cells[5][5].Top = SnowLayer{Accumulation: 0.3, Kind: KindPowder}
-	w.PlaceLodgeShell([][2]int{{5, 5}, {6, 5}}, 1)
+	w.PlaceLodgeShell(mgl32.Vec2{}, 0, [][2]int{{5, 5}, {6, 5}}, 1)
 	if w.Terrain.Cells[5][5].Top.Accumulation != 0 {
 		t.Fatal("painting a shell should clear the snow under it")
 	}

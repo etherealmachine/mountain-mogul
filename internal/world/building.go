@@ -16,10 +16,10 @@ import (
 type BuildingType uint8
 
 const (
-	BuildingLodge        BuildingType = 0
-	BuildingShed         BuildingType = 1
+	BuildingLodge        BuildingType = 0 // a service building (lodge, tent, or shed: see ShellKind)
+	BuildingShed         BuildingType = 1 // retired: the equipment shed, now a garage service; kept so saved numbers hold
 	BuildingParking      BuildingType = 2
-	BuildingPatrolHut    BuildingType = 3
+	BuildingPatrolHut    BuildingType = 3 // retired: the patrol hut, now a patrol service
 	BuildingSnowGun      BuildingType = 4
 	BuildingTicketOffice BuildingType = 5
 	BuildingBar          BuildingType = 6 // bar/restaurant — relieve thirst/hunger
@@ -38,35 +38,49 @@ type Building struct {
 	ID       uint64
 	Type     BuildingType
 	Pos      mgl32.Vec2
-	Rotation float32 // radians about +Y, the renderer's HomogRotate3DY convention; ignored by painted lots
+	Rotation float32 // radians about +Y, the renderer's HomogRotate3DY convention
 
 	// Parking-only state (parking.go). LotSize is the lot rectangle's
 	// extent along its local X and Z (Pos is its centre, Rotation its
-	// turn). Cells (the cells under it, sorted x, z), Gate (the entrance
+	// turn). Ground (the cells under it, sorted x, z), Gate (the entrance
 	// on its edge), Stalls and MaxCars are derived by RefreshParkingLot.
 	// DrivewayNodeIDs[0] is the entrance's road node, and DriveEdge the
 	// driveway ConnectLotDriveway built from it to the nearest road (0
 	// for none).
 	LotSize         mgl32.Vec2
-	Cells           [][2]int
 	Gate            mgl32.Vec2
 	Stalls          []ParkingStall
 	MaxCars         int
 	DrivewayNodeIDs []uint64
 	DriveEdge       uint64
-	cellSet         map[[2]int]struct{}
 	lotAisles       []float32 // local V of each aisle, from layoutLot
+
+	// Cells is a service building's shell in its own grid (see below).
+	// Ground is the map cells under a lot or service building, derived
+	// from its rectangle or tiles: what grading, plowing, walking and
+	// overlap checks read.
+	Cells     [][2]int
+	cellSet   map[[2]int]struct{}
+	Ground    [][2]int
+	groundSet map[[2]int]struct{}
 
 	// SnowGun-only state. Enabled defaults to true on placement; the player
 	// can toggle it off from the popup to stop snow production and operating costs.
 	SnowGunEnabled bool
 
-	// Service-building state (see lodge.go). Cells is the tiled shell and
-	// Tiles each cell's service. Doors are derived by RefreshDoors (Pos
-	// sits on the first). FloorY is the floor height, fixed by the first
-	// tile so the building doesn't shift as it grows. StyleSeed picks
-	// facade variants and the palette. Diners is the sim's live count of
-	// guests eating here (not saved).
+	// Service-building state (see lodge.go). A service building has its
+	// own 5 m grid: Origin is the world XZ of its cell (0, 0)'s corner and
+	// Rotation turns the grid (FootprintRect's convention). Cells is the
+	// tiled shell in that grid and Tiles each cell's service. Doors are
+	// derived by RefreshDoors (Pos sits on the first). FloorY is the floor
+	// height, fixed by the first tile so the building doesn't shift as it
+	// grows. StyleSeed picks facade variants and the palette. Diners is
+	// the sim's live count of guests eating here (not saved).
+	// Kind is what it's built as and Storeys how many storeys it has (a
+	// lodge can have up to three; 0 counts as one, see Floors).
+	Origin     mgl32.Vec2
+	Kind       ShellKind
+	Storeys    int
 	Tiles      map[[2]int]Service
 	Doors      []Door
 	FloorY     float32
@@ -277,25 +291,21 @@ func (b *Building) Label() string {
 			continue
 		}
 		if only != ServiceNone {
-			return "Lodge"
+			return b.Kind.Label()
 		}
 		only = sv
 	}
 	if only == ServiceNone || only == ServiceLounge {
-		return "Lodge"
+		return b.Kind.Label()
 	}
-	return only.Label()
+	return only.Label() + " " + b.Kind.Label()
 }
 
 // Label returns a short human-readable name for HUD / event-feed display.
 func (t BuildingType) Label() string {
 	switch t {
-	case BuildingShed:
-		return "Equipment Shed"
 	case BuildingParking:
 		return "Parking Lot"
-	case BuildingPatrolHut:
-		return "Patrol Hut"
 	case BuildingSnowGun:
 		return "Snow Gun"
 	case BuildingTicketOffice:

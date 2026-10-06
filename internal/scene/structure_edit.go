@@ -170,7 +170,7 @@ func rotationDegrees(rot float32) string {
 // building.
 func isBuildingPlacementTool(t toolMode) bool {
 	switch t {
-	case toolBuilding, toolTicketOffice, toolShed, toolPatrolHut, toolSnowGun:
+	case toolBuilding, toolTicketOffice, toolSnowGun:
 		return true
 	}
 	return false

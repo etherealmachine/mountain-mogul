@@ -134,9 +134,8 @@ func (w *World) CatWorking(c *Snowcat) bool {
 		if b.ID != c.ShedID {
 			continue
 		}
-		door := b.DoorCell()
-		dx := (float32(door[0])+0.5)*CellSize - c.Pos[0]
-		dz := (float32(door[1])+0.5)*CellSize - c.Pos[2]
+		home := w.SnowcatParkPos(b)
+		dx, dz := home[0]-c.Pos[0], home[2]-c.Pos[2]
 		return dx*dx+dz*dz > CellSize*CellSize
 	}
 	return false
@@ -167,14 +166,10 @@ func (w *World) SpawnSnowcat(shed *Building) *Snowcat {
 	return cat
 }
 
-// SnowcatParkPos is where a cat sits when parked at its shed: the centre
-// of the shed's door cell, on the snow surface.
+// SnowcatParkPos is where a cat sits when parked at home: just outside
+// its building's garage door, on the snow surface.
 func (w *World) SnowcatParkPos(shed *Building) mgl32.Vec3 {
-	cell := shed.DoorCell()
-	cx := (float32(cell[0]) + 0.5) * CellSize
-	cz := (float32(cell[1]) + 0.5) * CellSize
-	cy := w.Terrain.SurfaceElevationAt(cell[0], cell[1])
-	return mgl32.Vec3{cx, cy, cz}
+	return w.ServiceHome(shed, ServiceGarage)
 }
 
 // RemoveSnowcat drops the cat with the given ID. Used when a shed

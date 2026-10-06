@@ -18,15 +18,20 @@
 //
 // Keep these in sync with the constants in lodge_shell.go.
 
+// kind picks the building: "lodge" (timber and stone), "tent" (fabric on
+// an aluminium frame), or "shed" (corrugated metal). A tile file sets it
+// after the include (OpenSCAD's last assignment wins).
+kind = "lodge";
+
 tile   = 2.5;   // ShellTileSize
-wall_h = 5.0;   // ShellWallHeight
-rise   = 2.1;   // ShellRoofRise, per tile of run
+wall_h = kind == "shed" ? 4.0 : kind == "tent" ? 3.0 : 5.0;  // ShellKind.WallHeight
+rise   = kind == "shed" ? 0.8 : kind == "tent" ? 2.6 : 2.1;  // ShellKind.RoofRise, per tile of run
 pitch  = rise / tile;
 
-wall_t   = 0.35;  // wall thickness
+wall_t   = kind == "lodge" ? 0.35 : kind == "shed" ? 0.15 : 0.08;  // wall thickness
 sink     = 1.5;   // walls run this far below the floor to hide pad grading
-roof_t   = 0.25;  // roof slab thickness
-overhang = 0.7;   // eaves overhang past the wall plane
+roof_t   = kind == "lodge" ? 0.25 : kind == "shed" ? 0.12 : 0.06;  // roof slab thickness
+overhang = kind == "lodge" ? 0.7 : kind == "shed" ? 0.35 : 0.15;   // eaves overhang past the wall plane
 
 c_wall   = [0.92, 0.90, 0.86];
 c_stone  = [0.62, 0.61, 0.60];
@@ -35,10 +40,13 @@ c_glass  = [0.30, 0.42, 0.52];
 c_door   = [0.36, 0.25, 0.18];
 c_roof   = [0.97, 0.97, 0.97];
 c_fascia = [0.55, 0.52, 0.50];
+c_metal  = [0.80, 0.80, 0.80];  // aluminium frame, shed trim
+c_conc   = [0.66, 0.65, 0.63];  // shed sill
+c_vinyl  = [0.62, 0.72, 0.78];  // tent window
 
 // Plain wall panel: timber above a stone plinth, a trim band under the
 // eaves.
-module wall_panel() {
+module lodge_wall_panel() {
     color(c_wall)
         translate([-tile/2, 0, -sink]) cube([tile, wall_t, wall_h + sink]);
     color(c_stone)
@@ -63,15 +71,15 @@ module pane(x0, w, z0, h) {
         translate([x0, -0.08, z0]) cube([w, 0.06, h]);
 }
 
-module wall_window() {
-    wall_panel();
+module lodge_wall_window() {
+    lodge_wall_panel();
     pane(-0.7, 1.4, 1.4, 2.2);
     color(c_trim) translate([-0.02, -0.1, 1.4]) cube([0.04, 0.04, 2.2]); // mullion
 }
 
 // Tall window flanked by shutters.
-module wall_window_alt() {
-    wall_panel();
+module lodge_wall_window_alt() {
+    lodge_wall_panel();
     pane(-0.5, 1.0, 1.2, 2.8);
     color(c_door) {
         translate([-1.0, -0.1, 1.2]) cube([0.4, 0.05, 2.8]);
@@ -81,7 +89,7 @@ module wall_window_alt() {
 
 // Floor-to-eave glazing for food courts: a low stone sill, then glass in
 // three lights.
-module wall_glazed() {
+module lodge_wall_glazed() {
     color(c_wall)
         translate([-tile/2, 0, -sink]) cube([tile, wall_t, wall_h + sink]);
     color(c_stone)
@@ -96,7 +104,7 @@ module wall_glazed() {
 }
 
 // Glazed entry door under a small canopy, with a step.
-module door() {
+module lodge_door() {
     color(c_wall)
         translate([-tile/2, 0, -sink]) cube([tile, wall_t, wall_h + sink]);
     color(c_stone)
@@ -117,12 +125,12 @@ module door() {
         translate([-1.1, -0.9, -0.3]) cube([2.2, 0.9, 0.42]);
 }
 
-module corner_outer() {
+module lodge_corner_outer() {
     color(c_stone)
         translate([-0.3, -0.05, -sink]) cube([0.35, 0.35, wall_h + sink - 0.3]);
 }
 
-module corner_inner() {
+module lodge_corner_inner() {
     color(c_trim)
         translate([0, -0.12, 0]) cube([0.12, 0.12, wall_h - 0.3]);
 }
@@ -180,9 +188,123 @@ module eave_corner() {
     }
 }
 
-module chimney() {
+module lodge_chimney() {
     color(c_stone)
         translate([-0.55, -0.55, -1.0]) cube([1.1, 1.1, rise + 3.0]);
     color(c_fascia)
         translate([-0.65, -0.65, rise + 1.8]) cube([1.3, 1.3, 0.2]);
+}
+
+// ---------------------------------------------------------------------
+// Dispatch by kind. Tile files call these.
+
+module wall_panel()      { if (kind == "shed") shed_wall(0); else if (kind == "tent") tent_wall(0); else lodge_wall_panel(); }
+module wall_window()     { if (kind == "shed") shed_wall(1); else if (kind == "tent") tent_wall(1); else lodge_wall_window(); }
+module wall_window_alt() { if (kind == "shed") shed_wall(2); else if (kind == "tent") tent_wall(2); else lodge_wall_window_alt(); }
+module wall_glazed()     { if (kind == "shed") shed_wall(3); else if (kind == "tent") tent_wall(3); else lodge_wall_glazed(); }
+module door()            { if (kind == "shed") shed_door(); else if (kind == "tent") tent_door(); else lodge_door(); }
+module corner_outer()    { if (kind == "lodge") lodge_corner_outer(); else post(0.16, wall_h + sink, -sink); }
+module corner_inner()    { if (kind == "lodge") lodge_corner_inner(); else post(0.08, wall_h, 0); }
+module chimney()         { if (kind == "lodge") lodge_chimney(); else stove_pipe(); }
+
+// ---------------------------------------------------------------------
+// Shed: corrugated metal on a concrete sill. v: 0 plain, 1 a high
+// window, 2 a louvred vent, 3 a translucent band.
+
+module shed_sheet(z0, z1) {
+    color(c_wall)
+        translate([-tile/2, 0, z0]) cube([tile, wall_t, z1 - z0]);
+    color(c_wall * 0.82)
+        for (x = [-tile/2 + 0.08 : 0.25 : tile/2 - 0.05])
+            translate([x, -0.04, z0]) cube([0.06, 0.05, z1 - z0]);
+}
+
+module shed_wall(v) {
+    shed_sheet(-sink + 0.4, wall_h);
+    color(c_conc)
+        translate([-tile/2, -0.03, -sink]) cube([tile, wall_t + 0.03, sink + 0.4]);
+    color(c_metal)
+        translate([-tile/2, -0.07, wall_h - 0.18]) cube([tile, 0.08, 0.18]);
+    if (v == 1) {
+        color(c_metal) translate([-0.7, -0.09, wall_h - 1.3]) cube([1.4, 0.06, 0.8]);
+        color(c_glass) translate([-0.6, -0.11, wall_h - 1.2]) cube([1.2, 0.04, 0.6]);
+    }
+    if (v == 2) {
+        color(c_metal * 0.7)
+            for (z = [1.6 : 0.18 : 2.4])
+                translate([-0.5, -0.12, z]) rotate([-30, 0, 0]) cube([1.0, 0.03, 0.14]);
+    }
+    if (v == 3) {
+        color(c_vinyl) translate([-tile/2, -0.09, 1.2]) cube([tile, 0.05, 1.0]);
+    }
+}
+
+// A roll-up door with slats, under a box housing.
+module shed_door() {
+    color(c_conc)
+        translate([-tile/2, -0.03, -sink]) cube([tile, wall_t + 0.03, sink + 0.1]);
+    color(c_wall) {
+        translate([-tile/2, 0, 0.1]) cube([0.15, wall_t, wall_h - 0.1]);
+        translate([tile/2 - 0.15, 0, 0.1]) cube([0.15, wall_t, wall_h - 0.1]);
+        translate([-tile/2, 0, 3.1]) cube([tile, wall_t, wall_h - 3.1]);
+    }
+    color(c_door * 1.4)
+        translate([-tile/2 + 0.15, 0.02, 0]) cube([tile - 0.3, 0.05, 3.1]);
+    color(c_door)
+        for (z = [0.2 : 0.3 : 3.0])
+            translate([-tile/2 + 0.15, -0.01, z]) cube([tile - 0.3, 0.04, 0.05]);
+    color(c_metal)
+        translate([-tile/2, -0.25, 3.1]) cube([tile, 0.25, 0.35]);
+}
+
+// ---------------------------------------------------------------------
+// Tent: fabric panels between aluminium posts. v: 0 plain, 1 a clear
+// window, 2 two small windows, 3 a wide clear panel.
+
+module tent_wall(v) {
+    color(c_wall)
+        translate([-tile/2, 0, -0.4]) cube([tile, wall_t, wall_h + 0.4]);
+    color(c_wall * 0.88) {
+        translate([-0.02, -0.02, -0.4]) cube([0.04, 0.03, wall_h + 0.4]);   // seam
+        translate([-tile/2, -0.03, -0.4]) cube([tile, 0.05, 0.5]);          // skirt
+    }
+    color(c_metal)
+        translate([-tile/2, -0.05, wall_h - 0.1]) cube([tile, 0.07, 0.1]);  // eave rail
+    if (v == 1)
+        color(c_vinyl) translate([-0.8, -0.04, 1.0]) cube([1.6, 0.03, 1.3]);
+    if (v == 2) {
+        color(c_vinyl) translate([-1.0, -0.04, 1.2]) cube([0.7, 0.03, 1.0]);
+        color(c_vinyl) translate([0.3, -0.04, 1.2]) cube([0.7, 0.03, 1.0]);
+    }
+    if (v == 3)
+        color(c_vinyl) translate([-tile/2 + 0.1, -0.04, 0.4]) cube([tile - 0.2, 0.03, wall_h - 0.8]);
+}
+
+// An open doorway with its flaps tied back.
+module tent_door() {
+    color(c_wall) {
+        translate([-tile/2, 0, -0.4]) cube([0.35, wall_t, wall_h + 0.4]);
+        translate([tile/2 - 0.35, 0, -0.4]) cube([0.35, wall_t, wall_h + 0.4]);
+        translate([-tile/2, 0, 2.3]) cube([tile, wall_t, wall_h - 2.3]);
+    }
+    color(c_door * 0.6)
+        translate([-tile/2 + 0.35, 0.3, 0]) cube([tile - 0.7, 0.05, 2.3]);  // the dim inside
+    color(c_wall * 0.9) {
+        translate([-tile/2 + 0.3, -0.1, 0]) cube([0.25, 0.12, 2.3]);       // rolled flaps
+        translate([tile/2 - 0.55, -0.1, 0]) cube([0.25, 0.12, 2.3]);
+    }
+    color(c_metal)
+        translate([-tile/2, -0.05, wall_h - 0.1]) cube([tile, 0.07, 0.1]);
+}
+
+// A square post at a corner, for tents and sheds.
+module post(w, h, z0) {
+    color(c_metal)
+        translate([-w/2, -w/2, z0]) cube([w, w, h]);
+}
+
+// A stove pipe in place of a chimney (tents and sheds don't use one).
+module stove_pipe() {
+    color(c_metal)
+        translate([0, 0, -0.5]) cylinder(h = rise + 1.5, r = 0.15, $fn = 12);
 }

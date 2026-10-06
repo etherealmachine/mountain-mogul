@@ -72,7 +72,7 @@ type ParkingStall struct {
 
 // IsCellLot reports whether b is a parking lot with a footprint.
 func (b *Building) IsCellLot() bool {
-	return b.Type == BuildingParking && len(b.Cells) > 0
+	return b.Type == BuildingParking && len(b.Ground) > 0
 }
 
 // IsRectLot reports whether b is a rectangular parking lot.
@@ -98,7 +98,8 @@ func LotAxes(r FootprintRect) (u, v mgl32.Vec2, halfU, halfV float32) {
 	return az, ax, r.HalfZ, r.HalfX
 }
 
-// HasCell reports whether cell c belongs to the lot's footprint.
+// HasCell reports whether a service building has a tile at cell c of
+// its own grid.
 func (b *Building) HasCell(c [2]int) bool {
 	if len(b.Cells) == 0 {
 		return false
@@ -117,6 +118,26 @@ func (b *Building) rebuildCellSet() {
 	}
 }
 
+// OnGround reports whether map cell c is under the lot or service
+// building.
+func (b *Building) OnGround(c [2]int) bool {
+	if len(b.Ground) == 0 {
+		return false
+	}
+	if b.groundSet == nil {
+		b.rebuildGroundSet()
+	}
+	_, ok := b.groundSet[c]
+	return ok
+}
+
+func (b *Building) rebuildGroundSet() {
+	b.groundSet = make(map[[2]int]struct{}, len(b.Ground))
+	for _, c := range b.Ground {
+		b.groundSet[c] = struct{}{}
+	}
+}
+
 // FootprintContains reports whether world XZ (x, z) lies on the
 // building's footprint, grown by margin metres on every side.
 func (b *Building) FootprintContains(x, z, margin float32) bool {
@@ -128,7 +149,7 @@ func (b *Building) FootprintContains(x, z, margin float32) bool {
 			{x, z}, {x - margin, z - margin}, {x + margin, z - margin},
 			{x - margin, z + margin}, {x + margin, z + margin},
 		} {
-			if b.HasCell(cellOf(p)) {
+			if b.OnGround(cellOf(p)) {
 				return true
 			}
 		}
@@ -146,7 +167,7 @@ func cellRect(c [2]int) FootprintRect {
 	}
 }
 
-// cellsOverlapRect reports whether any lot cell square intersects fp.
+// cellsOverlapRect reports whether any cell under b intersects fp.
 func (b *Building) cellsOverlapRect(fp FootprintRect) bool {
 	minX, minZ, maxX, maxZ := fp.Bounds()
 	x0 := int(math.Floor(float64(minX / CellSize)))
@@ -155,7 +176,7 @@ func (b *Building) cellsOverlapRect(fp FootprintRect) bool {
 	z1 := int(math.Floor(float64(maxZ / CellSize)))
 	for x := x0; x <= x1; x++ {
 		for z := z0; z <= z1; z++ {
-			if c := [2]int{x, z}; b.HasCell(c) && fp.Overlaps(cellRect(c)) {
+			if c := [2]int{x, z}; b.OnGround(c) && fp.Overlaps(cellRect(c)) {
 				return true
 			}
 		}
@@ -167,7 +188,7 @@ func (b *Building) cellsOverlapRect(fp FootprintRect) bool {
 // (cx, cz), or nil.
 func (w *World) ParkingLotAt(cx, cz int) *Building {
 	for _, b := range w.Buildings {
-		if b.IsCellLot() && b.HasCell([2]int{cx, cz}) {
+		if b.IsCellLot() && b.OnGround([2]int{cx, cz}) {
 			return b
 		}
 	}
@@ -235,32 +256,10 @@ func (w *World) PlaceRectLot(r FootprintRect) *Building {
 	return b
 }
 
-// PlaceParkingLot creates a lot over the bounding box of cells.
-func (w *World) PlaceParkingLot(cells [][2]int) *Building {
-	return w.PlaceRectLot(CellsBoundingRect(cells))
-}
-
-// CellsBoundingRect is the axis-aligned rectangle around cells: how lots
-// painted cell by cell (older saves) become rectangles.
-func CellsBoundingRect(cells [][2]int) FootprintRect {
-	x0, z0, x1, z1 := cells[0][0], cells[0][1], cells[0][0], cells[0][1]
-	for _, c := range cells {
-		x0, z0 = min(x0, c[0]), min(z0, c[1])
-		x1, z1 = max(x1, c[0]), max(z1, c[1])
-	}
-	minX, minZ := float32(x0)*CellSize, float32(z0)*CellSize
-	maxX, maxZ := float32(x1+1)*CellSize, float32(z1+1)*CellSize
-	return FootprintRect{
-		Center: mgl32.Vec2{(minX + maxX) / 2, (minZ + maxZ) / 2},
-		HalfX:  (maxX - minX) / 2,
-		HalfZ:  (maxZ - minZ) / 2,
-	}
-}
-
 // SetLotRect moves or resizes a lot to rectangle r and re-derives it.
 // Call ConnectLotDriveway afterwards to rebuild its driveway.
 func (w *World) SetLotRect(b *Building, r FootprintRect) {
-	if door := b.DoorCell(); len(b.Cells) > 0 && w.Terrain.InBounds(door[0], door[1]) {
+	if door := b.DoorCell(); len(b.Ground) > 0 && w.Terrain.InBounds(door[0], door[1]) {
 		w.Terrain.Cells[door[0]][door[1]].Passable = true
 	}
 	b.Pos, b.Rotation = r.Center, r.Rotation
@@ -296,16 +295,10 @@ func (w *World) RefreshParkingLot(b *Building, recenter bool) {
 		b.LotSize = mgl32.Vec2{2 * r.HalfX, 2 * r.HalfZ}
 	}
 	t := w.Terrain
-	oldDoor, hadCells := b.DoorCell(), len(b.Cells) > 0
+	oldDoor, hadCells := b.DoorCell(), len(b.Ground) > 0
 	r := b.LotRect()
-	b.Cells = LotCells(t, r)
-	sort.Slice(b.Cells, func(i, j int) bool {
-		if b.Cells[i][0] != b.Cells[j][0] {
-			return b.Cells[i][0] < b.Cells[j][0]
-		}
-		return b.Cells[i][1] < b.Cells[j][1]
-	})
-	b.rebuildCellSet()
+	b.Ground = sortedUniqueCells(LotCells(t, r))
+	b.rebuildGroundSet()
 	if door := b.DoorCell(); hadCells && door != oldDoor && t.InBounds(oldDoor[0], oldDoor[1]) {
 		t.Cells[oldDoor[0]][oldDoor[1]].Passable = true
 	}

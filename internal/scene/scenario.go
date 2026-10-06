@@ -444,14 +444,12 @@ const (
 	toolNone         toolMode = iota
 	toolBuilding     toolMode = iota // place a lodge
 	toolTicketOffice toolMode = iota // place a ticket office (season pass sales)
-	toolShed         toolMode = iota // place an equipment shed
 	toolParking      toolMode = iota // place a parking lot (skier spawn/despawn)
 	toolLiftBase     toolMode = iota // waiting for first lift click
 	toolLiftTop      toolMode = iota // waiting for second lift click
 	toolRoadStart    toolMode = iota // waiting for first road click
 	toolRoadEnd      toolMode = iota // waiting for second road click
 	toolEdgeConnect  toolMode = iota // place a map-edge road connection node (editor only)
-	toolPatrolHut    toolMode = iota // place a ski patrol hut
 	toolSnowGun      toolMode = iota // place a snowmaking cannon
 	toolGlade        toolMode = iota // remove trees (brush)
 	toolPlantTrees   toolMode = iota // plant trees (brush, editor only)
@@ -484,7 +482,6 @@ type Scenario struct {
 	liftGondolaBtn   *ui.Button        // toolbar button for the MDG gondola
 	liftHeliBtn      *ui.Button        // toolbar button for the helicopter heli-ski lift
 	liftsSubmenu     *ui.SubmenuButton // Lifts group (all chair/gondola/heli variants)
-	opsSubmenu       *ui.SubmenuButton // Operations group (shed, patrol)
 	amenitiesSubmenu *ui.SubmenuButton // Amenities group (lodge)
 	transportSubmenu *ui.SubmenuButton // Transport group (parking, road)
 	activeTool       toolMode
@@ -545,8 +542,11 @@ type Scenario struct {
 	lotTool lotTool
 	// serviceTool is the build session while toolService is active.
 	serviceTool serviceTool
-	// serviceButtons are the Amenities palette, one per service.
+	// serviceButtons are the Amenities palette, one per service, and
+	// kindButtons pick what a new building is built as (newShellKind).
 	serviceButtons map[world.Service]*ui.Button
+	kindButtons    map[world.ShellKind]*ui.Button
+	newShellKind   world.ShellKind
 
 	// placeRotation is the rotation the next placed building gets,
 	// turned with R / Shift+R while a building tool is active.
@@ -869,15 +869,26 @@ func (s *Scenario) Init(app *engine.App) error {
 		{world.ServiceFood, render.IconUsers},
 		{world.ServiceBar, render.IconCocktail},
 		{world.ServiceTickets, render.IconCoin},
+		{world.ServicePatrol, render.IconHeart},
+		{world.ServiceGarage, render.IconGarage},
 	} {
 		svc := sv.svc
 		s.serviceButtons[svc] = s.amenitiesSubmenu.AddChild(sv.icon, svc.Label(), func() { s.activateServiceTool(svc) })
 	}
+	s.kindButtons = map[world.ShellKind]*ui.Button{}
+	for _, kv := range []struct {
+		kind world.ShellKind
+		icon render.IconName
+	}{
+		{world.ShellLodge, render.IconHouse},
+		{world.ShellTent, render.IconTriangle},
+		{world.ShellShed, render.IconGarage},
+	} {
+		k := kv.kind
+		s.kindButtons[k] = s.amenitiesSubmenu.AddChild(kv.icon, k.Label(), func() { s.setNewShellKind(k) })
+	}
 
 	// Operations submenu: Shed, Patrol
-	s.opsSubmenu = s.toolBar.AddSubmenu(render.IconGarage, "Operations")
-	s.toolButtons[toolShed] = s.opsSubmenu.AddChild(render.IconGarage, "Shed", func() { s.setTool(toolShed) })
-	s.toolButtons[toolPatrolHut] = s.opsSubmenu.AddChild(render.IconHeart, "Patrol", func() { s.setTool(toolPatrolHut) })
 
 	// Transport submenu: Parking, Road
 	s.transportSubmenu = s.toolBar.AddSubmenu(render.IconRoad, "Transport")
@@ -1605,6 +1616,10 @@ func (s *Scenario) Update(dt float64) {
 		case s.activeTool == toolParking:
 			s.lotTool.rotate(s.world, delta)
 			s.setToast("Rotation " + rotationDegrees(s.lotTool.rotation))
+		case s.activeTool == toolService:
+			s.serviceTool.rot = stepRotation(s.serviceTool.rot, delta)
+			s.serviceTool.turned = true
+			s.setToast("Rotation " + rotationDegrees(s.serviceTool.rot))
 		case isBuildingPlacementTool(s.activeTool):
 			s.placeRotation = stepRotation(s.placeRotation, delta)
 			s.setToast("Rotation " + rotationDegrees(s.placeRotation))
@@ -2591,49 +2606,8 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 	gx, gz := s.hoverCell[0], s.hoverCell[1]
 	wx, wz := s.hoverWorld[0], s.hoverWorld[2]
 	switch s.activeTool {
-	case toolShed:
-		if !w.Terrain.IsAccessible(gx, gz) {
-			s.setToast("Can't build on land you don't own")
-			return
-		}
-		if !w.CanAfford(world.ShedCost) {
-			s.setToast(fmt.Sprintf("Need $%d for a shed — short by $%d",
-				world.ShedCost, world.ShedCost-w.Available()))
-			return
-		}
-		if w.BuildingOverlap(world.BuildingShed, wx, wz, s.placeRotation) {
-			s.setToast("Can't place a shed here — overlaps another building")
-			return
-		}
-		w.Cash -= world.ShedCost
-		b := placeBuilding(w, world.BuildingShed, wx, wz, s.placeRotation)
-		s.sim.LogBuildingPlaced(b)
-		s.sim.InvalidateSections()
-		applyBuildingPlacementEffects(w, b)
-		r.FlushTerrainVerts(w.Terrain)
-		r.RebuildStaticBatch(w)
 	case toolService:
 		s.applyServicePick()
-	case toolPatrolHut:
-		if !w.Terrain.IsAccessible(gx, gz) {
-			s.setToast("Can't build on land you don't own")
-			return
-		}
-		if !w.CanAfford(world.PatrolHutCost) {
-			s.setToast(fmt.Sprintf("Need $%d for a patrol hut — short by $%d",
-				world.PatrolHutCost, world.PatrolHutCost-w.Available()))
-			return
-		}
-		if w.BuildingOverlap(world.BuildingPatrolHut, wx, wz, s.placeRotation) {
-			s.setToast("Can't place a patrol hut here — overlaps another building")
-			return
-		}
-		w.Cash -= world.PatrolHutCost
-		b := placeBuilding(w, world.BuildingPatrolHut, wx, wz, s.placeRotation)
-		s.sim.LogBuildingPlaced(b)
-		applyBuildingPlacementEffects(w, b)
-		r.FlushTerrainVerts(w.Terrain)
-		r.RebuildStaticBatch(w)
 	case toolSnowGun:
 		if !w.Terrain.IsAccessible(gx, gz) {
 			s.setToast("Can't build on land you don't own")
@@ -2890,11 +2864,7 @@ func (s *Scenario) removeAt(clickPos mgl32.Vec3, r *render.Renderer) {
 			// edges; RemoveBuilding drops both, so the road mesh has to
 			// be regenerated when one comes out.
 			wasParking := b.Type == world.BuildingParking
-			wasShed := b.Type == world.BuildingShed
 			w.RemoveBuilding(b.ID)
-			if wasShed {
-				s.sim.InvalidateSections()
-			}
 			// RemoveBuilding restores Passable on the door cell; we
 			// intentionally do NOT revert the apron's ground / snow / tree
 			// effects (no Natural baseline to revert TO). The graded pad
@@ -3371,93 +3341,6 @@ func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 	s.showCatPath = false
 	bldg := b
 	switch bldg.Type {
-	case world.BuildingShed:
-		w := ui.NewWindow("Equipment Shed", 0, 0)
-		w.AddLabel("Fleet", func() string {
-			cats := s.world.CatsOwnedBy(bldg.ID)
-			active := 0
-			for _, c := range cats {
-				if c.Status == world.CatActive {
-					active++
-				}
-			}
-			return fmt.Sprintf("%d cats (%d active)", len(cats), active)
-		})
-		w.AddIntStepperFn("Active",
-			func() string {
-				cats := s.world.CatsOwnedBy(bldg.ID)
-				active := 0
-				for _, c := range cats {
-					if c.Status == world.CatActive {
-						active++
-					}
-				}
-				return fmt.Sprintf("%d / %d", active, len(cats))
-			},
-			func() { // minus: put one active cat on standby
-				cats := s.world.CatsOwnedBy(bldg.ID)
-				for i := len(cats) - 1; i >= 0; i-- {
-					if cats[i].Status == world.CatActive {
-						cats[i].Status = world.CatStandby
-						s.sim.InvalidateSections()
-						return
-					}
-				}
-			},
-			func() { // plus: activate one standby cat
-				cats := s.world.CatsOwnedBy(bldg.ID)
-				for _, c := range cats {
-					if c.Status == world.CatStandby {
-						c.Status = world.CatActive
-						s.sim.InvalidateSections()
-						return
-					}
-				}
-			})
-		w.AddLabel("Daily cost", func() string {
-			cats := s.world.CatsOwnedBy(bldg.ID)
-			cost := 0
-			for _, c := range cats {
-				if c.Status == world.CatActive {
-					cost += world.CatActiveCostDay
-				} else {
-					cost += world.CatStandbyCostDay
-				}
-			}
-			return fmt.Sprintf("$%d/day", cost)
-		})
-		w.AddActionButton(fmt.Sprintf("Buy cat  $%d", world.CatPurchasePrice), func() {
-			if !s.world.CanAfford(world.CatPurchasePrice) {
-				s.setToast(fmt.Sprintf("Need $%d for another cat", world.CatPurchasePrice))
-				return
-			}
-			s.world.Cash -= world.CatPurchasePrice
-			s.world.SpawnSnowcat(bldg)
-			s.sim.InvalidateSections()
-		})
-		w.AddActionButton("Release cat", func() {
-			cats := s.world.CatsOwnedBy(bldg.ID)
-			if len(cats) == 0 {
-				return
-			}
-			// Prefer releasing a standby cat; fall back to any.
-			var target *world.Snowcat
-			for _, c := range cats {
-				if c.Status == world.CatStandby {
-					target = c
-					break
-				}
-			}
-			if target == nil {
-				target = cats[len(cats)-1]
-			}
-			s.world.RemoveSnowcat(target.ID)
-			s.sim.InvalidateSections()
-		})
-		w.Visible = true
-		w.Center(screenW, screenH)
-		s.popup = w
-		return
 	case world.BuildingParking:
 		s.buildParkingPopup(bldg, false, screenW, screenH)
 		return
@@ -3481,30 +3364,6 @@ func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 				return fmt.Sprintf("Producing snow (%s)", settings.FormatTemp(now))
 			}
 			return fmt.Sprintf("Too warm (%s; needs %s)", settings.FormatTemp(now), settings.FormatTemp(world.SnowGunMinTempC))
-		})
-		w.Visible = true
-		w.Center(screenW, screenH)
-		s.popup = w
-		return
-	case world.BuildingPatrolHut:
-		w := ui.NewWindow("Patrol Hut", 0, 0)
-		w.AddLabel("Patroller", func() string {
-			for _, p := range s.world.Patrollers {
-				if p.HutID != bldg.ID {
-					continue
-				}
-				switch p.State {
-				case world.PatrollerAtHut:
-					return "At hut"
-				case world.PatrollerEnRoute:
-					return "En route to injured skier"
-				case world.PatrollerOnScene:
-					return "On scene"
-				case world.PatrollerReturning:
-					return "Returning with patient"
-				}
-			}
-			return "None"
 		})
 		w.Visible = true
 		w.Center(screenW, screenH)
@@ -3771,7 +3630,7 @@ func (s *Scenario) openSnowcatPopup(cat *world.Snowcat, screenW, screenH int) {
 		}
 		return fmt.Sprintf("%d%%", c.RouteIdx*100/len(c.Route))
 	})
-	w.AddActionButton("Go to shed", func() {
+	w.AddActionButton("Go to garage", func() {
 		r := s.app.Renderer
 		for _, b := range s.world.Buildings {
 			if b.ID == c.ShedID {
@@ -4026,6 +3885,7 @@ func (s *Scenario) deletePaintedBuilding(id uint64) {
 		}
 	}
 	removePaintedBuilding(s.app.Renderer, s.world, id)
+	s.sim.InvalidateSections() // its snowcats may have gone with it
 	if s.selectedBuildingID == id {
 		s.selectedBuildingID = 0
 	}
@@ -4088,6 +3948,9 @@ func (s *Scenario) syncToolButtons() {
 	for svc, btn := range s.serviceButtons {
 		btn.SetActive(s.activeTool == toolService && s.serviceTool.svc == svc)
 	}
+	for k, btn := range s.kindButtons {
+		btn.SetActive(s.newShellKind == k)
+	}
 	liftActive := s.activeTool == toolLiftBase || s.activeTool == toolLiftTop
 	if s.liftDoubleBtn != nil {
 		s.liftDoubleBtn.SetActive(liftActive && s.liftType == world.LiftDouble)
@@ -4111,9 +3974,6 @@ func (s *Scenario) syncToolButtons() {
 	// child tool is selected, giving the user a visual cue of the active group.
 	if s.liftsSubmenu != nil {
 		s.liftsSubmenu.Btn.SetActive(s.liftsSubmenu.HasActiveChild())
-	}
-	if s.opsSubmenu != nil {
-		s.opsSubmenu.Btn.SetActive(s.opsSubmenu.HasActiveChild())
 	}
 	if s.amenitiesSubmenu != nil {
 		s.amenitiesSubmenu.Btn.SetActive(s.amenitiesSubmenu.HasActiveChild())
@@ -4167,16 +4027,6 @@ func updatePlacementGhost(r *render.Renderer, t *world.Terrain, st placementGhos
 
 	case toolTicketOffice:
 		r.SetGhosts(render.MeshTicketOffice, []render.StaticInstance{
-			buildingInstance(st.hoverPos, st.rotation, t, st.tint),
-		})
-
-	case toolShed:
-		r.SetGhosts(render.MeshShed, []render.StaticInstance{
-			buildingInstance(st.hoverPos, st.rotation, t, st.tint),
-		})
-
-	case toolPatrolHut:
-		r.SetGhosts(render.MeshShed, []render.StaticInstance{
 			buildingInstance(st.hoverPos, st.rotation, t, st.tint),
 		})
 
@@ -4267,12 +4117,6 @@ func (s *Scenario) placementCost() (cost int, affordable, legal, valid bool) {
 	gx, gz := s.hoverCell[0], s.hoverCell[1]
 	cellOwned := s.world.Terrain.IsAccessible(gx, gz)
 	switch s.activeTool {
-	case toolShed:
-		cost = world.ShedCost
-		legal = cellOwned && !s.world.BuildingOverlap(world.BuildingShed, pos[0], pos[1], s.placeRotation)
-	case toolPatrolHut:
-		cost = world.PatrolHutCost
-		legal = cellOwned && !s.world.BuildingOverlap(world.BuildingPatrolHut, pos[0], pos[1], s.placeRotation)
 	case toolSnowGun:
 		cost = world.SnowGunCost
 		legal = cellOwned && !s.world.BuildingOverlap(world.BuildingSnowGun, pos[0], pos[1], s.placeRotation)

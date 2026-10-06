@@ -740,7 +740,7 @@ func (b *builder) lodgeAt(gx, gz int) *builder {
 // lodgeShell builds a lounge over cells with a food court on food.
 // Doors are placed automatically.
 func (b *builder) lodgeShell(seed uint32, cells, food [][2]int) *builder {
-	l := b.w.PlaceLodgeShell(cells, seed)
+	l := b.w.PlaceLodgeShell(mgl32.Vec2{}, 0, cells, seed)
 	b.w.SetFoodCourtCells(l, food)
 	b.lastLodge = l
 	return b
@@ -754,7 +754,7 @@ func (b *builder) serviceBuilding(seed uint32, parts ...serviceRect) *builder {
 			tiles[c] = p.svc
 		}
 	}
-	b.lastLodge = b.w.PlaceServiceBuilding(tiles, seed)
+	b.lastLodge = b.w.PlaceServiceBuilding(mgl32.Vec2{}, 0, tiles, seed)
 	return b
 }
 
@@ -1005,12 +1005,15 @@ func (b *builder) groomedTrail(diff world.TerrainDifficulty, cells [][2]int) *bu
 	return b
 }
 
-// shedAt places an equipment shed (with its bundled first cat) at the given
-// grid cell. The cat will be assigned a section on the first sim tick via the
-// global reassignment pass (sectionsStale starts true on every new Simulation).
+// shedAt places a shed with a snowcat garage (one cat) at the given grid
+// cell and the one east of it. The cat will be assigned a section on the
+// first sim tick via the global reassignment pass (sectionsStale starts
+// true on every new Simulation).
 func (b *builder) shedAt(gx, gz int) *builder {
-	const cs = float32(5.0)
-	b.w.PlaceBuildingType(world.BuildingShed, (float32(gx)+0.5)*cs, (float32(gz)+0.5)*cs)
+	g := b.w.PlaceServiceBuilding(mgl32.Vec2{}, 0, map[[2]int]world.Service{
+		{gx, gz}: world.ServiceGarage, {gx + 1, gz}: world.ServiceGarage,
+	}, 1)
+	g.Kind = world.ShellShed
 	return b
 }
 

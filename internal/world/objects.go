@@ -88,10 +88,6 @@ func FootprintFor(meshID uint32) (MeshFootprint, bool) {
 // the mesh without depending on the render package.
 func (t BuildingType) MeshID() uint32 {
 	switch t {
-	case BuildingShed:
-		return MeshShed
-	case BuildingPatrolHut:
-		return MeshPatrolHut
 	case BuildingParking:
 		return MeshParkingPad
 	case BuildingSnowGun:

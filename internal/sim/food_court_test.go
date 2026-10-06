@@ -21,7 +21,7 @@ func foodCourtWorld(t *testing.T) (*Simulation, *world.Building) {
 	}
 	tiles[[2]int{12, 10}] = world.ServiceFood
 	tiles[[2]int{13, 10}] = world.ServiceFood
-	b := w.PlaceServiceBuilding(tiles, 1)
+	b := w.PlaceServiceBuilding(mgl32.Vec2{}, 0, tiles, 1)
 	b.MealPrice = 20
 	return s, b
 }

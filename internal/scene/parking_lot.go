@@ -82,8 +82,8 @@ func fitParkingPlane(t *world.Terrain, cells [][2]int, maxGrade float32) gradePl
 
 // parkingPadCells returns the lot cells plus the graded shoulder ring.
 func parkingPadCells(t *world.Terrain, b *world.Building) map[[2]int]bool {
-	pad := make(map[[2]int]bool, len(b.Cells)*2)
-	for _, c := range b.Cells {
+	pad := make(map[[2]int]bool, len(b.Ground)*2)
+	for _, c := range b.Ground {
 		for dx := -parkingShoulderCells; dx <= parkingShoulderCells; dx++ {
 			for dz := -parkingShoulderCells; dz <= parkingShoulderCells; dz++ {
 				if n := [2]int{c[0] + dx, c[1] + dz}; t.InBounds(n[0], n[1]) {
@@ -119,11 +119,11 @@ func applyParkingLotEffects(w *world.World, b *world.Building) {
 // painted pads and structure cells alone), blending snow and trees back
 // to natural.
 func gradePaintedPad(w *world.World, b *world.Building, maxGrade float32) {
-	if len(b.Cells) == 0 {
+	if len(b.Ground) == 0 {
 		return
 	}
 	t := w.Terrain
-	plane := fitParkingPlane(t, b.Cells, maxGrade)
+	plane := fitParkingPlane(t, b.Ground, maxGrade)
 	if b.IsShell() && b.FloorSet {
 		plane = gradePlane{e: b.FloorY}
 	}
@@ -442,7 +442,7 @@ func gradeLotDriveway(w *world.World, b *world.Building) {
 	minZ, maxZ := min(gate.Pos[1], far.Pos[1])-half, max(gate.Pos[1], far.Pos[1])+half
 	for x := int(minX / cs); x <= int(maxX/cs); x++ {
 		for z := int(minZ / cs); z <= int(maxZ/cs); z++ {
-			if !t.InBounds(x, z) || b.HasCell([2]int{x, z}) {
+			if !t.InBounds(x, z) || b.OnGround([2]int{x, z}) {
 				continue
 			}
 			c := mgl32.Vec2{(float32(x) + 0.5) * cs, (float32(z) + 0.5) * cs}

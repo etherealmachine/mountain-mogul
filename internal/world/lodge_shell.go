@@ -24,11 +24,10 @@ import (
 // Tiles are in a canonical frame — outward (or downhill) is +Z — turned
 // by Rot about +Y with the renderer's HomogRotate3DY convention.
 
-// Shell kit dimensions. Keep in sync with models-src/lib/lodge_kit.scad.
+// Shell kit dimensions. Keep in sync with models-src/lib/lodge_kit.scad;
+// wall height and roof rise depend on the building's kind (ShellKind).
 const (
 	ShellTileSize     = CellSize / 2 // 2.5 m: one half-cell
-	ShellWallHeight   = float32(5.0)
-	ShellRoofRise     = float32(2.1) // per tile of run (~40° pitch)
 	ShellRoofMaxLevel = 4            // roof flattens past this many tiles in from the eaves
 )
 
@@ -64,9 +63,11 @@ func (k ShellTileKind) IsRoof() bool {
 }
 
 // ShellTile is one placed kit tile. Pos is world X/Z and height above
-// the lodge floor.
+// the lodge floor; Rot already includes the building's turn.
 type ShellTile struct {
 	Kind    ShellTileKind
+	Shell   ShellKind // which kit: the building's kind
+	Storey  int       // walls and corners: the storey they're on
 	Pos     mgl32.Vec3
 	Rot     float32
 	Service Service // the tile's service, on walls only
@@ -106,6 +107,8 @@ func ResolveLodgeShell(b *Building) []ShellTile {
 		x1, z1 = max(x1, c[0]*2+1), max(z1, c[1]*2+1)
 	}
 	const T = ShellTileSize
+	H, R, F := b.Kind.WallHeight(), b.Kind.RoofRise(), b.Floors()
+	eaves := float32(F) * H
 	var tiles []ShellTile
 	style := styleHash(b.StyleSeed)
 	pattern := int(style % 3)
@@ -132,9 +135,14 @@ func ResolveLodgeShell(b *Building) []ShellTile {
 				if d[0] != 0 {
 					along = sz
 				}
-				tiles = append(tiles,
-					ShellTile{Kind: wallKind(b, cell, d, along, pattern, altWindows), Pos: pos, Rot: rot, Service: b.ServiceAt(cell)},
-					ShellTile{Kind: TileEave, Pos: pos.Add(mgl32.Vec3{0, ShellWallHeight, 0}), Rot: rot})
+				for st := 0; st < F; st++ {
+					k := wallKind(b, cell, d, along, pattern, altWindows)
+					if st > 0 && k == TileDoor {
+						k = TileWallWindow // doors are on the ground floor
+					}
+					tiles = append(tiles, ShellTile{Kind: k, Storey: st, Pos: pos.Add(mgl32.Vec3{0, float32(st) * H, 0}), Rot: rot, Service: b.ServiceAt(cell)})
+				}
+				tiles = append(tiles, ShellTile{Kind: TileEave, Pos: pos.Add(mgl32.Vec3{0, eaves, 0}), Rot: rot})
 			}
 		}
 	}
@@ -152,18 +160,21 @@ func ResolveLodgeShell(b *Building) []ShellTile {
 				}
 			}
 			pos := mgl32.Vec3{float32(vx) * T, 0, float32(vz) * T}
-			eave := pos.Add(mgl32.Vec3{0, ShellWallHeight, 0})
+			eave := pos.Add(mgl32.Vec3{0, eaves, 0})
 			for i, q := range quads {
 				// Outward diagonal from quadrant q is away from it.
 				ox, oz := -(2*q[0] + 1), -(2*q[1] + 1)
 				switch {
 				case n == 3 && !inside[i]:
-					tiles = append(tiles, ShellTile{Kind: TileCornerInner, Pos: pos, Rot: diagRot(-ox, -oz)})
+					for st := 0; st < F; st++ {
+						tiles = append(tiles, ShellTile{Kind: TileCornerInner, Storey: st, Pos: pos.Add(mgl32.Vec3{0, float32(st) * H, 0}), Rot: diagRot(-ox, -oz)})
+					}
 				case (n == 1 || n == 2 && inside[i] && inside[3-i]) && inside[i]:
 					r := diagRot(ox, oz)
-					tiles = append(tiles,
-						ShellTile{Kind: TileCornerOuter, Pos: pos, Rot: r},
-						ShellTile{Kind: TileEaveCorner, Pos: eave, Rot: r})
+					for st := 0; st < F; st++ {
+						tiles = append(tiles, ShellTile{Kind: TileCornerOuter, Storey: st, Pos: pos.Add(mgl32.Vec3{0, float32(st) * H, 0}), Rot: r})
+					}
+					tiles = append(tiles, ShellTile{Kind: TileEaveCorner, Pos: eave, Rot: r})
 				}
 			}
 		}
@@ -195,7 +206,7 @@ func ResolveLodgeShell(b *Building) []ShellTile {
 				o[i] = h[i] > m
 			}
 			kind, rot := roofTile(o)
-			pos := mgl32.Vec3{(float32(sx) + 0.5) * T, ShellWallHeight + float32(m)*ShellRoofRise, (float32(sz) + 0.5) * T}
+			pos := mgl32.Vec3{(float32(sx) + 0.5) * T, eaves + float32(m)*R, (float32(sz) + 0.5) * T}
 			tiles = append(tiles, ShellTile{Kind: kind, Pos: pos, Rot: rot})
 			if kind == TileRoofSlope || kind == TileRoofFlat {
 				if m > top {
@@ -207,9 +218,16 @@ func ResolveLodgeShell(b *Building) []ShellTile {
 			}
 		}
 	}
-	if len(b.Cells) >= 4 && len(tops) > 0 {
+	if b.Kind == ShellLodge && len(b.Cells) >= 4 && len(tops) > 0 {
 		p := tops[int(style>>3)%len(tops)]
 		tiles = append(tiles, ShellTile{Kind: TileChimney, Pos: p})
+	}
+	// Everything above is in the building's grid; place it in the world.
+	for i := range tiles {
+		tiles[i].Shell = b.Kind
+		p := b.GridToWorld(tiles[i].Pos[0], tiles[i].Pos[2])
+		tiles[i].Pos[0], tiles[i].Pos[2] = p[0], p[1]
+		tiles[i].Rot += b.Rotation
 	}
 	return tiles
 }
@@ -230,8 +248,10 @@ func wallKind(b *Building, cell, dir [2]int, along, pattern int, alt bool) Shell
 			return TileWallWindow
 		}
 		return TileWallWindowAlt
-	case ServiceTickets:
+	case ServiceTickets, ServicePatrol:
 		return TileWallWindow
+	case ServiceGarage:
+		return TileWall // a garage's only opening is its door
 	}
 	window := TileWallWindow
 	if alt {
@@ -334,18 +354,42 @@ func (w *World) ShellFloorY(b *Building) float32 {
 	if b.FloorSet {
 		return b.FloorY
 	}
-	if len(b.Cells) == 0 {
+	if len(b.Ground) == 0 {
 		return 0
 	}
 	var s float32
-	for _, c := range b.Cells {
+	for _, c := range b.Ground {
 		s += w.Terrain.GroundElevationAt(c[0], c[1])
 	}
-	return s / float32(len(b.Cells))
+	return s / float32(len(b.Ground))
 }
 
-// ShellPalette returns the wall and roof tints for a style seed.
-func ShellPalette(seed uint32) (wall, roof mgl32.Vec3) {
+// ShellPalette returns the wall and roof tints for a building of kind k
+// with a style seed.
+func ShellPalette(k ShellKind, seed uint32) (wall, roof mgl32.Vec3) {
+	h := styleHash(seed)
+	switch k {
+	case ShellTent:
+		fabrics := []mgl32.Vec3{
+			{0.97, 0.97, 0.95}, // white
+			{0.95, 0.92, 0.84}, // canvas
+			{0.86, 0.90, 0.95}, // pale blue
+		}
+		f := fabrics[(h>>12)%uint32(len(fabrics))]
+		return f, f
+	case ShellShed:
+		metals := []mgl32.Vec3{
+			{0.78, 0.80, 0.82}, // galvanised
+			{0.62, 0.30, 0.25}, // barn red
+			{0.38, 0.50, 0.40}, // green
+			{0.52, 0.54, 0.58}, // slate grey
+		}
+		roofs := []mgl32.Vec3{
+			{0.70, 0.72, 0.74}, // bare metal
+			{0.40, 0.40, 0.42}, // charcoal
+		}
+		return metals[(h>>12)%uint32(len(metals))], roofs[(h>>16)%uint32(len(roofs))]
+	}
 	walls := []mgl32.Vec3{
 		{1.00, 0.93, 0.82}, // honey pine
 		{0.86, 0.68, 0.52}, // cedar
@@ -358,7 +402,6 @@ func ShellPalette(seed uint32) (wall, roof mgl32.Vec3) {
 		{0.34, 0.52, 0.38}, // forest green
 		{0.44, 0.42, 0.44}, // charcoal
 	}
-	h := styleHash(seed)
 	return walls[(h>>12)%uint32(len(walls))], roofs[(h>>16)%uint32(len(roofs))]
 }
 

@@ -389,9 +389,12 @@ func (r *Renderer) initStaticMeshes() {
 		}
 	}
 
-	for kind, name := range lodgeTileNames {
-		mesh, texID := LoadOBJ(modelDir + name + ".obj")
-		r.staticBatches[MeshLodgeTileBase+uint32(kind)] = NewStaticBatch(mesh, texID)
+	for shell, prefix := range shellKitPrefix {
+		for kind, name := range lodgeTileNames {
+			mesh, texID := LoadOBJ(modelDir + prefix + name + ".obj")
+			id := MeshLodgeTileBase + world.ShellMeshIndex(world.ShellKind(shell), world.ShellTileKind(kind))
+			r.staticBatches[id] = NewStaticBatch(mesh, texID)
+		}
 	}
 
 	// Road node marker — procedural disc (thin cylinder slice). Sits
@@ -735,8 +738,6 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 		}
 		meshID := MeshBuilding
 		switch bldg.Type {
-		case world.BuildingShed:
-			meshID = MeshShed
 		case world.BuildingParking:
 			meshID = MeshParkingPad
 		case world.BuildingSnowGun:
@@ -828,13 +829,13 @@ func RoadNodeMarkerTransform(pos mgl32.Vec2, terrain *world.Terrain) mgl32.Mat4 
 // addLodgeShell instances lodge b's resolved kit tiles on its floor.
 func (r *Renderer) addLodgeShell(w *world.World, b *world.Building) {
 	floor := w.ShellFloorY(b)
-	wallTint, roofTint := world.ShellPalette(b.StyleSeed)
+	wallTint, roofTint := world.ShellPalette(b.Kind, b.StyleSeed)
 	cutaway := b.ID == r.cutawayLodgeID
 	for _, t := range world.ResolveLodgeShell(b) {
-		if cutaway && (t.Kind.IsRoof() || t.Kind == world.TileChimney) {
+		if cutaway && (t.Kind.IsRoof() || t.Kind == world.TileChimney || t.Storey > 0) {
 			continue
 		}
-		batch, ok := r.staticBatches[MeshLodgeTileBase+uint32(t.Kind)]
+		batch, ok := r.staticBatches[shellTileMesh(t)]
 		if !ok {
 			continue
 		}
@@ -882,7 +883,7 @@ func (r *Renderer) SetShellGhost(tiles []world.ShellTile, floor, scale float32, 
 			Mul4(mgl32.Scale3D(scale, scale, scale))
 		inst := StaticInstance{ColorTint: tint}
 		copy(inst.Transform[:], m[:])
-		id := MeshLodgeTileBase + uint32(t.Kind)
+		id := shellTileMesh(t)
 		byMesh[id] = append(byMesh[id], inst)
 	}
 	for id, insts := range byMesh {

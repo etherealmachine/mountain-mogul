@@ -93,7 +93,7 @@ func BuildTrailGraph(w *World) *TrailGraph {
 		}
 
 		for _, b := range w.Buildings {
-			if b.Type != BuildingLodge && b.Type != BuildingParking || !b.Usable() {
+			if b.Type != BuildingLodge && b.Type != BuildingParking || !b.Usable() || b.IsShell() && !b.ServesGuests() {
 				continue
 			}
 			door := b.DoorCell()
@@ -101,13 +101,13 @@ func BuildTrailGraph(w *World) *TrailGraph {
 			if b.IsShell() {
 				touches = false
 				for _, d := range b.Doors {
-					if trailTouchesDoor(cellSet, d.Cell) {
-						door, touches = d.Cell, true
+					if c := cellOf(b.TileCentre(d.Cell)); trailTouchesDoor(cellSet, c) {
+						door, touches = c, true
 						break
 					}
 				}
 			} else if !touches && b.IsCellLot() {
-				for _, c := range b.Cells {
+				for _, c := range b.Ground {
 					if cellSet[c] {
 						touches = true
 						break
