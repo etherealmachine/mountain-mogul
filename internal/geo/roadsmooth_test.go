@@ -21,7 +21,7 @@ func TestSmoothRoadsFillsCut(t *testing.T) {
 		}
 	}
 	road := Road{Kind: "primary", Width: 10, Path: []LatLon{{Lat: 0.5, Lon: -0.1}, {Lat: 0.5, Lon: 1.1}}}
-	if n := SmoothRoads(h, w, ht, b, spacing, []Road{road}); n == 0 {
+	if n := SmoothRoads(h, w, ht, b, spacing, []Road{road}, StandardRoads); n == 0 {
 		t.Fatal("nothing smoothed")
 	}
 	var worst float64
@@ -41,7 +41,7 @@ func TestSmoothRoadsFillsCut(t *testing.T) {
 func TestSmoothRoadsSkipsTunnels(t *testing.T) {
 	h := make([]float32, 50*50)
 	road := Road{Width: 10, Tunnel: true, Path: []LatLon{{Lat: 0.5, Lon: 0}, {Lat: 0.5, Lon: 1}}}
-	if n := SmoothRoads(h, 50, 50, Bounds{MaxLat: 1, MaxLon: 1}, 1.25, []Road{road}); n != 0 {
+	if n := SmoothRoads(h, 50, 50, Bounds{MaxLat: 1, MaxLon: 1}, 1.25, []Road{road}, StandardRoads); n != 0 {
 		t.Errorf("tunnel smoothed %d samples", n)
 	}
 }

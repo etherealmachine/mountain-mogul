@@ -49,11 +49,12 @@ var roughWavelengths = []float64{3, 6, 12, 24}
 // (row 0 at MaxLat, column 0 at MinLon), spacing metres apart. Tunnels
 // are skipped. Bridges aren't: the fill follows the ground either side
 // of the corridor, so a valley under a bridge keeps its shape. Returns
-// how many samples changed.
-func SmoothRoads(h []float32, w, ht int, b Bounds, spacing float64, roads []Road) int {
-	core, reach := roadCores(w, ht, b, spacing, roads)
+// how many samples changed. o scales the corridor and its roughness;
+// StandardRoads is the standard pass.
+func SmoothRoads(h []float32, w, ht int, b Bounds, spacing float64, roads []Road, o RoadSmoothing) int {
+	core, reach := roadCores(w, ht, b, spacing, roads, o.Width)
 	growOverBanks(h, w, ht, spacing, core, reach)
-	r := max(int(math.Round(roadFeather/spacing)), 1)
+	r := max(int(math.Round(roadFeather*o.Width/spacing)), 1)
 	closeGaps(core, w, ht, r)
 	fillSmallHoles(core, w, ht, int(roadHoleArea/(spacing*spacing)))
 	weight := featherMask(core, w, ht, r)
@@ -71,12 +72,22 @@ func SmoothRoads(h []float32, w, ht int, b Bounds, spacing float64, roads []Road
 	for k, wt := range weight {
 		if wt > 0 {
 			i, j := k%w, k/w
-			bump := rough[k] * groundNoise(float64(i)*spacing, float64(j)*spacing)
-			h[k] += (fill[k] + bump - h[k]) * wt
+			bump := rough[k] * float32(o.Rough) * groundNoise(float64(i)*spacing, float64(j)*spacing)
+			h[k] += (fill[k] + bump - h[k]) * wt * float32(o.Amount)
 		}
 	}
 	return n
 }
+
+// RoadSmoothing scales the road pass: Width the corridor (banks and
+// feather), Rough the bumps put back over the fill, and Amount (0–1)
+// how far the ground moves to the fill.
+type RoadSmoothing struct {
+	Width, Rough, Amount float64
+}
+
+// StandardRoads is the road pass at the default strength.
+var StandardRoads = RoadSmoothing{Width: 1, Rough: 1, Amount: 1}
 
 // roughnessAround is the RMS of the ground's fine bumps, measured where
 // unknown is 0 and carried into the corridors.
@@ -138,10 +149,10 @@ func valueNoise(x, y float64, seed uint32) float64 {
 	return top*(1-fy) + bot*fy
 }
 
-// roadCores is 1 over each road and its bank allowance. reach marks
-// where the corridor may grow over steep banks (within roadBankGrow of
-// the allowance).
-func roadCores(w, ht int, b Bounds, spacing float64, roads []Road) (core []float32, reach []bool) {
+// roadCores is 1 over each road and its bank allowance, scaled by
+// width. reach marks where the corridor may grow over steep banks
+// (within roadBankGrow of the allowance).
+func roadCores(w, ht int, b Bounds, spacing float64, roads []Road, width float64) (core []float32, reach []bool) {
 	core = make([]float32, w*ht)
 	reach = make([]bool, w*ht)
 	toLattice := func(p LatLon) (float64, float64) {
@@ -152,7 +163,7 @@ func roadCores(w, ht int, b Bounds, spacing float64, roads []Road) (core []float
 		if r.Tunnel {
 			continue
 		}
-		half := r.Width/2 + math.Min(math.Max(r.Width*roadBankPerWidth, roadBankMin), roadBankMax)
+		half := r.Width/2 + math.Min(math.Max(r.Width*roadBankPerWidth, roadBankMin), roadBankMax)*width
 		pad := (half + roadBankGrow) / spacing
 		for s := 1; s < len(r.Path); s++ {
 			x0, y0 := toLattice(r.Path[s-1])

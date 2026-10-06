@@ -1313,15 +1313,43 @@ func terrainBaseToData(b *world.TerrainBase) *TerrainBaseData {
 		LidarCoverage: b.LidarCoverage,
 		LidarNote:     b.LidarNote,
 		LayersOff:     b.LayersOff,
+		Strengths:     b.Strengths,
 	}
 	for _, r := range b.Roads {
-		rd := BaseRoadData{Width: r.Width, Tunnel: r.Tunnel, Path: make([]float64, 0, 2*len(r.Path))}
-		for _, p := range r.Path {
-			rd.Path = append(rd.Path, p[0], p[1])
+		d.Roads = append(d.Roads, BaseRoadData{Name: r.Name, Kind: r.Kind, Width: r.Width, Tunnel: r.Tunnel, Path: flatPath(r.Path)})
+	}
+	for _, l := range b.Lifts {
+		d.Lifts = append(d.Lifts, BaseLiftData{Name: l.Name, Kind: l.Kind, Seats: l.Seats, Path: flatPath(l.Path)})
+	}
+	for _, r := range b.Runs {
+		d.Runs = append(d.Runs, BaseRunData{Name: r.Name, Difficulty: r.Difficulty, Area: r.Area, Path: flatPath(r.Path)})
+	}
+	for _, a := range b.Areas {
+		ad := BaseAreaData{Name: a.Name}
+		for _, p := range a.Paths {
+			ad.Paths = append(ad.Paths, flatPath(p))
 		}
-		d.Roads = append(d.Roads, rd)
+		d.Areas = append(d.Areas, ad)
 	}
 	return d
+}
+
+// flatPath is a (lat, lon) path as flat lat, lon pairs.
+func flatPath(ps [][2]float64) []float64 {
+	out := make([]float64, 0, 2*len(ps))
+	for _, p := range ps {
+		out = append(out, p[0], p[1])
+	}
+	return out
+}
+
+// pairPath reads a path written by flatPath.
+func pairPath(fs []float64) [][2]float64 {
+	var out [][2]float64
+	for k := 0; k+1 < len(fs); k += 2 {
+		out = append(out, [2]float64{fs[k], fs[k+1]})
+	}
+	return out
 }
 
 // terrainBaseFromData is nil for a missing or unreadable base, which
@@ -1339,17 +1367,27 @@ func terrainBaseFromData(d *TerrainBaseData) *world.TerrainBase {
 		LidarCoverage: d.LidarCoverage,
 		LidarNote:     d.LidarNote,
 		LayersOff:     d.LayersOff,
+		Strengths:     d.Strengths,
 	}
 	if err := b.SetHeightsBytes(d.Heights); err != nil {
 		fmt.Println("save:", err)
 		return nil
 	}
 	for _, r := range d.Roads {
-		br := world.BaseRoad{Width: r.Width, Tunnel: r.Tunnel}
-		for k := 0; k+1 < len(r.Path); k += 2 {
-			br.Path = append(br.Path, [2]float64{r.Path[k], r.Path[k+1]})
+		b.Roads = append(b.Roads, world.BaseRoad{Name: r.Name, Kind: r.Kind, Width: r.Width, Tunnel: r.Tunnel, Path: pairPath(r.Path)})
+	}
+	for _, l := range d.Lifts {
+		b.Lifts = append(b.Lifts, world.BaseLift{Name: l.Name, Kind: l.Kind, Seats: l.Seats, Path: pairPath(l.Path)})
+	}
+	for _, r := range d.Runs {
+		b.Runs = append(b.Runs, world.BaseRun{Name: r.Name, Difficulty: r.Difficulty, Area: r.Area, Path: pairPath(r.Path)})
+	}
+	for _, a := range d.Areas {
+		ba := world.BaseArea{Name: a.Name}
+		for _, p := range a.Paths {
+			ba.Paths = append(ba.Paths, pairPath(p))
 		}
-		b.Roads = append(b.Roads, br)
+		b.Areas = append(b.Areas, ba)
 	}
 	return b
 }

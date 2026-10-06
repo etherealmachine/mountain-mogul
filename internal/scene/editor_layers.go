@@ -2,6 +2,7 @@ package scene
 
 import (
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"sync"
@@ -18,8 +19,9 @@ import (
 // layersPanel is the editor's Terrain layers panel: the import's base
 // ground, which can be reopened to change the square, then each terrain
 // layer with a checkbox: the ground layers (geo.Layers), then the world
-// layers (worldLayers). Switching a ground layer rebuilds the ground from
-// the base in the background, then reruns the world layers on it.
+// layers (worldLayers), each with a strength slider. Switching a ground
+// layer, or releasing its slider, rebuilds the ground from the base in
+// the background, then reruns the world layers on it.
 type layersPanel struct {
 	open      bool
 	stack     *geo.LayerStack // runs on the world's TerrainBase; nil until needed
@@ -31,7 +33,12 @@ type layersPanel struct {
 	// frame so the panel can show them running first.
 	queued     []string
 	queuedWait bool
-	worldTook  map[string]time.Duration
+
+	// dragging says a strength slider is held: row dragRow, at dragVal.
+	// The strength changes when it's released.
+	dragging bool
+	dragRow  int
+	dragVal  float32
 
 	x, y, w, h float32 // from the last layout
 	rowsY      float32 // top of the first layer row
@@ -40,7 +47,7 @@ type layersPanel struct {
 // layerJob is one background rebuild of the ground.
 type layerJob struct {
 	stack *geo.LayerStack
-	off   []string // the layers it ran with off
+	set   []geo.Setting // what it ran with
 
 	mu      sync.Mutex
 	stage   string
@@ -49,9 +56,14 @@ type layerJob struct {
 }
 
 const (
-	layersPanelW = float32(400)
+	layersPanelW = float32(470)
 	layersRowH   = float32(30)
 	layersPad    = float32(10)
+
+	// Each row's strength slider: its track's left edge from the
+	// panel's, and its width.
+	layersSliderX = float32(185)
+	layersSliderW = float32(130)
 )
 
 func (j *layerJob) status() (stage string, done bool) {
@@ -68,7 +80,7 @@ func (p *layersPanel) layout(top float32, base *world.TerrainBase) {
 	p.rowsY = p.y + titleH + baseH
 	rows := 0
 	if base != nil {
-		rows = len(geo.Layers) + len(worldLayers)
+		rows = len(geo.Layers) + len(worldLayers) + 1 // and the OpenStreetMap overlay
 	}
 	p.h = p.rowsY - p.y + float32(rows)*layersRowH + lineH + layersPad
 	if p.changeBtn != nil {
@@ -76,6 +88,31 @@ func (p *layersPanel) layout(top float32, base *world.TerrainBase) {
 		p.changeBtn.X = p.x + p.w - layersPad - p.changeBtn.W
 		p.changeBtn.Y = p.y + titleH + (baseH-p.changeBtn.H)/2
 	}
+}
+
+// rowLayer is the layer in panel row i: its ID, and its index in
+// geo.Layers, or -1 for a world layer.
+func rowLayer(i int) (id string, ground int) {
+	if i < len(geo.Layers) {
+		return geo.Layers[i].ID, i
+	}
+	return worldLayers[i-len(geo.Layers)].ID, -1
+}
+
+// rowHasSlider reports whether row i shows a strength slider: every
+// layer but a ground layer that does nothing here. The OpenStreetMap
+// overlay's row, last, has none.
+func rowHasSlider(i int, base *world.TerrainBase) bool {
+	if i >= len(geo.Layers)+len(worldLayers) {
+		return false
+	}
+	return i >= len(geo.Layers) || geo.Applies(i, base)
+}
+
+// sliderValue is the strength at screen x on a row's slider.
+func (p *layersPanel) sliderValue(mx float32) float32 {
+	v := (mx - p.x - layersSliderX) / layersSliderW
+	return float32(math.Round(float64(min(max(v, 0), 1))*100)) / 100
 }
 
 func (p *layersPanel) contains(mx, my float32) bool {
@@ -133,17 +170,30 @@ func groundOff(base *world.TerrainBase) []string {
 	return off
 }
 
-// handleLayersInput runs the panel's clicks, consuming them.
+// handleLayersInput runs the panel's clicks and slider drags, consuming
+// them.
 func (e *Editor) handleLayersInput(inp *engine.Input, top float32) {
 	e.pollLayerJob()
 	e.runQueuedWorldLayers()
 	p := &e.layers
+	base := e.world.TerrainBase
+	if !p.open || base == nil {
+		p.dragging = false
+	}
 	if !p.open {
 		return
 	}
-	base := e.world.TerrainBase
 	p.layout(top, base)
 	mx, my := inp.MousePos[0], inp.MousePos[1]
+	if p.dragging {
+		p.dragVal = p.sliderValue(mx)
+		inp.LeftClickConsumed = true
+		if !inp.LeftHeld {
+			p.dragging = false
+			e.requestStrength(p.dragRow, p.dragVal)
+		}
+		return
+	}
 	p.changeBtn.SetHovered(p.changeBtn.Contains(mx, my))
 	if !inp.LeftClick || inp.LeftClickConsumed || !p.contains(mx, my) {
 		return
@@ -156,15 +206,59 @@ func (e *Editor) handleLayersInput(inp *engine.Input, top float32) {
 	if base == nil || my < p.rowsY {
 		return
 	}
-	switch i := int((my - p.rowsY) / layersRowH); {
-	case i < len(geo.Layers):
-		e.requestLayerToggle(i)
-	case i < len(geo.Layers)+len(worldLayers):
-		id := worldLayers[i-len(geo.Layers)].ID
+	i := int((my - p.rowsY) / layersRowH)
+	switch {
+	case i == len(geo.Layers)+len(worldLayers):
+		e.toggleOSMOverlay()
+		return
+	case i > len(geo.Layers)+len(worldLayers):
+		return
+	}
+	const grab = 8 // px either side of the track that still grab it
+	sx := p.x + layersSliderX
+	if mx >= sx-grab && rowHasSlider(i, base) {
+		if mx <= sx+layersSliderW+grab {
+			p.dragging, p.dragRow, p.dragVal = true, i, p.sliderValue(mx)
+		}
+		return
+	}
+	switch id, ground := rowLayer(i); {
+	case ground >= 0:
+		e.requestLayerToggle(ground)
+	default:
 		base.SetLayer(id, !base.LayerOn(id))
 		e.markDirty()
 		e.queueWorldLayer(id)
 	}
+}
+
+// requestStrength sets row i's layer to strength v and reruns it when
+// it's on, first asking when that clears what's been built.
+func (e *Editor) requestStrength(i int, v float32) {
+	base := e.world.TerrainBase
+	id, ground := rowLayer(i)
+	if base == nil || v == base.Strength(id) {
+		return
+	}
+	set := func() {
+		e.confirmPrompt = nil
+		base.SetStrength(id, v)
+		e.markDirty()
+		switch {
+		case !base.LayerOn(id):
+		case ground >= 0:
+			e.startLayerRebuild()
+		default:
+			e.queueWorldLayer(id)
+		}
+	}
+	if ground >= 0 && base.LayerOn(id) && geo.Layers[ground].MovesGround && worldHasBuilt(e.world) {
+		e.confirmPrompt = newConfirmPrompt(
+			"Changing "+geo.Layers[ground].Name+"'s strength reshapes the ground and removes every lift, building, and road. Trails and parcels stay, and the Auto layers that are on grow again.",
+			"Continue", set, func() { e.confirmPrompt = nil })
+		return
+	}
+	set()
 }
 
 // queueWorldLayer runs world layer id, or clears it when it's off, from
@@ -193,19 +287,14 @@ func (e *Editor) runQueuedWorldLayers() {
 		}
 		if !w.TerrainBase.LayerOn(l.ID) {
 			l.clear(w)
-			delete(p.worldTook, l.ID)
 			continue
 		}
-		start := time.Now()
 		l.run(w, &e.layerCache)
-		if p.worldTook == nil {
-			p.worldTook = map[string]time.Duration{}
-		}
-		p.worldTook[l.ID] = time.Since(start)
 	}
 	p.queued = p.queued[:0]
 	restampClearings(w)
 	e.refreshWorldLayers()
+	e.osm.built = time.Time{}
 }
 
 // refreshWorldLayers sends what the world layers changed to the renderer.
@@ -285,8 +374,8 @@ func layerSkipReason(i int, base *world.TerrainBase) string {
 }
 
 // startLayerRebuild rebuilds the ground from the base with the current
-// layer switches, unless a rebuild is already running; that one starts
-// another when it finishes if the switches have changed since.
+// layer switches and strengths, unless a rebuild is already running;
+// that one starts another when it finishes if they've changed since.
 func (e *Editor) startLayerRebuild() {
 	p := &e.layers
 	base := e.world.TerrainBase
@@ -296,10 +385,10 @@ func (e *Editor) startLayerRebuild() {
 	if p.stack == nil || p.stack.Base() != base {
 		p.stack = geo.NewLayerStack(base)
 	}
-	j := &layerJob{stack: p.stack, off: groundOff(base), stage: "Starting"}
+	j := &layerJob{stack: p.stack, set: geo.Settings(base), stage: "Starting"}
 	p.job = j
 	go func() {
-		h := j.stack.Run(j.off, func(name string) {
+		h := j.stack.Run(j.set, func(name string) {
 			j.mu.Lock()
 			j.stage = name
 			j.mu.Unlock()
@@ -311,7 +400,7 @@ func (e *Editor) startLayerRebuild() {
 }
 
 // pollLayerJob applies a finished rebuild, and starts the next one when
-// the switches changed while it ran.
+// the switches or strengths changed while it ran.
 func (e *Editor) pollLayerJob() {
 	p := &e.layers
 	j := p.job
@@ -327,7 +416,7 @@ func (e *Editor) pollLayerJob() {
 		return // the map was replaced while it ran
 	}
 	e.applyLayerHeights(base, j.heights)
-	if !slices.Equal(j.off, groundOff(base)) {
+	if !slices.Equal(j.set, geo.Settings(base)) {
 		e.startLayerRebuild()
 	}
 }
@@ -342,11 +431,12 @@ func (e *Editor) applyLayerHeights(base *world.TerrainBase, heights []float32) {
 		return
 	}
 	e.layerCache = layerCache{}
-	e.layers.worldTook = runWorldLayers(w, &e.layerCache, nil)
+	runWorldLayers(w, &e.layerCache, nil)
 	e.layers.queued = e.layers.queued[:0]
 	e.roadEdit.clear()
 	e.structureEdit.clear()
 	e.parcelBoundaryDirty = true
+	e.osm.built = time.Time{}
 	r := e.app.Renderer
 	r.ResetSceneState()
 	r.BuildTerrainMesh(w.Terrain)
@@ -407,6 +497,27 @@ func (e *Editor) drawLayersPanel(r *render.Renderer, top float32) {
 		}
 		ty := ry + (layersRowH-float32(render.GlyphH))/2
 		f.DrawText(r, name, bx+26, ty, col)
+		sx := p.x + layersSliderX
+		if !rowHasSlider(i, base) {
+			f.DrawText(r, note, sx, ty, dim)
+			return
+		}
+		id, _ := rowLayer(i)
+		v := base.Strength(id)
+		if p.dragging && p.dragRow == i {
+			v = p.dragVal
+		}
+		fill := mgl32.Vec4{0.25, 0.55, 0.35, 0.95}
+		if !on {
+			fill = mgl32.Vec4{0.3, 0.34, 0.4, 0.95}
+		}
+		cy := ry + layersRowH/2
+		r.DrawColorRect(sx, cy-2, layersSliderW, 4, mgl32.Vec4{0.18, 0.22, 0.30, 1})
+		r.DrawColorRect(sx, cy-2, layersSliderW*v, 4, fill)
+		// A tick at the default strength, the standard pass.
+		r.DrawColorRect(sx+layersSliderW*world.DefaultLayerStrength-1, cy-5, 2, 10, dim)
+		r.DrawColorRect(sx+layersSliderW*v-4, cy-8, 8, 16, col)
+		f.DrawText(r, fmt.Sprintf("%.0f%%", 100*v), sx+layersSliderW+12, ty, col)
 		f.DrawText(r, note, p.x+p.w-layersPad-f.TextWidth(note), ty, dim)
 	}
 	if base != nil {
@@ -418,8 +529,6 @@ func (e *Editor) drawLayersPanel(r *render.Renderer, top float32) {
 				note = layerSkipNote(i, base)
 			case p.job != nil && stage == l.Name:
 				note = "running"
-			case p.stack != nil && p.stack.Took[i] > 0:
-				note = formatTook(p.stack.Took[i])
 			}
 			row(i, l.Name, base.LayerOn(l.ID), applies, note)
 		}
@@ -429,23 +538,19 @@ func (e *Editor) drawLayersPanel(r *render.Renderer, top float32) {
 			switch {
 			case p.job != nil && on, slices.Contains(p.queued, l.ID):
 				note = "running"
-			case !on:
-			case l.note(e.world) != "":
+			case on:
 				note = l.note(e.world)
-			case p.worldTook[l.ID] > 0:
-				note = formatTook(p.worldTook[l.ID])
 			}
 			row(len(geo.Layers)+i, l.Name, on, true, note)
 		}
+		row(len(geo.Layers)+len(worldLayers), "OpenStreetMap", e.osm.shown, true, osmCounts(base))
 	}
-	status := "Uncheck a layer to see without it"
+	status := ""
 	switch {
 	case p.job != nil:
 		status = "Rebuilding the ground..."
 	case len(p.queued) > 0:
 		status = "Running..."
-	case base == nil:
-		status = ""
 	}
 	f.DrawText(r, status, p.x+layersPad, p.y+p.h-lineH-layersPad/2+3, dim)
 }
@@ -457,11 +562,4 @@ func layerSkipNote(i int, base *world.TerrainBase) string {
 		return "roads not fetched"
 	}
 	return s
-}
-
-func formatTook(d time.Duration) string {
-	if d < time.Second {
-		return fmt.Sprintf("%.0f ms", float64(d)/float64(time.Millisecond))
-	}
-	return fmt.Sprintf("%.1f s", d.Seconds())
 }

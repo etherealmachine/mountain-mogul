@@ -38,7 +38,9 @@ var worldLayers = []worldLayer{
 		ID: "trees", Name: "Auto trees",
 		run: func(w *world.World, c *layerCache) {
 			f := c.fieldsFor(w.Terrain)
-			f.generateTreeCover(w.Terrain, 24, 0.55, treelineFrac(w, f), layerSeed(w))
+			// Strength sets the coverage, 55% at the default and up to 95%.
+			coverage := 0.55 * world.LayerScale(w.TerrainBase.Strength("trees"), 0, 0.95/0.55)
+			f.generateTreeCover(w.Terrain, 24, float32(coverage), treelineFrac(w, f), layerSeed(w))
 		},
 		clear: func(w *world.World) { w.Terrain.ClearAllTrees() },
 		note: func(w *world.World) string {
@@ -171,27 +173,37 @@ const (
 	openingFallback = 15 // December, when the snow never gets there
 )
 
-// snowOpeningDay is the day w's snowpack is deep enough to open on, or
-// mid-December when it never is.
+// snowDepthScale is how much Auto snow's strength multiplies the
+// season's snowpack: none at 0, a typical season at the default, and
+// two and a half times it at full strength, a big year.
+func snowDepthScale(w *world.World) float32 {
+	return float32(world.LayerScale(w.TerrainBase.Strength("snow"), 0, 2.5))
+}
+
+// snowOpeningDay is the day w's snowpack, at Auto snow's strength, is
+// deep enough to open on, or mid-December when it never is.
 func snowOpeningDay(w *world.World, c *layerCache) time.Time {
 	pack := snowpackFor(w, c)
 	f := c.fieldsFor(w.Terrain)
 	alt := w.BaseAltitude + f.minE + openingAltFrac*(f.maxE-f.minE)
-	if d, ok := pack.OpeningDay(alt, openingSWE); ok {
-		return d
+	if k := snowDepthScale(w); k > 0.01 {
+		if d, ok := pack.OpeningDay(alt, openingSWE/k); ok {
+			return d
+		}
 	}
 	return time.Date(pack.Start.Year(), time.December, openingFallback, 0, 0, 0, 0, time.UTC)
 }
 
 // runSnowLayer lays the snow a typical season leaves by the start date,
-// shaped by the ground. Without a climate it falls back to the Auto
-// tool's generator.
+// shaped by the ground and scaled by the layer's strength. Without a
+// climate it falls back to the Auto tool's generator.
 func runSnowLayer(w *world.World, c *layerCache) {
 	t := w.Terrain
 	f := c.fieldsFor(t)
 	t.Groom.Clear()
+	k := snowDepthScale(w)
 	if w.Climate == nil {
-		f.generateSnowCover(t, 2, 0.3, 0.7, 270, layerSeed(w))
+		f.generateSnowCover(t, 2*k, 0.3, 0.7, 270, layerSeed(w))
 		return
 	}
 	pack := snowpackFor(w, c)
@@ -204,7 +216,7 @@ func runSnowLayer(w *world.World, c *layerCache) {
 			cell := &t.Cells[x][z]
 			gx, gz := t.GradientAt(x, z)
 			swe, recent := pack.At(day, w.BaseAltitude+cell.GroundElevation, gx, gz, shade[x*t.Height+z])
-			d := min(drift.at(x, z, f.elevFrac(cell.GroundElevation)), maxDrift)
+			d := min(drift.at(x, z, f.elevFrac(cell.GroundElevation)), maxDrift) * k
 			cell.Base = (swe - recent) * d
 			cell.Top = world.SnowLayer{}
 			if recent > 0 {

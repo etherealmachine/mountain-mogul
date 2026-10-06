@@ -10,9 +10,10 @@ import (
 // import. The lowest imported point becomes height 0 and its altitude the
 // world's BaseAltitude. The surveyed ground is kept as the world's
 // TerrainBase, and the terrain is that base with every layer applied
-// except those listed in off. The returned stack holds each layer's
-// output, for switching layers afterwards.
-func BuildWorld(res *ImportResult, off []string, progress func(layer string)) (*world.World, *LayerStack, error) {
+// except those listed in off, at the strengths given (by ID; missing is
+// the default). The returned stack holds each layer's output, for
+// switching layers afterwards.
+func BuildWorld(res *ImportResult, off []string, strengths map[string]float32, progress func(layer string)) (*world.World, *LayerStack, error) {
 	rows := len(res.Cells)
 	if rows == 0 || len(res.Cells[0]) == 0 {
 		return nil, nil, fmt.Errorf("import has no cells")
@@ -29,10 +30,14 @@ func BuildWorld(res *ImportResult, off []string, progress func(layer string)) (*
 	base := &world.TerrainBase{
 		Geo:           world.GeoBounds{MinLat: b.MinLat, MaxLat: b.MaxLat, MinLon: b.MinLon, MaxLon: b.MaxLon},
 		Roads:         baseRoads(res.Roads),
+		Lifts:         baseLifts(res.Lifts),
+		Runs:          baseRuns(res.Runs),
+		Areas:         baseAreas(res.Areas),
 		RoadNote:      res.RoadNote,
 		LidarCoverage: res.LidarCoverage,
 		LidarNote:     res.LidarNote,
 		LayersOff:     off,
+		Strengths:     strengths,
 	}
 	if res.Detail != nil {
 		base.W, base.H, base.Detail = res.DetailW, res.DetailH, true
@@ -58,7 +63,7 @@ func BuildWorld(res *ImportResult, off []string, progress func(layer string)) (*
 		}
 	}
 	stack := NewLayerStack(base)
-	if err := ApplyHeights(t, base, stack.Run(off, progress)); err != nil {
+	if err := ApplyHeights(t, base, stack.Run(Settings(base), progress)); err != nil {
 		return nil, nil, err
 	}
 	w := world.NewWorld(t)

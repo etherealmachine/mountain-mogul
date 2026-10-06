@@ -87,23 +87,51 @@ type ClimateData struct {
 // TerrainBaseData is world.TerrainBase. Geo is [minLat, maxLat, minLon,
 // maxLon]; Heights is TerrainBase.HeightsBytes.
 type TerrainBaseData struct {
-	Geo           []float64      `json:"geo"`
-	W             int            `json:"w"`
-	H             int            `json:"h"`
-	Detail        bool           `json:"detail,omitempty"`
-	Heights       []byte         `json:"heights"`
-	Roads         []BaseRoadData `json:"roads,omitempty"`
-	RoadNote      string         `json:"road_note,omitempty"`
-	LidarCoverage float32        `json:"lidar,omitempty"`
-	LidarNote     string         `json:"lidar_note,omitempty"`
-	LayersOff     []string       `json:"off,omitempty"`
+	Geo           []float64          `json:"geo"`
+	W             int                `json:"w"`
+	H             int                `json:"h"`
+	Detail        bool               `json:"detail,omitempty"`
+	Heights       []byte             `json:"heights"`
+	Roads         []BaseRoadData     `json:"roads,omitempty"`
+	RoadNote      string             `json:"road_note,omitempty"`
+	LidarCoverage float32            `json:"lidar,omitempty"`
+	LidarNote     string             `json:"lidar_note,omitempty"`
+	LayersOff     []string           `json:"off,omitempty"`
+	Strengths     map[string]float32 `json:"strength,omitempty"`
+	Lifts         []BaseLiftData     `json:"lifts,omitempty"`
+	Runs          []BaseRunData      `json:"runs,omitempty"`
+	Areas         []BaseAreaData     `json:"areas,omitempty"`
 }
 
 // BaseRoadData is world.BaseRoad, its path as flat lat, lon pairs.
 type BaseRoadData struct {
+	Name   string    `json:"name,omitempty"`
+	Kind   string    `json:"kind,omitempty"`
 	Width  float32   `json:"w"`
 	Tunnel bool      `json:"tunnel,omitempty"`
 	Path   []float64 `json:"path"`
+}
+
+// BaseLiftData is world.BaseLift, its path as flat lat, lon pairs.
+type BaseLiftData struct {
+	Name  string    `json:"name,omitempty"`
+	Kind  string    `json:"kind"`
+	Seats int       `json:"seats,omitempty"`
+	Path  []float64 `json:"path"`
+}
+
+// BaseRunData is world.BaseRun, its path as flat lat, lon pairs.
+type BaseRunData struct {
+	Name       string    `json:"name,omitempty"`
+	Difficulty string    `json:"diff,omitempty"`
+	Area       bool      `json:"area,omitempty"`
+	Path       []float64 `json:"path"`
+}
+
+// BaseAreaData is world.BaseArea, each path as flat lat, lon pairs.
+type BaseAreaData struct {
+	Name  string      `json:"name,omitempty"`
+	Paths [][]float64 `json:"paths"`
 }
 
 // ClimateMonthData is world.ClimateMonth.

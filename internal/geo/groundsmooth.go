@@ -16,9 +16,10 @@ const (
 )
 
 // SmoothGround blurs the w × ht lattice h (spacing metres apart) in
-// place, sparing steep rock.
-func SmoothGround(h []float32, w, ht int, spacing float64) {
-	r := max(int(math.Round(groundSmoothRadius/spacing)), 1)
+// place, sparing steep rock. radius scales groundSmoothRadius, and
+// amount (0–1) is how far the ground moves towards the blur.
+func SmoothGround(h []float32, w, ht int, spacing, radius, amount float64) {
+	r := max(int(math.Round(groundSmoothRadius*radius/spacing)), 1)
 	s := append([]float32(nil), h...)
 	for p := 0; p < groundSmoothPasses; p++ {
 		boxBlur(s, w, ht, r)
@@ -31,7 +32,7 @@ func SmoothGround(h []float32, w, ht int, spacing float64) {
 			gx := float64(s[j*w+i1]-s[j*w+i0]) / (float64(i1-i0) * spacing)
 			gz := float64(s[j1*w+i]-s[j0*w+i]) / (float64(j1-j0) * spacing)
 			slope := math.Atan(math.Hypot(gx, gz)) * 180 / math.Pi
-			keep := float32(smoothstep(groundRockFrom, groundRockTo, slope))
+			keep := 1 - float32(amount)*(1-float32(smoothstep(groundRockFrom, groundRockTo, slope)))
 			h[k] = s[k] + (h[k]-s[k])*keep
 		}
 	}

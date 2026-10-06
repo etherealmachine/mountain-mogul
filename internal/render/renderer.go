@@ -112,6 +112,9 @@ type Renderer struct {
 	fencePostVAO, fencePostVBO uint32
 	fencePostVertCount         int32 // fence post triangles (square vertical posts)
 
+	overlayVAO, overlayVBO uint32
+	overlayVertCount       int32 // the editor's map overlay: ribbons draped on the ground
+
 	weatherVAO uint32 // empty VAO for the full-screen-triangle weather pass
 
 	// WeatherOverlay controls the precipitation/sky overlay drawn after the
@@ -306,6 +309,17 @@ func NewRenderer(w, h int, assetDir string) (*Renderer, error) {
 	gl.GenBuffers(1, &r.fencePostVBO)
 	gl.BindVertexArray(r.fencePostVAO)
 	gl.BindBuffer(gl.ARRAY_BUFFER, r.fencePostVBO)
+	gl.EnableVertexAttribArray(0)
+	gl.VertexAttribPointerWithOffset(0, 3, gl.FLOAT, false, 24, 0)
+	gl.EnableVertexAttribArray(1)
+	gl.VertexAttribPointerWithOffset(1, 3, gl.FLOAT, false, 24, 12)
+	gl.BindVertexArray(0)
+
+	// Map overlay VAO/VBO — same vertex layout, drawn as triangles.
+	gl.GenVertexArrays(1, &r.overlayVAO)
+	gl.GenBuffers(1, &r.overlayVBO)
+	gl.BindVertexArray(r.overlayVAO)
+	gl.BindBuffer(gl.ARRAY_BUFFER, r.overlayVBO)
 	gl.EnableVertexAttribArray(0)
 	gl.VertexAttribPointerWithOffset(0, 3, gl.FLOAT, false, 24, 0)
 	gl.EnableVertexAttribArray(1)
@@ -1266,6 +1280,19 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		r.drawTerrain(r.TerrainShader, vp)
 	}
 
+	// Map overlay — right on the terrain, tested against its depth but
+	// not writing any, so roads, parking, buildings, lifts, and ghosts
+	// drawn after it all sit on top.
+	if r.overlayVertCount > 0 && r.DebugShader != nil {
+		r.DebugShader.Use()
+		r.DebugShader.SetMat4("uViewProj", vp)
+		gl.DepthMask(false)
+		gl.BindVertexArray(r.overlayVAO)
+		gl.DrawArrays(gl.TRIANGLES, 0, r.overlayVertCount)
+		gl.BindVertexArray(0)
+		gl.DepthMask(true)
+	}
+
 	// Static pass
 	r.StaticShader.Use()
 	light.apply(r.StaticShader)
@@ -1893,6 +1920,20 @@ func (r *Renderer) SetFencePostVerts(verts []float32) {
 	r.fencePostVertCount = int32(len(verts) / 6)
 }
 
+// SetOverlayVerts uploads the editor's map overlay: flat-shaded
+// triangles, each vertex pos(xyz) + color(rgb) = 6 floats. Pass nil to
+// clear.
+func (r *Renderer) SetOverlayVerts(verts []float32) {
+	if len(verts) == 0 {
+		r.overlayVertCount = 0
+		return
+	}
+	gl.BindBuffer(gl.ARRAY_BUFFER, r.overlayVBO)
+	gl.BufferData(gl.ARRAY_BUFFER, len(verts)*4, gl.Ptr(verts), gl.DYNAMIC_DRAW)
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+	r.overlayVertCount = int32(len(verts) / 6)
+}
+
 // SetBrush configures the terrain shader brush ring.
 func (r *Renderer) SetBrush(center mgl32.Vec2, radius float32) {
 	r.brushCenter = center
@@ -2112,6 +2153,7 @@ func (r *Renderer) ResetSceneState() {
 	r.HighlightGuestID = 0
 	r.TerrainOverlayMode = 0
 	r.debugVertCount = 0
+	r.overlayVertCount = 0
 }
 
 // ScreenWidth returns the window's logical width in points (matches mouse coords).

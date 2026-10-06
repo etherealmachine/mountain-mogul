@@ -3,6 +3,7 @@ package scene
 import (
 	"context"
 	"fmt"
+	"maps"
 	"math"
 	"sync"
 	"time"
@@ -92,9 +93,7 @@ type ImportedTerrain struct {
 	Result *geo.ImportResult
 	World  *world.World
 	Layers *geo.LayerStack
-	// Took is how long each world layer took, by ID.
-	Took  map[string]time.Duration
-	cache layerCache
+	cache  layerCache
 }
 
 // TerrainImport is a full-screen scene for searching, previewing, and importing
@@ -104,9 +103,11 @@ type TerrainImport struct {
 	onImport func(ImportedTerrain)
 
 	// reopen, when set, starts on the map framed on this square instead
-	// of the search box. layersOff carries over which layers were off.
+	// of the search box. layersOff and strengths carry over which layers
+	// were off and how strong each was.
 	reopen    *world.GeoBounds
 	layersOff []string
+	strengths map[string]float32
 
 	// gridSize is the destination grid's side length. The selection
 	// square covers gridSize × importMetersPerCell metres of ground;
@@ -196,12 +197,13 @@ func NewTerrainImport(initialGridSize int, onImport func(ImportedTerrain)) *Terr
 }
 
 // NewTerrainReimport opens the import on base's square, at the map's
-// grid size, keeping which layers were off.
+// grid size, keeping which layers were off and their strengths.
 func NewTerrainReimport(gridSize int, base *world.TerrainBase, onImport func(ImportedTerrain)) *TerrainImport {
 	t := NewTerrainImport(gridSize, onImport)
 	g := base.Geo
 	t.reopen = &g
 	t.layersOff = append([]string(nil), base.LayersOff...)
+	t.strengths = maps.Clone(base.Strengths)
 	return t
 }
 
@@ -756,7 +758,7 @@ func (t *TerrainImport) startFetch() {
 	minLat, maxLon := t.screenLatLon(sx1, sy1, sw, sh)
 	bounds := geo.Bounds{MinLat: minLat, MaxLat: maxLat, MinLon: minLon, MaxLon: maxLon}
 	n := t.gridSize
-	off := t.layersOff
+	off, strengths := t.layersOff, t.strengths
 
 	ctx, cancel := context.WithCancel(context.Background())
 	j := &tiJob{cancel: cancel}
@@ -771,13 +773,13 @@ func (t *TerrainImport) startFetch() {
 			j.finish(err)
 			return
 		}
-		w, stack, err := geo.BuildWorld(res, off, func(layer string) { j.setStage(layer, 0) })
+		w, stack, err := geo.BuildWorld(res, off, strengths, func(layer string) { j.setStage(layer, 0) })
 		if err != nil {
 			j.finish(err)
 			return
 		}
 		imp := &ImportedTerrain{Result: res, World: w, Layers: stack}
-		imp.Took = dressWorld(w, &imp.cache, func(name string) { j.setStage(name, 0) })
+		dressWorld(w, &imp.cache, func(name string) { j.setStage(name, 0) })
 		j.mu.Lock()
 		j.imported = imp
 		j.mu.Unlock()

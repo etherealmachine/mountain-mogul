@@ -24,8 +24,9 @@ func TestLayerStackReusesAndRepeats(t *testing.T) {
 	s := NewLayerStack(base)
 	var ran []string
 	record := func(name string) { ran = append(ran, name) }
+	off := func(ids ...string) []Setting { return Settings(&world.TerrainBase{LayersOff: ids}) }
 
-	all := slices.Clone(s.Run(nil, record))
+	all := slices.Clone(s.Run(off(), record))
 	if !slices.Equal(ran, []string{"Smooth ground", "Erode"}) {
 		t.Fatalf("first run ran %v; want smooth and erode (no roads here)", ran)
 	}
@@ -34,12 +35,12 @@ func TestLayerStackReusesAndRepeats(t *testing.T) {
 	}
 
 	ran = nil
-	noErode := slices.Clone(s.Run([]string{"erode"}, record))
+	noErode := slices.Clone(s.Run(off("erode"), record))
 	if len(ran) != 0 {
 		t.Errorf("switching off the last layer reran %v", ran)
 	}
 	ran = nil
-	again := s.Run(nil, record)
+	again := s.Run(off(), record)
 	if !slices.Equal(ran, []string{"Erode"}) {
 		t.Errorf("switching erode back on ran %v; want only Erode", ran)
 	}
@@ -48,7 +49,7 @@ func TestLayerStackReusesAndRepeats(t *testing.T) {
 	}
 
 	ran = nil
-	none := s.Run([]string{"roads", "smooth", "erode"}, record)
+	none := s.Run(off("roads", "smooth", "erode"), record)
 	if len(ran) != 0 || !slices.Equal(none, base.Heights) {
 		t.Error("all layers off should give the base unchanged")
 	}

@@ -20,8 +20,8 @@ func testHills(w, h int) []float32 {
 func TestErodeDeterministicAndCuts(t *testing.T) {
 	const w, h = 300, 300
 	a, b := testHills(w, h), testHills(w, h)
-	Erode(a, w, h, 1.25, 7)
-	Erode(b, w, h, 1.25, 7)
+	Erode(a, w, h, 1.25, 1, 1, 7)
+	Erode(b, w, h, 1.25, 1, 1, 7)
 	orig := testHills(w, h)
 	var moved, net float64
 	for k := range a {
@@ -55,7 +55,7 @@ func TestSmoothGroundSparesRock(t *testing.T) {
 			}
 		}
 	}
-	SmoothGround(v, w, h, 1.25)
+	SmoothGround(v, w, h, 1.25, 1, 1)
 	bump := 0.0
 	for j := 10; j < 70; j++ {
 		for i := 10; i < 25; i++ {

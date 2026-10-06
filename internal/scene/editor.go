@@ -81,6 +81,7 @@ type Editor struct {
 	suppressBrushUntilRelease bool // set when a brush tool is activated via toolbar click; cleared on mouse-up
 	pendingScreenshot         bool
 	layers                    layersPanel
+	osm                       osmOverlay
 }
 
 // NewEditor creates an Editor scene loading from the given path. An empty
@@ -1122,7 +1123,7 @@ func (e *Editor) applyImportedTerrain(imp ImportedTerrain, r *render.Renderer) {
 	}
 	e.markDirty()
 	e.world = w
-	e.layers.stack, e.layers.job, e.layers.worldTook = imp.Layers, nil, imp.Took
+	e.layers.stack, e.layers.job = imp.Layers, nil
 	e.layerCache = imp.cache
 	if opening {
 		e.layerCache.pack = nil // for the new season
@@ -1161,6 +1162,7 @@ func (e *Editor) applyImportedTerrain(imp ImportedTerrain, r *render.Renderer) {
 	e.activeTool = toolNone
 	e.parcelBoundaryDirty = true
 	e.syncToolButtons()
+	e.osm.built = time.Time{}
 
 	r.ResetSceneState()
 	r.BuildTerrainMesh(t)
@@ -1810,6 +1812,8 @@ func (e *Editor) Render(r *render.Renderer) {
 		r.ClearBrush()
 	}
 
+	e.updateOSMOverlay(r)
+
 	r.WeatherOverlay = 0
 	r.CanopySnow = 0
 	r.Lighting = render.DefaultLighting
@@ -1819,7 +1823,7 @@ func (e *Editor) Render(r *render.Renderer) {
 	// Re-anchor before draw so menuBar.Y matches the live screen height.
 	e.menuBar.Y = float32(r.ScreenHeight()) - e.menuBar.H
 	e.overlayPanel.Bottom = float32(r.ScreenHeight()) - e.menuBar.H
-	edDrawables := []render.UIDrawable{e.topBar, e.startDate, e.menuBar, e.overlayPanel}
+	edDrawables := []render.UIDrawable{uiDrawFunc(e.drawOSMLabels), e.topBar, e.startDate, e.menuBar, e.overlayPanel}
 	if e.layers.open {
 		edDrawables = append(edDrawables, uiDrawFunc(func(r *render.Renderer) { e.drawLayersPanel(r, e.startDate.y+e.startDate.h) }))
 	}

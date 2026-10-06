@@ -67,7 +67,7 @@ func main() {
 	}
 	fmt.Printf("%6.1fs fetched: lidar %.0f%% %s, %d roads %s, climate %s\n", time.Since(start).Seconds(),
 		100*res.LidarCoverage, res.LidarNote, len(res.Roads), res.RoadNote, res.ClimateNote)
-	w, _, err := geo.BuildWorld(res, off, stage)
+	w, _, err := geo.BuildWorld(res, off, nil, stage)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "import:", err)
 		os.Exit(1)

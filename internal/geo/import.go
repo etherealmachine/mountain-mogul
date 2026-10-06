@@ -41,6 +41,11 @@ type ImportResult struct {
 	// RoadNote says why there are none.
 	Roads    []Road
 	RoadNote string
+	// Lifts, Runs and Areas are the OpenStreetMap ski features in
+	// Bounds, for the editor's overlay.
+	Lifts []SkiLift
+	Runs  []SkiRun
+	Areas []SkiAreaOutline
 }
 
 // ImportProgress reports a stage name and how far through it the import is.
@@ -104,17 +109,18 @@ func ImportTerrain(ctx context.Context, b Bounds, cols, rows, detailPerCell int,
 		res.Cells = cellsFromLattice(heights, dw, dh, cols, rows, detailPerCell)
 	}
 
-	report("Fetching roads", 0)
-	osm, err := FetchOSM(ctx, b, OSMRoads)
+	report("Fetching OpenStreetMap", 0)
+	osm, err := FetchOSM(ctx, b, OSMRoads|OSMSki)
 	switch {
 	case ctx.Err() != nil:
 		return nil, ctx.Err()
 	case err != nil:
 		res.RoadNote = "couldn't fetch roads: " + err.Error()
-	case len(osm.Roads) == 0:
-		res.RoadNote = "no roads mapped here"
 	default:
-		res.Roads = osm.Roads
+		res.Roads, res.Lifts, res.Runs, res.Areas = osm.Roads, osm.Lifts, osm.Runs, osm.Areas
+		if len(osm.Roads) == 0 {
+			res.RoadNote = "no roads mapped here"
+		}
 	}
 
 	report("Fetching climate", 0)

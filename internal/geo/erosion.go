@@ -33,8 +33,9 @@ const (
 const erodeTile = 256
 
 // Erode runs droplet erosion over the w × ht lattice h, spacing metres
-// apart, in place. seed makes it repeatable.
-func Erode(h []float32, w, ht int, spacing float64, seed int64) {
+// apart, in place. drops and depth scale erodeDropsPerSample and
+// erodeCapacity. seed makes it repeatable.
+func Erode(h []float32, w, ht int, spacing, drops, depth float64, seed int64) {
 	brush := erosionBrush(erodeBrush)
 	tw, th := (w+erodeTile-1)/erodeTile, (ht+erodeTile-1)/erodeTile
 	for phase := 0; phase < 4; phase++ {
@@ -57,11 +58,11 @@ func Erode(h []float32, w, ht int, spacing float64, seed int64) {
 					x0, y0 := ti*erodeTile, tj*erodeTile
 					x1, y1 := min(x0+erodeTile, w-1), min(y0+erodeTile, ht-1)
 					rng := rand.New(rand.NewSource(seed + int64(t)*7919))
-					drops := int(float64((x1-x0)*(y1-y0)) * erodeDropsPerSample)
-					for d := 0; d < drops; d++ {
+					n := int(float64((x1-x0)*(y1-y0)) * erodeDropsPerSample * drops)
+					for d := 0; d < n; d++ {
 						x := float64(x0) + rng.Float64()*float64(x1-x0)
 						y := float64(y0) + rng.Float64()*float64(y1-y0)
-						erodeDrop(h, w, ht, spacing, x, y, brush)
+						erodeDrop(h, w, ht, spacing, erodeCapacity*depth, x, y, brush)
 					}
 				}
 			}()
@@ -114,7 +115,7 @@ func heightGrad(h []float32, w int, x, y float64) (hgt, gx, gy float64) {
 	return
 }
 
-func erodeDrop(h []float32, w, ht int, spacing, x, y float64, brush []brushTap) {
+func erodeDrop(h []float32, w, ht int, spacing, capacityK, x, y float64, brush []brushTap) {
 	var dx, dy, sediment float64
 	speed, water := 1.0, 1.0
 	for life := 0; life < erodeLifetime; life++ {
@@ -135,7 +136,7 @@ func erodeDrop(h []float32, w, ht int, spacing, x, y float64, brush []brushTap) 
 		nh, _, _ := heightGrad(h, w, nx, ny)
 		dh := nh - hgt
 
-		capacity := math.Max(-dh/spacing, erodeMinSlope) * speed * water * erodeCapacity
+		capacity := math.Max(-dh/spacing, erodeMinSlope) * speed * water * capacityK
 		if sediment > capacity || dh > 0 {
 			drop := (sediment - capacity) * erodeDeposit
 			if dh > 0 {
