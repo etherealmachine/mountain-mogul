@@ -231,6 +231,9 @@ type World struct {
 	Goals        []Goal
 	Rules        []string
 	GoalProgress []GoalProgress
+	Outcome      Outcome
+	// OutcomeDay is the day index the scenario was won or lost.
+	OutcomeDay int
 
 	// Rating is the resort rating, 0–1: a running average of departing
 	// guests' satisfaction (sim.DemandSystem), shown as the HUD's heart.

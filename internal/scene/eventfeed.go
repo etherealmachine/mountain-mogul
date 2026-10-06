@@ -28,6 +28,8 @@ func eventKindTint(k world.EventKind) mgl32.Vec4 {
 		return mgl32.Vec4{1.00, 0.82, 0.20, 1} // coin gold, matches the top-bar cash icon
 	case world.EventGuestsTurnedAway:
 		return mgl32.Vec4{0.90, 0.45, 0.35, 1}
+	case world.EventGoal, world.EventScenario:
+		return mgl32.Vec4{0.55, 0.85, 1.00, 1}
 	}
 	return mgl32.Vec4{0.65, 0.70, 0.80, 1} // day summary and unknown kinds
 }

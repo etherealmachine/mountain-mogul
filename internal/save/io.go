@@ -594,6 +594,8 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		Goals:        goalsToData(w.Goals),
 		Rules:        w.Rules,
 		GoalProgress: progressToData(w.GoalProgress),
+		Outcome:      uint8(w.Outcome),
+		OutcomeDay:   w.OutcomeDay,
 
 		CreditLimit:     &w.CreditLimit,
 		AccruedInterest: w.AccruedInterest,
@@ -821,9 +823,11 @@ func dataToWorld(data ScenarioData) *world.World {
 	for _, p := range data.GoalProgress {
 		w.GoalProgress = append(w.GoalProgress, world.GoalProgress{Met: p.Met, MetDay: p.MetDay, Streak: p.Streak, Best: p.Best, Failed: p.Failed})
 	}
+	w.Outcome, w.OutcomeDay = world.Outcome(data.Outcome), data.OutcomeDay
 	// Progress follows the goals: an edited scenario's goal list wins.
 	if len(w.GoalProgress) != len(w.Goals) {
 		w.GoalProgress = make([]world.GoalProgress, len(w.Goals))
+		w.Outcome, w.OutcomeDay = world.Playing, 0
 	}
 	if data.CreditLimit != nil {
 		w.CreditLimit = *data.CreditLimit

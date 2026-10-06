@@ -86,6 +86,8 @@ type ScenarioData struct {
 	Goals        []GoalData         `json:"goals,omitempty"`
 	Rules        []string           `json:"rules,omitempty"`
 	GoalProgress []GoalProgressData `json:"goal_progress,omitempty"`
+	Outcome      uint8              `json:"outcome,omitempty"`
+	OutcomeDay   int                `json:"outcome_day,omitempty"`
 	Camera       *CameraData        `json:"camera,omitempty"`
 	History      *HistoryData       `json:"history,omitempty"`
 	Events       []EventData        `json:"events,omitempty"`

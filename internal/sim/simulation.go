@@ -720,6 +720,7 @@ func (s *Simulation) maybeSampleHistory() {
 		}
 		w.History.Push(sample)
 		s.logDaySummary(sample)
+		s.checkGoals(dayIdx, sample)
 		s.lastSampledDay++
 
 		// Advance weather for the new day and apply terrain effects.

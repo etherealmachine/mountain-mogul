@@ -52,6 +52,17 @@ type GoalProgress struct {
 	Failed bool // its deadline passed before it was met
 }
 
+// Outcome is how the scenario stands: still playing, won (every required
+// goal met; play carries on as a sandbox), or lost (a required goal's
+// deadline passed, or bankruptcy).
+type Outcome uint8
+
+const (
+	Playing Outcome = iota
+	Won
+	Lost
+)
+
 // Rule names, the switches a scenario can set.
 const (
 	RuleNoGrooming = "no_grooming"
@@ -72,9 +83,9 @@ func (g Goal) Describe() string {
 	var s string
 	switch g.Kind {
 	case GoalLiftsOpen:
-		s = fmt.Sprintf("Have %d lifts open at the end of a day", int(g.Target))
+		s = fmt.Sprintf("Have %s open at the end of a day", plural(int(g.Target), "lift"))
 	case GoalGuestsInDay:
-		s = fmt.Sprintf("Welcome %s guests in one day", commaInt(int(g.Target)))
+		s = fmt.Sprintf("Welcome %s in one day", plural(int(g.Target), "guest"))
 	case GoalRating:
 		s = fmt.Sprintf("Keep the rating at %d%% or better", int(g.Target*100+0.5))
 		if g.Days > 1 {
@@ -96,6 +107,14 @@ func (g Goal) Describe() string {
 		s += fmt.Sprintf(" within season %d", g.Season)
 	}
 	return s
+}
+
+// plural is n and noun, with an s unless n is 1, e.g. "3 lifts".
+func plural(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return commaInt(n) + " " + noun + "s"
 }
 
 // commaInt formats n with thousands separators.
