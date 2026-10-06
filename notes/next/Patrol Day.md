@@ -1,0 +1,53 @@
+---
+title: Patrol Day
+kind: plan
+status: in progress
+---
+
+# Patrol Day
+
+Ski patrol as a working day rather than a snowmobile parked at a door: patrollers fetch snowmobiles from the garage in the morning and park them by the patrol room, answer an injury by the fastest way there (snowmobile over snow, or a lift and their skis), and bring the guest down by snowmobile or toboggan. Injuries become rare and abandonment rarer, and how long help took counts toward the guest's day. Part of fixing how services work ([[Next Steps]] priority 2); builds on [[Building Services]] and [[Ski Patrol]].
+
+## Why
+
+Diagnosed on 2026-10-06 (the "Patrol never rescues anyone" bug in [[Next Steps]]): a snowmobile won't move on bare ground (`noSnowUnderfoot`), and patrollers wait just outside their door on the plowed pad, so a patroller claims an injury, sits "en route" without moving, and the guest gives up after 90 seconds. The drop-off (the patrol door, before that the parking lot) is plowed bare too, so a patroller who got out could never arrive. Nothing reported it: the patroller's state read "en route" the whole time. Separately, a 90-second wait is far too short (a patroller covers about a kilometre in that time), and the headless three-lift [[Boreal]] run had about three injuries per visit.
+
+## Decisions
+
+Made with the user on 2026-10-06:
+
+- **Snowmobiles live in the garage** and are bought like snowcats: garage tiles are bays, and the garage popup buys and sells both. Cats stop coming free with garage tiles.
+- **Patrollers pick up a snowmobile in the morning** at the garage and park it near the patrol room; they bring it back at close.
+- **Patrollers can ride a lift and ski down** to an injured guest.
+- **The fastest way wins**: snowmobile (over snow) or walk, lift, and ski, whichever reaches the guest sooner; no free snowmobile means skis.
+- **A skiing patroller brings the guest down in a toboggan.**
+- **An injured guest waits a long time** so abandonment is really rare, as in reality: first an hour, then (once lift-and-ski response showed a lift ride alone takes one to two clock hours) ten minutes of movement, about 3.3 hours on the clock.
+- **Injuries should be rare**: most falls are just falls, and even beginners who get hurt usually make it down on their own.
+- **Response time will count toward satisfaction.**
+
+## Steps
+
+1. Done: **Fewer, longer-waiting injuries.** A seriously hurt guest waits 600 sim seconds, ten minutes of movement and about 3.3 hours on the clock (which runs 20 times faster than sim seconds, see [[Calendar]]; the old 90 s wait was half an hour). It was first set to one clock hour; step 4 showed that's shorter than a lift ride. Falls, tree hits, and avalanches share one injury roll (`Simulation.injure`): a fall injures at most 0.6% of the time (scaled by speed and slope, about 0.15% for a gentle tumble) and 30% of those are serious; a tree hit injures up to 15% of the time at speed, 60% serious; an avalanche still injures 70% of those it catches, always seriously. A minor injury lets the guest get up and head home to their car ("I tweaked something, calling it a day", −0.15). Measured on Boreal with one lift, three trails, and a lodge (two days, about 370 visits): serious injuries 29–37 per thousand visits (was about 3,000), minor 48–74. Still above the target of about two serious per thousand because guests fall about 12 times a visit, roughly six times too often: that's the separate falls item, and fixing it should bring injuries down with it.
+2. Done: **Garage space.** What a garage can hold comes from its floor space, the way a service's capacity comes from its tiles: a snowcat (about 9 × 6.5 m with blade and tiller, plus room to work around it) needs 4 garage tiles (a 10 × 10 m square), and a garage tile holds 2 snowmobiles (about 3.2 × 1.2 m each). Only the ground floor counts; a lodge's upper storeys add no vehicle space. The garage popup shows the space used ("Space: 7 of 8 tiles") and buys and sells snowcats and snowmobiles, with Buy greyed out and saying why when the vehicle won't fit ("needs 4 free tiles"). Garage tiles can't be removed while vehicles fill them; sell first. Cats stop coming free with tiles. A snowmobile costs $15,000; different qualities at different prices can come later. Vehicles are saved with their garage (`snowmobiles` in the save). Built in `internal/world/garage.go`: space is counted in half-tiles; selling refunds half the price; a garage tile now costs $15,000 (the floor and doors) since vehicles are bought separately; loading drops vehicles that no longer fit. Snowmobiles sit inside, not drawn, until step 3 takes them out; cats still park outside the garage door. Checked headless: a 6-tile garage takes one cat and four snowmobiles, then refuses a second cat and refuses to give up a tile; all reload.
+3. Done: **The patrol morning.** Patrollers start off duty in the patrol room. When the resort's day starts they walk (the guests' pathfinder, 1.3 m/s) to the nearest garage with a free snowmobile, claim it, roll it out, and park it on the nearest snow-covered, walkable cell to the patrol door (within 60 m); then they're on duty inside. An injury sends one out: a walk to the snowmobile, a drive to the guest, four seconds loading, and the drive back to the snowmobile's spot (first aid), where the guest heads home to their car. Patrol stays on duty after close until the last guest is off the mountain (the sweep), then puts the snowmobiles away and walks in. A patroller without a snowmobile waits on duty but can't answer a call until step 4. Changed from the plan: a snowmobile crawls over bare ground at 2 m/s instead of refusing it (12 m/s on snow), since the garage apron and patrol pad are plowed. Drawn: snowmobiles out of their garage (red on a call), patrollers on foot as walkers in patrol red; nobody indoors. Saved: each patroller's state, snowmobile, target, and destination, and each snowmobile's garage, whether it's inside, and who has it. Checked on Boreal: the shift starts at 8:30, a rescue 300 m up the hill runs from 11:03 to 11:47, the snowmobile goes back at close; over two days with two patrollers and two snowmobiles, 14 serious injuries and 14 rescues, none abandoned (before the sweep, six were abandoned after 16:00 with patrol already off duty).
+4. Done: **The fastest way.** An on-duty patroller takes the nearest injury nobody is helping that they can reach, and goes the quicker way: to their snowmobile and over the snow (estimated from the straight-line distance, crawling where it's bare), or walking to a running lift, riding it to the top with no queue, and skiing straight down to the guest at 8 m/s (only lifts that top out above the guest). No snowmobile means skis; lifts run only in opening hours, so after close only snowmobiles respond. Changed from the plan: skiing patrollers glide in a straight line at a steady speed instead of skiing as guests do (their controller is built around guests' plans and balance); real skiing can come later.
+5. Done: **Bringing them down.** By snowmobile to its spot by the patrol room, or by toboggan: the patroller skis the guest straight down to the same spot at 4 m/s (1 m/s off the snow). If the guest is gone when a skiing patroller arrives, they ski back. Patrollers on a lift or skis are drawn as skiers in patrol red, riding 8 m above the lift line. Saved: whether they're on skis, the lift, and how far up it they are. Checked on Boreal: with one snowmobile and two patrollers, two injuries at once go one by snowmobile (first aid 34 clock minutes later) and one by lift and skis (ride 11:27–13:03, toboggan in at 14:03). Two days with two snowmobiles: 14 serious injuries, 14 rescued. With none: 4 rescued, 6 abandoned, five of them hurt after the lifts stopped, which makes snowmobiles the way to cover the end-of-day sweep. That run also showed guests still skiing two to three hours after the lifts close.
+6. **Response time and the guest's day.** How long help took becomes a thought and counts toward [[Satisfaction]] and the rating; the event feed says how long a rescue took.
+
+## Open questions
+
+- Whether 4 tiles a cat and 2 snowmobiles a tile feel right in play.
+- Vehicle qualities at different prices (later).
+- Whether patrollers patrol (ski the trails) between calls, or wait at the patrol room.
+- How skiing patrollers route: the guests' trail graph, or straight downhill with their own skill.
+- What a guest does in the hour they wait: thoughts, cold, a worsening rating.
+- Patrollers per snowmobile: one each, or shared.
+
+## Log
+
+- 2026-10-06: Planned with the user after diagnosing why patrol never rescues anyone.
+- 2026-10-06: Step 1: one injury roll with serious and minor outcomes, an hour's wait; serious injuries down from about 3,000 to 36 per thousand visits on Boreal, the rest waiting on the falls fix.
+- 2026-10-06: Step 2 made concrete with the user: garage space from floor area, 4 tiles a snowcat (square) and 2 snowmobiles a tile, ground floor only; a snowmobile $15,000.
+- 2026-10-06: Step 2: garage space (4 tiles a snowcat, 2 snowmobiles a tile), buying and selling in the garage popup, snowmobiles saved.
+- 2026-10-06: Step 3: the patrol morning, response by snowmobile from its parked spot, and the end-of-day sweep; snowmobiles crawl over bare ground. Fixed step 1's wait (it was 20 clock hours, not one). Patrol now rescues every serious injury on the Boreal rig.
+- 2026-10-06: Steps 4–5: response by snowmobile or by lift and skis, whichever is faster, and toboggans; the wait became ten minutes of movement (about 3.3 clock hours) once a lift ride proved longer than an hour on the clock.

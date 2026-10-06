@@ -14,10 +14,9 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 
 In the order to work on them:
 
-1. [[Rotated Buildings]]: buildings on a 5 m grid in their own rotated frame, still painted tile by tile, in three kinds (shed, tent, lodge up to three storeys). Done: old forms dropped from saves; the rotated grid; shed, tent, and lodge (with lodge storeys). Next: rebuild Boreal's buildings (now that [[Building Services]] is in).
-2. **Fix how services work**: the investigate-and-report items under Bugs and Guests (patrol, grooming, thirst, exhaustion, falls), in the new service model.
+1. **Fix how services work**: the investigate-and-report items under Bugs and Guests (patrol, grooming, thirst, exhaustion, falls), in the new service model. Patrol is diagnosed and planned as [[Patrol Day]] (steps 1–5 done: rarer injuries with a ten-minute wait, garage space, the patrol morning, snowmobile or lift-and-ski response, toboggans; patrol rescues again; step 6, response time in satisfaction, is left); grooming, thirst, exhaustion, and falls are next to diagnose.
 
-Then: **gameplay before scenario goals**. A headless three-lift Boreal (2026-10-06) runs about 70 guests a day with the rating stuck near 30%, so goals can't be set until guests can have a good day. Priority 2 covers the investigate-and-report items; then the guest pool per scenario ([[First Week Balance]]). [[Scenario Goals and Rules]] steps 1–4 shipped and are tabled until then.
+Then: **gameplay before scenario goals**. A headless three-lift Boreal (2026-10-06) runs about 70 guests a day with the rating stuck near 30%, so goals can't be set until guests can have a good day. Priority 1 covers the investigate-and-report items; then the guest pool per scenario ([[First Week Balance]]). [[Scenario Goals and Rules]] steps 1–4 shipped and are tabled until then.
 
 Not ranked yet: everything below.
 
@@ -25,7 +24,7 @@ Not ranked yet: everything below.
 
 Found 2026-10-06 in a headless three-lift [[Boreal]] (three lifts, a green, blue, and black trail, a lodge with tickets, food, bar, and lounge, a patrol hut and an equipment shed, 30 days, about 2,100 visits). Diagnose each first, report the cause, then fix:
 
-- **Patrol never rescues anyone**: every one of about 6,000 injuries also gave "no one came to help me", with a patrol hut placed beside the lift base ([[Ski Patrol]]). Could be the hut placement in the test, patrollers that can't path, or a real bug. A lead (2026-10-06): a snowmobile stops on bare ground (`noSnowUnderfoot`), and the drop-off point (then a parking lot, now the patrol door) is plowed bare, so a patroller carrying a patient may never arrive. Retest with patrol as a service.
+- **Patrol never rescues anyone**: every one of about 6,000 injuries also gave "no one came to help me", with a patrol hut placed beside the lift base ([[Ski Patrol]]). Could be the hut placement in the test, patrollers that can't path, or a real bug. A lead (2026-10-06): a snowmobile stops on bare ground (`noSnowUnderfoot`), and the drop-off point (then a parking lot, now the patrol door) is plowed bare, so a patroller carrying a patient may never arrive. Diagnosed 2026-10-06: confirmed, and the drop-off has the same problem; fixed by [[Patrol Day]].
 - **No grooming shows**: with an equipment shed, no guest thought "this corduroy is perfect" in 30 days ([[Grooming]]). Could be the cat having no section or route in the test, or a real bug.
 
 ## Scenarios and campaign ([[Scenarios]], [[Scenario Campaign]])
@@ -83,7 +82,7 @@ Found 2026-10-06 in a headless three-lift [[Boreal]] (three lifts, a green, blue
 ## Guests ([[GOAP]], [[Satisfaction]], [[Guest Types]])
 
 - **Thirst and hunger repeat too often**: in the three-lift test, about 35 "I need something to drink" and 10 "I could really use a meal" thoughts per guest visit, with a bar and food court at the base ([[Satisfaction]]). Diagnose: guests not reaching the bar, needs falling too fast, or the thought repeating every tick.
-- **Everyone leaves exhausted**: almost every guest left on "I'm too tired to ski" (−0.15), so the day ends on a bad note even for a good visit. Diagnose whether energy drains too fast, or whether a normal end of day should leave on a neutral or happy thought instead.
+- **Everyone leaves exhausted**: almost every guest left on "I'm too tired to ski" (−0.15), so the day ends on a bad note even for a good visit. Diagnose whether energy drains too fast, or whether a normal end of day should leave on a neutral or happy thought instead. Also seen on the Boreal rig (2026-10-06): guests still skiing two to three hours after the lifts close.
 - **Falls**: about 3 falls and 3 injuries per guest visit on plain green, blue, and black trails. Check skill matching and fall rates ([[Skiing]]).
 - **Guest pool per scenario**: done through [[Transit]]: each road entry has its own guest pool, so a scenario's catchment is the sum of its entries' pools. Boreal has two entries totalling 100,000 guests, enough for about 3,000 a day at a perfect rating.
 - **What each skill wants**: beginners want rentals and easy terrain; intermediates want terrain plus food and places to rest; advanced skiers want terrain and no crowds. Feeds [[Demand]] and [[Satisfaction]]. *For* [[Kirkwood]].
@@ -106,6 +105,7 @@ Found 2026-10-06 in a headless three-lift [[Boreal]] (three lifts, a green, blue
 - **Lockers and ski school**: more base services; ski school *needs* staff.
 - **Footpaths**: painted paths between buildings, with guests walking skis-off. *For* [[Zermatt]].
 - **Ski racks**: where footpaths meet the snow. *Needs* footpaths.
+- [[Building Tool]]: build a shell first (Lodge, Tent, or Shed, dragged out as a ghost), then assign rooms in the building's panel; services leave the toolbar. Planned after the user found the mixed menu confusing.
 - **Lodge storeys and styles**: more storeys, a style choice, and a shuffle button.
 
 ## Staff
@@ -205,3 +205,7 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-06: [[Rotated Buildings]] step 3 shipped: shed, tent, and lodge, and lodge storeys.
 - 2026-10-06: [[Building Services]] shipped (registry, patrol and garage as services); fixing how services work is now priority 2.
 - 2026-10-06: Cross-linked staff (commutes, employee lots, housing) with [[Transit]] and [[Building Services]], and [[Lift Operations]] and [[Land and Boundaries]] with the building and service work.
+- 2026-10-06: Diagnosed the patrol bug (snowmobiles parked on bare ground never move); planned [[Patrol Day]] with the user.
+- 2026-10-06: [[Patrol Day]] steps 1–5 shipped. Noticed on the Boreal rig: guests still skiing two to three hours after the lifts close (may tie into the exhaustion item).
+- 2026-10-06: Planned [[Building Tool]] (shell first, then rooms), unranked.
+- 2026-10-06: [[Rotated Buildings]] done (Boreal rebuilt); fixing services is now priority 1.

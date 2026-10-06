@@ -1,7 +1,7 @@
 ---
 title: Rotated Buildings
 kind: plan
-status: in progress
+status: done
 ---
 
 # Rotated Buildings
@@ -32,13 +32,14 @@ Made with the user on 2026-10-06:
 1. Done: **Drop the legacy paths.** Loading skips lots without a rectangle, service buildings without tiles, and point-placed bars and ticket offices; the painted-lot conversion, the painted-interior (food-court cells) load, and the old-mesh conversion are gone, along with their tests. Placing a lodge, bar, or ticket office by a point (tests, testbeds, the editor's ticket office) still makes a small service building there. Boreal and Kirkwood had nothing in an old form, so neither file changed. The equipment shed and patrol hut are gone too (the user's call): no build tools in the game or editor, the game's Operations menu with them, and saved ones (with their cats and patrollers) are skipped on load. They come back as services in [[Building Services]]; until then nothing grooms and nobody patrols. The snowcat and patrol sims stay, ready to hang off those services, and testbeds can still place a shed.
 2. Done: **The rotated frame.** A service building has an `Origin` and `Rotation`; its `Cells`, `Tiles`, and `Doors` are in its own 5 m grid, and `Ground` is the map cells under it (a map cell counts when its centre, or a point 1.5 m in from a corner, is on a tile). Walls, roofs, and doors resolve in the grid and are placed in the world turned with it. Ground drives walking, grading, plowing, overlap, the trail graph, and doors (a door opens onto the map cell in front of it). In the game's Amenities tools a new building lines up with the nearest road or parking lot within 120 m (R turns it); clicks are ray-picked in each building's own grid, and a tile is legal when every map cell it would cover is owned, walkable, and free. Lots moved onto the same `Ground` field. Saves carry `ox`, `oz` and the rotation for each service building.
 3. Done: **Shed, tent, and lodge.** `world.ShellKind` on each service building (saved as `kind`, with `storeys`). The Amenities menu has Lodge, Tent, and Shed buttons that set what new buildings are built as. Each kind has its own kit: the OpenSCAD kit takes a `kind` (`models-src/{lodge,tent,shed}_*.scad`), giving the tent 3 m fabric walls with clear vinyl panels, a tied-back doorway, aluminium corner posts, and a steep fabric roof; the shed 4 m corrugated metal on a concrete sill, high windows, a vent, a roll-up door, and a low metal roof; the lodge as before (5 m). Palettes are per kind (fabric whites; galvanised, barn red, green, or slate metal). Costs (guesses, untuned): base $50,000 / $15,000 / $10,000; tiles at 100% / 40% / 25% of the service's price; daily base $200 / $120 / $60 and per-tile upkeep at 100% / 80% / 50%. A lodge's popup has a Storeys stepper (1–3): adding one pays for every tile again, taking one off refunds nothing; walls and corners repeat per storey (doors on the ground floor only), the roof sits on top, and the cutaway shows the ground floor. Food-court seats and upkeep scale with storeys. Shown on Boreal by a shed, a tent, and a three-storey lodge placed from a script.
-4. **Rebuild Boreal's buildings** by hand in the editor once [[Building Services]] is in.
+4. Done: **Rebuild Boreal's buildings** by hand in the editor once [[Building Services]] is in.
 
 ## Open questions
 
 - Which services each kind may hold: tickets or food in a tent, a snowcat garage only in a shed?
 - How storeys add up: is a second storey the whole footprint, or painted per cell; does it add capacity to the services below or hold services of its own?
 - Rotation steps: free, or snapped (15°) with the road-aligned default?
+- Decided 2026-10-06: built buildings and lots don't turn or move; demolish and rebuild. Placing should preview as a ghost first (lots do now; a building's first tile already does).
 - Whether the shell's grading (flat to the first tile's floor) works on steep ground once buildings can turn.
 
 ## Log
@@ -47,3 +48,4 @@ Made with the user on 2026-10-06:
 - 2026-10-06: Steps 1–2: old-form buildings and lots are dropped on load (no conversion); service buildings have their own rotated 5 m grid, lined up with the nearest road or lot when placed. The shed and patrol hut stay until [[Building Services]].
 - 2026-10-06: Removed the equipment shed and patrol hut from the build tools and saves, at the user's call; grooming and patrol return as services.
 - 2026-10-06: Step 3: shed, tent, and lodge kits from one parametric OpenSCAD kit, per-kind costs and palettes, and lodge storeys (1–3) from the popup.
+- 2026-10-06: Step 4 done: Boreal rebuilt by hand with a rotated lot (308 stalls), a lodge with food and tickets, a patrol lodge, and an empty garage shed. Plan done; the build menu's clarity moves to [[Building Tool]].

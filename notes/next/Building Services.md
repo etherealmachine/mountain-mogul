@@ -25,7 +25,7 @@ Made with the user on 2026-10-06:
 
 1. Done: **A service registry.** `world.serviceInfo` lists each service's label, wall accent, floor-plan colour, tile cost, daily cost per tile, and whether guests walk in for it; `Label`, `Accent`, `TileCost`, and `TileDailyCost` read from it, and the cutaway overlay takes its colours from it. A building serves guests (is a trail destination and an anchor for the planner) only if it has a guest service.
 2. Done: **Patrol as a service.** Patrol tiles (Amenities → Ski patrol, $40,000 a tile in a lodge, $250 a day) base one patroller with a snowmobile each, waiting just outside the patrol door. A rescued guest goes to the nearest patrol room ("Patrol brought ... down to first aid") and from there home to their car. The building's popup counts patrollers and how many are out.
-3. Done: **Garage as a service.** Garage tiles (Amenities → Snowcat garage, $85,000 a tile in a lodge: half a cat and its bay, $30 a day plus the cats' own running costs) house one snowcat per two tiles, rounded up, parked 7.5 m out from the garage door. Grooming sections are shared among garages as they were among sheds. The popup's "Snowcats active" stepper puts cats on standby or back to work. Garage walls are blank but for the door (a roll-up door in a shed).
+3. Done: **Garage as a service.** Garage tiles (Amenities → Snowcat garage, $15,000 a tile in a lodge and $30 a day; the cats' running costs are their own) give space for snowcats and snowmobiles, bought in the popup ([[Patrol Day]] step 2: 4 tiles a cat, 2 snowmobiles a tile). Cats park 7.5 m out from the garage door. Grooming sections are shared among garages as they were among sheds. The popup's "Snowcats active" stepper puts cats on standby or back to work. Garage walls are blank but for the door (a roll-up door in a shed).
 4. Done: **Food, drinks, lounge, tickets** read from the registry with no change in behaviour.
 
 ## How it works
@@ -51,3 +51,4 @@ Fix how services work, diagnosing first: patrol never rescuing anyone, no groomi
 - 2026-10-06: Planned with the user: food and beverage, tickets, ski patrol, and the snowcat garage as uniform building services.
 - 2026-10-06: Built: the service registry, patrol and garage as services with fleets that follow their tiles, and the shed and hut types retired.
 - 2026-10-06: Linked staffing to the Staff items in [[Next Steps]], and patrol coverage to the boundary in [[Land and Boundaries]].
+- 2026-10-06: [[Patrol Day]] changes the garage to bays with snowcats and snowmobiles bought in the popup.
