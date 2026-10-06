@@ -274,6 +274,13 @@ func (w *World) LotStallCount(r FootprintRect, b *Building) int {
 	return len(stalls)
 }
 
+// LotPreview is the stalls lot rectangle r would hold (b is the lot being
+// resized, or nil), for a ghost of it.
+func (w *World) LotPreview(r FootprintRect, b *Building) []ParkingStall {
+	stalls, _ := layoutLot(r, w.PlanLotGate(r, b).Gate)
+	return stalls
+}
+
 // DefaultLotRect is the default lot rectangle centred on c, for lots
 // placed by a single point (testbeds).
 func DefaultLotRect(c mgl32.Vec2) FootprintRect {

@@ -193,3 +193,49 @@ func (r *Renderer) RebuildParkingLots(w *world.World) {
 	}
 	r.scene.parkingMesh, r.scene.parkingStripesMesh = generateParkingMeshes(w)
 }
+
+// lotGhostKey identifies a lot ghost so it's rebuilt only when it changes.
+type lotGhostKey struct {
+	rect   world.FootprintRect
+	stalls int
+}
+
+// lotGhostLift raises a ghost above the ungraded ground it previews.
+const lotGhostLift = float32(0.3)
+
+// SetLotGhost previews a lot that isn't built yet: asphalt with rounded
+// corners and stall lines over rect, drawn translucent in the ghost pass,
+// red when it won't fit. It follows the ground as it is now.
+func (r *Renderer) SetLotGhost(t *world.Terrain, rect world.FootprintRect, stalls []world.ParkingStall, ok bool) {
+	r.scene.lotGhostOK = ok
+	key := lotGhostKey{rect, len(stalls)}
+	if r.scene.lotGhost != nil && r.scene.lotGhostKey == key {
+		return
+	}
+	r.ClearLotGhost()
+	r.scene.lotGhostKey = key
+	lift := func(v []float32) []float32 {
+		for i := 1; i < len(v); i += 8 {
+			v[i] += lotGhostLift
+		}
+		return v
+	}
+	if av, ai := appendLotAsphalt(nil, nil, t, rect); len(ai) > 0 {
+		r.scene.lotGhost = NewMesh(lift(av), ai, []int{3, 3, 2}, nil)
+	}
+	if sv, si := appendStallStripes(nil, nil, t, stalls); len(si) > 0 {
+		r.scene.lotGhostStripes = NewMesh(lift(sv), si, []int{3, 3, 2}, nil)
+	}
+}
+
+// ClearLotGhost removes the lot preview.
+func (r *Renderer) ClearLotGhost() {
+	if r.scene.lotGhost != nil {
+		r.scene.lotGhost.Delete()
+		r.scene.lotGhost = nil
+	}
+	if r.scene.lotGhostStripes != nil {
+		r.scene.lotGhostStripes.Delete()
+		r.scene.lotGhostStripes = nil
+	}
+}

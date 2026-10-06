@@ -144,10 +144,12 @@ type World struct {
 	// Guest itself stays in Guests).
 	OnMountain []*Guest
 
-	Snowcats   []*Snowcat
-	Patrollers []*Patroller
-	RoadNodes  []*RoadNode
-	RoadEdges  []*RoadEdge
+	Snowcats []*Snowcat
+	// Snowmobiles are the patrol snowmobiles, each housed in a garage.
+	Snowmobiles []*Snowmobile
+	Patrollers  []*Patroller
+	RoadNodes   []*RoadNode
+	RoadEdges   []*RoadEdge
 	// Cars are the carloads of guests on the roads and in the lots
 	// (sim/traffic.go).
 	Cars   []*Car
@@ -502,6 +504,7 @@ func (w *World) RemoveBuilding(id uint64) {
 		if b.ID == id {
 			if b.IsShell() {
 				w.RemoveSnowcatsOwnedBy(b.ID)
+				w.RemoveSnowmobilesIn(b.ID)
 				w.RemovePatrollersOwnedBy(b.ID)
 				for _, c := range b.Ground {
 					if w.Terrain.InBounds(c[0], c[1]) {

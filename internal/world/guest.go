@@ -107,6 +107,7 @@ type Guest struct {
 	Fallen          bool   // briefly immobilised after a fall; clears when FallTimer expires
 	FallTimer       float32
 	Injured         bool    // injured after a severe fall; cannot self-recover
+	HurtGoHome      bool    // a minor injury: heads home once back on their feet
 	InjuryWaitTimer float32 // counts down while Injured; on expiry guest gives up and crawls home
 	OnPatrollerID   uint64  // nonzero ⇒ being transported by this patroller; locomotion suspended
 	AtTrailEnd      uint64  // nonzero ⇒ arrived at a trail-to-trail junction (ID = destination trail)
@@ -372,6 +373,7 @@ func (g *Guest) ResetForDeparture() {
 	g.Fallen = false
 	g.FallTimer = 0
 	g.Injured = false
+	g.HurtGoHome = false
 	g.InjuryWaitTimer = 0
 	g.OnPatrollerID = 0
 	g.Plan = ai.Plan{}

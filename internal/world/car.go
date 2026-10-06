@@ -1,6 +1,10 @@
 package world
 
-import "github.com/go-gl/mathgl/mgl32"
+import (
+	"math"
+
+	"github.com/go-gl/mathgl/mgl32"
+)
 
 // Cars carry guests between their home entry (a RoadNodeEdgeConnection)
 // and a parking lot. The sim (sim/traffic.go) drives them along the road
@@ -68,3 +72,51 @@ func (w *World) ParkedCars(id uint64) int {
 // MeanCarload is the average number of guests per car, for anything that
 // thinks per guest about a per-car price (the parking fee).
 const MeanCarload = 2.4
+
+// ResettleParkedCars puts the cars parked in lot b back in its stalls
+// after the lot moved or changed shape: each in its own stall if it still
+// exists, otherwise in a free one; a car with no stall left is dropped
+// (its guests leave from any lot).
+func (w *World) ResettleParkedCars(b *Building) {
+	used := make([]bool, len(b.Stalls))
+	var homeless []*Car
+	for _, c := range w.Cars {
+		if c.Lot != b.ID || c.State != CarParked {
+			continue
+		}
+		if c.Stall >= 0 && c.Stall < len(used) && !used[c.Stall] {
+			used[c.Stall] = true
+			continue
+		}
+		homeless = append(homeless, c)
+	}
+	for _, c := range homeless {
+		c.Stall = -1
+		for i, u := range used {
+			if !u {
+				c.Stall, used[i] = i, true
+				break
+			}
+		}
+	}
+	keep := w.Cars[:0]
+	for _, c := range w.Cars {
+		if c.Lot == b.ID && c.State == CarParked {
+			if c.Stall < 0 {
+				for _, g := range c.Guests {
+					if g.CarID == c.ID {
+						g.CarID, g.CarLot = 0, 0
+						if g.State == InCar {
+							g.State = AtHome
+						}
+					}
+				}
+				continue
+			}
+			st := b.Stalls[c.Stall]
+			c.Pos, c.Heading = st.Pos, st.Heading+math.Pi
+		}
+		keep = append(keep, c)
+	}
+	w.Cars = keep
+}

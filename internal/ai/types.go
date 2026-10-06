@@ -297,6 +297,9 @@ const (
 	ThoughtLiftsClosed  // no lift is open
 	ThoughtNothingForMe // no open lift serves a trail at the guest's level
 
+	// A minor injury: the guest gets themselves down and goes home early.
+	ThoughtHurtGoingHome
+
 	thoughtKindSentinel // must stay last; equals the total count
 )
 
@@ -327,6 +330,7 @@ var ThoughtSatisfactionWeight = [ThoughtKindCount]float64{
 	ThoughtHitTree:        -0.15,
 	ThoughtLiftsClosed:    -0.20,
 	ThoughtNothingForMe:   -0.20,
+	ThoughtHurtGoingHome:  -0.15,
 }
 
 // thoughtText is the canonical base text for each ThoughtKind — the
@@ -353,6 +357,7 @@ var thoughtText = [ThoughtKindCount]string{
 	ThoughtHitTree:        "I hit a tree!",
 	ThoughtLiftsClosed:    "the lifts are all closed",
 	ThoughtNothingForMe:   "there's nothing here I can ski",
+	ThoughtHurtGoingHome:  "I tweaked something, calling it a day",
 }
 
 // ThoughtLabel is the chart series label for each thought kind — the
@@ -389,6 +394,7 @@ var ThoughtChartColor = [ThoughtKindCount][4]float32{
 	ThoughtHitTree:        {0.55, 0.35, 0.15, 1},
 	ThoughtLiftsClosed:    {0.50, 0.55, 0.65, 1},
 	ThoughtNothingForMe:   {0.75, 0.55, 0.45, 1},
+	ThoughtHurtGoingHome:  {0.90, 0.45, 0.35, 1},
 }
 
 // Thought is one entry in a Guest's bounded thoughts ring. Persists in

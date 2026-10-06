@@ -1005,15 +1005,17 @@ func (b *builder) groomedTrail(diff world.TerrainDifficulty, cells [][2]int) *bu
 	return b
 }
 
-// shedAt places a shed with a snowcat garage (one cat) at the given grid
-// cell and the one east of it. The cat will be assigned a section on the
-// first sim tick via the global reassignment pass (sectionsStale starts
-// true on every new Simulation).
+// shedAt places a shed with a 2 × 2 snowcat garage and one cat, its
+// corner at the given grid cell. The cat will be assigned a section on
+// the first sim tick via the global reassignment pass (sectionsStale
+// starts true on every new Simulation).
 func (b *builder) shedAt(gx, gz int) *builder {
 	g := b.w.PlaceServiceBuilding(mgl32.Vec2{}, 0, map[[2]int]world.Service{
 		{gx, gz}: world.ServiceGarage, {gx + 1, gz}: world.ServiceGarage,
+		{gx, gz + 1}: world.ServiceGarage, {gx + 1, gz + 1}: world.ServiceGarage,
 	}, 1)
 	g.Kind = world.ShellShed
+	b.w.SpawnSnowcat(g)
 	return b
 }
 

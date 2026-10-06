@@ -27,7 +27,7 @@ const (
 	ServiceBar             // drinks
 	ServiceTickets         // day tickets and season passes
 	ServicePatrol          // ski patrol: a patroller and snowmobile per tile
-	ServiceGarage          // snowcat garage: a cat per GarageTilesPerCat tiles
+	ServiceGarage          // snowcat garage: space for snowcats and snowmobiles (garage.go)
 	ServiceCount
 )
 
@@ -46,9 +46,6 @@ const (
 	// PatrollersPerTile is how many patrollers (each with a snowmobile)
 	// a patrol tile bases.
 	PatrollersPerTile = 1
-	// GarageTilesPerCat is how many garage tiles house one snowcat; a
-	// garage with fewer still houses one.
-	GarageTilesPerCat = 2
 )
 
 var serviceInfo = [ServiceCount]ServiceInfo{
@@ -64,7 +61,7 @@ var serviceInfo = [ServiceCount]ServiceInfo{
 	ServicePatrol: {Label: "Ski patrol", Accent: mgl32.Vec3{1.00, 0.62, 0.58}, Overlay: [3]uint8{220, 60, 50},
 		TileCost: 40_000, TileDailyCost: 250}, // a patroller and their snowmobile
 	ServiceGarage: {Label: "Snowcat garage", Accent: mgl32.Vec3{0.82, 0.84, 0.86}, Overlay: [3]uint8{120, 130, 140},
-		TileCost: CatPurchasePrice/GarageTilesPerCat + 10_000, TileDailyCost: 30}, // half a cat and its bay; cats' running costs are their own
+		TileCost: 15_000, TileDailyCost: 30}, // the floor and doors; vehicles are bought into it
 }
 
 // Info is the service's entry in the registry.
@@ -492,10 +489,10 @@ func (w *World) ServiceHome(b *Building, s Service) mgl32.Vec3 {
 	return mgl32.Vec3{p[0], y, p[1]}
 }
 
-// SyncFleet keeps the patrollers and snowcats based at b in step with its
-// patrol and garage tiles: PatrollersPerTile per patrol tile, one cat per
-// GarageTilesPerCat garage tiles (rounded up). New ones start at the
-// door; surplus ones go, idle ones first.
+// SyncFleet keeps the patrollers based at b in step with its patrol
+// tiles: PatrollersPerTile per patrol tile. New ones start at the door;
+// surplus ones go, idle ones first. (Snowcats and snowmobiles are bought
+// into a garage's space instead; see garage.go.)
 func (w *World) SyncFleet(b *Building) {
 	wantP := b.TileCount(ServicePatrol) * PatrollersPerTile
 	var mine []*Patroller
@@ -514,15 +511,6 @@ func (w *World) SyncFleet(b *Building) {
 				mine = append(mine[:i], mine[i+1:]...)
 			}
 		}
-	}
-
-	wantC := (b.TileCount(ServiceGarage) + GarageTilesPerCat - 1) / GarageTilesPerCat
-	cats := w.CatsOwnedBy(b.ID)
-	for n := len(cats); n < wantC; n++ {
-		w.SpawnSnowcat(b)
-	}
-	for i := len(cats) - 1; i >= wantC; i-- {
-		w.RemoveSnowcat(cats[i].ID)
 	}
 }
 

@@ -62,6 +62,7 @@ type ScenarioData struct {
 	Trails      []TrailData      `json:"trails,omitempty"`
 	Guests      []GuestData      `json:"guests"`
 	Snowcats    []SnowcatData    `json:"snowcats,omitempty"`
+	Snowmobiles []SnowmobileData `json:"snowmobiles,omitempty"`
 	Patrollers  []PatrollerData  `json:"patrollers,omitempty"`
 	RoadNodes   []RoadNodeData   `json:"road_nodes,omitempty"`
 	RoadEdges   []RoadEdgeData   `json:"road_edges,omitempty"`
@@ -232,14 +233,23 @@ type ParcelData struct {
 	Cells [][2]int `json:"cells,omitempty"`
 }
 
-// PatrollerData is a saved ski-patrol unit. HutID links it back to its patrol
-// hut; both IDs survive save/load so the patroller → hut chain rehydrates.
+// PatrollerData is a saved ski patroller. HutID links it to the building
+// whose patrol service bases it; Snowmobile is the one they have out,
+// Target the guest they're helping, and TargetPos where they're headed
+// (a walk's route is found again on load).
 type PatrollerData struct {
-	ID      uint64     `json:"id,omitempty"`
-	HutID   uint64     `json:"hut,omitempty"`
-	Pos     [3]float32 `json:"pos"`
-	Heading float32    `json:"heading,omitempty"`
-	State   uint8      `json:"state,omitempty"`
+	ID         uint64     `json:"id,omitempty"`
+	HutID      uint64     `json:"hut,omitempty"`
+	Pos        [3]float32 `json:"pos"`
+	Heading    float32    `json:"heading,omitempty"`
+	State      uint8      `json:"state,omitempty"`
+	Snowmobile uint64     `json:"sled,omitempty"`
+	Target     uint64     `json:"target,omitempty"`
+	TargetPos  [3]float32 `json:"target_pos,omitempty"`
+	Timer      float32    `json:"timer,omitempty"`
+	OnSkis     bool       `json:"skis,omitempty"`
+	Lift       uint64     `json:"lift,omitempty"`
+	LiftT      float32    `json:"lift_t,omitempty"`
 }
 
 // TrailData is a saved player-defined ski trail. Cells is the complete
@@ -391,6 +401,17 @@ type SnowcatData struct {
 	Pos     [3]float32 `json:"pos"`
 	Heading float32    `json:"heading,omitempty"`
 	Status  uint8      `json:"status,omitempty"` // 0=Active, 1=Standby
+}
+
+// SnowmobileData is a saved patrol snowmobile; GarageID is the building
+// whose garage houses it.
+type SnowmobileData struct {
+	ID       uint64     `json:"id,omitempty"`
+	GarageID uint64     `json:"garage,omitempty"`
+	Pos      [3]float32 `json:"pos"`
+	Heading  float32    `json:"heading,omitempty"`
+	InGarage bool       `json:"in,omitempty"`
+	TakenBy  uint64     `json:"taken,omitempty"`
 }
 
 // ChairData is one chair on a lift loop — its position around the loop and

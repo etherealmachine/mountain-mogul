@@ -200,30 +200,52 @@ func replowParkingLots(w *world.World) {
 	}
 }
 
-// lotTool is the parking tool's drag state, shared by the game and the
-// editor. Dragging on open ground draws a new lot, as a rectangle turned
-// to line up with the nearest road (R turns it further); dragging near
-// an edge of an existing lot moves that edge, resizing the lot.
+// lotTool is the parking tool's state, shared by the game and the
+// editor. Dragging on open ground draws a new lot, a rectangle turned to
+// line up with the nearest road; it then becomes a ghost that follows the
+// mouse to be placed, R turns it, and a click (or Enter) builds it — only
+// then is the ground graded and plowed. Esc throws it away (drag again
+// for another size). Dragging near an edge of a built lot resizes it, as
+// a ghost that stays put until clicked. Built lots don't turn or move:
+// demolish and rebuild.
 type lotTool struct {
 	mode     lotDragMode
 	start    mgl32.Vec2
 	rotation float32
-	turned   bool   // the player turned the next lot with R
-	only     uint64 // when set (the popup's Resize), only this lot's edges can be grabbed
-	lotID    uint64 // resizing: the lot
-	side     int    // resizing: 0 +X, 1 −X, 2 +Z, 3 −Z (the lot's local axes)
-	orig     world.FootprintRect
+	turned   bool                // the player turned the next lot with R
+	only     uint64              // when set (the popup's Resize), only this lot's edges can be grabbed
+	lotID    uint64              // resizing a built lot: that lot (0 for a new one)
+	built    world.FootprintRect // resizing: the lot as built, for the cost
+	side     int                 // edge being dragged: 0 +X, 1 −X, 2 +Z, 3 −Z (local axes)
+	orig     world.FootprintRect // the rectangle when the edge drag began
 	rect     world.FootprintRect
 	ok       bool
 	why      string
+
+	follow      mgl32.Vec2          // a new lot's ghost: centre minus the mouse
+	ghostRect   world.FootprintRect // what ghostStalls were laid out for
+	ghostStalls []world.ParkingStall
 }
 
 type lotDragMode int
 
 const (
-	lotIdle lotDragMode = iota
-	lotDrawing
-	lotResizing
+	lotIdle      lotDragMode = iota
+	lotDrawing               // dragging out a new lot
+	lotAdjusting             // dragging an edge (of the ghost, or of a built lot)
+	lotPending               // a ghost waiting to be built
+)
+
+// dragging reports whether the mouse is shaping the ghost right now.
+func (t *lotTool) dragging() bool { return t.mode == lotDrawing || t.mode == lotAdjusting }
+
+// lotPress is what a press with the parking tool did.
+type lotPress int
+
+const (
+	lotPressNone  lotPress = iota
+	lotPressDrag           // started shaping
+	lotPressBuild          // clicked inside the ghost: build it
 )
 
 // lotEdgeGrab is how close to a lot's edge a press grabs it.
@@ -232,44 +254,65 @@ const lotEdgeGrab = float32(4)
 // lotRoadAlignReach is how far from a road a new lot lines up with it.
 const lotRoadAlignReach = float32(120)
 
-// reset ends any drag; only is the lot the tool is limited to (0 for
+// reset drops any ghost; only is the lot the tool is limited to (0 for
 // any).
 func (t *lotTool) reset(only uint64) {
 	*t = lotTool{rotation: t.rotation, turned: t.turned, only: only}
 }
 
-// press starts a drag at p: grabbing a lot's edge if one is within
-// reach, else drawing a new lot (unless the tool is limited to resizing
-// one lot). Reports whether a drag started.
-func (t *lotTool) press(w *world.World, p mgl32.Vec2) bool {
+// grabEdge reports which side of r p is within reach of, if any.
+func grabEdge(r world.FootprintRect, p mgl32.Vec2) (int, bool) {
+	lx, lz := r.Local(p)
+	if lotAbs(lx) > r.HalfX+lotEdgeGrab || lotAbs(lz) > r.HalfZ+lotEdgeGrab {
+		return 0, false
+	}
+	dx, dz := lotAbs(lotAbs(lx)-r.HalfX), lotAbs(lotAbs(lz)-r.HalfZ)
+	if min(dx, dz) > lotEdgeGrab {
+		return 0, false
+	}
+	switch {
+	case dx <= dz && lx >= 0:
+		return 0, true
+	case dx <= dz:
+		return 1, true
+	case lz >= 0:
+		return 2, true
+	}
+	return 3, true
+}
+
+// press handles a press at p: a new lot's ghost (which follows the mouse)
+// is built; a built lot's resize ghost is adjusted by its edge or built
+// by a click inside it. Otherwise a built lot's edge starts resizing it,
+// and open ground starts drawing a new lot (unless the tool is limited to
+// one lot).
+func (t *lotTool) press(w *world.World, p mgl32.Vec2) lotPress {
+	if t.mode == lotPending && t.lotID == 0 {
+		return lotPressBuild
+	}
+	if t.mode == lotPending {
+		if side, ok := grabEdge(t.rect, p); ok {
+			t.mode, t.side, t.orig = lotAdjusting, side, t.rect
+			return lotPressDrag
+		}
+		if t.rect.Contains(p, 0) {
+			return lotPressBuild
+		}
+		t.reset(t.only)
+	}
 	for _, b := range w.Buildings {
 		if !b.IsRectLot() || (t.only != 0 && b.ID != t.only) {
 			continue
 		}
 		r := b.LotRect()
-		lx, lz := r.Local(p)
-		if lotAbs(lx) > r.HalfX+lotEdgeGrab || lotAbs(lz) > r.HalfZ+lotEdgeGrab {
-			continue
+		if side, ok := grabEdge(r, p); ok {
+			t.mode, t.lotID, t.side = lotAdjusting, b.ID, side
+			t.built, t.orig, t.rect, t.ok = r, r, r, true
+			return lotPressDrag
 		}
-		dx, dz := lotAbs(lotAbs(lx)-r.HalfX), lotAbs(lotAbs(lz)-r.HalfZ)
-		if min(dx, dz) > lotEdgeGrab {
-			continue
-		}
-		t.mode, t.lotID, t.orig, t.rect, t.ok = lotResizing, b.ID, r, r, true
-		switch {
-		case dx <= dz && lx >= 0:
-			t.side = 0
-		case dx <= dz:
-			t.side = 1
-		case lz >= 0:
-			t.side = 2
-		default:
-			t.side = 3
-		}
-		return true
 	}
 	if t.only != 0 {
-		return false
+		return lotPressNone
 	}
 	t.mode, t.lotID, t.start = lotDrawing, 0, p
 	if !t.turned {
@@ -277,7 +320,33 @@ func (t *lotTool) press(w *world.World, p mgl32.Vec2) bool {
 	}
 	t.rect = world.FootprintRect{Center: p, Rotation: t.rotation}
 	t.ok, t.why = false, ""
-	return true
+	return lotPressDrag
+}
+
+// release ends a drag at p: the shape becomes a pending ghost, a new
+// lot's following the mouse from where it was let go (a click that drew
+// next to nothing just drops it).
+func (t *lotTool) release(p mgl32.Vec2) {
+	if !t.dragging() {
+		return
+	}
+	if t.mode == lotDrawing && max(t.rect.HalfX, t.rect.HalfZ) < world.CellSize/2 {
+		t.reset(t.only)
+		return
+	}
+	t.follow = t.rect.Center.Sub(p)
+	t.mode = lotPending
+}
+
+// track moves a new lot's ghost with the mouse at p.
+func (t *lotTool) track(w *world.World, p mgl32.Vec2) {
+	if t.mode != lotPending || t.lotID != 0 {
+		return
+	}
+	if c := p.Add(t.follow); c != t.rect.Center {
+		t.rect.Center = c
+		t.check(w)
+	}
 }
 
 // roadAlignedRotation turns a lot drawn at p so its sides run along the
@@ -315,7 +384,7 @@ func (t *lotTool) move(w *world.World, p mgl32.Vec2) {
 		r.Center = t.start.Add(ax.Mul(dx / 2)).Add(az.Mul(dz / 2))
 		r.HalfX, r.HalfZ = lotAbs(dx)/2, lotAbs(dz)/2
 		t.rect = r
-	case lotResizing:
+	case lotAdjusting:
 		r := t.orig
 		ax, az := r.Axes()
 		n, half := ax, &r.HalfX
@@ -335,24 +404,56 @@ func (t *lotTool) move(w *world.World, p mgl32.Vec2) {
 	default:
 		return
 	}
+	t.check(w)
+}
+
+func (t *lotTool) check(w *world.World) {
 	t.ok, t.why = w.LotRectFree(t.rect, t.lotID)
 }
 
-// rotate turns the next lot drawn (and the one being drawn).
-func (t *lotTool) rotate(w *world.World, delta float32) {
+// rotate turns the lot being drawn, or a new lot's pending ghost about
+// its centre, and the next lot drawn. A built lot being resized doesn't
+// turn; it reports false then.
+func (t *lotTool) rotate(w *world.World, delta float32) bool {
+	if t.lotID != 0 && t.mode != lotIdle {
+		return false
+	}
 	t.rotation = stepRotation(t.rotation, delta)
 	t.turned = true
-	if t.mode == lotDrawing {
+	switch t.mode {
+	case lotDrawing:
 		t.rect.Rotation = t.rotation
 		t.move(w, t.rect.Center.Add(t.rect.Center.Sub(t.start)))
+	case lotPending:
+		t.rect.Rotation = t.rotation
+		t.check(w)
 	}
+	return true
+}
+
+// syncLotGhost shows the tool's lot (being drawn, adjusted, or waiting
+// to be built) as a ghost, or clears it. The stall layout is redone only
+// when the rectangle changes.
+func syncLotGhost(r *render.Renderer, w *world.World, t *lotTool, active bool) {
+	if !active || t.mode == lotIdle || t.rect.HalfX <= 0 || t.rect.HalfZ <= 0 {
+		r.ClearLotGhost()
+		return
+	}
+	if t.ghostRect != t.rect {
+		var self *world.Building
+		if t.lotID != 0 {
+			self = w.BuildingByID(t.lotID)
+		}
+		t.ghostRect, t.ghostStalls = t.rect, w.LotPreview(t.rect, self)
+	}
+	r.SetLotGhost(w.Terrain, t.rect, t.ghostStalls, t.ok)
 }
 
 // addedArea is the square metres a commit would add (0 when shrinking).
 func (t *lotTool) addedArea() float32 {
 	area := 4 * t.rect.HalfX * t.rect.HalfZ
-	if t.mode == lotResizing {
-		area -= 4 * t.orig.HalfX * t.orig.HalfZ
+	if t.lotID != 0 {
+		area -= 4 * t.built.HalfX * t.built.HalfZ
 	}
 	return max(area, 0)
 }
@@ -380,6 +481,7 @@ func commitLot(r *render.Renderer, w *world.World, lotID uint64, rect world.Foot
 		b = w.PlaceRectLot(rect)
 	}
 	w.ConnectLotDriveway(b)
+	w.ResettleParkedCars(b)
 	applyParkingLotEffects(w, b)
 	gradeLotDriveway(w, b)
 	applyRoadCellState(w)
@@ -468,21 +570,6 @@ func removePaintedBuilding(r *render.Renderer, w *world.World, id uint64) {
 	r.RebuildStaticBatch(w)
 	r.RebuildRoads(w)
 	w.RebuildTrailGraph()
-}
-
-// appendOverlay tints the cells under the lot being dragged: slate when
-// it fits, red when it doesn't.
-func (t *lotTool) appendOverlay(w *world.World, set func(cx, cz int, r, g, b, a uint8)) {
-	if t.mode == lotIdle || t.rect.HalfX <= 0 || t.rect.HalfZ <= 0 {
-		return
-	}
-	for _, c := range world.LotCells(w.Terrain, t.rect) {
-		if t.ok {
-			set(c[0], c[1], 70, 80, 110, 190)
-		} else {
-			set(c[0], c[1], 170, 50, 40, 190)
-		}
-	}
 }
 
 func lotAbs(v float32) float32 {

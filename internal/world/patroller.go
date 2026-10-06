@@ -1,38 +1,118 @@
 package world
 
 import (
-	"math"
-
 	"github.com/go-gl/mathgl/mgl32"
 )
 
 const (
-	patrollerSpeed          = float32(12.0) // m/s — fast enough to reach an injured skier quickly
-	patrollerArriveRadius   = float32(5.0)  // m — close enough to act
-	PatrollerOnSceneSeconds = float32(4.0)  // s — countdown while loading patient
+	PatrollerOnSceneSeconds = float32(4.0) // s — countdown while loading patient
 )
 
 // PatrollerState is the active phase of a ski patroller's work cycle.
 type PatrollerState uint8
 
 const (
-	PatrollerAtHut     PatrollerState = iota // waiting at patrol hut
-	PatrollerEnRoute                         // driving to injured guest
-	PatrollerOnScene                         // on-scene loading patient (timer)
-	PatrollerReturning                       // driving to parking lot with patient
+	PatrollerAtHut       PatrollerState = iota // on duty, waiting in the patrol room
+	PatrollerEnRoute                           // driving to an injured guest
+	PatrollerOnScene                           // on scene, loading the patient (timer)
+	PatrollerReturning                         // driving the patient to first aid
+	PatrollerOffDuty                           // off shift, in the patrol room
+	PatrollerToGarage                          // walking to a garage for a snowmobile
+	PatrollerFetching                          // driving the snowmobile to park by the patrol room
+	PatrollerToSled                            // walking to the parked snowmobile (to respond, or to stow it)
+	PatrollerStowing                           // driving the snowmobile back to its garage at close
+	PatrollerWalkingBack                       // walking back to the patrol room from the garage
+	PatrollerToLift                            // walking to a lift to ski to an injury
+	PatrollerRiding                            // riding that lift up
+	PatrollerSkiing                            // skiing down to the injured guest
+	PatrollerToboggan                          // skiing the guest down in a toboggan
+	PatrollerSkiingBack                        // skiing back to the patrol room after a call that fell through
 )
 
-// Patroller is a ski-patrol unit (person + snowmobile). One is spawned per
-// patrol hut. Its state machine is driven by sim/patrol.go every tick.
+// OnFoot reports whether the patroller is walking.
+func (s PatrollerState) OnFoot() bool {
+	return s == PatrollerToGarage || s == PatrollerToSled || s == PatrollerWalkingBack || s == PatrollerToLift
+}
+
+// OnSkis reports whether the patroller is on a lift or skiing.
+func (s PatrollerState) OnSkis() bool {
+	return s == PatrollerRiding || s == PatrollerSkiing || s == PatrollerToboggan || s == PatrollerSkiingBack
+}
+
+// Driving reports whether the patroller is on a snowmobile.
+func (s PatrollerState) Driving() bool {
+	return s == PatrollerEnRoute || s == PatrollerOnScene || s == PatrollerReturning ||
+		s == PatrollerFetching || s == PatrollerStowing
+}
+
+// Responding reports whether the patroller is out on a call.
+func (s PatrollerState) Responding() bool {
+	switch s {
+	case PatrollerEnRoute, PatrollerOnScene, PatrollerReturning,
+		PatrollerToLift, PatrollerRiding, PatrollerSkiing, PatrollerToboggan:
+		return true
+	}
+	return false
+}
+
+// Label describes the state for popups.
+func (s PatrollerState) Label() string {
+	switch s {
+	case PatrollerAtHut:
+		return "on duty"
+	case PatrollerEnRoute:
+		return "on the way to an injury"
+	case PatrollerOnScene:
+		return "on scene"
+	case PatrollerReturning:
+		return "bringing a patient in"
+	case PatrollerToGarage:
+		return "fetching a snowmobile"
+	case PatrollerFetching:
+		return "bringing a snowmobile up"
+	case PatrollerToSled:
+		return "heading to the snowmobile"
+	case PatrollerStowing:
+		return "putting the snowmobile away"
+	case PatrollerWalkingBack:
+		return "walking back"
+	case PatrollerToLift:
+		return "heading to a lift"
+	case PatrollerRiding:
+		return "riding up to an injury"
+	case PatrollerSkiing:
+		return "skiing to an injury"
+	case PatrollerToboggan:
+		return "bringing a patient down by toboggan"
+	case PatrollerSkiingBack:
+		return "skiing back"
+	}
+	return "off duty"
+}
+
+// Patroller is one ski patroller, based at a building's patrol service
+// (HutID). Their day: off duty overnight; in the morning they walk to a
+// garage, take a snowmobile (SnowmobileID), and park it on the snow by
+// the patrol room; they answer injuries from there, by snowmobile or by
+// lift and skis, whichever is faster, bringing the guest down by
+// snowmobile or toboggan; after close they put the snowmobile back and
+// walk in (notes/next/Patrol Day.md). The state machine runs in
+// sim/patrol.go.
 type Patroller struct {
 	ID            uint64
-	HutID         uint64 // owning patrol hut; despawns when hut is removed
+	HutID         uint64 // the building whose patrol service bases them; despawns with it
 	Pos           mgl32.Vec3
 	Heading       float32
 	State         PatrollerState
+	SnowmobileID  uint64     // the snowmobile they've taken out today; 0 for none
 	TargetGuestID uint64     // guest being rescued; 0 when idle
 	TargetPos     mgl32.Vec3 // current drive destination
 	ActionTimer   float32    // counts down during PatrollerOnScene
+	OnSkis        bool       // answering this call on skis (by lift), not by snowmobile
+	LiftID        uint64     // the lift they're riding or walking to
+	LiftProgress  float32    // 0–1 up that lift
+	Path          [][2]int   // walking route (cells), not saved
+	PathIdx       int
 }
 
 // SpawnPatroller creates a new patroller parked at hut's patrol door
@@ -42,7 +122,7 @@ func (w *World) SpawnPatroller(hut *Building) *Patroller {
 		ID:    w.NextID(),
 		HutID: hut.ID,
 		Pos:   w.PatrollerHutPos(hut),
-		State: PatrollerAtHut,
+		State: PatrollerOffDuty,
 	}
 	w.Patrollers = append(w.Patrollers, p)
 	return p
@@ -60,6 +140,9 @@ func (w *World) removePatroller(id uint64) {
 		if p.ID != id {
 			continue
 		}
+		if m := w.SnowmobileByID(p.SnowmobileID); m != nil {
+			w.returnSnowmobile(m)
+		}
 		if p.TargetGuestID != 0 {
 			for _, g := range w.OnMountain {
 				if g.ID == p.TargetGuestID {
@@ -76,41 +159,13 @@ func (w *World) removePatroller(id uint64) {
 // RemovePatrollersOwnedBy drops every patroller whose HutID matches hutID.
 // Called when a patrol hut is demolished.
 func (w *World) RemovePatrollersOwnedBy(hutID uint64) {
-	// Clear OnPatrollerID on any guest the patroller was carrying.
+	var gone []uint64
 	for _, p := range w.Patrollers {
-		if p.HutID == hutID && p.TargetGuestID != 0 {
-			for _, g := range w.OnMountain {
-				if g.ID == p.TargetGuestID {
-					g.OnPatrollerID = 0
-					break
-				}
-			}
+		if p.HutID == hutID {
+			gone = append(gone, p.ID)
 		}
 	}
-	out := w.Patrollers[:0]
-	for _, p := range w.Patrollers {
-		if p.HutID != hutID {
-			out = append(out, p)
-		}
+	for _, id := range gone {
+		w.removePatroller(id)
 	}
-	w.Patrollers = out
-}
-
-// DriveToward moves the patroller one step toward (targetX, targetZ) at
-// patrollerSpeed. Returns true when within patrollerArriveRadius.
-func (p *Patroller) DriveToward(targetX, targetZ float32, dt float64) bool {
-	dx := targetX - p.Pos[0]
-	dz := targetZ - p.Pos[2]
-	dist := float32(math.Sqrt(float64(dx*dx + dz*dz)))
-	if dist < patrollerArriveRadius {
-		return true
-	}
-	p.Heading = float32(math.Atan2(float64(dx), float64(dz)))
-	step := patrollerSpeed * float32(dt)
-	if step > dist {
-		step = dist
-	}
-	p.Pos[0] += dx / dist * step
-	p.Pos[2] += dz / dist * step
-	return false
 }

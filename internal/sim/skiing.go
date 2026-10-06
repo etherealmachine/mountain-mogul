@@ -118,7 +118,8 @@ const (
 	// trunkInjuryChanceMax at injuryMaxSpeed.
 	trunkHitRadius       = float32(0.6)
 	trunkHitMinSpeed     = float32(2.0)
-	trunkInjuryChanceMax = float32(0.6)
+	trunkInjuryChanceMax = float32(0.15)
+	trunkSeriousShare    = float32(0.6) // hitting a tree is the classic serious injury
 
 	// Fall-line attenuation. Identical to prior model — gentle terrain has
 	// noisy gradients, so we ignore the fall direction below flatSlopeL.
@@ -129,13 +130,22 @@ const (
 	fallRecoverTime  = 4.0
 	fallStartBalance = 0.7
 
-	// Injury probability on fall. Chance = (speedFactor + slopeFactor) * scale,
-	// capped at 2*scale. At max speed (20 m/s) on max slope (40°) the chance
-	// is ~30%; a gentle tumble at 5 m/s on 10° gives ~4%.
-	injuryMaxSpeed    = float32(20.0)
-	injuryMaxSlope    = float32(40 * math.Pi / 180)
-	injuryChanceScale = float32(0.15)
-	injuryWaitTime    = float32(90.0) // sim-seconds before giving up and crawling home
+	// Injury on a fall. Chance = (speedFactor + slopeFactor) / 2 *
+	// fallInjuryChanceMax: 0.6% at max speed (20 m/s) on max slope (40°),
+	// about 0.15% for a gentle tumble. Real resorts see roughly two to
+	// four injuries per thousand skier days with a couple of falls each,
+	// and most injured skiers get themselves down: fallSeriousShare of
+	// injuries need patrol, the rest go home on their own.
+	injuryMaxSpeed      = float32(20.0)
+	injuryMaxSlope      = float32(40 * math.Pi / 180)
+	fallInjuryChanceMax = float32(0.006)
+	fallSeriousShare    = float32(0.3)
+	// injuryWaitTime is how long a seriously hurt guest waits for patrol
+	// before giving up: ten minutes of movement (600 sim seconds, about
+	// 3.3 hours on the clock, which runs 20× faster; see
+	// world.SimSecondsPerHour). Long enough for a patroller to walk to a
+	// lift, ride it, and ski down, so abandonment is rare.
+	injuryWaitTime = float32(600.0)
 
 	// Tree underfoot signal (display-only — controller doesn't branch on it)
 	inTreesThreshold = 0.3
@@ -420,15 +430,7 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 			a.Speed = 0
 			const avyInjuryChance = float32(0.70)
 			if rng.Global().Float32() < avyInjuryChance {
-				a.Injured = true
-				a.InjuryWaitTimer = injuryWaitTime
-				a.Events = append(a.Events, ai.GuestEvent{Kind: ai.EventInjury, Time: s.SimTime})
-				if step := a.Plan.Head(); step.Kind == ai.ActSkiTrail {
-					s.addThought(a, ai.ThoughtInjured, step.TrailID)
-				} else {
-					s.addThought(a, ai.ThoughtInjured)
-				}
-				a.Satisfaction = clamp32(a.Satisfaction-0.40, 0, 1)
+				s.injure(a, true, 0.40)
 			} else {
 				a.FallTimer = float32(fallRecoverTime)
 				if step := a.Plan.Head(); step.Kind == ai.ActSkiTrail {
@@ -462,18 +464,10 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 
 		speedFactor := clamp32(a.Speed/injuryMaxSpeed, 0, 1)
 		slopeFactor := clamp32(perc.SlopeAngle/injuryMaxSlope, 0, 1)
-		injuryChance := (speedFactor + slopeFactor) * injuryChanceScale
+		injuryChance := (speedFactor + slopeFactor) / 2 * fallInjuryChanceMax
 		a.Speed = 0
 		if rng.Global().Float32() < injuryChance {
-			a.Injured = true
-			a.InjuryWaitTimer = injuryWaitTime
-			a.Events = append(a.Events, ai.GuestEvent{Kind: ai.EventInjury, Time: s.SimTime})
-			if step := a.Plan.Head(); step.Kind == ai.ActSkiTrail {
-				s.addThought(a, ai.ThoughtInjured, step.TrailID)
-			} else {
-				s.addThought(a, ai.ThoughtInjured)
-			}
-			a.Satisfaction = clamp32(a.Satisfaction-0.25, 0, 1)
+			s.injure(a, rng.Global().Float32() < fallSeriousShare, 0.25)
 		} else {
 			a.FallTimer = float32(fallRecoverTime)
 			if step := a.Plan.Head(); step.Kind == ai.ActSkiTrail {
@@ -618,6 +612,11 @@ func (s *Simulation) tickFallen(a *world.Guest, dt float64) {
 		a.Balance = float32(fallStartBalance)
 		a.Speed = 0
 		a.TurnSide = 0
+		if a.HurtGoHome {
+			// A minor injury: up again, but done for the day.
+			a.HurtGoHome = false
+			s.directHomePlan(a)
+		}
 	}
 }
 
@@ -1215,19 +1214,34 @@ func (s *Simulation) treeHit(a *world.Guest) {
 	a.Speed = 0
 	s.addThought(a, ai.ThoughtHitTree)
 	if rng.Global().Float32() < injuryChance {
-		a.Injured = true
-		a.InjuryWaitTimer = injuryWaitTime
-		a.Events = append(a.Events, ai.GuestEvent{Kind: ai.EventInjury, Time: s.SimTime})
-		if step := a.Plan.Head(); step.Kind == ai.ActSkiTrail {
-			s.addThought(a, ai.ThoughtInjured, step.TrailID)
-		} else {
-			s.addThought(a, ai.ThoughtInjured)
-		}
-		a.Satisfaction = clamp32(a.Satisfaction-0.25, 0, 1)
+		s.injure(a, rng.Global().Float32() < trunkSeriousShare, 0.25)
 		return
 	}
 	a.FallTimer = float32(fallRecoverTime)
 	a.Satisfaction = clamp32(a.Satisfaction-0.15, 0, 1)
+}
+
+// injure hurts a guest who has just fallen. A serious injury leaves them
+// where they lie waiting for patrol (up to injuryWaitTime); a minor one
+// lets them get up after the usual fall and head home on their own.
+// Either costs satisfaction (cost for a serious one, less for minor).
+func (s *Simulation) injure(a *world.Guest, serious bool, cost float32) {
+	a.Events = append(a.Events, ai.GuestEvent{Kind: ai.EventInjury, Time: s.SimTime})
+	if !serious {
+		a.FallTimer = float32(fallRecoverTime)
+		a.HurtGoHome = true
+		s.addThought(a, ai.ThoughtHurtGoingHome)
+		a.Satisfaction = clamp32(a.Satisfaction-cost*0.6, 0, 1)
+		return
+	}
+	a.Injured = true
+	a.InjuryWaitTimer = injuryWaitTime
+	if step := a.Plan.Head(); step.Kind == ai.ActSkiTrail {
+		s.addThought(a, ai.ThoughtInjured, step.TrailID)
+	} else {
+		s.addThought(a, ai.ThoughtInjured)
+	}
+	a.Satisfaction = clamp32(a.Satisfaction-cost, 0, 1)
 }
 
 // =============================================================================

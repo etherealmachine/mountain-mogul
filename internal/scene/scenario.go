@@ -1614,8 +1614,11 @@ func (s *Scenario) Update(dt float64) {
 	if delta := rotateKeyDelta(inp); !typing && delta != 0 {
 		switch {
 		case s.activeTool == toolParking:
-			s.lotTool.rotate(s.world, delta)
-			s.setToast("Rotation " + rotationDegrees(s.lotTool.rotation))
+			if s.lotTool.rotate(s.world, delta) {
+				s.setToast("Rotation " + rotationDegrees(s.lotTool.rotation))
+			} else {
+				s.setToast("A built lot doesn't turn: demolish it and draw a new one")
+			}
 		case s.activeTool == toolService:
 			s.serviceTool.rot = stepRotation(s.serviceTool.rot, delta)
 			s.serviceTool.turned = true
@@ -1989,9 +1992,12 @@ func (s *Scenario) Update(dt float64) {
 			s.finishTrailPaintStroke()
 			s.lastTrailPaintCell = [2]int{-1, -1}
 		}
-		// A lot commits (and regrades the terrain) when the drag ends.
-		if s.activeTool == toolParking && s.lotTool.mode != lotIdle {
-			s.finishLotDrag()
+		// A finished drag leaves a ghost waiting to be built.
+		if s.activeTool == toolParking && s.lotTool.dragging() {
+			s.lotTool.release(mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]})
+			if s.lotTool.mode == lotPending {
+				s.setToast(s.lotDragText())
+			}
 		}
 	}
 
@@ -2003,20 +2009,31 @@ func (s *Scenario) Update(dt float64) {
 			s.lastTrailPaintCell = [2]int{gx, gz}
 		}
 	}
-	// Parking: press to start drawing a lot (or grab a lot's edge), drag
-	// to shape it; the release above commits it.
+	// Parking: press to draw a lot (or grab an edge), drag to shape the
+	// ghost; click inside the ghost or press Enter to build it.
 	if s.activeTool == toolParking && !inp.LeftClickConsumed && s.hoverValid {
 		pos := mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]}
 		switch {
 		case inp.LeftClick && !s.uiCovers(inp.MousePos[0], inp.MousePos[1], float32(r.ScreenWidth())):
-			if s.lotTool.press(s.world, pos) {
+			switch s.lotTool.press(s.world, pos) {
+			case lotPressDrag:
 				s.lotTool.move(s.world, pos)
+			case lotPressBuild:
+				s.buildLot()
 			}
-		case inp.LeftHeld && s.lotTool.mode != lotIdle:
+		case inp.LeftHeld && s.lotTool.dragging():
 			s.lotTool.move(s.world, pos)
+			s.setToast(s.lotDragText())
+		case s.lotTool.mode == lotPending && s.lotTool.lotID == 0:
+			s.lotTool.track(s.world, pos)
 			s.setToast(s.lotDragText())
 		}
 	}
+	if s.activeTool == toolParking && s.lotTool.mode == lotPending && !typing &&
+		(inp.Pressed[glfw.KeyEnter] || inp.Pressed[glfw.KeyKPEnter]) {
+		s.buildLot()
+	}
+	s.syncLotGhost(r)
 	// A right click that doesn't pan removes the service tile under it.
 	if s.activeTool == toolService {
 		if inp.RightClick {
@@ -2246,9 +2263,8 @@ func (s *Scenario) buildCellOverlay() (pixels []uint8, w, h int) {
 	hasActiveTrail := s.activeTrailID != 0
 	hasTrails := len(s.world.Trails) > 0 && (trailOverlayOn || hasActiveTrail)
 	hasLandOverlay := s.hoverParcel != nil // hover highlight when buying land
-	lotDrag := s.activeTool == toolParking && s.lotTool.mode != lotIdle
 	editedLodge := s.editedLodge()
-	if !hasTrails && !hasLandOverlay && !lotDrag && editedLodge == nil {
+	if !hasTrails && !hasLandOverlay && editedLodge == nil {
 		return nil, 0, 0
 	}
 
@@ -2308,9 +2324,6 @@ func (s *Scenario) buildCellOverlay() (pixels []uint8, w, h int) {
 				set(c[0], c[1], 255, 255, 255, 40)
 			}
 		}
-	}
-	if lotDrag {
-		s.lotTool.appendOverlay(s.world, set)
 	}
 	appendServiceOverlay(editedLodge, set)
 
@@ -3825,8 +3838,8 @@ func (s *Scenario) lotCost() int {
 	return cost
 }
 
-// lotDragText is the toast while dragging a lot: its size, stalls and
-// cost, or why it can't go there.
+// lotDragText is the toast while shaping a lot: its size, stalls and
+// cost, or why it can't go there; for a waiting ghost, how to build it.
 func (s *Scenario) lotDragText() string {
 	t := &s.lotTool
 	if !t.ok {
@@ -3835,14 +3848,25 @@ func (s *Scenario) lotDragText() string {
 		}
 		return t.why
 	}
-	return fmt.Sprintf("%s · $%s", t.summary(s.world), world.CommaInt(s.lotCost()))
+	text := fmt.Sprintf("%s · $%s", t.summary(s.world), world.CommaInt(s.lotCost()))
+	switch {
+	case t.mode == lotPending && t.lotID == 0:
+		text += ". Move to place, R turns it, click to build; Esc cancels (then drag again for another size)."
+	case t.mode == lotPending:
+		text += ". Click inside to build (or Enter); drag an edge to adjust; Esc cancels."
+	}
+	return text
 }
 
-// finishLotDrag commits the lot drag that just ended: on owned land,
-// paid for, placed or resized.
-func (s *Scenario) finishLotDrag() {
+// syncLotGhost keeps the renderer's lot preview in step with the tool.
+func (s *Scenario) syncLotGhost(r *render.Renderer) {
+	syncLotGhost(r, s.world, &s.lotTool, s.activeTool == toolParking)
+}
+
+// buildLot builds the pending ghost: on owned land, paid for, placed or
+// resized. A ghost that can't be built stays for adjusting.
+func (s *Scenario) buildLot() {
 	t := &s.lotTool
-	defer t.reset(t.only)
 	w := s.world
 	if !t.ok {
 		if t.why != "" {
@@ -3867,6 +3891,7 @@ func (s *Scenario) finishLotDrag() {
 	if t.lotID == 0 {
 		s.sim.LogBuildingPlaced(b)
 	}
+	t.reset(t.only)
 	s.setToast(fmt.Sprintf("Parking lot: %s · $%s", text, world.CommaInt(cost)))
 }
 

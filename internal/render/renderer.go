@@ -1380,6 +1380,24 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		setRoadTransformAttribs()
 		r.scene.roadGhostMesh.Draw()
 	}
+	if r.scene.lotGhost != nil {
+		r.StaticShader.SetFloat("uAlpha", 0.6)
+		gl.VertexAttrib4f(3, 1, 0, 0, 0)
+		gl.VertexAttrib4f(4, 0, 1, 0, 0)
+		gl.VertexAttrib4f(5, 0, 0, 1, 0)
+		gl.VertexAttrib4f(6, 0, 0, 0, 1)
+		if r.scene.lotGhostOK {
+			gl.VertexAttrib3f(7, 0.25, 0.27, 0.32) // asphalt, a little blue
+		} else {
+			gl.VertexAttrib3f(7, 0.75, 0.15, 0.10) // won't fit
+		}
+		r.scene.lotGhost.Draw()
+		if r.scene.lotGhostStripes != nil {
+			gl.VertexAttrib3f(7, 0.95, 0.95, 0.92)
+			r.scene.lotGhostStripes.Draw()
+		}
+		r.StaticShader.SetFloat("uAlpha", 0.4)
+	}
 	r.StaticShader.SetFloat("uAlpha", 1.0)
 	gl.DepthMask(true)
 	gl.Disable(gl.BLEND)
@@ -1433,6 +1451,22 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 				walkerInst = append(walkerInst, inst)
 			}
 		}
+		// Patrollers on a lift or skis (patrol red).
+		for _, p := range w.Patrollers {
+			if !p.State.OnSkis() {
+				continue
+			}
+			y := p.Pos[1]
+			if p.State != world.PatrollerRiding {
+				y = VisualElevationAt(w.Terrain, p.Pos[0], p.Pos[2])
+			}
+			skierInst = append(skierInst, DynamicInstance{
+				Position: [3]float32{p.Pos[0], y, p.Pos[2]},
+				Heading:  p.Heading,
+				Color:    [3]float32{0.85, 0.12, 0.10},
+				SpinMode: 1.0,
+			})
+		}
 		if r.dynamicBatch != nil {
 			r.dynamicBatch.SetDynamic(skierInst)
 			r.dynamicBatch.Draw()
@@ -1470,23 +1504,51 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		r.DynamicShader.SetFloat("uEmissive", 0)
 	}
 
-	// Ski patrol snowmobiles — red when active, white when at hut.
-	if r.patrollerBatch != nil && len(w.Patrollers) > 0 {
-		pInst := make([]DynamicInstance, 0, len(w.Patrollers))
+	// Snowmobiles out of their garages — parked by a patrol room or
+	// driven; red while answering a call. Patrollers on foot are walkers
+	// in patrol red; indoors they aren't drawn.
+	if r.patrollerBatch != nil && len(w.Snowmobiles) > 0 {
+		responding := map[uint64]bool{}
 		for _, p := range w.Patrollers {
-			y := VisualElevationAt(w.Terrain, p.Pos[0], p.Pos[2])
+			if p.State.Responding() {
+				responding[p.SnowmobileID] = true
+			}
+		}
+		pInst := make([]DynamicInstance, 0, len(w.Snowmobiles))
+		for _, m := range w.Snowmobiles {
+			if m.InGarage {
+				continue
+			}
 			color := [3]float32{1, 1, 1}
-			if p.State != world.PatrollerAtHut {
-				color = [3]float32{1.0, 0.2, 0.1} // red = responding
+			if responding[m.ID] {
+				color = [3]float32{1.0, 0.2, 0.1}
 			}
 			pInst = append(pInst, DynamicInstance{
-				Position: [3]float32{p.Pos[0], y, p.Pos[2]},
-				Heading:  p.Heading,
+				Position: [3]float32{m.Pos[0], VisualElevationAt(w.Terrain, m.Pos[0], m.Pos[2]), m.Pos[2]},
+				Heading:  m.Heading,
 				Color:    color,
 			})
 		}
 		r.patrollerBatch.SetDynamic(pInst)
 		r.patrollerBatch.Draw()
+	}
+	if r.walkerBatch != nil {
+		var walkers []DynamicInstance
+		for _, p := range w.Patrollers {
+			if !p.State.OnFoot() {
+				continue
+			}
+			walkers = append(walkers, DynamicInstance{
+				Position: [3]float32{p.Pos[0], VisualElevationAt(w.Terrain, p.Pos[0], p.Pos[2]), p.Pos[2]},
+				Heading:  p.Heading,
+				Color:    [3]float32{0.85, 0.12, 0.10},
+				SpinMode: 1.0,
+			})
+		}
+		if len(walkers) > 0 {
+			r.walkerBatch.SetDynamic(walkers)
+			r.walkerBatch.Draw()
+		}
 	}
 
 	// Helicopters — body + animated rotor parts, one set per HeliLift.

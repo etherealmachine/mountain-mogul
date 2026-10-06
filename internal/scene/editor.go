@@ -63,7 +63,12 @@ type Editor struct {
 	lotPopup                  *ui.Window // parking lot opened by clicking it with no tool
 	entryPopup                *ui.Window // road entry opened by clicking its post
 	lotTool                   lotTool
-	placeRotation             float32 // rotation for the next building placed (R / Shift+R)
+	serviceTool               serviceTool                    // the building tool's session
+	newShellKind              world.ShellKind                // what new buildings are built as
+	serviceButtons            map[world.Service]*ui.Button   // Buildings menu: one per service
+	kindButtons               map[world.ShellKind]*ui.Button // Buildings menu: lodge, tent, shed
+	serviceRightDown          mgl32.Vec2                     // where a right click began, to tell it from a pan
+	placeRotation             float32                        // rotation for the next building placed (R / Shift+R)
 	autoMaxSlider             *ui.VSlider
 	autoSnowlineSlider        *ui.VSlider
 	autoTreelineSlider        *ui.VSlider
@@ -145,10 +150,36 @@ func (e *Editor) Init(app *engine.App) error {
 	e.menuBar = ui.NewMenuBar(0, 60)
 	e.menuBar.Centered = true
 
-	// Buildings submenu: Lodge, Shed
+	// Buildings submenu: what a new building is built as (lodge, tent,
+	// shed) and the service to paint, as in the game's Amenities.
 	e.buildingsSubmenu = e.menuBar.AddSubmenu(render.IconHouse, "Buildings")
-	e.toolButtons[toolBuilding] = e.buildingsSubmenu.AddChild(render.IconHouse, "Lodge", func() { e.setTool(toolBuilding) })
-	e.toolButtons[toolTicketOffice] = e.buildingsSubmenu.AddChild(render.IconCoin, "Tickets", func() { e.setTool(toolTicketOffice) })
+	e.kindButtons = map[world.ShellKind]*ui.Button{}
+	for _, kv := range []struct {
+		kind world.ShellKind
+		icon render.IconName
+	}{
+		{world.ShellLodge, render.IconHouse},
+		{world.ShellTent, render.IconTriangle},
+		{world.ShellShed, render.IconGarage},
+	} {
+		k := kv.kind
+		e.kindButtons[k] = e.buildingsSubmenu.AddChild(kv.icon, k.Label(), func() { e.setNewShellKind(k) })
+	}
+	e.serviceButtons = map[world.Service]*ui.Button{}
+	for _, sv := range []struct {
+		svc  world.Service
+		icon render.IconName
+	}{
+		{world.ServiceLounge, render.IconHouse},
+		{world.ServiceFood, render.IconUsers},
+		{world.ServiceBar, render.IconCocktail},
+		{world.ServiceTickets, render.IconCoin},
+		{world.ServicePatrol, render.IconHeart},
+		{world.ServiceGarage, render.IconGarage},
+	} {
+		svc := sv.svc
+		e.serviceButtons[svc] = e.buildingsSubmenu.AddChild(sv.icon, svc.Label(), func() { e.activateServiceTool(svc) })
+	}
 
 	// Transport submenu: Parking, Road, Edge Connect
 	e.transportSubmenu = e.menuBar.AddSubmenu(render.IconRoad, "Transport")
@@ -351,9 +382,16 @@ func (e *Editor) Update(dt float64) {
 	// R / Shift+R: turn the building about to be placed, or the selected one.
 	if delta := rotateKeyDelta(inp); delta != 0 {
 		switch {
+		case e.activeTool == toolService:
+			e.serviceTool.rot = stepRotation(e.serviceTool.rot, delta)
+			e.serviceTool.turned = true
+			e.setToast("Rotation " + rotationDegrees(e.serviceTool.rot))
 		case e.activeTool == toolParking:
-			e.lotTool.rotate(e.world, delta)
-			e.setToast("Rotation " + rotationDegrees(e.lotTool.rotation))
+			if e.lotTool.rotate(e.world, delta) {
+				e.setToast("Rotation " + rotationDegrees(e.lotTool.rotation))
+			} else {
+				e.setToast("A built lot doesn't turn: delete it and draw a new one")
+			}
 		case isBuildingPlacementTool(e.activeTool):
 			e.placeRotation = stepRotation(e.placeRotation, delta)
 			e.setToast("Rotation " + rotationDegrees(e.placeRotation))
@@ -367,6 +405,12 @@ func (e *Editor) Update(dt float64) {
 			}
 		}
 	}
+	if e.activeTool == toolParking && e.lotTool.mode == lotPending &&
+		(inp.Pressed[glfw.KeyEnter] || inp.Pressed[glfw.KeyKPEnter]) {
+		e.buildLot(r)
+	}
+	syncLotGhost(r, e.world, &e.lotTool, e.activeTool == toolParking)
+
 	if e.settingsMenu.Visible() {
 		e.settingsMenu.HandleInput(inp)
 		return
@@ -585,6 +629,16 @@ func (e *Editor) Update(dt float64) {
 		rotation:   e.placeRotation,
 		tint:       ghostTint(true, e.placementLegal()),
 	})
+	e.updateServiceTool(inp.MousePos, overChrome)
+	// A right click that doesn't pan removes the tile under it.
+	if e.activeTool == toolService {
+		if inp.RightClick {
+			e.serviceRightDown = inp.MousePos
+		}
+		if inp.RightRelease && inp.MousePos.Sub(e.serviceRightDown).Len() < 4 {
+			e.serviceEnv().remove(&e.serviceTool)
+		}
+	}
 	// Editor mirrors the scenario's node-highlight behaviour while a
 	// road tool is active — same snap rules, same visual cue. While
 	// editing an existing road (toolNone selection), draw the full node
@@ -605,8 +659,11 @@ func (e *Editor) Update(dt float64) {
 	// Clear the suppress flag once the mouse button is fully released.
 	if !inp.LeftClick && !inp.LeftHeld {
 		e.suppressBrushUntilRelease = false
-		if e.activeTool == toolParking && e.lotTool.mode != lotIdle {
-			e.finishLotDrag(r)
+		if e.activeTool == toolParking && e.lotTool.dragging() {
+			e.lotTool.release(mgl32.Vec2{e.hoverWorld[0], e.hoverWorld[2]})
+			if e.lotTool.mode == lotPending {
+				e.setToast(e.lotPendingText())
+			}
 		}
 	}
 
@@ -636,15 +693,25 @@ func (e *Editor) Update(dt float64) {
 				}
 			} else if e.activeTool == toolNone {
 				e.handleToolNoneMouse(r, inp.LeftClick, inp.LeftHeld)
+			} else if e.activeTool == toolService {
+				if inp.LeftClick {
+					e.serviceEnv().apply(&e.serviceTool)
+				}
 			} else if e.activeTool == toolParking {
 				if e.hoverValid {
 					pos := mgl32.Vec2{e.hoverWorld[0], e.hoverWorld[2]}
 					switch {
 					case inp.LeftClick:
-						if e.lotTool.press(e.world, pos) {
+						switch e.lotTool.press(e.world, pos) {
+						case lotPressDrag:
 							e.lotTool.move(e.world, pos)
+						case lotPressBuild:
+							e.buildLot(r)
 						}
-					case inp.LeftHeld && e.lotTool.mode != lotIdle:
+					case e.lotTool.mode == lotPending && e.lotTool.lotID == 0 && !inp.LeftHeld:
+						e.lotTool.track(e.world, pos)
+						e.setToast(e.lotPendingText())
+					case inp.LeftHeld && e.lotTool.dragging():
 						e.lotTool.move(e.world, pos)
 						if e.lotTool.ok {
 							e.setToast(e.lotTool.summary(e.world))
@@ -698,6 +765,10 @@ func (e *Editor) handleToolNoneMouse(r *render.Renderer, leftClick, leftHeld boo
 			e.structureEdit.clear()
 		} else if tryStartStructureEdit(e.world, pos, &e.structureEdit) {
 			e.roadEdit.clear()
+		} else if b := e.world.PaintedBuildingAt(e.hoverCell[0], e.hoverCell[1]); b != nil && b.IsShell() {
+			e.roadEdit.clear()
+			e.structureEdit.clear()
+			e.openShellPopup(b.ID, false, r.ScreenWidth(), r.ScreenHeight())
 		} else if lot := e.world.ParkingLotAt(e.hoverCell[0], e.hoverCell[1]); lot != nil {
 			e.roadEdit.clear()
 			e.structureEdit.clear()
@@ -721,7 +792,7 @@ func (e *Editor) handleToolNoneMouse(r *render.Renderer, leftClick, leftHeld boo
 // or lift placement (click to commit) rather than a held brush.
 func (e *Editor) isPlacementTool() bool {
 	switch e.activeTool {
-	case toolBuilding, toolTicketOffice, toolLiftBase, toolLiftTop, toolRoadStart, toolRoadEnd, toolEdgeConnect, toolRemove, toolParcelRect:
+	case toolLiftBase, toolLiftTop, toolRoadStart, toolRoadEnd, toolEdgeConnect, toolRemove, toolParcelRect:
 		return true
 	}
 	return false
@@ -736,10 +807,6 @@ func (e *Editor) placementLegal() bool {
 	}
 	wx, wz := e.hoverWorld[0], e.hoverWorld[2]
 	switch e.activeTool {
-	case toolBuilding:
-		return !e.world.BuildingOverlap(world.BuildingLodge, wx, wz, e.placeRotation)
-	case toolTicketOffice:
-		return !e.world.BuildingOverlap(world.BuildingTicketOffice, wx, wz, e.placeRotation)
 	case toolEdgeConnect:
 		_, _, ok := projectToMapEdge(e.world.Terrain, mgl32.Vec2{wx, wz}, edgeConnectTolerance)
 		return ok
@@ -756,24 +823,6 @@ func (e *Editor) applyPlacement(r *render.Renderer, shiftHeld bool) {
 	wx := e.hoverWorld[0]
 	wz := e.hoverWorld[2]
 	switch e.activeTool {
-	case toolBuilding:
-		if w.BuildingOverlap(world.BuildingLodge, wx, wz, e.placeRotation) {
-			return
-		}
-		b := placeBuilding(w, world.BuildingLodge, wx, wz, e.placeRotation)
-		applyBuildingPlacementEffects(w, b)
-		r.FlushTerrainVerts(w.Terrain)
-		r.RebuildStaticBatch(w)
-		e.layerCache.fields = nil
-	case toolTicketOffice:
-		if w.BuildingOverlap(world.BuildingTicketOffice, wx, wz, e.placeRotation) {
-			return
-		}
-		b := placeBuilding(w, world.BuildingTicketOffice, wx, wz, e.placeRotation)
-		applyBuildingPlacementEffects(w, b)
-		r.FlushTerrainVerts(w.Terrain)
-		r.RebuildStaticBatch(w)
-		e.layerCache.fields = nil
 	case toolLiftBase:
 		e.liftBase = mgl32.Vec2{wx, wz}
 		e.activeTool = toolLiftTop
@@ -1029,6 +1078,12 @@ func (e *Editor) syncToolButtons() {
 		active := e.activeTool == mode ||
 			(mode == toolRoadStart && e.activeTool == toolRoadEnd)
 		btn.SetActive(active)
+	}
+	for svc, btn := range e.serviceButtons {
+		btn.SetActive(e.activeTool == toolService && e.serviceTool.svc == svc)
+	}
+	for k, btn := range e.kindButtons {
+		btn.SetActive(e.newShellKind == k)
 	}
 	liftActive := e.activeTool == toolLiftBase || e.activeTool == toolLiftTop
 	if e.liftDoubleBtn != nil {
@@ -1569,10 +1624,10 @@ func (e *Editor) openParcelPopup(id uint16, screenW, screenH int) {
 	e.parcelPopup = win
 }
 
-// finishLotDrag commits the lot drag that just ended.
-func (e *Editor) finishLotDrag(r *render.Renderer) {
+// buildLot builds the pending lot ghost. One that can't be built stays
+// for adjusting.
+func (e *Editor) buildLot(r *render.Renderer) {
 	t := &e.lotTool
-	defer t.reset(t.only)
 	if !t.ok {
 		if t.why != "" {
 			e.setToast(t.why)
@@ -1581,9 +1636,22 @@ func (e *Editor) finishLotDrag(r *render.Renderer) {
 	}
 	text := t.summary(e.world)
 	commitLot(r, e.world, t.lotID, t.rect)
+	t.reset(t.only)
 	e.markDirty()
 	e.layerCache.fields = nil // grading moved ground
 	e.setToast("Parking lot: " + text)
+}
+
+// lotPendingText is the toast for a lot ghost waiting to be built.
+func (e *Editor) lotPendingText() string {
+	t := &e.lotTool
+	if !t.ok {
+		return t.why
+	}
+	if t.lotID == 0 {
+		return t.summary(e.world) + ". Move to place, R turns it, click to build; Esc cancels (then drag again for another size)."
+	}
+	return t.summary(e.world) + ". Click inside to build (or Enter); drag an edge to adjust; Esc cancels."
 }
 
 // endParkingSession drops any lot drag, so the next Parking activation
@@ -1808,8 +1876,7 @@ func (e *Editor) buildEditorParcelOverlay(rectEnd [2]int) ([]uint8, int, int) {
 	t := e.world.Terrain
 	hasParcels := len(e.world.Parcels) > 0 && e.showParcels()
 	hasRect := e.activeTool == toolParcelRect && e.parcelRectActive
-	lotDrag := e.activeTool == toolParking && e.lotTool.mode != lotIdle
-	if !hasParcels && !hasRect && !lotDrag {
+	if !hasParcels && !hasRect {
 		return nil, 0, 0
 	}
 	tw, th := t.Width, t.Height
@@ -1867,9 +1934,6 @@ func (e *Editor) buildEditorParcelOverlay(rectEnd [2]int) ([]uint8, int, int) {
 		for _, c := range cells {
 			set(c[0], c[1], rv, gv, bv, 170)
 		}
-	}
-	if lotDrag {
-		e.lotTool.appendOverlay(e.world, set)
 	}
 	return pix, tw, th
 }

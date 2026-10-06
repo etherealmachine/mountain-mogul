@@ -3,6 +3,7 @@ package scene
 import (
 	"fmt"
 	"math"
+	"math/rand"
 	"strings"
 
 	"github.com/go-gl/mathgl/mgl32"
@@ -99,7 +100,7 @@ func tileBox(floor, height float32, c [2]int) (lo, hi mgl32.Vec3) {
 // pickService resolves the cursor ray against the shells first, falling
 // back to the terrain hit (ground, groundValid) for a new tile, in a new
 // building turned by rot.
-func pickService(w *world.World, o, d mgl32.Vec3, svc world.Service, ground mgl32.Vec3, groundValid bool, rot float32) servicePick {
+func pickService(w *world.World, o, d mgl32.Vec3, svc world.Service, ground mgl32.Vec3, groundValid bool, rot float32, free bool) servicePick {
 	best := float32(math.Inf(1))
 	if groundValid {
 		best = ground.Sub(o).Len()
@@ -148,7 +149,7 @@ func pickService(w *world.World, o, d mgl32.Vec3, svc world.Service, ground mgl3
 			pick = servicePick{kind: pickNew, origin: g.Sub(ax.Mul(half)).Sub(az.Mul(half)), rot: rot}
 		}
 	}
-	pick.legal, pick.reason = pickLegal(w, pick, svc)
+	pick.legal, pick.reason = pickLegal(w, pick, svc, free)
 	return pick
 }
 
@@ -206,12 +207,17 @@ func serviceRotation(w *world.World, p mgl32.Vec2, fallback float32) float32 {
 	return rot
 }
 
-func pickLegal(w *world.World, p servicePick, svc world.Service) (bool, string) {
+// pickLegal checks a pick; free skips the land-ownership rule (the
+// editor).
+func pickLegal(w *world.World, p servicePick, svc world.Service, free bool) (bool, string) {
 	switch p.kind {
 	case pickRepaint:
 		b := w.BuildingByID(p.bldg)
 		if b == nil || b.ServiceAt(p.cell) == svc {
 			return false, ""
+		}
+		if b.ServiceAt(p.cell) == world.ServiceGarage && !w.GarageCanLose(b, 1) {
+			return false, "The garage is full: sell a vehicle first"
 		}
 		return true, ""
 	case pickNew, pickAdd:
@@ -226,7 +232,7 @@ func pickLegal(w *world.World, p servicePick, svc world.Service) (bool, string) 
 			return false, ""
 		}
 		for _, c := range ground {
-			if !t.IsAccessible(c[0], c[1]) {
+			if !free && !t.IsAccessible(c[0], c[1]) {
 				return false, "Can't build on land you don't own"
 			}
 			mine := self != nil && self.OnGround(c)
@@ -283,80 +289,99 @@ func (s *Scenario) activateServiceTool(svc world.Service) {
 		svc.Label(), formatDollars(k.TileCost(svc)), strings.ToLower(k.Label()), strings.ToLower(k.Label()), formatDollars(world.ServiceBuildingCost(k, 1, svc, 0))))
 }
 
-// updateServicePick refreshes the tool's pick under the mouse.
-func (s *Scenario) updateServicePick(r *render.Renderer, mouse mgl32.Vec2) {
-	st := &s.serviceTool
-	if s.barsContain(mouse[1]) || s.uiCovers(mouse[0], mouse[1], float32(r.ScreenWidth())) {
+// serviceEnv is what the build tool works in: the game charges for
+// tiles, checks land, and logs new buildings; the editor builds for free
+// anywhere.
+type serviceEnv struct {
+	w       *world.World
+	r       *render.Renderer
+	free    bool                  // the editor: no cost, any land
+	toast   func(string)          // tell the player something
+	placed  func(*world.Building) // a new building went up (game: the event feed)
+	changed func()                // after any change (snowcat sections, dirty flags)
+	delete  func(id uint64)       // tear a building down
+}
+
+// updateServicePick refreshes the tool's pick under the mouse; covered
+// means the mouse is over UI.
+func (env serviceEnv) updatePick(st *serviceTool, mouse mgl32.Vec2, covered bool, hover mgl32.Vec3, hoverValid bool) {
+	if covered {
 		st.pick = servicePick{}
 		return
 	}
-	o, d := r.Camera.ScreenToWorldRay(mouse)
-	if !st.turned && s.hoverValid {
-		st.rot = serviceRotation(s.world, mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]}, st.rot)
+	o, d := env.r.Camera.ScreenToWorldRay(mouse)
+	if !st.turned && hoverValid {
+		st.rot = serviceRotation(env.w, mgl32.Vec2{hover[0], hover[2]}, st.rot)
 	}
-	st.pick = pickService(s.world, o, d, st.svc, s.hoverWorld, s.hoverValid, st.rot)
+	st.pick = pickService(env.w, o, d, st.svc, hover, hoverValid, st.rot, env.free)
 }
 
-// applyServicePick runs the left-click action under the cursor.
-func (s *Scenario) applyServicePick() {
-	w := s.world
-	st := &s.serviceTool
+// apply runs the left-click action under the cursor.
+func (env serviceEnv) apply(st *serviceTool) {
+	w := env.w
 	p := st.pick
 	if p.kind == pickNone {
 		return
 	}
 	if !p.legal {
 		if p.reason != "" {
-			s.setToast(p.reason)
+			env.toast(p.reason)
 		}
 		return
 	}
-	cost := pickCost(w, p, st)
-	if !w.CanAfford(cost) {
-		s.setToast(fmt.Sprintf("Need $%s for a %s tile — short by $%s",
-			formatDollars(cost), strings.ToLower(st.svc.Label()), formatDollars(cost-w.Available())))
-		return
+	if !env.free {
+		cost := pickCost(w, p, st)
+		if !w.CanAfford(cost) {
+			env.toast(fmt.Sprintf("Need $%s for a %s tile — short by $%s",
+				formatDollars(cost), strings.ToLower(st.svc.Label()), formatDollars(cost-w.Available())))
+			return
+		}
+		w.Cash -= cost
 	}
-	w.Cash -= cost
 	switch p.kind {
 	case pickNew:
 		b := w.PlaceServiceBuilding(p.origin, p.rot, map[[2]int]world.Service{p.cell: st.svc}, st.seed)
 		b.Kind = st.kind
-		st.seed = rng.Global().Uint32()
-		s.sim.LogBuildingPlaced(b)
-		s.finishServiceEdit(b, true)
+		st.seed = rand.Uint32() // style only; the editor has no sim RNG
+		if env.placed != nil {
+			env.placed(b)
+		}
+		env.finish(b, true)
 	case pickAdd:
 		b := w.BuildingByID(p.bldg)
 		w.SetTileService(b, p.cell, st.svc)
-		s.finishServiceEdit(b, true)
+		env.finish(b, true)
 	case pickRepaint:
 		b := w.BuildingByID(p.bldg)
 		w.SetTileService(b, p.cell, st.svc)
-		s.finishServiceEdit(b, false)
+		env.finish(b, false)
 	}
 }
 
-// removeServiceTile removes the tile under the cursor; the last tile
-// takes the building with it.
-func (s *Scenario) removeServiceTile() {
-	p := s.serviceTool.pick
-	b := s.world.BuildingByID(p.hitBldg)
+// remove removes the tile under the cursor; the last tile takes the
+// building with it.
+func (env serviceEnv) remove(st *serviceTool) {
+	p := st.pick
+	b := env.w.BuildingByID(p.hitBldg)
 	if b == nil {
 		return
 	}
-	if len(b.Cells) == 1 {
-		s.deletePaintedBuilding(b.ID)
+	if b.ServiceAt(p.hitCell) == world.ServiceGarage && !env.w.GarageCanLose(b, 1) {
+		env.toast("The garage is full: sell a vehicle first")
 		return
 	}
-	s.world.SetTileService(b, p.hitCell, world.ServiceNone)
-	s.finishServiceEdit(b, false)
+	if len(b.Cells) == 1 {
+		env.delete(b.ID)
+		return
+	}
+	env.w.SetTileService(b, p.hitCell, world.ServiceNone)
+	env.finish(b, false)
 }
 
-// finishServiceEdit regrades a grown footprint to the building's floor
-// and rebuilds the tiles and the trail graph, which refreshes the doors.
-func (s *Scenario) finishServiceEdit(b *world.Building, regrade bool) {
-	r := s.app.Renderer
-	w := s.world
+// finish regrades a grown footprint to the building's floor and rebuilds
+// the tiles and the trail graph, which refreshes the doors.
+func (env serviceEnv) finish(b *world.Building, regrade bool) {
+	w, r := env.w, env.r
 	if regrade {
 		gradePaintedPad(w, b, 0)
 		applyRoadCellState(w)
@@ -364,14 +389,15 @@ func (s *Scenario) finishServiceEdit(b *world.Building, regrade bool) {
 	}
 	w.RebuildTrailGraph()
 	r.RebuildStaticBatch(w)
-	s.sim.InvalidateSections() // garage tiles may have changed the fleet
+	if env.changed != nil {
+		env.changed()
+	}
 }
 
-// serviceGhost previews the pick: a lone tile of the tool's service at
-// the target cell, red when the click can't go ahead.
-func (s *Scenario) serviceGhost(r *render.Renderer) {
-	w := s.world
-	st := &s.serviceTool
+// ghost previews the pick: a lone tile of the tool's service at the
+// target cell, red when the click can't go ahead.
+func (env serviceEnv) ghost(st *serviceTool) {
+	w := env.w
 	p := st.pick
 	if p.kind == pickNone {
 		return
@@ -386,14 +412,36 @@ func (s *Scenario) serviceGhost(r *render.Renderer) {
 		seed, floor, kind, floors = b.StyleSeed, w.ShellFloorY(b), b.Kind, b.Floors()
 	}
 	tint := [3]float32{0.6, 1.0, 0.6}
-	if !p.legal || !w.CanAfford(pickCost(w, p, st)) {
+	if !p.legal || (!env.free && !w.CanAfford(pickCost(w, p, st))) {
 		tint = [3]float32{1.0, 0.4, 0.4}
 	}
 	scale := float32(1)
 	if p.kind == pickRepaint {
 		scale = 1.04
 	}
-	r.SetShellGhost(world.PreviewTile(origin, rot, kind, floors, p.cell, st.svc, seed), floor, scale, tint)
+	env.r.SetShellGhost(world.PreviewTile(origin, rot, kind, floors, p.cell, st.svc, seed), floor, scale, tint)
+}
+
+// serviceEnv is the game's build-tool surroundings.
+func (s *Scenario) serviceEnv() serviceEnv {
+	return serviceEnv{
+		w: s.world, r: s.app.Renderer, toast: s.setToast,
+		placed:  func(b *world.Building) { s.sim.LogBuildingPlaced(b) },
+		changed: func() { s.sim.InvalidateSections() }, // garage tiles may have changed the fleet
+		delete:  s.deletePaintedBuilding,
+	}
+}
+
+// updateServicePick refreshes the tool's pick under the mouse.
+func (s *Scenario) updateServicePick(r *render.Renderer, mouse mgl32.Vec2) {
+	covered := s.barsContain(mouse[1]) || s.uiCovers(mouse[0], mouse[1], float32(r.ScreenWidth()))
+	s.serviceEnv().updatePick(&s.serviceTool, mouse, covered, s.hoverWorld, s.hoverValid)
+}
+
+func (s *Scenario) applyServicePick()  { s.serviceEnv().apply(&s.serviceTool) }
+func (s *Scenario) removeServiceTile() { s.serviceEnv().remove(&s.serviceTool) }
+func (s *Scenario) serviceGhost(r *render.Renderer) {
+	s.serviceEnv().ghost(&s.serviceTool)
 }
 
 // serviceOverlayColor is a service's floor-plan colour in the overlay.
@@ -428,6 +476,72 @@ func (s *Scenario) editedLodge() *world.Building {
 		return b
 	}
 	return nil
+}
+
+// halfTiles formats a count of half-tiles as tiles: "3" or "3.5".
+func halfTiles(n int) string {
+	if n%2 == 0 {
+		return fmt.Sprintf("%d", n/2)
+	}
+	return fmt.Sprintf("%.1f", float32(n)/2)
+}
+
+// buyVehicle buys a snowcat (cat) or a snowmobile into b's garage, if it
+// fits and the resort can pay.
+func (s *Scenario) buyVehicle(b *world.Building, cat bool) {
+	w := s.world
+	price, half, name := world.SnowmobilePrice, world.SnowmobileGarageHalfTiles, "snowmobile"
+	if cat {
+		price, half, name = world.CatPurchasePrice, world.CatGarageHalfTiles, "snowcat"
+	}
+	if !w.GarageFits(b, half) {
+		used, total := w.GarageSpace(b)
+		s.setToast(fmt.Sprintf("No room: a %s needs %s free tiles, and this garage has %s", name, halfTiles(half), halfTiles(total-used)))
+		return
+	}
+	if !w.CanAfford(price) {
+		s.setToast(fmt.Sprintf("Need $%s for a %s — short by $%s", formatDollars(price), name, formatDollars(price-w.Available())))
+		return
+	}
+	w.Cash -= price
+	if cat {
+		w.SpawnSnowcat(b)
+		s.sim.InvalidateSections()
+	} else {
+		w.AddSnowmobile(b)
+	}
+	s.setToast(fmt.Sprintf("Bought a %s: $%s", name, formatDollars(price)))
+}
+
+// sellVehicle sells one of b's snowcats (cat) or snowmobiles for half
+// what it cost: a parked one, standby cats first.
+func (s *Scenario) sellVehicle(b *world.Building, cat bool) {
+	w := s.world
+	if cat {
+		cats := w.CatsOwnedBy(b.ID)
+		if len(cats) == 0 {
+			return
+		}
+		pick := cats[len(cats)-1]
+		for _, c := range cats {
+			if c.Status == world.CatStandby {
+				pick = c
+				break
+			}
+		}
+		w.RemoveSnowcat(pick.ID)
+		w.Cash += world.CatPurchasePrice / 2
+		s.sim.InvalidateSections()
+		s.setToast(fmt.Sprintf("Sold a snowcat: $%s", formatDollars(world.CatPurchasePrice/2)))
+		return
+	}
+	ms := w.SnowmobilesIn(b)
+	if len(ms) == 0 {
+		return
+	}
+	w.RemoveSnowmobile(ms[len(ms)-1].ID)
+	w.Cash += world.SnowmobilePrice / 2
+	s.setToast(fmt.Sprintf("Sold a snowmobile: $%s", formatDollars(world.SnowmobilePrice/2)))
 }
 
 // setCatsActive puts one of b's snowcats on standby (parked, cheaper) or
@@ -501,19 +615,33 @@ func (s *Scenario) buildLodgePopup(b *world.Building, confirmDelete bool, screen
 	}
 	if b.TileCount(world.ServicePatrol) > 0 {
 		w.AddLabel("Patrollers", func() string {
-			n, out := 0, 0
+			n, out, sleds := 0, 0, 0
 			for _, p := range s.world.Patrollers {
 				if p.HutID == b.ID {
 					n++
-					if p.State != world.PatrollerAtHut {
+					if p.State.Responding() {
 						out++
+					}
+					if p.SnowmobileID != 0 {
+						sleds++
 					}
 				}
 			}
-			return fmt.Sprintf("%d (%d out)", n, out)
+			return fmt.Sprintf("%d (%d on a call, %d with a snowmobile)", n, out, sleds)
 		})
 	}
 	if b.TileCount(world.ServiceGarage) > 0 {
+		w.AddLabel("Space", func() string {
+			used, total := s.world.GarageSpace(b)
+			return fmt.Sprintf("%s of %s tiles used", halfTiles(used), halfTiles(total))
+		})
+		w.AddLabel("Vehicles", func() string {
+			return fmt.Sprintf("%d snowcats, %d snowmobiles", len(s.world.CatsOwnedBy(b.ID)), len(s.world.SnowmobilesIn(b)))
+		})
+		w.AddActionButton(fmt.Sprintf("Buy snowcat ($%s)", formatDollars(world.CatPurchasePrice)), func() { s.buyVehicle(b, true) })
+		w.AddActionButton(fmt.Sprintf("Buy snowmobile ($%s)", formatDollars(world.SnowmobilePrice)), func() { s.buyVehicle(b, false) })
+		w.AddActionButton("Sell snowcat", func() { s.sellVehicle(b, true) })
+		w.AddActionButton("Sell snowmobile", func() { s.sellVehicle(b, false) })
 		w.AddIntStepperFn("Snowcats active",
 			func() string {
 				cats := s.world.CatsOwnedBy(b.ID)

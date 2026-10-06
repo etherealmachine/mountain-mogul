@@ -365,20 +365,34 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		}
 	}
 
+	snowmobiles := make([]SnowmobileData, len(w.Snowmobiles))
+	for i, m := range w.Snowmobiles {
+		snowmobiles[i] = SnowmobileData{ID: m.ID, GarageID: m.GarageID, Pos: [3]float32{m.Pos[0], m.Pos[1], m.Pos[2]}, Heading: m.Heading, InGarage: m.InGarage, TakenBy: m.TakenBy}
+		if g := buildingByID[m.GarageID]; forScenario && g != nil {
+			p := w.GarageSpot(g)
+			snowmobiles[i] = SnowmobileData{ID: m.ID, GarageID: m.GarageID, Pos: [3]float32{p[0], p[1], p[2]}, InGarage: true}
+		}
+	}
+
 	patrollers := make([]PatrollerData, len(w.Patrollers))
 	for i, p := range w.Patrollers {
 		patrollers[i] = PatrollerData{
-			ID:      p.ID,
-			HutID:   p.HutID,
-			Pos:     [3]float32{p.Pos[0], p.Pos[1], p.Pos[2]},
-			Heading: p.Heading,
-			State:   uint8(p.State),
+			ID:         p.ID,
+			HutID:      p.HutID,
+			Pos:        [3]float32{p.Pos[0], p.Pos[1], p.Pos[2]},
+			Heading:    p.Heading,
+			State:      uint8(p.State),
+			Snowmobile: p.SnowmobileID,
+			Target:     p.TargetGuestID,
+			TargetPos:  [3]float32{p.TargetPos[0], p.TargetPos[1], p.TargetPos[2]},
+			Timer:      p.ActionTimer,
+			OnSkis:     p.OnSkis,
+			Lift:       p.LiftID,
+			LiftT:      p.LiftProgress,
 		}
 		if hut := buildingByID[p.HutID]; forScenario && hut != nil {
 			pos := w.PatrollerHutPos(hut)
-			patrollers[i].Pos = [3]float32{pos[0], pos[1], pos[2]}
-			patrollers[i].Heading = 0
-			patrollers[i].State = uint8(world.PatrollerAtHut)
+			patrollers[i] = PatrollerData{ID: p.ID, HutID: p.HutID, Pos: [3]float32{pos[0], pos[1], pos[2]}, State: uint8(world.PatrollerOffDuty)}
 		}
 	}
 
@@ -603,6 +617,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		Trails:       trails,
 		Guests:       guests,
 		Snowcats:     snowcats,
+		Snowmobiles:  snowmobiles,
 		Patrollers:   patrollers,
 		RoadNodes:    roadNodes,
 		Cars:         cars,
@@ -918,12 +933,13 @@ func dataToWorld(data ScenarioData) *world.World {
 		b.SnowGunEnabled = bd.SnowGunEnabled
 	}
 
-	// Restore snowcats and patrollers. Service buildings spawn their
-	// fleets as their tiles load (and saved IDs replace theirs only after),
-	// so start over: restore each saved cat or patroller whose building
-	// still has a garage or patrol, then top up or trim every building to
-	// its tiles.
-	w.Snowcats, w.Patrollers = nil, nil
+	// Restore snowcats, snowmobiles, and patrollers. Service buildings
+	// spawn their patrollers as their tiles load (and saved IDs replace
+	// theirs only after), so start over: restore each saved vehicle or
+	// patroller whose building still has a garage or patrol, then top up
+	// or trim every building's patrol to its tiles and its vehicles to its
+	// garage space.
+	w.Snowcats, w.Snowmobiles, w.Patrollers = nil, nil, nil
 	shedByID := make(map[uint64]*world.Building)
 	hutByID := make(map[uint64]*world.Building)
 	for _, b := range w.Buildings {
@@ -959,10 +975,27 @@ func dataToWorld(data ScenarioData) *world.World {
 		p.Pos = mgl32.Vec3{pd.Pos[0], pd.Pos[1], pd.Pos[2]}
 		p.Heading = pd.Heading
 		p.State = world.PatrollerState(pd.State)
+		p.SnowmobileID, p.TargetGuestID, p.ActionTimer = pd.Snowmobile, pd.Target, pd.Timer
+		p.OnSkis, p.LiftID, p.LiftProgress = pd.OnSkis, pd.Lift, pd.LiftT
+		p.TargetPos = mgl32.Vec3{pd.TargetPos[0], pd.TargetPos[1], pd.TargetPos[2]}
 	}
+	for _, md := range data.Snowmobiles {
+		g := shedByID[md.GarageID]
+		if g == nil {
+			continue
+		}
+		m := w.AddSnowmobile(g)
+		if md.ID != 0 {
+			m.ID = md.ID
+		}
+		m.Pos, m.Heading = mgl32.Vec3{md.Pos[0], md.Pos[1], md.Pos[2]}, md.Heading
+		m.InGarage, m.TakenBy = md.InGarage, md.TakenBy
+	}
+	w.SettleSnowmobiles()
 	for _, b := range w.Buildings {
 		if b.IsShell() {
 			w.SyncFleet(b)
+			w.TrimGarage(b)
 		}
 	}
 
