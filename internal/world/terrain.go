@@ -449,6 +449,10 @@ type Terrain struct {
 	// nil when nothing has set it. See material.go.
 	Material *TerrainMaterial
 
+	// shed caches what ShedSnow derives from the ground and material map;
+	// nil when the ground has changed since. See snowshed.go.
+	shed *shedCache
+
 	// accessible is a derived per-cell land-ownership grid. nil means all
 	// in-bounds cells are accessible (no parcel system). Maintained by
 	// World.ApplyParcels and World.BuyParcel.
@@ -498,6 +502,7 @@ func NewTerrain(w, h int) *Terrain {
 // testbed setup). The sim's avalanche logic reads Cell.Slope directly.
 func (t *Terrain) RecomputeSlopes() {
 	t.horizonStale = true
+	t.shed = nil
 	for x := range t.Cells {
 		for z := range t.Cells[x] {
 			gx, gz := t.GradientAt(x, z)

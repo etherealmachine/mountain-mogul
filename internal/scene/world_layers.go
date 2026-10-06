@@ -217,8 +217,9 @@ func snowOpeningDay(w *world.World, c *layerCache) time.Time {
 }
 
 // runSnowLayer lays the snow a typical season leaves by the start date,
-// shaped by the ground and scaled by the layer's strength. Without a
-// climate it falls back to the Auto tool's generator.
+// shaped by the ground and scaled by the layer's strength, then sheds
+// what steep ground can't hold. Without a climate it falls back to the
+// Auto tool's generator.
 func runSnowLayer(w *world.World, c *layerCache) {
 	t := w.Terrain
 	f := c.fieldsFor(t)
@@ -226,6 +227,7 @@ func runSnowLayer(w *world.World, c *layerCache) {
 	k := snowDepthScale(w)
 	if w.Climate == nil {
 		f.generateSnowCover(t, 2*k, 0.3, 0.7, 270, layerSeed(w))
+		t.ShedSnow()
 		return
 	}
 	pack := snowpackFor(w, c)
@@ -246,6 +248,7 @@ func runSnowLayer(w *world.World, c *layerCache) {
 			}
 		}
 	}
+	t.ShedSnow()
 	t.SnowDirty = true
 }
 

@@ -9,6 +9,25 @@ uniform sampler2D uDetail;
 uniform float     uDetailOn;
 uniform vec2      uDetailSize;
 
+// The material map (see terrain.frag): snow doesn't build up on rock.
+uniform sampler2D uMaterial;
+uniform float     uMaterialOn;
+uniform vec2      uMaterialSize;
+
+// rockAt is how much of the ground around world xz is rock, blending the
+// four material samples around it.
+float rockAt(vec2 xz) {
+    vec2  g = xz / 1.25;
+    ivec2 p = ivec2(floor(g));
+    vec2  f = fract(g);
+    ivec2 hi = ivec2(uMaterialSize) - 1;
+    float r00 = texelFetch(uMaterial, clamp(p,               ivec2(0), hi), 0).r * 255.0 > 2.5 ? 1.0 : 0.0;
+    float r10 = texelFetch(uMaterial, clamp(p + ivec2(1, 0), ivec2(0), hi), 0).r * 255.0 > 2.5 ? 1.0 : 0.0;
+    float r01 = texelFetch(uMaterial, clamp(p + ivec2(0, 1), ivec2(0), hi), 0).r * 255.0 > 2.5 ? 1.0 : 0.0;
+    float r11 = texelFetch(uMaterial, clamp(p + ivec2(1, 1), ivec2(0), hi), 0).r * 255.0 > 2.5 ? 1.0 : 0.0;
+    return mix(mix(r00, r10, f.x), mix(r01, r11, f.x), f.y);
+}
+
 patch in vec3  tcNormal;
       in vec2  tcGrid[];
       in vec2  tcKind[];
@@ -90,7 +109,12 @@ void main() {
 
     // Base snow height — separates density differences geometrically.
     // snowDepth = accumulation / density, so powder (low density) sits
-    // higher than the same SWE in groomed or packed form.
+    // higher than the same SWE in groomed or packed form. The cell's snow
+    // lies on its ground and ledges, not its rock, so rock faces and the
+    // lips above them stay sharp instead of blanketed.
+    if (uMaterialOn > 0.5) {
+        snowDepth *= 1.0 - rockAt(pos.xz);
+    }
     pos.y += snowDepth;
 
     // Noise kicks — same amplitudes as the procedural normal-map

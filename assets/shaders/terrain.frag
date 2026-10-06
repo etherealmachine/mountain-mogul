@@ -308,8 +308,9 @@ void main() {
     Rock  rk;
     rk.h = 0.0;
     vec3  rockCol   = rock;
-    // Skipped under 5 cm of snow or more, which hides the ground.
-    if (rockW > 0.01 && effDepth < 0.05) {
+    // Skipped under 5 cm of snow or more, which hides the ground, except
+    // where the material map says rock, which snow doesn't cover.
+    if (rockW > 0.01 && (effDepth < 0.05 || uMaterialOn > 0.5)) {
         rk      = rockField(vWorldPos, pxM);
         rockCol = rockAlbedo(vWorldPos, rk);
     }
@@ -370,6 +371,14 @@ void main() {
     // slope shed), so no second slope gate is needed here. Uses
     // effDepth so tree wells expose bare ground at the trunk.
     float snowness = smoothstep(0.0, 0.05, effDepth);
+    // Rock in the material map holds a dusting at most (the sim sheds the
+    // rest; see world.ShedSnow), lying in patches on its rough surface.
+    // The cell's snow sits on the ground and ledges around it.
+    if (uMaterialOn > 0.5 && rockW > 0.0) {
+        float dust = smoothstep(0.55, 0.8, fbmNoise(vWorldPos.xz / 1.3 + vec2(vWorldPos.y * 0.25, 0.0)))
+                   * smoothstep(0.02, 0.3, effDepth) * 0.85;
+        snowness = mix(snowness, dust, rockW);
+    }
 
     // Avalanche-debris tint: warm ochre-grey from rock/soil mixed into tumbled snow.
     // Coarse grain gives the chunky, disturbed surface character.

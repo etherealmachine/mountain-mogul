@@ -926,6 +926,7 @@ func (e *Editor) pushSnowLayer(kind world.SnowKind) {
 		e.autoWindSlider.Value,
 		e.autoSeed,
 	)
+	e.world.Terrain.ShedSnow()
 	if e.app != nil && e.app.Renderer != nil {
 		e.app.Renderer.FlushTerrainVerts(e.world.Terrain)
 		e.app.Renderer.RebuildStaticBatch(e.world)

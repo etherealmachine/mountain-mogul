@@ -965,6 +965,8 @@ func (s *Simulation) pushSnowLayer(dw DayWeather) {
 			c.Grooming *= 1 - burialFactor
 		}
 	}
+	// What steep ground can't hold sluffs down to where it can.
+	t.ShedSnow()
 
 	// Bury skier tracks. 2 cm SWE fully covers any track.
 	trackFactor := float32(1.0) - burialFactor
