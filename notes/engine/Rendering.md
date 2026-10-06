@@ -34,3 +34,4 @@ Cliffs, creeks, and finer terrain are planned in [[Terrain Realism]]. Gamma-corr
 - 2026-10-06: Snow draws on a cell's ground and ledges, not its rock, and doesn't raise rock by its depth ([[Ground Materials]]).
 - 2026-10-06: Frozen lakes: flat snow with wind-scoured grey-blue ice where it's thin ([[Creeks and Lakes]]).
 - 2026-10-06: Lake surfaces: open water reflects the sky and glints, thin ice is dark with patchy snow, and frozen lakes are snowy ([[Creeks and Lakes]]).
+- 2026-10-06: Coarse terrain levels by zoom (2, 4, or 8 cells per triangle edge, chosen per frame from the orthographic scale; lidar shading and snow read per pixel at coarse levels). Kirkwood whole map: 13.7 → 8.6 ms GPU, 12 → 1.5 ms CPU.
