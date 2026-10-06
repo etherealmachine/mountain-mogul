@@ -24,7 +24,7 @@ const (
 
 // runMaterialLayer sets w's material map from its drawn ground. Maps
 // without detail get none.
-func runMaterialLayer(w *world.World, _ *layerCache) {
+func runMaterialLayer(w *world.World, c *layerCache) {
 	t := w.Terrain
 	if t.Detail == nil {
 		t.Material = nil
@@ -68,6 +68,7 @@ func runMaterialLayer(w *world.World, _ *layerCache) {
 	}
 	t.Material = m
 	setUpLakes(w, h)
+	markCreeks(w, c)
 }
 
 // Lake depth, which no open data has, estimated as most lake atlases do:
@@ -200,6 +201,63 @@ func setUpLakes(w *world.World, h []float32) {
 		d := min(lakeFloorGentler*slope*fromShore, capDepth)
 		t.LakeDepth[k] = d
 		l.MaxDepth = max(l.MaxDepth, d)
+	}
+}
+
+// Creek water: where a flowing creek's channel is open water and where
+// snow bridges it. Bigger creeks are open more of their length; along
+// one creek, open stretches and bridges alternate every few tens of
+// metres.
+const (
+	creekOpenFrom = 0.3e6 // m² of catchment: mostly bridged below this...
+	creekOpenTo   = 3e6   // ...mostly open above
+	creekBridgeM  = 25.0  // metres, the length of a typical bridge or opening
+)
+
+// markCreeks marks the channels of w's flowing creeks in the material
+// map: open water where the creek runs open, ice (snow-covered, like a
+// frozen lake) where snow bridges it. Either way trees stay off it.
+func markCreeks(w *world.World, c *layerCache) {
+	m := w.Terrain.Material
+	if m == nil || c == nil || w.TerrainBase == nil || !w.TerrainBase.LayerOn("creeks") {
+		return
+	}
+	const per = world.CellSize / world.DetailPerCell
+	seed := int(layerSeed(w))
+	for si, s := range c.streamsFor(w) {
+		var along float32
+		for i := 1; i < len(s.Points); i++ {
+			a, b := s.Points[i-1], s.Points[i]
+			l := float32(math.Hypot(float64(b[0]-a[0]), float64(b[1]-a[1])))
+			along += l
+			if !s.Flowing(i) || l == 0 {
+				continue
+			}
+			open := smoothstep32(creekOpenFrom, creekOpenTo, s.Catchment[i])
+			gap := valueNoise2D(along/creekBridgeM, float32(si)*7.3, seed+47)
+			surface := world.MatIce
+			if gap < open*0.9+0.05 {
+				surface = world.MatOpenWater
+			}
+			half, _ := geo.CreekShape(s.Catchment[i])
+			half *= 0.8 // the water, inside the banks
+			i0, i1 := max(int((min(a[0], b[0])-half)/per), 0), min(int((max(a[0], b[0])+half)/per)+1, m.W-1)
+			j0, j1 := max(int((min(a[1], b[1])-half)/per), 0), min(int((max(a[1], b[1])+half)/per)+1, m.H-1)
+			dx, dz := b[0]-a[0], b[1]-a[1]
+			for j := j0; j <= j1; j++ {
+				for i := i0; i <= i1; i++ {
+					px, pz := float32(i)*per, float32(j)*per
+					u := min(max(((px-a[0])*dx+(pz-a[1])*dz)/(l*l), 0), 1)
+					if math.Hypot(float64(px-(a[0]+u*dx)), float64(pz-(a[1]+u*dz))) > float64(half) {
+						continue
+					}
+					k := j*m.W + i
+					if m.M[k] == world.MatMeadow || m.M[k] == world.MatDirt || (surface == world.MatOpenWater && m.M[k] == world.MatIce) {
+						m.M[k] = surface
+					}
+				}
+			}
+		}
 	}
 }
 

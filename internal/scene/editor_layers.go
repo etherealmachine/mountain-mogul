@@ -473,6 +473,8 @@ func layerSkipReason(i int, base *world.TerrainBase) string {
 		return "needs lidar"
 	case geo.Layers[i].ID == "lakes":
 		return "no lakes mapped here"
+	case geo.Layers[i].ID == "creeks":
+		return "no streams mapped here"
 	case base.RoadNote != "":
 		return base.RoadNote
 	}

@@ -57,6 +57,13 @@ var Layers = []Layer{
 		},
 	},
 	{
+		// After erosion, so the channels it cuts stay crisp.
+		ID: "creeks", Name: "Creeks", MovesGround: true, Fixed: true,
+		Run: func(h []float32, w, ht int, spacing float64, base *world.TerrainBase, _ float32) {
+			CarveCreeks(h, w, ht, spacing, CreekStreams(h, w, ht, spacing, base))
+		},
+	},
+	{
 		// Last, so nothing roughens the levelled water afterwards.
 		ID: "lakes", Name: "Lakes", MovesGround: true, Fixed: true,
 		Run: func(h []float32, w, ht int, _ float64, base *world.TerrainBase, _ float32) {
@@ -74,6 +81,8 @@ func Applies(i int, base *world.TerrainBase) bool {
 	case l.ID == "roads" && len(base.Roads) == 0:
 		return false
 	case l.ID == "lakes" && len(base.Lakes) == 0:
+		return false
+	case l.ID == "creeks" && len(base.Streams) == 0:
 		return false
 	}
 	return true

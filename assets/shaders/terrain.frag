@@ -436,9 +436,23 @@ void main() {
         snowness    = min(snowness, 1.0 - 0.9 * scour * thin);
     } else if (lakeSurf == MAT_THIN_ICE) {
         snowness = min(snowness, 0.6 * smoothstep(0.55, 0.75, fbmNoise(vWorldPos.xz / 12.0 + vec2(3.3, 9.1))));
-    } else if (lakeSurf == MAT_OPEN_WATER) {
-        snowness = 0.0;
     }
+    // Open water (lakes and creeks) blends across the four material
+    // samples around the point, with a little noise, so its edge follows
+    // a smooth, slightly ragged line rather than the 1.25 m lattice.
+    float openW = 0.0;
+    if (uMaterialOn > 0.5) {
+        vec2  g = vWorldPos.xz / 1.25;
+        ivec2 p = ivec2(floor(g));
+        vec2  f = fract(g);
+        float o00 = materialAt(p) == MAT_OPEN_WATER ? 1.0 : 0.0;
+        float o10 = materialAt(p + ivec2(1, 0)) == MAT_OPEN_WATER ? 1.0 : 0.0;
+        float o01 = materialAt(p + ivec2(0, 1)) == MAT_OPEN_WATER ? 1.0 : 0.0;
+        float o11 = materialAt(p + ivec2(1, 1)) == MAT_OPEN_WATER ? 1.0 : 0.0;
+        openW = mix(mix(o00, o10, f.x), mix(o01, o11, f.x), f.y);
+        openW = smoothstep(0.35, 0.65, openW + 0.25 * (valueNoise(vWorldPos.xz / 0.9) - 0.5));
+    }
+    snowness *= 1.0 - openW;
 
     // Avalanche-debris tint: warm ochre-grey from rock/soil mixed into tumbled snow.
     // Coarse grain gives the chunky, disturbed surface character.
@@ -617,13 +631,14 @@ void main() {
     }
     // Open water mirrors the sky, more at grazing angles, and glints
     // where small ripples catch the sun.
-    if (lakeSurf == MAT_OPEN_WATER) {
+    if (openW > 0.01) {
         vec3  V    = normalize(uCameraPos - vWorldPos);
         vec2  rip  = valueNoiseD(vWorldPos.xz / 1.5 + vec2(uTime * 0.15, uTime * 0.1)).yz / 1.5;
         vec3  Nw   = normalize(N + vec3(rip.x, 0.0, rip.y) * 0.15);
         float fres = pow(1.0 - max(dot(Nw, V), 0.0), 4.0);
-        lit = mix(lit, fillLight(Nw) * 1.1, 0.2 + 0.6 * fres);
-        lit += uSunColor * pow(max(dot(Nw, normalize(L + V)), 0.0), 150.0) * sunVis * 2.0;
+        vec3 water = mix(lit, fillLight(Nw) * 1.1, 0.2 + 0.6 * fres);
+        water += uSunColor * pow(max(dot(Nw, normalize(L + V)), 0.0), 150.0) * sunVis * 2.0;
+        lit = mix(lit, water, openW);
     }
 
     // Groomed snow: the cool tint and fine grain of packed corduroy, a

@@ -17,11 +17,12 @@ uniform sampler2D uMaterial;
 uniform float     uMaterialOn;
 uniform vec2      uMaterialSize;
 
-// rockTexel is 1 where material sample p is rock (world.MatRock, 3).
+// rockTexel is 1 where material sample p holds no snow depth: rock
+// (world.MatRock, 3) and open water (world.MatOpenWater, 6).
 float rockTexel(ivec2 p) {
     ivec2 hi = ivec2(uMaterialSize) - 1;
     float m  = texelFetch(uMaterial, clamp(p, ivec2(0), hi), 0).r * 255.0;
-    return abs(m - 3.0) < 0.5 ? 1.0 : 0.0;
+    return (abs(m - 3.0) < 0.5 || abs(m - 6.0) < 0.5) ? 1.0 : 0.0;
 }
 
 // rockAt is how much of the ground around world xz is rock, blending the
