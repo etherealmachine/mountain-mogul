@@ -14,7 +14,7 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 
 In the order to work on them:
 
-1. **Fix how services work**: the investigate-and-report items under Bugs and Guests (patrol, grooming, thirst, exhaustion, falls), in the new service model. Patrol is diagnosed and planned as [[Patrol Day]] (steps 1–5 done: rarer injuries with a ten-minute wait, garage space, the patrol morning, snowmobile or lift-and-ski response, toboggans; patrol rescues again; step 6, response time in satisfaction, is left); grooming, thirst, exhaustion, and falls are next to diagnose.
+1. **Fix how services work**: the investigate-and-report items under Bugs and Guests (patrol, grooming, thirst, exhaustion, falls), in the new service model. Patrol is diagnosed and planned as [[Patrol Day]] (steps 1–5 done: rarer injuries with a ten-minute wait, garage space, the patrol morning, snowmobile or lift-and-ski response, toboggans; patrol rescues again; step 6, hiking to any injury, fixed a no-response bug found in play; step 7, response time in satisfaction, is left); grooming, thirst, exhaustion, and falls are next to diagnose.
 
 Then: **gameplay before scenario goals**. A headless three-lift Boreal (2026-10-06) runs about 70 guests a day with the rating stuck near 30%, so goals can't be set until guests can have a good day. Priority 1 covers the investigate-and-report items; then the guest pool per scenario ([[First Week Balance]]). [[Scenario Goals and Rules]] steps 1–4 shipped and are tabled until then.
 
@@ -209,3 +209,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-06: [[Patrol Day]] steps 1–5 shipped. Noticed on the Boreal rig: guests still skiing two to three hours after the lifts close (may tie into the exhaustion item).
 - 2026-10-06: Planned [[Building Tool]] (shell first, then rooms), unranked.
 - 2026-10-06: [[Rotated Buildings]] done (Boreal rebuilt); fixing services is now priority 1.
+- 2026-10-06: [[Patrol Day]]: patrollers hike to any injury; helivac and overtime noted for later.
