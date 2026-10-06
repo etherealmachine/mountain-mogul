@@ -8,6 +8,9 @@ uniform mat4 uViewProj;
 uniform sampler2D uDetail;
 uniform float     uDetailOn;
 uniform vec2      uDetailSize;
+// uFragDetail is 1 when the terrain is drawn at a coarse level of detail:
+// the fragment shader tilts the normal by the detail per pixel instead.
+uniform float     uFragDetail;
 
 // The material map (see terrain.frag): snow doesn't build up on rock.
 uniform sampler2D uMaterial;
@@ -97,7 +100,7 @@ void main() {
         vec2  texel = 1.0 / uDetailSize;
         vec2  uv    = (BARY(tcGrid) * 4.0 + 0.5) * texel;
         pos.y += texture(uDetail, uv).r * kind.x;
-        if (kind.y < 0.5) {
+        if (kind.y < 0.5 && uFragDetail < 0.5) {
             // Tilt both normals by the detail's slope (1.25 m per texel).
             float gx = (texture(uDetail, uv + vec2(texel.x, 0.0)).r - texture(uDetail, uv - vec2(texel.x, 0.0)).r) / 2.5;
             float gz = (texture(uDetail, uv + vec2(0.0, texel.y)).r - texture(uDetail, uv - vec2(0.0, texel.y)).r) / 2.5;

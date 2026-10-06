@@ -55,7 +55,24 @@ type terrainChunk struct {
 	first, count int32 // indices
 	min, max     mgl32.Vec3
 	always       bool // the skirt: drawn without culling
+	// lods are coarser index ranges over the same vertices, using every
+	// 2nd, 4th, and 8th corner (terrainLODStrides), for when cells are
+	// too small on screen to be worth drawing one by one.
+	lods [len(terrainLODStrides)]struct{ first, count int32 }
 }
+
+// terrainLODStrides are the coarser levels of detail, in cells per
+// triangle edge. terrainChunkCells is a multiple of each, so neighbouring
+// chunks share their edge corners at every level and can't crack. The
+// camera is orthographic, so one level for the whole frame (picked by
+// zoom in drawTerrain) keeps every chunk on the same level.
+var terrainLODStrides = [...]int{2, 4, 8}
+
+// terrainLODMinPx is the smallest a cell, or a coarse level's triangle
+// edge, should be on screen, in logical pixels, before drawing coarser:
+// smaller triangles cost the GPU a lot (rasterised 2×2 pixels at a time,
+// multisampled) for detail no one can see.
+const terrainLODMinPx = 2.5
 
 // terrainCorners is everything per corner that depends only on ground
 // elevation.
@@ -256,12 +273,31 @@ func buildTerrainGeometry(t *world.Terrain) (verts []float32, indices []uint32, 
 					}
 				}
 			}
-			chunks = append(chunks, terrainChunk{
+			chunk := terrainChunk{
 				first: first,
 				count: int32(len(indices)) - first,
 				min:   mgl32.Vec3{float32(x0)*terrainCellSize - 1, lo, float32(z0)*terrainCellSize - 1},
 				max:   mgl32.Vec3{float32(x1)*terrainCellSize + 1, hi, float32(z1)*terrainCellSize + 1},
-			})
+			}
+			// Coarse levels: quads of s × s cells, the last one in a row
+			// or column cut short at the map's far edge.
+			for l, s := range terrainLODStrides {
+				chunk.lods[l].first = int32(len(indices))
+				for z := z0; z < z1; z += s {
+					for x := x0; x < x1; x += s {
+						xa, za := x, z
+						xb, zb := min(x+s, x1), min(z+s, z1)
+						at := func(cx, cz int) uint32 { return base + uint32((cz-z0)*nx+(cx-x0)) }
+						if ((x-x0)/s+(z-z0)/s)%2 == 0 {
+							indices = append(indices, at(xa, za), at(xb, za), at(xb, zb), at(xa, za), at(xb, zb), at(xa, zb))
+						} else {
+							indices = append(indices, at(xa, za), at(xb, za), at(xa, zb), at(xb, za), at(xb, zb), at(xa, zb))
+						}
+					}
+				}
+				chunk.lods[l].count = int32(len(indices)) - chunk.lods[l].first
+			}
+			chunks = append(chunks, chunk)
 			minY, maxY = min(minY, lo), max(maxY, hi)
 		}
 	}
@@ -743,6 +779,23 @@ func (r *Renderer) drawTerrain(sh *Shader, vp mgl32.Mat4) {
 	sh.SetFloat("uTessPx", terrainTessPx)
 	sh.SetFloat("uTessMax", tessMax)
 
+	// Level of detail: with the orthographic camera every cell is the
+	// same size on screen, so pick the finest level whose triangles are
+	// at least terrainLODMinPx across.
+	lod := -1
+	if c := r.Camera; !c.Perspective && r.logicalH > 0 {
+		cellPx := terrainCellSize * float32(r.logicalH) / (2 * c.OrthoScale)
+		for lod+1 < len(terrainLODStrides) && cellPx*float32(strideOf(lod)) < terrainLODMinPx {
+			lod++
+		}
+	}
+	r.terrainLOD = lod
+	fragDetail := float32(0)
+	if lod >= 0 {
+		fragDetail = 1
+	}
+	sh.SetFloat("uFragDetail", fragDetail)
+
 	gl.PatchParameteri(gl.PATCH_VERTICES, 3)
 	gl.BindVertexArray(s.terrainMesh.VAO)
 	padHi := s.terrainSnowPad + s.detailPad
@@ -751,12 +804,29 @@ func (r *Renderer) drawTerrain(sh *Shader, vp mgl32.Mat4) {
 		if !c.always && !boxInView(vp, c.min.Sub(mgl32.Vec3{0, s.detailPad, 0}), c.max.Add(mgl32.Vec3{0, padHi, 0})) {
 			continue
 		}
-		gl.DrawElementsWithOffset(gl.PATCHES, c.count, gl.UNSIGNED_INT, uintptr(c.first)*4)
+		first, count := c.first, c.count
+		if lod >= 0 && !c.always {
+			first, count = c.lods[lod].first, c.lods[lod].count
+		}
+		gl.DrawElementsWithOffset(gl.PATCHES, count, gl.UNSIGNED_INT, uintptr(first)*4)
 		drawn++
 	}
 	gl.BindVertexArray(0)
 	r.terrainChunksDrawn = drawn
 }
+
+// strideOf is the cells per triangle edge at level l: 1 for the full
+// mesh (l = -1).
+func strideOf(l int) int {
+	if l < 0 {
+		return 1
+	}
+	return terrainLODStrides[l]
+}
+
+// TerrainLOD is the level of detail the last frame drew the terrain at,
+// in cells per triangle edge.
+func (r *Renderer) TerrainLOD() int { return strideOf(r.terrainLOD) }
 
 // TerrainChunkStats is how many terrain chunks the last frame drew, out
 // of how many there are (the skirt counts as one).

@@ -42,6 +42,36 @@ uniform sampler2D uCellOverlay;
 // What the ground is made of (world.TerrainMaterial): one byte per
 // 1.25 m detail sample, sample (i, j) at world (i, j) × 1.25 m. IDs
 // match world.Material. uMaterialOn is 0 when the map has none.
+// Sub-cell height detail (see terrain.tese). When the terrain is drawn at
+// a coarse level of detail (uFragDetail = 1), its slope tilts the normal
+// here, per pixel, so the lidar's relief still shades at full resolution.
+uniform sampler2D uDetail;
+uniform float     uDetailOn;
+uniform vec2      uDetailSize;
+uniform float     uFragDetail;
+
+// Per-corner snow state (see terrain.vert): at a coarse level of detail
+// it's read here, per pixel, rather than interpolated from the coarse
+// triangle's corners, so patchy snow (thin under forest, deep between)
+// keeps its pattern.
+uniform sampler2D uCornerSnowA;
+uniform sampler2D uCornerSnowB;
+
+// cornerSnow is the snow state at world xz, bilinear between corners:
+// A = (grooming, packed, ice, mogul), and the visible depth.
+void cornerSnow(vec2 xz, out vec4 a, out float depth) {
+    vec2  g  = xz / 5.0;
+    ivec2 c  = ivec2(floor(g));
+    vec2  f  = fract(g);
+    ivec2 hi = textureSize(uCornerSnowA, 0) - 1;
+    ivec2 c00 = clamp(c, ivec2(0), hi), c10 = clamp(c + ivec2(1, 0), ivec2(0), hi);
+    ivec2 c01 = clamp(c + ivec2(0, 1), ivec2(0), hi), c11 = clamp(c + ivec2(1, 1), ivec2(0), hi);
+    a = mix(mix(texelFetch(uCornerSnowA, c00, 0), texelFetch(uCornerSnowA, c10, 0), f.x),
+            mix(texelFetch(uCornerSnowA, c01, 0), texelFetch(uCornerSnowA, c11, 0), f.x), f.y);
+    depth = mix(mix(texelFetch(uCornerSnowB, c00, 0).r, texelFetch(uCornerSnowB, c10, 0).r, f.x),
+                mix(texelFetch(uCornerSnowB, c01, 0).r, texelFetch(uCornerSnowB, c11, 0).r, f.x), f.y);
+}
+
 uniform sampler2D uMaterial;
 uniform float     uMaterialOn;
 uniform vec2      uMaterialSize;
@@ -241,10 +271,15 @@ vec2 fbmGrad(vec2 p, float px) {
 }
 
 void main() {
-    float grooming = clamp(vSnow.x, 0.0, 1.0);
-    float packed   = clamp(vSnow.y, 0.0, 1.0);
-    float ice      = clamp(vSnow.z, 0.0, 1.0);
-    float mogul    = clamp(vSnow.w, 0.0, 1.0);
+    vec4  snowState = vSnow;
+    float snowDepth = vSnowDepth;
+    if (uFragDetail > 0.5 && vInstabilityScore > -0.5) {
+        cornerSnow(vWorldPos.xz, snowState, snowDepth);
+    }
+    float grooming = clamp(snowState.x, 0.0, 1.0);
+    float packed   = clamp(snowState.y, 0.0, 1.0);
+    float ice      = clamp(snowState.z, 0.0, 1.0);
+    float mogul    = clamp(snowState.w, 0.0, 1.0);
     // Metres of surface per pixel; fine detail fades out once it's sub-pixel.
     float pxM = max(length(dFdx(vWorldPos)), length(dFdy(vWorldPos)));
     // Avalanche-debris marker: ice > packed is a combination no weather-formed kind
@@ -277,7 +312,7 @@ void main() {
     // through at the base — matches what real spruce/fir wells look
     // like, where the canopy intercepts snow and the trunk radiates
     // just enough warmth to keep a moat clear.
-    float effDepth = max(vSnowDepth - 0.5 * well, 0.0);
+    float effDepth = max(snowDepth - 0.5 * well, 0.0);
 
     // Smoothed per-corner normal across the whole surface. Snow reads as
     // continuous; cliffs (handled by the existing slope-based rocky tint
@@ -287,6 +322,13 @@ void main() {
     // corner-Y averaging, and the smoothed normal lets the natural slope
     // do the lighting rather than chopping it into per-triangle facets.
     vec3 N = normalize(vSmoothNormal);
+    if (uFragDetail > 0.5 && uDetailOn > 0.5 && vInstabilityScore > -0.5) {
+        vec2  texel = 1.0 / uDetailSize;
+        vec2  uv    = (vWorldPos.xz / 1.25 + 0.5) * texel;
+        float gx = (texture(uDetail, uv + vec2(texel.x, 0.0)).r - texture(uDetail, uv - vec2(texel.x, 0.0)).r) / 2.5;
+        float gz = (texture(uDetail, uv + vec2(0.0, texel.y)).r - texture(uDetail, uv - vec2(0.0, texel.y)).r) / 2.5;
+        N = normalize(vec3(N.x / N.y - gx, 1.0, N.z / N.y - gz));
+    }
     float slope = clamp(N.y, 0.0, 1.0);                  // 1 = flat, 0 = vertical
     float h     = clamp((vWorldPos.y - uTerrainMinY) /
                         max(uTerrainMaxY - uTerrainMinY, 1.0), 0.0, 1.0);
@@ -674,7 +716,7 @@ void main() {
     // toward green; ice shifts toward silver. The combined colour gives a
     // quick read of where the good snow is without toggling five overlays.
     if ((uOverlayMode & 4) != 0) {
-        float d = clamp(vSnowDepth / 5.0, 0.0, 1.0);
+        float d = clamp(snowDepth / 5.0, 0.0, 1.0);
         float snowPresent = min(d * 4.0, 1.0); // fade effects on bare ground
         // Base: light cyan (shallow) → deep navy (deep powder).
         vec3 col = mix(vec3(0.85, 0.94, 1.00), vec3(0.10, 0.18, 0.45), d);

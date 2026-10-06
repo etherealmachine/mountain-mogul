@@ -101,6 +101,9 @@ func main() {
 		return
 	}
 	if *screenshot != "" {
+		// -cpuprofile and -memprofile cover the screenshot's frames too.
+		stopProfile := startInteractiveProfiles(*cpuProfile, *memProfile)
+		defer stopProfile()
 		runScreenshot(screenshotOpts{
 			outPath:      *screenshot,
 			testbedName:  *testbed,
@@ -441,7 +444,7 @@ func runScreenshot(opt screenshotOpts) {
 		fmt.Printf("screenshot: cpu update median %.2f ms, max %.2f; cpu render median %.2f ms, max %.2f\n",
 			updateMs[len(updateMs)/2], updateMs[len(updateMs)-1], renderMs[len(renderMs)/2], renderMs[len(renderMs)-1])
 		drawn, total := app.Renderer.TerrainChunkStats()
-		fmt.Printf("screenshot: terrain chunks drawn %d of %d\n", drawn, total)
+		fmt.Printf("screenshot: terrain chunks drawn %d of %d, %d cells per triangle edge\n", drawn, total, app.Renderer.TerrainLOD())
 	}
 }
 

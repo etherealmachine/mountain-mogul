@@ -184,6 +184,7 @@ type Renderer struct {
 
 	// terrainChunksDrawn is how many terrain chunks the last frame drew.
 	terrainChunksDrawn int
+	terrainLOD         int // index into terrainLODStrides the last frame drew; -1 for every cell
 
 	assetDir string
 }
