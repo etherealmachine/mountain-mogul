@@ -26,3 +26,4 @@ Snow that varies with sun and aspect from the start, and looks less plastic, is 
 
 - 2026-10-01: Layers, kinds, weather transitions, sun-aware melt, traffic, moguls, and the 1 m track texture are in.
 - 2026-10-06: Snow sheds from steep ground and rock down the fall line after Auto snow, each day's snowfall, and Add Storm, and the renderer draws snow off rock ([[Ground Materials]]).
+- 2026-10-06: Snow falling on an open lake disappears; lakes freeze and thaw daily from the weather ([[Creeks and Lakes]]).

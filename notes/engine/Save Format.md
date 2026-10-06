@@ -24,3 +24,5 @@ Code: `internal/save/`.
 - 2026-10-06: Layer strengths in the terrain base (`strength`).
 - 2026-10-06: The terrain base keeps OpenStreetMap lifts, runs, and areas (`lifts`, `runs`, `areas`), and road names and kinds.
 - 2026-10-06: The ground's material map (`material`).
+- 2026-10-06: The terrain base keeps OpenStreetMap streams and lakes (`streams`, `lakes`).
+- 2026-10-06: Lakes and their frost and thaw (`lakes`), each cell's lake (`lake_of`), and its estimated depth in decimetres (`lake_depth`).

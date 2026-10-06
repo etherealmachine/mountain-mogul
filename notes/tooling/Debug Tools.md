@@ -34,3 +34,4 @@ Spec: [[Debug Spec]]. Console: `internal/scene/debugconsole.go`.
 - 2026-10-05: Added `tools/import`.
 - 2026-10-06: `tools/import -off` replaces its per-pass flags; added `-editor-layers`.
 - 2026-10-06: `-camera-target-x/z` put the target on the ground, so close-ups centre where asked (it sat at height 0 before).
+- 2026-10-06: `-editor-osm` shows the OpenStreetMap overlay in `-editor-layers` screenshots, and their camera target sits on the ground.

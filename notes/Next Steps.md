@@ -14,7 +14,8 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 
 In the order to work on them:
 
-0. [[Creeks and Lakes]] ([[Terrain Realism]] step 5): water at [[Kirkwood]], the meadow creeks and lakes, with OpenStreetMap water marking where they are. Step 1 first: fetch the water, draw it in the OpenStreetMap overlay, and see what the lidar and snow already show before building anything.
+0. **Performance pass**: lag reported at higher zoom after the Ground Materials and lakes work. Measure before changing anything (`-screenshot` GPU and CPU times, `-cpuprofile`) on Kirkwood zoomed in. Suspects: tessellation density close up; per-fragment cost in `terrain.frag` (rock noise and Worley cells, four material fetches per fragment, lake surface checks); the daily lake pass (`sim.ApplyLakes` walks every 1.25 m sample, then re-uploads the 13 MB material map); and the shed pass after snowfall. Report the causes first, then fix ([[Rendering]], [[Ground Materials]], [[Creeks and Lakes]]).
+1. [[Creeks and Lakes]] ([[Terrain Realism]] step 5): water at [[Kirkwood]], the meadow creeks and lakes, with OpenStreetMap water marking where they are. Done: OpenStreetMap water fetched at import and drawn in the overlay, lakes levelled by the Lakes layer, and lake ice from the climate (open water, thin ice, or snowy ice through the season). Next: streams, using OpenStreetMap lines together with slope and erosion, since the mapped creeks climb far up the mountainside.
 
 Not ranked yet: everything below.
 
@@ -183,3 +184,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-06: Auto trees and Auto snow shipped as terrain layers, snow from the climate, imports starting on the opening day; Terrain Realism items 3 and 4 folded into item 1.
 - 2026-10-06: Added layer strength sliders as priority 0, from the user's notes after trying the Auto layers.
 - 2026-10-06: [[Ground Materials]] steps 1–4 shipped (material map, volcanic rock texture, snow that sheds off steep ground and rock). Priority cleared of finished work: Graphics Base, Terrain Realism, and Ground Materials leftovers moved to their sections, rock texture ideas added under Rendering, and [[Creeks and Lakes]] is the new priority 0.
+- 2026-10-06: Lake ice from the climate and estimated depth shipped ([[Creeks and Lakes]]); a performance pass is the new priority 0 after the user saw lag zoomed in, with streams next.

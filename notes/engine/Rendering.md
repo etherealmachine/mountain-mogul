@@ -32,3 +32,5 @@ Cliffs, creeks, and finer terrain are planned in [[Terrain Realism]]. Gamma-corr
 - 2026-10-06: Bare ground is coloured from the material map ([[Ground Materials]]), and a Ground overlay shows it.
 - 2026-10-06: One procedural rock texture on rock ground, modelled on Kirkwood's volcanic breccia and built in 3D so walls don't stretch ([[Ground Materials]]).
 - 2026-10-06: Snow draws on a cell's ground and ledges, not its rock, and doesn't raise rock by its depth ([[Ground Materials]]).
+- 2026-10-06: Frozen lakes: flat snow with wind-scoured grey-blue ice where it's thin ([[Creeks and Lakes]]).
+- 2026-10-06: Lake surfaces: open water reflects the sky and glints, thin ice is dark with patchy snow, and frozen lakes are snowy ([[Creeks and Lakes]]).

@@ -32,3 +32,4 @@ Code: `internal/geo/` (`ImportTerrain`, `SmoothRoads` in `roadsmooth.go`, `Smoot
 - 2026-10-05: "Smooth ground" and "Erode" at import. Boreal's cat-track benches are gone from the slope overlay, and the tubing lanes have mostly faded under snow.
 - 2026-10-06: The checkboxes became terrain layers in the editor ([[Terrain Layers]]); the import keeps the surveyed ground as the base. Reopening it starts on the saved square.
 - 2026-10-06: The import fetches lifts, runs, and the ski-area boundary along with roads, and keeps them in the base for the editor's OpenStreetMap overlay.
+- 2026-10-06: The import also fetches OpenStreetMap water: streams and rivers, and lakes ([[Creeks and Lakes]]).

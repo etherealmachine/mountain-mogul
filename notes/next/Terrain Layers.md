@@ -63,3 +63,4 @@ Terrain passes run as layers in a Layers panel in the [[Scenario Editor]] instea
 - 2026-10-06: Step 4: a strength slider in every row, saved with the base. 50% is the old pass; 100% means roads up to twice as wide with a quarter of the bumps, a 7.5 m ground blur, three times the erosion drops carrying twice as much, 95% tree coverage, and 2.5× the snowpack. 0% skips the layer. Timings and the helper line dropped.
 - 2026-10-06: Added the OpenStreetMap overlay row. Imports now keep lifts, runs, and the boundary in the base; older imports have roads only until they're imported again.
 - 2026-10-06: Auto material joins as the first world layer ([[Ground Materials]]); rerunning a world layer now reruns the ones after it.
+- 2026-10-06: Lakes joins as the last ground layer, with no slider: OpenStreetMap lakes levelled to their water surface ([[Creeks and Lakes]]).
