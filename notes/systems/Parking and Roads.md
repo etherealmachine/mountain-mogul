@@ -17,3 +17,4 @@ Code: `internal/world/parking.go`, `road.go`.
 ## Log
 
 - 2026-10-01: Painted lots, the road graph, cars, and the parking fee are in. Footpaths and ski racks are not.
+- 2026-10-06: Planned [[Transit]]: cars driving in from the map's edge with simple traffic, rectangular extendable lots in asphalt, gravel, or dirt, and editor-set entry points.
