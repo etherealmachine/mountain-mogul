@@ -15,3 +15,4 @@ Code: `internal/world/events.go`, `history.go`, `internal/sim/events.go`.
 ## Log
 
 - 2026-10-01: Event feed, daily history, charts, and the day report are in.
+- 2026-10-06: Scenario goals met and missed, and the scenario won or lost, appear in light blue ([[Scenario Goals and Rules]]).

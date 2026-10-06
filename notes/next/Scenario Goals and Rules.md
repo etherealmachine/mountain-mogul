@@ -48,7 +48,7 @@ Only rules a campaign scenario needs get built, in campaign order: no grooming f
 ## Steps
 
 1. Done: **Data** (`world/goals.go`). `World.Goals` ([]`Goal`: kind, target, days for streaks, an optional deadline as the end of season N, bonus or required), `World.Rules` (named switches; `RuleNoGrooming` so far), and `World.GoalProgress` (per goal: met, the day it was met, current streak, best value so far, failed), all saved (`goals`, `rules`, `goal_progress`). Kinds built: lifts open, guests in one day, rating streak, cash, debt-free streak, and all required goals (for "everything within season one"); the rest of the table waits for a scenario that needs them. `Goal.Describe` gives the player's wording ("Welcome 1,500 guests in one day"). Progress resets when the goal list doesn't match it (an edited scenario). The resort rating moved from the demand system to `World.Rating`, so it's saved (`rating`; it used to reset to 50% on load) and recorded in each day's history sample.
-2. **Checking.** A sim step at day rollover updates each goal's progress, then decides won, lost, or still playing. Wins and losses go to the [[Event Feed]].
+2. Done: **Checking** (`sim/goals.go`). At each day rollover, after the daily sample, each goal not yet met or missed updates from the day: lifts open and not on hold, that day's arrivals, the rating (a streak), cash, debt free (a streak). "All required" is checked after the others. Met goals stay met; a season deadline (`SeasonCloseDate` of the season the scenario starts in, plus N−1) fails a goal not met by then. The scenario is won when every required goal is met (play carries on, and bonus goals keep counting), lost when a required goal is missed or the resort goes bankrupt; `World.Outcome` and the day are saved. Goal met and missed, won and lost go to the [[Event Feed]] (new kinds `EventGoal`, `EventScenario`, light blue). `sim.GoalStatus` words progress for the panel ("best 812 of 1,500", "3 of 7 days"). Checked headlessly on Boreal: easy goals win on day 3 with the bonus; a three-lift goal starting 20 May fails when the season ends.
 3. **Goals panel.** A top-bar button opens the scenario's name, description, and goals with progress bars and deadlines. This is also where the description can be reread in-game. Win and lose panels on top.
 4. **Editor.** A Goals tab in the Scenario details dialog adds, edits, and removes goals and toggles rules.
 5. **Rules.** Start with no grooming: hide and refuse the cat shed and snowcats, and swap corduroy for powder in guest preferences. The others follow their scenarios.
@@ -61,6 +61,7 @@ Each scenario introduces a feature or two the earlier ones didn't need, so the c
 
 ## Open questions
 
+- Boreal's rating target: in the bare headless test resort (one lift, three plain trails, no lodge food or bar) the rating fell from 50% to about 35% within days, so 70% for a week needs a well-served resort, or rating tuning ([[First Week Balance]]). Check with the three-lift run.
 - Boreal's exact guest target, from the headless three-lift run. One double chair with three trails averaged about 50 guests a day (2026-10-06), so thousands will need bigger lifts, more trail area, or more demand.
 - Whether bonus goals unlock anything (a sandbox mode, a skin, a harder variant), or are just a record.
 - How unlocking treats players who want to jump ahead: a "skip" option, or everything unlocked in the editor build only.
@@ -71,3 +72,4 @@ Each scenario introduces a feature or two the earlier ones didn't need, so the c
 - 2026-10-02: Decided required plus bonus goals, keep playing after a win, and rules as switches that hide build-menu items. Wrote the goal kinds, the lose conditions, and the steps.
 - 2026-10-06: Boreal's goals decided with the user: three lifts open, a best day of guests in the thousands, a 7-day rating streak at 70%; bonus: within season one; no deadline.
 - 2026-10-06: Step 1: goal data, rules, progress, and the rating, all saved.
+- 2026-10-06: Step 2: the daily goal check, win and lose, events, saved outcome.
