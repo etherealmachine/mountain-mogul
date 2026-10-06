@@ -61,6 +61,7 @@ type Editor struct {
 	parcelEditID              uint16 // ID of parcel being modified via rect or popup
 	parcelPopup               *ui.Window
 	lotPopup                  *ui.Window // parking lot opened by clicking it with no tool
+	entryPopup                *ui.Window // road entry opened by clicking its post
 	parkingPaint              parkingPaint
 	placeRotation             float32 // rotation for the next building placed (R / Shift+R)
 	autoMaxSlider             *ui.VSlider
@@ -323,6 +324,8 @@ func (e *Editor) Update(dt float64) {
 			e.parcelRectActive = false
 		case e.lotPopup != nil && e.lotPopup.Visible:
 			e.lotPopup.Visible = false
+		case e.entryPopup != nil && e.entryPopup.Visible:
+			e.entryPopup.Visible = false
 		case e.activeTool != toolNone:
 			e.endParkingSession(r)
 			e.activeTool = toolNone
@@ -377,6 +380,12 @@ func (e *Editor) Update(dt float64) {
 		if inp.Pressed[glfw.KeyEscape] {
 			e.parcelPopup.Visible = false
 		}
+	}
+	if e.entryPopup != nil && e.entryPopup.Visible {
+		if inp.LeftClick && e.entryPopup.ContainsPoint(inp.MousePos[0], inp.MousePos[1]) {
+			e.markDirty()
+		}
+		e.entryPopup.HandleInput(inp)
 	}
 	if e.lotPopup != nil && e.lotPopup.Visible {
 		if inp.LeftClick && e.lotPopup.ContainsPoint(inp.MousePos[0], inp.MousePos[1]) {
@@ -535,7 +544,9 @@ func (e *Editor) Update(dt float64) {
 	popupCoversClick := e.parcelPopup != nil && e.parcelPopup.Visible &&
 		e.parcelPopup.ContainsPoint(inp.MousePos[0], inp.MousePos[1]) ||
 		e.lotPopup != nil && e.lotPopup.Visible &&
-			e.lotPopup.ContainsPoint(inp.MousePos[0], inp.MousePos[1])
+			e.lotPopup.ContainsPoint(inp.MousePos[0], inp.MousePos[1]) ||
+		e.entryPopup != nil && e.entryPopup.Visible &&
+			e.entryPopup.ContainsPoint(inp.MousePos[0], inp.MousePos[1])
 	overChrome := e.menuBar.ContainsY(inp.MousePos[1]) ||
 		e.topBar.ContainsY(inp.MousePos[1]) ||
 		e.startDate.Contains(inp.MousePos[0], inp.MousePos[1]) ||
@@ -658,7 +669,11 @@ func (e *Editor) handleToolNoneMouse(r *render.Renderer, leftClick, leftHeld boo
 	pos := mgl32.Vec2{e.hoverWorld[0], e.hoverWorld[2]}
 	switch {
 	case leftClick:
-		if tryStartRoadEdit(e.world, pos, &e.roadEdit) {
+		if n := entryAt(e.world, pos); n != nil {
+			e.roadEdit.clear()
+			e.structureEdit.clear()
+			e.openEntryPopup(n.ID, r.ScreenWidth(), r.ScreenHeight())
+		} else if tryStartRoadEdit(e.world, pos, &e.roadEdit) {
 			e.structureEdit.clear()
 		} else if tryStartStructureEdit(e.world, pos, &e.structureEdit) {
 			e.roadEdit.clear()
@@ -784,6 +799,10 @@ func (e *Editor) applyPlacement(r *render.Renderer, shiftHeld bool) {
 		r.RebuildRoads(w)
 		e.layerCache.fields = nil
 	case toolEdgeConnect:
+		if n := entryAt(w, mgl32.Vec2{wx, wz}); n != nil {
+			e.openEntryPopup(n.ID, r.ScreenWidth(), r.ScreenHeight())
+			return
+		}
 		snapped, inward, ok := projectToMapEdge(w.Terrain, mgl32.Vec2{wx, wz}, edgeConnectTolerance)
 		if !ok {
 			return
@@ -801,6 +820,8 @@ func (e *Editor) applyPlacement(r *render.Renderer, shiftHeld bool) {
 		// freestanding node the player will hook their network onto
 		// via the road tool's snap-to-edge/node logic.
 		edgeNode := w.AddRoadNode(snapped, world.RoadNodeEdgeConnection)
+		edgeNode.Name = fmt.Sprintf("Entry %d", len(w.Entries()))
+		edgeNode.Pool = world.DefaultEntryPool
 		inlandNode := w.AddRoadNode(inland, world.RoadNodeFreestanding)
 		w.AddRoadEdge(edgeNode.ID, inlandNode.ID)
 		applyRoadCellState(w)
@@ -1589,6 +1610,70 @@ func (e *Editor) deleteLot(r *render.Renderer, id uint64) {
 	}
 }
 
+// entryPickRadius is how close, in metres, a click must be to a road
+// entry's post to select it.
+const entryPickRadius = 10
+
+// entryAt is the road entry whose post is nearest pos, within
+// entryPickRadius, or nil.
+func entryAt(w *world.World, pos mgl32.Vec2) *world.RoadNode {
+	var best *world.RoadNode
+	bestD := float32(entryPickRadius)
+	for _, n := range w.Entries() {
+		if d := n.Pos.Sub(pos).Len(); d <= bestD {
+			best, bestD = n, d
+		}
+	}
+	return best
+}
+
+// entryPoolStep is how far one click moves an entry's guest pool.
+const entryPoolStep = 500
+
+// openEntryPopup shows a road entry's popup: its name, its guest pool,
+// and Delete. Pool changes reshape the guest pool on the next load.
+func (e *Editor) openEntryPopup(id uint64, screenW, screenH int) {
+	w := e.world
+	n := w.RoadNodeByID(id)
+	if n == nil {
+		return
+	}
+	for _, p := range []*ui.Window{e.parcelPopup, e.lotPopup} {
+		if p != nil {
+			p.Visible = false
+		}
+	}
+	win := ui.NewWindow("Road entry", 0, 0)
+	win.AddTextInput("Name", n.Name, func(text string) { n.Name = text })
+	step := func(d int) func() {
+		return func() { n.Pool = min(max(n.Pool+d, 0), 1_000_000) }
+	}
+	win.AddIntStepperFn("Guest pool", func() string { return world.CommaInt(n.Pool) }, step(-entryPoolStep), step(entryPoolStep))
+	win.AddLabel("Of all guests", func() string { return fmt.Sprintf("%.0f%%", 100*w.EntryFraction(n)) })
+	win.AddActionButton("Delete entry", func() {
+		var ends []uint64
+		for _, ed := range w.RoadEdges {
+			if ed.A == id || ed.B == id {
+				ends = append(ends, otherEnd(ed, id))
+			}
+		}
+		w.RemoveRoadNode(id)
+		for _, end := range ends {
+			maybeDeleteOrphan(w, end) // the stub's inland end, if nothing else joins it
+		}
+		applyRoadCellState(w)
+		r := e.app.Renderer
+		r.FlushTerrainVerts(w.Terrain)
+		r.RebuildStaticBatch(w)
+		r.RebuildRoads(w)
+		e.entryPopup.Visible = false
+		e.markDirty()
+	})
+	win.Visible = true
+	win.Center(screenW, screenH)
+	e.entryPopup = win
+}
+
 // openLotPopup shows the editor's parking lot popup. confirmDelete swaps
 // the Delete button for Confirm / Cancel.
 func (e *Editor) openLotPopup(id uint64, confirmDelete bool, screenW, screenH int) {
@@ -1912,6 +1997,9 @@ func (e *Editor) Render(r *render.Renderer) {
 	}
 	if e.parcelPopup != nil && e.parcelPopup.Visible {
 		edDrawables = append(edDrawables, e.parcelPopup)
+	}
+	if e.entryPopup != nil && e.entryPopup.Visible {
+		edDrawables = append(edDrawables, e.entryPopup)
 	}
 	if e.lotPopup != nil && e.lotPopup.Visible {
 		edDrawables = append(edDrawables, e.lotPopup)

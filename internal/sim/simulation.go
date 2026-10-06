@@ -647,6 +647,7 @@ func (s *Simulation) spawnGuest(lot *world.Building, g *world.Guest) bool {
 	g.HasDayTicket = false
 	g.RemainingBudget = g.Traits.DailyBudget - float32(ticket+parking)
 	g.Removed = false
+
 	w.OnMountain = append(w.OnMountain, g)
 	s.replan(g)
 	head := g.Plan.Head()

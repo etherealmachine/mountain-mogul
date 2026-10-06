@@ -181,6 +181,10 @@ type Guest struct {
 	// taper. The planner reads this through goap.WorldSnapshot to weight
 	// Explore and to compute RideLift cost. Stored as a flat slice (not
 	// a map) so the planner's per-expansion Clone is a cheap slice copy.
+	// HomeEntryID is the road entry (World.Entries) this guest lives
+	// beyond: they always arrive and leave by it. 0 when the map has none.
+	HomeEntryID uint64
+
 	RidenLifts []ai.RideCount
 
 	// RunGroomingSum / RunGroomingSamples accumulate per-tick grooming values

@@ -42,9 +42,6 @@ func splitNames(raw string) []string {
 // drawn from a long-tail distribution: most guests are casual (1–3
 // visits/season), a small minority are regulars (one visit every day or
 // two). Snowboarders are ~20% of the catchment.
-//
-// Called by scene/scenario load paths for fresh worlds. Saved worlds
-// rehydrate Guests from disk and skip this entirely.
 func SeedGuests(w *World, seed int64, count int) {
 	if w == nil || count <= 0 {
 		return
@@ -52,26 +49,91 @@ func SeedGuests(w *World, seed int64, count int) {
 	g := rand.New(rand.NewSource(seed))
 	w.Guests = make([]*Guest, 0, count)
 	for i := 0; i < count; i++ {
-		skill := rollSkill(g)
-		disc := rollDiscipline(g)
-		traits := ai.TraitsFor(skill)
-		gladeProb := float32(0.0)
-		if skill >= ai.SkillAdvancedThreshold {
-			gladeProb = 0.30
-		}
-		traits.LikesGlades = g.Float32() < gladeProb
-		traits.PrefersGroomed = g.Float32() < 0.60
-		traits.DailyBudget = DailyBudgetFor(skill)
-		guest := &Guest{
-			ID:              w.NextID(),
-			Name:            firstNames[g.Intn(len(firstNames))] + " " + lastNames[g.Intn(len(lastNames))],
-			Discipline:      disc,
-			Traits:          traits,
-			VisitsPerSeason: rollVisitsPerSeason(g),
-			State:           AtHome,
-		}
-		w.Guests = append(w.Guests, guest)
+		w.Guests = append(w.Guests, newPoolGuest(w, g, 0))
 	}
+}
+
+// newPoolGuest rolls one potential visitor who comes by road entry home
+// (0 for none).
+func newPoolGuest(w *World, g *rand.Rand, home uint64) *Guest {
+	skill := rollSkill(g)
+	disc := rollDiscipline(g)
+	traits := ai.TraitsFor(skill)
+	gladeProb := float32(0.0)
+	if skill >= ai.SkillAdvancedThreshold {
+		gladeProb = 0.30
+	}
+	traits.LikesGlades = g.Float32() < gladeProb
+	traits.PrefersGroomed = g.Float32() < 0.60
+	traits.DailyBudget = DailyBudgetFor(skill)
+	return &Guest{
+		ID:              w.NextID(),
+		Name:            firstNames[g.Intn(len(firstNames))] + " " + lastNames[g.Intn(len(lastNames))],
+		Discipline:      disc,
+		Traits:          traits,
+		VisitsPerSeason: rollVisitsPerSeason(g),
+		State:           AtHome,
+		HomeEntryID:     home,
+	}
+}
+
+// SyncGuestPool makes the guest pool match the road entries: each entry's
+// Pool guests live that way (Guest.HomeEntryID) and arrive and leave by
+// it. Guests with no matching entry fill entries that are short before
+// new guests are rolled; entries with too many lose guests who are at
+// home. A map without entries keeps a DefaultGuestPoolSize pool with no
+// home entry. Run on load, so pools edited in the editor take effect.
+func SyncGuestPool(w *World, seed int64) {
+	entries := w.Entries()
+	if len(entries) == 0 {
+		if len(w.Guests) == 0 {
+			SeedGuests(w, seed, DefaultGuestPoolSize)
+		}
+		return
+	}
+	valid := map[uint64]bool{}
+	have := map[uint64]int{}
+	for _, e := range entries {
+		valid[e.ID] = true
+	}
+	var orphans []*Guest
+	for _, g := range w.Guests {
+		if valid[g.HomeEntryID] {
+			have[g.HomeEntryID]++
+		} else {
+			orphans = append(orphans, g)
+		}
+	}
+	for _, e := range entries {
+		for have[e.ID] < e.Pool && len(orphans) > 0 {
+			orphans[len(orphans)-1].HomeEntryID = e.ID
+			orphans = orphans[:len(orphans)-1]
+			have[e.ID]++
+		}
+		if n := e.Pool - have[e.ID]; n > 0 {
+			r := rand.New(rand.NewSource(seed ^ int64(e.ID)*7919 ^ int64(have[e.ID])))
+			for i := 0; i < n; i++ {
+				w.Guests = append(w.Guests, newPoolGuest(w, r, e.ID))
+			}
+			have[e.ID] = e.Pool
+		}
+	}
+	// Drop leftover orphans and any surplus, keeping guests who are out.
+	extra := map[uint64]int{}
+	for _, e := range entries {
+		extra[e.ID] = have[e.ID] - e.Pool
+	}
+	kept := w.Guests[:0]
+	for _, g := range w.Guests {
+		drop := g.State == AtHome && (!valid[g.HomeEntryID] || extra[g.HomeEntryID] > 0)
+		if drop && valid[g.HomeEntryID] {
+			extra[g.HomeEntryID]--
+		}
+		if !drop {
+			kept = append(kept, g)
+		}
+	}
+	w.Guests = kept
 }
 
 // DailyBudgetFor is the dollars a guest of the given skill will spend on

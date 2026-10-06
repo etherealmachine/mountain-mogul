@@ -26,6 +26,38 @@ type RoadNode struct {
 	ID   uint64
 	Pos  mgl32.Vec2
 	Kind RoadNodeKind
+	// Name and Pool describe an entry (a RoadNodeEdgeConnection): where
+	// cars come from ("I-80 west") and how many potential guests live that
+	// way (the guest pool, see SyncGuestPool). Unused on other kinds.
+	Name string
+	Pool int
+}
+
+// Entries are the road network's map-edge entries, where cars arrive and
+// leave, in placement order.
+func (w *World) Entries() []*RoadNode {
+	var out []*RoadNode
+	for _, n := range w.RoadNodes {
+		if n.Kind == RoadNodeEdgeConnection {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// DefaultEntryPool is a new entry's guest pool.
+const DefaultEntryPool = 5000
+
+// EntryFraction is entry n's share of the whole guest pool, 0–1.
+func (w *World) EntryFraction(n *RoadNode) float32 {
+	total := 0
+	for _, e := range w.Entries() {
+		total += e.Pool
+	}
+	if total <= 0 {
+		return 0
+	}
+	return float32(n.Pool) / float32(total)
 }
 
 // RoadEdge is a straight road segment connecting two nodes. Curves come

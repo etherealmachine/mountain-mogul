@@ -288,6 +288,9 @@ type RoadNodeData struct {
 	X    float32 `json:"x"`
 	Z    float32 `json:"z"`
 	Kind uint8   `json:"k,omitempty"`
+	// Name and Pool are an entry's (world.RoadNode).
+	Name string `json:"name,omitempty"`
+	Pool int    `json:"pool,omitempty"`
 }
 
 // RoadEdgeData is a straight road segment between two RoadNodes.
@@ -446,6 +449,7 @@ type GuestData struct {
 	Discipline      uint8   `json:"disc,omitempty"`
 	Skill           float32 `json:"skill,omitempty"`
 	VisitsPerSeason float32 `json:"vps,omitempty"`
+	HomeEntry       uint64  `json:"entry,omitempty"` // world.Guest.HomeEntryID
 	LikesGlades     bool    `json:"glades,omitempty"`
 	PrefersGroomed  bool    `json:"groomed,omitempty"`
 

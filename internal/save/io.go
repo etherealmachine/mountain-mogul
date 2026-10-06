@@ -455,6 +455,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 			LikesGlades:      g.Traits.LikesGlades,
 			PrefersGroomed:   g.Traits.PrefersGroomed,
 			VisitsPerSeason:  g.VisitsPerSeason,
+			HomeEntry:        g.HomeEntryID,
 			VisitsThisSeason: g.VisitsThisSeason,
 			LifetimeVisits:   g.LifetimeVisits,
 			LastScore:        g.LastScore,
@@ -509,6 +510,8 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 			X:    n.Pos[0],
 			Z:    n.Pos[1],
 			Kind: uint8(n.Kind),
+			Name: n.Name,
+			Pool: n.Pool,
 		}
 	}
 	roadEdges := make([]RoadEdgeData, len(w.RoadEdges))
@@ -1004,6 +1007,7 @@ func dataToWorld(data ScenarioData) *world.World {
 			Discipline:       world.Discipline(gd.Discipline),
 			Traits:           traits,
 			VisitsPerSeason:  gd.VisitsPerSeason,
+			HomeEntryID:      gd.HomeEntry,
 			VisitsThisSeason: gd.VisitsThisSeason,
 			LifetimeVisits:   gd.LifetimeVisits,
 			LastScore:        gd.LastScore,
@@ -1118,6 +1122,7 @@ func dataToWorld(data ScenarioData) *world.World {
 	for _, nd := range data.RoadNodes {
 		pos := mgl32.Vec2{nd.X, nd.Z}
 		n := w.AddRoadNode(pos, world.RoadNodeKind(nd.Kind))
+		n.Name, n.Pool = nd.Name, nd.Pool
 		if nd.ID != 0 {
 			n.ID = nd.ID
 		}
@@ -1212,17 +1217,14 @@ func dataToWorld(data ScenarioData) *world.World {
 	}
 	w.SetMinNextID(maxID)
 
-	// Fresh scenarios (and any pre-Guests save) land here with an empty
-	// catchment. Seed a default 10k pool so the demand poll has someone
-	// to draw from. Post-rewrite saves write their Guests slice and skip
-	// this branch.
-	if len(w.Guests) == 0 {
-		guestSeed := w.Seed
-		if guestSeed == 0 {
-			guestSeed = 1 // legacy saves with no seed: stable fallback
-		}
-		world.SeedGuests(w, guestSeed, world.DefaultGuestPoolSize)
+	// Make the guest pool match the road entries' pools (each guest lives
+	// beyond one entry), or seed the default pool for a map without
+	// entries, so pools edited in the editor take effect on the next load.
+	guestSeed := w.Seed
+	if guestSeed == 0 {
+		guestSeed = 1 // legacy saves with no seed: stable fallback
 	}
+	world.SyncGuestPool(w, guestSeed)
 
 	// Rehydrate the history ring. Absent in the save → allocate an
 	// empty *History so the sim starts recording immediately.
