@@ -649,10 +649,13 @@ func (r *Renderer) FlushTerrainDetail(t *world.Terrain) {
 func (r *Renderer) FlushTerrainMaterial(t *world.Terrain) {
 	s := r.scene
 	m := t.Material
-	if m == s.materialSrc && (m == nil) == (s.materialTex == 0) {
+	if m == s.materialSrc && (m == nil) == (s.materialTex == 0) && (m == nil || m.Version == s.materialVer) {
 		return
 	}
 	s.materialSrc = m
+	if m != nil {
+		s.materialVer = m.Version
+	}
 	if m == nil {
 		if s.materialTex != 0 {
 			gl.DeleteTextures(1, &s.materialTex)

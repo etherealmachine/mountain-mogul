@@ -37,6 +37,9 @@ func (m Material) Bare() bool { return m.IsRock() || m == MatScree }
 type TerrainMaterial struct {
 	W, H int        // samples: (Width-1)*DetailPerCell+1 × (Height-1)*DetailPerCell+1
 	M    []Material // row-major: M[j*W+i]
+	// Version counts edits made in place, so the renderer knows to
+	// upload the map again.
+	Version int
 }
 
 // NewTerrainMaterial makes an all-meadow map for a terrain of

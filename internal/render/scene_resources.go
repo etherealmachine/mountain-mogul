@@ -57,6 +57,7 @@ type SceneResources struct {
 	materialTex          uint32
 	materialW, materialH int
 	materialSrc          *world.TerrainMaterial
+	materialVer          int
 
 	liftUpCables    map[uint64]*Mesh
 	liftDownCables  map[uint64]*Mesh

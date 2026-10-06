@@ -151,8 +151,9 @@ func markApron(t *world.Terrain, out map[[2]int]bool, station, axis mgl32.Vec2, 
 	}
 }
 
-// regradeEmbankments eases the ground around every existing lift station
-// and painted pad onto an embankment, keeping the pads' current heights.
+// regradeEmbankments regrades the ground around every existing lift
+// station (carved aprons) and painted pad (embankments), keeping their
+// current heights.
 // Repairs terrain graded before embankments existed.
 func regradeEmbankments(w *world.World) {
 	t := w.Terrain
@@ -165,8 +166,8 @@ func regradeEmbankments(w *world.World) {
 			axis = axis.Mul(1 / n)
 		}
 		claimed := claimedGround(w, nil, l)
-		fillApronEmbankment(t, l.Top, axis, +1, liftApronHalfWidth, liftApronDepth, stationGroundElev(t, l.Top), claimed)
-		fillApronEmbankment(t, l.Base, axis, -1, liftApronHalfWidth, liftApronDepth, stationGroundElev(t, l.Base), claimed)
+		carveStationApron(t, l.Top, axis, +1, stationGroundElev(t, l.Top), claimed)
+		carveStationApron(t, l.Base, axis, -1, stationGroundElev(t, l.Base), claimed)
 	}
 	for _, b := range w.Buildings {
 		switch {
