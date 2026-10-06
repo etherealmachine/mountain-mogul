@@ -37,3 +37,4 @@ Spec: [[Debug Spec]]. Console: `internal/scene/debugconsole.go`.
 - 2026-10-06: `-editor-osm` shows the OpenStreetMap overlay in `-editor-layers` screenshots, and their camera target sits on the ground.
 - 2026-10-06: `-cpuprofile` covers `-screenshot` runs; the benchmark reports the terrain's level of detail.
 - 2026-10-06: `-show-goals` opens the scenario goals panel (or the result panel when won or lost) in `-screenshot` runs.
+- 2026-10-06: `-editor-goals` (with `-editor-layers`) opens the Scenario details dialog on its Goals tab.

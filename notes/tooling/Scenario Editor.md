@@ -30,3 +30,4 @@ Code: `internal/scene/editor*.go` (`editor_layers.go` for the Layers panel, `edi
 - 2026-10-06: OpenStreetMap overlay in the Layers panel: lifts, runs, roads, and the boundary draped on the ground with labels.
 - 2026-10-06: The OpenStreetMap overlay draws water in cyan (streams and lake outlines, with names); the Layers panel is wider to fit the counts.
 - 2026-10-06: A ↻ reload button beside Change... re-imports the base's square in place, for fresher data or what newer imports fetch (water, for older maps).
+- 2026-10-06: The Scenario details dialog has a Goals tab for scenario goals and rules ([[Scenario Goals and Rules]]).
