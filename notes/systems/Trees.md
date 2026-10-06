@@ -40,3 +40,4 @@ Some readers want a per-cell summary rather than trunks. `TreeCover()` is the ce
 
 - 2026-10-01: Documented the density model and the glade-tool problem. The fix is planned in [[Stored Trees]].
 - 2026-10-02: Trees are now stored individually and gameplay reads them. The glade tool previews and prices exactly the trees it removes, and skiers can hit trees.
+- 2026-10-06: Auto trees keeps trees off wet valley floors, blending into the meadow at the margin ([[Creeks and Lakes]]).
