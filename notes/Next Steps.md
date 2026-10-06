@@ -16,7 +16,7 @@ In the order to work on them:
 
 0. **Performance check** (the user is testing in the game): coarse terrain levels by zoom shipped (Kirkwood's whole map 13.7 → 8.6 ms GPU, 12 → 1.5 ms CPU). If it still feels slow, the measured leftovers are trees 2.0 ms (a simple far-away tree mesh), anti-aliasing 2.5 ms (already a setting), and the terrain fragment shader 3.4 ms; and the horizon map rebuild (3.9 s of CPU on Kirkwood) after placing a lift may hitch ([[Rendering]]).
 
-1. [[Transit]]: cars that enter at the map's edge, drive the roads with simple simulated traffic, and park in rectangular, extendable lots of asphalt, gravel, or dirt, with entry and exit points set in the scenario editor and tied to demand. Step 1 first: entry and exit points.
+1. [[Transit]]: cars that enter at the map's edge, drive the roads with simple simulated traffic, and park in rectangular, extendable lots of asphalt, gravel, or dirt, with entry and exit points set in the scenario editor and tied to demand. Done: entry and exit points in the editor, each with its own guest pool. Next: cars on the road with simple traffic.
 
 Next focus: **gameplay before scenario goals**. A headless three-lift Boreal (2026-10-06) runs about 70 guests a day with the rating stuck near 30%, so goals can't be set until guests can have a good day. Start with the investigate-and-report items under Bugs and Guests (patrol, grooming, thirst, exhaustion, falls), then the guest pool per scenario ([[First Week Balance]]). [[Scenario Goals and Rules]] steps 1–4 shipped and are tabled until then.
 
@@ -86,7 +86,7 @@ Found 2026-10-06 in a headless three-lift [[Boreal]] (three lifts, a green, blue
 - **Thirst and hunger repeat too often**: in the three-lift test, about 35 "I need something to drink" and 10 "I could really use a meal" thoughts per guest visit, with a bar and food court at the base ([[Satisfaction]]). Diagnose: guests not reaching the bar, needs falling too fast, or the thought repeating every tick.
 - **Everyone leaves exhausted**: almost every guest left on "I'm too tired to ski" (−0.15), so the day ends on a bad note even for a good visit. Diagnose whether energy drains too fast, or whether a normal end of day should leave on a neutral or happy thought instead.
 - **Falls**: about 3 falls and 3 injuries per guest visit on plain green, blue, and black trails. Check skill matching and fall rates ([[Skiing]]).
-- **Guest pool per scenario**: the 10,000-guest pool (about 5.6 visits a season each) caps any resort near 300 guests a day at a perfect rating. Make the catchment a scenario setting, so Boreal (Sacramento and the Bay Area) can reach thousands ([[Demand]], [[First Week Balance]]).
+- **Guest pool per scenario**: done through [[Transit]]: each road entry has its own guest pool, so a scenario's catchment is the sum of its entries' pools. Boreal still needs entries with pools big enough for thousands a day (about 5.6 visits a season each, so roughly 100,000 for 3,000 a day at a perfect rating).
 - **What each skill wants**: beginners want rentals and easy terrain; intermediates want terrain plus food and places to rest; advanced skiers want terrain and no crowds. Feeds [[Demand]] and [[Satisfaction]]. *For* [[Kirkwood]].
 - **Snowboarders**: guests already roll Snowboard but still ski and look like skiers.
 - **Children and families**: their own guest type, arriving and moving as a group.

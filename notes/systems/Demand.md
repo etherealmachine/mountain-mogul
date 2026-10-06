@@ -23,3 +23,4 @@ Spec: [[Demand Spec]]. Code: `internal/sim/demand.go`.
 - 2026-10-01: Catchment poll, rating, price response, arrival curve, ticket gate, and parking fee are in.
 - 2026-10-06: Guests only come when a running lift (open, not on hold) serves their level, or any running lift for advanced guests, as the planner allows; with the resort open but every lift stopped, nobody comes and the event feed says "Guests turned away: every lift is stopped" once a day.
 - 2026-10-06: The resort rating lives on the world (`World.Rating`) and is saved; it no longer resets to 50% on load.
+- 2026-10-06: The guest pool comes from the road entries' pools when a map has entries (each guest lives beyond one), else the default 10,000 ([[Transit]]).

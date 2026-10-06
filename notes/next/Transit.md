@@ -1,7 +1,7 @@
 ---
 title: Transit
 kind: plan
-status: planned
+status: in progress
 ---
 
 # Transit
@@ -28,7 +28,7 @@ Made with the user on 2026-10-06:
 
 ## Steps
 
-1. **Entry and exit points.** Edge connections become proper entries in the editor: placed where a road meets the map's edge, named ("I-80 west"), and each with a share of arrivals. The demand model sends each arriving car through an entry by share; departing cars leave by an exit (the nearest, or the one they came in by).
+1. Done: **Entry and exit points, with guest pools.** The editor's Edge tool (under Transport) places a post on the map's edge with a short road stub, named "Entry N", with a guest pool of 5,000. Clicking a post (with the Edge tool or no tool) opens a Road entry popup: the name, the guest pool (steps of 500, up to 1,000,000), its share of all guests, and Delete (which also clears the stub's orphan node). Entries are `RoadNodeEdgeConnection` nodes with `Name` and `Pool` (saved as `name`, `pool`). Every guest in the pool lives beyond one entry (`Guest.HomeEntryID`, saved as `entry`), so they always arrive and leave by it, and an entry's share of arrivals follows from its pool. `world.SyncGuestPool` makes the pool match the entries on every load: guests with no matching entry fill entries that are short before new ones are rolled, and surplus guests at home are dropped. Without entries a map keeps the default 10,000-guest pool. Checked on Boreal: entries of 30,000 and 10,000 give 40,000 guests split exactly (Boreal's existing 10,000 reused), changing to 5,000 and 20,000 follows, and deleting one hands its guests on; loading takes about 120 ms. Boreal has no entries yet: its road reaches the map's edge, but no post is placed.
 2. **Cars on the road.** A car spawns at its entry when its guests decide to come, drives the shortest route to a lot at the road's speed, parks in a stall, and its guests (up to four) get out. In the evening they walk back, get in, and drive to an exit. Simple traffic: cars keep a gap to the car ahead and don't overtake; at intersections the first to arrive goes; a lot's entrance takes one car at a time. A full lot sends a car on to the next lot, or home. Cars are saved.
 3. **Rectangular lots.** A drag-and-rotate rectangle tool. Stall rows and aisles run along the long side; rounded corners; one entrance on the side facing the nearest road, with a driveway that meets the road at a proper T and a gap in the plowed fringe. Drag an edge to extend, paying for the added area. Painted lots are replaced (breaking old saves is fine pre-release); Boreal's lot is redrawn as a rectangle.
 4. **Surfaces.** Asphalt, gravel, or dirt per lot: cost per square metre, capacity (gravel and dirt have no striping, so cars pack less neatly and fewer fit), and look (asphalt with lines, light grey gravel, packed dirt and snow).
@@ -36,9 +36,10 @@ Made with the user on 2026-10-06:
 
 ## Open questions
 
-- How many cars at once before performance matters: a busy day at a big resort is thousands of cars arriving over a morning.
+- How many cars at once before performance matters. The goal is thousands: a busy day at a big resort is thousands of cars arriving over a morning.
 
 ## Log
 
 - 2026-10-06: Planned with the user after looking at Boreal's lot and roads: simulated traffic up front, rectangular extendable lots, asphalt, gravel, and dirt, and editor-controlled entry and exit points tied to demand.
 - 2026-10-06: Decided: carloads of one to four; 35 mph on the two-lane road, 5–15 mph in lots; no import suggestions for entry points.
+- 2026-10-06: Step 1: named entries, each with its own guest pool (the user's call, replacing a share of arrivals); every guest belongs to one entry and arrives and leaves by it. The goal for step 2 is thousands of cars.
