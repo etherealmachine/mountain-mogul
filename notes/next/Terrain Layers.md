@@ -64,3 +64,4 @@ Terrain passes run as layers in a Layers panel in the [[Scenario Editor]] instea
 - 2026-10-06: Added the OpenStreetMap overlay row. Imports now keep lifts, runs, and the boundary in the base; older imports have roads only until they're imported again.
 - 2026-10-06: Auto material joins as the first world layer ([[Ground Materials]]); rerunning a world layer now reruns the ones after it.
 - 2026-10-06: Lakes joins as the last ground layer, with no slider: OpenStreetMap lakes levelled to their water surface ([[Creeks and Lakes]]).
+- 2026-10-06: Creeks joins as a ground layer, between Erode and Lakes, with no slider ([[Creeks and Lakes]]).

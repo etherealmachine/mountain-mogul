@@ -1,7 +1,7 @@
 ---
 title: Creeks and Lakes
 kind: plan
-status: planned
+status: partial
 ---
 
 # Creeks and Lakes
@@ -28,7 +28,8 @@ Water at [[Kirkwood]]: the creeks through the meadow and the valley floor, and l
 4. Streams. OpenStreetMap stream lines run far up the mountainside, where no water flows in winter, and sit a few metres off the lidar's channels.
    - Done: where water really runs (`geo.Catchment`, `geo.TraceStreams` in `streams.go`). Catchment area per 5 m cell from the ground as the layers leave it: depressions filled by priority-flood with a tiny slope across flats, so water crosses meadows and levelled lakes and leaves by the map's edge, then each cell drains to its steepest downhill neighbour (0.14 s on Kirkwood). Each OpenStreetMap line is resampled every 2.5 m and moved to the cell with the most catchment within 10 m; it's turned to start at its higher end (not by catchment, which snapping at a junction confuses); catchment never shrinks downstream; and a line entering across the map's edge or leaving a lake carries water from its start. It flows where catchment reaches 0.5 km² (`StreamStartArea`, a first guess), and above that it's a dry gully. The OpenStreetMap overlay draws the traced lines: cyan and wider downstream where flowing, thin and pale where dry. Kirkwood: Kirkwood Creek flows its whole 4.2 km from the bowl floor; Emigrant Creek and the creek below the south-east lake flow throughout (they come in across the edge or from a lake); the tributary up the Wall bowl is dry for 750 m and flows for 1 km below; the north-west line is a dry gully all 1.6 km.
    - Done: meadows first, so the creek will show. Wet valley floors (`geo.MeadowWetness`, `meadow.go`) are cells that rise little above the nearest channel (catchment ≥ 0.25 km², within 400 m: fully wet up to 1 m above it, dry by 6 m) on gentle ground (slope over about 30 m: flat under 2.5°, slope by 11°). Auto trees clears them: trees thin out by chance across the margin, with broad (60 m) and fine (12 m) noise in the edge, so the forest blends into the meadow and leaves clumps and lone trees. Kirkwood: the floor along Kirkwood Creek opens into a meadow, as in winter photos; 113,000 trees to 83,000.
-   - Next: cut beds along the flowing stretches as a ground layer (width and depth growing with catchment), a creek-bed material, and snow that bridges small creeks and leaves bigger ones open.
+   - Done: creek channels. A Creeks ground layer (after Erode, before Lakes, no slider; `geo.CarveCreeks`, `creeks.go`) traces the streams on the lattice's 5 m corner grid and cuts each flowing stretch: half-width 0.75 m + 1 m × √(catchment in km²), depth 0.4 m + 0.4 m × √(km²) (Kirkwood Creek ≈ 7 m wide and 1.5 m deep at the bottom of the map), a flat floor across the middle rising to the ground at twice the half-width, and a bed that never climbs downstream. Auto material marks the water inside the banks as open water, or as snow-bridged ice: creeks under 0.3 km² mostly bridged, over 3 km² mostly open, alternating along their length every 25 m or so. Trees stay off both. Open water draws dark and reflective with no snow depth, blending across the four nearest material samples so its edge is a smooth, slightly ragged line. Kirkwood: the ground rebuild with every layer is 8.2 s.
+   - Next: tune by eye (channel size, how much is bridged), creeks freezing over in hard cold (from the lake model's frost), and guests treating open creeks as obstacles.
 
 ## Open questions
 
@@ -47,3 +48,5 @@ Water at [[Kirkwood]]: the creeks through the meadow and the valley floor, and l
 - 2026-10-06: Lake ice reworked after the user saw a lake go from open to frozen in about three days: an estimated depth per cell (shore slope × distance from shore, capped by size), and per-spot freezing by depth, so the ice grows from the shore over weeks and opens from the shore in spring.
 - 2026-10-06: Step 4 started: catchment from the ground, OpenStreetMap streams moved onto their channels, flowing only where enough ground drains through them, shown in the overlay. Found that orienting lines by catchment flipped a tributary at its junction (it looked like it flowed up the Wall bowl); lines now start at their higher end.
 - 2026-10-06: Meadows on wet valley floors, from height above the nearest channel, after the user compared a winter photo: Kirkwood's valley floor is open meadow with the creek showing, not forest. Edge blended after a first try read as a straight line.
+- 2026-10-06: Creek channels carved along flowing streams, open water or snow bridges in the material map. Kirkwood Creek shows as a dark open channel through the new meadow.
+- 2026-10-06: Paused here with the main work shipped; leftovers (tuning, creeks freezing, guests and creeks) listed under Terrain in [[Next Steps]].

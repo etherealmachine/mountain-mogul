@@ -87,3 +87,4 @@ In this order:
 - 2026-10-06: Steps 3 and 4 mostly done as the Auto trees and Auto snow terrain layers ([[Terrain Layers]]): treeline from the climate, a season snowpack from the climate with sun and shade, and imports starting on the opening day.
 - 2026-10-06: Cliffs (Priority step 4) moved to [[Ground Materials]]: a material map, snow shedding in the sim, and rock shading, after finding Kirkwood's cliffs buried under averaged 5 m snow.
 - 2026-10-06: Creeks and lakes (Priority step 5) got their own plan, [[Creeks and Lakes]], as priority 0 in Next Steps. Terrain Realism itself left the priority list; its remaining items are listed under Terrain in Next Steps.
+- 2026-10-06: Step 5 ([[Creeks and Lakes]]) mostly shipped: lakes with ice from the climate, streams traced from catchment, meadows on wet valley floors, and creek channels with open water or snow bridges.
