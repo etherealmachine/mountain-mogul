@@ -59,6 +59,7 @@ func main() {
 	showGoals := flag.Bool("show-goals", false, "-screenshot: open the scenario's goals panel (the result panel if the game is already won or lost)")
 	storm := flag.Bool("storm", false, "-screenshot: drop a heavy-snow day on the terrain and make today a heavy-snow day before capture")
 	importPreview := flag.String("import-preview", "", "-screenshot: capture the terrain import map at \"lat,lon,zoom\" (e.g. 38.68,-120.07,14) once the map and the OpenStreetMap overlay have loaded")
+	editorGoals := flag.Bool("editor-goals", false, "with -editor-layers: open the Scenario details dialog on its Goals tab")
 	editorOSM := flag.Bool("editor-osm", false, "with -editor-layers: show the OpenStreetMap overlay, with the Layers panel closed")
 	editorLayers := flag.String("editor-layers", "", "-screenshot: open -load in the scenario editor with the Layers panel open, switch off these comma-separated terrain layers (\"-\" for none), and capture once the ground has rebuilt")
 	overlayMode := flag.Int("overlay-mode", 0, "-screenshot terrain overlay bitmask (render.Overlay*: contour=1, slope=2, snow-depth=4, grooming=8, packed=16, ice=32, mogul=64, bump-normal=128)")
@@ -96,7 +97,7 @@ func main() {
 		return
 	}
 	if *screenshot != "" && *editorLayers != "" {
-		runEditorScreenshot(*screenshot, *loadPath, *editorLayers, *editorOSM, cameraOverrides{
+		runEditorScreenshot(*screenshot, *loadPath, *editorLayers, *editorOSM, *editorGoals, cameraOverrides{
 			targetX: *camTargetX, targetZ: *camTargetZ, yaw: *camYaw, pitch: *camPitch, zoom: *camZoom,
 		})
 		return
@@ -502,7 +503,7 @@ func runImportScreenshot(outPath, at string) {
 // open and the layers in offSpec switched off, and the OpenStreetMap
 // overlay on when osm is set, runs frames until the ground has rebuilt
 // (or a minute passes), and writes the frame.
-func runEditorScreenshot(outPath, loadPath, offSpec string, osm bool, ov cameraOverrides) {
+func runEditorScreenshot(outPath, loadPath, offSpec string, osm, goals bool, ov cameraOverrides) {
 	var off []string
 	if offSpec != "-" {
 		off = strings.Split(offSpec, ",")
@@ -514,6 +515,9 @@ func runEditorScreenshot(outPath, loadPath, offSpec string, osm bool, ov cameraO
 	ed.ShowLayers(off)
 	if osm {
 		ed.ShowOSMOverlay()
+	}
+	if goals {
+		ed.ShowGoalsTab()
 	}
 	cam := app.Renderer.Camera
 	for _, f := range []struct {

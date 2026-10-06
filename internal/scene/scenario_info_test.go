@@ -26,7 +26,7 @@ func TestSortScenarios(t *testing.T) {
 func TestScenarioDetailsPromptResult(t *testing.T) {
 	in := world.ScenarioInfo{Name: "Old", Difficulty: 5, Order: 2}
 	var got *world.ScenarioInfo
-	p := newScenarioDetailsPrompt(in, func(info world.ScenarioInfo) { got = &info }, func() {})
+	p := newScenarioDetailsPrompt(in, nil, nil, func(info world.ScenarioInfo, _ []world.Goal, _ []string) { got = &info }, func() {})
 	p.fields[0].Text = "  Kirkwood "
 	p.fields[1].Text = "Kirkwood, California"
 	p.fields[2].Text = "Line one.\nLine two.\n"

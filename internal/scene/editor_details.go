@@ -15,34 +15,40 @@ import (
 // maxScenarioOrder caps the Order stepper in the details dialog.
 const maxScenarioOrder = 99
 
-// scenarioDetailsPrompt is the editor's modal for World.Scenario: name,
-// location, and description fields, difficulty and order steppers, and a
-// tutorial toggle. It edits a copy; OK hands the result back, Cancel or
-// Escape drops it. Tab moves between the text fields.
+// scenarioDetailsPrompt is the editor's modal for World.Scenario and its
+// goals, on two tabs. Details: name, location, and description fields,
+// difficulty and order steppers, and a tutorial toggle. Goals: the goals
+// and rules (editor_goals.go). It edits copies; OK hands them back,
+// Cancel or Escape drops them. Tab moves between the text fields.
 type scenarioDetailsPrompt struct {
 	info   world.ScenarioInfo
+	goals  *goalsTab
+	tab    int // 0 details, 1 goals
+	tabBtn [2]*ui.Button
 	fields []*ui.TextInput // name, location, description
 	focus  int
 
 	diffDown, diffUp, orderDown, orderUp *ui.Button
 	tutorialBtn, okBtn, cancelBtn        *ui.Button
 
-	onOK     func(world.ScenarioInfo)
+	onOK     func(world.ScenarioInfo, []world.Goal, []string)
 	onCancel func()
 
 	x, y float32 // panel origin, from the last layout
 }
 
 const (
-	detailsPromptW = float32(620)
-	detailsPromptH = float32(470)
+	detailsPromptW = float32(820)
+	detailsPromptH = float32(520)
 	detailsLabelW  = float32(110)
 	detailsPad     = float32(16)
 	detailsRowH    = float32(32)
 )
 
-func newScenarioDetailsPrompt(info world.ScenarioInfo, onOK func(world.ScenarioInfo), onCancel func()) *scenarioDetailsPrompt {
-	p := &scenarioDetailsPrompt{info: info, onOK: onOK, onCancel: onCancel}
+func newScenarioDetailsPrompt(info world.ScenarioInfo, goals []world.Goal, rules []string, onOK func(world.ScenarioInfo, []world.Goal, []string), onCancel func()) *scenarioDetailsPrompt {
+	p := &scenarioDetailsPrompt{info: info, goals: newGoalsTab(goals, rules), onOK: onOK, onCancel: onCancel}
+	p.tabBtn[0] = ui.NewButton(0, 0, 110, detailsRowH, "Details", func() { p.tab = 0 })
+	p.tabBtn[1] = ui.NewButton(0, 0, 110, detailsRowH, "Goals", func() { p.tab = 1 })
 	name := ui.NewTextInput(0, 0, 0, detailsRowH, info.Name)
 	location := ui.NewTextInput(0, 0, 0, detailsRowH, info.Location)
 	desc := ui.NewTextInput(0, 0, 0, 0, info.Description)
@@ -63,7 +69,7 @@ func newScenarioDetailsPrompt(info world.ScenarioInfo, onOK func(world.ScenarioI
 	p.orderDown = ui.NewButton(0, 0, 26, detailsRowH, "<", step(&p.info.Order, -1, maxScenarioOrder))
 	p.orderUp = ui.NewButton(0, 0, 26, detailsRowH, ">", step(&p.info.Order, 1, maxScenarioOrder))
 	p.tutorialBtn = ui.NewButton(0, 0, 130, detailsRowH, "", func() { p.info.Tutorial = !p.info.Tutorial })
-	p.okBtn = ui.NewButton(0, 0, 90, detailsRowH, "OK", func() { p.onOK(p.result()) })
+	p.okBtn = ui.NewButton(0, 0, 90, detailsRowH, "OK", func() { p.onOK(p.result(), p.goals.goals, p.goals.rules) })
 	p.cancelBtn = ui.NewButton(0, 0, 90, detailsRowH, "Cancel", func() { p.onCancel() })
 	return p
 }
@@ -88,7 +94,11 @@ func (p *scenarioDetailsPrompt) result() world.ScenarioInfo {
 }
 
 func (p *scenarioDetailsPrompt) buttons() []*ui.Button {
-	return []*ui.Button{p.diffDown, p.diffUp, p.orderDown, p.orderUp, p.tutorialBtn, p.okBtn, p.cancelBtn}
+	out := []*ui.Button{p.tabBtn[0], p.tabBtn[1], p.okBtn, p.cancelBtn}
+	if p.tab == 1 {
+		return append(out, p.goals.buttons()...)
+	}
+	return append(out, p.diffDown, p.diffUp, p.orderDown, p.orderUp, p.tutorialBtn)
 }
 
 // stepperValueW is the width of the value slot between a stepper's arrows.
@@ -122,6 +132,15 @@ func (p *scenarioDetailsPrompt) layout(sw, sh float32) {
 	p.okBtn.Y = p.y + detailsPromptH - detailsPad - p.okBtn.H
 	p.cancelBtn.X, p.cancelBtn.Y = p.okBtn.X-12-p.cancelBtn.W, p.okBtn.Y
 	desc.H = p.okBtn.Y - 16 - desc.Y
+
+	tx := p.x + detailsPromptW - detailsPad
+	for i := len(p.tabBtn) - 1; i >= 0; i-- {
+		tx -= p.tabBtn[i].W
+		p.tabBtn[i].X, p.tabBtn[i].Y = tx, p.y+10
+		p.tabBtn[i].SetActive(p.tab == i)
+		tx -= 8
+	}
+	p.goals.layout(p.x+detailsPad, p.y+56, detailsPromptW-2*detailsPad)
 }
 
 func (p *scenarioDetailsPrompt) HandleInput(inp *engine.Input, sw, sh float32) {
@@ -130,19 +149,23 @@ func (p *scenarioDetailsPrompt) HandleInput(inp *engine.Input, sw, sh float32) {
 	click := inp.LeftClick
 	if click {
 		inp.LeftClickConsumed = true
-		for i, f := range p.fields {
-			if f.Contains(mx, my) {
-				p.focus = i
+	}
+	if p.tab == 0 {
+		if click {
+			for i, f := range p.fields {
+				if f.Contains(mx, my) {
+					p.focus = i
+				}
 			}
 		}
-	}
-	if inp.Pressed[glfw.KeyTab] {
-		p.focus = (p.focus + 1) % len(p.fields)
-	} else {
-		p.fields[p.focus].HandleInput(inp)
-	}
-	for i, f := range p.fields {
-		f.HideCursor = i != p.focus
+		if inp.Pressed[glfw.KeyTab] {
+			p.focus = (p.focus + 1) % len(p.fields)
+		} else {
+			p.fields[p.focus].HandleInput(inp)
+		}
+		for i, f := range p.fields {
+			f.HideCursor = i != p.focus
+		}
 	}
 	for _, b := range p.buttons() {
 		b.SetHovered(b.Contains(mx, my))
@@ -159,9 +182,6 @@ func (p *scenarioDetailsPrompt) Draw(r *render.Renderer) {
 	p.layout(sw, sh)
 	r.DrawColorRect(0, 0, sw, sh, mgl32.Vec4{0, 0, 0, 0.55})
 	r.DrawColorRect(p.x, p.y, detailsPromptW, detailsPromptH, mgl32.Vec4{0.08, 0.12, 0.22, 0.98})
-	for _, f := range p.fields {
-		f.Draw(r)
-	}
 	for _, b := range p.buttons() {
 		b.Draw(r)
 	}
@@ -169,9 +189,16 @@ func (p *scenarioDetailsPrompt) Draw(r *render.Renderer) {
 		return
 	}
 	title := mgl32.Vec4{1, 0.95, 0.8, 1}
+	r.Font.DrawText(r, "Scenario details", p.x+detailsPad, p.y+16, title)
+	if p.tab == 1 {
+		p.goals.draw(r, p.x+detailsPad, p.y+56)
+		return
+	}
+	for _, f := range p.fields {
+		f.Draw(r)
+	}
 	label := mgl32.Vec4{0.8, 0.86, 0.95, 1}
 	textOff := (detailsRowH - float32(render.GlyphH)) / 2
-	r.Font.DrawText(r, "Scenario details", p.x+detailsPad, p.y+16, title)
 	lx := p.x + detailsPad
 	r.Font.DrawText(r, "Name", lx, p.fields[0].Y+textOff, label)
 	r.Font.DrawText(r, "Location", lx, p.fields[1].Y+textOff, label)

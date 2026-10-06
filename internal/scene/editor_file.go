@@ -3,6 +3,7 @@ package scene
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/go-gl/glfw/v3.3/glfw"
@@ -56,11 +57,13 @@ func (e *Editor) setToast(text string) {
 // placing (World.Scenario).
 func (e *Editor) openDetailsPrompt() {
 	e.escapeMenu.Hide()
-	e.detailsPrompt = newScenarioDetailsPrompt(e.world.Scenario,
-		func(info world.ScenarioInfo) {
+	e.detailsPrompt = newScenarioDetailsPrompt(e.world.Scenario, e.world.Goals, e.world.Rules,
+		func(info world.ScenarioInfo, goals []world.Goal, rules []string) {
 			e.detailsPrompt = nil
-			if info != e.world.Scenario {
+			if info != e.world.Scenario || !slices.Equal(goals, e.world.Goals) || !slices.Equal(rules, e.world.Rules) {
 				e.world.Scenario = info
+				e.world.Goals, e.world.Rules = goals, rules
+				e.world.GoalProgress = make([]world.GoalProgress, len(goals))
 				e.markDirty()
 			}
 		},
