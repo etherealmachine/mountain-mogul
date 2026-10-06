@@ -210,6 +210,28 @@ func clearMaterial(w *world.World) {
 	w.Lakes = nil
 }
 
+// removeTreesOnMeadows clears the trees off wet valley floors
+// (geo.MeadowWetness): grass and willow grow where the water table is
+// high. Across the margin trees thin out by chance rather than stopping
+// at a line, with broad and fine noise breaking up the edge, so the
+// forest blends into the meadow and leaves the odd clump and lone tree.
+func removeTreesOnMeadows(w *world.World, c *layerCache) {
+	t := w.Terrain
+	wet := geo.MeadowWetness(groundRows(t), t.Width, t.Height, world.CellSize, c.catchmentFor(t))
+	seed := int(layerSeed(w))
+	t.RemoveTreesIn(0, 0, t.Width-1, t.Height-1, func(tr world.Tree) bool {
+		x, z := min(int(tr.X/world.CellSize), t.Width-1), min(int(tr.Z/world.CellSize), t.Height-1)
+		m := wet[z*t.Width+x]
+		if m <= 0 {
+			return false
+		}
+		broad := fbm2D(tr.X/60, tr.Z/60, 3, seed+37) - 0.5
+		fine := fbm2D(tr.X/12, tr.Z/12, 2, seed+41) - 0.5
+		clear := smoothstep32(0.1, 0.85, m+0.5*broad+0.25*fine)
+		return hash22(int(tr.X*10), int(tr.Z*10), seed+43) < clear
+	})
+}
+
 // removeTreesOnBare removes the trees standing on rock or scree.
 func removeTreesOnBare(t *world.Terrain) {
 	if t.Material == nil {

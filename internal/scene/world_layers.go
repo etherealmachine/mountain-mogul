@@ -4,6 +4,7 @@ import (
 	"math"
 	"time"
 
+	"mountain-mogul/internal/geo"
 	"mountain-mogul/internal/sim"
 	"mountain-mogul/internal/world"
 )
@@ -26,8 +27,58 @@ type worldLayer struct {
 // layerCache keeps what the world layers derive from the ground between
 // runs. Clear it when the ground changes.
 type layerCache struct {
-	fields *elevFields
-	pack   *sim.SeasonSnowpack
+	fields    *elevFields
+	pack      *sim.SeasonSnowpack
+	catchment []float32 // per cell, row-major z*Width+x; nil until needed
+	streams   []geo.Stream
+	traced    bool
+}
+
+// groundRows is t's ground elevation, row-major z*Width+x, as the geo
+// passes take it.
+func groundRows(t *world.Terrain) []float32 {
+	h := make([]float32, t.Width*t.Height)
+	for x := range t.Cells {
+		for z := range t.Cells[x] {
+			h[z*t.Width+x] = t.Cells[x][z].GroundElevation
+		}
+	}
+	return h
+}
+
+// catchmentFor is t's catchment, from the cache when the ground hasn't
+// changed.
+func (c *layerCache) catchmentFor(t *world.Terrain) []float32 {
+	if c.catchment == nil {
+		c.catchment = geo.Catchment(groundRows(t), t.Width, t.Height, world.CellSize)
+	}
+	return c.catchment
+}
+
+// streamsFor is w's OpenStreetMap streams traced onto the ground's
+// channels, from the cache when the ground hasn't changed.
+func (c *layerCache) streamsFor(w *world.World) []geo.Stream {
+	if c.traced {
+		return c.streams
+	}
+	c.traced = true
+	base, t := w.TerrainBase, w.Terrain
+	if base == nil || len(base.Streams) == 0 {
+		return nil
+	}
+	h := groundRows(t)
+	area := c.catchmentFor(t)
+	var lake []bool
+	if t.LakeOf != nil {
+		lake = make([]bool, len(h))
+		for x := 0; x < t.Width; x++ {
+			for z := 0; z < t.Height; z++ {
+				lake[z*t.Width+x] = t.LakeOf[x*t.Height+z] != 0
+			}
+		}
+	}
+	c.streams = geo.TraceStreams(base.Streams, geo.BoundsOf(base.Geo), t.Width, t.Height, h, area, lake)
+	return c.streams
 }
 
 func (c *layerCache) fieldsFor(t *world.Terrain) *elevFields {
@@ -57,6 +108,7 @@ var worldLayers = []worldLayer{
 			coverage := 0.55 * world.LayerScale(w.TerrainBase.Strength("trees"), 0, 0.95/0.55)
 			f.generateTreeCover(w.Terrain, 24, float32(coverage), treelineFrac(w, f), layerSeed(w))
 			removeTreesOnBare(w.Terrain)
+			removeTreesOnMeadows(w, c)
 		},
 		clear: func(w *world.World) { w.Terrain.ClearAllTrees() },
 		note: func(w *world.World) string {

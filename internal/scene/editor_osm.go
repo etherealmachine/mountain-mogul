@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/go-gl/mathgl/mgl32"
+	"mountain-mogul/internal/geo"
 	"mountain-mogul/internal/render"
 	"mountain-mogul/internal/world"
 )
@@ -46,24 +47,17 @@ const (
 )
 
 var (
-	osmWaterCol = mgl32.Vec3{0.05, 0.85, 0.9} // cyan, apart from blue runs
-	osmDryCol   = mgl32.Vec3{0.55, 0.9, 0.92} // streams that dry up in summer
+	osmWaterCol = mgl32.Vec3{0.05, 0.85, 0.9}  // cyan, apart from blue runs
+	osmDryCol   = mgl32.Vec3{0.42, 0.52, 0.66} // dry gullies above where a stream starts
 	osmRoadCol  = mgl32.Vec3{1.0, 0.78, 0.25}
 	osmLiftCol  = mgl32.Vec3{0.95, 0.15, 0.2}
 	osmAreaCol  = mgl32.Vec3{0.75, 0.4, 1.0}
 )
 
-// osmStreamWidth is how wide a waterway draws, in metres, by kind.
-func osmStreamWidth(kind string) float32 {
-	switch kind {
-	case "river":
-		return 6
-	case "canal":
-		return 4
-	case "stream", "brook":
-		return 2.5
-	}
-	return 1.5 // ditch, drain
+// osmFlowWidth is how wide a flowing stream draws, in metres, by the
+// catchment that drains through it: 2 m where it starts, wider downstream.
+func osmFlowWidth(catchment float32) float32 {
+	return min(2+1.5*float32(math.Sqrt(float64(catchment)/1e6)), 10)
 }
 
 // osmRunCol is a run's colour by piste:difficulty, as on a trail map.
@@ -118,10 +112,14 @@ func (e *Editor) toggleOSMOverlay() {
 	}
 }
 
-// ShowOSMOverlay turns the overlay on. For screenshots.
+// ShowOSMOverlay turns the overlay on and closes the Layers panel, so the
+// map is in full view. For screenshots.
 func (e *Editor) ShowOSMOverlay() {
 	if !e.osm.shown {
 		e.toggleOSMOverlay()
+	}
+	if e.layers.open {
+		e.toggleLayersPanel()
 	}
 }
 
@@ -150,7 +148,7 @@ func (e *Editor) updateOSMOverlay(r *render.Renderer) {
 		return
 	}
 	o.built = time.Now()
-	verts, labels := buildOSMOverlay(e.world.Terrain, base)
+	verts, labels := buildOSMOverlay(e.world.Terrain, base, e.layerCache.streamsFor(e.world))
 	r.SetOverlayVerts(verts)
 	o.labels = labels
 }
@@ -165,7 +163,7 @@ type osmDraper struct {
 	labelledName map[string]bool
 }
 
-func buildOSMOverlay(t *world.Terrain, base *world.TerrainBase) ([]float32, []osmLabel) {
+func buildOSMOverlay(t *world.Terrain, base *world.TerrainBase, streams []geo.Stream) ([]float32, []osmLabel) {
 	d := &osmDraper{
 		t: t, b: base.Geo,
 		maxX:         float32(t.Width-1) * world.CellSize,
@@ -197,22 +195,40 @@ func buildOSMOverlay(t *world.Terrain, base *world.TerrainBase) ([]float32, []os
 			d.label(l.Paths[longest], l.Name, osmWaterCol, 2)
 		}
 	}
-	longestStream := map[string]int{}
-	for k, s := range base.Streams {
-		col := osmWaterCol
-		if s.Intermittent {
-			col = osmDryCol
-		}
-		d.ribbon(s.Path, osmStreamWidth(s.Kind), col)
-		if s.Name == "" {
-			continue
-		}
-		if j, ok := longestStream[s.Name]; !ok || d.inLength(s.Path) > d.inLength(base.Streams[j].Path) {
-			longestStream[s.Name] = k
+	// Streams as traced onto their channels: solid where enough ground
+	// drains through them to flow, thin and pale above that, where the
+	// mapped line runs up a dry gully. Each named stream is labelled once,
+	// at the middle of its longest flowing stretch.
+	type run struct {
+		name   string
+		mid    [2]float32
+		length float32
+	}
+	best := map[string]run{}
+	for _, s := range streams {
+		var runLen float32
+		runStart := -1
+		for i := 1; i < len(s.Points); i++ {
+			a, b := s.Points[i-1], s.Points[i]
+			if s.Flowing(i) {
+				d.segment(a[0], a[1], b[0], b[1], osmFlowWidth(s.Catchment[i]), osmWaterCol)
+				if runStart < 0 {
+					runStart, runLen = i-1, 0
+				}
+				runLen += float32(math.Hypot(float64(b[0]-a[0]), float64(b[1]-a[1])))
+			} else {
+				d.segment(a[0], a[1], b[0], b[1], 1.5, osmDryCol)
+				runStart = -1
+			}
+			if runStart >= 0 && s.Name != "" && runLen > best[s.Name].length {
+				m := s.Points[(runStart+i)/2]
+				best[s.Name] = run{s.Name, m, runLen}
+			}
 		}
 	}
-	for name, k := range longestStream {
-		d.label(base.Streams[k].Path, name, osmWaterCol, 3)
+	for _, r := range best {
+		d.labels = append(d.labels, osmLabel{x: r.mid[0], z: r.mid[1], text: r.name,
+			col: mgl32.Vec4{osmWaterCol[0], osmWaterCol[1], osmWaterCol[2], 1}, rank: 3})
 	}
 	// Roads: one label per name, on its longest piece in the map.
 	longestRoad := map[string]int{}
@@ -310,32 +326,35 @@ func (d *osmDraper) vert(x, z float32, col mgl32.Vec3) {
 // ribbon drapes a w-metre ribbon along path, leaving out what's off
 // the map.
 func (d *osmDraper) ribbon(path [][2]float64, w float32, col mgl32.Vec3) {
-	half := w / 2
 	for s := 1; s < len(path); s++ {
-		x0, z0, in0 := d.toWorld(path[s-1])
-		x1, z1, in1 := d.toWorld(path[s])
-		dx, dz := x1-x0, z1-z0
-		l := float32(math.Hypot(float64(dx), float64(dz)))
-		if l < 1e-3 {
+		x0, z0, _ := d.toWorld(path[s-1])
+		x1, z1, _ := d.toWorld(path[s])
+		d.segment(x0, z0, x1, z1, w, col)
+	}
+}
+
+// segment drapes a w-metre ribbon from world (x0, z0) to (x1, z1),
+// leaving out what's off the map.
+func (d *osmDraper) segment(x0, z0, x1, z1, w float32, col mgl32.Vec3) {
+	half := w / 2
+	dx, dz := x1-x0, z1-z0
+	l := float32(math.Hypot(float64(dx), float64(dz)))
+	if l < 1e-3 || !d.crosses(x0, z0, x1, z1) {
+		return
+	}
+	nx, nz := -dz/l*half, dx/l*half
+	n := max(int(math.Ceil(float64(l/osmStep))), 1)
+	// Overlap pieces by half a width, so bends don't show gaps.
+	over := half / l
+	for k := 0; k < n; k++ {
+		t0 := max(float32(k)/float32(n)-over, 0)
+		t1 := min(float32(k+1)/float32(n)+over, 1)
+		ax, az := x0+dx*t0, z0+dz*t0
+		bx, bz := x0+dx*t1, z0+dz*t1
+		if !d.inside(ax, az) || !d.inside(bx, bz) {
 			continue
 		}
-		if !in0 && !in1 && !d.crosses(x0, z0, x1, z1) {
-			continue
-		}
-		nx, nz := -dz/l*half, dx/l*half
-		n := max(int(math.Ceil(float64(l/osmStep))), 1)
-		// Overlap pieces by half a width, so bends don't show gaps.
-		over := half / l
-		for k := 0; k < n; k++ {
-			t0 := max(float32(k)/float32(n)-over, 0)
-			t1 := min(float32(k+1)/float32(n)+over, 1)
-			ax, az := x0+dx*t0, z0+dz*t0
-			bx, bz := x0+dx*t1, z0+dz*t1
-			if !d.inside(ax, az) || !d.inside(bx, bz) {
-				continue
-			}
-			d.quad(ax+nx, az+nz, ax-nx, az-nz, bx-nx, bz-nz, bx+nx, bz+nz, col)
-		}
+		d.quad(ax+nx, az+nz, ax-nx, az-nz, bx-nx, bz-nz, bx+nx, bz+nz, col)
 	}
 }
 
