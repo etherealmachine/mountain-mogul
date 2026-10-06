@@ -226,6 +226,10 @@ type World struct {
 	// Terrain.accessible from this list.
 	Parcels []Parcel
 
+	// Lakes are the map's lakes and ponds and their ice; their cells are
+	// in Terrain.LakeOf. Set by the Auto material terrain layer.
+	Lakes []Lake
+
 	// Seed is the RNG seed used when this world's Simulation was created.
 	// Saved and reloaded so SeedGuests on load produces the same guest pool.
 	Seed int64

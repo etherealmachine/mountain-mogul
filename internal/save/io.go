@@ -569,6 +569,9 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		Groom:        groomPixels(t),
 		Detail:       detailBytes(t),
 		Material:     materialBytes(t),
+		LakeOf:       t.LakeOf,
+		LakeDepth:    lakeDepthBytes(t.LakeDepth),
+		Lakes:        lakesToData(w.Lakes),
 		Geo:          geoToData(w.Geo),
 		BaseAltitude: w.BaseAltitude,
 		TimeZone:     w.TimeZone,
@@ -781,8 +784,19 @@ func dataToWorld(data ScenarioData) *world.World {
 		t.Material = world.LoadTerrainMaterial(t.Width, t.Height, data.Material)
 	}
 
+	if len(data.LakeOf) == t.Width*t.Height && len(data.LakeDepth) == len(data.LakeOf) {
+		t.LakeOf = data.LakeOf
+		t.LakeDepth = make([]float32, len(data.LakeDepth))
+		for k, dm := range data.LakeDepth {
+			t.LakeDepth[k] = float32(dm) / 10
+		}
+	}
+
 	w := world.NewWorld(t)
 	w.Seed = data.Seed
+	for _, l := range data.Lakes {
+		w.Lakes = append(w.Lakes, world.Lake{Name: l.Name, Altitude: l.Altitude, AreaHa: l.AreaHa, MaxDepth: l.MaxDepth, Frost: l.Frost, Thaw: l.Thaw})
+	}
 	if data.Cash != 0 {
 		w.Cash = data.Cash
 	}
@@ -1328,6 +1342,16 @@ func terrainBaseToData(b *world.TerrainBase) *TerrainBaseData {
 	for _, r := range b.Runs {
 		d.Runs = append(d.Runs, BaseRunData{Name: r.Name, Difficulty: r.Difficulty, Area: r.Area, Path: flatPath(r.Path)})
 	}
+	for _, s := range b.Streams {
+		d.Streams = append(d.Streams, BaseStreamData{Name: s.Name, Kind: s.Kind, Intermittent: s.Intermittent, Path: flatPath(s.Path)})
+	}
+	for _, l := range b.Lakes {
+		ld := BaseLakeData{Name: l.Name, Kind: l.Kind}
+		for _, p := range l.Paths {
+			ld.Paths = append(ld.Paths, flatPath(p))
+		}
+		d.Lakes = append(d.Lakes, ld)
+	}
 	for _, a := range b.Areas {
 		ad := BaseAreaData{Name: a.Name}
 		for _, p := range a.Paths {
@@ -1386,6 +1410,16 @@ func terrainBaseFromData(d *TerrainBaseData) *world.TerrainBase {
 	for _, r := range d.Runs {
 		b.Runs = append(b.Runs, world.BaseRun{Name: r.Name, Difficulty: r.Difficulty, Area: r.Area, Path: pairPath(r.Path)})
 	}
+	for _, s := range d.Streams {
+		b.Streams = append(b.Streams, world.BaseStream{Name: s.Name, Kind: s.Kind, Intermittent: s.Intermittent, Path: pairPath(s.Path)})
+	}
+	for _, l := range d.Lakes {
+		bl := world.BaseLake{Name: l.Name, Kind: l.Kind}
+		for _, p := range l.Paths {
+			bl.Paths = append(bl.Paths, pairPath(p))
+		}
+		b.Lakes = append(b.Lakes, bl)
+	}
 	for _, a := range d.Areas {
 		ba := world.BaseArea{Name: a.Name}
 		for _, p := range a.Paths {
@@ -1394,6 +1428,27 @@ func terrainBaseFromData(d *TerrainBaseData) *world.TerrainBase {
 		b.Areas = append(b.Areas, ba)
 	}
 	return b
+}
+
+// lakeDepthBytes is lake depths for saving, in whole decimetres up to
+// 25.5 m.
+func lakeDepthBytes(d []float32) []byte {
+	if d == nil {
+		return nil
+	}
+	out := make([]byte, len(d))
+	for k, v := range d {
+		out[k] = byte(min(max(math.Round(float64(v)*10), 0), 255))
+	}
+	return out
+}
+
+func lakesToData(ls []world.Lake) []LakeData {
+	var out []LakeData
+	for _, l := range ls {
+		out = append(out, LakeData{Name: l.Name, Altitude: l.Altitude, AreaHa: l.AreaHa, MaxDepth: l.MaxDepth, Frost: l.Frost, Thaw: l.Thaw})
+	}
+	return out
 }
 
 // materialBytes is the material map to save, or nil when there is none.

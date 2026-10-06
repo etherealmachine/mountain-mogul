@@ -12,8 +12,8 @@ import (
 )
 
 // osmOverlay is the editor's OpenStreetMap overlay: the base's lifts,
-// runs, roads and ski-area boundary drawn as ribbons draped on the
-// ground, with labels, for lining up what's built with the real place.
+// runs, roads, water, and ski-area boundary drawn as ribbons draped on
+// the ground, with labels, for lining up what's built with the real place.
 // It only draws, under everything built; nothing in the world changes. Data © OpenStreetMap
 // contributors, ODbL.
 type osmOverlay struct {
@@ -46,10 +46,25 @@ const (
 )
 
 var (
-	osmRoadCol = mgl32.Vec3{1.0, 0.78, 0.25}
-	osmLiftCol = mgl32.Vec3{0.95, 0.15, 0.2}
-	osmAreaCol = mgl32.Vec3{0.75, 0.4, 1.0}
+	osmWaterCol = mgl32.Vec3{0.05, 0.85, 0.9} // cyan, apart from blue runs
+	osmDryCol   = mgl32.Vec3{0.55, 0.9, 0.92} // streams that dry up in summer
+	osmRoadCol  = mgl32.Vec3{1.0, 0.78, 0.25}
+	osmLiftCol  = mgl32.Vec3{0.95, 0.15, 0.2}
+	osmAreaCol  = mgl32.Vec3{0.75, 0.4, 1.0}
 )
+
+// osmStreamWidth is how wide a waterway draws, in metres, by kind.
+func osmStreamWidth(kind string) float32 {
+	switch kind {
+	case "river":
+		return 6
+	case "canal":
+		return 4
+	case "stream", "brook":
+		return 2.5
+	}
+	return 1.5 // ditch, drain
+}
 
 // osmRunCol is a run's colour by piste:difficulty, as on a trail map.
 func osmRunCol(difficulty string) mgl32.Vec3 {
@@ -69,7 +84,7 @@ func osmRunCol(difficulty string) mgl32.Vec3 {
 // osmCounts sums up what the base has, for the panel row, or says why
 // there's nothing.
 func osmCounts(base *world.TerrainBase) string {
-	if len(base.Lifts)+len(base.Runs)+len(base.Roads)+len(base.Areas) == 0 {
+	if len(base.Lifts)+len(base.Runs)+len(base.Roads)+len(base.Areas)+len(base.Streams)+len(base.Lakes) == 0 {
 		if strings.HasPrefix(base.RoadNote, "couldn't fetch") {
 			return "not fetched"
 		}
@@ -87,6 +102,8 @@ func osmCounts(base *world.TerrainBase) string {
 	add(len(base.Lifts), "lift", "lifts")
 	add(len(base.Runs), "run", "runs")
 	add(len(base.Roads), "road", "roads")
+	add(len(base.Streams), "stream", "streams")
+	add(len(base.Lakes), "lake", "lakes")
 	return strings.Join(parts, ", ")
 }
 
@@ -99,6 +116,22 @@ func (e *Editor) toggleOSMOverlay() {
 		e.app.Renderer.SetOverlayVerts(nil)
 		o.labels = nil
 	}
+}
+
+// ShowOSMOverlay turns the overlay on. For screenshots.
+func (e *Editor) ShowOSMOverlay() {
+	if !e.osm.shown {
+		e.toggleOSMOverlay()
+	}
+}
+
+// SurfaceAt is the snow surface's height at world (x, z). For
+// screenshots.
+func (e *Editor) SurfaceAt(x, z float32) float32 {
+	if e.world == nil || e.world.Terrain == nil {
+		return 0
+	}
+	return e.world.Terrain.InterpolatedSurfaceElevationAt(x, z)
 }
 
 // updateOSMOverlay drapes the ribbons again when they're due.
@@ -148,8 +181,38 @@ func buildOSMOverlay(t *world.Terrain, base *world.TerrainBase) ([]float32, []os
 			}
 		}
 		if a.Name != "" && longest >= 0 {
-			d.label(a.Paths[longest], a.Name, osmAreaCol, 3)
+			d.label(a.Paths[longest], a.Name, osmAreaCol, 4)
 		}
+	}
+	// Water first, so roads and lifts draw over it where they cross.
+	for _, l := range base.Lakes {
+		longest := -1
+		for k, p := range l.Paths {
+			d.ribbon(p, osmAreaWidth, osmWaterCol)
+			if longest < 0 || len(p) > len(l.Paths[longest]) {
+				longest = k
+			}
+		}
+		if l.Name != "" && longest >= 0 {
+			d.label(l.Paths[longest], l.Name, osmWaterCol, 2)
+		}
+	}
+	longestStream := map[string]int{}
+	for k, s := range base.Streams {
+		col := osmWaterCol
+		if s.Intermittent {
+			col = osmDryCol
+		}
+		d.ribbon(s.Path, osmStreamWidth(s.Kind), col)
+		if s.Name == "" {
+			continue
+		}
+		if j, ok := longestStream[s.Name]; !ok || d.inLength(s.Path) > d.inLength(base.Streams[j].Path) {
+			longestStream[s.Name] = k
+		}
+	}
+	for name, k := range longestStream {
+		d.label(base.Streams[k].Path, name, osmWaterCol, 3)
 	}
 	// Roads: one label per name, on its longest piece in the map.
 	longestRoad := map[string]int{}
@@ -353,7 +416,7 @@ func (e *Editor) drawOSMLabels(r *render.Renderer) {
 	f := r.Font
 	type rect struct{ x0, y0, x1, y1 float32 }
 	var taken []rect
-	for rank := 0; rank <= 3; rank++ {
+	for rank := 0; rank <= 4; rank++ {
 		for _, l := range o.labels {
 			if l.rank != rank {
 				continue

@@ -189,6 +189,8 @@ func (e *Editor) Init(app *engine.App) error {
 	})
 	e.layers.toggleBtn = e.menuBar.AddIconButton(render.IconStack, "Layers", e.toggleLayersPanel)
 	e.layers.changeBtn = ui.NewButton(0, 0, 110, 28, "Change...", e.requestReimport)
+	e.layers.reloadBtn = ui.NewButton(0, 0, 28, 28, "", e.requestReload)
+	e.layers.reloadBtn.Icon = render.IconArrowClockwise
 	e.menuBar.AddIconButton(render.IconFloppyDisk, "Save", e.saveCurrent)
 	e.menuBar.AddIconButton(render.IconFloppyDisk, "Save As", e.openSaveAsPrompt)
 	e.menuBar.AddIconButton(render.IconFlag, "Details", e.openDetailsPrompt)

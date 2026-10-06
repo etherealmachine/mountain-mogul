@@ -5,17 +5,21 @@ package world
 // snow the ground holds and whether trees grow there.
 type Material uint8
 
-// Auto material only sets rock and meadow today. Dirt and scree are
-// for a material brush and rock palettes later.
+// Auto material sets rock, lake surfaces, and meadow today. Dirt and
+// scree are for a material brush and rock palettes later. A lake's
+// surface (ice, thin ice, open water) follows its ice through the season.
 const (
-	MatMeadow Material = iota // grass and low scrub; the height-driven ground colour
-	MatDirt                   // steep soil and bare earth
-	MatScree                  // loose rock below cliffs
-	MatRock                   // solid rock
+	MatMeadow    Material = iota // grass and low scrub; the height-driven ground colour
+	MatDirt                      // steep soil and bare earth
+	MatScree                     // loose rock below cliffs
+	MatRock                      // solid rock
+	MatIce                       // a frozen lake or pond, under the snow
+	MatThinIce                   // a lake freezing or thawing: dark ice, little snow
+	MatOpenWater                 // an open lake: snow falling on it melts in
 	NumMaterials
 )
 
-var materialNames = [NumMaterials]string{"meadow", "dirt", "scree", "rock"}
+var materialNames = [NumMaterials]string{"meadow", "dirt", "scree", "rock", "ice", "thin ice", "open water"}
 
 func (m Material) String() string {
 	if m < NumMaterials {
@@ -27,8 +31,11 @@ func (m Material) String() string {
 // IsRock reports whether m is solid rock.
 func (m Material) IsRock() bool { return m == MatRock }
 
-// Bare reports whether nothing grows on m: rock and scree.
-func (m Material) Bare() bool { return m.IsRock() || m == MatScree }
+// IsWater reports whether m is a lake's surface, frozen or not.
+func (m Material) IsWater() bool { return m == MatIce || m == MatThinIce || m == MatOpenWater }
+
+// Bare reports whether nothing grows on m: rock, scree, and water.
+func (m Material) Bare() bool { return m.IsRock() || m == MatScree || m.IsWater() }
 
 // TerrainMaterial is the ground's material on the detail lattice: sample
 // (i, j) sits at corner-grid coordinate (i/DetailPerCell,

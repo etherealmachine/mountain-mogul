@@ -28,6 +28,9 @@ const (
 	OSMSki OSMLayer = 1 << iota
 	// OSMRoads is roads cars drive on (see roadWidths).
 	OSMRoads
+	// OSMWater is streams and rivers (waterway=*, see waterwayKinds) and
+	// lakes, ponds, and reservoirs (natural=water, landuse=reservoir).
+	OSMWater
 )
 
 // OSMMap is the OpenStreetMap features inside Covered. Data ©
@@ -37,6 +40,8 @@ type OSMMap struct {
 	Runs    []SkiRun
 	Areas   []SkiAreaOutline
 	Roads   []Road
+	Streams []Waterway
+	Lakes   []WaterArea
 	Covered Bounds
 
 	layers OSMLayer // what the parse keeps
@@ -67,6 +72,29 @@ const laneWidth = 3.7
 
 // minorService are service=* values too small to cut the ground.
 var minorService = map[string]bool{"parking_aisle": true, "driveway": true}
+
+// Waterway is a waterway=* line: a river, stream, or ditch, drawn in
+// the direction the water flows. Intermittent ones dry up in summer.
+type Waterway struct {
+	ID           int64
+	Name         string
+	Kind         string // waterway value: river, stream, canal, ditch, drain
+	Intermittent bool
+	Path         []LatLon
+}
+
+// waterwayKinds are the waterway values kept: water that runs in a
+// channel. Dams, weirs, and riverbank areas are left out.
+var waterwayKinds = map[string]bool{"river": true, "stream": true, "brook": true, "canal": true, "ditch": true, "drain": true}
+
+// WaterArea is a lake, pond, or reservoir. A multipolygon's outer ways
+// are kept as separate paths; islands are left out.
+type WaterArea struct {
+	ID    int64
+	Name  string
+	Kind  string // water value (lake, pond, reservoir...), or "" when untagged
+	Paths [][]LatLon
+}
 
 type SkiLift struct {
 	ID    int64
@@ -192,6 +220,16 @@ func overpassFetch(ctx context.Context, b Bounds, layers OSMLayer) (*OSMMap, err
 		q += `way["aerialway"]` + box + ";" +
 			`way["piste:type"="downhill"]` + box + ";" +
 			`wr["landuse"="winter_sports"]` + box + ";"
+	}
+	if layers&OSMWater != 0 {
+		kinds := make([]string, 0, len(waterwayKinds))
+		for k := range waterwayKinds {
+			kinds = append(kinds, k)
+		}
+		sort.Strings(kinds)
+		q += `way["waterway"~"^(` + strings.Join(kinds, "|") + `)$"]` + box + ";" +
+			`wr["natural"="water"]` + box + ";" +
+			`wr["landuse"="reservoir"]` + box + ";"
 	}
 	if layers&OSMRoads != 0 {
 		kinds := make([]string, 0, len(roadWidths))
@@ -378,6 +416,15 @@ func (m *OSMMap) addWay(id int64, tags map[string]string, path []LatLon) {
 				Tunnel: tags["tunnel"] != "" && tags["tunnel"] != "no", Path: path})
 		}
 	}
+	if m.layers&OSMWater != 0 {
+		if kind := tags["waterway"]; waterwayKinds[kind] {
+			m.Streams = append(m.Streams, Waterway{ID: id, Name: tags["name"], Kind: kind,
+				Intermittent: tags["intermittent"] == "yes" || tags["seasonal"] == "yes", Path: path})
+		}
+		if isWaterArea(tags) {
+			m.Lakes = append(m.Lakes, WaterArea{ID: id, Name: tags["name"], Kind: tags["water"], Paths: [][]LatLon{path}})
+		}
+	}
 	if m.layers&OSMSki == 0 {
 		return
 	}
@@ -401,9 +448,17 @@ func (m *OSMMap) addWay(id int64, tags map[string]string, path []LatLon) {
 // addRelation stores relation ids negated so they can't collide with way
 // ids in Merge.
 func (m *OSMMap) addRelation(id int64, tags map[string]string, paths [][]LatLon) {
+	if m.layers&OSMWater != 0 && isWaterArea(tags) && len(paths) > 0 {
+		m.Lakes = append(m.Lakes, WaterArea{ID: -id, Name: tags["name"], Kind: tags["water"], Paths: paths})
+	}
 	if m.layers&OSMSki != 0 && tags["landuse"] == "winter_sports" && len(paths) > 0 {
 		m.Areas = append(m.Areas, SkiAreaOutline{ID: -id, Name: tags["name"], Paths: paths})
 	}
+}
+
+// isWaterArea reports whether tags mark standing water.
+func isWaterArea(tags map[string]string) bool {
+	return tags["natural"] == "water" || tags["landuse"] == "reservoir"
 }
 
 // Contains reports whether o lies inside b.

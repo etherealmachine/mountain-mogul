@@ -14,18 +14,21 @@ uniform sampler2D uMaterial;
 uniform float     uMaterialOn;
 uniform vec2      uMaterialSize;
 
+// rockTexel is 1 where material sample p is rock (world.MatRock, 3).
+float rockTexel(ivec2 p) {
+    ivec2 hi = ivec2(uMaterialSize) - 1;
+    float m  = texelFetch(uMaterial, clamp(p, ivec2(0), hi), 0).r * 255.0;
+    return abs(m - 3.0) < 0.5 ? 1.0 : 0.0;
+}
+
 // rockAt is how much of the ground around world xz is rock, blending the
 // four material samples around it.
 float rockAt(vec2 xz) {
     vec2  g = xz / 1.25;
     ivec2 p = ivec2(floor(g));
     vec2  f = fract(g);
-    ivec2 hi = ivec2(uMaterialSize) - 1;
-    float r00 = texelFetch(uMaterial, clamp(p,               ivec2(0), hi), 0).r * 255.0 > 2.5 ? 1.0 : 0.0;
-    float r10 = texelFetch(uMaterial, clamp(p + ivec2(1, 0), ivec2(0), hi), 0).r * 255.0 > 2.5 ? 1.0 : 0.0;
-    float r01 = texelFetch(uMaterial, clamp(p + ivec2(0, 1), ivec2(0), hi), 0).r * 255.0 > 2.5 ? 1.0 : 0.0;
-    float r11 = texelFetch(uMaterial, clamp(p + ivec2(1, 1), ivec2(0), hi), 0).r * 255.0 > 2.5 ? 1.0 : 0.0;
-    return mix(mix(r00, r10, f.x), mix(r01, r11, f.x), f.y);
+    return mix(mix(rockTexel(p),               rockTexel(p + ivec2(1, 0)), f.x),
+               mix(rockTexel(p + ivec2(0, 1)), rockTexel(p + ivec2(1, 1)), f.x), f.y);
 }
 
 patch in vec3  tcNormal;

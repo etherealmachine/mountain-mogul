@@ -17,6 +17,8 @@ type Layer struct {
 	// DetailOnly layers need the 1.25 m lidar detail and do nothing on
 	// a tile-only import.
 	DetailOnly bool
+	// Fixed layers have no strength slider; Run ignores the strength.
+	Fixed bool
 	// Run changes the w × ht heights, spacing metres apart, in place, at
 	// strength s (0–1, world.DefaultLayerStrength the standard pass).
 	Run func(h []float32, w, ht int, spacing float64, base *world.TerrainBase, s float32)
@@ -54,6 +56,13 @@ var Layers = []Layer{
 				int64(math.Float64bits(g.MinLat)^math.Float64bits(g.MinLon)))
 		},
 	},
+	{
+		// Last, so nothing roughens the levelled water afterwards.
+		ID: "lakes", Name: "Lakes", MovesGround: true, Fixed: true,
+		Run: func(h []float32, w, ht int, _ float64, base *world.TerrainBase, _ float32) {
+			FlattenLakes(h, w, ht, boundsOf(base.Geo), base.Lakes)
+		},
+	},
 }
 
 // Applies reports whether layer i does anything on this base.
@@ -63,6 +72,8 @@ func Applies(i int, base *world.TerrainBase) bool {
 	case l.DetailOnly && !base.Detail:
 		return false
 	case l.ID == "roads" && len(base.Roads) == 0:
+		return false
+	case l.ID == "lakes" && len(base.Lakes) == 0:
 		return false
 	}
 	return true
@@ -163,6 +174,9 @@ func ApplyHeights(t *world.Terrain, base *world.TerrainBase, heights []float32) 
 	return t.SetDetailFromHeights(base.W, base.H, heights)
 }
 
+// BoundsOf is g as a Bounds.
+func BoundsOf(g world.GeoBounds) Bounds { return boundsOf(g) }
+
 func boundsOf(g world.GeoBounds) Bounds {
 	return Bounds{MinLat: g.MinLat, MaxLat: g.MaxLat, MinLon: g.MinLon, MaxLon: g.MaxLon}
 }
@@ -206,6 +220,26 @@ func baseRuns(rs []SkiRun) []world.BaseRun {
 	var out []world.BaseRun
 	for _, r := range rs {
 		out = append(out, world.BaseRun{Name: r.Name, Difficulty: r.Difficulty, Area: r.Area, Path: basePath(r.Path)})
+	}
+	return out
+}
+
+func baseStreams(ws []Waterway) []world.BaseStream {
+	var out []world.BaseStream
+	for _, w := range ws {
+		out = append(out, world.BaseStream{Name: w.Name, Kind: w.Kind, Intermittent: w.Intermittent, Path: basePath(w.Path)})
+	}
+	return out
+}
+
+func baseLakes(ls []WaterArea) []world.BaseLake {
+	var out []world.BaseLake
+	for _, l := range ls {
+		bl := world.BaseLake{Name: l.Name, Kind: l.Kind}
+		for _, p := range l.Paths {
+			bl.Paths = append(bl.Paths, basePath(p))
+		}
+		out = append(out, bl)
 	}
 	return out
 }

@@ -27,6 +27,9 @@ type TerrainBase struct {
 	Lifts []BaseLift
 	Runs  []BaseRun
 	Areas []BaseArea
+	// The OpenStreetMap water in Geo: streams and rivers, and lakes.
+	Streams []BaseStream
+	Lakes   []BaseLake
 
 	LidarCoverage float32
 	LidarNote     string
@@ -81,6 +84,22 @@ type BaseRun struct {
 	Name, Difficulty string
 	Area             bool
 	Path             [][2]float64
+}
+
+// BaseStream is one OpenStreetMap waterway: its kind (river, stream,
+// canal, ditch, drain), whether it dries up in summer, and its line in
+// the direction the water flows, as (lat, lon) pairs.
+type BaseStream struct {
+	Name, Kind   string
+	Intermittent bool
+	Path         [][2]float64
+}
+
+// BaseLake is a lake, pond, or reservoir: its water kind ("" when
+// untagged) and one or more outlines.
+type BaseLake struct {
+	Name, Kind string
+	Paths      [][][2]float64
 }
 
 // BaseArea is a ski area's mapped boundary, as one or more outlines.

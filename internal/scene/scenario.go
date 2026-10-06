@@ -2056,6 +2056,9 @@ func (s *Scenario) Update(dt float64) {
 		r.FlushSnowState(s.world.Terrain)
 		s.world.Terrain.SnowDirty = false
 	}
+	// Lakes freezing and thawing change the material map; it uploads only
+	// when its version moves.
+	r.FlushTerrainMaterial(s.world.Terrain)
 
 	// Sub-cell surface-detail texture — uploads only the dirty
 	// sub-region, so the per-frame cost is proportional to how much

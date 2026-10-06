@@ -33,6 +33,8 @@ func BuildWorld(res *ImportResult, off []string, strengths map[string]float32, p
 		Lifts:         baseLifts(res.Lifts),
 		Runs:          baseRuns(res.Runs),
 		Areas:         baseAreas(res.Areas),
+		Streams:       baseStreams(res.Streams),
+		Lakes:         baseLakes(res.Lakes),
 		RoadNote:      res.RoadNote,
 		LidarCoverage: res.LidarCoverage,
 		LidarNote:     res.LidarNote,

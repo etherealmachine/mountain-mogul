@@ -449,6 +449,12 @@ type Terrain struct {
 	// nil when nothing has set it. See material.go.
 	Material *TerrainMaterial
 
+	// LakeOf is each cell's lake, indexed x*Height+z: 1 + its index in
+	// World.Lakes, or 0 for none. LakeDepth is its water depth, metres,
+	// estimated from the shore. Both nil when there are no lakes.
+	LakeOf    []uint8
+	LakeDepth []float32
+
 	// shed caches what ShedSnow derives from the ground and material map;
 	// nil when the ground has changed since. See snowshed.go.
 	shed *shedCache

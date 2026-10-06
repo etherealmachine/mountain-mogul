@@ -768,23 +768,33 @@ func (t *TerrainImport) startFetch() {
 	t.job = j
 
 	go func() {
-		res, err := geo.ImportTerrain(ctx, bounds, n, n, world.DetailPerCell, j.setStage)
+		imp, err := importSquare(ctx, bounds, n, off, strengths, j.setStage)
 		if err != nil {
 			j.finish(err)
 			return
 		}
-		w, stack, err := geo.BuildWorld(res, off, strengths, func(layer string) { j.setStage(layer, 0) })
-		if err != nil {
-			j.finish(err)
-			return
-		}
-		imp := &ImportedTerrain{Result: res, World: w, Layers: stack}
-		dressWorld(w, &imp.cache, func(name string) { j.setStage(name, 0) })
 		j.mu.Lock()
 		j.imported = imp
 		j.mu.Unlock()
 		j.finish(nil)
 	}()
+}
+
+// importSquare fetches bounds on an n × n grid and builds a world from
+// it with these layer settings (off, strengths), reporting each stage.
+// Used by the import screen and the Layers panel's reload.
+func importSquare(ctx context.Context, bounds geo.Bounds, n int, off []string, strengths map[string]float32, stage func(string, float32)) (*ImportedTerrain, error) {
+	res, err := geo.ImportTerrain(ctx, bounds, n, n, world.DetailPerCell, stage)
+	if err != nil {
+		return nil, err
+	}
+	w, stack, err := geo.BuildWorld(res, off, strengths, func(layer string) { stage(layer, 0) })
+	if err != nil {
+		return nil, err
+	}
+	imp := &ImportedTerrain{Result: res, World: w, Layers: stack}
+	dressWorld(w, &imp.cache, func(name string) { stage(name, 0) })
+	return imp, nil
 }
 
 func (t *TerrainImport) uploadMapTexture(pr *geo.PreviewResult) {

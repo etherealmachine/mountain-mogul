@@ -927,6 +927,9 @@ func (s *Simulation) applyDailyWeather(dw DayWeather) {
 		s.checkAvalanches()
 	}
 
+	// Lakes freeze, thicken, and thaw with the day's temperature.
+	s.stepLakes(dw)
+
 	// Decay skier traffic on all cells once per day (~4 day half-life).
 	for x := range t.Cells {
 		for z := range t.Cells[x] {

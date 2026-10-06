@@ -46,7 +46,8 @@ uniform sampler2D uMaterial;
 uniform float     uMaterialOn;
 uniform vec2      uMaterialSize;
 
-const int MAT_MEADOW = 0, MAT_DIRT = 1, MAT_SCREE = 2, MAT_ROCK = 3;
+const int MAT_MEADOW = 0, MAT_DIRT = 1, MAT_SCREE = 2, MAT_ROCK = 3,
+          MAT_ICE = 4, MAT_THIN_ICE = 5, MAT_OPEN_WATER = 6;
 
 out vec4 fragColor;
 
@@ -94,6 +95,9 @@ int materialAt(ivec2 p) {
 vec3 materialColor(int m, vec3 meadow, float grain) {
     if (m == MAT_DIRT)  return vec3(0.40, 0.33, 0.25) * (0.90 + 0.20 * grain);
     if (m == MAT_SCREE) return vec3(0.55, 0.52, 0.48) * (0.80 + 0.35 * grain);
+    if (m == MAT_ICE)        return vec3(0.30, 0.40, 0.46) * (0.92 + 0.12 * grain); // lake ice
+    if (m == MAT_THIN_ICE)   return vec3(0.17, 0.23, 0.27) * (0.92 + 0.12 * grain); // dark new ice
+    if (m == MAT_OPEN_WATER) return vec3(0.03, 0.07, 0.10);                           // deep water
     return meadow;
 }
 
@@ -379,6 +383,20 @@ void main() {
                    * smoothstep(0.02, 0.3, effDepth) * 0.85;
         snowness = mix(snowness, dust, rockW);
     }
+    // Lakes (world.Lake, stepped by sim.StepLake): frozen ones are flat
+    // snow, scoured in broad patches down to grey-blue ice where it's
+    // thin; thin ice is dark with only patches of snow; open water takes
+    // no snow at all.
+    int lakeSurf = uMaterialOn > 0.5 ? materialAt(ivec2(floor(vWorldPos.xz / 1.25 + 0.5))) : -1;
+    if (lakeSurf == MAT_ICE) {
+        float scour = smoothstep(0.45, 0.7, fbmNoise(vWorldPos.xz / 30.0 + vec2(13.1, 4.7)));
+        float thin  = 1.0 - smoothstep(0.1, 0.4, effDepth);
+        snowness    = min(snowness, 1.0 - 0.9 * scour * thin);
+    } else if (lakeSurf == MAT_THIN_ICE) {
+        snowness = min(snowness, 0.6 * smoothstep(0.55, 0.75, fbmNoise(vWorldPos.xz / 12.0 + vec2(3.3, 9.1))));
+    } else if (lakeSurf == MAT_OPEN_WATER) {
+        snowness = 0.0;
+    }
 
     // Avalanche-debris tint: warm ochre-grey from rock/soil mixed into tumbled snow.
     // Coarse grain gives the chunky, disturbed surface character.
@@ -555,6 +573,16 @@ void main() {
     if (uLampCount > 0) {
         lit += base * lampLight(vWorldPos, Nshading) * vAO;
     }
+    // Open water mirrors the sky, more at grazing angles, and glints
+    // where small ripples catch the sun.
+    if (lakeSurf == MAT_OPEN_WATER) {
+        vec3  V    = normalize(uCameraPos - vWorldPos);
+        vec2  rip  = valueNoiseD(vWorldPos.xz / 1.5 + vec2(uTime * 0.15, uTime * 0.1)).yz / 1.5;
+        vec3  Nw   = normalize(N + vec3(rip.x, 0.0, rip.y) * 0.15);
+        float fres = pow(1.0 - max(dot(Nw, V), 0.0), 4.0);
+        lit = mix(lit, fillLight(Nw) * 1.1, 0.2 + 0.6 * fres);
+        lit += uSunColor * pow(max(dot(Nw, normalize(L + V)), 0.0), 150.0) * sunVis * 2.0;
+    }
 
     // Groomed snow: the cool tint and fine grain of packed corduroy, a
     // darker line along seams between passes, and the swath edge — a
@@ -709,13 +737,17 @@ void main() {
     }
 
     // Ground overlay — what the ground is made of, whatever covers it:
-    // meadow green, dirt brown, scree pale grey, rock near-black.
+    // meadow green, dirt brown, scree pale grey, rock near-black; lakes
+    // pale blue when frozen, mid blue on thin ice, deep blue when open.
     if ((uOverlayMode & 2048) != 0 && uMaterialOn > 0.5 && vInstabilityScore > -0.5) {
         int  m = materialAt(ivec2(floor(vWorldPos.xz / 1.25 + 0.5)));
         vec3 col = vec3(0.35, 0.70, 0.30);
         if (m == MAT_DIRT)      col = vec3(0.60, 0.42, 0.25);
         if (m == MAT_SCREE)     col = vec3(0.78, 0.78, 0.74);
         if (m == MAT_ROCK)      col = vec3(0.14, 0.14, 0.18);
+        if (m == MAT_ICE)        col = vec3(0.55, 0.80, 1.00);
+        if (m == MAT_THIN_ICE)   col = vec3(0.30, 0.55, 0.95);
+        if (m == MAT_OPEN_WATER) col = vec3(0.05, 0.20, 0.80);
         fragColor.rgb = mix(fragColor.rgb, col, 0.8);
     }
 

@@ -1,7 +1,9 @@
 package scene
 
 import (
+	"context"
 	"fmt"
+	"maps"
 	"math"
 	"slices"
 	"strings"
@@ -28,6 +30,8 @@ type layersPanel struct {
 	job       *layerJob
 	toggleBtn *ui.Button // the menu bar's Layers button
 	changeBtn *ui.Button
+	reloadBtn *ui.Button // imports the base's square again
+	reload    *reloadJob
 
 	// queued lists world layers to run or clear, by ID. They wait a
 	// frame so the panel can show them running first.
@@ -44,6 +48,25 @@ type layersPanel struct {
 	rowsY      float32 // top of the first layer row
 }
 
+// reloadJob is one background import of the base's square, replacing
+// the map when it finishes.
+type reloadJob struct {
+	base   *world.TerrainBase // the base it reloads; dropped if the map changes
+	cancel context.CancelFunc
+
+	mu    sync.Mutex
+	stage string
+	imp   *ImportedTerrain
+	err   error
+	done  bool
+}
+
+func (j *reloadJob) status() (stage string, imp *ImportedTerrain, err error, done bool) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.stage, j.imp, j.err, j.done
+}
+
 // layerJob is one background rebuild of the ground.
 type layerJob struct {
 	stack *geo.LayerStack
@@ -56,7 +79,7 @@ type layerJob struct {
 }
 
 const (
-	layersPanelW = float32(470)
+	layersPanelW = float32(580) // wide enough for the OpenStreetMap counts
 	layersRowH   = float32(30)
 	layersPad    = float32(10)
 
@@ -88,6 +111,11 @@ func (p *layersPanel) layout(top float32, base *world.TerrainBase) {
 		p.changeBtn.X = p.x + p.w - layersPad - p.changeBtn.W
 		p.changeBtn.Y = p.y + titleH + (baseH-p.changeBtn.H)/2
 	}
+	if p.reloadBtn != nil && p.changeBtn != nil {
+		p.reloadBtn.W, p.reloadBtn.H = 28, 28
+		p.reloadBtn.X = p.changeBtn.X - 6 - p.reloadBtn.W
+		p.reloadBtn.Y = p.changeBtn.Y
+	}
 }
 
 // rowLayer is the layer in panel row i: its ID, and its index in
@@ -105,7 +133,7 @@ func rowLayer(i int) (id string, ground int) {
 func rowHasSlider(i int, base *world.TerrainBase) bool {
 	switch {
 	case i < len(geo.Layers):
-		return geo.Applies(i, base)
+		return geo.Applies(i, base) && !geo.Layers[i].Fixed
 	case i < len(geo.Layers)+len(worldLayers):
 		return !worldLayers[i-len(geo.Layers)].fixed
 	}
@@ -177,6 +205,7 @@ func groundOff(base *world.TerrainBase) []string {
 // them.
 func (e *Editor) handleLayersInput(inp *engine.Input, top float32) {
 	e.pollLayerJob()
+	e.pollReload()
 	e.runQueuedWorldLayers()
 	p := &e.layers
 	base := e.world.TerrainBase
@@ -198,12 +227,17 @@ func (e *Editor) handleLayersInput(inp *engine.Input, top float32) {
 		return
 	}
 	p.changeBtn.SetHovered(p.changeBtn.Contains(mx, my))
+	p.reloadBtn.SetHovered(base != nil && p.reload == nil && p.reloadBtn.Contains(mx, my))
 	if !inp.LeftClick || inp.LeftClickConsumed || !p.contains(mx, my) {
 		return
 	}
 	inp.LeftClickConsumed = true
 	if p.changeBtn.Contains(mx, my) {
 		p.changeBtn.Click()
+		return
+	}
+	if base != nil && p.reload == nil && p.reloadBtn.Contains(mx, my) {
+		p.reloadBtn.Click()
 		return
 	}
 	if base == nil || my < p.rowsY {
@@ -370,6 +404,65 @@ func (e *Editor) requestReimport() {
 	open()
 }
 
+// requestReload imports the base's square again, with the same grid
+// size and layer settings, without opening the import screen: for
+// picking up fresher data or what a newer import fetches. It asks first
+// when there's anything on the map to lose.
+func (e *Editor) requestReload() {
+	base := e.world.TerrainBase
+	if base == nil || e.layers.reload != nil {
+		return
+	}
+	start := func() {
+		e.confirmPrompt = nil
+		ctx, cancel := context.WithCancel(context.Background())
+		j := &reloadJob{base: base, cancel: cancel, stage: "Starting"}
+		e.layers.reload = j
+		n := e.world.Terrain.Width
+		off := slices.Clone(base.LayersOff)
+		strengths := maps.Clone(base.Strengths)
+		go func() {
+			imp, err := importSquare(ctx, geo.BoundsOf(base.Geo), n, off, strengths, func(stage string, _ float32) {
+				j.mu.Lock()
+				j.stage = stage
+				j.mu.Unlock()
+			})
+			j.mu.Lock()
+			j.imp, j.err, j.done = imp, err, true
+			j.mu.Unlock()
+		}()
+	}
+	w := e.world
+	if worldHasBuilt(w) || len(w.Trails) > 0 || len(w.Parcels) > 0 {
+		e.confirmPrompt = newConfirmPrompt(
+			"Reloading imports this square again and replaces the whole map: everything built, trails, trees, snow, and parcels.",
+			"Reload", start, func() { e.confirmPrompt = nil })
+		return
+	}
+	start()
+}
+
+// pollReload applies a finished reload, unless the map was replaced
+// while it ran.
+func (e *Editor) pollReload() {
+	j := e.layers.reload
+	if j == nil {
+		return
+	}
+	_, imp, err, done := j.status()
+	if !done {
+		return
+	}
+	e.layers.reload = nil
+	switch {
+	case e.world.TerrainBase != j.base:
+	case err != nil:
+		e.setToast("Reload failed: " + err.Error())
+	default:
+		e.applyImportedTerrain(*imp, e.app.Renderer)
+	}
+}
+
 func worldHasBuilt(w *world.World) bool {
 	return len(w.Buildings) > 0 || len(w.Lifts) > 0 || len(w.RoadNodes) > 0
 }
@@ -378,6 +471,8 @@ func layerSkipReason(i int, base *world.TerrainBase) string {
 	switch {
 	case geo.Layers[i].DetailOnly && !base.Detail:
 		return "needs lidar"
+	case geo.Layers[i].ID == "lakes":
+		return "no lakes mapped here"
 	case base.RoadNote != "":
 		return base.RoadNote
 	}
@@ -490,6 +585,9 @@ func (e *Editor) drawLayersPanel(r *render.Renderer, top float32) {
 		f.DrawText(r, info, p.x+layersPad, y+lineH+3, dim)
 	}
 	p.changeBtn.Draw(r)
+	if base != nil {
+		p.reloadBtn.Draw(r)
+	}
 
 	stage := ""
 	if p.job != nil {
@@ -558,6 +656,9 @@ func (e *Editor) drawLayersPanel(r *render.Renderer, top float32) {
 	}
 	status := ""
 	switch {
+	case p.reload != nil:
+		stage, _, _, _ := p.reload.status()
+		status = "Reloading: " + stage + "..."
 	case p.job != nil:
 		status = "Rebuilding the ground..."
 	case len(p.queued) > 0:

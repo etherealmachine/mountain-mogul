@@ -76,6 +76,12 @@ func (b *Button) Draw(r *render.Renderer) {
 	r.DrawColorRectOutline(b.X, b.Y, b.W, b.H, mgl32.Vec4{0.55, 0.70, 1.00, borderAlpha})
 
 	white := mgl32.Vec4{1, 1, 1, 1}
+	if b.Icon != "" && b.Label == "" {
+		// Icon only — centred in the button.
+		size := min(b.W, b.H) - 8
+		r.DrawIcon(b.Icon, b.X+(b.W-size)/2, b.Y+(b.H-size)/2, size, white)
+		return
+	}
 	if b.Icon != "" {
 		// Icon button — icon centred horizontally, label centred under it.
 		// Sized so we get a comfortable 24-px icon with a 4-px gap to the

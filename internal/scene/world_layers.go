@@ -249,6 +249,33 @@ func runSnowLayer(w *world.World, c *layerCache) {
 		}
 	}
 	t.ShedSnow()
+	// Lakes get the ice the season would have given them by now, and
+	// each spot only the snow that fell since it froze; before that it
+	// fell in.
+	if season := sim.SeasonLakes(w, w.StartDate); season != nil {
+		for x := 0; x < t.Width; x++ {
+			for z := 0; z < t.Height; z++ {
+				id := t.LakeOf[x*t.Height+z]
+				if id == 0 {
+					continue
+				}
+				at, ok := season.FrozeOn(w, int(id-1), t.LakeDepth[x*t.Height+z])
+				if !ok {
+					continue
+				}
+				before, _ := pack.At(pack.Day(at), w.Lakes[id-1].Altitude, 0, 0, 1)
+				c := &t.Cells[x][z]
+				total := c.Base + c.Top.Accumulation
+				if total <= 0 {
+					continue
+				}
+				keep := max(total-before, 0) / total
+				c.Base *= keep
+				c.Top.Accumulation *= keep
+			}
+		}
+	}
+	sim.ApplyLakes(w)
 	t.SnowDirty = true
 }
 
