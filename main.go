@@ -56,6 +56,7 @@ func main() {
 	groomNow := flag.Bool("groom-now", false, "-screenshot: give every snowcat's section a full grooming pass before capture")
 	detailFile := flag.String("detail-file", "", "-screenshot: draw the ground from a detail heights file (from tools/lidar)")
 	detailTest := flag.Bool("detail-test", false, "-screenshot: replace terrain detail with a synthetic bump-and-step pattern, for checking mesh seams")
+	showGoals := flag.Bool("show-goals", false, "-screenshot: open the scenario's goals panel (the result panel if the game is already won or lost)")
 	storm := flag.Bool("storm", false, "-screenshot: drop a heavy-snow day on the terrain and make today a heavy-snow day before capture")
 	importPreview := flag.String("import-preview", "", "-screenshot: capture the terrain import map at \"lat,lon,zoom\" (e.g. 38.68,-120.07,14) once the map and the OpenStreetMap overlay have loaded")
 	editorOSM := flag.Bool("editor-osm", false, "with -editor-layers: show the OpenStreetMap overlay, with the Layers panel closed")
@@ -121,6 +122,7 @@ func main() {
 			clockHour:    *clockHour,
 			timeScale:    *timeScale,
 			storm:        *storm,
+			showGoals:    *showGoals,
 			groomNow:     *groomNow,
 			detailTest:   *detailTest,
 			detailFile:   *detailFile,
@@ -277,6 +279,7 @@ type screenshotOpts struct {
 	clockHour              float64 // NaN = leave the clock alone; else jump to this hour today
 	timeScale              float64 // 0 = leave the sim speed alone
 	storm                  bool
+	showGoals              bool
 	groomNow               bool
 	detailTest             bool
 	detailFile             string
@@ -345,6 +348,10 @@ func runScreenshot(opt screenshotOpts) {
 	if !math.IsNaN(opt.clockHour) {
 		sc.SetClockHour(opt.clockHour)
 		fmt.Printf("screenshot: clock set to %.2f h\n", opt.clockHour)
+	}
+
+	if opt.showGoals {
+		sc.ShowGoals()
 	}
 
 	if opt.storm {

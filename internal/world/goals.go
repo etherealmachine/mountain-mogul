@@ -92,7 +92,7 @@ func (g Goal) Describe() string {
 			s += fmt.Sprintf(" for %d days in a row", g.Days)
 		}
 	case GoalCash:
-		s = fmt.Sprintf("End a day with $%s in the bank", commaInt(int(g.Target)))
+		s = fmt.Sprintf("End a day with $%s in the bank", CommaInt(int(g.Target)))
 	case GoalDebtFree:
 		s = "Stay out of debt"
 		if g.Days > 1 {
@@ -114,14 +114,14 @@ func plural(n int, noun string) string {
 	if n == 1 {
 		return "1 " + noun
 	}
-	return commaInt(n) + " " + noun + "s"
+	return CommaInt(n) + " " + noun + "s"
 }
 
-// commaInt formats n with thousands separators.
-func commaInt(n int) string {
+// CommaInt formats n with thousands separators.
+func CommaInt(n int) string {
 	s := fmt.Sprint(n)
 	if n < 0 {
-		return "-" + commaInt(-n)
+		return "-" + CommaInt(-n)
 	}
 	for i := len(s) - 3; i > 0; i -= 3 {
 		s = s[:i] + "," + s[i:]

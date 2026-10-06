@@ -36,6 +36,7 @@ const (
 	IconCloudLightning IconName = "cloud-lightning"
 	IconArrowRight     IconName = "arrow-right"
 	IconArrowClockwise IconName = "arrow-clockwise" // reload
+	IconTrophy         IconName = "trophy"          // scenario goals
 	IconCocktail       IconName = "chart-bar"       // placeholder for bar tool
 
 	// Overlay panel — the right-side stack of view toggles. `Stack` is the
@@ -68,7 +69,7 @@ var allIcons = []IconName{
 	IconGear, IconPause, IconPlay, IconFastForward,
 	IconCoin, IconUsers, IconHeart,
 	IconSun, IconCloudSun, IconCloud, IconCloudSnow, IconSnowflake, IconCloudLightning,
-	IconArrowRight, IconArrowClockwise, IconCocktail,
+	IconArrowRight, IconArrowClockwise, IconTrophy, IconCocktail,
 	IconStack, IconChartLine, IconChartBar, IconTriangle, IconWaves, IconBroom, IconGridFour, IconDrop, IconDotsNine,
 	IconGarage,
 	IconRoad,

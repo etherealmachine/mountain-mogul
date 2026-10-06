@@ -13,6 +13,9 @@ type ScenarioInfo struct {
 	Difficulty  int    // 1 to MaxScenarioDifficulty; 0 = not set
 	Order       int    // campaign position, ascending; 0 = unordered (sorts last)
 	Tutorial    bool   // shown first in the picker and marked as the tutorial
+	// File is the scenario's file name in the game's scenarios folder, set
+	// when a game starts from it, so "Retry" can start it again.
+	File string
 }
 
 // GeoBounds is the latitude/longitude box, in degrees, an imported

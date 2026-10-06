@@ -220,6 +220,7 @@ func scenarioInfoOf(data ScenarioData) world.ScenarioInfo {
 		Difficulty:  data.Difficulty,
 		Order:       data.Order,
 		Tutorial:    data.Tutorial,
+		File:        data.ScenarioFile,
 	}
 }
 
@@ -548,12 +549,13 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		simTime = day*world.SecondsPerSimDay + world.NewGameStartHour*world.SimSecondsPerHour
 	}
 	return ScenarioData{
-		Name:        w.Scenario.Name,
-		Description: w.Scenario.Description,
-		Location:    w.Scenario.Location,
-		Difficulty:  w.Scenario.Difficulty,
-		Order:       w.Scenario.Order,
-		Tutorial:    w.Scenario.Tutorial,
+		Name:         w.Scenario.Name,
+		Description:  w.Scenario.Description,
+		Location:     w.Scenario.Location,
+		Difficulty:   w.Scenario.Difficulty,
+		Order:        w.Scenario.Order,
+		Tutorial:     w.Scenario.Tutorial,
+		ScenarioFile: w.Scenario.File,
 
 		Seed:         w.Seed,
 		SimTime:      simTime,

@@ -145,7 +145,7 @@ func GoalStatus(w *world.World, i int) string {
 	}
 	switch g.Kind {
 	case world.GoalLiftsOpen, world.GoalGuestsInDay, world.GoalCash:
-		return fmt.Sprintf("best %.0f of %.0f", p.Best, g.Target)
+		return fmt.Sprintf("best %s of %s", world.CommaInt(int(p.Best)), world.CommaInt(int(g.Target)))
 	case world.GoalRating, world.GoalDebtFree:
 		return fmt.Sprintf("%d of %d days", p.Streak, max(g.Days, 1))
 	}

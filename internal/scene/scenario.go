@@ -472,6 +472,7 @@ type Scenario struct {
 	chartWindow      *ui.ChartWindow  // resort-stats charts (line + grouped bar)
 	dayReport        *ui.Window       // profit/loss recap opened at each midnight
 	eventPanel       *ui.EventPanel   // left-side world event feed
+	goals            goalsPanel       // the scenario's goals and the win/lose panel
 	escapeMenu       *EscapeMenu
 	settingsMenu     *SettingsMenu
 	debugConsole     *DebugConsole
@@ -825,6 +826,10 @@ func (s *Scenario) Init(app *engine.App) error {
 		cam = loadedCam
 	}
 	w.TerrainBase = nil
+	// A game started from a bundled scenario remembers which, for Retry.
+	if dir, file := filepath.Split(s.scenarioPath); s.app != nil && filepath.Clean(dir) == filepath.Clean(filepath.Join(app.AssetDir, "scenarios")) {
+		w.Scenario.File = file
+	}
 	s.installWorld(w)
 	if cam != nil {
 		applyCameraSnapshot(app.Renderer.Camera, cam)
@@ -1010,6 +1015,7 @@ func (s *Scenario) Init(app *engine.App) error {
 	s.topBar.SetEventsToggle(func() {
 		s.topBar.SetEventsActive(s.eventPanel.Toggle())
 	})
+	s.initGoalsPanel()
 
 	// Charts window — three tabs: guest population (line), arrivals /
 	// departures (grouped bar), cash on hand (line). Data is pulled
@@ -1719,6 +1725,8 @@ func (s *Scenario) Update(dt float64) {
 
 	// Position the bottom tool bar against the current screen height before
 	// it handles input — so its hit-tests use the live Y.
+	s.pollGoalsOutcome()
+	s.handleGoalsInput(inp)
 	s.toolBar.Y = float32(r.ScreenHeight()) - s.toolBar.H
 	s.toolBar.HandleInput(inp, float32(r.ScreenWidth()), float32(r.ScreenHeight()))
 	s.topBar.HandleInput(inp, float32(r.ScreenWidth()))
@@ -3114,6 +3122,7 @@ func (s *Scenario) Render(r *render.Renderer) {
 		}
 	}
 
+	drawables = append(drawables, uiDrawFunc(s.drawGoalsPanel))
 	r.DrawUI(drawables)
 
 	// Screenshot is taken AFTER UI is drawn so the captured frame includes UI.
@@ -4021,6 +4030,9 @@ func (s *Scenario) uiCovers(x, y float32, screenW float32) bool {
 		return true
 	}
 	if s.eventPanel != nil && s.eventPanel.ContainsXY(x, y) {
+		return true
+	}
+	if s.goals.contains(x, y) {
 		return true
 	}
 	if s.popup != nil && s.popup.ContainsPoint(x, y) {

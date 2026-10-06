@@ -11,6 +11,8 @@ type ScenarioData struct {
 	Difficulty  int    `json:"difficulty,omitempty"`
 	Order       int    `json:"order,omitempty"`
 	Tutorial    bool   `json:"tutorial,omitempty"`
+	// ScenarioFile is world.ScenarioInfo.File.
+	ScenarioFile string `json:"scenario_file,omitempty"`
 
 	Width   int     `json:"width"`
 	Height  int     `json:"height"`

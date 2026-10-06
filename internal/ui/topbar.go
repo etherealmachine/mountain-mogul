@@ -44,6 +44,7 @@ type TopBar struct {
 	overlayBtn *iconButton // overlay-panel toggle; sits between speed and gear
 	chartsBtn  *iconButton // chart-window toggle; sits next to overlay
 	eventsBtn  *iconButton // event-feed panel toggle; sits left of charts
+	goalsBtn   *iconButton // scenario goals toggle; sits left of events
 
 	bgColor mgl32.Vec4
 }
@@ -105,6 +106,19 @@ func (t *TopBar) SetEventsToggle(onClick func()) {
 func (t *TopBar) SetEventsActive(active bool) {
 	if t.eventsBtn != nil {
 		t.eventsBtn.active = active
+	}
+}
+
+// SetGoalsToggle installs the scenario-goals toggle (a trophy). Sits left
+// of the events button; tracks visibility via SetGoalsActive.
+func (t *TopBar) SetGoalsToggle(onClick func()) {
+	t.goalsBtn = newIconButton("goals", onClick)
+}
+
+// SetGoalsActive reflects the goals panel's visibility on its button.
+func (t *TopBar) SetGoalsActive(active bool) {
+	if t.goalsBtn != nil {
+		t.goalsBtn.active = active
 	}
 }
 
@@ -212,6 +226,9 @@ func (t *TopBar) iconButtons() []*iconButton {
 	if t.eventsBtn != nil {
 		out = append(out, t.eventsBtn)
 	}
+	if t.goalsBtn != nil {
+		out = append(out, t.goalsBtn)
+	}
 	if t.chartsBtn != nil {
 		out = append(out, t.chartsBtn)
 	}
@@ -258,6 +275,13 @@ func (t *TopBar) layout(screenW float32) {
 		t.eventsBtn.y = t.Y
 		t.eventsBtn.w = iconBoxW
 		t.eventsBtn.h = t.H
+	}
+	if t.goalsBtn != nil {
+		x -= iconBoxW
+		t.goalsBtn.x = x
+		t.goalsBtn.y = t.Y
+		t.goalsBtn.w = iconBoxW
+		t.goalsBtn.h = t.H
 	}
 	for i := len(t.speedBtns) - 1; i >= 0; i-- {
 		x -= iconBoxW
@@ -517,6 +541,8 @@ func (t *TopBar) drawIconButton(r *render.Renderer, b *iconButton) {
 		r.DrawIcon(render.IconChartBar, cx-iconSize/2, cy, iconSize, col)
 	case "events":
 		r.DrawIcon(render.IconFlag, cx-iconSize/2, cy, iconSize, col)
+	case "goals":
+		r.DrawIcon(render.IconTrophy, cx-iconSize/2, cy, iconSize, col)
 	}
 }
 
