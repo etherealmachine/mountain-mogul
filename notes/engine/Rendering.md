@@ -29,3 +29,5 @@ Cliffs, creeks, and finer terrain are planned in [[Terrain Realism]]. Gamma-corr
 - 2026-10-05: Fresh snow after a storm cost about 4 ms of GPU time zoomed out. The terrain shader's normal kicks (powder, drifts, moguls, debris) now use an analytic noise gradient instead of three samples, and powder, moguls, and sparkle fade out once they're smaller than a pixel. Zoomed-out Boreal after a storm: 10.6 → 7.2 ms.
 - 2026-10-05: [[Real Grooming]]: groom texture and lit corduroy ridges; retired the surface-detail groom-edge channel.
 - 2026-10-05: Chunked terrain with screen-size subdivision, snow state in textures, and a detail height texture ([[Terrain Realism]] step 1). Kirkwood: 16.1 → 6.5 ms GPU zoomed out, CPU render 7.8 → 0.9 ms. Fixed snow drawn at double depth after snow changes.
+- 2026-10-06: Bare ground is coloured from the material map ([[Ground Materials]]), and a Ground overlay shows it.
+- 2026-10-06: One procedural rock texture on rock ground, modelled on Kirkwood's volcanic breccia and built in 3D so walls don't stretch ([[Ground Materials]]).

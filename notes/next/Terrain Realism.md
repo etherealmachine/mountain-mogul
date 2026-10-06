@@ -53,7 +53,7 @@ In this order:
    - Saved in the scenario as offsets from the smooth base plus rock and creek masks.
    - Each 5 m cell's elevation is recomputed from the fine grid, so snow, pathing, and building see cliffs and creek beds through slope.
    - Built in the order cliffs, creeks, erosion, since cliffs and creeks are the visible win.
-6. **Baked cliffs.** Kirkwood first, after Boreal is back on track.
+6. **Baked cliffs.** Kirkwood first, after Boreal is back on track. Replaced by [[Ground Materials]]: the lidar already has the cliff shape, and the problem is snow covering it. Materials plus snow that sheds come first, and geometry only if it's still needed. The original plan:
    - A detail pass finds rock from slope and curvature (faces past about 45°, and the convex lips above them) and bakes it into the refined mesh: steps, ledges, strata, and broken edges as real geometry, plus a rock mask for the shader.
    - The terrain shader draws rock from the mask: color, strata, and cracks, so the baked shape and the material line up.
    - Instanced rock meshes and greebles only if the baked mesh still reads as a smooth ramp up close. If needed, keep them few, low-poly, and dropped at a distance.
@@ -85,3 +85,4 @@ In this order:
 - 2026-10-05: Auto-smooth roads at import. Each road gets a corridor (pavement plus banks, grown over steep banks, gaps and small islands closed), filled by push-pull and relaxation from the ground either side, plus noise matched to the surrounding roughness. A first try without the noise left a featureless band, and per-road feathers left steps between carriageways; both fixed. Boreal: I-80 and its interchange gone, 26 roads, about 8 s.
 - 2026-10-05: "Smooth ground" and "Erode" at import, after the lidar showed Boreal's run grading and cat tracks. Smooth is three 2.5 m box blurs, faded out on steep rock. Erosion is droplet-based (one drop per 1.25 m sample, 48 steps each), run in parallel on 256-sample tiles in a checkerboard so it's repeatable. Boreal: mean change 12 cm, deepest cut 5 m, 0.1 s and 1.4 s; the slope overlay loses the speckled benches and keeps the real steep faces.
 - 2026-10-06: Steps 3 and 4 mostly done as the Auto trees and Auto snow terrain layers ([[Terrain Layers]]): treeline from the climate, a season snowpack from the climate with sun and shade, and imports starting on the opening day.
+- 2026-10-06: Cliffs (Priority step 4) moved to [[Ground Materials]]: a material map, snow shedding in the sim, and rock shading, after finding Kirkwood's cliffs buried under averaged 5 m snow.

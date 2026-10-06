@@ -20,3 +20,4 @@ Cliffs, creeks, and a less uniform look are planned in [[Terrain Realism]].
 
 - 2026-10-01: Real-world import, brushes, trees, aprons, and embankments are in.
 - 2026-10-02: Trees are stored individually instead of as a density per cell.
+- 2026-10-06: Imported terrain gets a material map on the 1.25 m lattice (meadow, dirt, scree, rock kinds) from the Auto material layer; trees don't grow on rock or scree ([[Ground Materials]]).

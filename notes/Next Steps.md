@@ -14,12 +14,13 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 
 In the order to work on them:
 
-0. [[Graphics Base]]: steps 1–6 shipped (anti-aliasing, light balance, snow breakup, trees, haze, map edge), and fresh snow after a storm is cheap again. Left: check for sim lag after a storm in a busy game (see **Storm lag** under Rendering), bough snow that lingers after a storm (needs a recent-snowfall value in the weather sim), gamma-correct lighting, and post-processing.
-1. [[Terrain Realism]]: make imported mountains look and behave like the real place. Mesh subdivision, lidar import, and the climate block are done. In this order, the first three to get [[Boreal]] back on track, then back to [[Kirkwood]]:
+0. [[Ground Materials]] ([[Terrain Realism]] step 4, Kirkwood's cliffs): a material map on the 1.25 m lattice, snow that sheds off steep faces and piles up below, and real rock shading. Done: the material map with rock past 40° (Auto material, no slider), the Ground overlay, and a first procedural rock texture. Next: snow sheds from steep cells and piles up below, so the rock actually shows.
+1. [[Graphics Base]]: steps 1–6 shipped (anti-aliasing, light balance, snow breakup, trees, haze, map edge), and fresh snow after a storm is cheap again. Left: check for sim lag after a storm in a busy game (see **Storm lag** under Rendering), bough snow that lingers after a storm (needs a recent-snowfall value in the weather sim), gamma-correct lighting, and post-processing.
+2. [[Terrain Realism]]: make imported mountains look and behave like the real place. Mesh subdivision, lidar import, and the climate block are done. In this order, the first three to get [[Boreal]] back on track, then back to [[Kirkwood]]:
    1. [[Terrain Layers]]: the Layers panel is in, with Auto trees and Auto snow as layers that keep what's built. Auto snow is a season from the climate, and imports start on the opening day. Every layer has a strength slider. Next: re-import Boreal with every layer and tune the strengths.
    2. Smoothing tools: auto-smoothing along OpenStreetMap roads, a light global smooth, and droplet erosion are done as terrain layers; left are editor brushes to smooth and flatten the ground.
    3. Done: auto-snow from the real-world data, and Auto Trees and Auto Snow as separate layers on import (see item 1).
-   4. Kirkwood's cliffs: a pass that finds and shapes rock, with rock shading from its mask, on a detail pipeline with a repair pass.
+   4. Kirkwood's cliffs: [[Ground Materials]] (item 0).
    5. Creeks and lakes, with OpenStreetMap water marking where they are. Caples Lake at Kirkwood may come along for free.
    6. Thermal erosion for scree, then snow that doesn't look plastic.
 
