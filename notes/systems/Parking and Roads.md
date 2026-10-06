@@ -10,7 +10,7 @@ Parking lots are rectangles, drawn and resized by dragging, with stall rows alon
 
 The parking lot is also where [[Ski Patrol]] takes injured guests, and where a ticket window's door faces (see [[Tickets]]).
 
-Not built yet, from [[Vision]] and [[Next Steps]]: pedestrian paths between buildings, guests taking skis off to walk, ski racks, and a parking choice weighted by distance to the lifts.
+Not built yet, from [[Vision]] and [[Next Steps]]: lot surfaces ([[Lot Surfaces]]), pedestrian paths between buildings, guests taking skis off to walk, ski racks, and a parking choice weighted by distance to the lifts.
 
 Code: `internal/world/parking.go`, `road.go`, `car.go`, `internal/sim/traffic.go`.
 

@@ -12,12 +12,6 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 
 ## Priority
 
-In the order to work on them:
-
-0. **Performance check** (the user is testing in the game): coarse terrain levels by zoom shipped (Kirkwood's whole map 13.7 → 8.6 ms GPU, 12 → 1.5 ms CPU). If it still feels slow, the measured leftovers are trees 2.0 ms (a simple far-away tree mesh), anti-aliasing 2.5 ms (already a setting), and the terrain fragment shader 3.4 ms; and the horizon map rebuild (3.9 s of CPU on Kirkwood) after placing a lift may hitch ([[Rendering]]).
-
-1. [[Transit]]: cars that enter at the map's edge, drive the roads with simple simulated traffic, and park in rectangular, extendable lots of asphalt, gravel, or dirt, with entry and exit points set in the scenario editor and tied to demand. Done: entry and exit points in the editor, each with its own guest pool; cars on the road with simple traffic; rectangular lots. Next: surfaces (asphalt, gravel, dirt).
-
 Next focus: **gameplay before scenario goals**. A headless three-lift Boreal (2026-10-06) runs about 70 guests a day with the rating stuck near 30%, so goals can't be set until guests can have a good day. Start with the investigate-and-report items under Bugs and Guests (patrol, grooming, thirst, exhaustion, falls), then the guest pool per scenario ([[First Week Balance]]). [[Scenario Goals and Rules]] steps 1–4 shipped and are tabled until then.
 
 Not ranked yet: everything below.
@@ -123,6 +117,8 @@ Found 2026-10-06 in a headless three-lift [[Boreal]] (three lifts, a green, blue
 - **Trains**: a second way to arrive, with no parking footprint. *For* [[Zermatt]].
 - **Tunnels**: roads and paths through terrain.
 - **Parking choice**: guests pick lots weighted by distance to the lifts. Part of [[Transit]] step 5.
+- [[Lot Surfaces]]: asphalt, gravel, or dirt per lot, with its own cost, capacity, and look. Planned, split out of [[Transit]].
+- **Better traffic**: merging, turning lanes, signals, and more than one entrance per lot, for resorts past a couple of thousand cars a morning. Part of [[Transit]] step 5.
 
 ## Economy ([[Finance]], [[Demand]])
 
@@ -142,6 +138,7 @@ Found 2026-10-06 in a headless three-lift [[Boreal]] (three lifts, a green, blue
 
 ## Rendering and engine ([[Rendering]], [[Model Pipeline]])
 
+- **More performance**, if play shows it's needed: after coarse terrain levels by zoom (Kirkwood's whole map 13.7 → 8.6 ms GPU, 12 → 1.5 ms CPU), the measured leftovers are trees 2.0 ms (a simple far-away tree mesh), anti-aliasing 2.5 ms (already a setting), and the terrain fragment shader 3.4 ms; the horizon map rebuild (3.9 s of CPU on Kirkwood) after placing a lift may hitch.
 - [[Graphics Base]]: steps 1–6 shipped (anti-aliasing, light balance, snow breakup, trees, haze, map edge). Left: bough snow that lingers after a storm (needs a recent-snowfall value in the weather sim), gamma-correct lighting, and post-processing. The sim half of **Storm lag** below is also still unchecked.
 - **Rock textures** ([[Ground Materials]] step 6): a finer rock texture, perhaps a normal map, for close views; and different textures for different rock types and terrains, chosen per scenario (Alta's granite and quartzite next to Kirkwood's volcanic breccia). A material brush in the editor goes with it.
 - [[Hiding the Grid]]: smooth the parcel fence and painted overlays so the 5 m cells don't show. Step 3 (grooming follows the cat) shipped with [[Real Grooming]].
@@ -195,3 +192,5 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-06: [[Transit]] planned with the user and ranked next: simulated traffic, rectangular lots, gravel and dirt, editor entry points.
 - 2026-10-06: [[Transit]] step 2 shipped: cars drive in from the entries, park, and drive home; Boreal got its two entries.
 - 2026-10-06: [[Transit]] step 3 shipped: rectangular lots with a driveway to the nearest road; Boreal's lot redrawn.
+- 2026-10-06: [[Transit]] steps 1–3 done and off the priority list; surfaces written up as [[Lot Surfaces]] and left unranked.
+- 2026-10-06: Dropped the performance check from Priority; the user will play and re-add it if needed. Its measured leftovers moved under Rendering and engine.
