@@ -22,7 +22,9 @@ Made with the user on 2026-10-06:
 - **Simulated traffic up front**, kept simple at first and improved later. Cars are agents on the road network; arrival takes the drive's time, roads can back up, and a full lot turns cars away.
 - **Rectangular lots for now**: dragged and rotated, extendable by dragging an edge, for a cost. Polygon lots wait for [[Gridless Drawing]].
 - **Surfaces: asphalt, gravel, dirt.** They differ in cost, look, and capacity. No spring-mud effects. Later, cars drive more slowly on gravel and dirt.
-- **The scenario editor controls the entry and exit points**, which can feed the demand model (where guests come from).
+- **The scenario editor controls the entry and exit points**, which can feed the demand model (where guests come from). The import doesn't suggest them.
+- **Carloads of one to four guests** for now; bigger vehicles (vans, buses) can come later.
+- **Speeds:** the one road type, a two-lane road, at 35 mph (about 56 km/h); cars in lots and on driveways at 5–15 mph (about 8–24 km/h), slowest in the aisles.
 
 ## Steps
 
@@ -35,10 +37,8 @@ Made with the user on 2026-10-06:
 ## Open questions
 
 - How many cars at once before performance matters: a busy day at a big resort is thousands of cars arriving over a morning.
-- Do guests drive in groups smaller than four, so a carload is a family or a pair of friends?
-- How fast cars drive on resort roads, and whether the imported highway (I-80 at Boreal) gets a higher speed.
-- Should the import offer entry points where real roads cross the map's edge, for the editor to accept or move?
 
 ## Log
 
 - 2026-10-06: Planned with the user after looking at Boreal's lot and roads: simulated traffic up front, rectangular extendable lots, asphalt, gravel, and dirt, and editor-controlled entry and exit points tied to demand.
+- 2026-10-06: Decided: carloads of one to four; 35 mph on the two-lane road, 5–15 mph in lots; no import suggestions for entry points.
