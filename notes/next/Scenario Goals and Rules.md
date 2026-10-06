@@ -1,7 +1,7 @@
 ---
 title: Scenario Goals and Rules
 kind: plan
-status: planned
+status: in progress
 ---
 
 # Scenario Goals and Rules
@@ -47,7 +47,7 @@ Only rules a campaign scenario needs get built, in campaign order: no grooming f
 
 ## Steps
 
-1. **Data.** `world.ScenarioGoals`: a list of goals (kind, target, days, deadline, required or bonus) and a set of rule switches, saved with the scenario. Progress per goal (met, met on which day, current streak) is saved in player saves. Save the demand rating and add it to the daily sample.
+1. Done: **Data** (`world/goals.go`). `World.Goals` ([]`Goal`: kind, target, days for streaks, an optional deadline as the end of season N, bonus or required), `World.Rules` (named switches; `RuleNoGrooming` so far), and `World.GoalProgress` (per goal: met, the day it was met, current streak, best value so far, failed), all saved (`goals`, `rules`, `goal_progress`). Kinds built: lifts open, guests in one day, rating streak, cash, debt-free streak, and all required goals (for "everything within season one"); the rest of the table waits for a scenario that needs them. `Goal.Describe` gives the player's wording ("Welcome 1,500 guests in one day"). Progress resets when the goal list doesn't match it (an edited scenario). The resort rating moved from the demand system to `World.Rating`, so it's saved (`rating`; it used to reset to 50% on load) and recorded in each day's history sample.
 2. **Checking.** A sim step at day rollover updates each goal's progress, then decides won, lost, or still playing. Wins and losses go to the [[Event Feed]].
 3. **Goals panel.** A top-bar button opens the scenario's name, description, and goals with progress bars and deadlines. This is also where the description can be reread in-game. Win and lose panels on top.
 4. **Editor.** A Goals tab in the Scenario details dialog adds, edits, and removes goals and toggles rules.
@@ -70,3 +70,4 @@ Each scenario introduces a feature or two the earlier ones didn't need, so the c
 - 2026-10-01: Planned. Nothing implemented yet.
 - 2026-10-02: Decided required plus bonus goals, keep playing after a win, and rules as switches that hide build-menu items. Wrote the goal kinds, the lose conditions, and the steps.
 - 2026-10-06: Boreal's goals decided with the user: three lifts open, a best day of guests in the thousands, a 7-day rating streak at 70%; bonus: within season one; no deadline.
+- 2026-10-06: Step 1: goal data, rules, progress, and the rating, all saved.
