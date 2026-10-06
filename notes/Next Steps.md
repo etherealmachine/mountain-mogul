@@ -12,7 +12,12 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 
 ## Priority
 
-Next focus: **gameplay before scenario goals**. A headless three-lift Boreal (2026-10-06) runs about 70 guests a day with the rating stuck near 30%, so goals can't be set until guests can have a good day. Start with the investigate-and-report items under Bugs and Guests (patrol, grooming, thirst, exhaustion, falls), then the guest pool per scenario ([[First Week Balance]]). [[Scenario Goals and Rules]] steps 1–4 shipped and are tabled until then.
+In the order to work on them:
+
+1. [[Rotated Buildings]]: buildings on a 5 m grid in their own rotated frame, still painted tile by tile, in three kinds (shed, tent, lodge up to three storeys). Done: old forms dropped from saves; the rotated grid; shed, tent, and lodge (with lodge storeys). Next: rebuild Boreal's buildings (now that [[Building Services]] is in).
+2. **Fix how services work**: the investigate-and-report items under Bugs and Guests (patrol, grooming, thirst, exhaustion, falls), in the new service model.
+
+Then: **gameplay before scenario goals**. A headless three-lift Boreal (2026-10-06) runs about 70 guests a day with the rating stuck near 30%, so goals can't be set until guests can have a good day. Priority 2 covers the investigate-and-report items; then the guest pool per scenario ([[First Week Balance]]). [[Scenario Goals and Rules]] steps 1–4 shipped and are tabled until then.
 
 Not ranked yet: everything below.
 
@@ -20,7 +25,7 @@ Not ranked yet: everything below.
 
 Found 2026-10-06 in a headless three-lift [[Boreal]] (three lifts, a green, blue, and black trail, a lodge with tickets, food, bar, and lounge, a patrol hut and an equipment shed, 30 days, about 2,100 visits). Diagnose each first, report the cause, then fix:
 
-- **Patrol never rescues anyone**: every one of about 6,000 injuries also gave "no one came to help me", with a patrol hut placed beside the lift base ([[Ski Patrol]]). Could be the hut placement in the test, patrollers that can't path, or a real bug.
+- **Patrol never rescues anyone**: every one of about 6,000 injuries also gave "no one came to help me", with a patrol hut placed beside the lift base ([[Ski Patrol]]). Could be the hut placement in the test, patrollers that can't path, or a real bug. A lead (2026-10-06): a snowmobile stops on bare ground (`noSnowUnderfoot`), and the drop-off point (then a parking lot, now the patrol door) is plowed bare, so a patroller carrying a patient may never arrive. Retest with patrol as a service.
 - **No grooming shows**: with an equipment shed, no guest thought "this corduroy is perfect" in 30 days ([[Grooming]]). Could be the cat having no section or route in the test, or a real bug.
 
 ## Scenarios and campaign ([[Scenarios]], [[Scenario Campaign]])
@@ -194,3 +199,7 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-06: [[Transit]] step 3 shipped: rectangular lots with a driveway to the nearest road; Boreal's lot redrawn.
 - 2026-10-06: [[Transit]] steps 1–3 done and off the priority list; surfaces written up as [[Lot Surfaces]] and left unranked.
 - 2026-10-06: Dropped the performance check from Priority; the user will play and re-add it if needed. Its measured leftovers moved under Rendering and engine.
+- 2026-10-06: Ranked [[Rotated Buildings]], [[Building Services]], then fixing services, with the user.
+- 2026-10-06: [[Rotated Buildings]] steps 1–2 shipped.
+- 2026-10-06: [[Rotated Buildings]] step 3 shipped: shed, tent, and lodge, and lodge storeys.
+- 2026-10-06: [[Building Services]] shipped (registry, patrol and garage as services); fixing how services work is now priority 2.

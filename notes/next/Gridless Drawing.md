@@ -38,3 +38,4 @@ Before deciding, list what each system gets from cells and whether a shape could
 ## Log
 
 - 2026-10-06: Raised after drawing parking lots and trails next to the OpenStreetMap overlay: cell painting feels poor. Idea only; nothing decided.
+- 2026-10-06: Lots became rectangles ([[Transit]] step 3). For buildings the user chose a rotated 5 m grid with tile painting over free polygons: see [[Rotated Buildings]].
