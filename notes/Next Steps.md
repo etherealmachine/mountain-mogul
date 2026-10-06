@@ -14,10 +14,9 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 
 In the order to work on them:
 
-0. **Layer strength sliders** ([[Terrain Layers]] step 4): every layer row gets a strength slider, 0–100%, defaulting to 50%. 50% is today's strength, and 100% goes as far past it as each layer can usefully go. Drop the timings from the rows and the "Uncheck a layer to see without it" line.
-1. [[Graphics Base]]: steps 1–6 shipped (anti-aliasing, light balance, snow breakup, trees, haze, map edge), and fresh snow after a storm is cheap again. Left: check for sim lag after a storm in a busy game (see **Storm lag** under Rendering), bough snow that lingers after a storm (needs a recent-snowfall value in the weather sim), gamma-correct lighting, and post-processing.
-2. [[Terrain Realism]]: make imported mountains look and behave like the real place. Mesh subdivision, lidar import, and the climate block are done. In this order, the first three to get [[Boreal]] back on track, then back to [[Kirkwood]]:
-   1. [[Terrain Layers]]: the Layers panel is in, with Auto trees and Auto snow as layers that keep what's built. Auto snow is a season from the climate, and imports start on the opening day. Next: the strength sliders (item 0), then re-import Boreal with every layer.
+0. [[Graphics Base]]: steps 1–6 shipped (anti-aliasing, light balance, snow breakup, trees, haze, map edge), and fresh snow after a storm is cheap again. Left: check for sim lag after a storm in a busy game (see **Storm lag** under Rendering), bough snow that lingers after a storm (needs a recent-snowfall value in the weather sim), gamma-correct lighting, and post-processing.
+1. [[Terrain Realism]]: make imported mountains look and behave like the real place. Mesh subdivision, lidar import, and the climate block are done. In this order, the first three to get [[Boreal]] back on track, then back to [[Kirkwood]]:
+   1. [[Terrain Layers]]: the Layers panel is in, with Auto trees and Auto snow as layers that keep what's built. Auto snow is a season from the climate, and imports start on the opening day. Every layer has a strength slider. Next: re-import Boreal with every layer and tune the strengths.
    2. Smoothing tools: auto-smoothing along OpenStreetMap roads, a light global smooth, and droplet erosion are done as terrain layers; left are editor brushes to smooth and flatten the ground.
    3. Done: auto-snow from the real-world data, and Auto Trees and Auto Snow as separate layers on import (see item 1).
    4. Kirkwood's cliffs: a pass that finds and shapes rock, with rock shading from its mask, on a detail pipeline with a repair pass.
@@ -66,7 +65,7 @@ Not ranked yet: everything below.
 - **Cat skiing**: snowcats carry advanced guests to ungroomed terrain. *For* the Revelstoke idea in [[Scenario Campaign]].
 - **Guests react to trunks**: glade-loving and tree-shy guests respond to trunks nearby instead of the cell's tree cover ([[Stored Trees]]). *For* [[Asahidake]].
 - **Editor glade tools**: a glade highlight and thinning slider in the [[Scenario Editor]], matching the play tool.
-- **Real-world features from OpenStreetMap**: pick real lifts, roads, and parking structures in the import panel and build them into the scenario. Needs a selection interface in [[Terrain Import]] (the map overlay already shows them), so it waits.
+- **Real-world features from OpenStreetMap**: pick real lifts, roads, and parking structures and build them into the scenario. The editor's OpenStreetMap overlay already draws the lifts, runs, and roads on the ground with labels ([[Scenario Editor]]); left are parking and buildings (not fetched yet) and picking a feature to build from it.
 - **Biomes**: forested, sub-alpine, and alpine zones changing build cost, grooming quality, and injury risk.
 
 ## Snow, weather, and avalanches ([[Snow]], [[Weather]], [[Avalanche]], [[Calendar]])
