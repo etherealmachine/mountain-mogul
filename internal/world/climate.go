@@ -44,3 +44,14 @@ func (c *Climate) SnowlineAltitude() float32 {
 	}
 	return c.RefAltitude + (t-snowlineTempC)/LapseRate
 }
+
+// TreelineAltitude is roughly where trees stop growing: the height at
+// which the warmest month averages treelineTempC.
+func (c *Climate) TreelineAltitude() float32 {
+	const treelineTempC = 10
+	warmest := c.Months[0].TempMean
+	for _, m := range c.Months[1:] {
+		warmest = max(warmest, m.TempMean)
+	}
+	return c.RefAltitude + (warmest-treelineTempC)/LapseRate
+}

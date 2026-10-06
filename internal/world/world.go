@@ -255,6 +255,9 @@ type World struct {
 	TimeZone string
 	// Climate is the place's typical weather, or nil for the generic one.
 	Climate *Climate
+	// TerrainBase is the imported ground before terrain layers, for the
+	// editor; nil for drawn maps, older imports, and player games.
+	TerrainBase *TerrainBase
 
 	// FocusedGuestID is the ID of the guest currently being followed by the
 	// camera (0 = none). Written by the scene layer; exposed to the query
@@ -469,6 +472,22 @@ func (w *World) PlaceBuildingType(typ BuildingType, x, z float32) *Building {
 		w.RefreshParkingLot(b, false)
 	}
 	return b
+}
+
+// ClearBuilt removes everything built on the ground: buildings (and the
+// snowcats and patrollers they house), lifts, and roads, leaving every
+// cell passable. Trails, trees, snow, and parcels stay. For when the
+// ground itself is replaced.
+func (w *World) ClearBuilt() {
+	w.Buildings, w.Lifts = nil, nil
+	w.RoadNodes, w.RoadEdges = nil, nil
+	w.Snowcats, w.Patrollers = nil, nil
+	for x := range w.Terrain.Cells {
+		for z := range w.Terrain.Cells[x] {
+			w.Terrain.Cells[x][z].Passable = true
+		}
+	}
+	w.RebuildTrailGraph()
 }
 
 // RemoveBuilding removes a building and restores cell passability.

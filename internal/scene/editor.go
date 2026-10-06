@@ -9,7 +9,6 @@ import (
 	"github.com/go-gl/glfw/v3.3/glfw"
 	"github.com/go-gl/mathgl/mgl32"
 	"mountain-mogul/internal/engine"
-	"mountain-mogul/internal/geo"
 	"mountain-mogul/internal/render"
 	"mountain-mogul/internal/save"
 	"mountain-mogul/internal/settings"
@@ -70,7 +69,7 @@ type Editor struct {
 	autoCoverageSlider        *ui.VSlider
 	autoWindSlider            *ui.VSlider
 	autoSeed                  int64
-	autoFields                *elevFields
+	layerCache                layerCache // the Auto tool's and the world layers'
 	liftBase                  mgl32.Vec2
 	roadStart                 mgl32.Vec2
 	roadEdit                  roadEditSelection
@@ -81,6 +80,7 @@ type Editor struct {
 	parcelBoundaryDirty       bool // fence geometry needs rebuild
 	suppressBrushUntilRelease bool // set when a brush tool is activated via toolbar click; cleared on mouse-up
 	pendingScreenshot         bool
+	layers                    layersPanel
 }
 
 // NewEditor creates an Editor scene loading from the given path. An empty
@@ -183,9 +183,11 @@ func (e *Editor) Init(app *engine.App) error {
 	e.menuBar.AddIconButton(render.IconGlobe, "Import", func() {
 		app.PushScene(NewTerrainImport(
 			e.world.Terrain.Width,
-			func(res *geo.ImportResult) { e.applyImportedTerrain(res, e.app.Renderer) },
+			func(imp ImportedTerrain) { e.applyImportedTerrain(imp, e.app.Renderer) },
 		))
 	})
+	e.layers.toggleBtn = e.menuBar.AddIconButton(render.IconStack, "Layers", e.toggleLayersPanel)
+	e.layers.changeBtn = ui.NewButton(0, 0, 110, 28, "Change...", e.requestReimport)
 	e.menuBar.AddIconButton(render.IconFloppyDisk, "Save", e.saveCurrent)
 	e.menuBar.AddIconButton(render.IconFloppyDisk, "Save As", e.openSaveAsPrompt)
 	e.menuBar.AddIconButton(render.IconFlag, "Details", e.openDetailsPrompt)
@@ -211,6 +213,9 @@ func (e *Editor) Init(app *engine.App) error {
 		func(d time.Time) {
 			e.world.StartDate = d
 			e.markDirty()
+			if base := e.world.TerrainBase; base != nil && base.LayerOn("snow") {
+				e.queueWorldLayer("snow")
+			}
 		})
 
 	e.overlayPanel = ui.NewOverlayPanel()
@@ -328,11 +333,11 @@ func (e *Editor) Update(dt float64) {
 		switch {
 		case e.roadEdit.active():
 			deleteSelectedRoad(r, e.world, &e.roadEdit)
-			e.autoFields = nil
+			e.layerCache.fields = nil
 			e.markDirty()
 		case e.structureEdit.active():
 			deleteSelectedStructure(r, e.world, &e.structureEdit)
-			e.autoFields = nil
+			e.layerCache.fields = nil
 			e.markDirty()
 		}
 	}
@@ -344,7 +349,7 @@ func (e *Editor) Update(dt float64) {
 			e.setToast("Rotation " + rotationDegrees(e.placeRotation))
 		case e.activeTool == toolNone && e.structureEdit.building != nil:
 			if rotateSelectedBuilding(r, e.world, &e.structureEdit, delta) {
-				e.autoFields = nil
+				e.layerCache.fields = nil
 				e.markDirty()
 				e.setToast("Rotation " + rotationDegrees(e.structureEdit.building.Rotation))
 			} else {
@@ -418,6 +423,7 @@ func (e *Editor) Update(dt float64) {
 	e.menuBar.HandleInput(inp, float32(r.ScreenWidth()), float32(r.ScreenHeight()))
 	e.topBar.HandleInput(inp, float32(r.ScreenWidth()))
 	e.startDate.HandleInput(inp, float32(r.ScreenWidth()))
+	e.handleLayersInput(inp, e.startDate.y+e.startDate.h)
 
 	// Keep overlay panel sized to the live window and mirror its mask into
 	// the renderer so toggles take effect this frame.
@@ -530,6 +536,7 @@ func (e *Editor) Update(dt float64) {
 	overChrome := e.menuBar.ContainsY(inp.MousePos[1]) ||
 		e.topBar.ContainsY(inp.MousePos[1]) ||
 		e.startDate.Contains(inp.MousePos[0], inp.MousePos[1]) ||
+		e.layers.contains(inp.MousePos[0], inp.MousePos[1]) ||
 		e.overlayPanel.ContainsXY(inp.MousePos[0], inp.MousePos[1], float32(r.ScreenWidth())) ||
 		popupCoversClick
 	if !overChrome {
@@ -632,13 +639,13 @@ func (e *Editor) handleToolNoneMouse(r *render.Renderer, leftClick, leftHeld boo
 		if e.roadEdit.dragging {
 			commitRoadDrag(r, e.world)
 			e.roadEdit.dragging = false
-			e.autoFields = nil
+			e.layerCache.fields = nil
 			e.markDirty()
 		}
 		if e.structureEdit.dragging {
 			commitStructureDrag(r, e.world)
 			e.structureEdit.dragging = false
-			e.autoFields = nil
+			e.layerCache.fields = nil
 			e.markDirty()
 		}
 	}
@@ -720,7 +727,7 @@ func (e *Editor) applyPlacement(r *render.Renderer, shiftHeld bool) {
 		applyBuildingPlacementEffects(w, b)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
-		e.autoFields = nil
+		e.layerCache.fields = nil
 	case toolShed:
 		if w.BuildingOverlap(world.BuildingShed, wx, wz, e.placeRotation) {
 			return
@@ -729,7 +736,7 @@ func (e *Editor) applyPlacement(r *render.Renderer, shiftHeld bool) {
 		applyBuildingPlacementEffects(w, b)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
-		e.autoFields = nil
+		e.layerCache.fields = nil
 	case toolTicketOffice:
 		if w.BuildingOverlap(world.BuildingTicketOffice, wx, wz, e.placeRotation) {
 			return
@@ -738,7 +745,7 @@ func (e *Editor) applyPlacement(r *render.Renderer, shiftHeld bool) {
 		applyBuildingPlacementEffects(w, b)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
-		e.autoFields = nil
+		e.layerCache.fields = nil
 	case toolLiftBase:
 		e.liftBase = mgl32.Vec2{wx, wz}
 		e.activeTool = toolLiftTop
@@ -755,7 +762,7 @@ func (e *Editor) applyPlacement(r *render.Renderer, shiftHeld bool) {
 		r.RebuildStaticBatch(w)
 		e.activeTool = toolNone
 		e.syncToolButtons()
-		e.autoFields = nil
+		e.layerCache.fields = nil
 	case toolRoadStart:
 		e.roadStart = resolveRoadEndpoint(w, mgl32.Vec2{wx, wz}).pos
 		e.activeTool = toolRoadEnd
@@ -772,7 +779,7 @@ func (e *Editor) applyPlacement(r *render.Renderer, shiftHeld bool) {
 			e.roadStart = end.pos
 		}
 		r.RebuildRoads(w)
-		e.autoFields = nil
+		e.layerCache.fields = nil
 	case toolEdgeConnect:
 		snapped, inward, ok := projectToMapEdge(w.Terrain, mgl32.Vec2{wx, wz}, edgeConnectTolerance)
 		if !ok {
@@ -878,6 +885,9 @@ func (e *Editor) setTool(t toolMode) {
 		e.structureEdit.clear()
 	}
 	e.syncToolButtons()
+	if e.layers.open && (e.activeTool == toolAuto || e.toolUsesRadiusSlider()) {
+		e.toggleLayersPanel() // their sliders sit where the panel does
+	}
 	if e.activeTool == toolAuto && prev != toolAuto {
 		e.autoSeed = time.Now().UnixNano()
 		e.regenerateAuto()
@@ -905,11 +915,8 @@ func (e *Editor) pushSnowLayer(kind world.SnowKind) {
 	if e.world == nil || e.world.Terrain == nil {
 		return
 	}
-	if e.autoFields == nil {
-		e.autoFields = computeElevFields(e.world.Terrain)
-	}
 	addSnowLayerCached(
-		e.autoFields,
+		e.layerCache.fieldsFor(e.world.Terrain),
 		e.world.Terrain,
 		kind,
 		e.autoMaxSlider.Value,
@@ -949,7 +956,7 @@ func (e *Editor) clearAllLayers() {
 // (flushed at the top of Update), forest goes via RebuildStaticBatch.
 //
 // The elevation-derived passes (flow accumulation, curvature, min/max
-// elevation) are cached on autoFields so live slider drag doesn't pay the
+// elevation) are cached on layerCache so live slider drag doesn't pay the
 // O(N log N) sort every frame. The cache is invalidated whenever ground
 // elevation changes (raise/lower brushes, terrain import).
 func (e *Editor) regenerateAuto() {
@@ -957,11 +964,9 @@ func (e *Editor) regenerateAuto() {
 	if e.world == nil || e.world.Terrain == nil {
 		return
 	}
-	if e.autoFields == nil {
-		e.autoFields = computeElevFields(e.world.Terrain)
-	}
+	fields := e.layerCache.fieldsFor(e.world.Terrain)
 	treelineFrac := e.autoTreelineSlider.Value / 100
-	e.autoFields.generateSnowCover(
+	fields.generateSnowCover(
 		e.world.Terrain,
 		e.autoMaxSlider.Value,
 		1.0-e.autoSnowlineSlider.Value/100,
@@ -969,26 +974,14 @@ func (e *Editor) regenerateAuto() {
 		e.autoWindSlider.Value,
 		e.autoSeed,
 	)
-	e.autoFields.generateTreeCover(
+	fields.generateTreeCover(
 		e.world.Terrain,
 		24,
 		e.autoCoverageSlider.Value/100,
 		treelineFrac,
 		e.autoSeed,
 	)
-	// Re-stamp clearances that generateTreeCover would otherwise overwrite.
-	for _, b := range e.world.Buildings {
-		if b.IsPainted() {
-			continue
-		}
-		halfX, halfZ := buildingFootprint(b.Type)
-		clearBuildingTrees(e.world.Terrain, b.Pos, halfX, halfZ, b.Rotation)
-	}
-	replowParkingLots(e.world)
-	for _, lift := range e.world.Lifts {
-		clearLiftCorridor(e.world.Terrain, lift.Base, lift.Top, liftCorridorHalfWidth)
-	}
-	applyRoadCellState(e.world)
+	restampClearings(e.world)
 	if e.app != nil && e.app.Renderer != nil {
 		e.app.Renderer.FlushTerrainVerts(e.world.Terrain)
 		e.app.Renderer.RebuildStaticBatch(e.world)
@@ -1116,62 +1109,37 @@ func (e *Editor) applyEditorTool(gx, gz int, r *render.Renderer, dt float32) {
 // new mountains. Snow depth starts at zero so the imported terrain reads
 // as bare ground; the Auto-snow generator (and brushes, eventually) is the
 // authoritative way to lay snow on top. Lidar, where the import found
-// it, becomes the terrain's 1.25 m detail.
-func (e *Editor) applyImportedTerrain(res *geo.ImportResult, r *render.Renderer) {
+// it, becomes the terrain's 1.25 m detail. The scenario's name, details,
+// and start date carry over.
+func (e *Editor) applyImportedTerrain(imp ImportedTerrain, r *render.Renderer) {
+	res, w := imp.Result, imp.World
+	w.Scenario = e.world.Scenario
+	opening := w.Climate != nil && w.TerrainBase.LayerOn("snow")
+	if opening {
+		w.StartDate = w.StartDate.AddDate(seasonYear(e.world.StartDate)-seasonYear(w.StartDate), 0, 0)
+	} else {
+		w.StartDate = e.world.StartDate
+	}
 	e.markDirty()
-	elevs := res.Cells
-	rows := len(elevs)
-	cols := 0
-	if rows > 0 {
-		cols = len(elevs[0])
+	e.world = w
+	e.layers.stack, e.layers.job, e.layers.worldTook = imp.Layers, nil, imp.Took
+	e.layerCache = imp.cache
+	if opening {
+		e.layerCache.pack = nil // for the new season
 	}
-	if rows == 0 || cols == 0 {
-		return
-	}
-
-	// Find the minimum elevation so we can normalise: terrain floor → Y=0.
-	minElev := elevs[0][0]
-	for _, row := range elevs {
-		for _, v := range row {
-			if v < minElev {
-				minElev = v
-			}
-		}
-	}
-
-	t := world.NewTerrain(cols, rows)
-	for row := 0; row < t.Height; row++ {
-		for col := 0; col < t.Width; col++ {
-			if row < len(elevs) && col < len(elevs[row]) {
-				t.Cells[col][row].GroundElevation = elevs[row][col] - minElev
-			}
-			t.Cells[col][row].Base = 0
-			t.Cells[col][row].Top = world.SnowLayer{}
-		}
-	}
-	t.RecomputeSlopes()
-	if res.Detail != nil {
-		for k := range res.Detail {
-			res.Detail[k] -= minElev
-		}
-		if err := t.SetDetailFromHeights(res.DetailW, res.DetailH, res.Detail); err != nil {
-			fmt.Println("import:", err)
-		}
-	}
-	e.world = world.NewWorld(t)
-	b := res.Bounds
-	e.world.Geo = &world.GeoBounds{MinLat: b.MinLat, MaxLat: b.MaxLat, MinLon: b.MinLon, MaxLon: b.MaxLon}
-	e.world.BaseAltitude = minElev
-	e.world.TimeZone = res.TimeZone
-	e.world.Climate = res.Climate
+	t := w.Terrain
+	minElev := w.BaseAltitude
 	toast := "Imported without lidar: " + res.LidarNote
 	if t.Detail != nil {
 		toast = fmt.Sprintf("Imported with 1 m lidar (%.0f%% coverage)", 100*res.LidarCoverage)
 	}
+	if res.RoadNote != "" {
+		toast += "; roads not smoothed: " + res.RoadNote
+	}
 	if c := res.Climate; c != nil {
 		e.autoWindSlider.Value = c.WindDeg
 		var top float32
-		for _, row := range elevs {
+		for _, row := range res.Cells {
 			for _, v := range row {
 				top = max(top, v-minElev)
 			}
@@ -1179,14 +1147,18 @@ func (e *Editor) applyImportedTerrain(res *geo.ImportResult, r *render.Renderer)
 		if top > 0 {
 			frac := (c.SnowlineAltitude() - minElev) / top
 			e.autoSnowlineSlider.Value = 100 * (1 - min(max(frac, 0), 1))
+			frac = (c.TreelineAltitude() - minElev) / top
+			e.autoTreelineSlider.Value = 100 * min(max(frac, 0), 1)
 		}
 		toast += "; climate from " + c.Source
+		if opening {
+			toast += "; opens " + w.StartDate.Format("Jan 2")
+		}
 	} else {
 		toast += "; no climate: " + res.ClimateNote
 	}
 	e.setToast(toast)
 	e.activeTool = toolNone
-	e.autoFields = nil
 	e.parcelBoundaryDirty = true
 	e.syncToolButtons()
 
@@ -1576,7 +1548,7 @@ func (e *Editor) openParcelPopup(id uint16, screenW, screenH int) {
 func (e *Editor) finishParkingStroke(r *render.Renderer) {
 	if e.parkingPaint.dirty {
 		e.markDirty()
-		e.autoFields = nil // grading moved ground
+		e.layerCache.fields = nil // grading moved ground
 	}
 	e.parkingPaint.finishStroke(r, e.world)
 }
@@ -1848,6 +1820,9 @@ func (e *Editor) Render(r *render.Renderer) {
 	e.menuBar.Y = float32(r.ScreenHeight()) - e.menuBar.H
 	e.overlayPanel.Bottom = float32(r.ScreenHeight()) - e.menuBar.H
 	edDrawables := []render.UIDrawable{e.topBar, e.startDate, e.menuBar, e.overlayPanel}
+	if e.layers.open {
+		edDrawables = append(edDrawables, uiDrawFunc(func(r *render.Renderer) { e.drawLayersPanel(r, e.startDate.y+e.startDate.h) }))
+	}
 
 	// Parcel labels — price tag at the centroid of each purchasable parcel,
 	// colored to match its palette entry so it reads as a caption for the tint.

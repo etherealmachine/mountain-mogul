@@ -19,9 +19,10 @@ import (
 // patchScale is roughly "cells per patch" of the largest octave (24 ≈ 120 m
 // patches at 5 m cells). coverage in [0, 1] sets how much of the map is
 // forested before treeline/slope masking — 0.5 leaves about half open.
-// treelineFrac in [0, 1] is the elevation (as a fraction of the map's range)
-// at which forest density tapers to zero; a 20%-of-range band straddles
-// that midpoint so the treeline isn't a horizontal hard cut.
+// treelineFrac is the elevation (as a fraction of the map's range) at
+// which forest density tapers to zero; a 20%-of-range band straddles
+// that midpoint so the treeline isn't a horizontal hard cut. Above 1 the
+// treeline is over the top of the map.
 func GenerateTreeCover(t *world.Terrain, patchScale, coverage, treelineFrac float32, seed int64) {
 	computeElevFields(t).generateTreeCover(t, patchScale, coverage, treelineFrac, seed)
 }
@@ -39,11 +40,7 @@ func (f *elevFields) generateTreeCover(t *world.Terrain, patchScale, coverage, t
 	} else if coverage > 1 {
 		coverage = 1
 	}
-	if treelineFrac < 0 {
-		treelineFrac = 0
-	} else if treelineFrac > 1 {
-		treelineFrac = 1
-	}
+	treelineFrac = max(treelineFrac, 0)
 
 	rng := rand.New(rand.NewSource(seed))
 	hashSeed := int(rng.Int31())

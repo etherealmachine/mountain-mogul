@@ -42,19 +42,22 @@ type ScenarioData struct {
 	Geo []float64 `json:"geo,omitempty"`
 	// BaseAltitude, TimeZone and Climate are the World fields of the
 	// same names; absent for drawn maps and older imports.
-	BaseAltitude float32         `json:"base_alt,omitempty"`
-	TimeZone     string          `json:"time_zone,omitempty"`
-	Climate      *ClimateData    `json:"climate,omitempty"`
-	Buildings    []BuildingData  `json:"buildings"`
-	Lifts        []LiftData      `json:"lifts"`
-	Trails       []TrailData     `json:"trails,omitempty"`
-	Guests       []GuestData     `json:"guests"`
-	Snowcats     []SnowcatData   `json:"snowcats,omitempty"`
-	Patrollers   []PatrollerData `json:"patrollers,omitempty"`
-	RoadNodes    []RoadNodeData  `json:"road_nodes,omitempty"`
-	RoadEdges    []RoadEdgeData  `json:"road_edges,omitempty"`
-	Parcels      []ParcelData    `json:"parcels,omitempty"`
-	Cash         int             `json:"cash,omitempty"`
+	BaseAltitude float32      `json:"base_alt,omitempty"`
+	TimeZone     string       `json:"time_zone,omitempty"`
+	Climate      *ClimateData `json:"climate,omitempty"`
+	// TerrainBase is world.TerrainBase: the imported ground before
+	// terrain layers. Scenario files only; absent for drawn maps.
+	TerrainBase *TerrainBaseData `json:"terrain_base,omitempty"`
+	Buildings   []BuildingData   `json:"buildings"`
+	Lifts       []LiftData       `json:"lifts"`
+	Trails      []TrailData      `json:"trails,omitempty"`
+	Guests      []GuestData      `json:"guests"`
+	Snowcats    []SnowcatData    `json:"snowcats,omitempty"`
+	Patrollers  []PatrollerData  `json:"patrollers,omitempty"`
+	RoadNodes   []RoadNodeData   `json:"road_nodes,omitempty"`
+	RoadEdges   []RoadEdgeData   `json:"road_edges,omitempty"`
+	Parcels     []ParcelData     `json:"parcels,omitempty"`
+	Cash        int              `json:"cash,omitempty"`
 	// Credit line state. CreditLimit is a pointer so a $0 line round-trips;
 	// nil (older saves) loads as DefaultCreditLimit.
 	CreditLimit     *int    `json:"credit_limit,omitempty"`
@@ -79,6 +82,28 @@ type ClimateData struct {
 	RefAltitude float32            `json:"ref_alt"`
 	WindDeg     float32            `json:"wind"`
 	Months      []ClimateMonthData `json:"months"`
+}
+
+// TerrainBaseData is world.TerrainBase. Geo is [minLat, maxLat, minLon,
+// maxLon]; Heights is TerrainBase.HeightsBytes.
+type TerrainBaseData struct {
+	Geo           []float64      `json:"geo"`
+	W             int            `json:"w"`
+	H             int            `json:"h"`
+	Detail        bool           `json:"detail,omitempty"`
+	Heights       []byte         `json:"heights"`
+	Roads         []BaseRoadData `json:"roads,omitempty"`
+	RoadNote      string         `json:"road_note,omitempty"`
+	LidarCoverage float32        `json:"lidar,omitempty"`
+	LidarNote     string         `json:"lidar_note,omitempty"`
+	LayersOff     []string       `json:"off,omitempty"`
+}
+
+// BaseRoadData is world.BaseRoad, its path as flat lat, lon pairs.
+type BaseRoadData struct {
+	Width  float32   `json:"w"`
+	Tunnel bool      `json:"tunnel,omitempty"`
+	Path   []float64 `json:"path"`
 }
 
 // ClimateMonthData is world.ClimateMonth.

@@ -815,6 +815,7 @@ func (s *Scenario) Init(app *engine.App) error {
 		w = loaded
 		cam = loadedCam
 	}
+	w.TerrainBase = nil
 	s.installWorld(w)
 	if cam != nil {
 		applyCameraSnapshot(app.Renderer.Camera, cam)

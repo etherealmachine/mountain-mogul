@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"runtime/pprof"
 	"sort"
+	"strings"
 	"time"
 	_ "time/tzdata" // scenario time zones resolve without a system zone database
 
@@ -19,7 +20,6 @@ import (
 
 	"mountain-mogul/internal/ai"
 	"mountain-mogul/internal/engine"
-	"mountain-mogul/internal/geo"
 	"mountain-mogul/internal/render"
 	"mountain-mogul/internal/save"
 	"mountain-mogul/internal/scene"
@@ -58,6 +58,7 @@ func main() {
 	detailTest := flag.Bool("detail-test", false, "-screenshot: replace terrain detail with a synthetic bump-and-step pattern, for checking mesh seams")
 	storm := flag.Bool("storm", false, "-screenshot: drop a heavy-snow day on the terrain and make today a heavy-snow day before capture")
 	importPreview := flag.String("import-preview", "", "-screenshot: capture the terrain import map at \"lat,lon,zoom\" (e.g. 38.68,-120.07,14) once the map and the OpenStreetMap overlay have loaded")
+	editorLayers := flag.String("editor-layers", "", "-screenshot: open -load in the scenario editor with the Layers panel open, switch off these comma-separated terrain layers (\"-\" for none), and capture once the ground has rebuilt")
 	overlayMode := flag.Int("overlay-mode", 0, "-screenshot terrain overlay bitmask (render.Overlay*: contour=1, slope=2, snow-depth=4, grooming=8, packed=16, ice=32, mogul=64, bump-normal=128)")
 	skipIntro := flag.Bool("skip-intro", false, "skip the Minty Fresh splash and jump straight to the start menu")
 	profile := flag.Bool("profile", false, "run a headless 50× sim profile (representative resort, demand on) → cpu.prof + mem.prof")
@@ -90,6 +91,12 @@ func main() {
 	// every shader tweak without leaving the terminal.
 	if *screenshot != "" && *importPreview != "" {
 		runImportScreenshot(*screenshot, *importPreview)
+		return
+	}
+	if *screenshot != "" && *editorLayers != "" {
+		runEditorScreenshot(*screenshot, *loadPath, *editorLayers, cameraOverrides{
+			targetX: *camTargetX, targetZ: *camTargetZ, yaw: *camYaw, pitch: *camPitch, zoom: *camZoom,
+		})
 		return
 	}
 	if *screenshot != "" {
@@ -449,7 +456,7 @@ func runImportScreenshot(outPath, at string) {
 	}
 	app := engine.NewApp("Mountain Mogul (screenshot)", 1280, 720, "assets")
 	defer app.Destroy()
-	ti := scene.NewTerrainImport(0, func(*geo.ImportResult) {})
+	ti := scene.NewTerrainImport(0, func(scene.ImportedTerrain) {})
 	app.PushScene(ti)
 	ti.PreviewAt(lat, lon, zoom)
 
@@ -469,6 +476,57 @@ func runImportScreenshot(outPath, at string) {
 			settledFrames++
 		}
 		if settledFrames == 3 {
+			if err := app.Renderer.SaveScreenshot(outPath); err != nil {
+				fmt.Fprintln(os.Stderr, "screenshot: write failed:", err)
+				os.Exit(1)
+			}
+			fmt.Println("screenshot: wrote", outPath)
+		}
+		app.Window.SwapBuffers()
+		time.Sleep(16 * time.Millisecond)
+	}
+}
+
+// runEditorScreenshot opens loadPath in the editor with the Layers panel
+// open and the layers in offSpec switched off, runs frames until the
+// ground has rebuilt (or a minute passes), and writes the frame.
+func runEditorScreenshot(outPath, loadPath, offSpec string, ov cameraOverrides) {
+	var off []string
+	if offSpec != "-" {
+		off = strings.Split(offSpec, ",")
+	}
+	app := engine.NewApp("Mountain Mogul (screenshot)", 1280, 720, "assets")
+	defer app.Destroy()
+	ed := scene.NewEditor(loadPath)
+	app.PushScene(ed)
+	ed.ShowLayers(off)
+	cam := app.Renderer.Camera
+	for _, f := range []struct {
+		v   float64
+		dst *float32
+	}{{ov.targetX, &cam.Target[0]}, {ov.targetZ, &cam.Target[2]}, {ov.yaw, &cam.Yaw}, {ov.pitch, &cam.Pitch}, {ov.zoom, &cam.OrthoScale}} {
+		if !math.IsNaN(f.v) {
+			*f.dst = float32(f.v)
+		}
+	}
+	cam.Recalculate()
+
+	deadline := time.Now().Add(time.Minute)
+	prev := time.Now()
+	settledFrames := 0
+	for settledFrames < 10 {
+		now := time.Now()
+		dt := now.Sub(prev).Seconds()
+		prev = now
+		app.Input.BeginFrame()
+		glfw.PollEvents()
+		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+		ed.Update(dt)
+		ed.Render(app.Renderer)
+		if ed.LayersSettled() || now.After(deadline) {
+			settledFrames++
+		}
+		if settledFrames == 10 {
 			if err := app.Renderer.SaveScreenshot(outPath); err != nil {
 				fmt.Fprintln(os.Stderr, "screenshot: write failed:", err)
 				os.Exit(1)

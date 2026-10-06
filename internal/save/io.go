@@ -572,6 +572,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		BaseAltitude: w.BaseAltitude,
 		TimeZone:     w.TimeZone,
 		Climate:      climateToData(w.Climate),
+		TerrainBase:  terrainBaseToData(w.TerrainBase),
 		Buildings:    buildings,
 		Lifts:        lifts,
 		Trails:       trails,
@@ -1194,6 +1195,7 @@ func dataToWorld(data ScenarioData) *world.World {
 	w.BaseAltitude = data.BaseAltitude
 	w.TimeZone = data.TimeZone
 	w.Climate = climateFromData(data.Climate)
+	w.TerrainBase = terrainBaseFromData(data.TerrainBase)
 	if data.OpenHour > 0 || data.CloseHour > 0 {
 		w.OpenHour, w.CloseHour = data.OpenHour, data.CloseHour
 	}
@@ -1295,6 +1297,61 @@ func climateFromData(d *ClimateData) *world.Climate {
 		c.Months[i] = world.ClimateMonth(m)
 	}
 	return c
+}
+
+func terrainBaseToData(b *world.TerrainBase) *TerrainBaseData {
+	if b == nil {
+		return nil
+	}
+	d := &TerrainBaseData{
+		Geo:           []float64{b.Geo.MinLat, b.Geo.MaxLat, b.Geo.MinLon, b.Geo.MaxLon},
+		W:             b.W,
+		H:             b.H,
+		Detail:        b.Detail,
+		Heights:       b.HeightsBytes(),
+		RoadNote:      b.RoadNote,
+		LidarCoverage: b.LidarCoverage,
+		LidarNote:     b.LidarNote,
+		LayersOff:     b.LayersOff,
+	}
+	for _, r := range b.Roads {
+		rd := BaseRoadData{Width: r.Width, Tunnel: r.Tunnel, Path: make([]float64, 0, 2*len(r.Path))}
+		for _, p := range r.Path {
+			rd.Path = append(rd.Path, p[0], p[1])
+		}
+		d.Roads = append(d.Roads, rd)
+	}
+	return d
+}
+
+// terrainBaseFromData is nil for a missing or unreadable base, which
+// only costs the editor its Layers panel.
+func terrainBaseFromData(d *TerrainBaseData) *world.TerrainBase {
+	if d == nil || len(d.Geo) != 4 || d.W < 2 || d.H < 2 {
+		return nil
+	}
+	b := &world.TerrainBase{
+		Geo:           world.GeoBounds{MinLat: d.Geo[0], MaxLat: d.Geo[1], MinLon: d.Geo[2], MaxLon: d.Geo[3]},
+		W:             d.W,
+		H:             d.H,
+		Detail:        d.Detail,
+		RoadNote:      d.RoadNote,
+		LidarCoverage: d.LidarCoverage,
+		LidarNote:     d.LidarNote,
+		LayersOff:     d.LayersOff,
+	}
+	if err := b.SetHeightsBytes(d.Heights); err != nil {
+		fmt.Println("save:", err)
+		return nil
+	}
+	for _, r := range d.Roads {
+		br := world.BaseRoad{Width: r.Width, Tunnel: r.Tunnel}
+		for k := 0; k+1 < len(r.Path); k += 2 {
+			br.Path = append(br.Path, [2]float64{r.Path[k], r.Path[k+1]})
+		}
+		b.Roads = append(b.Roads, br)
+	}
+	return b
 }
 
 // detailBytes is the terrain detail to save, or nil when there is none.

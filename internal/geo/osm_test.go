@@ -19,7 +19,7 @@ func TestParseOverpass(t *testing.T) {
 			{"type":"way","role":"outer","geometry":[{"lat":38.6,"lon":-120.1},{"lat":38.7,"lon":-120.0}]},
 			{"type":"way","role":"inner","geometry":[{"lat":38.65,"lon":-120.05},{"lat":38.66,"lon":-120.04}]}]}
 	]}`)
-	m, err := parseOverpass(body)
+	m, err := parseOverpass(body, OSMSki)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func TestParseOSMXML(t *testing.T) {
 		<way id="3"><nd ref="11"/><nd ref="10"/></way>
 		<relation id="7"><member type="way" ref="3" role="outer"/><tag k="landuse" v="winter_sports"/></relation>
 	</osm>`)
-	m, err := parseOSMXML(body)
+	m, err := parseOSMXML(body, OSMSki)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,8 +55,8 @@ func TestParseOSMXML(t *testing.T) {
 }
 
 func TestSkiMapMergeDedupes(t *testing.T) {
-	a := &SkiMap{Lifts: []SkiLift{{ID: 1}}, Runs: []SkiRun{{ID: 2}}}
-	a.Merge(&SkiMap{Lifts: []SkiLift{{ID: 1}, {ID: 3}}, Runs: []SkiRun{{ID: 2}}, Areas: []SkiAreaOutline{{ID: -1}}})
+	a := &OSMMap{Lifts: []SkiLift{{ID: 1}}, Runs: []SkiRun{{ID: 2}}}
+	a.Merge(&OSMMap{Lifts: []SkiLift{{ID: 1}, {ID: 3}}, Runs: []SkiRun{{ID: 2}}, Areas: []SkiAreaOutline{{ID: -1}}})
 	if len(a.Lifts) != 2 || len(a.Runs) != 1 || len(a.Areas) != 1 {
 		t.Errorf("merged = %+v", a)
 	}
@@ -70,24 +70,24 @@ func TestMercatorRoundTrip(t *testing.T) {
 	}
 }
 
-// TestFetchSkiMapLive hits the real servers; set MM_NET_TESTS=1.
-func TestFetchSkiMapLive(t *testing.T) {
+// TestFetchOSMLive hits the real servers; set MM_NET_TESTS=1.
+func TestFetchOSMLive(t *testing.T) {
 	if os.Getenv("MM_NET_TESTS") == "" {
 		t.Skip("set MM_NET_TESTS=1")
 	}
 	kirkwood := Bounds{MinLat: 38.655, MaxLat: 38.70, MinLon: -120.095, MaxLon: -120.04}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	for name, fetch := range map[string]func(context.Context, Bounds) (*SkiMap, error){
-		"overpass": overpassSkiMap, "osm api": osmAPISkiMap,
+	for name, fetch := range map[string]func(context.Context, Bounds, OSMLayer) (*OSMMap, error){
+		"overpass": overpassFetch, "osm api": osmAPIFetch,
 	} {
 		start := time.Now()
-		m, err := fetch(ctx, kirkwood)
+		m, err := fetch(ctx, kirkwood, OSMSki|OSMRoads)
 		if err != nil {
 			t.Logf("%s: %v", name, err)
 			continue
 		}
-		t.Logf("%s: %d lifts, %d runs, %d areas in %v", name, len(m.Lifts), len(m.Runs), len(m.Areas), time.Since(start))
+		t.Logf("%s: %d lifts, %d runs, %d areas, %d roads in %v", name, len(m.Lifts), len(m.Runs), len(m.Areas), len(m.Roads), time.Since(start))
 		if len(m.Lifts) < 10 || len(m.Runs) < 40 {
 			t.Errorf("%s: too few features", name)
 		}

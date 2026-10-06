@@ -53,7 +53,7 @@ type tiJob struct {
 	mu            sync.Mutex
 	searchResults []geo.SearchResult
 	mapResult     *geo.PreviewResult
-	elevResult    *geo.ImportResult
+	imported      *ImportedTerrain
 	stage         string
 	progress      float32
 	err           error
@@ -80,17 +80,33 @@ func (j *tiJob) finish(err error) {
 	j.mu.Unlock()
 }
 
-func (j *tiJob) snapshot() (progress float32, sr []geo.SearchResult, mr *geo.PreviewResult, elev *geo.ImportResult, err error, done bool) {
+func (j *tiJob) snapshot() (progress float32, sr []geo.SearchResult, mr *geo.PreviewResult, imp *ImportedTerrain, err error, done bool) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	return j.progress, j.searchResults, j.mapResult, j.elevResult, j.err, j.done
+	return j.progress, j.searchResults, j.mapResult, j.imported, j.err, j.done
+}
+
+// ImportedTerrain is a finished import: the world built from it, and
+// the layer stack that made its ground from the surveyed base.
+type ImportedTerrain struct {
+	Result *geo.ImportResult
+	World  *world.World
+	Layers *geo.LayerStack
+	// Took is how long each world layer took, by ID.
+	Took  map[string]time.Duration
+	cache layerCache
 }
 
 // TerrainImport is a full-screen scene for searching, previewing, and importing
 // real-world elevation data into the scenario editor terrain.
 type TerrainImport struct {
 	app      *engine.App
-	onImport func(*geo.ImportResult)
+	onImport func(ImportedTerrain)
+
+	// reopen, when set, starts on the map framed on this square instead
+	// of the search box. layersOff carries over which layers were off.
+	reopen    *world.GeoBounds
+	layersOff []string
 
 	// gridSize is the destination grid's side length. The selection
 	// square covers gridSize × importMetersPerCell metres of ground;
@@ -130,7 +146,7 @@ type TerrainImport struct {
 	// OpenStreetMap lifts, runs and ski-area boundaries drawn over the
 	// preview. osmAsked lists every box fetched so far, so the view is
 	// only refetched once it leaves them.
-	osm        geo.SkiMap
+	osm        geo.OSMMap
 	osmAsked   []geo.Bounds
 	osmJob     *osmJob
 	osmHidden  bool
@@ -148,7 +164,7 @@ const osmMinZoom = 11
 type osmJob struct {
 	mu     sync.Mutex
 	asked  geo.Bounds
-	res    *geo.SkiMap
+	res    *geo.OSMMap
 	err    error
 	done   bool
 	cancel context.CancelFunc
@@ -157,9 +173,9 @@ type osmJob struct {
 // NewTerrainImport creates the scene.
 // initialGridSize is the starting destination grid side length; the
 // player resizes the imported area inside the map view by dragging the
-// selection-square corners. onImport is called with the fetched
-// elevation on success.
-func NewTerrainImport(initialGridSize int, onImport func(*geo.ImportResult)) *TerrainImport {
+// selection-square corners. onImport is called with the finished import
+// on success.
+func NewTerrainImport(initialGridSize int, onImport func(ImportedTerrain)) *TerrainImport {
 	g := initialGridSize
 	if g <= 0 {
 		g = importDefaultCells
@@ -179,13 +195,40 @@ func NewTerrainImport(initialGridSize int, onImport func(*geo.ImportResult)) *Te
 	}
 }
 
+// NewTerrainReimport opens the import on base's square, at the map's
+// grid size, keeping which layers were off.
+func NewTerrainReimport(gridSize int, base *world.TerrainBase, onImport func(ImportedTerrain)) *TerrainImport {
+	t := NewTerrainImport(gridSize, onImport)
+	g := base.Geo
+	t.reopen = &g
+	t.layersOff = append([]string(nil), base.LayersOff...)
+	return t
+}
+
 func (t *TerrainImport) Init(app *engine.App) error {
 	t.app = app
 	t.menuBar = ui.NewMenuBar(0, 32)
 	t.menuBar.AddButton("Import Terrain", func() {}) // title label
 	t.menuBar.AddButton("Back", t.goBack)
 	t.menuBar.AddButton("Cancel", func() { app.PopScene() })
+	if g := t.reopen; g != nil {
+		lat, lon := (g.MinLat+g.MaxLat)/2, (g.MinLon+g.MaxLon)/2
+		t.PreviewAt(lat, lon, reopenZoom(lat, t.gridSize, app.Renderer.ScreenHeight()-32))
+	}
 	return nil
+}
+
+// reopenZoom is the closest preview zoom at which a gridSize-cell square
+// at lat fills no more than two thirds of a viewH-pixel-tall map.
+func reopenZoom(lat float64, gridSize, viewH int) int {
+	side := float64(gridSize) * importMetersPerCell
+	cosLat := max(math.Cos(lat*math.Pi/180), 0.05)
+	for z := 16; z > 9; z-- {
+		if side/(156543.0339*cosLat/math.Pow(2, float64(z))) <= float64(viewH)*2/3 {
+			return z
+		}
+	}
+	return 9
 }
 
 // goBack steps back one screen: a running fetch to the map, the map to
@@ -290,7 +333,7 @@ func (t *TerrainImport) Update(dt float64) {
 		if t.job == nil {
 			break
 		}
-		_, _, _, elev, err, done := t.job.snapshot()
+		_, _, _, imp, err, done := t.job.snapshot()
 		if !done {
 			break
 		}
@@ -299,7 +342,7 @@ func (t *TerrainImport) Update(dt float64) {
 			t.errMsg = err.Error()
 			t.state = tisMap
 		} else {
-			t.onImport(elev)
+			t.onImport(*imp)
 			t.app.PopScene()
 		}
 	}
@@ -595,7 +638,7 @@ func (t *TerrainImport) updateOSM(sw, sh float32) {
 	j := &osmJob{asked: ask, cancel: cancel}
 	t.osmJob = j
 	go func() {
-		res, err := geo.FetchSkiMap(ctx, ask)
+		res, err := geo.FetchOSM(ctx, ask, geo.OSMSki)
 		j.mu.Lock()
 		j.res, j.err, j.done = res, err, true
 		j.mu.Unlock()
@@ -713,6 +756,7 @@ func (t *TerrainImport) startFetch() {
 	minLat, maxLon := t.screenLatLon(sx1, sy1, sw, sh)
 	bounds := geo.Bounds{MinLat: minLat, MaxLat: maxLat, MinLon: minLon, MaxLon: maxLon}
 	n := t.gridSize
+	off := t.layersOff
 
 	ctx, cancel := context.WithCancel(context.Background())
 	j := &tiJob{cancel: cancel}
@@ -727,8 +771,15 @@ func (t *TerrainImport) startFetch() {
 			j.finish(err)
 			return
 		}
+		w, stack, err := geo.BuildWorld(res, off, func(layer string) { j.setStage(layer, 0) })
+		if err != nil {
+			j.finish(err)
+			return
+		}
+		imp := &ImportedTerrain{Result: res, World: w, Layers: stack}
+		imp.Took = dressWorld(w, &imp.cache, func(name string) { j.setStage(name, 0) })
 		j.mu.Lock()
-		j.elevResult = res
+		j.imported = imp
 		j.mu.Unlock()
 		j.finish(nil)
 	}()

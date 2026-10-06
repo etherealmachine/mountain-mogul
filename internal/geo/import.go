@@ -36,6 +36,11 @@ type ImportResult struct {
 	Climate     *world.Climate // nil if it couldn't be fetched
 	TimeZone    string         // IANA zone; "" if unknown
 	ClimateNote string         // why there's no climate, when there isn't
+
+	// Roads are the OpenStreetMap roads in Bounds, for the road layer;
+	// RoadNote says why there are none.
+	Roads    []Road
+	RoadNote string
 }
 
 // ImportProgress reports a stage name and how far through it the import is.
@@ -49,7 +54,8 @@ const lidarFeather = 16
 // coarse Terrain Tiles cover everywhere; where USGS 1 m lidar exists, it
 // replaces them: the detail lattice samples it directly and each cell
 // is the average of the lidar over its 5 m footprint. Lidar failures
-// aren't fatal; the result falls back to the tiles and says why.
+// aren't fatal; the result falls back to the tiles and says why. The
+// ground is as surveyed; terrain layers run on it later (BuildWorld).
 func ImportTerrain(ctx context.Context, b Bounds, cols, rows, detailPerCell int, progress ImportProgress) (*ImportResult, error) {
 	report := func(stage string, f float32) {
 		if progress != nil {
@@ -96,6 +102,19 @@ func ImportTerrain(ctx context.Context, b Bounds, cols, rows, detailPerCell int,
 		})
 		res.Detail, res.DetailW, res.DetailH = heights, dw, dh
 		res.Cells = cellsFromLattice(heights, dw, dh, cols, rows, detailPerCell)
+	}
+
+	report("Fetching roads", 0)
+	osm, err := FetchOSM(ctx, b, OSMRoads)
+	switch {
+	case ctx.Err() != nil:
+		return nil, ctx.Err()
+	case err != nil:
+		res.RoadNote = "couldn't fetch roads: " + err.Error()
+	case len(osm.Roads) == 0:
+		res.RoadNote = "no roads mapped here"
+	default:
+		res.Roads = osm.Roads
 	}
 
 	report("Fetching climate", 0)

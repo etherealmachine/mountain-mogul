@@ -10,6 +10,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -18,16 +19,54 @@ import (
 // LatLon is a WGS84 point in degrees.
 type LatLon struct{ Lat, Lon float64 }
 
-// SkiMap is the OpenStreetMap ski infrastructure inside Covered: lifts
-// (aerialway=*), downhill runs (piste:type=downhill) and ski-area
-// boundaries (landuse=winter_sports). Data © OpenStreetMap contributors,
-// ODbL; anything showing it must credit them.
-type SkiMap struct {
+// OSMLayer picks which OpenStreetMap features a fetch asks for.
+type OSMLayer uint8
+
+const (
+	// OSMSki is lifts (aerialway=*), downhill runs (piste:type=downhill)
+	// and ski-area boundaries (landuse=winter_sports).
+	OSMSki OSMLayer = 1 << iota
+	// OSMRoads is roads cars drive on (see roadWidths).
+	OSMRoads
+)
+
+// OSMMap is the OpenStreetMap features inside Covered. Data ©
+// OpenStreetMap contributors, ODbL; anything showing it must credit them.
+type OSMMap struct {
 	Lifts   []SkiLift
 	Runs    []SkiRun
 	Areas   []SkiAreaOutline
+	Roads   []Road
 	Covered Bounds
+
+	layers OSMLayer // what the parse keeps
 }
+
+// Road is a highway=* way. Width is the paved width in metres, from
+// the width or lanes tags, else typical for its class.
+type Road struct {
+	ID     int64
+	Name   string
+	Kind   string // highway value: motorway, trunk, primary, residential...
+	Width  float64
+	Tunnel bool
+	Path   []LatLon
+}
+
+// roadWidths is the typical paved width, in metres, of each highway
+// class that counts as a road. Paths, tracks, and footways are left out:
+// they barely cut the ground, and on a ski hill a track is often a run.
+var roadWidths = map[string]float64{
+	"motorway": 12, "motorway_link": 6, "trunk": 11, "trunk_link": 6,
+	"primary": 10, "primary_link": 6, "secondary": 9, "secondary_link": 6,
+	"tertiary": 8, "tertiary_link": 6, "unclassified": 6, "residential": 6,
+	"service": 4,
+}
+
+const laneWidth = 3.7
+
+// minorService are service=* values too small to cut the ground.
+var minorService = map[string]bool{"parking_aisle": true, "driveway": true}
 
 type SkiLift struct {
 	ID    int64
@@ -54,7 +93,7 @@ type SkiAreaOutline struct {
 }
 
 // Merge adds o's features that m doesn't already have.
-func (m *SkiMap) Merge(o *SkiMap) {
+func (m *OSMMap) Merge(o *OSMMap) {
 	lifts := map[int64]bool{}
 	for _, l := range m.Lifts {
 		lifts[l.ID] = true
@@ -91,12 +130,13 @@ const osmAPIMaxSpanDeg = 0.08
 
 var osmClient = &http.Client{Timeout: 45 * time.Second}
 
-// FetchSkiMap downloads the ski features inside b. It asks Overpass first,
+// FetchOSM downloads the given layers inside b. It asks Overpass first,
 // which filters by tag server-side, and falls back to the main OSM API
-// on a box of at most osmAPIMaxSpanDeg around b's centre when Overpass is
-// down or busy. Covered reports the box actually fetched.
-func FetchSkiMap(ctx context.Context, b Bounds) (*SkiMap, error) {
-	m, err := overpassSkiMap(ctx, b)
+// on a box of at most osmAPIMaxSpanDeg around b's centre (enough for any
+// import square) when Overpass is down or busy. Covered reports the box
+// actually fetched.
+func FetchOSM(ctx context.Context, b Bounds, layers OSMLayer) (*OSMMap, error) {
+	m, err := overpassFetch(ctx, b, layers)
 	if err == nil {
 		return m, nil
 	}
@@ -104,7 +144,7 @@ func FetchSkiMap(ctx context.Context, b Bounds) (*SkiMap, error) {
 		return nil, ctx.Err()
 	}
 	small := b.ClampSpan(osmAPIMaxSpanDeg)
-	m, err2 := osmAPISkiMap(ctx, small)
+	m, err2 := osmAPIFetch(ctx, small, layers)
 	if err2 != nil {
 		return nil, fmt.Errorf("overpass: %v; osm api: %v", err, err2)
 	}
@@ -145,13 +185,23 @@ func osmGet(ctx context.Context, req *http.Request) ([]byte, error) {
 	return body, nil
 }
 
-func overpassSkiMap(ctx context.Context, b Bounds) (*SkiMap, error) {
+func overpassFetch(ctx context.Context, b Bounds, layers OSMLayer) (*OSMMap, error) {
 	box := fmt.Sprintf("(%.6f,%.6f,%.6f,%.6f)", b.MinLat, b.MinLon, b.MaxLat, b.MaxLon)
-	q := "[out:json][timeout:25];(" +
-		`way["aerialway"]` + box + ";" +
-		`way["piste:type"="downhill"]` + box + ";" +
-		`wr["landuse"="winter_sports"]` + box + ";" +
-		");out geom;"
+	q := "[out:json][timeout:25];("
+	if layers&OSMSki != 0 {
+		q += `way["aerialway"]` + box + ";" +
+			`way["piste:type"="downhill"]` + box + ";" +
+			`wr["landuse"="winter_sports"]` + box + ";"
+	}
+	if layers&OSMRoads != 0 {
+		kinds := make([]string, 0, len(roadWidths))
+		for k := range roadWidths {
+			kinds = append(kinds, k)
+		}
+		sort.Strings(kinds)
+		q += `way["highway"~"^(` + strings.Join(kinds, "|") + `)$"]` + box + ";"
+	}
+	q += ");out geom;"
 	req, err := http.NewRequest(http.MethodPost, "https://overpass-api.de/api/interpreter",
 		strings.NewReader(url.Values{"data": {q}}.Encode()))
 	if err != nil {
@@ -162,7 +212,7 @@ func overpassSkiMap(ctx context.Context, b Bounds) (*SkiMap, error) {
 	if err != nil {
 		return nil, err
 	}
-	m, err := parseOverpass(body)
+	m, err := parseOverpass(body, layers)
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +241,7 @@ func (p *LatLon) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-func parseOverpass(body []byte) (*SkiMap, error) {
+func parseOverpass(body []byte, layers OSMLayer) (*OSMMap, error) {
 	var resp struct {
 		Elements []overpassElement `json:"elements"`
 		Remark   string            `json:"remark"`
@@ -204,7 +254,7 @@ func parseOverpass(body []byte) (*SkiMap, error) {
 	if strings.Contains(resp.Remark, "error") {
 		return nil, errors.New(resp.Remark)
 	}
-	m := &SkiMap{}
+	m := &OSMMap{layers: layers}
 	for _, e := range resp.Elements {
 		switch e.Type {
 		case "way":
@@ -222,7 +272,7 @@ func parseOverpass(body []byte) (*SkiMap, error) {
 	return m, nil
 }
 
-func osmAPISkiMap(ctx context.Context, b Bounds) (*SkiMap, error) {
+func osmAPIFetch(ctx context.Context, b Bounds, layers OSMLayer) (*OSMMap, error) {
 	u := fmt.Sprintf("https://api.openstreetmap.org/api/0.6/map?bbox=%.6f,%.6f,%.6f,%.6f",
 		b.MinLon, b.MinLat, b.MaxLon, b.MaxLat)
 	req, err := http.NewRequest(http.MethodGet, u, nil)
@@ -233,7 +283,7 @@ func osmAPISkiMap(ctx context.Context, b Bounds) (*SkiMap, error) {
 	if err != nil {
 		return nil, err
 	}
-	m, err := parseOSMXML(body)
+	m, err := parseOSMXML(body, layers)
 	if err != nil {
 		return nil, err
 	}
@@ -254,7 +304,7 @@ func tagMap(tags []osmXMLTag) map[string]string {
 	return m
 }
 
-func parseOSMXML(body []byte) (*SkiMap, error) {
+func parseOSMXML(body []byte, layers OSMLayer) (*OSMMap, error) {
 	var doc struct {
 		Nodes []struct {
 			ID  int64   `xml:"id,attr"`
@@ -286,7 +336,7 @@ func parseOSMXML(body []byte) (*SkiMap, error) {
 		nodes[n.ID] = LatLon{n.Lat, n.Lon}
 	}
 	wayPaths := make(map[int64][]LatLon, len(doc.Ways))
-	m := &SkiMap{}
+	m := &OSMMap{layers: layers}
 	for _, w := range doc.Ways {
 		path := make([]LatLon, 0, len(w.Refs))
 		for _, r := range w.Refs {
@@ -312,8 +362,23 @@ func parseOSMXML(body []byte) (*SkiMap, error) {
 // notLifts are aerialway values for things that aren't a ride.
 var notLifts = map[string]bool{"station": true, "pylon": true, "goods": true, "zip_line": true}
 
-func (m *SkiMap) addWay(id int64, tags map[string]string, path []LatLon) {
+func (m *OSMMap) addWay(id int64, tags map[string]string, path []LatLon) {
 	if len(path) < 2 {
+		return
+	}
+	if m.layers&OSMRoads != 0 {
+		if w, ok := roadWidths[tags["highway"]]; ok && !minorService[tags["service"]] {
+			if lanes, err := strconv.Atoi(tags["lanes"]); err == nil && lanes > 0 {
+				w = float64(lanes)*laneWidth + 2
+			}
+			if tw, err := strconv.ParseFloat(strings.TrimSuffix(tags["width"], " m"), 64); err == nil && tw > 0 {
+				w = tw
+			}
+			m.Roads = append(m.Roads, Road{ID: id, Name: tags["name"], Kind: tags["highway"], Width: w,
+				Tunnel: tags["tunnel"] != "" && tags["tunnel"] != "no", Path: path})
+		}
+	}
+	if m.layers&OSMSki == 0 {
 		return
 	}
 	if kind := tags["aerialway"]; kind != "" && !notLifts[kind] {
@@ -335,8 +400,8 @@ func (m *SkiMap) addWay(id int64, tags map[string]string, path []LatLon) {
 
 // addRelation stores relation ids negated so they can't collide with way
 // ids in Merge.
-func (m *SkiMap) addRelation(id int64, tags map[string]string, paths [][]LatLon) {
-	if tags["landuse"] == "winter_sports" && len(paths) > 0 {
+func (m *OSMMap) addRelation(id int64, tags map[string]string, paths [][]LatLon) {
+	if m.layers&OSMSki != 0 && tags["landuse"] == "winter_sports" && len(paths) > 0 {
 		m.Areas = append(m.Areas, SkiAreaOutline{ID: -id, Name: tags["name"], Paths: paths})
 	}
 }
