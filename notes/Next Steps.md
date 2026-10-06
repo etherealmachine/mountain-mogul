@@ -14,15 +14,7 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 
 In the order to work on them:
 
-0. [[Ground Materials]] ([[Terrain Realism]] step 4, Kirkwood's cliffs): a material map on the 1.25 m lattice, snow that sheds off steep faces and piles up below, and real rock shading. Done: the material map with rock past 40° (Auto material, no slider), the Ground overlay, a volcanic rock texture, and snow that sheds off steep ground and rock and piles up below. Next: sim behaviour from materials (avalanches above rock bands, guests avoiding rock).
-1. [[Graphics Base]]: steps 1–6 shipped (anti-aliasing, light balance, snow breakup, trees, haze, map edge), and fresh snow after a storm is cheap again. Left: check for sim lag after a storm in a busy game (see **Storm lag** under Rendering), bough snow that lingers after a storm (needs a recent-snowfall value in the weather sim), gamma-correct lighting, and post-processing.
-2. [[Terrain Realism]]: make imported mountains look and behave like the real place. Mesh subdivision, lidar import, and the climate block are done. In this order, the first three to get [[Boreal]] back on track, then back to [[Kirkwood]]:
-   1. [[Terrain Layers]]: the Layers panel is in, with Auto trees and Auto snow as layers that keep what's built. Auto snow is a season from the climate, and imports start on the opening day. Every layer has a strength slider. Next: re-import Boreal with every layer and tune the strengths.
-   2. Smoothing tools: auto-smoothing along OpenStreetMap roads, a light global smooth, and droplet erosion are done as terrain layers; left are editor brushes to smooth and flatten the ground.
-   3. Done: auto-snow from the real-world data, and Auto Trees and Auto Snow as separate layers on import (see item 1).
-   4. Kirkwood's cliffs: [[Ground Materials]] (item 0).
-   5. Creeks and lakes, with OpenStreetMap water marking where they are. Caples Lake at Kirkwood may come along for free.
-   6. Thermal erosion for scree, then snow that doesn't look plastic.
+0. [[Creeks and Lakes]] ([[Terrain Realism]] step 5): water at [[Kirkwood]], the meadow creeks and lakes, with OpenStreetMap water marking where they are. Step 1 first: fetch the water, draw it in the OpenStreetMap overlay, and see what the lidar and snow already show before building anything.
 
 Not ranked yet: everything below.
 
@@ -58,6 +50,8 @@ Not ranked yet: everything below.
 
 ## Terrain, trails, and land ([[Terrain]], [[Trails]], [[Trees]], [[Parcels]])
 
+- [[Terrain Realism]]: make imported mountains look and behave like the real place. Done: mesh subdivision, lidar import, the climate block, [[Terrain Layers]] (Boreal and Kirkwood re-imported with every layer), auto snow and trees from real data, and Kirkwood's cliffs ([[Ground Materials]]). Creeks and lakes are priority 0. Left, in order: editor brushes to smooth and flatten the ground (the road, smoothing, and erosion layers are done), thermal erosion for scree, and snow that doesn't look plastic.
+- [[Ground Materials]] step 5: sim behaviour from materials. Avalanches start on loaded slopes above rock bands ([[Avalanche]]), and guests avoid rock ([[Skiing]]) except experts dropping small cliffs (the "send it" easter egg). Also where objects and guests stand on rock (`VisualElevationAt` still counts snow there).
 - [[Land and Boundaries]]: a ski area boundary, land purchase as a real decision, protected land, and protected buildings. Hand-drawn parcels are *for* [[Kirkwood]]; expensive land is *for* [[Palisades Tahoe]].
 - [[Gridless Drawing]]: draw parking lots, trails, and buildings as shapes instead of painting cells, keeping the grid only underneath for the sim and navigation. An idea for now: first work out what the grid buys each system.
 - **Trail closures and slow zones**: the player closes a run or paints a slow zone; guests respect them, mostly. *For* [[Alta]].
@@ -144,6 +138,8 @@ Not ranked yet: everything below.
 
 ## Rendering and engine ([[Rendering]], [[Model Pipeline]])
 
+- [[Graphics Base]]: steps 1–6 shipped (anti-aliasing, light balance, snow breakup, trees, haze, map edge). Left: bough snow that lingers after a storm (needs a recent-snowfall value in the weather sim), gamma-correct lighting, and post-processing. The sim half of **Storm lag** below is also still unchecked.
+- **Rock textures** ([[Ground Materials]] step 6): a finer rock texture, perhaps a normal map, for close views; and different textures for different rock types and terrains, chosen per scenario (Alta's granite and quartzite next to Kirkwood's volcanic breccia). A material brush in the editor goes with it.
 - [[Hiding the Grid]]: smooth the parcel fence and painted overlays so the 5 m cells don't show. Step 3 (grooming follows the cat) shipped with [[Real Grooming]].
 - **Groomed edge artifacts**: some artifacts still show along the edge of groomed areas after [[Real Grooming]]; capture close-ups with `-groom-now` and clean up the edge in `terrain.frag` ([[Grooming]]).
 - **Grooming over tracks**: decide how a cat pass treats skier tracks already in the snow: wipe them under the swath, fade them, or keep cutting them through the corduroy in the shader as now ([[Grooming]], [[Real Grooming]]).
@@ -186,3 +182,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-06: [[Terrain Layers]] step 1 shipped: Layers panel in the editor, base saved in scenarios.
 - 2026-10-06: Auto trees and Auto snow shipped as terrain layers, snow from the climate, imports starting on the opening day; Terrain Realism items 3 and 4 folded into item 1.
 - 2026-10-06: Added layer strength sliders as priority 0, from the user's notes after trying the Auto layers.
+- 2026-10-06: [[Ground Materials]] steps 1–4 shipped (material map, volcanic rock texture, snow that sheds off steep ground and rock). Priority cleared of finished work: Graphics Base, Terrain Realism, and Ground Materials leftovers moved to their sections, rock texture ideas added under Rendering, and [[Creeks and Lakes]] is the new priority 0.

@@ -19,3 +19,4 @@ Code: `internal/world/lift.go`. Upgrades: `UpgradeLift` in `internal/world/world
 ## Log
 
 - 2026-10-01: Lift types, upgrades, lanes, the queue cap, snow holds, and heli are in. Wear, wind holds, and attendants are not.
+- 2026-10-06: Stations get a flat apron in front of the post, on the bullwheel side where skiers queue and ski off (about 8 × 12 m, flat in the lidar too), rather than a raised pad; nothing on the cable side changes ([[Terrain]]).

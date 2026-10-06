@@ -45,8 +45,8 @@ Terrain passes run as layers in a Layers panel in the [[Scenario Editor]] instea
 2. Done: Auto Trees as a layer that keeps what's built and avoids buildings, lift lines, and roads, with the treeline from the climate.
 3. Done: Auto Snow as a layer from the climate, with sun, shade, and drift, setting the start date to the opening day ([[Terrain Realism]] step 3).
 4. Done: a strength slider on every row (0–100%, default 50%), saved with the base, rerunning the layer on release. Timings and the helper line are gone.
-5. Re-import Boreal from scratch with every layer, and tune the strengths.
-6. Later ground layers join in order: creeks and lakes from OpenStreetMap water, then cliffs.
+5. Done: Boreal and Kirkwood re-imported from scratch with every layer (2026-10-06).
+6. Later ground layers: creeks and lakes from OpenStreetMap water ([[Creeks and Lakes]]). Cliffs became the Auto material layer instead ([[Ground Materials]]).
 
 ## Open questions
 
