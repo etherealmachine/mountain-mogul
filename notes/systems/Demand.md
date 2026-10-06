@@ -21,3 +21,4 @@ Spec: [[Demand Spec]]. Code: `internal/sim/demand.go`.
 ## Log
 
 - 2026-10-01: Catchment poll, rating, price response, arrival curve, ticket gate, and parking fee are in.
+- 2026-10-06: Guests only come when a running lift (open, not on hold) serves their level, or any running lift for advanced guests, as the planner allows; with the resort open but every lift stopped, nobody comes and the event feed says "Guests turned away: every lift is stopped" once a day.

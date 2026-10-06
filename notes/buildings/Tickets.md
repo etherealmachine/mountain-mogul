@@ -19,3 +19,4 @@ Spec: [[Guests Spec]]. Pass pricing as a player decision is in [[Vision]].
 ## Log
 
 - 2026-10-01: Day tickets, season passes, and the no-window thought are in.
+- 2026-10-06: The "no one finds a ticket window" bug wasn't the window: stopped lifts and lifts with no trail for a guest's level were blamed on it ([[GOAP]], [[Demand]]).

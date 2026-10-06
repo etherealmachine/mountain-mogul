@@ -16,13 +16,12 @@ In the order to work on them:
 
 0. **Performance check** (the user is testing in the game): coarse terrain levels by zoom shipped (Kirkwood's whole map 13.7 → 8.6 ms GPU, 12 → 1.5 ms CPU). If it still feels slow, the measured leftovers are trees 2.0 ms (a simple far-away tree mesh), anti-aliasing 2.5 ms (already a setting), and the terrain fragment shader 3.4 ms; and the horizon map rebuild (3.9 s of CPU on Kirkwood) after placing a lift may hitch ([[Rendering]]).
 
-Open: pick the next priority. Candidates: the **No one finds a ticket window** bug (blocks playtesting and [[Scenario Goals and Rules]]), magic carpets (the first surface lift, in OpenStreetMap at Boreal and Kirkwood), or [[Ground Materials]] step 5 (avalanches above rock bands, guests avoiding rock).
+Open: pick the next priority. Candidates: magic carpets (the first surface lift, in OpenStreetMap at Boreal and Kirkwood), or [[Ground Materials]] step 5 (avalanches above rock bands, guests avoiding rock).
 
 Not ranked yet: everything below.
 
 ## Bugs
 
-- **No one finds a ticket window**: in a headless two-day run of [[Boreal]] and [[Kirkwood]], with a ticket office and green, blue, and black trails added by the test, every guest left with "couldn't find where to buy a ticket" and none rode the lift. Possibly the same cause as the failing `internal/ai/goap` planner tests (no plan for KeepSkiing from parking), or the test's ticket office placement; check in the real game. Blocks playtesting any goals or balance ([[Tickets]], [[GOAP]]).
 - **"Release cat is wrong"**: from the old `NEXT.md`; reproduce and describe, or drop ([[Grooming]]).
 
 ## Scenarios and campaign ([[Scenarios]], [[Scenario Campaign]])
@@ -188,3 +187,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-06: [[Ground Materials]] steps 1–4 shipped (material map, volcanic rock texture, snow that sheds off steep ground and rock). Priority cleared of finished work: Graphics Base, Terrain Realism, and Ground Materials leftovers moved to their sections, rock texture ideas added under Rendering, and [[Creeks and Lakes]] is the new priority 0.
 - 2026-10-06: Lake ice from the climate and estimated depth shipped ([[Creeks and Lakes]]); a performance pass is the new priority 0 after the user saw lag zoomed in, with streams next.
 - 2026-10-06: [[Creeks and Lakes]] mostly shipped (OpenStreetMap water, lakes and lake ice, stream tracing, meadows, creek channels); its leftovers moved under Terrain. Performance pass shipped its main fix; priority list cleared for the next pick.
+- 2026-10-06: Fixed the ticket-window bug: the window worked all along; guests were blamed on it when a lift was stopped (lifts start stopped, by design) or had no trail for their level. See [[GOAP]], [[Demand]], [[Tickets]].

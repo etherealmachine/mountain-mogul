@@ -19,3 +19,4 @@ The long spec is [[Guests Spec]]. It lags the code in places (the action table p
 ## Log
 
 - 2026-10-01: Ski loop, rest, hunger, thirst, tickets, and need preemption are in. The planner is still growing one goal at a time.
+- 2026-10-06: When a guest can't plan a lift ride, the thought says why: "the lifts are all closed", "there's nothing here I can ski" (no running lift serves their level), or, only when neither, "couldn't find where to buy a ticket" (`rideBlocker` in `planner.go`). Before, every such failure was blamed on the ticket window. Planner tests fixed: their lifts start stopped, their guests now hold a ticket, and the thirst test uses critical thirst, the only level that outweighs skiing at full patience.
