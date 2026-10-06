@@ -39,6 +39,15 @@ uniform sampler2D uGroomMap;
 // Alpha 0 = no overlay. UV = vWorldPos.xz / uWorldSize.
 uniform sampler2D uCellOverlay;
 
+// What the ground is made of (world.TerrainMaterial): one byte per
+// 1.25 m detail sample, sample (i, j) at world (i, j) × 1.25 m. IDs
+// match world.Material. uMaterialOn is 0 when the map has none.
+uniform sampler2D uMaterial;
+uniform float     uMaterialOn;
+uniform vec2      uMaterialSize;
+
+const int MAT_MEADOW = 0, MAT_DIRT = 1, MAT_SCREE = 2, MAT_ROCK = 3;
+
 out vec4 fragColor;
 
 // Cell-hash for the sparkle and mogul passes — cheap integer mixing in float space.
@@ -73,6 +82,132 @@ float fbmNoise(vec2 p) {
     n += 0.5  * valueNoise(p * 2.0);
     n += 0.25 * valueNoise(p * 4.0);
     return n / 1.75;
+}
+
+int materialAt(ivec2 p) {
+    p = clamp(p, ivec2(0), ivec2(uMaterialSize) - 1);
+    return int(texelFetch(uMaterial, p, 0).r * 255.0 + 0.5);
+}
+
+// Bare ground colour for a material that isn't rock; grain (0–1)
+// breaks up flat fills. Rock is drawn by rockField and rockAlbedo.
+vec3 materialColor(int m, vec3 meadow, float grain) {
+    if (m == MAT_DIRT)  return vec3(0.40, 0.33, 0.25) * (0.90 + 0.20 * grain);
+    if (m == MAT_SCREE) return vec3(0.55, 0.52, 0.48) * (0.80 + 0.35 * grain);
+    return meadow;
+}
+
+// Bare ground at wp from the material map, blending the four samples
+// around it so material edges don't show the 1.25 m lattice: rgb is the
+// ground that isn't rock, a how much of it is rock.
+vec4 groundFromMaterial(vec3 wp, vec3 meadow) {
+    vec2  g     = wp.xz / 1.25;
+    ivec2 p     = ivec2(floor(g));
+    vec2  f     = fract(g);
+    float grain = fbmNoise(wp.xz / 1.7 + vec2(wp.y * 0.3, 0.0));
+    vec4 acc = vec4(0.0);
+    float wsum = 0.0;
+    for (int k = 0; k < 4; k++) {
+        ivec2 o  = ivec2(k & 1, k >> 1);
+        float w  = (o.x == 1 ? f.x : 1.0 - f.x) * (o.y == 1 ? f.y : 1.0 - f.y);
+        int   m  = materialAt(p + o);
+        if (m == MAT_ROCK) {
+            acc.a += w;
+        } else {
+            acc.rgb += materialColor(m, meadow, grain) * w;
+            wsum += w;
+        }
+    }
+    acc.rgb = wsum > 1e-4 ? acc.rgb / wsum : meadow;
+    return acc;
+}
+
+// 3D value noise, so rock patterns wrap faces at any angle without the
+// stretching a top-down projection gives near-vertical walls.
+float valueNoise3(vec3 p) {
+    vec3 i = floor(p);
+    vec3 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    float n000 = hash3(i);
+    float n100 = hash3(i + vec3(1, 0, 0));
+    float n010 = hash3(i + vec3(0, 1, 0));
+    float n110 = hash3(i + vec3(1, 1, 0));
+    float n001 = hash3(i + vec3(0, 0, 1));
+    float n101 = hash3(i + vec3(1, 0, 1));
+    float n011 = hash3(i + vec3(0, 1, 1));
+    float n111 = hash3(i + vec3(1, 1, 1));
+    return mix(mix(mix(n000, n100, f.x), mix(n010, n110, f.x), f.y),
+               mix(mix(n001, n101, f.x), mix(n011, n111, f.x), f.y), f.z);
+}
+
+float fbm3(vec3 p) {
+    return (valueNoise3(p) + 0.5 * valueNoise3(p * 2.03) + 0.25 * valueNoise3(p * 4.01)) / 1.75;
+}
+
+// Cellular noise in 3D: distances to the nearest and second-nearest
+// jittered cell point (F1, F2), and a hash of the nearest cell.
+vec3 worley3(vec3 p) {
+    vec3  i  = floor(p);
+    vec3  f  = fract(p);
+    float d1 = 8.0, d2 = 8.0, id = 0.0;
+    for (int z = -1; z <= 1; z++)
+    for (int y = -1; y <= 1; y++)
+    for (int x = -1; x <= 1; x++) {
+        vec3  g = vec3(x, y, z);
+        vec3  c = i + g;
+        vec3  o = vec3(hash3(c), hash3(c + vec3(17.1, 5.3, 9.7)), hash3(c + vec3(3.1, 41.7, 23.9)));
+        vec3  r = g + o - f;
+        float d = dot(r, r);
+        if (d < d1) { d2 = d1; d1 = d; id = hash3(c + vec3(7.7, 2.3, 5.9)); }
+        else if (d < d2) { d2 = d; }
+    }
+    return vec3(sqrt(d1), sqrt(d2), id);
+}
+
+// Kirkwood's rock: andesitic volcanic breccia, the debris of old
+// mudflows. Angular blocks of andesite in a grey-brown matrix, weathered
+// into ribs and spires with vertical streaks; only faint banding where
+// one flow sits on another. Built in 3D world space so walls don't
+// stretch.
+struct Rock {
+    float h;      // relief in metres, for the bump lighting
+    float id;     // boulder (about 2 m) hash
+    float inside; // how far inside the boulder, 0 at the gap around it
+    float streak; // vertical weathering streak, 0–1
+    float grain;  // fine grain, 0–1, faded with distance
+};
+
+Rock rockField(vec3 p, float pxM) {
+    Rock r;
+    vec3 big  = worley3(p / 2.2 + vec3(0.0, fbm3(p / 11.0) * 0.6, 0.0));
+    r.id      = big.z;
+    r.inside  = smoothstep(0.0, 0.7, big.y - big.x);
+    r.streak  = valueNoise3(p * vec3(0.9, 0.06, 0.9) + vec3(31.0, 0.0, 7.0));
+    r.grain   = mix(0.5, fbm3(p / 0.35), 1.0 - smoothstep(0.1, 0.4, pxM));
+    r.h       = r.inside * 0.2 - smoothstep(0.55, 0.8, r.streak) * 0.15 + (r.grain - 0.5) * 0.06;
+    return r;
+}
+
+// Rock colour: a grey-brown matrix around boulders from dark andesite to
+// pale grey with a few rusty ones, darker in the gaps and the streaks,
+// fine grain, faint flow banding tens of metres apart, and broad
+// oxidised patches.
+vec3 rockAlbedo(vec3 p, Rock r) {
+    vec3 matrixCol = vec3(0.45, 0.42, 0.39);
+    vec3 dark      = vec3(0.33, 0.32, 0.32);
+    vec3 pale      = vec3(0.56, 0.54, 0.51);
+    vec3 rust      = vec3(0.55, 0.43, 0.34);
+    vec3 boulder   = mix(dark, pale, r.id);
+    boulder        = mix(boulder, rust, smoothstep(0.85, 0.97, fract(r.id * 7.31)));
+    vec3 c         = mix(matrixCol, boulder, 0.7 * r.inside);
+    c             *= 0.94 + 0.06 * r.inside;
+    c             *= 0.86 + 0.28 * r.grain;
+    c             *= 1.0 - 0.2 * smoothstep(0.5, 0.85, r.streak);
+    float band     = valueNoise3(vec3(p.x / 60.0, (p.y + fbm3(p / 30.0) * 12.0) / 14.0, p.z / 60.0));
+    c             *= 0.93 + 0.14 * band;
+    float ox       = fbm3(p / 18.0 + vec3(5.0, 9.0, 1.0));
+    c              = mix(c, c * vec3(1.12, 0.98, 0.86), smoothstep(0.55, 0.8, ox) * 0.6);
+    return c;
 }
 
 // Value noise with its analytic gradient: (value, d/dp.x, d/dp.y) from one
@@ -160,8 +295,25 @@ void main() {
     vec3 groundHigh = vec3(0.52, 0.50, 0.46);            // exposed scree
     vec3 groundFlat = mix(groundLow, groundMid, smoothstep(0.20, 0.55, h));
          groundFlat = mix(groundFlat, groundHigh, smoothstep(0.65, 0.95, h));
-    float rocky     = 1.0 - smoothstep(0.55, 0.78, slope);
-    vec3  ground    = mix(groundFlat, rock, rocky);
+    // Rock: from the material map where there is one, else from slope.
+    // rockW is how much of this point is rock; the rock itself is the
+    // same procedural rock either way.
+    float rockW     = 1.0 - smoothstep(0.55, 0.78, slope);
+    vec3  notRock   = groundFlat;
+    if (uMaterialOn > 0.5) {
+        vec4 gmat = groundFromMaterial(vWorldPos, groundFlat);
+        notRock   = gmat.rgb;
+        rockW     = gmat.a;
+    }
+    Rock  rk;
+    rk.h = 0.0;
+    vec3  rockCol   = rock;
+    // Skipped under 5 cm of snow or more, which hides the ground.
+    if (rockW > 0.01 && effDepth < 0.05) {
+        rk      = rockField(vWorldPos, pxM);
+        rockCol = rockAlbedo(vWorldPos, rk);
+    }
+    vec3  ground    = mix(notRock, rockCol, rockW);
 
     // Snow albedo. Packed reads slightly bluer / darker than fresh powder;
     // modulate before mixing with ground so packed never leaks onto bare
@@ -284,6 +436,10 @@ void main() {
     float cordAA     = 1.0 - smoothstep(1.6, 4.0, 160.0 * (abs(dPhiX) + abs(dPhiY)));
     float cordAmp    = groomVis * (1.0 - track * 0.8) * (1.0 - seam * 0.6) * (1.0 - cordMis) * cordAA * smoothstep(0.6, 0.9, stamp);
 
+    // Screen-space derivatives for the rock bump, taken here in uniform
+    // control flow; rk.h is 0 where no rock was computed.
+    vec3  dPdx = dFdx(vWorldPos), dPdy = dFdy(vWorldPos);
+    float dHdx = dFdx(rk.h),      dHdy = dFdy(rk.h);
     vec3 Nshading = N;
     {
         const float bumpEps = 0.5; // world-space sample offset in metres
@@ -353,6 +509,19 @@ void main() {
         // bumps so they catch a low sun. Fresh skier tracks flatten them.
         if (cordAmp > 0.01) {
             kick.xz -= cordAcross * cos(cordPhase) * 0.35 * cordAmp;
+        }
+        // Rock relief, from the screen-space change in rockField's
+        // height (surface-gradient bump mapping), so it costs nothing
+        // extra and works on walls at any angle.
+        float rockVis = rockW * (1.0 - snowness) * (1.0 - smoothstep(1.0, 2.0, pxM));
+        if (rockVis > 0.02) {
+            vec3  r1  = cross(dPdy, N);
+            vec3  r2  = cross(N, dPdx);
+            float det = dot(dPdx, r1);
+            if (abs(det) > 1e-8) {
+                vec3 surfGrad = sign(det) * (dHdx * r1 + dHdy * r2) / abs(det);
+                kick -= surfGrad * rockVis;
+            }
         }
         Nshading = normalize(N + kick);
     }
@@ -528,6 +697,17 @@ void main() {
     // overlay so the channels are legible on their own. Bound to `N`.
     if ((uOverlayMode & 256) != 0) {
         fragColor.rgb = surf.rgb;
+    }
+
+    // Ground overlay — what the ground is made of, whatever covers it:
+    // meadow green, dirt brown, scree pale grey, rock near-black.
+    if ((uOverlayMode & 2048) != 0 && uMaterialOn > 0.5 && vInstabilityScore > -0.5) {
+        int  m = materialAt(ivec2(floor(vWorldPos.xz / 1.25 + 0.5)));
+        vec3 col = vec3(0.35, 0.70, 0.30);
+        if (m == MAT_DIRT)      col = vec3(0.60, 0.42, 0.25);
+        if (m == MAT_SCREE)     col = vec3(0.78, 0.78, 0.74);
+        if (m == MAT_ROCK)      col = vec3(0.14, 0.14, 0.18);
+        fragColor.rgb = mix(fragColor.rgb, col, 0.8);
     }
 
     // Contour lines drawn last so they remain readable through any

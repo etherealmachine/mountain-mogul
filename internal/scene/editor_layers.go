@@ -100,13 +100,16 @@ func rowLayer(i int) (id string, ground int) {
 }
 
 // rowHasSlider reports whether row i shows a strength slider: every
-// layer but a ground layer that does nothing here. The OpenStreetMap
-// overlay's row, last, has none.
+// layer but a ground layer that does nothing here and a fixed world
+// layer. The OpenStreetMap overlay's row, last, has none.
 func rowHasSlider(i int, base *world.TerrainBase) bool {
-	if i >= len(geo.Layers)+len(worldLayers) {
-		return false
+	switch {
+	case i < len(geo.Layers):
+		return geo.Applies(i, base)
+	case i < len(geo.Layers)+len(worldLayers):
+		return !worldLayers[i-len(geo.Layers)].fixed
 	}
-	return i >= len(geo.Layers) || geo.Applies(i, base)
+	return false
 }
 
 // sliderValue is the strength at screen x on a row's slider.
@@ -262,11 +265,19 @@ func (e *Editor) requestStrength(i int, v float32) {
 }
 
 // queueWorldLayer runs world layer id, or clears it when it's off, from
-// the next frame but one.
+// the next frame but one, then reruns the world layers after it that
+// are on, since they can read what it made.
 func (e *Editor) queueWorldLayer(id string) {
 	p := &e.layers
-	if !slices.Contains(p.queued, id) {
-		p.queued = append(p.queued, id)
+	base := e.world.TerrainBase
+	after := false
+	for _, l := range worldLayers {
+		if l.ID == id || (after && base != nil && base.LayerOn(l.ID)) {
+			if !slices.Contains(p.queued, l.ID) {
+				p.queued = append(p.queued, l.ID)
+			}
+		}
+		after = after || l.ID == id
 	}
 	p.queuedWait = true
 }

@@ -34,6 +34,7 @@ const (
 	cornerSnowATexUnit = 6
 	cornerSnowBTexUnit = 7
 	detailTexUnit      = 8
+	materialTexUnit    = 9
 
 	// terrainTessPx is the on-screen length, in logical pixels, each
 	// subdivided segment aims for.
@@ -539,6 +540,7 @@ func (r *Renderer) BuildTerrainMesh(t *world.Terrain) {
 	r.uploadTerrainGeometry(t)
 	r.FlushSnowState(t)
 	r.FlushTerrainDetail(t)
+	r.FlushTerrainMaterial(t)
 }
 
 func (r *Renderer) uploadTerrainGeometry(t *world.Terrain) {
@@ -564,6 +566,7 @@ func (r *Renderer) FlushTerrainVerts(t *world.Terrain) {
 	r.uploadTerrainGeometry(t)
 	r.FlushSnowState(t)
 	r.FlushTerrainDetail(t)
+	r.FlushTerrainMaterial(t)
 }
 
 // FlushSnowState re-uploads the per-corner snow textures after snow
@@ -641,6 +644,42 @@ func (r *Renderer) FlushTerrainDetail(t *world.Terrain) {
 	s.detailPad = d.MaxAbs()
 }
 
+// FlushTerrainMaterial uploads t.Material when it has changed, or frees
+// the texture when there is none.
+func (r *Renderer) FlushTerrainMaterial(t *world.Terrain) {
+	s := r.scene
+	m := t.Material
+	if m == s.materialSrc && (m == nil) == (s.materialTex == 0) {
+		return
+	}
+	s.materialSrc = m
+	if m == nil {
+		if s.materialTex != 0 {
+			gl.DeleteTextures(1, &s.materialTex)
+			s.materialTex = 0
+		}
+		return
+	}
+	if s.materialTex == 0 || s.materialW != m.W || s.materialH != m.H {
+		if s.materialTex != 0 {
+			gl.DeleteTextures(1, &s.materialTex)
+		}
+		gl.GenTextures(1, &s.materialTex)
+		gl.BindTexture(gl.TEXTURE_2D, s.materialTex)
+		gl.TexImage2D(gl.TEXTURE_2D, 0, gl.R8, int32(m.W), int32(m.H), 0, gl.RED, gl.UNSIGNED_BYTE, nil)
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+		s.materialW, s.materialH = m.W, m.H
+	}
+	gl.BindTexture(gl.TEXTURE_2D, s.materialTex)
+	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
+	gl.TexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, int32(m.W), int32(m.H), gl.RED, gl.UNSIGNED_BYTE, gl.Ptr(m.Bytes()))
+	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 4)
+	gl.BindTexture(gl.TEXTURE_2D, 0)
+}
+
 // newDataTexture allocates a nearest-sampled, edge-clamped float texture.
 func newDataTexture(internal int32, w, h int) uint32 {
 	var tex uint32
@@ -684,6 +723,17 @@ func (r *Renderer) drawTerrain(sh *Shader, vp mgl32.Mat4) {
 		gl.BindTexture(gl.TEXTURE_2D, r.transparentTexID)
 		sh.SetFloat("uDetailOn", 0)
 		sh.SetVec2("uDetailSize", mgl32.Vec2{1, 1})
+	}
+	sh.SetInt("uMaterial", materialTexUnit)
+	gl.ActiveTexture(gl.TEXTURE0 + materialTexUnit)
+	if s.materialTex != 0 {
+		gl.BindTexture(gl.TEXTURE_2D, s.materialTex)
+		sh.SetFloat("uMaterialOn", 1)
+		sh.SetVec2("uMaterialSize", mgl32.Vec2{float32(s.materialW), float32(s.materialH)})
+	} else {
+		gl.BindTexture(gl.TEXTURE_2D, r.transparentTexID)
+		sh.SetFloat("uMaterialOn", 0)
+		sh.SetVec2("uMaterialSize", mgl32.Vec2{1, 1})
 	}
 	gl.ActiveTexture(gl.TEXTURE0)
 	sh.SetVec2("uViewport", mgl32.Vec2{float32(r.logicalW), float32(r.logicalH)})

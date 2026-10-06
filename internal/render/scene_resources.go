@@ -1,6 +1,10 @@
 package render
 
-import "github.com/go-gl/gl/v4.1-core/gl"
+import (
+	"github.com/go-gl/gl/v4.1-core/gl"
+
+	"mountain-mogul/internal/world"
+)
 
 // SceneResources owns GPU-side state coupled to a particular World — meshes
 // keyed by entity ID and other per-scene previews. Replaced wholesale on every
@@ -46,6 +50,13 @@ type SceneResources struct {
 	detailTex        uint32
 	detailW, detailH int
 	detailPad        float32
+
+	// materialTex mirrors Terrain.Material, one byte per detail sample;
+	// 0 when the terrain has none. materialSrc is the map it was made
+	// from, so an unchanged map isn't uploaded again.
+	materialTex          uint32
+	materialW, materialH int
+	materialSrc          *world.TerrainMaterial
 
 	liftUpCables    map[uint64]*Mesh
 	liftDownCables  map[uint64]*Mesh
@@ -99,7 +110,8 @@ func (s *SceneResources) Delete() {
 		gl.DeleteTextures(1, &s.groomTex)
 		s.groomTex = 0
 	}
-	for _, tex := range []*uint32{&s.cornerSnowTexA, &s.cornerSnowTexB, &s.detailTex} {
+	s.materialSrc = nil
+	for _, tex := range []*uint32{&s.cornerSnowTexA, &s.cornerSnowTexB, &s.detailTex, &s.materialTex} {
 		if *tex != 0 {
 			gl.DeleteTextures(1, tex)
 			*tex = 0

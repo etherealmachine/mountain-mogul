@@ -11,10 +11,14 @@ import (
 // worldLayer is a Terrain layer that dresses the ground without moving
 // it, so switching it keeps everything built. They run after the ground
 // layers (geo.Layers), in order, and are listed after them in the panel.
+// Later ones can read what earlier ones made (trees keep off the
+// material map's rock), so rerunning one reruns those after it.
 type worldLayer struct {
 	ID, Name string
-	run      func(w *world.World, c *layerCache)
-	clear    func(w *world.World)
+	// fixed layers have no strength slider.
+	fixed bool
+	run   func(w *world.World, c *layerCache)
+	clear func(w *world.World)
 	// note is a word on how the layer ran here, or "".
 	note func(w *world.World) string
 }
@@ -35,12 +39,24 @@ func (c *layerCache) fieldsFor(t *world.Terrain) *elevFields {
 
 var worldLayers = []worldLayer{
 	{
+		ID: "material", Name: "Auto material", fixed: true,
+		run:   runMaterialLayer,
+		clear: clearMaterial,
+		note: func(w *world.World) string {
+			if w.Terrain.Detail == nil {
+				return "needs lidar"
+			}
+			return ""
+		},
+	},
+	{
 		ID: "trees", Name: "Auto trees",
 		run: func(w *world.World, c *layerCache) {
 			f := c.fieldsFor(w.Terrain)
 			// Strength sets the coverage, 55% at the default and up to 95%.
 			coverage := 0.55 * world.LayerScale(w.TerrainBase.Strength("trees"), 0, 0.95/0.55)
 			f.generateTreeCover(w.Terrain, 24, float32(coverage), treelineFrac(w, f), layerSeed(w))
+			removeTreesOnBare(w.Terrain)
 		},
 		clear: func(w *world.World) { w.Terrain.ClearAllTrees() },
 		note: func(w *world.World) string {
@@ -77,6 +93,12 @@ func WorldLayerIDs() []string {
 // on and there's a climate. progress, if set, hears each layer's name.
 func DressWorld(w *world.World, progress func(name string)) map[string]time.Duration {
 	return dressWorld(w, &layerCache{}, progress)
+}
+
+// RedressWorld reruns the world layers that are on, keeping the start
+// date, for a scenario saved before a layer existed or changed.
+func RedressWorld(w *world.World, progress func(name string)) map[string]time.Duration {
+	return runWorldLayers(w, &layerCache{}, progress)
 }
 
 func dressWorld(w *world.World, c *layerCache, progress func(name string)) map[string]time.Duration {

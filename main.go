@@ -588,6 +588,8 @@ func applyCameraOverrides(cam *render.Camera, sc *scene.Scenario, ov cameraOverr
 	if !math.IsNaN(ov.zoom) && ov.zoom > 0 {
 		zoom = float32(ov.zoom)
 	}
+	// Sit the target on the ground, so it's what the view centres on.
+	target[1] = sc.SurfaceAt(target[0], target[2])
 
 	cam.Target = target
 	cam.Yaw = yaw

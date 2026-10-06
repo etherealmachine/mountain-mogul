@@ -719,6 +719,15 @@ func (s *Scenario) SetTimeScale(mult float64) {
 	s.setTimeScale(mult)
 }
 
+// SurfaceAt is the snow surface's height at world (x, z), or 0 before
+// the world loads.
+func (s *Scenario) SurfaceAt(x, z float32) float32 {
+	if s.world == nil || s.world.Terrain == nil {
+		return 0
+	}
+	return s.world.Terrain.InterpolatedSurfaceElevationAt(x, z)
+}
+
 func (s *Scenario) TerrainSize() (int, int) {
 	if s.world == nil || s.world.Terrain == nil {
 		return 0, 0

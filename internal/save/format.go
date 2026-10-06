@@ -38,6 +38,8 @@ type ScenarioData struct {
 	// Detail is sub-cell ground detail at 1.25 m (world.TerrainDetail
 	// bytes), e.g. from lidar; empty for the plain 5 m mesh.
 	Detail []byte `json:"detail,omitempty"`
+	// Material is world.TerrainMaterial, one byte per detail sample.
+	Material []byte `json:"material,omitempty"`
 	// Geo is [minLat, maxLat, minLon, maxLon] of an imported terrain.
 	Geo []float64 `json:"geo,omitempty"`
 	// BaseAltitude, TimeZone and Climate are the World fields of the

@@ -244,6 +244,9 @@ func blendIntoTiles(h []float32, w, ht int, tile func(i, j int) float32) {
 
 // boxBlur blurs v (w × h, row-major) in place with a (2r+1)² box,
 // treating samples beyond the edge as copies of the edge.
+// BoxBlur blurs the w × h grid v in place with a box of radius r.
+func BoxBlur(v []float32, w, h, r int) { boxBlur(v, w, h, r) }
+
 func boxBlur(v []float32, w, h, r int) {
 	line := make([]float32, max(w, h))
 	pass := func(n int, get func(int) float32, set func(int, float32)) {

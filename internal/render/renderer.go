@@ -32,6 +32,7 @@ const (
 	OverlaySurfaceDetail = 1 << 8  // debug: render the surface-detail RGBA texture directly
 	OverlayTrails        = 1 << 9  // show painted trail areas as semi-opaque colour patches
 	OverlayParcels       = 1 << 10 // editor: show parcel tints and price labels (CPU-side, not in shader)
+	OverlayGround        = 1 << 11 // what the ground is made of (Terrain.Material), snow or not
 )
 
 // DebugLine is a single world-space line segment for tuning overlays.

@@ -445,6 +445,10 @@ type Terrain struct {
 	// nil for none. See terrain_detail.go.
 	Detail *TerrainDetail
 
+	// Material is what the ground is made of, on the detail lattice, or
+	// nil when nothing has set it. See material.go.
+	Material *TerrainMaterial
+
 	// accessible is a derived per-cell land-ownership grid. nil means all
 	// in-bounds cells are accessible (no parcel system). Maintained by
 	// World.ApplyParcels and World.BuyParcel.

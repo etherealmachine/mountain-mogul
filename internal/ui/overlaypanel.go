@@ -44,7 +44,7 @@ type overlayRow struct {
 	hovered bool
 }
 
-// NewOverlayPanel builds the seven-row panel. Visibility defaults to
+// NewOverlayPanel builds the eight-row panel. Visibility defaults to
 // hidden — the caller flips it on via the top-bar button.
 func NewOverlayPanel() *OverlayPanel {
 	p := &OverlayPanel{
@@ -66,6 +66,8 @@ func NewOverlayPanel() *OverlayPanel {
 			tint: mgl32.Vec4{0.95, 0.30, 0.75, 1}},
 		{bit: render.OverlayTrails, label: "Trails", icon: render.IconFlag,
 			tint: mgl32.Vec4{0.40, 0.85, 0.45, 1}},
+		{bit: render.OverlayGround, label: "Ground", icon: render.IconGridFour,
+			tint: mgl32.Vec4{0.75, 0.55, 0.40, 1}},
 	}
 	return p
 }

@@ -568,6 +568,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		Trees:        trees,
 		Groom:        groomPixels(t),
 		Detail:       detailBytes(t),
+		Material:     materialBytes(t),
 		Geo:          geoToData(w.Geo),
 		BaseAltitude: w.BaseAltitude,
 		TimeZone:     w.TimeZone,
@@ -775,6 +776,9 @@ func dataToWorld(data ScenarioData) *world.World {
 	}
 	if len(data.Detail) > 0 {
 		t.Detail = world.LoadTerrainDetail(t.Width, t.Height, data.Detail)
+	}
+	if len(data.Material) > 0 {
+		t.Material = world.LoadTerrainMaterial(t.Width, t.Height, data.Material)
 	}
 
 	w := world.NewWorld(t)
@@ -1390,6 +1394,14 @@ func terrainBaseFromData(d *TerrainBaseData) *world.TerrainBase {
 		b.Areas = append(b.Areas, ba)
 	}
 	return b
+}
+
+// materialBytes is the material map to save, or nil when there is none.
+func materialBytes(t *world.Terrain) []byte {
+	if t.Material == nil {
+		return nil
+	}
+	return t.Material.Bytes()
 }
 
 // detailBytes is the terrain detail to save, or nil when there is none.
