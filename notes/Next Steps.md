@@ -16,7 +16,7 @@ In the order to work on them:
 
 0. **Performance check** (the user is testing in the game): coarse terrain levels by zoom shipped (Kirkwood's whole map 13.7 → 8.6 ms GPU, 12 → 1.5 ms CPU). If it still feels slow, the measured leftovers are trees 2.0 ms (a simple far-away tree mesh), anti-aliasing 2.5 ms (already a setting), and the terrain fragment shader 3.4 ms; and the horizon map rebuild (3.9 s of CPU on Kirkwood) after placing a lift may hitch ([[Rendering]]).
 
-Open: pick the next priority. Candidates: magic carpets (the first surface lift, in OpenStreetMap at Boreal and Kirkwood), or [[Ground Materials]] step 5 (avalanches above rock bands, guests avoiding rock).
+1. [[Scenario Goals and Rules]], to get [[Boreal]] to a playable demo: goal data and saving (with the rating saved), the daily check with win and lose, the goals panel, the editor Goals tab, then Boreal's goals (three lifts open; a best day of guests in the thousands, tuned headlessly; a 7-day 70% rating streak; bonus: within season one; no deadline).
 
 Not ranked yet: everything below.
 

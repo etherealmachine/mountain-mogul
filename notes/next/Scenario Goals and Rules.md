@@ -53,7 +53,7 @@ Only rules a campaign scenario needs get built, in campaign order: no grooming f
 4. **Editor.** A Goals tab in the Scenario details dialog adds, edits, and removes goals and toggles rules.
 5. **Rules.** Start with no grooming: hide and refuse the cat shed and snowcats, and swap corduroy for powder in guest preferences. The others follow their scenarios.
 6. **Unlocking.** Scenarios unlock in campaign order. A scenario unlocks when the one before it is won (required goals only). Progress lives in a small file next to the saves, not in any save.
-7. **Boreal's goals.** Open the resort, reach a set number of guests in one day, and hold a decent rating through a weekend; a bonus goal for a second lift.
+7. **Boreal's goals** (decided 2026-10-06, see [[Boreal]]). Required: three lifts open at the end of a day; one day with guests in the thousands (the exact target, likely 1,000–2,000, set by a headless run of a reasonable three-lift Boreal); a rating of 70% or better for 7 days in a row. Bonus: meet them all within season one. No deadline: it's the tutorial. If three lifts can't reach thousands of guests in a day in the sim, that's a [[First Week Balance]] finding to report, not a reason to lower the bar quietly.
 
 ## Progression
 
@@ -61,7 +61,7 @@ Each scenario introduces a feature or two the earlier ones didn't need, so the c
 
 ## Open questions
 
-- Exact targets for Boreal, which need playtesting alongside [[First Week Balance]].
+- Boreal's exact guest target, from the headless three-lift run. One double chair with three trails averaged about 50 guests a day (2026-10-06), so thousands will need bigger lifts, more trail area, or more demand.
 - Whether bonus goals unlock anything (a sandbox mode, a skin, a harder variant), or are just a record.
 - How unlocking treats players who want to jump ahead: a "skip" option, or everything unlocked in the editor build only.
 
@@ -69,3 +69,4 @@ Each scenario introduces a feature or two the earlier ones didn't need, so the c
 
 - 2026-10-01: Planned. Nothing implemented yet.
 - 2026-10-02: Decided required plus bonus goals, keep playing after a win, and rules as switches that hide build-menu items. Wrote the goal kinds, the lose conditions, and the steps.
+- 2026-10-06: Boreal's goals decided with the user: three lifts open, a best day of guests in the thousands, a 7-day rating streak at 70%; bonus: within season one; no deadline.
