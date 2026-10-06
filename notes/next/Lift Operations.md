@@ -16,8 +16,8 @@ Lifts that stop, hold, and carry people down as well as up, and that can't be bu
 
 ## Steps
 
-1. **No overlapping lifts.** The ghost turns red and placement is refused when a station overlaps another station, a building, a parking lot, or a road, or when the line crosses another lift's line or towers. Real resorts do run one lift over another, so a crossing with enough height clearance could be allowed later. The toast says what's in the way.
-2. **Breakdowns.** Lifts wear with every ride and break down at random, more often when worn or old. A stopped lift holds its riders on the line, and guests on it and in its queue lose [[Satisfaction]]. Short stops restart; long ones need an evacuation by [[Ski Patrol]], which costs time, money, and rating. A maintenance contract or a mechanic on staff cuts wear and repair time ([[Finance]], Staff in [[Next Steps]]). Each breakdown goes in the [[Event Feed]].
+1. **No overlapping lifts.** The ghost turns red and placement is refused when a station overlaps another station, a building, a parking lot, or a road, or when the line crosses another lift's line or towers. Real resorts do run one lift over another, so a crossing with enough height clearance could be allowed later. The toast says what's in the way. Buildings and lots already refuse overlaps through the cells under them (`Ground`, `PaintedCellFree`; see [[Rotated Buildings]] and [[Transit]]): lift stations should join that check both ways, so a building can't be painted onto a station either.
+2. **Breakdowns.** Lifts wear with every ride and break down at random, more often when worn or old. A stopped lift holds its riders on the line, and guests on it and in its queue lose [[Satisfaction]]. Short stops restart; long ones need an evacuation by [[Ski Patrol]] (patrollers from the patrol service, [[Building Services]]), which costs time, money, and rating. A maintenance contract or a mechanic on staff cuts wear and repair time ([[Finance]], Staff in [[Next Steps]]). Each breakdown goes in the [[Event Feed]].
 3. **Wind holds.** Each lift type has a wind limit: chairs hold first, especially lifts on exposed ridges and tops, and gondolas and trams run longer. A held lift unloads what's on it and stops loading; guests in line wait a while, then pick another lift or leave. The lift reopens when the wind drops. Needs wind that varies by day and by hour (already in [[Next Steps]]).
 4. **Downloading.** Guests can ride a lift down:
    - beginners who reach a top with nothing at their level
@@ -34,3 +34,4 @@ Lifts that stop, hold, and carry people down as well as up, and that can't be bu
 ## Log
 
 - 2026-10-05: Planned from the user's notes: lift breakdowns, wind holds, downloading, and overlapping lifts.
+- 2026-10-06: Linked overlap refusal to the building and lot overlap checks, and evacuations to the patrol service.

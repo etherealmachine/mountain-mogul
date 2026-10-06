@@ -44,9 +44,10 @@ Fix how services work, diagnosing first: patrol never rescuing anyone, no groomi
 
 - Whether some kinds should refuse some services (a garage only in a shed, no food in a shed).
 - Whether storeys should add patrollers or cats (today they add seats and upkeep only).
-- Staffing as real staff with wages, instead of a flat daily cost per tile.
+- Staffing as real staff with wages, instead of a flat daily cost per tile: employees as people, their commutes, and staff housing as a service (Staff in [[Next Steps]]).
 
 ## Log
 
 - 2026-10-06: Planned with the user: food and beverage, tickets, ski patrol, and the snowcat garage as uniform building services.
 - 2026-10-06: Built: the service registry, patrol and garage as services with fleets that follow their tiles, and the shed and hut types retired.
+- 2026-10-06: Linked staffing to the Staff items in [[Next Steps]], and patrol coverage to the boundary in [[Land and Boundaries]].

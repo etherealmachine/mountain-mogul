@@ -110,11 +110,12 @@ Found 2026-10-06 in a headless three-lift [[Boreal]] (three lifts, a green, blue
 
 ## Staff
 
-- **Employees as people**: they drive in, park in an employee lot, and walk to their stations.
+- **Employees as people**: they drive in from the map's road entries as carloads, like guests ([[Transit]]), park in an employee lot (a lot set aside for staff), and walk to their stations.
+- **Employee commutes**: each entry has a pool of workers as well as guests; a long or snowed-in drive makes staff late or harder to hire, and the morning arrival shares the road with guests. *Needs* employees as people.
 - **Employee goals**: [[GOAP]] for employees (get to work, take breaks, go home). *Needs* employees as people.
 - **Lift attendants**: two per lift, top and bottom, with a third speeding loading on bigger chairs. Each lift already pays for two a day, but none are on the map. *Needs* employees as people.
-- **Staffing amenities**: staff for rental, food court, and bar. *Needs* employees as people.
-- **Employee housing**: so a resort can staff up where commuting is hard. *For* [[Zermatt]].
+- **Staffing amenities**: staff for rental, food court, bar, tickets, patrol, and the snowcat garage, replacing the flat daily cost per tile ([[Building Services]]). *Needs* employees as people.
+- **Employee housing**: so a resort can staff up where commuting is hard: staff housing as a building service ([[Building Services]], [[Rotated Buildings]]), with fewer cars on the road. *For* [[Zermatt]].
 
 ## Roads and arrivals ([[Parking and Roads]], [[Demand]])
 
@@ -203,3 +204,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-06: [[Rotated Buildings]] steps 1–2 shipped.
 - 2026-10-06: [[Rotated Buildings]] step 3 shipped: shed, tent, and lodge, and lodge storeys.
 - 2026-10-06: [[Building Services]] shipped (registry, patrol and garage as services); fixing how services work is now priority 2.
+- 2026-10-06: Cross-linked staff (commutes, employee lots, housing) with [[Transit]] and [[Building Services]], and [[Lift Operations]] and [[Land and Boundaries]] with the building and service work.
