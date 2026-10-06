@@ -22,7 +22,7 @@ Not ranked yet: everything below.
 
 ## Bugs
 
-- **"Release cat is wrong"**: from the old `NEXT.md`; reproduce and describe, or drop ([[Grooming]]).
+None open.
 
 ## Scenarios and campaign ([[Scenarios]], [[Scenario Campaign]])
 
@@ -188,3 +188,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-06: Lake ice from the climate and estimated depth shipped ([[Creeks and Lakes]]); a performance pass is the new priority 0 after the user saw lag zoomed in, with streams next.
 - 2026-10-06: [[Creeks and Lakes]] mostly shipped (OpenStreetMap water, lakes and lake ice, stream tracing, meadows, creek channels); its leftovers moved under Terrain. Performance pass shipped its main fix; priority list cleared for the next pick.
 - 2026-10-06: Fixed the ticket-window bug: the window worked all along; guests were blamed on it when a lift was stopped (lifts start stopped, by design) or had no trail for their level. See [[GOAP]], [[Demand]], [[Tickets]].
+- 2026-10-06: Dropped the "Release cat is wrong" bug: a leftover note from the old `NEXT.md` that no one could reproduce or explain.
