@@ -33,6 +33,7 @@ Some readers want a per-cell summary rather than trunks. `TreeCover()` is the ce
 - **Editor plant brush.** Adds at most one spaced tree per cell per stroke, up to a slider-set target count.
 - **Editor glade brush.** Removes the same hashed selection at a fixed 40% share. There is no highlight in the editor.
 - **Automatic forest generator** ([[Scenario Editor]]). Keeps its density field and turns each cell's density into a count of trees placed at random spacing-checked spots in the cell, so the forest has no grid pattern.
+- **Auto trees layer** ([[Terrain Layers]]). Runs the same generator after an import and after each ground rebuild, at 55% coverage with the treeline from the climate (where the warmest month averages 10 °C), then clears under what's built. Unchecking it removes every tree.
 - **Clearing.** Lift corridors and station aprons remove trees by trunk distance, roads remove trees within reach of the centreline, and parking lots and [[Lodge Shell]] footprints clear whole cells.
 
 ## Log

@@ -14,14 +14,15 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 
 In the order to work on them:
 
+0. **Layer strength sliders** ([[Terrain Layers]] step 4): every layer row gets a strength slider, 0–100%, defaulting to 50%. 50% is today's strength, and 100% goes as far past it as each layer can usefully go. Drop the timings from the rows and the "Uncheck a layer to see without it" line.
 1. [[Graphics Base]]: steps 1–6 shipped (anti-aliasing, light balance, snow breakup, trees, haze, map edge), and fresh snow after a storm is cheap again. Left: check for sim lag after a storm in a busy game (see **Storm lag** under Rendering), bough snow that lingers after a storm (needs a recent-snowfall value in the weather sim), gamma-correct lighting, and post-processing.
 2. [[Terrain Realism]]: make imported mountains look and behave like the real place. Mesh subdivision, lidar import, and the climate block are done. In this order, the first three to get [[Boreal]] back on track, then back to [[Kirkwood]]:
-   1. Smoothing tools: editor brushes to smooth and flatten the ground (Boreal's lidar leaves a clear strip where the highway runs), and auto-smoothing along OpenStreetMap roads at import.
-   2. Auto-snow from the real-world data: a sun term and a realistic starting snowpack from the scenario's climate.
-   3. Separate Auto Trees and Auto Snow, and run both automatically on import. Then re-import Boreal.
+   1. [[Terrain Layers]]: the Layers panel is in, with Auto trees and Auto snow as layers that keep what's built. Auto snow is a season from the climate, and imports start on the opening day. Next: the strength sliders (item 0), then re-import Boreal with every layer.
+   2. Smoothing tools: auto-smoothing along OpenStreetMap roads, a light global smooth, and droplet erosion are done as terrain layers; left are editor brushes to smooth and flatten the ground.
+   3. Done: auto-snow from the real-world data, and Auto Trees and Auto Snow as separate layers on import (see item 1).
    4. Kirkwood's cliffs: a pass that finds and shapes rock, with rock shading from its mask, on a detail pipeline with a repair pass.
    5. Creeks and lakes, with OpenStreetMap water marking where they are. Caples Lake at Kirkwood may come along for free.
-   6. Erosion, then snow that doesn't look plastic.
+   6. Thermal erosion for scree, then snow that doesn't look plastic.
 
 Not ranked yet: everything below.
 
@@ -180,3 +181,7 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-05: Fixed the GPU cost of fresh snow after a storm; added **Storm lag** to check the sim side.
 - 2026-10-05: Shipped [[Real Grooming]]; [[Terrain Realism]] moves up to priority 2.
 - 2026-10-05: Reordered [[Terrain Realism]] from the user's notes after re-importing Boreal: smoothing tools, auto-snow from real data, and separate auto trees and snow on import come first, then Kirkwood's cliffs and lakes. Added real-world features from OpenStreetMap (later), and magic carpets first among surface lifts.
+- 2026-10-05: Added [[Terrain Layers]] as the next Terrain Realism step: the import's smoothing and erosion passes move into a Layers panel in the editor.
+- 2026-10-06: [[Terrain Layers]] step 1 shipped: Layers panel in the editor, base saved in scenarios.
+- 2026-10-06: Auto trees and Auto snow shipped as terrain layers, snow from the climate, imports starting on the opening day; Terrain Realism items 3 and 4 folded into item 1.
+- 2026-10-06: Added layer strength sliders as priority 0, from the user's notes after trying the Auto layers.
