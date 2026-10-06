@@ -1417,30 +1417,47 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		skierInst := make([]DynamicInstance, 0, len(w.OnMountain))
 		walkerInst := make([]DynamicInstance, 0)
 		hr2 := r.HiddenRadius * r.HiddenRadius
+		rescuers := map[uint64]*world.Patroller{}
+		for _, p := range w.Patrollers {
+			rescuers[p.ID] = p
+		}
 		for _, agent := range w.OnMountain {
 			if r.HiddenGuestID != 0 && agent.ID == r.HiddenGuestID {
 				continue
 			}
-			if agent.OnPatrollerID != 0 {
-				continue // being transported by snowmobile; rendered as part of that unit
+			// A patient lies where they fell while patrol loads them, rides
+			// out of sight on a snowmobile, and is towed a little behind a
+			// patroller's toboggan.
+			pos := agent.Pos
+			if p := rescuers[agent.OnPatrollerID]; p != nil {
+				switch p.State {
+				case world.PatrollerReturning:
+					continue
+				case world.PatrollerToboggan:
+					pos[0] = p.Pos[0] - float32(math.Sin(float64(p.Heading)))*patientTow
+					pos[2] = p.Pos[2] - float32(math.Cos(float64(p.Heading)))*patientTow
+				}
 			}
 			if hr2 > 0 {
-				dx := agent.Pos[0] - r.HiddenGuestPos[0]
-				dz := agent.Pos[2] - r.HiddenGuestPos[2]
+				dx := pos[0] - r.HiddenGuestPos[0]
+				dz := pos[2] - r.HiddenGuestPos[2]
 				if dx*dx+dz*dz < hr2 {
 					continue
 				}
 			}
-			posY := agent.Pos[1]
+			posY := pos[1]
 			if agent.OnLiftID == 0 {
-				posY = VisualElevationAt(w.Terrain, agent.Pos[0], agent.Pos[2])
+				posY = VisualElevationAt(w.Terrain, pos[0], pos[2])
 			}
 			color := guestColor(w, agent)
+			if agent.OnPatrollerID != 0 {
+				color = injuredColor
+			}
 			if r.HighlightGuestID != 0 && agent.ID == r.HighlightGuestID {
 				color = [3]float32{1.0, 0.95, 0.1}
 			}
 			inst := DynamicInstance{
-				Position: [3]float32{agent.Pos[0], posY, agent.Pos[2]},
+				Position: [3]float32{pos[0], posY, pos[2]},
 				Heading:  agent.Heading,
 				Color:    color,
 				SpinMode: 1.0,
@@ -1535,7 +1552,8 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	if r.walkerBatch != nil {
 		var walkers []DynamicInstance
 		for _, p := range w.Patrollers {
-			if !p.State.OnFoot() {
+			// On scene they stand by the patient, however they came.
+			if !p.State.OnFoot() && p.State != world.PatrollerOnScene {
 				continue
 			}
 			walkers = append(walkers, DynamicInstance{
@@ -1724,6 +1742,13 @@ func (r *Renderer) drawWeatherOverlay(time float32, light Lighting) {
 	gl.BindVertexArray(0)
 }
 
+// injuredColor marks an injured guest, waiting or being brought down.
+var injuredColor = [3]float32{1.0, 0.1, 0.8}
+
+// patientTow is how far behind a patroller their toboggan's patient is
+// drawn, in metres.
+const patientTow = float32(2.5)
+
 func guestColor(w *world.World, a *world.Guest) [3]float32 {
 	switch world.Activity(w, a) {
 	case "Walking":
@@ -1737,7 +1762,7 @@ func guestColor(w *world.World, a *world.Guest) [3]float32 {
 	case "Departing":
 		return [3]float32{0.8, 0.3, 0.8}
 	case "Injured":
-		return [3]float32{1.0, 0.1, 0.8}
+		return injuredColor
 	case "Fallen":
 		return [3]float32{0.8, 0.1, 0.1}
 	}

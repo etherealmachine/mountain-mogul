@@ -27,11 +27,13 @@ const (
 	PatrollerSkiing                            // skiing down to the injured guest
 	PatrollerToboggan                          // skiing the guest down in a toboggan
 	PatrollerSkiingBack                        // skiing back to the patrol room after a call that fell through
+	PatrollerHiking                            // hiking up to an injured guest
 )
 
 // OnFoot reports whether the patroller is walking.
 func (s PatrollerState) OnFoot() bool {
-	return s == PatrollerToGarage || s == PatrollerToSled || s == PatrollerWalkingBack || s == PatrollerToLift
+	return s == PatrollerToGarage || s == PatrollerToSled || s == PatrollerWalkingBack || s == PatrollerToLift ||
+		s == PatrollerHiking
 }
 
 // OnSkis reports whether the patroller is on a lift or skiing.
@@ -49,7 +51,7 @@ func (s PatrollerState) Driving() bool {
 func (s PatrollerState) Responding() bool {
 	switch s {
 	case PatrollerEnRoute, PatrollerOnScene, PatrollerReturning,
-		PatrollerToLift, PatrollerRiding, PatrollerSkiing, PatrollerToboggan:
+		PatrollerToLift, PatrollerRiding, PatrollerSkiing, PatrollerToboggan, PatrollerHiking:
 		return true
 	}
 	return false
@@ -86,6 +88,8 @@ func (s PatrollerState) Label() string {
 		return "bringing a patient down by toboggan"
 	case PatrollerSkiingBack:
 		return "skiing back"
+	case PatrollerHiking:
+		return "hiking to an injury"
 	}
 	return "off duty"
 }
@@ -93,8 +97,8 @@ func (s PatrollerState) Label() string {
 // Patroller is one ski patroller, based at a building's patrol service
 // (HutID). Their day: off duty overnight; in the morning they walk to a
 // garage, take a snowmobile (SnowmobileID), and park it on the snow by
-// the patrol room; they answer injuries from there, by snowmobile or by
-// lift and skis, whichever is faster, bringing the guest down by
+// the patrol room; they answer injuries from there, by snowmobile, by
+// lift and skis, or by hiking, whichever is faster, bringing the guest down by
 // snowmobile or toboggan; after close they put the snowmobile back and
 // walk in (notes/next/Patrol Day.md). The state machine runs in
 // sim/patrol.go.

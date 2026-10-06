@@ -580,12 +580,12 @@ func wearSnowUnderfoot(t *world.Terrain, pos mgl32.Vec3, dt float64) {
 
 // tickFallen counts the agent down out of the fallen window and resumes.
 // Injured guests wait for InjuryWaitTimer to expire; on expiry they give up,
-// take a hard satisfaction hit, and force a GoHome replan.
+// take a hard satisfaction hit, and force a GoHome replan. Once a
+// patroller is on the way they wait however long it takes.
 func (s *Simulation) tickFallen(a *world.Guest, dt float64) {
 	if a.Injured {
-		if a.OnPatrollerID != 0 {
-			// Patroller has claimed this guest; don't countdown or give up.
-			return
+		if a.OnPatrollerID != 0 || s.guestClaimed(a.ID) {
+			return // help is loading them or on the way
 		}
 		a.InjuryWaitTimer -= float32(dt)
 		if a.InjuryWaitTimer <= 0 {

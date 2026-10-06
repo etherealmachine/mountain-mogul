@@ -19,8 +19,11 @@ import (
 // and the last guest is off the mountain, they drive the snowmobile back
 // to its garage and walk in. A patroller with no snowmobile, or for whom
 // skiing is faster, rides a running lift (no queue) and skis straight
-// down to the guest, then brings them down in a toboggan. Skiing here is
-// a straight glide at a steady speed, not the guests' skiing.
+// down to the guest, then brings them down in a toboggan. Failing both
+// (or when it's faster) they hike out from the patrol room; a guest above
+// the lift's top is hiked up to from there. Someone always goes. Skiing
+// and hiking here are a straight glide at a steady speed, not the
+// guests' skiing.
 //
 // Snowmobiles run at snowmobileSpeed on snow and crawl at
 // snowmobileBareSpeed over bare ground: the garage apron and the patrol
@@ -47,6 +50,9 @@ const (
 	patrolTobogganSpeed = float32(4.0)
 	patrolBareSpeed     = float32(1.0)
 	patrolLiftHeight    = float32(8.0)
+	// patrolClimbRate is how fast a hiking patroller gains height (about
+	// 900 m an hour), on top of the walk across.
+	patrolClimbRate = float32(0.25)
 )
 
 // tickPatrollers runs every patroller's state machine once per substep.
@@ -72,8 +78,8 @@ func (s *Simulation) tickPatrollers(dt float64) {
 			}
 		case world.PatrollerRiding:
 			s.patrollerRide(p, dt)
-		case world.PatrollerSkiing:
-			s.patrollerSkiDown(p, base, dt)
+		case world.PatrollerSkiing, world.PatrollerHiking:
+			s.patrollerToInjury(p, base, dt)
 		case world.PatrollerToboggan, world.PatrollerSkiingBack:
 			s.patrollerToboggan(p, base, dt)
 		case world.PatrollerToGarage:
@@ -176,27 +182,44 @@ func (s *Simulation) patrollerOnDuty(p *world.Patroller, base *world.Building, o
 		p.State = world.PatrollerToSled
 		return
 	}
-	for _, g := range s.injuredByDistance(p.Pos) {
-		sledT := float32(math.MaxFloat32)
-		if m != nil {
-			sledT = p.Pos.Sub(m.Pos).Len()/patrollerWalkSpeed + s.sledTime(m.Pos, g.Pos)
-		}
-		lift, skiT := s.bestSkiRoute(p.Pos, g.Pos)
-		if sledT == math.MaxFloat32 && lift == nil {
-			continue // neither way reaches this one; try the next
-		}
-		p.TargetGuestID = g.ID
-		if lift != nil && skiT < sledT {
-			p.OnSkis, p.LiftID = true, lift.ID
-			s.patrollerWalkTo(p, mgl32.Vec3{lift.Base[0], 0, lift.Base[1]})
-			p.State = world.PatrollerToLift
-			return
-		}
+	injured := s.injuredByDistance(p.Pos)
+	if len(injured) == 0 {
+		return
+	}
+	g := injured[0]
+	p.TargetGuestID = g.ID
+	sledT := float32(math.MaxFloat32)
+	if m != nil {
+		sledT = p.Pos.Sub(m.Pos).Len()/patrollerWalkSpeed + s.sledTime(m.Pos, g.Pos)
+	}
+	lift, skiT := s.bestSkiRoute(p.Pos, g.Pos)
+	if lift == nil {
+		skiT = math.MaxFloat32
+	}
+	hikeT := patrolTravelTime(p.Pos, g.Pos)
+	switch {
+	case hikeT <= sledT && hikeT <= skiT:
+		p.OnSkis = true
+		p.State = world.PatrollerHiking
+	case skiT < sledT:
+		p.OnSkis, p.LiftID = true, lift.ID
+		s.patrollerWalkTo(p, mgl32.Vec3{lift.Base[0], 0, lift.Base[1]})
+		p.State = world.PatrollerToLift
+	default:
 		p.OnSkis = false
 		s.patrollerWalkTo(p, m.Pos)
 		p.State = world.PatrollerToSled
-		return
 	}
+}
+
+// patrolTravelTime is how long a patroller on skis takes to get from a
+// to b in a straight line: skiing down, or hiking across and up.
+func patrolTravelTime(a, b mgl32.Vec3) float32 {
+	across := mgl32.Vec2{b[0] - a[0], b[2] - a[2]}.Len()
+	if rise := b[1] - a[1]; rise > 0 {
+		return across/patrollerWalkSpeed + rise/patrolClimbRate
+	}
+	return across / patrolSkiSpeed
 }
 
 // injuredByDistance is the injured guests nobody is helping, nearest
@@ -232,9 +255,9 @@ func (s *Simulation) sledTime(a, b mgl32.Vec3) float32 {
 }
 
 // bestSkiRoute is the running lift that gets a patroller at from to an
-// injured guest at to soonest (walk to its base, ride up, ski down in a
-// straight line), and how long that takes; nil when no running lift tops
-// out above the guest.
+// injured guest at to soonest (walk to its base, ride up, then ski down or
+// hike up to them in a straight line), and how long that takes; nil when
+// no lift is running.
 func (s *Simulation) bestSkiRoute(from, to mgl32.Vec3) (*world.Lift, float32) {
 	w := s.World
 	if !s.LiftsRunning() {
@@ -246,14 +269,10 @@ func (s *Simulation) bestSkiRoute(from, to mgl32.Vec3) (*world.Lift, float32) {
 		if l.IsHeli() || !l.Open || l.OnHold || l.Speed <= 0 {
 			continue
 		}
-		top := s.liftEnd(l.Top)
-		if top[1] < to[1]+5 {
-			continue // can't ski uphill to them
-		}
-		base := s.liftEnd(l.Base)
+		top, base := s.liftEnd(l.Top), s.liftEnd(l.Base)
 		t := mgl32.Vec2{base[0] - from[0], base[2] - from[2]}.Len()/patrollerWalkSpeed +
 			top.Sub(base).Len()/l.Speed +
-			mgl32.Vec2{to[0] - top[0], to[2] - top[2]}.Len()/patrolSkiSpeed
+			patrolTravelTime(top, to)
 		if t < bestT {
 			best, bestT = l, t
 		}
@@ -292,9 +311,10 @@ func (s *Simulation) patrollerRide(p *world.Patroller, dt float64) {
 	p.Heading = float32(math.Atan2(float64(d[0]), float64(d[2])))
 }
 
-// patrollerSkiDown skis to the injured guest. If they're no longer
-// waiting (gave up, or someone else got them), the patroller skis back.
-func (s *Simulation) patrollerSkiDown(p *world.Patroller, base *world.Building, dt float64) {
+// patrollerToInjury skis down, or hikes up, to the injured guest. If
+// they're no longer waiting (gave up, or someone else got them), the
+// patroller skis back.
+func (s *Simulation) patrollerToInjury(p *world.Patroller, base *world.Building, dt float64) {
 	target := s.patrollerTarget(p)
 	if target == nil || !target.Injured {
 		p.TargetGuestID = 0
@@ -303,7 +323,16 @@ func (s *Simulation) patrollerSkiDown(p *world.Patroller, base *world.Building, 
 		return
 	}
 	p.TargetPos = target.Pos
-	if s.patrollerGlide(p, patrolSkiSpeed, dt) {
+	speed := patrolSkiSpeed
+	p.State = world.PatrollerSkiing
+	if rise := target.Pos[1] - p.Pos[1]; rise > 0 {
+		across := mgl32.Vec2{target.Pos[0] - p.Pos[0], target.Pos[2] - p.Pos[2]}.Len()
+		if t := patrolTravelTime(p.Pos, target.Pos); t > 0 {
+			speed = across / t
+		}
+		p.State = world.PatrollerHiking
+	}
+	if s.patrollerGlide(p, speed, dt) {
 		target.OnPatrollerID = p.ID
 		p.ActionTimer = world.PatrollerOnSceneSeconds
 		p.State = world.PatrollerOnScene
@@ -331,7 +360,7 @@ func (s *Simulation) patrollerGlide(p *world.Patroller, speed float32, dt float6
 		return true
 	}
 	if noSnowUnderfoot(s.World.Terrain, p.Pos[0], p.Pos[2]) {
-		speed = patrolBareSpeed
+		speed = min(speed, patrolBareSpeed)
 	}
 	step := min(speed*float32(dt), dist)
 	p.Pos[0] += d[0] / dist * step
@@ -431,8 +460,8 @@ func (s *Simulation) patrollerReturning(p *world.Patroller, base *world.Building
 	}
 }
 
-// patrollerDropPatient hands the patient over at first aid (they head
-// home to their car), leaves the snowmobile parked where it is, and goes
+// patrollerDropPatient hands the patient over at first aid (patched up,
+// they walk to their car), leaves the snowmobile parked where it is, and goes
 // back on duty inside.
 func (s *Simulation) patrollerDropPatient(p *world.Patroller, base *world.Building) {
 	w := s.World
@@ -440,13 +469,16 @@ func (s *Simulation) patrollerDropPatient(p *world.Patroller, base *world.Buildi
 		g.OnPatrollerID = 0
 		g.Injured = false
 		g.Fallen = false
+		g.SkisOn = false
+		g.Speed, g.TurnSide, g.Patience = 0, 0, 0
+		g.Balance = float32(fallStartBalance)
+		g.Pos = mgl32.Vec3{p.Pos[0], w.Terrain.InterpolatedSurfaceElevationAt(p.Pos[0], p.Pos[2]), p.Pos[2]}
 		w.LogEventAt(world.EventRescue, s.SimTime,
 			fmt.Sprintf("Patrol brought %s down to first aid", g.Name),
 			mgl32.Vec2{p.Pos[0], p.Pos[2]}, g.ID)
-		s.Demand.recordDeparture(s.World, g, s.DateAt(s.SimTime))
-		w.History.RecordDeparture()
-		w.History.RecordExitThought(g.LastThought().Kind)
-		g.Removed = true
+		// Patched up, they walk to their car; the departure counts when
+		// they drive off, as for any guest.
+		s.directHomePlan(g)
 	}
 	p.TargetGuestID = 0
 	p.State = world.PatrollerAtHut
