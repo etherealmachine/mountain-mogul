@@ -61,6 +61,7 @@ Each scenario introduces a feature or two the earlier ones didn't need, so the c
 
 ## Open questions
 
+- **Blocked, 2026-10-06** (headless three-lift Boreal: the original double plus two six-packs, a green, blue, and black trail, a lodge with tickets, food, bar, and lounge, 30 days). Guests: best day 129 (opening day), then about 70 a day; the 10,000-guest pool (about 5.6 visits a season each) caps any resort near 300 a day at a perfect rating, so "thousands" needs a bigger catchment per scenario. Rating: about 30% throughout, with or without a patrol hut and equipment shed. Per visit, about 3 falls and 3 injuries with "no one came to help me" for every injury (the patrol never reaches anyone, even with a hut), about 35 thirst thoughts despite a bar, almost everyone leaving exhausted, and no grooming showing. Diagnose those before setting Boreal's targets ([[First Week Balance]]).
 - Boreal's rating target: in the bare headless test resort (one lift, three plain trails, no lodge food or bar) the rating fell from 50% to about 35% within days, so 70% for a week needs a well-served resort, or rating tuning ([[First Week Balance]]). Check with the three-lift run.
 - Boreal's exact guest target, from the headless three-lift run. One double chair with three trails averaged about 50 guests a day (2026-10-06), so thousands will need bigger lifts, more trail area, or more demand.
 - Whether bonus goals unlock anything (a sandbox mode, a skin, a harder variant), or are just a record.
@@ -75,3 +76,4 @@ Each scenario introduces a feature or two the earlier ones didn't need, so the c
 - 2026-10-06: Step 2: the daily goal check, win and lose, events, saved outcome.
 - 2026-10-06: Step 3: the goals panel and the win and lose panels.
 - 2026-10-06: Step 4: the editor's Goals tab.
+- 2026-10-06: Step 5 blocked: three-lift headless run shows guests capped near 300 a day by the guest pool and a rating stuck near 30% (patrol never rescues, thirst thoughts repeat, everyone leaves exhausted, no grooming). Asked the user which to take first.
