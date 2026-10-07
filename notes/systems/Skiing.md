@@ -18,3 +18,4 @@ Spec: [[Guests Spec]], the L1–L3 sections. Code: `internal/sim/skiing.go`.
 
 - 2026-10-01: Steering, balance and falls, injuries, snow friction, and traffic wear are in.
 - 2026-10-02: Steering reads nearby trunks, and skiers can hit trees.
+- 2026-10-07: Fixed a guest freezing near a lodge door, swapping skis on and off forever: the take-off and put-on checks now use the same door, with a 30 m / 40 m gap.
