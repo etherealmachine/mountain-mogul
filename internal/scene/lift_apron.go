@@ -18,26 +18,27 @@ import (
 // apron in front of the lift post, the side skiers face: where they
 // queue and load at the base, and ski off after unloading at the top.
 // That's the bullwheel side, away from the cable (lift_station.scad's
-// beam reaches 6.5 m that way). The apron is levelled to the natural
-// ground at its middle. Banks ease back to natural ground on every side,
-// the cable side included, since riders ski off down past the post; each
-// station's banks are long enough to stay under liftApronMaxGrade, so a
-// beginner can ski them. The flat part is flattened in the lidar detail
-// too, so it's really level.
+// beam reaches 6.5 m that way). Around the apron the earthwork moves only
+// the ground it must: anything steeper than liftApronMaxGrade from the
+// apron's edge is cut down or filled up to that grade, and ground already
+// within it is left alone, so the banks end where they meet the hill.
+// The apron's height is the one, within liftApronMaxShift of the natural
+// ground at its middle, that moves the least earth. It works on the
+// lidar detail where there is one, so the apron is really level.
 const (
 	liftCorridorHalfWidth = float32(12.0) // → 24 m wide maintenance lane
 	liftApronDepth        = float32(8.0)  // flat metres in front of the post, away from the cable
 	liftApronHalfWidth    = float32(6.0)  // flat metres either side of the cable axis
-	liftApronBank         = float32(8.0)  // shortest bank: metres over which the cut and fill ease back to natural
-	liftApronMaxBank      = float32(24.0) // longest bank before the apron is lowered or raised instead
-	liftApronMaxShift     = float32(4.0)  // most the apron may be raised or lowered from its target to fit
+	liftApronMaxBank      = float32(24.0) // furthest the grade is held from the apron's edge
+	liftApronToe          = float32(8.0)  // metres past that over which the bank fades back to the hill
+	liftApronMaxShift     = float32(4.0)  // most the apron may sit above or below the natural ground at its middle
 )
 
 // liftApronMaxGrade is the steepest the earthwork may make the ground:
 // the most a beginner holds their balance on, 1.5× their 10° comfort
 // slope, where the balance model's slope drain matches its recovery
-// (sim.stressDelta). A tighter cap can't be met on an ordinary hill: a
-// flat apron cut into 11° ground needs banks steeper than the hill.
+// (sim.stressDelta). Natural ground steeper than this is left as it is
+// unless the earthwork has to move it anyway.
 var liftApronMaxGrade = float32(math.Tan(15 * math.Pi / 180))
 
 // applyLiftPlacementEffects applies the ground-side consequences of
@@ -67,8 +68,8 @@ func applyLiftPlacementEffects(w *world.World, lift *world.Lift) {
 	mid := axis.Mul(liftApronDepth / 2)
 	topTarget := stationGroundElev(t, lift.Top.Add(mid))
 	baseTarget := stationGroundElev(t, lift.Base.Sub(mid))
-	carveStationApron(t, lift.Top, axis, +1, topTarget, claimed)
-	carveStationApron(t, lift.Base, axis, -1, baseTarget, claimed)
+	carveStationApron(t, lift.Top, axis, +1, topTarget, claimed, true)
+	carveStationApron(t, lift.Base, axis, -1, baseTarget, claimed, true)
 	// Stamp queue + top cells impassable so the structure-stamp path
 	// matches PlaceLift's blocking.
 	queue := lift.QueueCell()
@@ -86,147 +87,177 @@ func applyLiftPlacementEffects(w *world.World, lift *world.Lift) {
 	t.RecomputeSlopes()
 }
 
-// apronWeight is how fully the point d metres from a station (d in
-// world XZ) is graded to the apron: 1 on the flat part, from the post to
-// liftApronDepth beyond it, easing to 0 across a bank of the given length
-// on every side. side is the direction the station faces along axis: -1
-// for the base, +1 for the top.
-func apronWeight(d, axis mgl32.Vec2, side, bank float32) float32 {
+// apronDist is how far the point d metres from a station (d in world
+// XZ) is outside the station's flat apron: 0 on it, from the post to
+// liftApronDepth beyond it and liftApronHalfWidth either side. side is
+// the direction the station faces along axis: -1 for the base, +1 for
+// the top.
+func apronDist(d, axis mgl32.Vec2, side float32) float32 {
+	dist, _ := apronEdge(d, axis, side)
+	return dist
+}
+
+// apronEdge is apronDist and the unit direction from the nearest point of
+// the apron out to d (zero on the apron).
+func apronEdge(d, axis mgl32.Vec2, side float32) (float32, mgl32.Vec2) {
 	along := (d[0]*axis[0] + d[1]*axis[1]) * side
-	perp := float32(math.Abs(float64(d[0]*axis[1] - d[1]*axis[0])))
+	perpSigned := d[0]*axis[1] - d[1]*axis[0]
+	perp := float32(math.Abs(float64(perpSigned)))
 	outA := max(0, along-liftApronDepth, -along)
 	outP := max(0, perp-liftApronHalfWidth)
 	dist := float32(math.Hypot(float64(outA), float64(outP)))
-	return 1 - smoothstep32(0, 1, dist/bank)
-}
-
-// fitApron returns the bank length and apron height for a station so no
-// ground the earthwork touches ends up steeper than liftApronMaxGrade.
-// It prefers the apron at target with the shortest bank, then longer
-// banks, then the apron raised or lowered up to liftApronMaxShift in
-// half-metre steps. Where the hill itself is too steep for any of those,
-// it takes the one that oversteepens least.
-func fitApron(t *world.Terrain, station, axis mgl32.Vec2, side, target float32, claimed map[[2]int]bool) (bank, height float32) {
-	best := float32(math.Inf(1))
-	for k := 0; k <= int(2*liftApronMaxShift); k++ {
-		for _, sign := range [2]float32{-1, 1} {
-			if k == 0 && sign > 0 {
-				continue
-			}
-			h := target + sign*float32(k)/2
-			for b := liftApronBank; b <= liftApronMaxBank; b += 4 {
-				excess := apronExcess(t, station, axis, side, h, b, claimed)
-				if excess <= 0 {
-					return b, h
-				}
-				if excess < best {
-					best, bank, height = excess, b, h
-				}
-			}
-		}
+	if dist == 0 {
+		return 0, mgl32.Vec2{}
 	}
-	return bank, height
+	// Back to world XZ: along runs side·axis, perp the axis turned a
+	// quarter (positive where perpSigned is).
+	a := outA
+	if along < 0 {
+		a = -outA
+	}
+	pp := outP
+	if perpSigned < 0 {
+		pp = -outP
+	}
+	dir := axis.Mul(a * side).Add(mgl32.Vec2{axis[1], -axis[0]}.Mul(pp))
+	return dist, dir.Mul(1 / dist)
 }
 
-// apronExcess is how far past liftApronMaxGrade the steepest cell the
-// carve changes would be, after carving a station's apron at height with
-// the given bank. Slope is measured as world.Terrain.GradientAt does: the
-// gradient's magnitude from central differences. 0 when the carve fits.
-func apronExcess(t *world.Terrain, station, axis mgl32.Vec2, side, height, bank float32, claimed map[[2]int]bool) float32 {
+// apronGrade is the ground dist metres from an apron at height that
+// stood at natural: the apron itself, or the hill held to within
+// liftApronMaxGrade of the apron's edge, cut where it's above and, where
+// fill is allowed, filled where it's below; the cut fades back to the
+// hill past liftApronMaxBank. fill is how much filling this direction
+// takes, 0..1 (apronFill).
+func apronGrade(height, natural, dist, fill float32) float32 {
+	if dist <= 0 {
+		return height
+	}
+	rise := liftApronMaxGrade * dist
+	v := min(natural, height+rise)
+	if low := height - rise; natural < low {
+		v = natural + (low-natural)*fill
+	}
+	if over := dist - liftApronMaxBank; over > 0 {
+		v += (natural - v) * smoothstep32(0, 1, over/liftApronToe)
+	}
+	return v
+}
+
+// apronFill is how much fill the hill takes in the direction a point
+// sits from the apron: all of it where the grade down from the apron
+// meets the hill within liftApronMaxBank, none where the hill falls away
+// faster (any fill there would end in a drop steeper than the hill),
+// easing over the last two metres. farNatural is the hill liftApronMaxBank
+// out from the apron's edge that way.
+func apronFill(height, farNatural float32) float32 {
+	short := height - liftApronMaxGrade*liftApronMaxBank - farNatural
+	return 1 - smoothstep32(0, 1, short/2)
+}
+
+// carveStationApron grades the ground around one station (cells, the
+// lidar detail, and the material map), then packs and grooms the snow
+// on the flat part. With search, the apron's height is the one within
+// liftApronMaxShift of target, in half-metre steps, that moves the least
+// earth (nearest target on a tie); without, it's target. Claimed cells
+// (other buildings' pads) keep their ground.
+func carveStationApron(t *world.Terrain, station, axis mgl32.Vec2, side, target float32, claimed map[[2]int]bool, search bool) {
 	const cellSize = float32(5.0)
-	bound := float32(math.Hypot(float64(liftApronDepth), float64(liftApronHalfWidth))) + bank + 2*cellSize
-	x0, x1 := max(int((station[0]-bound)/cellSize), 1), min(int((station[0]+bound)/cellSize), t.Width-2)
-	z0, z1 := max(int((station[1]-bound)/cellSize), 1), min(int((station[1]+bound)/cellSize), t.Height-2)
-	carved := func(x, z int) (elev, wgt float32) {
-		g := t.Cells[x][z].GroundElevation
-		if claimed[[2]int{x, z}] {
-			return g, 0
-		}
-		c := mgl32.Vec2{(float32(x) + 0.5) * cellSize, (float32(z) + 0.5) * cellSize}
-		wgt = apronWeight(c.Sub(station), axis, side, bank)
-		return g + (height-g)*wgt, wgt
-	}
-	worst := float32(0)
-	for x := x0; x <= x1; x++ {
-		for z := z0; z <= z1; z++ {
-			_, w0 := carved(x, z)
-			ex0, wx0 := carved(x-1, z)
-			ex1, wx1 := carved(x+1, z)
-			ez0, wz0 := carved(x, z-1)
-			ez1, wz1 := carved(x, z+1)
-			if w0+wx0+wx1+wz0+wz1 == 0 {
-				continue // untouched ground keeps its slope
-			}
-			gx := (ex1 - ex0) / (2 * cellSize)
-			gz := (ez1 - ez0) / (2 * cellSize)
-			worst = max(worst, float32(math.Hypot(float64(gx), float64(gz)))-liftApronMaxGrade)
-		}
-	}
-	return worst
-}
-
-// carveStationApron grades the ground around one station to target:
-// cells (cut and fill), the lidar detail, and the material map, then
-// packs and grooms the snow on the flat part. Claimed cells (other
-// buildings' pads) keep their ground.
-func carveStationApron(t *world.Terrain, station, axis mgl32.Vec2, side, target float32, claimed map[[2]int]bool) {
-	const cellSize = float32(5.0)
-	bank, target := fitApron(t, station, axis, side, target, claimed)
-	bound := float32(math.Hypot(float64(liftApronDepth), float64(liftApronHalfWidth))) + bank + cellSize
+	bound := float32(math.Hypot(float64(liftApronDepth), float64(liftApronHalfWidth))) + liftApronMaxBank + liftApronToe + cellSize
 	x0, x1 := int((station[0]-bound)/cellSize), int((station[0]+bound)/cellSize)
 	z0, z1 := int((station[1]-bound)/cellSize), int((station[1]+bound)/cellSize)
-	for x := x0; x <= x1; x++ {
-		for z := z0; z <= z1; z++ {
-			if !t.InBounds(x, z) || claimed[[2]int{x, z}] {
+	p := t.GroundPatch(x0, z0, x1, z1, 0)
+	keep := func(x, z int) bool { return claimed[[2]int{x, z}] }
+	// Each sample's distance from the apron (-1 for one on claimed ground
+	// or outside the block, which stays as it is), and the hill
+	// liftApronMaxBank out from the apron's edge in its direction, for
+	// whether that way can be filled.
+	dist := make([]float32, len(p.Before))
+	far := make([]float32, len(p.Before))
+	for j := 0; j < p.H; j++ {
+		for i := 0; i < p.W; i++ {
+			k := j*p.W + i
+			wx, wz := p.Pos(i, j)
+			cx, cz := int(math.Floor(float64(wx/cellSize))), int(math.Floor(float64(wz/cellSize)))
+			if cx < x0 || cx > x1 || cz < z0 || cz > z1 || keep(cx, cz) {
+				dist[k] = -1
 				continue
 			}
-			c := mgl32.Vec2{(float32(x) + 0.5) * cellSize, (float32(z) + 0.5) * cellSize}
-			wgt := apronWeight(c.Sub(station), axis, side, bank)
-			if wgt <= 0 {
-				continue
-			}
-			cell := &t.Cells[x][z]
-			cell.GroundElevation += (target - cell.GroundElevation) * wgt
-			cell.MogulSize *= 1 - wgt
-			if wgt > 0.5 {
-				// Boarding pads and lift queues are foot-traffic compacted.
-				if top := cell.TopLayer(); top != nil {
-					top.Kind = world.KindPackedPowder
-				}
-				cell.Grooming = 1
-				t.Groom.StampCell(x, z, axis[0], axis[1])
+			d, dir := apronEdge(mgl32.Vec2{wx, wz}.Sub(station), axis, side)
+			dist[k] = d
+			if d > 0 {
+				edge := mgl32.Vec2{wx, wz}.Sub(dir.Mul(d))
+				q := edge.Add(dir.Mul(liftApronMaxBank))
+				far[k] = p.BeforeAtWorld(q[0], q[1])
 			}
 		}
 	}
-	// The drawn ground is the cells' mesh plus the detail on top: level
-	// the detail toward target by the same weight, so the flat part is
-	// flat at 1.25 m too. Material under the flat part becomes ground.
-	const per = cellSize / world.DetailPerCell
-	i0, i1 := max(int((station[0]-bound)/per), 0), int((station[0]+bound)/per)
-	j0, j1 := max(int((station[1]-bound)/per), 0), int((station[1]+bound)/per)
-	if d := t.Detail; d != nil {
-		for j := j0; j <= min(j1, d.H-1); j++ {
-			for i := i0; i <= min(i1, d.W-1); i++ {
-				p := mgl32.Vec2{float32(i) * per, float32(j) * per}
-				if claimed[[2]int{int(p[0] / cellSize), int(p[1] / cellSize)}] {
-					continue
+	grade := func(h float32, k int) float32 {
+		return apronGrade(h, p.Before[k], dist[k], apronFill(h, far[k]))
+	}
+	earth := func(h float32) float32 {
+		var sum float32
+		for k, d := range dist {
+			if d >= 0 {
+				sum += float32(math.Abs(float64(grade(h, k) - p.Before[k])))
+			}
+		}
+		return sum
+	}
+	height := target
+	if search {
+		best := earth(target)
+		for k := 1; k <= int(2*liftApronMaxShift); k++ {
+			for _, sign := range [2]float32{-1, 1} {
+				h := target + sign*float32(k)/2
+				if e := earth(h); e < best {
+					best, height = e, h
 				}
-				wgt := apronWeight(p.Sub(station), axis, side, bank)
-				if wgt <= 0 {
-					continue
-				}
-				k := j*d.W + i
-				mesh := t.MeshGroundAt(float32(i)/world.DetailPerCell, float32(j)/world.DetailPerCell)
-				d.Off[k] = d.Off[k]*(1-wgt) + (target-mesh)*wgt
 			}
 		}
 	}
+	for k, d := range dist {
+		if d >= 0 {
+			p.After[k] = grade(height, k)
+		}
+	}
+	before := make(map[[2]int]float32)
+	for x := max(x0, 0); x <= min(x1, t.Width-1); x++ {
+		for z := max(z0, 0); z <= min(z1, t.Height-1); z++ {
+			before[[2]int{x, z}] = t.Cells[x][z].GroundElevation
+		}
+	}
+	p.Commit(keep)
+	// Snow: moguls go wherever the ground moved; the flat part is packed
+	// and groomed, as foot traffic and the daily grooming of real loading
+	// lanes leave it.
+	for c, old := range before {
+		if keep(c[0], c[1]) {
+			continue
+		}
+		cell := &t.Cells[c[0]][c[1]]
+		if math.Abs(float64(cell.GroundElevation-old)) > 0.05 {
+			cell.MogulSize = 0
+		}
+		centre := mgl32.Vec2{(float32(c[0]) + 0.5) * cellSize, (float32(c[1]) + 0.5) * cellSize}
+		if apronDist(centre.Sub(station), axis, side) <= 0 {
+			if top := cell.TopLayer(); top != nil {
+				top.Kind = world.KindPackedPowder
+			}
+			cell.Grooming = 1
+			t.Groom.StampCell(c[0], c[1], axis[0], axis[1])
+		}
+	}
+	// Bare material under the flat part becomes ground.
 	if m := t.Material; m != nil {
+		const per = cellSize / world.DetailPerCell
+		i0, i1 := max(int((station[0]-bound)/per), 0), min(int((station[0]+bound)/per), m.W-1)
+		j0, j1 := max(int((station[1]-bound)/per), 0), min(int((station[1]+bound)/per), m.H-1)
 		changed := false
-		for j := j0; j <= min(j1, m.H-1); j++ {
-			for i := i0; i <= min(i1, m.W-1); i++ {
-				p := mgl32.Vec2{float32(i) * per, float32(j) * per}
-				if m.M[j*m.W+i].Bare() && apronWeight(p.Sub(station), axis, side, bank) > 0.5 {
+		for j := j0; j <= j1; j++ {
+			for i := i0; i <= i1; i++ {
+				q := mgl32.Vec2{float32(i) * per, float32(j) * per}
+				if m.M[j*m.W+i].Bare() && apronDist(q.Sub(station), axis, side) <= 0 {
 					m.M[j*m.W+i] = world.MatMeadow
 					changed = true
 				}

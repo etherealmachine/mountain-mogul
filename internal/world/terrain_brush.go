@@ -40,15 +40,10 @@ func (t *Terrain) GroundHeightAt(wx, wz float32) float32 {
 	return h
 }
 
-// ApplyBrush edits the ground under the brush and reports the cells whose
-// ground changed (inclusive); ok is false when nothing did.
-//
-// With detail, it works on the true heights on the 1.25 m lattice: it
-// changes them under the brush, sets each touched cell's elevation to the
-// lattice's average over the cell (as the import does), then re-derives
-// the detail around it from the new cells, so the ground outside the
-// brush keeps its height. Without detail it edits the cells directly.
-// Slopes are recomputed around the edit.
+// ApplyBrush edits the ground under the brush (a GroundPatch, so cells
+// and detail stay consistent and ground outside the brush keeps its
+// height) and reports the cells whose ground changed (inclusive); ok is
+// false when nothing did.
 func (t *Terrain) ApplyBrush(s BrushStroke) (x0, z0, x1, z1 int, ok bool) {
 	if s.Radius <= 0 || s.Strength <= 0 {
 		return
@@ -60,12 +55,35 @@ func (t *Terrain) ApplyBrush(s BrushStroke) (x0, z0, x1, z1 int, ok bool) {
 	if x0 > x1 || z0 > z1 {
 		return
 	}
-	if t.Detail == nil {
-		t.brushCells(s, x0, z0, x1, z1)
-	} else {
-		t.brushDetail(s, x0, z0, x1, z1)
+	spacing := float32(CellSize)
+	if t.Detail != nil {
+		spacing /= DetailPerCell
 	}
-	t.recomputeSlopesIn(x0-1, z0-1, x1+1, z1+1)
+	k := smoothReach(s.Radius, spacing)
+	p := t.GroundPatch(x0, z0, x1, z1, k)
+	for j := 0; j < p.H; j++ {
+		for i := 0; i < p.W; i++ {
+			px, pz := p.Pos(i, j)
+			wt := brushWeight(s, float32(math.Hypot(float64(px-s.X), float64(pz-s.Z))))
+			if wt <= 0 {
+				continue
+			}
+			h := p.Before[j*p.W+i]
+			var avg float32
+			if s.Brush == BrushSmooth {
+				var n float32
+				for dj := -k; dj <= k; dj++ {
+					for di := -k; di <= k; di++ {
+						avg += p.BeforeAt(i+di, j+dj)
+						n++
+					}
+				}
+				avg /= n
+			}
+			p.After[j*p.W+i] = h + wt*(brushTarget(s, h, avg)-h)
+		}
+	}
+	p.Commit(nil)
 	return x0, z0, x1, z1, true
 }
 
@@ -100,125 +118,6 @@ func brushTarget(s BrushStroke, h, avg float32) float32 {
 // features (a half-pipe), at least two samples.
 func smoothReach(radius, spacing float32) int {
 	return max(int(radius/3/spacing+0.5), 2)
-}
-
-// brushCells edits cell elevations directly, for terrain without detail.
-func (t *Terrain) brushCells(s BrushStroke, x0, z0, x1, z1 int) {
-	k := smoothReach(s.Radius, CellSize)
-	old := map[[2]int]float32{}
-	at := func(x, z int) float32 {
-		x, z = min(max(x, 0), t.Width-1), min(max(z, 0), t.Height-1)
-		if v, ok := old[[2]int{x, z}]; ok {
-			return v
-		}
-		return t.Cells[x][z].GroundElevation
-	}
-	for x := x0; x <= x1; x++ {
-		for z := z0; z <= z1; z++ {
-			old[[2]int{x, z}] = t.Cells[x][z].GroundElevation
-		}
-	}
-	for x := x0; x <= x1; x++ {
-		for z := z0; z <= z1; z++ {
-			cx, cz := (float32(x)+0.5)*CellSize, (float32(z)+0.5)*CellSize
-			wt := brushWeight(s, float32(math.Hypot(float64(cx-s.X), float64(cz-s.Z))))
-			if wt <= 0 {
-				continue
-			}
-			h := at(x, z)
-			var avg float32
-			if s.Brush == BrushSmooth {
-				var n float32
-				for dx := -k; dx <= k; dx++ {
-					for dz := -k; dz <= k; dz++ {
-						avg += at(x+dx, z+dz)
-						n++
-					}
-				}
-				avg /= n
-			}
-			t.Cells[x][z].GroundElevation = h + wt*(brushTarget(s, h, avg)-h)
-		}
-	}
-}
-
-// brushDetail edits the true heights on the detail lattice.
-func (t *Terrain) brushDetail(s BrushStroke, x0, z0, x1, z1 int) {
-	d := t.Detail
-	const spacing = CellSize / DetailPerCell
-	const half = DetailPerCell / 2
-	k := smoothReach(s.Radius, spacing)
-	// The lattice the edit reads and writes: the touched cells' samples
-	// (cell c averages lattice c×4 ± 2), plus a cell's worth either side,
-	// whose detail must be re-derived once the touched cells' corners
-	// move, plus the smoothing reach.
-	pad := DetailPerCell + half + k
-	i0, j0 := max(x0*DetailPerCell-pad, 0), max(z0*DetailPerCell-pad, 0)
-	i1, j1 := min(x1*DetailPerCell+pad, d.W-1), min(z1*DetailPerCell+pad, d.H-1)
-	w, h := i1-i0+1, j1-j0+1
-	true0 := make([]float32, w*h) // true heights before the stroke
-	for j := 0; j < h; j++ {
-		for i := 0; i < w; i++ {
-			gi, gj := i0+i, j0+j
-			true0[j*w+i] = t.MeshGroundAt(float32(gi)/DetailPerCell, float32(gj)/DetailPerCell) + d.Off[gj*d.W+gi]
-		}
-	}
-	at := func(i, j int) float32 {
-		return true0[min(max(j, 0), h-1)*w+min(max(i, 0), w-1)]
-	}
-	heights := append([]float32(nil), true0...)
-	for j := 0; j < h; j++ {
-		for i := 0; i < w; i++ {
-			px, pz := float32(i0+i)*spacing, float32(j0+j)*spacing
-			wt := brushWeight(s, float32(math.Hypot(float64(px-s.X), float64(pz-s.Z))))
-			if wt <= 0 {
-				continue
-			}
-			hh := true0[j*w+i]
-			var avg float32
-			if s.Brush == BrushSmooth {
-				var n float32
-				for dj := -k; dj <= k; dj++ {
-					for di := -k; di <= k; di++ {
-						avg += at(i+di, j+dj)
-						n++
-					}
-				}
-				avg /= n
-			}
-			heights[j*w+i] = hh + wt*(brushTarget(s, hh, avg)-hh)
-		}
-	}
-	// Each touched cell is the lattice's average over it, edge samples at
-	// half weight, as geo's import builds cells.
-	weight := func(k int) float32 {
-		if k == -half || k == half {
-			return 0.5
-		}
-		return 1
-	}
-	for x := x0; x <= x1; x++ {
-		for z := z0; z <= z1; z++ {
-			var sum, wsum float32
-			for dz := -half; dz <= half; dz++ {
-				for dx := -half; dx <= half; dx++ {
-					gi := min(max(x*DetailPerCell+dx, 0), d.W-1)
-					gj := min(max(z*DetailPerCell+dz, 0), d.H-1)
-					wt := weight(dx) * weight(dz)
-					sum += heights[(gj-j0)*w+(gi-i0)] * wt
-					wsum += wt
-				}
-			}
-			t.Cells[x][z].GroundElevation = sum / wsum
-		}
-	}
-	// The detail over the lattice is what's left above the new mesh.
-	for j := 0; j < h; j++ {
-		for i := 0; i < w; i++ {
-			gi, gj := i0+i, j0+j
-			d.Off[gj*d.W+gi] = heights[j*w+i] - t.MeshGroundAt(float32(gi)/DetailPerCell, float32(gj)/DetailPerCell)
-		}
-	}
 }
 
 // recomputeSlopesIn recomputes Cell.Slope for the cells in

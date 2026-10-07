@@ -188,8 +188,8 @@ func RegradeEmbankments(w *world.World) {
 			axis = axis.Mul(1 / n)
 		}
 		claimed := claimedGround(w, nil, l)
-		carveStationApron(t, l.Top, axis, +1, stationGroundElev(t, l.Top), claimed)
-		carveStationApron(t, l.Base, axis, -1, stationGroundElev(t, l.Base), claimed)
+		carveStationApron(t, l.Top, axis, +1, stationGroundElev(t, l.Top), claimed, false)
+		carveStationApron(t, l.Base, axis, -1, stationGroundElev(t, l.Base), claimed, false)
 	}
 	for _, b := range w.Buildings {
 		switch {
