@@ -21,6 +21,7 @@ import (
 //	p_per_poll(g) = (g.VisitsPerSeason / seasonDays) * pollFraction
 //	              * clamp(ResortRating) * terrainMatch(g.Skill) * (1 - occupancy)
 //	              * visitPriceFactor(g, rating)
+//	              * (1 − RentalShare × NoRentalsStayHome, with no rental shop and no pass)
 //
 // The poll's winners from each entry share cars, one to four to a car
 // (rollCarload), which drive in from the entry (traffic.go); the guests
@@ -135,6 +136,7 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 	rating := clamp01(s.World.Rating)
 	occFactor := 1 - occupancy
 	hasOffice := hasTicketOffice(s.World)
+	hasRentals := anyRentals(s.World)
 	if !hasParking(s.World) {
 		return // no lots → no arrivals
 	}
@@ -154,6 +156,11 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 		}
 		dailyRate := g.VisitsPerSeason / seasonDaysApprox
 		p := dailyRate * float32(arrivalShare(s.World, g, h0, h1)) * rating * match * occFactor * priceFactor
+		if !hasRentals && !hasValidPass(g, s.SimTime) {
+			// Some who'd have rented skis stay home from a resort with
+			// no rental shop.
+			p *= 1 - world.RentalShare(g.Traits.Skill)*world.NoRentalsStayHome
+		}
 		if p <= 0 || rng.Global().Float32() >= p {
 			continue
 		}

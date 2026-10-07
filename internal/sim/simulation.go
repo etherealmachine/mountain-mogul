@@ -739,6 +739,12 @@ func (s *Simulation) spawnGuestAt(lot *world.Building, g *world.Guest, pos mgl32
 	g.Satisfaction = scoreStart
 	g.HasSeasonPass = hasValidPass(g, s.SimTime)
 	g.RollVisitNeeds(rng.Global())
+	rentedInTown := false
+	if g.NeedsGear && !anyRentals(w) {
+		// No rental shop here: they rented in town on the way, on their
+		// own money, and the resort missed the sale.
+		g.NeedsGear, rentedInTown = false, true
+	}
 	// Price the day ticket before planning so the planner sees the
 	// post-ticket budget. The guest arrives without a ticket and pays at
 	// the window (ActBuyDayTicket); pass holders owe nothing.
@@ -757,12 +763,8 @@ func (s *Simulation) spawnGuestAt(lot *world.Building, g *world.Guest, pos mgl32
 
 	w.OnMountain = append(w.OnMountain, g)
 	s.replan(g)
-	if g.NeedsGear && !anyRentals(w) {
-		// Came without skis to a resort that doesn't rent them: they
-		// turn round in the car park.
-		s.setCondition(g, ai.ThoughtNoRentals, true)
-		s.setDepartReason(g, ai.DepartNoRentals)
-		s.directHomePlan(g)
+	if rentedInTown {
+		s.applyEvent(g, ai.ThoughtRentedInTown)
 	}
 	head := g.Plan.Head()
 	bad := g.Plan.Done() ||

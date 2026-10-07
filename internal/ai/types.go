@@ -466,15 +466,16 @@ const (
 	ThoughtShabby        // a low-quality building
 	ThoughtPackedInside  // the building was nearly full
 	// Needs a guest arrives with.
-	ThoughtRentedGear // picked up rental skis
-	ThoughtNoRentals  // planner: came without skis and nowhere rents them
-	ThoughtGreatApres // après-ski at the bar; counts for more after a good day
-	ThoughtWarmedUp   // warmed up in a lounge
-	ThoughtCold       // chilled through
-	ThoughtNoLounge   // planner: chilled with nowhere to warm up
-	ThoughtPatrolFast // patrol reached them quickly
-	ThoughtPatrolCame // patrol reached them in a reasonable time
-	ThoughtPatrolSlow // patrol took a long time to reach them
+	ThoughtRentedGear   // picked up rental skis
+	ThoughtNoRentals    // planner: came without skis and nowhere rents them
+	ThoughtRentedInTown // no rental shop here: rented skis in town on the way
+	ThoughtGreatApres   // après-ski at the bar; counts for more after a good day
+	ThoughtWarmedUp     // warmed up in a lounge
+	ThoughtCold         // chilled through
+	ThoughtNoLounge     // planner: chilled with nowhere to warm up
+	ThoughtPatrolFast   // patrol reached them quickly
+	ThoughtPatrolCame   // patrol reached them in a reasonable time
+	ThoughtPatrolSlow   // patrol took a long time to reach them
 
 	thoughtKindSentinel // must stay last; equals the total count
 )
@@ -526,6 +527,7 @@ var Effects = [ThoughtKindCount]Effect{
 	ThoughtShabby:            {Satisfaction: -0.03},
 	ThoughtPackedInside:      {Satisfaction: -0.02},
 	ThoughtRentedGear:        {Satisfaction: +0.01},
+	ThoughtRentedInTown:      {Satisfaction: -0.02},
 	ThoughtGreatApres:        {Satisfaction: +0.05},
 	ThoughtWarmedUp:          {Satisfaction: +0.03},
 	ThoughtPatrolFast:        {Satisfaction: +0.06},
@@ -664,6 +666,7 @@ var thoughtText = [ThoughtKindCount]string{
 	ThoughtPackedInside:      "it's packed in there",
 	ThoughtRentedGear:        "got my rental skis",
 	ThoughtNoRentals:         "nowhere to rent skis",
+	ThoughtRentedInTown:      "had to rent skis in town",
 	ThoughtGreatApres:        "great way to end the day",
 	ThoughtWarmedUp:          "nice to warm up by the fire",
 	ThoughtCold:              "I'm freezing",
@@ -738,6 +741,7 @@ var ThoughtChartColor = [ThoughtKindCount][4]float32{
 	ThoughtPackedInside:      {0.80, 0.55, 0.60, 1},
 	ThoughtRentedGear:        {0.55, 0.75, 0.85, 1},
 	ThoughtNoRentals:         {0.85, 0.40, 0.30, 1},
+	ThoughtRentedInTown:      {0.80, 0.60, 0.40, 1},
 	ThoughtGreatApres:        {0.95, 0.70, 0.35, 1},
 	ThoughtWarmedUp:          {0.95, 0.60, 0.40, 1},
 	ThoughtCold:              {0.55, 0.70, 0.95, 1},

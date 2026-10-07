@@ -586,17 +586,26 @@ var (
 	ColdShare         = float32(0.4)
 )
 
+// RentalShare is the share of guests at skill who come without skis.
+func RentalShare(skill float32) float32 {
+	switch {
+	case skill >= ai.SkillAdvancedThreshold:
+		return RentalShareByTier[2]
+	case skill >= ai.SkillIntermediateThreshold:
+		return RentalShareByTier[1]
+	}
+	return RentalShareByTier[0]
+}
+
+// NoRentalsStayHome is the share of guests who'd need to rent that stay
+// home from a resort without a rental shop; the rest rent in town on the
+// way (sim's demand poll and spawn).
+const NoRentalsStayHome = float32(0.5)
+
 // RollVisitNeeds rolls the needs g arrives with today. Pass holders own
 // their skis.
 func (g *Guest) RollVisitNeeds(r *rand.Rand) {
-	tier := 0
-	switch {
-	case g.Traits.Skill >= ai.SkillAdvancedThreshold:
-		tier = 2
-	case g.Traits.Skill >= ai.SkillIntermediateThreshold:
-		tier = 1
-	}
-	g.NeedsGear = !g.HasSeasonPass && r.Float32() < RentalShareByTier[tier]
+	g.NeedsGear = !g.HasSeasonPass && r.Float32() < RentalShare(g.Traits.Skill)
 	g.WantsApres = r.Float32() < ApresShare
 	g.Apres = 0
 	g.ColdSense = 0
