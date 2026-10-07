@@ -451,24 +451,26 @@ Patience is clamped to `[0, 1]` on every write.
 
 ### Satisfaction, Rating, and Thoughts
 
-`Guest.Satisfaction` (0..1) is the guest's mood for the visit. It starts at the baseline, 0.5. When they leave, it's captured as `LastScore` and added to the day's departures in `History`. At rollover, `World.Rating` becomes the average of the day's departures (`History.DayRating`); a day with no departures keeps the previous rating. [[Demand]] reads `World.Rating`.
+`Guest.Satisfaction` (0..1) is the guest's score for the day: a ledger that starts at 0.5 (`scoreStart`), is held to [0, 1], and never drifts back. When the guest reaches their car, `ActDepart` sets the departure aside in `Guest.Leaving` (score, active conditions, reason); when the car leaves the map (`removeCar`), `finishDeparture` adds the end-of-day term (each condition still on costs its hourly rate once more), captures the result as `LastScore`, and adds it to the day's departures in `History`. A guest with no car is finished at once. At rollover, `World.Rating` becomes the average of the day's departures (`History.DayRating`); a day with no departures keeps the previous rating. [[Demand]] reads `World.Rating`.
 
 Satisfaction changes in exactly two ways, and both read one table, `ai.Effects`, indexed by `ThoughtKind`:
 
-- **Drift** (`Simulation.tickMood`, every tick, for every guest on the mountain whatever they're doing). The target is `Guest.Baseline`, plus the snow underfoot's pull from the last skiing tick (`tickUnderfoot`: each taste × that feature of the snow, averaged over about 6 s of skiing, × 0.15 and held to ±0.25, plus up to −0.15 of fear past `ComfortSlope`), plus the pull of every active condition, clamped to [0.15, 0.90]. Satisfaction closes 0.6% of the gap per sim second.
-- **Events** (`Simulation.applyEvent`). A one-off delta, clamped to [0, 1], plus the row's `Baseline` change, with the baseline clamped to [0.15, 0.85].
+- **Events** (`Simulation.applyEvent`): the row's amount, added once. A great run's is scaled by 0.6^t × 0.75^l (`applyEventScaled` in `judgeRun`), where t and l count this visit's earlier great runs on the same main trail and off the same lift (`Guest.TrailTally`, `Guest.LiftTally`; the lift is `Run.LiftID`, the one unloaded from).
+- **Conditions** (`Simulation.tickMood`, every tick, for every guest on the mountain whatever they're doing): each active condition's amount is a rate per clock hour, charged for as long as it holds.
 
-**Tastes.** `GuestTraits.Tastes` (`ai.Tastes`) holds seven affinities from −1 to +1, in `TasteKind` order: groomed, powder, moguls, trees, steep, ice, crowds. `world.RollTastes` picks an archetype by its share at the guest's skill tier (`ai.Archetypes`: Cruiser, Powder Hound, Bump Skier, Glade Rat, Charger), then draws each affinity around its centre with a 0.25 spread. `ai.TasteLabel` names the nearest archetype for the follow panel. Until snow underfoot reads tastes ([[Snow Tastes]] step 2), the glade and corduroy reactions use `Tastes.LikesGlades` (trees ≥ 0.4) and `Tastes.PrefersGroomed` (groomed ≥ 0.3). Saved as `tastes`; saves without it roll tastes from the guest's ID. `TraitsFor` (testbeds) gives beginners and intermediates the Cruiser centre and advanced guests neutral tastes.
+The follow panel shows the score with the active conditions named beside it (`ai.ConditionTag`). `Satisfaction` and a pending `Leaving` are saved.
 
-**The baseline** starts at 0.5 on arrival and is the guest's memory of the day; it doesn't decay. Lowered by injured (−0.05), hurt and going home (−0.03), abandoned (−0.10), slow patrol (−0.03), too much for me (−0.02), and caught in an avalanche (−0.03). Raised by a great run, by 0.04 × 0.6^t × 0.75^l (`applyEventScaled` in `judgeRun`), where t and l count this visit's earlier great runs on the same main trail and off the same lift (`Guest.TrailTally`, `Guest.LiftTally`). The lift is `Run.LiftID`, the one unloaded from. So one trail tops out near 0.57, and one lift near 0.66 however many trails it serves. `Satisfaction` and `Baseline` are saved for guests on the mountain.
+**Tastes.** `GuestTraits.Tastes` (`ai.Tastes`) holds seven affinities from −1 to +1, in `TasteKind` order: groomed, powder, moguls, trees, steep, ice, crowds. `world.RollTastes` picks an archetype by its share at the guest's skill tier (`ai.Archetypes`: Cruiser, Powder Hound, Bump Skier, Glade Rat, Charger), then draws each affinity around its centre with a 0.25 spread. `ai.TasteLabel` names the nearest archetype for the follow panel. `Tastes.PrefersGroomed` (groomed ≥ 0.3) keeps a guest on corduroy and makes corduroy the reason for their great runs. Saved as `tastes`; saves without it roll tastes from the guest's ID. `TraitsFor` (testbeds) gives beginners and intermediates the Cruiser centre and advanced guests neutral tastes.
+
+**Snow underfoot** (`sim/underfoot.go`): each taste × that feature of the snow under a skiing guest, averaged over about 6 s of skiing, starts and ends the underfoot condition thoughts (±0.4 on, below 0.2 or off skis to end) and, as dislike, tires them faster. Fear past `ComfortSlope` is "this is way too steep for me". These conditions carry no rate: what snow does to the score comes through each run's verdict ([[Snow Tastes]] step 3).
 
 Every change is reported by a thought, and no thought changes a stat by itself.
 
 **Conditions** hold for a while. `Simulation.setCondition` turns one on (adding its thought once, counted for the day) or off; `Guest.Conditions` is the bitmask. Needs start below 0.15 and clear above 0.25 (`holds`).
 
-| Condition | On | Off | Pull |
+| Condition | On | Off | Per clock hour |
 |---|---|---|---|
-| Snow underfoot: `ThoughtLovingPowder` / `ThoughtDeepSnow`, `ThoughtLovingBumps` / `ThoughtHatingBumps`, `ThoughtLovingGlades` / `ThoughtScaredInTrees`, `ThoughtIcy`, `ThoughtTooSteep` | the averaged taste × feature reaches ±0.4 (fear 0.5) | below 0.2, or not skiing | 0: they report the snow underfoot's pull |
+| Snow underfoot: `ThoughtLovingPowder` / `ThoughtDeepSnow`, `ThoughtLovingBumps` / `ThoughtHatingBumps`, `ThoughtLovingGlades` / `ThoughtScaredInTrees`, `ThoughtIcy`, `ThoughtTooSteep` | the averaged taste × feature reaches ±0.4 (fear 0.5) | below 0.2, or not skiing | 0 |
 | `ThoughtHungry`, `ThoughtThirsty`, `ThoughtImpatient` | Hunger, Thirst, Patience < 0.15 | > 0.25 | −0.10 each |
 | `ThoughtTired` | Energy < 0.15 (and not exhausted) | > 0.25 | 0 |
 | `ThoughtExhausted` | min(Patience, Energy) < 0.05 | > 0.15 | 0 |

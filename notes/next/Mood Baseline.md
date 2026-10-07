@@ -6,6 +6,8 @@ status: done
 
 # Mood Baseline
 
+**Superseded 2026-10-07** by a ledger, at the user's call: satisfaction no longer drifts toward a baseline. Events add once and for good, conditions cost by the clock hour, and the score is recorded when the guest's car leaves the map, with each condition still on costing once more ([[Satisfaction]], [[Guests Spec]]). The per-trail and per-lift repeat decay for great runs carried over. The rest of this note is the history.
+
 Let a good day add up. Each guest gets a baseline, the 0.5 that their mood drifts toward today. A good run raises it, and each repeat of the same run raises it by less. A resort with varied, satisfying terrain then sends guests home happier than one with a single run lapped all day. Builds on [[Satisfaction Rework]], and shares its repeat counting with [[Snow Tastes]] step 5.
 
 ## Why
@@ -56,3 +58,4 @@ Each step builds with `go build` and `go vet` and is judged headless. No Go test
 - 2026-10-07: The user decided: bad experiences lower the baseline; repeats decay per trail (faster) and per lift (slower); no carry-over for regulars yet.
 - 2026-10-07: Built: the baseline, its effects, and per-trail and per-lift repeats. The rating is held down by closing time zeroing patience (Next Steps).
 - 2026-10-07: With closing no longer zeroing patience, the regraded Boreal save rates 0.46–0.49 (satisfaction at exit 0.47 against a baseline of 0.54); 72% of guests still leave thirsty, since it has no bar.
+- 2026-10-07: Superseded by the ledger: no baseline, no drift; great runs keep their repeat decay.
