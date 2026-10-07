@@ -58,12 +58,16 @@ type Editor struct {
 	// stroke is the terrain brush stroke in progress (terrain_brush.go).
 	stroke terrainStroke
 	// Parcel rect-selection state
-	parcelRectStart           [2]int
-	parcelRectActive          bool
-	parcelRectIntent          parcelRectIntent
-	parcelEditID              uint16 // ID of parcel being modified via rect or popup
-	parcelPopup               *ui.Window
-	lotPopup                  *ui.Window // parking lot opened by clicking it with no tool
+	parcelRectStart  [2]int
+	parcelRectActive bool
+	parcelRectIntent parcelRectIntent
+	parcelEditID     uint16 // ID of parcel being modified via rect or popup
+	parcelPopup      *ui.Window
+	lotPopup         *ui.Window // parking lot opened by clicking it with no tool
+	trailPopup       *ui.Window // trail opened by clicking it with no tool
+	// trail is the trail being painted while toolTrailPaint is active
+	// (editor_trails.go).
+	trail                     editorTrail
 	entryPopup                *ui.Window // road entry opened by clicking its post
 	lotTool                   lotTool
 	serviceTool               serviceTool                    // the building tool's session
@@ -212,6 +216,8 @@ func (e *Editor) Init(app *engine.App) error {
 	e.toolButtons[toolLower] = e.terrainSubmenu.AddChild(render.IconArrowFatDown, "Lower", func() { e.setTool(toolLower) })
 
 	// Land: single button to start drawing a new parcel rectangle
+	e.toolButtons[toolTrailPaint] = e.menuBar.AddIconButton(render.IconFlag, "Trail", func() { e.activateTrailTool() })
+
 	e.toolButtons[toolParcelRect] = e.menuBar.AddIconButton(render.IconGlobe, "Add Parcel", func() {
 		e.parcelRectIntent = parcelIntentNew
 		e.parcelRectActive = false
@@ -372,6 +378,9 @@ func (e *Editor) Update(dt float64) {
 			e.lotTool.reset(e.lotTool.only) // drop the drag, keep the tool
 		case e.lotPopup != nil && e.lotPopup.Visible:
 			e.lotPopup.Visible = false
+		case e.trailPopup != nil && e.trailPopup.Visible:
+			e.trailPopup.Visible = false
+			e.trail.id = 0
 		case e.entryPopup != nil && e.entryPopup.Visible:
 			e.entryPopup.Visible = false
 		case e.activeTool != toolNone:
@@ -456,6 +465,9 @@ func (e *Editor) Update(dt float64) {
 			e.markDirty()
 		}
 		e.lotPopup.HandleInput(inp)
+	}
+	if e.trailPopup != nil && e.trailPopup.Visible {
+		e.trailPopup.HandleInput(inp)
 	}
 
 	// C: toggle the contour overlay via the panel so the hotkey and the
@@ -615,7 +627,9 @@ func (e *Editor) Update(dt float64) {
 		e.lotPopup != nil && e.lotPopup.Visible &&
 			e.lotPopup.ContainsPoint(inp.MousePos[0], inp.MousePos[1]) ||
 		e.entryPopup != nil && e.entryPopup.Visible &&
-			e.entryPopup.ContainsPoint(inp.MousePos[0], inp.MousePos[1])
+			e.entryPopup.ContainsPoint(inp.MousePos[0], inp.MousePos[1]) ||
+		e.trailPopup != nil && e.trailPopup.Visible &&
+			e.trailPopup.ContainsPoint(inp.MousePos[0], inp.MousePos[1])
 	overChrome := e.menuBar.ContainsY(inp.MousePos[1]) ||
 		e.topBar.ContainsY(inp.MousePos[1]) ||
 		e.startDate.Contains(inp.MousePos[0], inp.MousePos[1]) ||
@@ -678,6 +692,12 @@ func (e *Editor) Update(dt float64) {
 	// follow the cursor while held. Suppressed when a slider is grabbing
 	// input or the cursor is over slider/menu chrome.
 	// Clear the suppress flag once the mouse button is fully released.
+	if e.activeTool == toolTrailPaint && inp.RightHeld && e.hoverValid && !overChrome {
+		e.paintTrailAt(e.hoverCell, true)
+	}
+	if !inp.LeftClick && !inp.LeftHeld && !inp.RightHeld {
+		e.finishTrailStroke()
+	}
 	if !inp.LeftClick && !inp.LeftHeld {
 		e.suppressBrushUntilRelease = false
 		e.endTerrainStroke(r)
@@ -796,6 +816,10 @@ func (e *Editor) handleToolNoneMouse(r *render.Renderer, leftClick, leftHeld boo
 			e.roadEdit.clear()
 			e.structureEdit.clear()
 			e.openLotPopup(lot.ID, false, r.ScreenWidth(), r.ScreenHeight())
+		} else if tr := e.world.TrailAt(e.hoverCell[0], e.hoverCell[1]); tr != nil {
+			e.roadEdit.clear()
+			e.structureEdit.clear()
+			e.openTrailPopup(tr, r.ScreenWidth(), r.ScreenHeight())
 		} else if p := e.world.ParcelAt(e.hoverCell[0], e.hoverCell[1]); p != nil && e.showParcels() {
 			e.roadEdit.clear()
 			e.structureEdit.clear()
@@ -1203,6 +1227,8 @@ func (e *Editor) applyEditorTool(gx, gz int, r *render.Renderer, dt float32) {
 		refreshTreesAround(r, w, gx, gz, e.brushRadius()+1)
 	case toolSmooth, toolFlatten, toolRaise, toolLower:
 		e.applyTerrainBrush(r, dt)
+	case toolTrailPaint:
+		e.paintTrailAt([2]int{gx, gz}, e.trail.erase)
 	}
 }
 
@@ -1902,7 +1928,8 @@ func (e *Editor) buildEditorParcelOverlay(rectEnd [2]int) ([]uint8, int, int) {
 	t := e.world.Terrain
 	hasParcels := len(e.world.Parcels) > 0 && e.showParcels()
 	hasRect := e.activeTool == toolParcelRect && e.parcelRectActive
-	if !hasParcels && !hasRect {
+	hasTrails := len(e.world.Trails) > 0
+	if !hasParcels && !hasRect && !hasTrails {
 		return nil, 0, 0
 	}
 	tw, th := t.Width, t.Height
@@ -1938,6 +1965,8 @@ func (e *Editor) buildEditorParcelOverlay(rectEnd [2]int) ([]uint8, int, int) {
 			set(c[0], c[1], rv, gv, bv, alpha)
 		}
 	}
+	// Trails over the parcels: every one, the one being edited brighter.
+	drawTrailOverlay(e.world.Trails, e.showingTrail(), true, set)
 	// Live rect selection preview — use the same cell set that would be
 	// committed on click: road-clipped by default, full rect when shift held.
 	if hasRect {
@@ -2098,6 +2127,9 @@ func (e *Editor) Render(r *render.Renderer) {
 	}
 	if e.lotPopup != nil && e.lotPopup.Visible {
 		edDrawables = append(edDrawables, e.lotPopup)
+	}
+	if e.trailPopup != nil && e.trailPopup.Visible {
+		edDrawables = append(edDrawables, e.trailPopup)
 	}
 	if e.settingsMenu.Visible() {
 		edDrawables = append(edDrawables, e.settingsMenu)

@@ -2317,34 +2317,7 @@ func (s *Scenario) buildCellOverlay() (pixels []uint8, w, h int) {
 	}
 
 	// Trails — shown when overlay is on, or always for the selected/active trail.
-	for _, t := range s.world.Trails {
-		active := t.ID == s.activeTrailID
-		if !trailOverlayOn && !active {
-			continue
-		}
-		var r, g, b, a uint8
-		switch t.Difficulty {
-		case world.DiffGreen:
-			r, g, b = 55, 160, 55
-		case world.DiffBlue:
-			r, g, b = 55, 120, 210
-		default: // DiffBlack
-			r, g, b = 60, 60, 60
-		}
-		if active {
-			a = 200 // brighter while editing
-		} else {
-			a = 130
-		}
-		for _, c := range t.Cells {
-			set(c[0], c[1], r, g, b, a)
-		}
-		if t.Groomed && !active {
-			for _, c := range t.Cells {
-				set(c[0], c[1], 255, 255, 255, 40)
-			}
-		}
-	}
+	drawTrailOverlay(s.world.Trails, s.activeTrailID, trailOverlayOn, set)
 	appendServiceOverlay(editedLodge, set)
 
 	return pix, tw, th
@@ -2800,28 +2773,12 @@ func (s *Scenario) activateTrailTool() {
 
 // applyTrailPaint adds cells under the brush to the active trail.
 func (s *Scenario) applyTrailPaint(gx, gz int) {
-	if s.activeTrailID == 0 {
-		return
-	}
-	cells := world.BrushCells(gx, gz, trailPaintBrushRadius)
-	var valid [][2]int
-	for _, c := range cells {
-		if s.world.Terrain.InBounds(c[0], c[1]) {
-			valid = append(valid, c)
-		}
-	}
-	if len(valid) > 0 {
-		s.world.AddTrailCells(s.activeTrailID, valid)
-	}
+	paintTrail(s.world, s.activeTrailID, gx, gz, false)
 }
 
 // applyTrailErase removes cells under the brush from the active trail.
 func (s *Scenario) applyTrailErase(gx, gz int) {
-	if s.activeTrailID == 0 {
-		return
-	}
-	cells := world.BrushCells(gx, gz, trailPaintBrushRadius)
-	s.world.RemoveTrailCells(s.activeTrailID, cells)
+	paintTrail(s.world, s.activeTrailID, gx, gz, true)
 }
 
 // finishTrailPaintStroke rebuilds the TrailGraph after a drag-paint stroke ends
@@ -3288,31 +3245,6 @@ func (s *Scenario) openTrailPopup(trail *world.Trail, screenW, screenH int) {
 // Confirm/Cancel instead of the normal Clear button.
 func (s *Scenario) buildTrailPopup(trail *world.Trail, confirmClear bool, screenW, screenH int) {
 	t := trail
-	w := ui.NewWindow("Trail", 0, 0)
-	w.AddTextInput("Name", t.Name, func(text string) { t.Name = text })
-	w.AddDifficultyToggles("Difficulty",
-		func(bit uint8) bool { return t.Difficulty == world.TerrainDifficulty(bit) },
-		func(bit uint8) {
-			t.Difficulty = world.TerrainDifficulty(bit)
-			s.world.RebuildTrailGraph()
-		},
-	)
-	w.AddBoolToggle("Groomed", func() bool { return t.Groomed }, func(v bool) {
-		t.Groomed = v
-		s.sim.InvalidateSections()
-	})
-	w.AddLabel("Cells", func() string { return fmt.Sprintf("%d", len(t.Cells)) })
-	w.AddLabel("Groom", func() string {
-		if len(t.Cells) == 0 {
-			return "—"
-		}
-		var sum float32
-		for _, c := range t.Cells {
-			sum += s.world.Terrain.Cells[c[0]][c[1]].Grooming
-		}
-		return fmt.Sprintf("%.0f%%", sum/float32(len(t.Cells))*100)
-	})
-
 	enterEdit := func(erase bool) {
 		s.trailEraseMode = erase
 		s.activeTrailID = t.ID
@@ -3323,19 +3255,17 @@ func (s *Scenario) buildTrailPopup(trail *world.Trail, confirmClear bool, screen
 		if s.popup != nil {
 			s.popup.Visible = false
 		}
+		if erase {
+			s.setToast("Drag to remove cells. Esc to finish.")
+		} else {
+			s.setToast("Drag to add cells. Right-drag to remove. Esc to finish.")
+		}
 	}
-	w.AddActionButton("Add", func() {
-		enterEdit(false)
-		s.setToast("Drag to add cells. Right-drag to remove. Esc to finish.")
-	})
-	w.AddActionButton("Remove", func() {
-		enterEdit(true)
-		s.setToast("Drag to remove cells. Esc to finish.")
-	})
-
-	if confirmClear {
-		w.AddLabel("Confirm", func() string { return "Delete this trail?" })
-		w.AddActionButton("Confirm", func() {
+	w := newTrailWindow(s.world, t, confirmClear, trailHooks{
+		groomed: func() { s.sim.InvalidateSections() },
+		edit:    enterEdit,
+		deleted: func() {
+			// Guests mid-run on it plan afresh.
 			for _, a := range s.world.OnMountain {
 				for _, step := range a.Plan.Steps {
 					if step.TrailID == t.ID {
@@ -3344,22 +3274,13 @@ func (s *Scenario) buildTrailPopup(trail *world.Trail, confirmClear bool, screen
 					}
 				}
 			}
-			s.world.DeleteTrail(t.ID)
-			s.world.RebuildTrailGraph()
 			s.activeTrailID = 0
 			if s.popup != nil {
 				s.popup.Visible = false
 			}
-		})
-		w.AddActionButton("Cancel", func() {
-			s.buildTrailPopup(t, false, screenW, screenH)
-		})
-	} else {
-		w.AddActionButton("Clear", func() {
-			s.buildTrailPopup(t, true, screenW, screenH)
-		})
-	}
-
+		},
+		reopen: func(confirm bool) { s.buildTrailPopup(t, confirm, screenW, screenH) },
+	})
 	w.Visible = true
 	w.Center(screenW, screenH)
 	s.popup = w
