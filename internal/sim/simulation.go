@@ -107,6 +107,8 @@ type Simulation struct {
 	// thread for seconds at a time. The grid is rebuilt once per Tick
 	// alongside towersScratch.
 	spatial *spatialGrid
+	// hazardScratch is the swerve check's reusable hazard list.
+	hazardScratch []hazardPoint
 
 	// OnDayRollover, if non-nil, is called once per in-game day after
 	// weather and snowfall have been applied. Used by the scene layer to
@@ -2313,10 +2315,13 @@ func (s *Simulation) tickLocomote(agent *world.Guest, dt float64) {
 	} else {
 		return
 	}
+	// Around the trees, where the straight way crosses them: steer at
+	// the next waypoint, while the destination stays targetPos.
+	steer := s.routeTarget(agent, targetPos)
 
 	// Walk (not ski) when skis are off, or when terrain and momentum
 	// no longer call for skiing.
-	if !agent.SkisOn || (!shouldSki(w.Terrain, agent.Pos, targetPos) && agent.Speed <= skiWalkSpeed) {
+	if !agent.SkisOn || (!shouldSki(w.Terrain, agent.Pos, steer) && agent.Speed <= skiWalkSpeed) {
 		// Remove skis when close to lodge or parking — guests shouldn't
 		// shuffle the last few metres in full gear. Only trigger near the
 		// destination so a departing guest still skis down from the lift
@@ -2327,8 +2332,8 @@ func (s *Simulation) tickLocomote(agent *world.Guest, dt float64) {
 				return
 			}
 		}
-		s.recordWalkTick(agent, targetPos)
-		s.tickWalkToward(agent, targetPos, dt)
+		s.recordWalkTick(agent, steer)
+		s.tickWalkToward(agent, steer, dt)
 		if !agent.SkisOn {
 			agent.Patience -= float32(dt * patienceDrainPerSecWalking)
 			if agent.Patience < 0 {
@@ -2337,7 +2342,7 @@ func (s *Simulation) tickLocomote(agent *world.Guest, dt float64) {
 		}
 		return
 	}
-	s.tickSkier(agent, targetPos, dt)
+	s.tickSkier(agent, steer, dt)
 }
 
 // Near a lodge or parking lot guests walk the last stretch: skis come off

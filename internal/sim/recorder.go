@@ -35,7 +35,7 @@ type RecorderFrame struct {
 	DesiredHeading float32
 
 	TargetSpeed float32
-	Brake       float32 // commanded brakeAngle (rad)
+	Brake       float32 // commanded turn amplitude (rad)
 	TurnSide    int8    // -1/0/+1 carve commit
 	Mode        string  // "straight" | "carve" | "brake"
 

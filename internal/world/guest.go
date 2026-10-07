@@ -262,6 +262,14 @@ type Guest struct {
 	ColdSense  float32
 	Chill      float32
 
+	// Route is the way around trees to where the guest is skiing or
+	// walking freely (sim's routeTarget). Not saved.
+	Route SkiRoute
+
+	// Skid is how hard the guest skidded round last tick, 0–1 of their
+	// pivot rate; it costs balance (sim).
+	Skid float32
+
 	// Trunk is the tree trunk the guest last skied into, while they're
 	// still near it (sim.treeHit): they get up clear of it, and it can't
 	// knock them down again until they've skied away. Not saved.
@@ -619,4 +627,15 @@ func (g *Guest) RollVisitNeeds(r *rand.Rand) {
 		g.ColdSense = 0.5 + 0.5*r.Float32()
 	}
 	g.Chill = 0
+}
+
+// SkiRoute is a guest's way around trees to Goal: waypoints, the one
+// they're heading for, and when it may be planned again.
+type SkiRoute struct {
+	Goal      mgl32.Vec2
+	Points    []mgl32.Vec2
+	Index     int
+	Checked   bool
+	NextCheck float64
+	NextLook  float64
 }

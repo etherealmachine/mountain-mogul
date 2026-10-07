@@ -19,9 +19,9 @@ import (
 //   decide   → desired heading + scrub (the controller; no per-mode state)
 //   apply    → rate-cap heading, integrate physics
 //
-// S-turns emerge from the controller, not from a programmed oscillator: when
-// the skier exceeds comfort speed, we command a heading rotated off the fall
-// line by an angle that grows with overspeed; this engages the existing
+// S-turns emerge from the controller, not from a programmed oscillator: near
+// comfort speed, we command a heading rotated off the fall line by an angle
+// that grows with overspeed; this engages the existing
 // edge-friction term in the physics step and scrubs energy. A persistent
 // TurnSide flips when heading reaches the committed-side arc edge, producing
 // linked turns whose amplitude and period are dynamic functions of speed
@@ -47,29 +47,11 @@ const (
 
 	// Motion floors / arrival
 	skiWalkSpeed     = 2.0 // m/s; minimum forward motion (skating/poling)
+	skiCreepSpeed    = 1.0 // m/s; edging past a hazard (Decision.Stop), slower than a trunk hit
 	ArrivalRadius    = 6.0 // m; switch to direct-pointing inside this
 	ArrivalThreshold = 2.0 // m; sim considers the agent "there"
 
-	// Heading rotation. Single rate cap, applied uniformly. Capped at the
-	// rate a real skier can transfer their weight from one edge to the
-	// other — turns much faster than this read as "robotic" because no
-	// human could initiate that kind of direction change without losing
-	// balance.
-	headingRateMax = 40 * math.Pi / 180 // rad/s
-
-	// Minimum dwell on a committed turn side before the controller is
-	// allowed to flip. Models the body-weight commitment phase of a carve:
-	// you can't keep flipping edges every 0.3 s without falling. Combined
-	// with the heading rate cap, this puts each carve at ~1.2 s minimum
-	// and a full S-cycle at ~2.4 s — cruising rhythm, not slalom.
-	turnDwellMin = 1.2 // sec
-
-	// Speed-control braking. brakeAngle = clamp(overspeed × gain, 0, max),
-	// where overspeed = (speed − target)/target. A skier at 33% above target
-	// reaches brakeAngleMax; above that, scrub kicks in too.
-	brakeAngleMax     = 40 * math.Pi / 180 // rad; max heading offset for braking
-	brakeAngleGain    = 1.5
-	brakeMinForCommit = 8 * math.Pi / 180 // below this, drop turn-side commit and let heading relax to axis
+	// Turning, linked turns and swerves: ski_turns.go.
 
 	// Forward sampling for trees + boundaries. Horizon is generous because
 	// real obstacles (a 60 m grove, a wall) are wider than the skier's
@@ -243,17 +225,25 @@ type Perception struct {
 	AtCellDensity float32
 	InTrees       bool
 	MogulSize     float32 // underfoot, from the 1 m mogul map
+	Skid          float32 // last tick's skid, 0–1 of the pivot rate (apply)
 }
 
 // Decision is what the controller emits each tick. Consumed by apply().
 type Decision struct {
 	DesiredHeading float32
 	Scrub          float32 // m/s² active deceleration (beyond passive friction)
+	// Stop: no way past a hazard ahead, so the guest slows to
+	// skiCreepSpeed and edges on rather than skating at skiWalkSpeed.
+	Stop bool
+	// TurnRate caps how fast apply turns the heading this tick: the carve
+	// rate, or the pivot rate for a swerve. CarveRate is the rate beyond
+	// which turning skids.
+	TurnRate, CarveRate float32
 
 	// Diagnostics — propagated to Sense / RecorderFrame.
 	AxisHeading    float32
 	TacticalOffset float32
-	Brake          float32 // commanded brakeAngle (rad)
+	Brake          float32 // commanded turn amplitude (rad)
 	TurnSide       int8
 	TargetSpeed    float32
 	Mode           string
@@ -333,7 +323,7 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 
 	perc := perceive(s.World.Terrain, a, target)
 
-	dec := decide(s.World, s.towersScratch, s.spatial, a, perc, float32(dt))
+	dec := decide(s.World, s.towersScratch, s.spatial, a, perc, float32(dt), &s.hazardScratch)
 	if dec.TurnSide != a.TurnSide {
 		a.TurnDwell = 0
 	} else {
@@ -689,6 +679,7 @@ func perceive(t *world.Terrain, a *world.Guest, target mgl32.Vec3) Perception {
 		AtCellDensity: atCell,
 		InTrees:       atCell > inTreesThreshold,
 		MogulSize:     t.MogulSizeAt(pos[0], pos[2]),
+		Skid:          a.Skid,
 	}
 }
 
@@ -703,17 +694,22 @@ func perceive(t *world.Terrain, a *world.Guest, target mgl32.Vec3) Perception {
 //
 //	axis     = blend(target-direction, fall-line)  (slope-attenuated)
 //	tactical = forward-sampling lateral offset      (trees/boundaries)
-//	brake    = TurnSide × brakeAngle                (speed control → S-turns)
-//	desired  = axis + tactical + brake
+//	turn     = TurnSide × amplitude                 (speed control → S-turns)
+//	desired  = axis + tactical + turn
 //
-// The brake offset is what produces emergent S-turns: while overspeed,
-// brakeAngle > 0 → desired heading is off the fall line → edge friction
-// scrubs speed → speed drops → brakeAngle shrinks → if heading has reached
-// the arc edge on the committed side, flip TurnSide and carve back.
-func decide(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, a *world.Guest, perc Perception, dt float32) Decision {
+// then a swerve overrides desired when a trunk, tower or skier is on the
+// line within swerveLookSec (ski_turns.go).
+//
+// The turn offset is what produces S-turns: near target speed on a slope
+// the guest turns across the fall line by an amplitude that grows with
+// overspeed; edge friction scrubs speed; when heading reaches the arc edge
+// on the committed side (after turnDwell), TurnSide flips and they carve
+// back. Linked turns carve at the guest's carve rate; swerves pivot faster
+// and skid (turnRates).
+func decide(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, a *world.Guest, perc Perception, dt float32, hazardBuf *[]hazardPoint) Decision {
 	axisHeading := composeAxis(perc)
 
-	tactical, obstacleSeen, probeC, probeR, probeL := sampleTactical(w, towers, grid, a, perc, axisHeading, a.LastTactical)
+	tactical, _, probeC, probeR, probeL := sampleTactical(w, towers, grid, a, perc, axisHeading, a.LastTactical)
 
 	// Speed control. Base target from skill/traits, then reduce when trees
 	// are visible in the forward fan — real skiers back off in glades to
@@ -729,64 +725,90 @@ func decide(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, a *world.Gue
 		worstProbe = probeL
 	}
 	targetSpeed *= 1.0 - 0.4*clamp32(worstProbe/0.4, 0, 1)
+	targetSpeed = min(targetSpeed, treeSpeedAhead(w.Terrain, a, perc))
 	targetSpeed *= mogulSpeedScale(a.Traits, perc.MogulSize)
 	overspeed := float32(0)
 	if perc.Speed > targetSpeed && targetSpeed > 0.01 {
 		overspeed = (perc.Speed - targetSpeed) / targetSpeed
 	}
-	brakeAngle := clamp32(overspeed*float32(brakeAngleGain), 0, float32(brakeAngleMax))
-
-	// Persistent turn-side commit. Below the commit threshold the skier
-	// runs straight; above it, they're carving on a committed side.
-	//
-	// While avoiding an obstacle (obstacleSeen) we suppress the brake
-	// oscillation entirely. The tactical offset already takes the heading
-	// off the fall line, so cross-fall friction still scrubs speed — and
-	// the oscillation would otherwise fight the lateral commitment by
-	// swinging heading back through axis every cycle. Real skiers don't
-	// S-turn through trees; they pick a line and hold it.
+	// Linked turns on any real slope, wider the faster the guest is going
+	// against their target.
+	carveRate, pivotRate := turnRates(a.Traits.Skill, perc.Speed)
 	side := a.TurnSide
+	amp := turnAmplitude(a.Traits.Skill, perc, targetSpeed)
+
+	// Picking a way past trees is still done with linked turns: the
+	// tactical offset moves the line they turn about, and the turns are
+	// what keep their speed down among the trunks. A turn ends once the
+	// heading is within 15% of the swing of its edge.
+	edge := func(side int8) float32 {
+		return clamp32(tactical+float32(side)*amp, -turnOffMax, turnOffMax)
+	}
 	deviation := wrapAngle(perc.Heading - axisHeading)
-	dwellSatisfied := a.TurnDwell >= float32(turnDwellMin)
+	dwellSatisfied := a.TurnDwell >= turnDwell(a.Traits.Skill)
 	switch {
-	case obstacleSeen:
-		side = 0
-	case brakeAngle < float32(brakeMinForCommit):
+	case amp == 0:
 		side = 0
 	case side == 0:
-		side = pickInitialSide(perc, deviation)
-	case side > 0 && deviation > brakeAngle*0.85 && dwellSatisfied:
+		side = pickInitialSide(perc, wrapAngle(deviation-tactical))
+	case side > 0 && deviation > edge(+1)-0.15*amp && dwellSatisfied:
 		side = -1
-	case side < 0 && deviation < -brakeAngle*0.85 && dwellSatisfied:
+	case side < 0 && deviation < edge(-1)+0.15*amp && dwellSatisfied:
 		side = +1
 	}
 
-	desired := wrapAngle(axisHeading + tactical + float32(side)*brakeAngle)
-
-	// Active scrub: only when way overspeed. Below 60% over comfort, edge
-	// friction alone handles the brake. Above, we add a wedge-style scrub.
-	var scrub float32
-	if overspeed > 0.6 {
-		scrub = 4.0 * (overspeed - 0.6)
-		if scrub > 6.0 {
-			scrub = 6.0
-		}
+	desired := wrapAngle(axisHeading + edge(side))
+	if side == 0 {
+		desired = wrapAngle(axisHeading + tactical)
 	}
 
+	// Overspeed skids the turns round faster: a speed check.
+	turnRate := carveRate + (pivotRate-carveRate)*clamp32(overspeed/skidTurnOver, 0, 1)
+
+	// Active scrub: a skidded speed check when way overspeed.
+	var scrub float32
+	if overspeed > 0.6 {
+		scrub = min(4.0*(overspeed-0.6), 6.0)
+	}
+
+	// Anything on the line within the next second and a half: swerve
+	// round it at the pivot rate, or stop hard when there's no way past.
+	stopping, swerving := false, false
+	if hazardBuf == nil {
+		hazardBuf = new([]hazardPoint)
+	}
+	if h, urgent, stop := swerve(w, towers, grid, a, desired, turnRate, pivotRate, hazardBuf); urgent {
+		desired = h
+		turnRate = pivotRate
+		swerving = true
+		if stop {
+			scrub = max(scrub, float32(swerveStopScrub)*(1+clamp32(a.Traits.Skill, 0, 1)))
+			stopping = true
+		}
+	}
 	mode := "straight"
-	if brakeAngle > 0 {
+	if amp > 0 {
 		mode = "carve"
 	}
 	if scrub > 0 {
 		mode = "brake"
 	}
+	if turnRate > carveRate {
+		mode = "skid"
+	}
+	if swerving {
+		mode = "swerve"
+	}
 
 	return Decision{
 		DesiredHeading: desired,
 		Scrub:          scrub,
+		Stop:           stopping,
 		AxisHeading:    axisHeading,
 		TacticalOffset: tactical,
-		Brake:          brakeAngle,
+		Brake:          amp,
+		TurnRate:       turnRate,
+		CarveRate:      carveRate,
 		TurnSide:       side,
 		TargetSpeed:    targetSpeed,
 		Mode:           mode,
@@ -930,8 +952,8 @@ func standCoverScale(t ai.Tastes) float32 {
 
 // sampleTactical scores a fan of candidate forward arcs and returns the
 // best lateral offset (relative to axis), a flag indicating whether an
-// obstacle is in view (so the controller can suppress S-turn oscillation
-// while avoiding), and centre/right/left density readings for the HUD.
+// obstacle is in view, and centre/right/left density readings for the
+// HUD.
 //
 // Score = progressBonus × cos(offset)
 //
@@ -1102,7 +1124,15 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 // =============================================================================
 
 func apply(t *world.Terrain, a *world.Guest, dec Decision, perc Perception, dt float64) {
-	a.Heading = rotateToward(a.Heading, dec.DesiredHeading, float32(headingRateMax), dt)
+	before := a.Heading
+	a.Heading = rotateToward(a.Heading, dec.DesiredHeading, dec.TurnRate, dt)
+	// Turning faster than the carve rate skids the skis round.
+	skid := 0.0
+	if dt > 0 && dec.TurnRate > dec.CarveRate {
+		rate := math.Abs(float64(wrapAngle(a.Heading-before))) / dt
+		skid = math.Max(0, rate-float64(dec.CarveRate)) / float64(dec.TurnRate)
+	}
+	a.Skid = float32(skid)
 
 	hx := float32(math.Sin(float64(a.Heading)))
 	hz := float32(math.Cos(float64(a.Heading)))
@@ -1148,10 +1178,13 @@ func apply(t *world.Terrain, a *world.Guest, dec Decision, perc Perception, dt f
 		muB*gravity*cosTheta -
 		muE*gravity*cosTheta*sinOffAbs -
 		kDrag*speed*speed -
-		float64(dec.Scrub)
+		float64(dec.Scrub) -
+		skidDecel*skid
 	a.Speed = float32(math.Max(0, speed+accel*dt))
-	if a.Speed < skiWalkSpeed {
-		a.Speed = skiWalkSpeed
+	if floor := float32(skiWalkSpeed); dec.Stop {
+		a.Speed = max(a.Speed, skiCreepSpeed)
+	} else if a.Speed < floor {
+		a.Speed = floor
 	}
 
 	step := a.Speed * float32(dt)
@@ -1337,8 +1370,8 @@ func stressDelta(traits ai.GuestTraits, perc Perception, dec Decision) float32 {
 		excess := perc.Speed/traits.ComfortSpeed - 1.2
 		d -= excess * 0.3
 	}
-	if traits.ComfortSlope > 0 && perc.SlopeAngle > traits.ComfortSlope*1.2 {
-		excess := perc.SlopeAngle/traits.ComfortSlope - 1.2
+	if felt := feltSlope(perc); traits.ComfortSlope > 0 && felt > traits.ComfortSlope*1.2 {
+		excess := felt/traits.ComfortSlope - 1.2
 		d -= excess * 0.5
 	}
 	// Hard scrub costs balance — wedging under load is tiring.
@@ -1349,6 +1382,8 @@ func stressDelta(traits ai.GuestTraits, perc Perception, dec Decision) float32 {
 		d -= (perc.AtCellDensity - inTreesThreshold) * 0.4
 	}
 	d -= mogulStress(traits, perc)
+	// Skidding round a sharp swerve: hard work for the less skilled.
+	d -= float32(skidBalanceCost) * perc.Skid * (1 - clamp32(traits.Skill, 0, 1))
 
 	if d < -1 {
 		d = -1
@@ -1370,6 +1405,50 @@ const (
 	mogulRefSpeed    = float32(6)
 	mogulTasteRelief = float32(0.5)
 )
+
+// Among trees guests ski no faster than their skill lets them pick a
+// line between trunks: treeSpeedBase plus treeSpeedSkill × skill in an
+// open glade (about 7.5 m/s for an expert, 5.5 for an intermediate),
+// half that in a tight stand. Glade lovers go in; they don't go in at
+// full speed.
+const (
+	treeSpeedBase  = float32(3)
+	treeSpeedSkill = float32(5)
+	// Slowing for trees ahead (treeSpeedAhead): cover is read every
+	// treeLookStep along the line out to treeLookDist, assuming the guest
+	// can brake at treeBrakeDecel.
+	treeLookStep   = float32(5)
+	treeLookDist   = float32(40)
+	treeBrakeDecel = float32(2)
+)
+
+// treeSpeedAhead is the most the guest will ski now so they can still
+// slow to the tree cap of the cover along their line within
+// treeLookDist, braking at treeBrakeDecel: they start slowing for a glade
+// before they're in it.
+func treeSpeedAhead(t *world.Terrain, a *world.Guest, perc Perception) float32 {
+	limit := treeSpeedCap(a.Traits, perc.AtCellDensity)
+	hx, hz := float32(math.Sin(float64(a.Heading))), float32(math.Cos(float64(a.Heading)))
+	for d := float32(treeLookStep); d <= treeLookDist; d += treeLookStep {
+		cover := t.TreeCoverAt(perc.Pos[0]+d*hx, perc.Pos[2]+d*hz)
+		if cover < 0.05 {
+			continue
+		}
+		c := treeSpeedCap(a.Traits, cover)
+		limit = min(limit, float32(math.Sqrt(float64(c*c+2*treeBrakeDecel*d))))
+	}
+	return limit
+}
+
+// treeSpeedCap is the most a guest will ski with tree cover density
+// around them (no cap below 0.05).
+func treeSpeedCap(traits ai.GuestTraits, density float32) float32 {
+	if density <= 0.05 {
+		return float32(math.Inf(1))
+	}
+	c := (treeSpeedBase + treeSpeedSkill*clamp32(traits.Skill, 0, 1)) * (1 - 0.5*clamp32(density, 0, 1))
+	return max(c, skiWalkSpeed)
+}
 
 // Guests back off in moguls: the speed they aim for drops by up to
 // mogulSlowMax on full moguls, less with skill (an expert by
@@ -1515,7 +1594,7 @@ func ComputeSteeringDebug(w *world.World, a *world.Guest, target mgl32.Vec3) Ste
 	// negligible compared with the per-frame Simulation grid.
 	grid := newSpatialGrid(float32(w.Terrain.Width)*CellSize, float32(w.Terrain.Height)*CellSize)
 	grid.rebuild(w.OnMountain)
-	dec := decide(w, towers, grid, &clone, perc, 0)
+	dec := decide(w, towers, grid, &clone, perc, 0, nil)
 
 	horizon := perc.Speed * float32(sampleHorizonSec)
 	if horizon < float32(sampleMinDist) {
