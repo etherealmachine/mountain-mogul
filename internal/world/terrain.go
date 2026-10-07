@@ -605,6 +605,16 @@ func (t *Terrain) bilinearIndices(wx, wz, cellSize float32) (xi, zi int, fx, fz 
 	return xi, zi, fx, fz
 }
 
+// CellAtWorld returns the cell holding world XZ (wx, wz), or nil off the
+// map.
+func (t *Terrain) CellAtWorld(wx, wz float32) *Cell {
+	x, z := int(wx/CellSize), int(wz/CellSize)
+	if wx < 0 || wz < 0 || !t.InBounds(x, z) {
+		return nil
+	}
+	return &t.Cells[x][z]
+}
+
 // TreeCoverAt returns Cell.TreeCover for the cell holding world XZ
 // (wx, wz). Out-of-bounds returns 0 (clear).
 func (t *Terrain) TreeCoverAt(wx, wz float32) float32 {

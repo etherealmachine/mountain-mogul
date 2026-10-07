@@ -192,6 +192,7 @@ func NewSimulationWithSeed(w *world.World, seed int64) *Simulation {
 	// the season continues the one the starting snow was laid from
 	// (SeasonSnowpack) and an October start opens on October weather.
 	sim.Weather.RunUpTo(sim.DateAt(w.SimTime))
+	sim.refreshTrailConditions()
 	sim.closedForDay = sim.ClosedForDay()
 	w.ClosedForDay = sim.closedForDay
 	sim.yesterday = sim.Weather.Advance(sim.DateAt(w.SimTime))
@@ -1080,9 +1081,13 @@ func (s *Simulation) applyKindTransition(evt weatherEvent) {
 }
 
 // tickHourly runs the effects that step once per clock hour: snowmelt
-// from that hour's air temperature and sun. Snow days don't melt.
+// from that hour's air temperature and sun (snow days don't melt), then
+// the trails' conditions.
 func (s *Simulation) tickHourly() {
 	idx := int(s.SimTime / simSecondsPerHour)
+	if s.lastHour < idx {
+		defer s.refreshTrailConditions()
+	}
 	for s.lastHour < idx {
 		mid := (float64(s.lastHour) + 0.5) * simSecondsPerHour
 		s.lastHour++

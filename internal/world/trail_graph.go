@@ -1,6 +1,7 @@
 package world
 
 import (
+	"mountain-mogul/internal/ai"
 	"math"
 
 	"github.com/go-gl/mathgl/mgl32"
@@ -250,6 +251,33 @@ func (w *World) RunningLiftFor(diff TerrainDifficulty) bool {
 		}
 	}
 	return false
+}
+
+// LiftConditions is what skiing off liftID's top offers: the average of
+// the Conditions of the trails leaving it. ok is false when none do.
+func (w *World) LiftConditions(liftID uint64) (c [ai.TasteCount]float32, ok bool) {
+	if w.TrailGraph == nil {
+		return c, false
+	}
+	n := 0
+	for _, e := range w.TrailGraph.Edges {
+		if e.FromID != liftID || e.FromKind != KindLiftTop {
+			continue
+		}
+		if t := w.FindTrail(e.TrailID); t != nil {
+			for k := range c {
+				c[k] += t.Conditions[k]
+			}
+			n++
+		}
+	}
+	if n == 0 {
+		return c, false
+	}
+	for k := range c {
+		c[k] /= float32(n)
+	}
+	return c, true
 }
 
 // ServicesForLift returns the union of all trail difficulties whose edges

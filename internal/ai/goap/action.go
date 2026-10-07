@@ -54,6 +54,12 @@ const (
 	// nothing at their level is running.
 	belowLevelPenaltySec = 240.0
 
+	// tasteMissSec is the most a lift's terrain can add to riding it for
+	// not suiting the guest: its full amount when the trails off the top
+	// are everything they dislike, none when they're everything they
+	// love (Snow Tastes).
+	tasteMissSec = 300.0
+
 	// Rest duration constant — Rest restores Energy to ~full in one action.
 	// Modeled as a chunky atomic action rather than a series of timed
 	// recovery ticks so the planner doesn't need to chain dozens of small
@@ -207,6 +213,15 @@ func (a *RideLift) Cost(s *WorldSnapshot, w *world.World) float32 {
 	// ride it when nothing better runs, and wish for harder terrain.
 	if !w.ServicesForLift(a.LiftID).Has(skillLevel(s.Skill)) {
 		ride += belowLevelPenaltySec
+	}
+	// Terrain that suits the guest's tastes makes a lift the better ride.
+	if c, ok := w.LiftConditions(a.LiftID); ok {
+		var m float32
+		for k := range c {
+			m += s.Tastes[k] * c[k]
+		}
+		m = max(-1, min(1, m))
+		ride += tasteMissSec * (1 - m) / 2
 	}
 	// Repeat penalty: 0 for the first ride, ramps to repeatPenaltyCap.
 	count := ai.RideCountOf(s.RidenLifts, a.LiftID)

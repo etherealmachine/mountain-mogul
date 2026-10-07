@@ -53,10 +53,13 @@ var underfootConditions = []ai.ThoughtKind{
 	ai.ThoughtLovingGlades, ai.ThoughtScaredInTrees, ai.ThoughtIcy, ai.ThoughtTooSteep,
 }
 
-// underfootFeatures is how much of each taste's feature the cell under a
-// skiing guest has, 0..1: grooming, fresh ungroomed powder, moguls, tree
-// cover, steepness, an icy surface, and other skiers close by.
-func (s *Simulation) underfootFeatures(a *world.Guest, cell *world.Cell, slope float32) [ai.TasteCount]float32 {
+// cellFeatures is how much of each taste's snow and terrain feature a
+// cell has, 0..1: grooming, fresh ungroomed powder, moguls, tree cover,
+// steepness (slope in radians), and an icy surface. Crowds aren't a cell's
+// own: underfootFeatures adds them for a guest. Every place a guest judges
+// snow reads it here (underfoot, steering, trail conditions), so a richer
+// source, like a mogul map behind Cell.MogulSize, reaches them all.
+func cellFeatures(cell *world.Cell, slope float32) [ai.TasteCount]float32 {
 	var f [ai.TasteCount]float32
 	if cell == nil {
 		return f
@@ -77,6 +80,31 @@ func (s *Simulation) underfootFeatures(a *world.Guest, cell *world.Cell, slope f
 	f[ai.TasteMoguls] = clamp32(cell.MogulSize, 0, 1)
 	f[ai.TasteTrees] = cell.TreeCover()
 	f[ai.TasteSteep] = clamp32((slope-steepFrom)/(steepTo-steepFrom), 0, 1)
+	return f
+}
+
+// cellSlope is a cell's slope angle in radians.
+func cellSlope(cell *world.Cell) float32 {
+	return float32(math.Atan(float64(cell.Slope)))
+}
+
+// tasteMatch is how well features f suit tastes t: the sum of taste ×
+// feature.
+func tasteMatch(t ai.Tastes, f [ai.TasteCount]float32) float32 {
+	var m float32
+	for k := range f {
+		m += t[k] * f[k]
+	}
+	return m
+}
+
+// underfootFeatures is cellFeatures for the cell under a skiing guest,
+// plus how crowded it is around them.
+func (s *Simulation) underfootFeatures(a *world.Guest, cell *world.Cell, slope float32) [ai.TasteCount]float32 {
+	f := cellFeatures(cell, slope)
+	if cell == nil {
+		return f
+	}
 	near := 0
 	s.spatial.forEachNear(a.Pos[0], a.Pos[2], func(o *world.Guest) {
 		if o != a && o.SkisOn && o.OnLiftID == 0 && !o.Queued && o.Speed > 1 {
@@ -85,6 +113,35 @@ func (s *Simulation) underfootFeatures(a *world.Guest, cell *world.Cell, slope f
 	})
 	f[ai.TasteCrowds] = clamp32(float32(near)/crowdFull, 0, 1)
 	return f
+}
+
+// refreshTrailConditions sets every trail's Conditions to the average of
+// its cells' features: what skiing it offers right now, read by guests
+// choosing a lift. Runs every clock hour, which catches grooming, storms,
+// and moguls building through the day.
+func (s *Simulation) refreshTrailConditions() {
+	t := s.World.Terrain
+	for _, tr := range s.World.Trails {
+		var sum [ai.TasteCount]float32
+		n := 0
+		for _, c := range tr.Cells {
+			if !t.InBounds(c[0], c[1]) {
+				continue
+			}
+			cell := &t.Cells[c[0]][c[1]]
+			f := cellFeatures(cell, cellSlope(cell))
+			for k := range sum {
+				sum[k] += f[k]
+			}
+			n++
+		}
+		if n > 0 {
+			for k := range sum {
+				sum[k] /= float32(n)
+			}
+		}
+		tr.Conditions = sum
+	}
 }
 
 // tickUnderfoot reads the snow under a skiing guest against their tastes,

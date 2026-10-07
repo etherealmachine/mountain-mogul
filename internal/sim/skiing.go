@@ -87,7 +87,17 @@ const (
 	boundaryPenalty  = 8.0
 	progressBonus    = 0.3 // weight on cos(offset) — small so wider clearances aren't outvoted by "stay on axis"
 	sideCommitBonus  = 0.4 // weight on sign(prevTactical)·sign(offset) — biases toward the side already chosen so symmetric obstacles don't flip-flop
-	groomingBonus    = 0.5 // weight on Σ grooming along the candidate path — pulls skiers toward corduroy on clear slopes, outvoted by trees when present
+	// tasteSteerWeight weighs Σ taste × feature (cellFeatures) along a
+	// candidate path: guests drift toward the snow they like (corduroy,
+	// powder, bumps, glades) and away from what they don't, outvoted by
+	// hazards when present. 2.5 keeps a Cruiser on corduroy about as hard
+	// as the old fixed grooming bonus did.
+	tasteSteerWeight = 2.5
+	// gladeCoverRelief is how much a love of trees lowers the tree-stand
+	// part of the hazard: a trees taste of 1 avoids stands at
+	// 1 − gladeCoverRelief strength. Individual trunks are avoided by
+	// everyone.
+	gladeCoverRelief = 0.8
 	// groomEdgePenalty is added to a candidate's totalDensity (→ treePenalty
 	// multiplier) each time the sample transitions from groomed to ungroomed
 	// terrain. Only applied when self.Traits.Tastes.PrefersGroomed() is true. This
@@ -842,7 +852,8 @@ func collectTowerXZs(w *world.World) []mgl32.Vec2 {
 
 // hazardDensityAt returns a [0, 1]-ish penalty at world (x, z), combining:
 //
-//   - terrain tree cover (Cell.TreeCover), so whole stands are avoided
+//   - terrain tree cover (Cell.TreeCover) × coverScale, so whole stands are
+//     avoided, less by guests who love glades (standCoverScale)
 //   - linear falloff inside trunkHazardRadius of any trunk
 //   - linear falloff inside towerHazardRadius of any lift tower
 //   - linear falloff inside skierHazardRadius of any other skier
@@ -855,8 +866,8 @@ func collectTowerXZs(w *world.World) []mgl32.Vec2 {
 // it, this function dominated the profile (70% CPU) once active agent
 // count crossed ~150 because every probe point iterated every other
 // agent. With the grid, hazardDensityAt is O(towers + nearby) per call.
-func hazardDensityAt(t *world.Terrain, towers []mgl32.Vec2, grid *spatialGrid, selfID uint64, x, z float32) float32 {
-	d := t.TreeCoverAt(x, z)
+func hazardDensityAt(t *world.Terrain, towers []mgl32.Vec2, grid *spatialGrid, selfID uint64, x, z, coverScale float32) float32 {
+	d := t.TreeCoverAt(x, z) * coverScale
 
 	if d < 1 {
 		const trunkR2 = trunkHazardRadius * trunkHazardRadius
@@ -901,6 +912,13 @@ func hazardDensityAt(t *world.Terrain, towers []mgl32.Vec2, grid *spatialGrid, s
 	return d
 }
 
+// standCoverScale is how hard a guest avoids tree stands: 1 for anyone
+// who doesn't love trees, down to 1 − gladeCoverRelief for a trees taste
+// of 1, so glade lovers go into the woods.
+func standCoverScale(t ai.Tastes) float32 {
+	return 1 - gladeCoverRelief*max(0, t[ai.TasteTrees])
+}
+
 // sampleTactical scores a fan of candidate forward arcs and returns the
 // best lateral offset (relative to axis), a flag indicating whether an
 // obstacle is in view (so the controller can suppress S-turn oscillation
@@ -908,6 +926,7 @@ func hazardDensityAt(t *world.Terrain, towers []mgl32.Vec2, grid *spatialGrid, s
 //
 // Score = progressBonus × cos(offset)
 //
+//	+ tasteSteerWeight × Σ taste × feature (point along projected line)
 //	− Σ treePenalty × density(point along projected line)
 //	− boundaryPenalty × (off-map sample count)
 //	+ sideCommitBonus × sign(prevTactical) × sign(offset)   [conditional]
@@ -936,6 +955,15 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 		selfID = self.ID
 	}
 
+	// The guest's tastes steer the line (tasteSteerWeight), and their
+	// love of trees eases how hard they avoid stands.
+	var tastes ai.Tastes
+	coverScale := float32(1)
+	if self != nil {
+		tastes = self.Traits.Tastes
+		coverScale = standCoverScale(tastes)
+	}
+
 	// Current-cell grooming used as the starting point for groom-edge
 	// crossing detection. Only relevant when self.Traits.Tastes.PrefersGroomed().
 	var startGrooming float32
@@ -950,7 +978,7 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 	type sampleData struct {
 		ang                float32
 		totalDensity       float32
-		totalGrooming      float32
+		totalTaste         float32
 		boundaryHits       int
 		groomEdgeCrossings int // groomed→ungroomed transitions (PrefersGroomed only)
 	}
@@ -965,7 +993,7 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 		// Perpendicular-to-path unit vector for the corridor checks below.
 		rx, rz := hz, -hx
 
-		var totalDensity, totalGrooming float32
+		var totalDensity, totalTaste float32
 		var boundaryHits, groomEdgeCrossings int
 		prevGrooming := startGrooming
 		for sIdx := 1; sIdx <= sampleSegments; sIdx++ {
@@ -980,11 +1008,11 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 			// Treats the candidate path as a corridor, so the skier
 			// avoids brushing the patch edge instead of grazing it.
 			// Hazard includes trees, lift towers, and other skiers.
-			density := hazardDensityAt(t, towers, grid, selfID, x, z)
-			if dl := hazardDensityAt(t, towers, grid, selfID, x-rx*float32(corridorHalfWidth), z-rz*float32(corridorHalfWidth)); dl > density {
+			density := hazardDensityAt(t, towers, grid, selfID, x, z, coverScale)
+			if dl := hazardDensityAt(t, towers, grid, selfID, x-rx*float32(corridorHalfWidth), z-rz*float32(corridorHalfWidth), coverScale); dl > density {
 				density = dl
 			}
-			if dr := hazardDensityAt(t, towers, grid, selfID, x+rx*float32(corridorHalfWidth), z+rz*float32(corridorHalfWidth)); dr > density {
+			if dr := hazardDensityAt(t, towers, grid, selfID, x+rx*float32(corridorHalfWidth), z+rz*float32(corridorHalfWidth), coverScale); dr > density {
 				density = dr
 			}
 			totalDensity += density
@@ -993,9 +1021,11 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 				groomEdgeCrossings++
 			}
 			prevGrooming = grooming
-			totalGrooming += grooming
+			if cell := t.CellAtWorld(x, z); cell != nil {
+				totalTaste += tasteMatch(tastes, cellFeatures(cell, cellSlope(cell)))
+			}
 		}
-		samples[i] = sampleData{ang, totalDensity, totalGrooming, boundaryHits, groomEdgeCrossings}
+		samples[i] = sampleData{ang, totalDensity, totalTaste, boundaryHits, groomEdgeCrossings}
 		if totalDensity > maxDensity {
 			maxDensity = totalDensity
 		}
@@ -1024,20 +1054,12 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 		}
 	}
 
-	// Groom-preferring skiers (beginner/intermediate) weight corduroy 4× more
-	// strongly than the default — enough to dominate direction choice on clear
-	// slopes without being overridden by tree avoidance when hazards are present.
-	groomWeight := float32(groomingBonus)
-	if self != nil && self.Traits.Tastes.PrefersGroomed() {
-		groomWeight *= 4
-	}
-
 	bestScore := float32(-1e9)
 	for _, sd := range samples {
 		score := float32(progressBonus) * float32(math.Cos(float64(sd.ang)))
 		score -= float32(treePenalty) * sd.totalDensity
 		score -= float32(boundaryPenalty) * float32(sd.boundaryHits)
-		score += groomWeight * sd.totalGrooming
+		score += float32(tasteSteerWeight) * sd.totalTaste
 		score -= float32(treePenalty) * float32(groomEdgePenalty) * float32(sd.groomEdgeCrossings)
 		if prevSign != 0 && sd.ang != 0 {
 			angSign := float32(+1)
@@ -1400,7 +1422,7 @@ func ComputeSteeringDebug(w *world.World, a *world.Guest, target mgl32.Vec3) Ste
 		s := float32(math.Sin(ang))
 		d := mgl32.Vec2{c*hx + s*rx, c*hz + s*rz}
 		out.Probes[i].Dir = d
-		out.Probes[i].Density = hazardDensityAt(t, towers, grid, a.ID, a.Pos[0]+d[0]*horizon, a.Pos[2]+d[1]*horizon)
+		out.Probes[i].Density = hazardDensityAt(t, towers, grid, a.ID, a.Pos[0]+d[0]*horizon, a.Pos[2]+d[1]*horizon, standCoverScale(a.Traits.Tastes))
 	}
 	return out
 }

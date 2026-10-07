@@ -1,6 +1,7 @@
 package world
 
 import (
+	"mountain-mogul/internal/ai"
 	"fmt"
 	"math"
 	"sort"
@@ -27,6 +28,11 @@ type Trail struct {
 	Difficulty TerrainDifficulty
 	Groomed    bool // true ⇒ nearest shed services this trail automatically
 	Cells      [][2]int
+
+	// Conditions is what skiing the trail offers right now: the average
+	// of its cells' snow and terrain features, in ai.TasteKind order
+	// (crowds left 0). Derived by the sim every clock hour; not saved.
+	Conditions [ai.TasteCount]float32
 }
 
 // ContainsCell reports whether grid cell (cx, cz) belongs to this trail.
