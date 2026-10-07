@@ -11,7 +11,9 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 
 ## Priority
 
-In the order to work on them: nothing ranked since [[Moguls]] finished (2026-10-07).
+In the order to work on them:
+
+1. [[Service Improvements]] step 1: hunger, thirst, and rest as needs with urgencies, services that declare the needs they fulfil, one goal shape and one generic action. A refactor: guests behave as before.
 
 Then: **gameplay before scenario goals**. A headless three-lift Boreal (2026-10-06) runs about 70 guests a day with the rating stuck near 30%, so goals can't be set until guests can have a good day. The investigate-and-report items are done (2026-10-07); next is the guest pool per scenario ([[First Week Balance]]). [[Scenario Goals and Rules]] steps 1–4 shipped and are tabled until then.
 
@@ -93,7 +95,6 @@ Diagnose each first, report the cause, then fix:
 ## Base area ([[Amenities]], [[Lodge Shell]], [[Pathfinding]])
 
 - [[Building Interiors]]: a legend for the cutaway's colors and doors, then procedurally placed furniture.
-- [[Service Improvements]]: a job for each service, price against value, building quality, capacity and lines at the door, and new service types. Waiting on the user: the bar's role, how quality is raised, and what rental shops do.
 - [[Rental Shop]]: the next amenity and the first staffing puzzle. Beginners want it (see skill wants).
 - **Amenity quality and views**: better buildings attract more guests ([[GOAP]]) and can charge more. In [[Service Improvements]].
 - **Door queues and service rates**: buildings serve guests at a rate, and lines form at the door. In [[Service Improvements]].
@@ -237,3 +238,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-07: [[Moguls]] step 4 shipped.
 - 2026-10-07: [[Moguls]] done (step 5, docs); off the Priority list, which is now empty.
 - 2026-10-07: [[Moguls]] step 6 (slowing down and steering clear) prioritized by the user and shipped the same day; Priority is empty again.
+- 2026-10-07: [[Service Improvements]] planned with the user (a needs model) and ranked first.
