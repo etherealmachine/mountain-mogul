@@ -610,7 +610,7 @@ func (s *Scenario) buildLodgePopup(b *world.Building, confirmDelete bool, screen
 		w.AddLabel("Diners", func() string { return fmt.Sprintf("%d / %d seats", b.Diners, b.Seats()) })
 		w.AddIntStepper("Meal price ($)", &b.MealPrice, 1, 0, 100)
 	}
-	if b.TileCount(world.ServiceBar) > 0 {
+	if b.ServesDrinks() {
 		w.AddIntStepper("Drink price ($)", &b.DrinkPrice, 1, 0, 50)
 	}
 	if b.TileCount(world.ServicePatrol) > 0 {

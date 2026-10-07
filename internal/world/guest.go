@@ -59,6 +59,7 @@ type Guest struct {
 	Discipline      Discipline
 	Traits          ai.GuestTraits // includes SkillLevel
 	VisitsPerSeason float32        // expected mean visits per ski season
+	ArrivalOffset   float32        // preferred arrival, clock hours after opening (negative: before)
 
 	// =====================================================================
 	// Career stats — grow over time, drive future hysteresis (e.g. don't

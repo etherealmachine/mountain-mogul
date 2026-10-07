@@ -465,6 +465,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 			Discipline:       uint8(g.Discipline),
 			Skill:            g.Traits.Skill,
 			Tastes:           append([]float32(nil), g.Traits.Tastes[:]...),
+			ArrivalOffset:    &g.ArrivalOffset,
 			VisitsPerSeason:  g.VisitsPerSeason,
 			HomeEntry:        g.HomeEntryID,
 			VisitsThisSeason: g.VisitsThisSeason,
@@ -1062,6 +1063,10 @@ func dataToWorld(data ScenarioData) *world.World {
 			id = w.NextID()
 		}
 		traits := ai.TraitsFor(gd.Skill)
+		arrivalOffset := world.RollArrivalOffset(rand.New(rand.NewSource(int64(id) ^ 0x5eed)))
+		if gd.ArrivalOffset != nil {
+			arrivalOffset = *gd.ArrivalOffset
+		}
 		if len(gd.Tastes) == int(ai.TasteCount) {
 			copy(traits.Tastes[:], gd.Tastes)
 		} else {
@@ -1076,6 +1081,7 @@ func dataToWorld(data ScenarioData) *world.World {
 			Discipline:       world.Discipline(gd.Discipline),
 			Traits:           traits,
 			VisitsPerSeason:  gd.VisitsPerSeason,
+			ArrivalOffset:    arrivalOffset,
 			HomeEntryID:      gd.HomeEntry,
 			VisitsThisSeason: gd.VisitsThisSeason,
 			LifetimeVisits:   gd.LifetimeVisits,

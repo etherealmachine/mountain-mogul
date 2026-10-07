@@ -67,6 +67,7 @@ func newPoolGuest(w *World, g *rand.Rand, home uint64) *Guest {
 		Discipline:      disc,
 		Traits:          traits,
 		VisitsPerSeason: rollVisitsPerSeason(g),
+		ArrivalOffset:   RollArrivalOffset(g),
 		State:           AtHome,
 		HomeEntryID:     home,
 	}
@@ -152,6 +153,23 @@ func rollSkill(g *rand.Rand) float32 {
 		return SkillInTier(1, g)
 	default:
 		return SkillInTier(2, g)
+	}
+}
+
+// RollArrivalOffset draws when a guest likes to arrive, in clock hours
+// after opening: a quarter are eager, in the car park 1.5 to 2.5 hours
+// early so they're lined up when the lifts start; half come in the
+// morning, from an hour before opening to an hour and a half after; and
+// a quarter come late, 1.5 to 4 hours after opening.
+func RollArrivalOffset(g *rand.Rand) float32 {
+	r := g.Float32()
+	switch {
+	case r < 0.25:
+		return -2.5 + g.Float32()
+	case r < 0.75:
+		return -1 + 2.5*g.Float32()
+	default:
+		return 1.5 + 2.5*g.Float32()
 	}
 }
 

@@ -198,7 +198,7 @@ func setAtBuilding(s *WorldSnapshot, b *world.Building) bool {
 		if b.OffersRest() {
 			s.AtLodge = b.ID
 		}
-		if b.Offers(world.ServiceBar) {
+		if b.ServesDrinks() {
 			s.AtBar = b.ID
 		}
 		if b.Offers(world.ServiceTickets) {

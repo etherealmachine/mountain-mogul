@@ -316,7 +316,7 @@ func (a *SkiToBar) Precondition(s *WorldSnapshot, w *world.World) bool {
 	}
 	src := findLift(w, s.AtLiftTop)
 	dst := findBuilding(w, a.BarID, world.BuildingLodge)
-	if src == nil || dst == nil || !dst.Offers(world.ServiceBar) {
+	if src == nil || dst == nil || !dst.ServesDrinks() {
 		return false
 	}
 	return liftTopElev(w, src)-buildingElev(w, dst) >= minDescentMeters
@@ -518,6 +518,7 @@ func (a *EatAtFoodCourt) Precondition(s *WorldSnapshot, w *world.World) bool {
 
 func (a *EatAtFoodCourt) Apply(s *WorldSnapshot, w *world.World) {
 	s.Hunger = 1
+	s.Thirst = 1 // a meal comes with a drink
 	if b := findBuilding(w, a.LodgeID, world.BuildingLodge); b != nil {
 		s.RemainingBudget -= float32(b.MealPrice)
 	}
@@ -540,7 +541,7 @@ func (a *RelieveThirstAtBar) Precondition(s *WorldSnapshot, w *world.World) bool
 		return false
 	}
 	b := findBuilding(w, a.BarID, world.BuildingLodge)
-	return b != nil && b.Offers(world.ServiceBar) && s.RemainingBudget >= float32(b.DrinkPrice)
+	return b != nil && b.ServesDrinks() && s.RemainingBudget >= float32(b.DrinkPrice)
 }
 
 func (a *RelieveThirstAtBar) Apply(s *WorldSnapshot, w *world.World) {

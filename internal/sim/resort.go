@@ -40,8 +40,9 @@ func (s *Simulation) sendQueuesHome() {
 }
 
 // preOpenArrivalHours is how long before OpenHour guests start arriving to
-// get in line; the mountain counts as "closed for the day" before that.
-const preOpenArrivalHours = 0.5
+// get in line, the eagerest of them (world.RollArrivalOffset); the
+// mountain counts as "closed for the day" before that.
+const preOpenArrivalHours = 3.0
 
 // ClosedForDay reports whether the mountain is done for the day: the
 // resort is closed for the season, or it's past closing time, or it's
@@ -69,33 +70,45 @@ func (s *Simulation) tickResortClosed() {
 	s.World.ClosedForDay = closed
 }
 
-// arrivalTimeConstHours shapes the arrival curve: arrivals peak as the
-// pre-open window starts and decay with this time constant, so most of
-// the day's guests are on the hill by late morning.
-const arrivalTimeConstHours = 1.5
-
 // arrivalLastHourBeforeClose stops arrivals this long before CloseHour —
 // nobody drives up for the last hour.
 const arrivalLastHourBeforeClose = 1.0
 
-// arrivalShare is the fraction of the day's arrivals that land between
-// clock hours h0 and h1 (same day): an exponential decay from
-// OpenHour − preOpenArrivalHours to CloseHour − arrivalLastHourBeforeClose,
-// normalised to 1 over the day.
-func arrivalShare(w *world.World, h0, h1 float64) float64 {
-	a := float64(w.OpenHour) - preOpenArrivalHours
-	b := float64(w.CloseHour) - arrivalLastHourBeforeClose
+// arrivalWindow is the clock hours guests arrive in: from
+// OpenHour − preOpenArrivalHours to CloseHour − arrivalLastHourBeforeClose.
+// ok is false when the hours leave no window.
+func arrivalWindow(w *world.World) (a, b float64, ok bool) {
+	a = float64(w.OpenHour) - preOpenArrivalHours
+	b = float64(w.CloseHour) - arrivalLastHourBeforeClose
 	if b <= a {
 		b = float64(w.CloseHour)
 	}
-	if b <= a {
+	return a, b, b > a
+}
+
+// arrivalSpreadHours is how far a guest's arrival strays from the time
+// they like to arrive (the standard deviation).
+const arrivalSpreadHours = 1.0 / 3
+
+// arrivalShare is the fraction of guest g's arrivals on a day they come
+// that land between clock hours h0 and h1: a normal spread around their
+// preferred time (OpenHour + ArrivalOffset), kept inside the arrival
+// window and normalised to 1 over it.
+func arrivalShare(w *world.World, g *world.Guest, h0, h1 float64) float64 {
+	a, b, ok := arrivalWindow(w)
+	if !ok {
 		return 0
 	}
+	mean := float64(w.OpenHour + g.ArrivalOffset)
 	cdf := func(h float64) float64 {
 		h = math.Max(a, math.Min(b, h))
-		return (1 - math.Exp(-(h-a)/arrivalTimeConstHours)) / (1 - math.Exp(-(b-a)/arrivalTimeConstHours))
+		return 0.5 * (1 + math.Erf((h-mean)/(arrivalSpreadHours*math.Sqrt2)))
 	}
-	return cdf(h1) - cdf(h0)
+	total := cdf(b) - cdf(a)
+	if total <= 0 {
+		return 0
+	}
+	return (cdf(h1) - cdf(h0)) / total
 }
 
 // ejectQueue empties a lift's queue (and lines, for lifts with loading

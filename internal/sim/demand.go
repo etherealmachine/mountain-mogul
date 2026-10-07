@@ -121,9 +121,9 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 	// guests come from just before opening, mostly in the morning, and
 	// stop an hour before closing (arrivalShare).
 	h1 := HourOfDay(s.SimTime)
-	pollFractionOfDay := float32(arrivalShare(s.World, math.Max(0, h1-elapsed/simSecondsPerHour), h1))
-	if pollFractionOfDay <= 0 {
-		return
+	h0 := math.Max(0, h1-elapsed/simSecondsPerHour)
+	if a, b, ok := arrivalWindow(s.World); !ok || h1 <= a || h0 >= b {
+		return // outside the hours guests arrive in
 	}
 	if !s.World.AnyLiftRunning() {
 		// Open, but every lift is stopped (new lifts start stopped):
@@ -153,7 +153,7 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 			continue
 		}
 		dailyRate := g.VisitsPerSeason / seasonDaysApprox
-		p := dailyRate * pollFractionOfDay * rating * match * occFactor * priceFactor
+		p := dailyRate * float32(arrivalShare(s.World, g, h0, h1)) * rating * match * occFactor * priceFactor
 		if p <= 0 || rng.Global().Float32() >= p {
 			continue
 		}

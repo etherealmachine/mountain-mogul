@@ -85,19 +85,22 @@ func TestArrivalShareSumsToOne(t *testing.T) {
 	w := world.NewWorld(world.NewTerrain(8, 8))
 	for _, hours := range [][2]float32{{9, 16}, {8.5, 20}, {10, 12}} {
 		w.OpenHour, w.CloseHour = hours[0], hours[1]
-		sum := 0.0
-		for h := 0.0; h < 24; h += 0.1 {
-			share := arrivalShare(w, h, h+0.1)
-			if share < 0 {
-				t.Fatalf("hours %v: negative share at %v", hours, h)
+		for _, offset := range []float32{-2, 0, 3} {
+			g := &world.Guest{ArrivalOffset: offset}
+			sum := 0.0
+			for h := 0.0; h < 24; h += 0.1 {
+				share := arrivalShare(w, g, h, h+0.1)
+				if share < 0 {
+					t.Fatalf("hours %v: negative share at %v", hours, h)
+				}
+				sum += share
 			}
-			sum += share
-		}
-		if math.Abs(sum-1) > 1e-9 {
-			t.Errorf("hours %v: shares sum to %v", hours, sum)
-		}
-		if s := arrivalShare(w, float64(hours[1])-0.5, 24); s != 0 {
-			t.Errorf("hours %v: %v of arrivals in the last half hour", hours, s)
+			if math.Abs(sum-1) > 1e-9 {
+				t.Errorf("hours %v, offset %v: shares sum to %v", hours, offset, sum)
+			}
+			if s := arrivalShare(w, g, float64(hours[1])-0.5, 24); s != 0 {
+				t.Errorf("hours %v: %v of arrivals in the last half hour", hours, s)
+			}
 		}
 	}
 }
@@ -111,8 +114,9 @@ func TestOperatingHours(t *testing.T) {
 		running, close bool
 	}{
 		{3, false, true},
-		{8.4, false, true},
-		{8.6, false, false}, // pre-open: guests queue
+		{5.9, false, true},
+		{6.1, false, false}, // pre-open: the eagerest guests arrive and queue
+		{8.6, false, false},
 		{9, true, false},
 		{15.9, true, false},
 		{16, false, true},

@@ -441,7 +441,7 @@ var Effects = [ThoughtKindCount]Effect{
 	ThoughtCaughtInAvalanche: {Satisfaction: -0.10, Baseline: -0.03},
 	ThoughtLongLine:          {Satisfaction: -0.08},
 	ThoughtLineTooLong:       {Satisfaction: -0.08},
-	ThoughtLovingCorduroy:    {Satisfaction: +0.05},                  // a run that averaged ≥90% groomed
+	ThoughtLovingCorduroy:    {},                                     // why a run was great (sim.judgeRun): a report, no effect of its own
 	ThoughtGreatRun:          {Satisfaction: +0.04, Baseline: +0.04}, // Baseline scaled down by repeats (sim.judgeRun)
 	ThoughtTooHard:           {Satisfaction: -0.08, Baseline: -0.02},
 	ThoughtCrowdedRun:        {Satisfaction: -0.05},

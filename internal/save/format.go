@@ -472,7 +472,10 @@ type GuestData struct {
 	Discipline      uint8   `json:"disc,omitempty"`
 	Skill           float32 `json:"skill,omitempty"`
 	VisitsPerSeason float32 `json:"vps,omitempty"`
-	HomeEntry       uint64  `json:"entry,omitempty"` // world.Guest.HomeEntryID
+	// ArrivalOffset is the guest's preferred arrival, hours after
+	// opening; absent in older saves, which roll it from the guest's ID.
+	ArrivalOffset *float32 `json:"arrive,omitempty"`
+	HomeEntry     uint64   `json:"entry,omitempty"` // world.Guest.HomeEntryID
 	// Tastes are the guest's ai.Tastes in TasteKind order; absent in
 	// saves from before tastes, which roll them from the guest's ID.
 	Tastes []float32 `json:"tastes,omitempty"`

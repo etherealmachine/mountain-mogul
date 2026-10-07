@@ -109,9 +109,6 @@ func (s *Simulation) judgeRun(a *world.Guest) {
 	if crowded {
 		s.applyEvent(a, ai.ThoughtCrowdedRun, trail)
 	}
-	if a.Traits.Tastes.PrefersGroomed() && r.Groomed >= 0.9*r.Time {
-		s.applyEvent(a, ai.ThoughtLovingCorduroy, trail)
-	}
 	great := main == level && !tooHard && !crowded && !fell && r.StartY-a.Pos[1] >= greatRunMinVertical
 	var trailGreats, liftGreats int32
 	if trail != 0 {
@@ -121,6 +118,11 @@ func (s *Simulation) judgeRun(a *world.Guest) {
 		a.LiftTally, liftGreats = world.CountRun(a.LiftTally, r.LiftID, great)
 	}
 	if great {
+		// Why it was great, when it was the corduroy they love: a report
+		// only, so the run counts once.
+		if a.Traits.Tastes.PrefersGroomed() && r.Groomed >= 0.9*r.Time {
+			s.recordThought(a, ai.ThoughtLovingCorduroy, trail)
+		}
 		scale := math.Pow(greatRunTrailRepeat, float64(trailGreats)) * math.Pow(greatRunLiftRepeat, float64(liftGreats))
 		s.applyEventScaled(a, ai.ThoughtGreatRun, float32(scale), trail)
 	}

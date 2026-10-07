@@ -250,6 +250,22 @@ func (b *Building) ServesFood() bool {
 	return b.Offers(ServiceFood)
 }
 
+// ServesDrinks reports whether guests can get a drink here: at a bar, or
+// at a food court, which pours drinks with its meals. What a bar adds on
+// top is still to be decided.
+func (b *Building) ServesDrinks() bool {
+	return b.Offers(ServiceBar) || b.ServesFood()
+}
+
+// DrinkService is the service whose door a guest goes in by for a drink:
+// the bar when there is one, else the food court.
+func (b *Building) DrinkService() Service {
+	if b.Offers(ServiceBar) {
+		return ServiceBar
+	}
+	return ServiceFood
+}
+
 // Usable reports whether guests can reach the building. Shells need at
 // least one door; everything else is always usable.
 func (b *Building) Usable() bool {

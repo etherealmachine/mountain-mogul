@@ -121,8 +121,8 @@ func (Rest) Weight(s *WorldSnapshot, w *world.World) float32 {
 }
 
 // RelieveThirst is satisfied when thirst is above the trigger threshold.
-// Weight rises as thirst drops below 0.25; at critically low levels it
-// exceeds GoHome so that the guest tries to find a bar before giving up.
+// Below 0.25 it outweighs skiing, as hunger does, so the guest heads for
+// a drink; nearly empty, it exceeds GoHome so they try before giving up.
 // After drinking (Thirst restored to 1.0), the goal is satisfied again
 // and will re-fire the next time thirst drains back down.
 type RelieveThirst struct{}
@@ -137,15 +137,11 @@ func (RelieveThirst) Weight(s *WorldSnapshot, w *world.World) float32 {
 	if s.Thirst >= 0.25 {
 		return 0
 	}
-	// Linear rise from 0 at 0.25 thirst to 0.8 at 0.05 thirst.
-	d := 0.25 - s.Thirst
-	w2 := d * 4.0
-	// Boost above KeepSkiing's max and GoHome's base (1.0) when critically
-	// low so the planner attempts a bar visit before removal.
-	if s.Thirst < 0.05 {
-		w2 = 1.2
-	}
-	return w2
+	// Like hunger: above KeepSkiing's max as soon as the guest is getting
+	// thirsty, so they go for a drink (a bar, or a food court) before
+	// thirst starts to sour their day, and above GoHome's base when
+	// nearly empty.
+	return 1.05 + (0.25 - s.Thirst)
 }
 
 // RelieveHunger fires once hunger drops below 0.25 and is satisfied by a

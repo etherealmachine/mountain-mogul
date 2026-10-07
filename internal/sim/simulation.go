@@ -519,6 +519,9 @@ func visitService(w *world.World, a *world.Guest) world.Service {
 		case ai.ActEat:
 			return world.ServiceFood
 		case ai.ActRelieveThirst:
+			if b := findBuildingByID(w, step.BldgID); b != nil {
+				return b.DrinkService()
+			}
 			return world.ServiceBar
 		case ai.ActBuyDayTicket, ai.ActBuySeasonPass:
 			return world.ServiceTickets
@@ -1427,7 +1430,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 			return
 		}
 		a.TargetID = b.ID
-		if visitService(w, a) == world.ServiceBar {
+		if next := a.Plan.Step + 1; next < len(a.Plan.Steps) && a.Plan.Steps[next].Kind == ai.ActRelieveThirst {
 			a.Plan.Goal = ai.GoalRelieveThirst
 		} else {
 			a.Plan.Goal = ai.GoalNone
@@ -1562,7 +1565,11 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		a.TargetID = 0
 		if b := findBuildingByID(w, step.BldgID); b != nil && b.DrinkPrice > 0 {
 			w.Cash += b.DrinkPrice
-			w.History.RecordRevenue(world.RevenueBar, b.DrinkPrice)
+			revenue := world.RevenueBar
+			if b.DrinkService() == world.ServiceFood {
+				revenue = world.RevenueFood
+			}
+			w.History.RecordRevenue(revenue, b.DrinkPrice)
 			a.RemainingBudget -= float32(b.DrinkPrice)
 		}
 	case ai.ActEat:
@@ -1764,6 +1771,7 @@ func (s *Simulation) tickResting(a *world.Guest, dt float64) {
 			s.applyEvent(a, ai.ThoughtGoodDrink)
 		case ai.ActEat:
 			a.Hunger = 1
+			a.Thirst = 1 // a meal comes with a drink
 			s.applyEvent(a, ai.ThoughtGoodMeal)
 		}
 	}
