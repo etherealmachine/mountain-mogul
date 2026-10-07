@@ -217,7 +217,7 @@ The terrain vertex carries `aSnow = (Grooming, Packed, Ice, MogulSize)` at attri
 
 - **Grooming** — corduroy stripes + cool tint.
 - **Packed** — blue tint mix.
-- **MogulSize** — brightness modulation via value-noise (bump simulation without geometry displacement).
+- **MogulSize** — the cell average, used only once a metre is under a couple of pixels; closer, the shader reads the 1 m mogul map itself (`uMogulMap`, with fall lines in `uMogulDir`) and draws the mogul field from `mogul.glsl`: real height from the tessellation, lighting from the same surface, a slight darkening at a distance ([[Moguls]]).
 - **Ice** — specular lobe boost + silver-blue tint.
 
 ---

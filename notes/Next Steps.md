@@ -13,7 +13,7 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 
 In the order to work on them:
 
-1. [[Moguls]]: steps 1–2 done (a 1 m mogul map grown along skiers' lines by turning, slope, and snow; filled by snowfall, flattened under the tiller, rounded by thaws); next is step 3, drawing. Moguls formed where guests turn on steep ungroomed snow, at sub-cell resolution like tracks; softened by snow, cleared only where the cat drove; drawn as a fall-line mogul field; skied with a balance cost and sought or avoided by taste.
+1. [[Moguls]]: steps 1–3 done (a 1 m mogul map grown along skiers' lines by turning, slope, and snow; filled by snowfall, flattened under the tiller, rounded by thaws; drawn as a fall-line mogul field skiers ride); next is step 4, skiing. Moguls formed where guests turn on steep ungroomed snow, at sub-cell resolution like tracks; softened by snow, cleared only where the cat drove; drawn as a fall-line mogul field; skied with a balance cost and sought or avoided by taste.
 
 Then: **gameplay before scenario goals**. A headless three-lift Boreal (2026-10-06) runs about 70 guests a day with the rating stuck near 30%, so goals can't be set until guests can have a good day. The investigate-and-report items are done (2026-10-07); next is the guest pool per scenario ([[First Week Balance]]). [[Scenario Goals and Rules]] steps 1–4 shipped and are tabled until then.
 
@@ -235,3 +235,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-07: Wrote up [[Service Improvements]] (unranked, pending the user's decisions).
 - 2026-10-07: [[Moguls]] step 1 shipped.
 - 2026-10-07: [[Moguls]] step 2 shipped.
+- 2026-10-07: [[Moguls]] step 3 shipped.
