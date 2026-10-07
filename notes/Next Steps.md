@@ -13,9 +13,7 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 
 In the order to work on them:
 
-1. **Rental shops in the scenarios**: since [[Service Improvements]] step 3, a resort without a rental shop misses the rental sales and about a quarter of its beginners stay home (Boreal, nearly all beginners, gets about 30% fewer guests). Decide which bundled scenarios start with one, or set the rental shares per scenario ([[First Week Balance]]).
-
-Then: **gameplay before scenario goals**. A headless three-lift Boreal (2026-10-06) runs about 70 guests a day with the rating stuck near 30%, so goals can't be set until guests can have a good day. The investigate-and-report items are done (2026-10-07); next is the guest pool per scenario ([[First Week Balance]]). [[Scenario Goals and Rules]] steps 1–4 shipped and are tabled until then.
+1. [[Demo]]: the free Steam demo ([[Release]]: demo, then early access, then guest types as DLC), the Boreal tutorial and Kirkwood, playable for a few hours, as its own stripped build. Steps in order: the magic carpet; balance so the goals are reachable (ledger calibration, [[First Week Balance]], rental shops and rolled-need shares); goals for both scenarios and unlocking; the snow bugs; a Kirkwood map pass; a demo pop-up; UI, graphics, and menu polish.
 
 Not ranked yet: everything below.
 
@@ -38,7 +36,7 @@ Diagnose each first, report the cause, then fix:
 ## Lifts ([[Lifts]])
 
 - [[Lift Operations]]: refuse overlapping lifts, then breakdowns and a maintenance contract, wind holds that spare the gondola, and guests riding down. Wind holds *need* wind that varies by day. Breakdowns are *for* the Turnaround idea in [[Scenario Campaign]].
-- **Surface lifts**: magic carpet first, then T-bar and rope tow, for beginner areas. None are lift types yet (today: double, quad, high-speed quad, 6-pack, gondola, heli). Kirkwood has two magic carpets and a T-bar in OpenStreetMap. *For* [[Kirkwood]], [[Boreal]], and Portillo in [[Scenario Campaign]].
+- **Surface lifts**: magic carpet first (in the [[Demo]]), then T-bar and rope tow, for beginner areas. None are lift types yet (today: double, quad, high-speed quad, 6-pack, gondola, heli). Kirkwood has two magic carpets and a T-bar in OpenStreetMap. *For* [[Kirkwood]], [[Boreal]], and Portillo in [[Scenario Campaign]].
 - **Long gondola spans**: few, tall towers over terrain a chair can't cross ([[Vision]]). *For* [[Palisades Tahoe]], [[Zermatt]].
 - **Riders on both sides of the line**: arriving riders spawn on both sides of the lift line, not one.
 - **Partly filled chairs**: chairs that don't always fill, more often with beginners in line.
@@ -248,3 +246,5 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-07: No rental shop now means renting in town and lower demand, not turning round.
 - 2026-10-07: [[Services]] listed with the user (unranked).
 - 2026-10-07: Overnight, staff, and logistics added to [[Services]] with the user.
+- 2026-10-07: [[Demo]] planned with the user and ranked first; rental shops folded into its balance step.
+- 2026-10-07: Release path noted ([[Release]]).

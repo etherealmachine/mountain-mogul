@@ -43,3 +43,4 @@ It's bigger than Boreal (2.5× the cells, 2.8 MB against 1.4 MB) and draws at ab
 - 2026-10-03: Built `kirkwood.save` from real elevation with a road, parking lot, beginner chair, and parcels.
 - 2026-10-04: The first look showed the terrain and snow reading as uniform and plastic; planned [[Terrain Realism]].
 - 2026-10-06: Kirkwood now has cliffs of bare volcanic rock, Caples and Emigrant lakes freezing through the season, Kirkwood Creek running open through a meadow, and coarse terrain when zoomed out ([[Ground Materials]], [[Creeks and Lakes]]).
+- 2026-10-07: In the [[Demo]] as the main scenario.

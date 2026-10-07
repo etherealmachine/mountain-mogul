@@ -41,3 +41,4 @@ None need fixing now. Each one is where a new type would hit a wall:
 - 2026-10-02: Checked the code. Discipline (Ski or Snowboard) is saved and rolled at 20% Snowboard, but nothing uses it yet.
 - 2026-10-07: Tastes replace the glade and groomer flags ([[Snow Tastes]] step 1).
 - 2026-10-07: Tastes now drive steering, lift choice, run verdicts, and boredom ([[Snow Tastes]]).
+- 2026-10-07: Snowboarders and the other guest types are planned as DLC after early access ([[Release]]).

@@ -24,3 +24,4 @@ Donner Pass, California. A small, beginner-friendly hill right off the interstat
 - 2026-10-02: Named "Boreal" with a location, description, and the tutorial flag.
 - 2026-10-05: Renamed `tutorial.save` to `boreal.save`.
 - 2026-10-06: Goals decided ([[Scenario Goals and Rules]]).
+- 2026-10-07: In the [[Demo]] as the tutorial, with no guidance beyond a pop-up.
