@@ -14,7 +14,7 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 In the order to work on them:
 
 1. [[Snow Tastes]]: step 1 done (tastes rolled per guest around five archetypes, labelled in the follow panel); next is step 2, snow underfoot. Snow underfoot moves the mood target, each run ends in an event, guests choose lifts and trails by taste, and repeated laps get boring.
-2. **Fix how services work**: the investigate-and-report items under Bugs and Guests (patrol, grooming, thirst, exhaustion, falls), in the new service model. Patrol is fixed by [[Patrol Day]] (steps 1–6 done; step 7 moved into [[Satisfaction Rework]]). Falls are fixed by [[Lift Unloading]]. Next is grooming. Thirst and exhaustion were mostly how thoughts were counted (see the Guests items).
+2. **Fix how services work**: the investigate-and-report items left under Bugs and Guests. Patrol ([[Patrol Day]]), falls ([[Lift Unloading]]), grooming (works: one cat grooms Boreal's run fully each night), and thirst and exhaustion (mostly how thoughts were counted, then the time scale) are done. Left: snow compacting too fast, and rechecking thirst at altitude and the after-closing tail with the new clock.
 
 Then: **gameplay before scenario goals**. A headless three-lift Boreal (2026-10-06) runs about 70 guests a day with the rating stuck near 30%, so goals can't be set until guests can have a good day. Priority 2 covers the investigate-and-report items; then the guest pool per scenario ([[First Week Balance]]). [[Scenario Goals and Rules]] steps 1–4 shipped and are tabled until then.
 
@@ -22,13 +22,10 @@ Not ranked yet: everything below.
 
 ## Bugs
 
-Found 2026-10-06 in a headless three-lift [[Boreal]] (three lifts, a green, blue, and black trail, a lodge with tickets, food, bar, and lounge, a patrol hut and an equipment shed, 30 days, about 2,100 visits). Diagnose each first, report the cause, then fix:
+Diagnose each first, report the cause, then fix:
 
 - **Thirst drains fast at altitude**: diagnosed 2026-10-07. Thirst drains only while skiing, at a base of five clock hours to empty × an altitude factor (+0.05% per metre: ×2.1 at Boreal's 2,200 m) × exertion (up to ×3 for beginners off groomed snow). With the old clock most guests (66%) left thirsty; with the new clock and food-court drinks it's 2%, so this may be fine now. Recheck the altitude factor (perhaps relative to the climate's altitude) if thirst still dominates at high resorts.
-- **Guests start 0.10 above their baseline**: satisfaction starts at 0.6 and the baseline at 0.5, so every guest loses 0.10 in their first hour for nothing (audit, 2026-10-07). Start satisfaction at the baseline.
 - **Snow compacts far too fast**: found 2026-10-07 on the re-dressed Boreal. Fresh snow starts at a believable depth (150 mm of water as 83 cm on the opening storm), but within three days 135 mm sits in 23 cm (density about 0.6), and by mid-January 263 mm in 37 cm (about 0.7). Settled early-season snow is about 0.25–0.35, so the slopes look thin over a decent pack. Diagnose the settling in [[Snow]] (`SnowLayer` densification) before changing it.
-- **Patrol never rescues anyone**: every one of about 6,000 injuries also gave "no one came to help me", with a patrol hut placed beside the lift base ([[Ski Patrol]]). Could be the hut placement in the test, patrollers that can't path, or a real bug. A lead (2026-10-06): a snowmobile stops on bare ground (`noSnowUnderfoot`), and the drop-off point (then a parking lot, now the patrol door) is plowed bare, so a patroller carrying a patient may never arrive. Diagnosed 2026-10-06: confirmed, and the drop-off has the same problem; fixed by [[Patrol Day]].
-- **No grooming shows**: with an equipment shed, no guest thought "this corduroy is perfect" in 30 days ([[Grooming]]). Could be the cat having no section or route in the test, or a real bug.
 
 ## Scenarios and campaign ([[Scenarios]], [[Scenario Campaign]])
 
@@ -232,3 +229,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-07: Fixed the guest frozen swapping skis (one live door for both checks, skis back on only past 40 m), rests at a lodge without a lounge head for the food court door, and closing time replans any plan that doesn't end in going home.
 - 2026-10-07: Food courts pour drinks and meals fill thirst; thirst outweighs skiing below 0.25; corduroy is the read-only reason for a great run; per-guest arrival times from three hours before opening. Recorded the time scale, thirst drain, and starting satisfaction findings.
 - 2026-10-07: A clock hour is 900 sim seconds (was 180). On Boreal: 27–30 guests lined up at opening, 7.7 great runs a visit, 2% leave thirsty, rating 0.52, about 42 s of CPU per day for about 80 guests. Queue limits became clock-based, and a guest facing only full lines now says so instead of blaming the ticket window.
+- 2026-10-07: Guests start at their baseline (0.5), not 0.6. Closed the patrol and grooming bugs (patrol fixed by Patrol Day; on the user's Boreal save one cat grooms the run fully every night and skiing wears it to about 0.6 by mid-afternoon).

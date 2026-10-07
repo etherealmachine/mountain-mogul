@@ -451,7 +451,7 @@ Patience is clamped to `[0, 1]` on every write.
 
 ### Satisfaction, Rating, and Thoughts
 
-`Guest.Satisfaction` (0..1) is the guest's mood for the visit. It starts at 0.6. When they leave, it's captured as `LastScore` and added to the day's departures in `History`. At rollover, `World.Rating` becomes the average of the day's departures (`History.DayRating`); a day with no departures keeps the previous rating. [[Demand]] reads `World.Rating`.
+`Guest.Satisfaction` (0..1) is the guest's mood for the visit. It starts at the baseline, 0.5. When they leave, it's captured as `LastScore` and added to the day's departures in `History`. At rollover, `World.Rating` becomes the average of the day's departures (`History.DayRating`); a day with no departures keeps the previous rating. [[Demand]] reads `World.Rating`.
 
 Satisfaction changes in exactly two ways, and both read one table, `ai.Effects`, indexed by `ThoughtKind`:
 
