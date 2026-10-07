@@ -86,7 +86,18 @@ Made with the user on 2026-10-07:
 3. Done: **Run events.** `Run.Taste` is the sum of taste × feature per tick, times seconds, from `tickUnderfoot`. `Run.Fresh` is seconds on fresh untracked powder: a powder feature of 0.5 or more on a cell with `SkierTraffic` under 0.5. Snowfall now buries traffic the way it buries tracks (2 cm of water covers it fully). In `judgeRun`, the run's average taste match, clamped to −1..1, scales a great run's bonus by 1 + the match. At −0.3 or worse the run is "that run was miserable" (−0.05) and can't be great. A powder lover (powder taste 0.4 or more) on fresh powder for a third of the run gets "first tracks!" (+0.04).
 
    Checked on the user's Boreal save, one day with grooming off, after a 25 cm storm and without. After the storm, Cruisers on ungroomed powder were miserable on 2.55 runs a visit (0.80 without) and ended at 0.32 (0.53 without), and "this powder is unreal" came 0.69 a visit. First tracks happened about once in the day: only 2–3 Powder Hounds a day, and 77 guests track one trail within the first runs. The plan's check (Powder Hounds score higher after a storm) can't show on Boreal: almost all of them are intermediate or advanced, so on its one green they never have a great run and carry "too easy" all day. It needs a blue or black run, and the calibration that's tabled.
-4. **Choosing by taste.** Add `Trail.Conditions` on a slow refresh. Taste-scored lift and trail choice replaces `Explore`'s "any lift not yet ridden". Steering reads the trees affinity. Check: after a storm on Boreal, powder hounds concentrate on the ungroomed black, and cruisers stay on corduroy.
+4. Done: **Choosing by taste.** Changed from the plan: guests never followed painted trails (every descent is free steering toward the next lift), so picking a trail by taste became steering by taste, the agentic version the vision asks for. Snow features come from one function, `cellFeatures` (`sim/underfoot.go`), used by snow underfoot, steering, and trail conditions, so the [[Moguls]] map reaches all three through `Cell.MogulSize`.
+   - **Lifts.** `Trail.Conditions` is the average of each trail's cell features, refreshed every clock hour and at load. `World.LiftConditions` averages the trails off a lift's top. `RideLift.Cost` adds up to 300 s (`tasteMissSec`) for terrain that doesn't suit the guest: (1 − match) / 2, using the guest's tastes from the planner's snapshot. `Explore` stays as the novelty drive: of the lifts not yet ridden, guests take the one whose terrain suits them.
+   - **Steering.** Each candidate line scores 2.5 × the sum of taste × feature along it, replacing the fixed grooming bonus (×4 for corduroy lovers). The trees taste scales how hard a guest avoids tree stands, 1 − 0.8 × trees taste (`standCoverScale`). Everyone still avoids individual trunks, and the groom-edge penalty for corduroy lovers stays.
+
+   Checked on the user's Boreal save after a storm, with the cat grooming the trail overnight, as shares of skiing time between 9:00 and 16:00. Before, every archetype skied the same line: about 73% corduroy, 2% powder, no trees. After:
+   - Cruisers: 82% corduroy, 2% powder.
+   - Chargers: 84% corduroy.
+   - Bump Skiers: 43% corduroy, 44% powder.
+   - Glade Rats: 25% corduroy, 66% powder, 3% trees.
+   - Powder Hounds: 9% corduroy, 75% powder, 5% trees.
+
+   Boreal's lift costs a Cruiser 206 s and a Powder Hound 346 s (a mostly groomed trail); after the storm, 228 s and 311 s. With only one lift, the split between lifts can't show in play yet.
 5. **Variety, availability, and crowds.** Use the per-trail run counts from [[Mood Baseline]], the boredom and "nothing here for me" conditions, `GoHome` weighted by the best remaining option, and the crowds term. Check: session length and satisfaction with one lift versus three.
 6. **Docs.** Update [[Satisfaction]], [[Skiing]], [[Grooming]], [[GOAP]], [[Guest Types]], and [[Guests Spec]].
 
@@ -118,3 +129,4 @@ Each step builds with `go build` and `go vet` and is judged in a headless Boreal
 - 2026-10-07: Satisfaction became a ledger; snow underfoot's pull is gone, and step 3 carries snow into the score through run verdicts.
 - 2026-10-07: Step 3: run verdicts by taste (great runs scaled by the match, miserable runs, first tracks); snowfall buries skier traffic.
 - 2026-10-07: [[Moguls]] planned; the moguls feature stays `Cell.MogulSize`, which the mogul map will feed as its cell average.
+- 2026-10-07: Step 4: lift choice by trail conditions and steering by taste (guests never followed trails); glade lovers go into the woods.

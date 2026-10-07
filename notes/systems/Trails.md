@@ -17,3 +17,4 @@ Spec: [[Trails Spec]].
 ## Log
 
 - 2026-10-01: Painted trails, the derived graph, trail-aware planning, and difficulty-based lift service are in. Closures and slow zones are not.
+- 2026-10-07: Each trail keeps `Conditions`, the average of its cells' snow features, refreshed every clock hour; a lift's conditions (the trails off its top) feed guests' lift choice ([[Snow Tastes]]).
