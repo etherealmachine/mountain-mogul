@@ -139,13 +139,28 @@ func currentAnchorID(s *WorldSnapshot) uint64 {
 	return 0
 }
 
-// skillDiff maps a skill value to the terrain difficulty a guest requires.
-// Returns 0 for advanced (>= SkillAdvancedThreshold) — they're willing to
-// free-roam and don't filter on difficulty when choosing a lift.
+// skillDiff is the set of trail difficulties a guest will ski: their own
+// level and anything easier. A lift qualifies when it serves any of them
+// (TerrainDifficulty.Has intersects). Returns 0 for advanced (>=
+// SkillAdvancedThreshold) — they free-roam and don't filter on
+// difficulty when choosing a lift.
 func skillDiff(skill float32) world.TerrainDifficulty {
 	switch {
 	case skill >= ai.SkillAdvancedThreshold:
 		return 0
+	case skill >= ai.SkillIntermediateThreshold:
+		return world.DiffGreen | world.DiffBlue
+	default:
+		return world.DiffGreen
+	}
+}
+
+// skillLevel is the trail difficulty that matches a guest's skill: the
+// terrain they came for.
+func skillLevel(skill float32) world.TerrainDifficulty {
+	switch {
+	case skill >= ai.SkillAdvancedThreshold:
+		return world.DiffBlack
 	case skill >= ai.SkillIntermediateThreshold:
 		return world.DiffBlue
 	default:

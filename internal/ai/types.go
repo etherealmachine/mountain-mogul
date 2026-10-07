@@ -309,6 +309,20 @@ const (
 	// Knocked over by avalanche debris; a fall or injury thought follows.
 	ThoughtCaughtInAvalanche
 
+	// Terrain against skill.
+	ThoughtTooEasy    // a run mostly below their level; holds until one at or above it
+	ThoughtGreatRun   // a run at their level, with real vertical, no fall, and room to ski
+	ThoughtTooHard    // a run above their level, or much of it past their comfort slope
+	ThoughtCrowdedRun // a run with other skiers close around them much of the way
+
+	// Services.
+	ThoughtGoodMeal   // finished a meal at a food court
+	ThoughtGoodDrink  // finished a drink at a bar
+	ThoughtRested     // finished a rest at a lounge or food court
+	ThoughtPatrolFast // patrol reached them quickly
+	ThoughtPatrolCame // patrol reached them in a reasonable time
+	ThoughtPatrolSlow // patrol took a long time to reach them
+
 	thoughtKindSentinel // must stay last; equals the total count
 )
 
@@ -317,7 +331,7 @@ const (
 const ThoughtKindCount = int(thoughtKindSentinel)
 
 // ConditionMask has one bit per ThoughtKind.
-const _ = uint(32 - ThoughtKindCount) // fails to compile past 32 kinds
+const _ = uint(64 - ThoughtKindCount) // fails to compile past 64 kinds
 
 // Effect is what one ThoughtKind reports. An event's Satisfaction is a
 // one-off delta, applied once by sim.applyEvent. A condition's
@@ -341,6 +355,15 @@ var Effects = [ThoughtKindCount]Effect{
 	ThoughtLongLine:          {Satisfaction: -0.08},
 	ThoughtLineTooLong:       {Satisfaction: -0.08},
 	ThoughtLovingCorduroy:    {Satisfaction: +0.05}, // a run that averaged ≥90% groomed
+	ThoughtGreatRun:          {Satisfaction: +0.04},
+	ThoughtTooHard:           {Satisfaction: -0.08},
+	ThoughtCrowdedRun:        {Satisfaction: -0.05},
+	ThoughtGoodMeal:          {Satisfaction: +0.05},
+	ThoughtGoodDrink:         {Satisfaction: +0.04},
+	ThoughtRested:            {Satisfaction: +0.03},
+	ThoughtPatrolFast:        {Satisfaction: +0.06},
+	ThoughtPatrolCame:        {Satisfaction: +0.02},
+	ThoughtPatrolSlow:        {Satisfaction: -0.08},
 
 	// Conditions. Zero-pull conditions report a reason to leave.
 	ThoughtLovingGlades:   {Condition: true, Satisfaction: +0.12},
@@ -349,6 +372,7 @@ var Effects = [ThoughtKindCount]Effect{
 	ThoughtThirsty:        {Condition: true, Satisfaction: -0.10},
 	ThoughtImpatient:      {Condition: true, Satisfaction: -0.10},
 	ThoughtNeedsLodge:     {Condition: true, Satisfaction: -0.10},
+	ThoughtTooEasy:        {Condition: true, Satisfaction: -0.08},
 	ThoughtTired:          {Condition: true},
 	ThoughtExhausted:      {Condition: true},
 	ThoughtTooExpensive:   {Condition: true},
@@ -359,7 +383,7 @@ var Effects = [ThoughtKindCount]Effect{
 
 // ConditionMask is the set of condition thoughts currently holding for a
 // guest, one bit per ThoughtKind.
-type ConditionMask uint32
+type ConditionMask uint64
 
 // Has reports whether condition k is active.
 func (m ConditionMask) Has(k ThoughtKind) bool { return m&(1<<k) != 0 }
@@ -400,6 +424,16 @@ var thoughtText = [ThoughtKindCount]string{
 	ThoughtNothingForMe:      "there's nothing here I can ski",
 	ThoughtHurtGoingHome:     "I tweaked something, calling it a day",
 	ThoughtCaughtInAvalanche: "an avalanche knocked me over!",
+	ThoughtTooEasy:           "I want something more challenging",
+	ThoughtGreatRun:          "what a great run!",
+	ThoughtTooHard:           "that run was too much for me",
+	ThoughtCrowdedRun:        "way too crowded on that run",
+	ThoughtGoodMeal:          "that meal hit the spot",
+	ThoughtGoodDrink:         "just what I needed",
+	ThoughtRested:            "good to sit down for a bit",
+	ThoughtPatrolFast:        "patrol got to me so fast",
+	ThoughtPatrolCame:        "thank goodness, patrol is here",
+	ThoughtPatrolSlow:        "help took forever to get here",
 }
 
 // ThoughtLabel is the chart series label for each thought kind — the
@@ -439,6 +473,84 @@ var ThoughtChartColor = [ThoughtKindCount][4]float32{
 	ThoughtNothingForMe:      {0.75, 0.55, 0.45, 1},
 	ThoughtHurtGoingHome:     {0.90, 0.45, 0.35, 1},
 	ThoughtCaughtInAvalanche: {0.85, 0.85, 0.95, 1},
+	ThoughtTooEasy:           {0.55, 0.60, 0.85, 1},
+	ThoughtGreatRun:          {0.35, 0.90, 0.75, 1},
+	ThoughtTooHard:           {0.90, 0.50, 0.25, 1},
+	ThoughtCrowdedRun:        {0.70, 0.45, 0.50, 1},
+	ThoughtGoodMeal:          {0.95, 0.75, 0.35, 1},
+	ThoughtGoodDrink:         {0.40, 0.80, 0.95, 1},
+	ThoughtRested:            {0.70, 0.85, 0.50, 1},
+	ThoughtPatrolFast:        {0.30, 0.85, 0.60, 1},
+	ThoughtPatrolCame:        {0.60, 0.80, 0.60, 1},
+	ThoughtPatrolSlow:        {0.80, 0.30, 0.45, 1},
+}
+
+// DepartReason is why a guest went home: one per visit, recorded when
+// they decide to leave. Separate from thoughts, which report what moved
+// their stats along the way.
+type DepartReason uint8
+
+const (
+	DepartNone         DepartReason = iota
+	DepartDone                      // nothing left they wanted to do
+	DepartTired                     // out of energy
+	DepartHungry                    // ran out of hunger with no meal
+	DepartThirsty                   // ran out of thirst with no drink
+	DepartClosing                   // the lifts closed for the day
+	DepartHurt                      // a minor injury, or patched up by patrol
+	DepartAbandoned                 // hurt, and no one came to help
+	DepartLines                     // patience gone, mostly to lift lines
+	DepartMoney                     // can't afford another ticket
+	DepartNoTicket                  // couldn't reach a ticket window
+	DepartLiftsClosed               // every lift stopped during open hours
+	DepartNothingToSki              // no running lift with a trail for them
+	departReasonSentinel
+)
+
+// DepartReasonCount sizes arrays indexed by DepartReason.
+const DepartReasonCount = int(departReasonSentinel)
+
+// DepartReasonLabel is the player-facing text for each reason.
+var DepartReasonLabel = [DepartReasonCount]string{
+	DepartDone:         "Done for the day",
+	DepartTired:        "Tired out",
+	DepartHungry:       "Too hungry",
+	DepartThirsty:      "Too thirsty",
+	DepartClosing:      "Lifts closed for the day",
+	DepartHurt:         "Hurt",
+	DepartAbandoned:    "Hurt, no one came to help",
+	DepartLines:        "Fed up with lines",
+	DepartMoney:        "Out of money",
+	DepartNoTicket:     "Couldn't buy a ticket",
+	DepartLiftsClosed:  "Lifts stopped",
+	DepartNothingToSki: "Nothing to ski",
+}
+
+// DepartNormal reports whether a reason is an ordinary end to a day:
+// these cost the guest nothing beyond what their conditions already did.
+func DepartNormal(r DepartReason) bool {
+	switch r {
+	case DepartDone, DepartTired, DepartHungry, DepartThirsty, DepartClosing:
+		return true
+	}
+	return false
+}
+
+// DepartReasonColor is the chart colour for each reason: greens for an
+// ordinary end to the day, warm colours for the rest.
+var DepartReasonColor = [DepartReasonCount][4]float32{
+	DepartDone:         {0.35, 0.85, 0.45, 1},
+	DepartTired:        {0.55, 0.80, 0.40, 1},
+	DepartHungry:       {0.75, 0.80, 0.35, 1},
+	DepartThirsty:      {0.40, 0.75, 0.70, 1},
+	DepartClosing:      {0.45, 0.65, 0.85, 1},
+	DepartHurt:         {0.90, 0.45, 0.35, 1},
+	DepartAbandoned:    {0.60, 0.10, 0.80, 1},
+	DepartLines:        {0.80, 0.45, 0.70, 1},
+	DepartMoney:        {0.95, 0.85, 0.20, 1},
+	DepartNoTicket:     {0.85, 0.40, 0.30, 1},
+	DepartLiftsClosed:  {0.50, 0.55, 0.65, 1},
+	DepartNothingToSki: {0.75, 0.55, 0.45, 1},
 }
 
 // Thought is one entry in a Guest's bounded thoughts ring. Persists in
@@ -474,6 +586,22 @@ func (t Thought) Display(resolve func(uint64) string) string {
 	case ThoughtInjured:
 		if n := name(0); n != "" {
 			return "I'm hurt on " + n + ", I can't move"
+		}
+	case ThoughtGreatRun:
+		if n := name(0); n != "" {
+			return "what a great run on " + n + "!"
+		}
+	case ThoughtTooHard:
+		if n := name(0); n != "" {
+			return n + " was too much for me"
+		}
+	case ThoughtTooEasy:
+		if n := name(0); n != "" {
+			return n + " is too easy, I want something harder"
+		}
+	case ThoughtCrowdedRun:
+		if n := name(0); n != "" {
+			return "way too crowded on " + n
 		}
 	case ThoughtLongLine:
 		if n := name(0); n != "" {

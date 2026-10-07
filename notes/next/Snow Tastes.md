@@ -65,7 +65,7 @@ Made with the user on 2026-10-07:
 
 1. **Tastes and labels.** Add `ai.Tastes` and the archetype table. Roll tastes in `newPoolGuest`, save them in place of `glades` and `groomed` (old saves break, which is fine before release), and add `ai.TasteLabel`. The follow panel shows the label and the affinities. Check: the taste mix in a Boreal guest pool by skill.
 2. **Snow underfoot.** Compute per-cell features, add the taste term and the fear term to the mood target, add the condition thoughts, and make energy drain read tastes. The glade and corduroy rows move here. Check, on the headless three-lift [[Boreal]]: average satisfaction by archetype, groomed everything versus groomed nothing.
-3. **Run events.** Add the `Guest.Run` summary, the end-of-run event rows, and first tracks. Check: runs per visit by outcome; powder hounds score higher the morning after a storm than a week later.
+3. **Run events.** Started in [[Satisfaction Rework]]: `Guest.Run` records each descent and `judgeRun` gives too easy, too hard, crowded, corduroy, and great-run verdicts. Left: add taste match, fresh-powder cells, and first tracks to the summary, and score great runs by taste. Check: runs per visit by outcome; powder hounds score higher the morning after a storm than a week later.
 4. **Choosing by taste.** Add `Trail.Conditions` on a slow refresh. Taste-scored lift and trail choice replaces `Explore`'s "any lift not yet ridden". Steering reads the trees affinity. Check: after a storm on Boreal, powder hounds concentrate on the ungroomed black, and cruisers stay on corduroy.
 5. **Variety, availability, and crowds.** Add lap counts per trail, the boredom and "nothing here for me" conditions, `GoHome` weighted by the best remaining option, and the crowds term. Check: session length and satisfaction with one lift versus three.
 6. **Docs.** Update [[Satisfaction]], [[Skiing]], [[Grooming]], [[GOAP]], [[Guest Types]], and [[Guests Spec]].
@@ -92,3 +92,4 @@ Each step builds with `go build` and `go vet` and is judged in a headless Boreal
 ## Log
 
 - 2026-10-07: Planned with the user: continuous affinities with archetype labels for the player. Ranked second, after [[Satisfaction Rework]].
+- 2026-10-07: The run summary and judging shipped with [[Satisfaction Rework]]; step 3 now extends them with tastes.

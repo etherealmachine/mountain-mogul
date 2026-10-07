@@ -360,9 +360,7 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 	treesOn := treeDensity >= treeDensityThreshold ||
 		(a.Conditions.Has(gladeKind) && treeDensity >= treeDensityClear)
 	s.setCondition(a, gladeKind, treesOn)
-	// Accumulate grooming for the run-end ThoughtLovingCorduroy check.
-	a.RunGroomingSum += grooming
-	a.RunGroomingSamples++
+	s.recordRun(a, cx, cz, grooming, perc.SlopeAngle, float32(dt))
 
 	// The terrain's pull on the mood target, read by tickMood. Trees pull
 	// through the glade conditions above; grooming has no thought yet
@@ -590,6 +588,7 @@ func (s *Simulation) tickFallen(a *world.Guest, dt float64) {
 		if a.HurtGoHome {
 			// A minor injury: up again, but done for the day.
 			a.HurtGoHome = false
+			s.setDepartReason(a, ai.DepartHurt)
 			s.directHomePlan(a)
 		}
 	}

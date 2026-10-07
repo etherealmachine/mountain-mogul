@@ -6,9 +6,9 @@ status: partial
 
 # Demand
 
-Where guests come from. A fixed catchment of guests, each with a skill and a daily budget, is polled every 30 sim-seconds. Each guest at home rolls to arrive based on the resort rating, whether there is terrain for their skill, how crowded the [[Lifts]] are, and whether the day ticket plus parking fits their budget. Arrivals follow the clock: a morning rush, nobody in the last hour, nobody while the resort is closed.
+Where guests come from. A fixed catchment of guests, each with a skill and a daily budget, is polled every 30 sim-seconds. Each guest at home rolls to arrive based on the resort rating, how well the terrain suits their skill (full rate with a trail at their level, 0.4 with only easier ones), how crowded the [[Lifts]] are, and whether the day ticket plus parking fits their budget. Arrivals follow the clock: a morning rush, nobody in the last hour, nobody while the resort is closed.
 
-The resort rating is a slow running average of each departing guest's [[Satisfaction]]. A better rating draws more guests and lets the resort charge more before they balk.
+The resort rating is the average final [[Satisfaction]] of the guests who left the day before, set at midnight. A better rating draws more guests and lets the resort charge more before they balk.
 
 A guest without a pass is turned away if no building sells [[Tickets]]. Each poll's winners from one entry share cars of one to four and drive in (see [[Transit]]); when the car parks, its guests pay their shares of the per-car fee (see [[Parking and Roads]]), and the ticket price is set aside from their budget. That money, and their spending on [[Amenities]], lands in [[Finance]].
 
@@ -25,3 +25,4 @@ Spec: [[Demand Spec]]. Code: `internal/sim/demand.go`.
 - 2026-10-06: The resort rating lives on the world (`World.Rating`) and is saved; it no longer resets to 50% on load.
 - 2026-10-06: The guest pool comes from the road entries' pools when a map has entries (each guest lives beyond one), else the default 10,000 ([[Transit]]).
 - 2026-10-06: Arrivals come in carloads that drive in from their entry ([[Transit]] step 2); guests in arriving cars count toward occupancy, and the parking share in the price factor is the fee ÷ 2.4, the mean carload.
+- 2026-10-07: The rating became the day's average departing satisfaction; guests come at 0.4 rate when only easier terrain exists ([[Satisfaction Rework]]).

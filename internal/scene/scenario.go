@@ -1076,11 +1076,11 @@ func (s *Scenario) Init(app *engine.App) error {
 			GetData: func() []ui.ChartPoint { return thoughtsToDistribution(s.world) },
 		},
 		{
-			Title:   "Exit thoughts",
+			Title:   "Why guests left",
 			Icon:    render.IconFlag,
 			Kind:    ui.ChartThoughtRank,
-			Series:  thoughtChartSeries(),
-			GetData: func() []ui.ChartPoint { return exitThoughtsToDistribution(s.world) },
+			Series:  departChartSeries(),
+			GetData: func() []ui.ChartPoint { return departReasonsToDistribution(s.world) },
 		},
 		{
 			Title: "Resort overview",
@@ -1231,17 +1231,36 @@ func thoughtsToDistribution(w *world.World) []ui.ChartPoint {
 	return []ui.ChartPoint{{Values: thoughtValuesFor(w.History.ThoughtCountsToday)}}
 }
 
-// exitThoughtsToDistribution returns a ChartPoint of exit thoughts — the
-// last thought each departing guest had.
-func exitThoughtsToDistribution(w *world.World) []ui.ChartPoint {
+// departChartSeries is one series per departure reason, in enum order.
+func departChartSeries() []ui.ChartSeries {
+	var out []ui.ChartSeries
+	for r := ai.DepartReason(1); int(r) < ai.DepartReasonCount; r++ {
+		c := ai.DepartReasonColor[r]
+		out = append(out, ui.ChartSeries{
+			Name:  ai.DepartReasonLabel[r],
+			Color: mgl32.Vec4{c[0], c[1], c[2], c[3]},
+		})
+	}
+	return out
+}
+
+// departReasonsToDistribution returns the last completed day's departure
+// reasons, or today's so far if no day has been pushed yet.
+func departReasonsToDistribution(w *world.World) []ui.ChartPoint {
 	if w == nil || w.History == nil {
 		return nil
 	}
+	counts := w.History.DepartReasonsToday
+	var day time.Time
 	if samples := w.History.Ordered(); len(samples) > 0 {
 		last := samples[len(samples)-1]
-		return []ui.ChartPoint{{Day: last.Day, Values: thoughtValuesFor(last.ExitThoughtCounts)}}
+		counts, day = last.DepartReasons, last.Day
 	}
-	return []ui.ChartPoint{{Values: thoughtValuesFor(w.History.ExitThoughtCountsToday)}}
+	vals := make([]float64, 0, ai.DepartReasonCount-1)
+	for r := 1; r < ai.DepartReasonCount; r++ {
+		vals = append(vals, float64(counts[r]))
+	}
+	return []ui.ChartPoint{{Day: day, Values: vals}}
 }
 
 // weatherToUI maps sim.WeatherState to the UI icon enum.

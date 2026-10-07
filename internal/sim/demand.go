@@ -29,11 +29,10 @@ import (
 // return to AtHome (career stats incremented), ready to be rolled again
 // on a future poll.
 //
-// When a guest departs, their final Satisfaction score is folded into
-// ResortRating via an exponential moving average (α = 1/70, ~50-departure
-// half-life). Rating therefore reflects completed sessions — word-of-mouth
-// from guests who finished their day — rather than a snapshot of whoever
-// happens to be mid-run at poll time.
+// The resort rating is the average final Satisfaction of the guests who
+// left on the previous day (set at rollover from History.DayRating), so
+// it reflects completed sessions — word-of-mouth from guests who
+// finished their day — rather than whoever happens to be mid-run.
 
 // demandPollInterval is the sim-time cadence of the per-Guest visit
 // poll. Short enough that arrivals spread continuously through the day
@@ -44,13 +43,6 @@ const demandPollInterval = 30.0
 // saved; it bootstraps at world.InitialRating before any
 // guests have departed — neutral, so demand picks up at 50% of the
 // headline rate until real departures start folding in.
-
-// ratingEMAAlpha is the blend weight for folding each departing guest's
-// Satisfaction into ResortRating. 1/70 gives a ~50-departure half-life:
-// slow enough that one grumpy guest can't tank the score, fast enough
-// that a player's improvements (better terrain, shorter queues) show up
-// in arrivals within a session.
-const ratingEMAAlpha = float32(1.0 / 70.0)
 
 // seasonDaysApprox is the constant divisor for per-day visit rates.
 // Real season length varies year-to-year as Memorial Day moves, but the
@@ -274,10 +266,10 @@ func hasValidPass(g *world.Guest, simTime float64) bool {
 
 // recordDeparture is called once at the moment of ActDepart, before the
 // guest's Removed flag is set. Captures the session Satisfaction as
-// LastScore, folds it into World.Rating via EMA, and bumps career stats.
+// LastScore and bumps career stats. The day's departures set the rating
+// at rollover (History.DayRating).
 func (d *DemandSystem) recordDeparture(w *world.World, g *world.Guest, today time.Time) {
 	g.LastScore = g.Satisfaction
-	w.Rating += ratingEMAAlpha * (g.Satisfaction - w.Rating)
 	g.LifetimeVisits++
 	g.VisitsThisSeason++
 	g.LastVisit = today
@@ -350,27 +342,39 @@ func TerrainCapacity(w *world.World) float32 {
 	return float32(len(seen)) * guestsPerTrailCell
 }
 
-// terrainMatch returns 1 if the resort has painted trail cells matching
-// the guest's skill tier and a running lift they'd ride (one serving
-// their level, or any for advanced guests, as the planner allows), else
-// 0. Guests don't come to stand at a stopped lift or one with nothing
-// for them off the top.
+// terrainMatch is how well the resort's terrain suits a guest: 1 with a
+// painted trail at their skill level, easierTerrainMatch with only easier
+// trails (they'll come, less often, and wish for more), else 0. Either
+// way it needs a running lift they'd ride (one serving their level or
+// easier, or any for advanced guests, as the planner allows): guests
+// don't come to stand at a stopped lift or one with nothing for them.
 func terrainMatch(w *world.World, skill float32) float32 {
 	want := skillToDifficulty(skill)
-	ride := want
+	ride := want | (want - 1) // their level and everything easier
 	if skill >= ai.SkillAdvancedThreshold {
 		ride = 0
 	}
 	if !w.RunningLiftFor(ride) {
 		return 0
 	}
+	match := float32(0)
 	for _, t := range w.Trails {
-		if t.Difficulty == want && len(t.Cells) > 0 {
+		if len(t.Cells) == 0 {
+			continue
+		}
+		if t.Difficulty == want {
 			return 1
 		}
+		if t.Difficulty < want {
+			match = easierTerrainMatch
+		}
 	}
-	return 0
+	return match
 }
+
+// easierTerrainMatch is terrainMatch for a resort whose trails are all
+// below a guest's level.
+const easierTerrainMatch = float32(0.4)
 
 func skillToDifficulty(skill float32) world.TerrainDifficulty {
 	switch {

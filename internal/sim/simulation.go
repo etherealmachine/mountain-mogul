@@ -759,20 +759,25 @@ func (s *Simulation) maybeSampleHistory() {
 		w.Cash -= costs.Total()
 		costs[world.CostInterest] = s.applyCredit(dayIdx)
 
+		// The rating is the day's average final satisfaction; a day
+		// nobody left keeps the last one.
+		if r, ok := w.History.DayRating(); ok {
+			w.Rating = r
+		}
 		sample := world.DailySample{
-			Day:               s.DateAt(float64(dayIdx) * secondsPerSimDay),
-			GuestsOnMountain:  len(w.OnMountain),
-			ArrivalsToday:     w.History.ArrivalsToday,
-			DeparturesToday:   w.History.DeparturesToday,
-			Cash:              w.Cash,
-			Revenue:           w.History.RevenueToday,
-			Costs:             costs.Total(),
-			RevenueByKind:     w.History.RevenueByKindToday,
-			CostsByKind:       costs,
-			Open:              wasOpen,
-			Rating:            w.Rating,
-			ThoughtCounts:     w.History.ThoughtCountsToday,
-			ExitThoughtCounts: w.History.ExitThoughtCountsToday,
+			Day:              s.DateAt(float64(dayIdx) * secondsPerSimDay),
+			GuestsOnMountain: len(w.OnMountain),
+			ArrivalsToday:    w.History.ArrivalsToday,
+			DeparturesToday:  w.History.DeparturesToday,
+			Cash:             w.Cash,
+			Revenue:          w.History.RevenueToday,
+			Costs:            costs.Total(),
+			RevenueByKind:    w.History.RevenueByKindToday,
+			CostsByKind:      costs,
+			Open:             wasOpen,
+			Rating:           w.Rating,
+			ThoughtCounts:    w.History.ThoughtCountsToday,
+			DepartReasons:    w.History.DepartReasonsToday,
 		}
 		w.History.Push(sample)
 		s.logDaySummary(sample)
@@ -1208,14 +1213,7 @@ func (s *Simulation) tickPlanning(a *world.Guest) {
 	if planActionComplete(head, a, snap) {
 		if isDescentKind(head.Kind) {
 			a.Events = append(a.Events, ai.GuestEvent{Kind: ai.EventRun, Time: s.SimTime})
-			// Emit corduroy thought once per qualifying descent rather than
-			// per-tick — requires the full run to average ≥90% groomed.
-			if a.Traits.PrefersGroomed && a.RunGroomingSamples > 0 {
-				avg := a.RunGroomingSum / float32(a.RunGroomingSamples)
-				if avg >= 0.9 {
-					s.applyEvent(a, ai.ThoughtLovingCorduroy)
-				}
-			}
+			s.judgeRun(a)
 		}
 		// For trail-to-trail steps, mark the arrival at the junction so the
 		// next step's precondition (AtTrailEnd == destTrailID) can fire.
@@ -1239,6 +1237,16 @@ func (s *Simulation) tickPlanning(a *world.Guest) {
 	}
 }
 
+// fellSince reports whether the guest fell at or after simTime.
+func fellSince(a *world.Guest, simTime float64) bool {
+	for i := len(a.Events) - 1; i >= 0 && a.Events[i].Time >= simTime; i-- {
+		if a.Events[i].Kind == ai.EventFall {
+			return true
+		}
+	}
+	return false
+}
+
 // isDescentKind reports whether a step represents a completed ski
 // descent. Used to log EventRun on completion so the demand system
 // can score sessions by run count.
@@ -1256,6 +1264,9 @@ func (s *Simulation) replan(a *world.Guest) {
 	a.AtTrailEnd = 0 // clear any stale junction anchor before re-planning
 	a.Plan = s.Planner.StoredPlanFor(a, s.World)
 	s.setBlocked(a, a.Plan.Blocked)
+	if a.Plan.GoalName == (goap.GoHome{}).Name() {
+		s.setDepartReason(a, s.departReasonFor(a))
+	}
 	if !a.Plan.Done() {
 		s.onPlanStepStart(a)
 		return
@@ -1340,6 +1351,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		// down, rather than riding up for one more run on the way out.
 		// Before opening they queue and wait for the first chair.
 		if s.ClosedForDay() {
+			s.setDepartReason(a, ai.DepartClosing)
 			s.directHomePlan(a)
 			return
 		}
@@ -1373,8 +1385,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 	case ai.ActRideLift:
 		// Boarding handled by tickLifts' chair-load branch.
 	case ai.ActSkiToLift:
-		a.RunGroomingSum = 0
-		a.RunGroomingSamples = 0
+		s.startRun(a)
 		lift := findLiftByID(w, step.LiftID)
 		if lift == nil {
 			return
@@ -1384,8 +1395,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		a.Plan.GoalID = lift.ID
 		a.Plan.Target = lift.BackOfQueueWorldPos(w.Terrain)
 	case ai.ActSkiToLodge:
-		a.RunGroomingSum = 0
-		a.RunGroomingSamples = 0
+		s.startRun(a)
 		b := findBuildingByID(w, step.BldgID)
 		if b == nil {
 			return
@@ -1399,8 +1409,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		a.Plan.GoalID = b.ID
 		a.Plan.Target = entranceWorldPos(w, b, a.Pos, visitService(a))
 	case ai.ActSkiToParking:
-		a.RunGroomingSum = 0
-		a.RunGroomingSamples = 0
+		s.startRun(a)
 		b := findBuildingByID(w, step.BldgID)
 		if b == nil {
 			return
@@ -1410,6 +1419,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		a.Plan.GoalID = b.ID
 		a.Plan.Target = parkingWorldPos(w, b)
 	case ai.ActSkiTrail:
+		s.startRun(a)
 		switch {
 		case step.LiftID != 0:
 			lift := findLiftByID(w, step.LiftID)
@@ -1464,6 +1474,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 			// No walkable route to the window: without a ticket there
 			// is nothing to do here, so give up rather than ski free.
 			s.setCondition(a, ai.ThoughtNoTicketWindow, true)
+			s.setDepartReason(a, ai.DepartNoTicket)
 			s.directHomePlan(a)
 		}
 
@@ -1546,11 +1557,48 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		// reaper clears sim scratch fields, then flip Removed so
 		// reapDeparted will splice this Guest out of OnMountain and into
 		// their car.
+		s.setDepartReason(a, s.departReasonFor(a))
 		s.Demand.recordDeparture(s.World, a, s.DateAt(s.SimTime))
-		w.History.RecordDeparture()
-		w.History.RecordExitThought(a.LastThought().Kind)
+		w.History.RecordDeparture(a.Satisfaction, a.DepartReason)
 		a.Removed = true
 	}
+}
+
+// setDepartReason records why a guest is going home. The first reason
+// sticks: a guest sent home by a minor injury who later gets tired
+// still left because they were hurt.
+func (s *Simulation) setDepartReason(a *world.Guest, why ai.DepartReason) {
+	if a.DepartReason == ai.DepartNone {
+		a.DepartReason = why
+	}
+}
+
+// departReasonFor works out why a guest heading home is leaving, from
+// what's holding them back now: a blocked ride first, then the stat that
+// ran out, else they'd simply done what they came for.
+func (s *Simulation) departReasonFor(a *world.Guest) ai.DepartReason {
+	has := a.Conditions.Has
+	switch {
+	case s.ClosedForDay():
+		return ai.DepartClosing
+	case has(ai.ThoughtNoTicketWindow):
+		return ai.DepartNoTicket
+	case has(ai.ThoughtLiftsClosed):
+		return ai.DepartLiftsClosed
+	case has(ai.ThoughtNothingForMe):
+		return ai.DepartNothingToSki
+	case has(ai.ThoughtTooExpensive):
+		return ai.DepartMoney
+	case a.Patience < exhaustedThreshold:
+		return ai.DepartLines
+	case a.Energy < exhaustedThreshold:
+		return ai.DepartTired
+	case a.Hunger < exhaustedThreshold:
+		return ai.DepartHungry
+	case a.Thirst < exhaustedThreshold:
+		return ai.DepartThirsty
+	}
+	return ai.DepartDone
 }
 
 // directHomePlan assigns a direct [SkiToParking, Depart] plan to a,
@@ -1596,6 +1644,7 @@ func (s *Simulation) directHomePlan(a *world.Guest) {
 // through the lift system. If no parking lot exists the guest is removed
 // immediately — there is nowhere for them to go.
 func (s *Simulation) injuredGiveUpPlan(a *world.Guest) {
+	s.setDepartReason(a, ai.DepartAbandoned)
 	s.directHomePlan(a)
 }
 
@@ -1683,10 +1732,13 @@ func (s *Simulation) tickResting(a *world.Guest, dt float64) {
 		case ai.ActRestAtLodge:
 			a.Patience = 1
 			a.Energy = 1
+			s.applyEvent(a, ai.ThoughtRested)
 		case ai.ActRelieveThirst:
 			a.Thirst = 1
+			s.applyEvent(a, ai.ThoughtGoodDrink)
 		case ai.ActEat:
 			a.Hunger = 1
+			s.applyEvent(a, ai.ThoughtGoodMeal)
 		}
 	}
 }

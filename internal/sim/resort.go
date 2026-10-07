@@ -2,6 +2,7 @@ package sim
 
 import (
 	"math"
+	"mountain-mogul/internal/ai"
 
 	"mountain-mogul/internal/world"
 )
@@ -32,6 +33,7 @@ func (s *Simulation) SetResortOpen(open bool) {
 func (s *Simulation) sendQueuesHome() {
 	for _, l := range s.World.Lifts {
 		for _, g := range ejectQueue(l) {
+			s.setDepartReason(g, ai.DepartClosing)
 			s.directHomePlan(g)
 		}
 	}

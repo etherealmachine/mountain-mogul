@@ -132,6 +132,11 @@ type World struct {
 	// Nil until the first trail is placed.
 	TrailGraph *TrailGraph
 
+	// trailAt maps each terrain cell (z*Width+x) to 1 + its index in
+	// Trails, 0 for none; where trails overlap, the hardest wins.
+	// Derived, rebuilt with TrailGraph; read through TrailAt.
+	trailAt []uint16
+
 	// Guests is the master catchment — every potential visitor the resort
 	// could ever attract, ~10k entries seeded at world init. Identity +
 	// career stats live here forever; the slice header never shrinks. The

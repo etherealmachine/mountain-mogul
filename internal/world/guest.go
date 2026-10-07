@@ -189,6 +189,10 @@ type Guest struct {
 	SkiTerrainPull float32
 	SkiedThisTick  bool
 
+	// DepartReason is why the guest is going home, set once when they
+	// decide to leave; DepartNone while they're still skiing.
+	DepartReason ai.DepartReason
+
 	// Conditions is the set of condition thoughts holding right now. A
 	// condition's thought is added when its bit turns on; its pull on
 	// the mood target lasts while the bit is set.
@@ -205,11 +209,9 @@ type Guest struct {
 
 	RidenLifts []ai.RideCount
 
-	// RunGroomingSum / RunGroomingSamples accumulate per-tick grooming values
-	// during the current ski descent. Reset at descent start; evaluated at
-	// descent end to decide whether to emit ThoughtLovingCorduroy.
-	RunGroomingSum     float32
-	RunGroomingSamples int32
+	// Run is what the guest has skied on the current descent, from the
+	// top (usually a lift's) to wherever it ends; judged at the bottom.
+	Run Run
 
 	// SkisOn tracks whether the guest currently has their skis on.
 	// True on arrival; toggled via SkiTransitionTimer when entering or
@@ -299,6 +301,58 @@ func Activity(w *World, g *Guest) string {
 		}
 	}
 	return "Traveling"
+}
+
+// RunTrailSlots is how many distinct trails a Run tracks time on.
+const RunTrailSlots = 4
+
+// Run summarises one descent as it was skied, tick by tick: where the
+// time went, how steep and crowded it was, and how much height it
+// covered. Times are seconds of skiing.
+type Run struct {
+	Start    float64    // SimTime the descent began
+	StartY   float32    // elevation at the start, for vertical
+	Time     float32    // seconds skiing
+	Distance float32    // metres skied
+	ByDiff   [3]float32 // seconds on green, blue, and black trail cells
+	OffTrail float32    // seconds on no trail
+	Steep    float32    // seconds well past the guest's ComfortSlope (sim.runSteepMargin)
+	Crowd    float32    // skiers nearby × seconds
+	Groomed  float32    // grooming × seconds
+	Trails   [RunTrailSlots]RunTrail
+}
+
+// RunTrail is the time a Run spent on one trail.
+type RunTrail struct {
+	ID  uint64
+	Sec float32
+}
+
+// AddTrailTime adds dt to trail id's slot, taking a free slot or, when
+// all are full, the one with the least time.
+func (r *Run) AddTrailTime(id uint64, dt float32) {
+	low := 0
+	for i := range r.Trails {
+		if r.Trails[i].ID == id {
+			r.Trails[i].Sec += dt
+			return
+		}
+		if r.Trails[i].Sec < r.Trails[low].Sec {
+			low = i
+		}
+	}
+	r.Trails[low] = RunTrail{ID: id, Sec: dt}
+}
+
+// MainTrail is the trail the run spent the most time on, 0 for none.
+func (r *Run) MainTrail() uint64 {
+	best := RunTrail{}
+	for _, t := range r.Trails {
+		if t.Sec > best.Sec {
+			best = t
+		}
+	}
+	return best.ID
 }
 
 // thoughtsCap is the size of the Thoughts ring. Six is enough that a
@@ -394,12 +448,12 @@ func (g *Guest) ResetForDeparture() {
 	}
 	g.ThoughtsHead = 0
 	g.Conditions = 0
+	g.DepartReason = ai.DepartNone
 	g.RidenLifts = g.RidenLifts[:0]
 	g.DayTicketDue = 0
 	g.DayTicketPaid = 0
 	g.HasDayTicket = false
-	g.RunGroomingSum = 0
-	g.RunGroomingSamples = 0
+	g.Run = Run{}
 	g.SkisOn = false
 	g.SkiTransitionTimer = 0
 	g.RestTimer = 0

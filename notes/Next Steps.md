@@ -14,11 +14,10 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 
 In the order to work on them:
 
-1. [[Satisfaction Rework]]: stats change per tick and on events from one effects table, thoughts become read-only reports counted once per episode, departures record a reason, the rating becomes the day's average satisfaction, and each service is defined by its stat effects. Takes over [[Patrol Day]] step 7 (response time in satisfaction).
-2. [[Snow Tastes]]: continuous taste affinities per guest (groomed, powder, moguls, trees, steep, ice, crowds), shown to the player as an archetype label. Snow underfoot moves the mood target, each run ends in an event, guests choose lifts and trails by taste, and repeated laps get boring.
-3. **Fix how services work**: the investigate-and-report items under Bugs and Guests (patrol, grooming, thirst, exhaustion, falls), in the new service model. Patrol is fixed by [[Patrol Day]] (steps 1–6 done; step 7 moved into [[Satisfaction Rework]]). Falls and grooming are next to diagnose; thirst and exhaustion are re-measured after Satisfaction Rework steps 2 and 4, since much of each is how thoughts are counted.
+1. [[Snow Tastes]]: continuous taste affinities per guest (groomed, powder, moguls, trees, steep, ice, crowds), shown to the player as an archetype label. Snow underfoot moves the mood target, each run ends in an event, guests choose lifts and trails by taste, and repeated laps get boring.
+2. **Fix how services work**: the investigate-and-report items under Bugs and Guests (patrol, grooming, thirst, exhaustion, falls), in the new service model. Patrol is fixed by [[Patrol Day]] (steps 1–6 done; step 7 moved into [[Satisfaction Rework]]). Falls first: on Boreal they spoil 73% of runs and are the biggest drag on the rating. Then grooming. Thirst and exhaustion were mostly how thoughts were counted (see the Guests items).
 
-Then: **gameplay before scenario goals**. A headless three-lift Boreal (2026-10-06) runs about 70 guests a day with the rating stuck near 30%, so goals can't be set until guests can have a good day. Priority 1 covers the investigate-and-report items; then the guest pool per scenario ([[First Week Balance]]). [[Scenario Goals and Rules]] steps 1–4 shipped and are tabled until then.
+Then: **gameplay before scenario goals**. A headless three-lift Boreal (2026-10-06) runs about 70 guests a day with the rating stuck near 30%, so goals can't be set until guests can have a good day. Priority 2 covers the investigate-and-report items; then the guest pool per scenario ([[First Week Balance]]). [[Scenario Goals and Rules]] steps 1–4 shipped and are tabled until then.
 
 Not ranked yet: everything below.
 
@@ -83,15 +82,16 @@ Found 2026-10-06 in a headless three-lift [[Boreal]] (three lifts, a green, blue
 
 ## Guests ([[GOAP]], [[Satisfaction]], [[Guest Types]])
 
-- **Thirst and hunger repeat too often**: in the three-lift test, about 35 "I need something to drink" and 10 "I could really use a meal" thoughts per guest visit, with a bar and food court at the base ([[Satisfaction]]). Diagnose: guests not reaching the bar, needs falling too fast, or the thought repeating every tick. Partly found 2026-10-07: condition thoughts are re-added every 12 sim seconds while the condition holds, so one thirsty stretch counts many times; fixed by [[Satisfaction Rework]] step 2, then re-measure.
-- **Everyone leaves exhausted**: almost every guest left on "I'm too tired to ski" (−0.15), so the day ends on a bad note even for a good visit. Diagnose whether energy drains too fast, or whether a normal end of day should leave on a neutral or happy thought instead. Partly found 2026-10-07: the exit chart shows each guest's last thought, not why they left, and exhaustion costs no satisfaction in the sim (only the chart weights it); departure reasons come in [[Satisfaction Rework]] step 4. Also seen on the Boreal rig (2026-10-06): guests still skiing two to three hours after the lifts close.
-- **Falls**: about 3 falls and 3 injuries per guest visit on plain green, blue, and black trails. Check skill matching and fall rates ([[Skiing]]).
+- **Thirst and hunger repeat too often**: in the three-lift test, about 35 "I need something to drink" and 10 "I could really use a meal" thoughts per guest visit, with a bar and food court at the base ([[Satisfaction]]). Diagnose: guests not reaching the bar, needs falling too fast, or the thought repeating every tick. Found 2026-10-07: condition thoughts were re-added every 12 sim seconds while the condition held. Counted once a stretch ([[Satisfaction Rework]]), Boreal shows 0.7 thirsty thoughts a visit, and 17% of guests leave thirsty because it has no bar, which is what the thought should say. Left: check thirst drain against a bar once one exists.
+- **Everyone leaves exhausted**: almost every guest left on "I'm too tired to ski" (−0.15), so the day ends on a bad note even for a good visit. Diagnose whether energy drains too fast, or whether a normal end of day should leave on a neutral or happy thought instead. Found 2026-10-07: the exit chart showed each guest's last thought, not why they left. With departure reasons ([[Satisfaction Rework]]), under 1% of Boreal's guests leave tired; most leave at closing. Left: guests still skiing two to three hours after the lifts close (seen on the Boreal rig, 2026-10-06).
+- **Falls**: about 3 falls and 3 injuries per guest visit on plain green, blue, and black trails. Check skill matching and fall rates ([[Skiing]]). On Boreal (2026-10-07), 2.2 falls a visit, and 73% of runs include one, which blocks "what a great run!".
 - **Guest pool per scenario**: done through [[Transit]]: each road entry has its own guest pool, so a scenario's catchment is the sum of its entries' pools. Boreal has two entries totalling 100,000 guests, enough for about 3,000 a day at a perfect rating.
 - **What each skill wants**: the terrain half is in [[Snow Tastes]]. Beginners want rentals and easy terrain; intermediates want terrain plus food and places to rest; advanced skiers want terrain and no crowds. Feeds [[Demand]] and [[Satisfaction]]. *For* [[Kirkwood]].
 - **Snowboarders**: guests already roll Snowboard but still ski and look like skiers.
 - **Children and families**: their own guest type, arriving and moving as a group.
 - **Guest goals beyond lapping**: find the shortest line, go to après-ski, stay near the lodge. Powder hunting moved to [[Snow Tastes]].
 - **Regulars**: guests who remember their last visit and come back, or don't. *For* [[Mad River Glen]].
+- **Rest loop**: on Boreal with one lift, guests rest about six times a visit; line waits drain patience faster than skiing restores it. Check the patience rates against lift line waits ([[Patience]]).
 - **Crowding**: guests notice crowded lodges, not only lift lines; crowded runs are in [[Snow Tastes]]. *For* [[Mad River Glen]].
 - **Mogul lovers**: an expert bombing a mogul run entertaining the lift above. Guests who seek moguls are the Bump Skier in [[Snow Tastes]].
 - **Non-skiing guests**: come for attractions, food, and the village. *Needs* attractions (under Real estate and attractions).
@@ -214,3 +214,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-06: [[Patrol Day]]: patrollers hike to any injury; helivac and overtime noted for later.
 - 2026-10-07: [[Satisfaction Rework]] planned with the user and ranked first; Fix how services work moves to second.
 - 2026-10-07: [[Snow Tastes]] planned with the user and ranked second; folded in the terrain half of skill wants, mogul lovers, powder hunting, and crowded runs.
+- 2026-10-07: [[Satisfaction Rework]] shipped; [[Snow Tastes]] is first. Thirst and exhaustion were mostly counting; falls are the main drag on the rating.

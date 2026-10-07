@@ -89,19 +89,19 @@ func (c CostBreakdown) Total() int {
 // pushes one of these; the readers iterate via History.Ordered to walk
 // them oldest-first regardless of where the ring head currently sits.
 type DailySample struct {
-	Day               time.Time                // calendar date this sample covers
-	GuestsOnMountain  int                      // active OnMountain count at EOD
-	ArrivalsToday     int                      // spawns during this day
-	DeparturesToday   int                      // departures during this day
-	Cash              int                      // resort cash balance at EOD
-	Revenue           int                      // all income this day
-	Costs             int                      // all costs this day (operating + interest)
-	RevenueByKind     [RevenueKindCount]int    // Revenue split by category
-	CostsByKind       CostBreakdown            // Costs split by category
-	Open              bool                     // the resort was open at some point in the day
-	Rating            float32                  // resort rating at EOD
-	ThoughtCounts     [ai.ThoughtKindCount]int // per-kind thought totals emitted during the day
-	ExitThoughtCounts [ai.ThoughtKindCount]int // last thought of each departing guest, by kind
+	Day              time.Time                 // calendar date this sample covers
+	GuestsOnMountain int                       // active OnMountain count at EOD
+	ArrivalsToday    int                       // spawns during this day
+	DeparturesToday  int                       // departures during this day
+	Cash             int                       // resort cash balance at EOD
+	Revenue          int                       // all income this day
+	Costs            int                       // all costs this day (operating + interest)
+	RevenueByKind    [RevenueKindCount]int     // Revenue split by category
+	CostsByKind      CostBreakdown             // Costs split by category
+	Open             bool                      // the resort was open at some point in the day
+	Rating           float32                   // resort rating at EOD
+	ThoughtCounts    [ai.ThoughtKindCount]int  // per-kind thought totals emitted during the day
+	DepartReasons    [ai.DepartReasonCount]int // why each guest who left that day went home
 }
 
 // History is a per-world ring of DailySamples plus the day-in-progress
@@ -115,12 +115,13 @@ type History struct {
 	Filled  bool // false until the ring has wrapped at least once
 
 	// Day-in-progress counters. Reset by Push.
-	ArrivalsToday          int
-	DeparturesToday        int
-	RevenueToday           int
-	RevenueByKindToday     [RevenueKindCount]int
-	ThoughtCountsToday     [ai.ThoughtKindCount]int
-	ExitThoughtCountsToday [ai.ThoughtKindCount]int
+	ArrivalsToday      int
+	DeparturesToday    int
+	RevenueToday       int
+	RevenueByKindToday [RevenueKindCount]int
+	ThoughtCountsToday [ai.ThoughtKindCount]int
+	DepartReasonsToday [ai.DepartReasonCount]int
+	SatisfactionToday  float32 // sum of departing guests' final satisfaction
 }
 
 // NewHistory returns an empty History ready to start recording. The
@@ -138,13 +139,25 @@ func (h *History) RecordArrival() {
 	h.ArrivalsToday++
 }
 
-// RecordDeparture bumps the in-progress departures counter. Safe to
-// call when h is nil — does nothing.
-func (h *History) RecordDeparture() {
+// RecordDeparture counts one departing guest: their final satisfaction
+// toward the day's average, and why they left. Safe to call when h is
+// nil — does nothing.
+func (h *History) RecordDeparture(satisfaction float32, why ai.DepartReason) {
 	if h == nil {
 		return
 	}
 	h.DeparturesToday++
+	h.SatisfactionToday += satisfaction
+	h.DepartReasonsToday[why]++
+}
+
+// DayRating is the average final satisfaction of the guests who left
+// today, and false when nobody has.
+func (h *History) DayRating() (float32, bool) {
+	if h == nil || h.DeparturesToday == 0 {
+		return 0, false
+	}
+	return h.SatisfactionToday / float32(h.DeparturesToday), true
 }
 
 // RecordRevenue adds amount to the in-progress revenue counters. Safe to
@@ -167,16 +180,6 @@ func (h *History) RecordThought(kind ai.ThoughtKind) {
 	h.ThoughtCountsToday[kind]++
 }
 
-// RecordExitThought records the last thought of one departing guest.
-// ThoughtNone (zero value) is ignored — guests with no thoughts are skipped.
-// Safe to call when h is nil.
-func (h *History) RecordExitThought(kind ai.ThoughtKind) {
-	if h == nil || kind == ai.ThoughtNone {
-		return
-	}
-	h.ExitThoughtCountsToday[kind]++
-}
-
 // Push writes one finalised DailySample into the ring and resets the
 // per-day counters. Caller has already populated sample.ArrivalsToday /
 // sample.DeparturesToday from h.ArrivalsToday / h.DeparturesToday (or
@@ -195,7 +198,8 @@ func (h *History) Push(sample DailySample) {
 	h.RevenueToday = 0
 	h.RevenueByKindToday = [RevenueKindCount]int{}
 	h.ThoughtCountsToday = [ai.ThoughtKindCount]int{}
-	h.ExitThoughtCountsToday = [ai.ThoughtKindCount]int{}
+	h.DepartReasonsToday = [ai.DepartReasonCount]int{}
+	h.SatisfactionToday = 0
 }
 
 // Ordered returns the samples in chronological order (oldest first).

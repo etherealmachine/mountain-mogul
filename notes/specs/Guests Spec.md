@@ -97,9 +97,9 @@ actual path through terrain.
 **Novelty mechanic.** `RideLift.Cost` adds a linear repeat penalty
 (`repeatPenaltyPerRide × prior_count`, capped at `repeatPenaltyCap`) so
 unridden lifts plan as cheaper. On unload `RidenLifts[L]++` is
-incremented, and on the first-ever ride of a lift `ThoughtLovingALift`
-(positive) is emitted — so the planner's preference for unridden lifts
-matches the actual rating outcome.
+incremented. A lift with no trail at the guest's own level costs
+`belowLevelPenaltySec` more, so they ride it only when nothing at their
+level runs.
 
 ### Goals (4)
 
@@ -448,47 +448,52 @@ Patience is clamped to `[0, 1]` on every write.
 
 ### Satisfaction, Rating, and Thoughts
 
-`Guest.Satisfaction` (0..1) is the running session quality score. `Guest.Rating()`
-returns it directly. At departure it is captured as `LastScore` and folded into
-`DemandSystem.ResortRating` via EMA (α = 1/70, ~50-departure half-life).
-Initialised to 0.6 at spawn (neutral-positive); zeroed in `ResetForDeparture`.
+`Guest.Satisfaction` (0..1) is the guest's mood for the visit. It starts at 0.6. When they leave, it's captured as `LastScore` and added to the day's departures in `History`. At rollover, `World.Rating` becomes the average of the day's departures (`History.DayRating`); a day with no departures keeps the previous rating. [[Demand]] reads `World.Rating`.
 
-The system has two update paths. Every thought emitted is the player-visible
-signal for whichever path fired — the tables below are the single source of
-truth for both the satisfaction mechanics and the thought catalogue.
+Satisfaction changes in exactly two ways, and both read one table, `ai.Effects`, indexed by `ThoughtKind`:
 
-**Continuous drift** (every `tickSkier` tick): Satisfaction drifts toward a
-`terrainTarget` at rate 0.6%/s, clamped to [0.25, 0.80] so discrete events
-always have room to push above or below the ambient baseline.
+- **Drift** (`Simulation.tickMood`, every tick, for every guest on the mountain whatever they're doing). The target is 0.5, plus the grooming pull from the last skiing tick (+0.15 on groomed snow and −0.08 off it, for `PrefersGroomed` guests), plus the pull of every active condition, clamped to [0.15, 0.80]. Satisfaction closes 0.6% of the gap per sim second.
+- **Events** (`Simulation.applyEvent`). A one-off delta, clamped to [0, 1].
 
-| Terrain condition | Trait required | Target shift | Thought emitted |
+Every change is reported by a thought, and no thought changes a stat by itself.
+
+**Conditions** hold for a while. `Simulation.setCondition` turns one on (adding its thought once, counted for the day) or off; `Guest.Conditions` is the bitmask. Needs start below 0.15 and clear above 0.25 (`holds`).
+
+| Condition | On | Off | Pull |
 |---|---|---|---|
-| In trees | `LikesGlades = true` | +0.12 | `ThoughtLovingGlades` — "loving these glades" |
-| In trees | `LikesGlades = false` | −0.18 | `ThoughtScaredInTrees` — "too many trees!" |
-| On groomed | `PrefersGroomed = true` | +0.15 | `ThoughtLovingCorduroy` — "this corduroy is perfect" |
-| Off-piste | `PrefersGroomed = true` | −0.08 | `ThoughtTiredOffPiste` — "this snow is exhausting" |
-| (none of the above) | — | drifts toward 0.5 | — |
+| `ThoughtLovingGlades` / `ThoughtScaredInTrees` | tree cover ≥ 0.30 while skiing (by `LikesGlades`) | below 0.20, or not skiing | +0.12 / −0.18 |
+| `ThoughtHungry`, `ThoughtThirsty`, `ThoughtImpatient` | Hunger, Thirst, Patience < 0.15 | > 0.25 | −0.10 each |
+| `ThoughtTired` | Energy < 0.15 (and not exhausted) | > 0.25 | 0 |
+| `ThoughtExhausted` | min(Patience, Energy) < 0.05 | > 0.15 | 0 |
+| `ThoughtTooExpensive` | budget below the cheapest ticket | can pay | 0 |
+| `ThoughtNeedsLodge` | the planner's `Rest` goal found no lodge (`Plan.Blocked`) | a plan without it | −0.10 |
+| `ThoughtLiftsClosed`, `ThoughtNothingForMe`, `ThoughtNoTicketWindow` | the planner couldn't plan a ride, and why | a plan without it | 0 |
+| `ThoughtTooEasy` | a run mostly on trails below the guest's level | a run at or above it | −0.08 |
 
-**Discrete spikes** (one-shot events, clamped to [0, 1]):
+**Events** happen once.
 
-| Event | Delta | Where | Thought emitted |
-|---|---|---|---|
-| Fall (balance → 0) | −0.10 | `skiing.go` | `ThoughtFell` — "ouch, that hurt" |
-| First ride of a lift | +0.10 | `simulation.go` — lift unload | `ThoughtLovingALift` — "what a great lift!" |
-| Joining a long queue (≥ 15) | −0.08 | `simulation.go` — `ActJoinQueue` | `ThoughtLongLine` — "this line is way too long" |
-| Queue grew past cap since plan time (`len(Queue) > 20` on arrival at base) | −0.08 | `simulation.go` — `ActJoinQueue` | `ThoughtLineTooLong` — "that line will take forever" |
-| Rest goal but no lodge reachable | −0.06 | `goap/planner.go` — `planFromSnap` | `ThoughtNeedsLodge` — "this place needs a lodge" |
-| Hunger < 0.15 (continuous, TTL-gated) | — | `skiing.go` | `ThoughtHungry` — "I could really use a meal" |
-| Thirst < 0.15 (continuous, TTL-gated) | — | `skiing.go` | `ThoughtThirsty` — "I need something to drink" |
+| Event | Delta | Where |
+|---|---|---|
+| `ThoughtFell` | −0.10 | `skiing.go`, balance → 0 |
+| `ThoughtHitTree` | −0.15 | `treeHit`; an injury may follow |
+| `ThoughtCaughtInAvalanche` | −0.10 | then a fall or injury |
+| `ThoughtInjured` / `ThoughtHurtGoingHome` | −0.25 / −0.15 | `injure`, serious or minor |
+| `ThoughtAbandoned` | −0.30 | `tickFallen`, the wait ran out |
+| `ThoughtPatrolFast` / `ThoughtPatrolCame` / `ThoughtPatrolSlow` | +0.06 / +0.02 / −0.08 | `patrolReached`: ≤ 120, between, ≥ 300 sim s from injury to a patroller |
+| `ThoughtLongLine`, `ThoughtLineTooLong` | −0.08 | `ActJoinQueue` |
+| `ThoughtGoodMeal`, `ThoughtGoodDrink`, `ThoughtRested` | +0.05, +0.04, +0.03 | `tickResting`, when the visit finishes |
+| `ThoughtGreatRun` | +0.04 | `judgeRun` |
+| `ThoughtTooHard` | −0.08 | `judgeRun` |
+| `ThoughtCrowdedRun` | −0.05 | `judgeRun` |
+| `ThoughtLovingCorduroy` | +0.05 | `judgeRun`, a `PrefersGroomed` guest on a run ≥ 90% groomed |
 
-**Thoughts ring mechanics.** The ring holds up to 6 entries (`thoughtsCap`);
-the oldest slot is recycled when full. `AddThought(kind, simTime)` suppresses
-duplicates within `ThoughtTTL = 12 s` — so a guest skiing through trees for
-a minute emits `ThoughtScaredInTrees` once per 12 s, not every tick.
-`ThoughtCounts[kind]` is incremented per unsuppressed push and feeds the daily
-history tally and the thoughts breakdown chart. `CurrentThought(simTime)`
-returns the most-recent unexpired thought; `LastThought()` returns the
-most-recent regardless of TTL (HUD fallback when no thought is currently live).
+**Runs.** Each descent step (`SkiToLift`, `SkiToLodge`, `SkiToParking`, `SkiTrail`) starts a `Guest.Run` (`startRun`). Every skiing tick adds to it (`recordRun`): seconds on green, blue, and black trail cells (`World.TrailAt`, an index rebuilt with the trail graph) or off-trail, seconds on up to four trails, seconds more than 5° past `ComfortSlope`, other moving skiers within about 7 m × seconds, grooming × seconds, distance, and the starting elevation. When the step completes, `judgeRun` scores runs of 20 s or more. The run's difficulty is the one with the most time, counted when at least half the run was on trails. Too hard: a difficulty above the guest's level, or a quarter of the run past the steep margin. Crowded: on average 1.5 or more skiers nearby. Great: at their level, not too hard, not crowded, no fall since the start, and at least 40 m of vertical. Thoughts name the run's main trail.
+
+**Terrain and skill.** Guests ride any lift serving a trail at or below their level (`skillDiff`; advanced guests ride anything), and prefer one at their level: a lift without one costs 240 s more in the planner (`belowLevelPenaltySec`). [[Demand]] sends guests at full rate when a trail matches their level, and at 0.4 when only easier trails exist (`terrainMatch`).
+
+**Departure reasons.** `Guest.DepartReason` is set once, when the guest decides to leave: explicitly for closing time, a minor injury or patrol first aid, being abandoned, and no route to a ticket window; otherwise by `departReasonFor` when the planner picks `GoHome`, or at `ActDepart` as a fallback. In that order: closing time, no ticket window, lifts stopped, nothing to ski, out of money, patience gone (lines), out of energy, hunger, thirst, else done for the day. `History` counts reasons per day for the "Why guests left" chart. Done, tired, hungry, thirsty, and closing are an ordinary end to the day (`ai.DepartNormal`).
+
+**The thoughts ring.** It holds the last 6 thoughts (`thoughtsCap`) and doesn't skip repeats. `CurrentThought` returns the newest thought still on the guest's mind: an event within `ThoughtTTL` (12 sim s), or a condition that still holds. `ThoughtCounts` and the day's tally count each event and each start of a condition; the "Guest thoughts" chart ranks them by count.
 
 ---
 
@@ -541,12 +546,11 @@ When `GoHome` wins, the plan is `[SkiToParking(P), Depart(P)]`:
   same physics as any other ski step.
 - **`Depart`** (`onPlanStepStart`, `simulation.go`) — a single call that does
   everything before the tick advances:
-  1. `Demand.recordDeparture` captures `Satisfaction` as `LastScore`, folds it
-     into `DemandSystem.ResortRating` via EMA (α = 1/70, ~50-departure half-
-     life), and increments `LifetimeVisits`, `VisitsThisSeason`, `LastVisit`.
-  2. `History.RecordDeparture()` increments `DeparturesToday`.
-  3. `History.RecordExitThought(a.LastThought().Kind)` records the guest's
-     last thought for the daily chart.
+  1. `departReasonFor` fills in `DepartReason` if nothing set it earlier.
+  2. `Demand.recordDeparture` captures `Satisfaction` as `LastScore` and
+     increments `LifetimeVisits`, `VisitsThisSeason`, `LastVisit`.
+  3. `History.RecordDeparture(satisfaction, reason)` counts the departure,
+     adds its satisfaction to the day's sum, and counts its reason.
   4. The parking lot's `CurrentCars` is decremented by `1/GuestsPerCar`
      (4 departures = −1 visible car).
   5. `a.Removed = true` — the agent is inert for the rest of the tick.
@@ -563,29 +567,12 @@ RidenLifts, …) while preserving identity and career stats (`LifetimeVisits`,
 `VisitsThisSeason`, `LastVisit`, `LastScore`). The same pointer can be reused
 by a future arrival without allocation.
 
-### Exit thoughts
+### Departure reasons
 
-At the moment of `Depart`, `RecordExitThought(a.LastThought().Kind)` snapshots
-the guest's most-recent thought (regardless of TTL — `LastThought()` never
-returns stale). Counts accumulate in `History.ExitThoughtCountsToday` and roll
-into the per-day snapshot at midnight. The exit-thoughts distribution chart
-weights each kind by its absolute satisfaction impact.
-
-| Exit thought | Display text | Impact | Path |
-|---|---|---|---|
-| `ThoughtLineTooLong` | "that line will take forever" | −0.08 | unhappy: queue cap hit |
-| `ThoughtNeedsLodge` | "this place needs a lodge" | −0.06 | unhappy: rest goal, no lodge |
-| `ThoughtHungry` | "I could really use a meal" | −0.08 | natural: hunger ran out |
-| `ThoughtThirsty` | "I need something to drink" | −0.08 | natural: thirst ran out |
-| any positive thought | — | varies | happy: energy depletion leaves whatever was last in the ring |
-
-`ThoughtNone` (guest left without any thought ever emitted) counts as zero
-weight in the chart.
+See "Departure reasons" under Satisfaction, Rating, and Thoughts. The daily "Why guests left" chart shows the last day's counts.
 
 ### Departure's effect on demand
 
-`ResortRating` feeds the arrival-rate formula (see `demand.go`). A guest who
-departs frustrated (low `Satisfaction`) pulls the rating down and suppresses
-future arrivals; a happy guest does the reverse. The EMA weight (α = 1/70)
-means approximately the last 70 departures shape the current rating — short
-enough to respond to a bad day, long enough not to thrash on a single outlier.
+`World.Rating` feeds the arrival-rate formula (see `demand.go`). It is the
+average final `Satisfaction` of the previous day's departures, set at
+rollover, so a bad day shows up in the next day's arrivals.

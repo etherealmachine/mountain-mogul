@@ -49,6 +49,11 @@ const (
 	repeatPenaltyPerRide = 12.0
 	repeatPenaltyCap     = 60.0
 
+	// belowLevelPenaltySec makes a lift with no trail at the guest's own
+	// level cost about four extra minutes, so they ride it only when
+	// nothing at their level is running.
+	belowLevelPenaltySec = 240.0
+
 	// Rest duration constant — Rest restores Energy to ~full in one action.
 	// Modeled as a chunky atomic action rather than a series of timed
 	// recovery ticks so the planner doesn't need to chain dozens of small
@@ -84,8 +89,8 @@ func (a *WalkToLift) Precondition(s *WorldSnapshot, w *world.World) bool {
 	if findLift(w, a.LiftID) == nil {
 		return false
 	}
-	// Beginners and intermediates won't walk to a lift that has no trails
-	// matching their ability. Advanced+ are willing to free-roam from any lift.
+	// Beginners and intermediates won't walk to a lift with no trail at or
+	// below their level. Advanced+ are willing to free-roam from any lift.
 	if diff := skillDiff(s.Skill); diff != 0 {
 		if !w.ServicesForLift(a.LiftID).Has(diff) {
 			return false
@@ -198,6 +203,11 @@ func (a *RideLift) Cost(s *WorldSnapshot, w *world.World) float32 {
 		return math.MaxFloat32
 	}
 	ride := l.LoopLength() / (2 * l.Speed)
+	// A lift with nothing at the guest's own level is a fallback: they'll
+	// ride it when nothing better runs, and wish for harder terrain.
+	if !w.ServicesForLift(a.LiftID).Has(skillLevel(s.Skill)) {
+		ride += belowLevelPenaltySec
+	}
 	// Repeat penalty: 0 for the first ride, ramps to repeatPenaltyCap.
 	count := ai.RideCountOf(s.RidenLifts, a.LiftID)
 	penalty := float32(count) * repeatPenaltyPerRide

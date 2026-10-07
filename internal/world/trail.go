@@ -178,6 +178,44 @@ func (w *World) RebuildTrailGraph() {
 	// Doors face lifts and parking, and trails end at doors.
 	w.RefreshAllDoors()
 	w.TrailGraph = BuildTrailGraph(w)
+	w.rebuildTrailAt()
+}
+
+// rebuildTrailAt refills the cell-to-trail index from the trails' cells.
+func (w *World) rebuildTrailAt() {
+	if w.Terrain == nil {
+		return
+	}
+	n := w.Terrain.Width * w.Terrain.Height
+	if len(w.trailAt) != n {
+		w.trailAt = make([]uint16, n)
+	} else {
+		clear(w.trailAt)
+	}
+	for i, t := range w.Trails {
+		for _, c := range t.Cells {
+			if !w.Terrain.InBounds(c[0], c[1]) {
+				continue
+			}
+			k := c[1]*w.Terrain.Width + c[0]
+			if prev := w.trailAt[k]; prev == 0 || w.Trails[prev-1].Difficulty < t.Difficulty {
+				w.trailAt[k] = uint16(i + 1)
+			}
+		}
+	}
+}
+
+// TrailAt returns the trail painted on cell (cx, cz), the hardest where
+// trails overlap, or nil when the cell is off-trail.
+func (w *World) TrailAt(cx, cz int) *Trail {
+	if w.Terrain == nil || !w.Terrain.InBounds(cx, cz) {
+		return nil
+	}
+	k := cz*w.Terrain.Width + cx
+	if k >= len(w.trailAt) || w.trailAt[k] == 0 || int(w.trailAt[k]) > len(w.Trails) {
+		return nil
+	}
+	return w.Trails[w.trailAt[k]-1]
 }
 
 // BrushCells returns all grid cells within a circular radius of (cx, cz).

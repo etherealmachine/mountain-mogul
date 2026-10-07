@@ -1,7 +1,7 @@
 ---
 title: Satisfaction Rework
 kind: plan
-status: in progress
+status: done
 ---
 
 # Satisfaction Rework
@@ -88,10 +88,20 @@ Later rows (not in this plan): a wait at the door, price against the guest's bud
 3. Done: **Mood in every activity, with needs.** `Simulation.tickMood` runs for every guest on the mountain each tick, including those being carried by patrol. The target is 0.5, plus the grooming pull from the last skiing tick, plus each active condition's pull, kept between 0.15 and 0.80 (the floor was 0.25). Pulls are flat while a condition holds, not scaled by depth: hungry, thirsty, impatient, and needs a lodge −0.10 each, glades +0.12, scared in trees −0.18. The grooming pull (+0.15 or −0.08 for guests who prefer groomed snow) still has no thought; [[Snow Tastes]] step 2 gives it one.
 
    Checked headless on the user's latest save (one lift, one trail, a lodge; 5 days, 112 visits, same seed before and after). Thoughts per visit fell from about 35 to 12: thirsty 3.60 → 0.49, too tired to ski 6.70 → 0.98, need a break 2.61 → 0.45, and the new "sick of waiting" 0.89. Average final satisfaction on the busy day fell from 0.44 to 0.35, because unmet needs and long waits now cost something. Exit thoughts now show "the lifts are all closed" for 20% of guests, since the last thought is no longer the most recently repeated one; step 4 replaces exit thoughts with departure reasons. Arrivals in that save stop after the third day in both versions; that isn't caused by this change.
-4. **Departure reasons.** Add `Guest.DepartReason`, set it wherever `GoHome` wins, and record it in `History`. Replace the "Exit thoughts" chart with "Why guests left". Check: on Boreal, the share of normal end-of-day exits, and report what's left of the exhaustion item. Skiing past close stays its own bug.
-5. **Daily rating.** Add a per-day satisfaction sum and count to `History`. Set `World.Rating` at rollover and drop `ratingEMAAlpha`. Saves break, which is fine before release. Check: the rating chart shows one point a day and demand follows it.
-6. **Service events.** Add the rows from the services table: meal, drink, rest, and patrol response time. Check: on Boreal over two days, rescued guests end above abandoned ones, and fed guests end above hungry ones.
-7. **Docs.** Rewrite "Satisfaction, Rating, and Thoughts" in [[Guests Spec]] from the code. Update [[Satisfaction]], [[Hunger]], [[Thirst]], [[Energy]], [[Patience]], and [[Demand]]. Close [[Patrol Day]] step 7.
+4. Done: **Departure reasons.** `ai.DepartReason` and `Guest.DepartReason`, set once. Closing time, a minor injury or patrol first aid, being abandoned, and no route to a ticket window are set explicitly where they happen. Otherwise `departReasonFor` decides when the planner picks `GoHome` (falling back to `ActDepart`): closing time, a blocked ride, out of money, patience, energy, hunger, thirst, else done. `History` counts reasons per day, and the "Why guests left" chart replaced "Exit thoughts".
+5. Done: **Daily rating.** `History` sums the day's departing satisfaction, and at rollover `World.Rating` becomes the average (`History.DayRating`); a day nobody left keeps the last rating. `ratingEMAAlpha` is gone.
+6. Done: **Service events.** A finished meal (+0.05), drink (+0.04), or rest (+0.03), and patrol response (`patrolReached`: +0.06 within 120 sim s of the injury, −0.08 past 300, +0.02 between). Added beyond the plan, at the user's request so guests have reasons to want more terrain:
+   - **Terrain at or below a guest's level.** Guests ride any lift serving a trail at or below their level, and prefer their own: a lift without one costs 240 s more in the planner. [[Demand]] sends guests at 0.4 of the rate when only easier trails exist; before, intermediates and experts never came to a green-only resort.
+   - **Run verdicts.** Guests never ski trail steps (every descent is a free ski to a lift), so the verdict comes from what they actually skied. `Guest.Run` records, tick by tick: seconds on each trail difficulty (`World.TrailAt`, a cell index rebuilt with the trail graph) or off-trail, the main trails, steepness more than 5° past their comfort, nearby skiers, grooming, distance, and vertical. `judgeRun` turns that into "too easy" (a condition, −0.08), "too much for me" (−0.08), "way too crowded" (−0.05), "this corduroy is perfect", and "what a great run!" (+0.04: at their level, no fall, room to ski, at least 40 m of vertical). This is the start of [[Snow Tastes]] step 3.
+7. Done: **Docs.** [[Guests Spec]]'s Satisfaction, Rating, and Thoughts section is rewritten from the code, and [[Satisfaction]], [[Hunger]], [[Thirst]], [[Patience]], [[Demand]], and [[GOAP]] are updated.
+
+**Checked headless** on the user's Boreal save: one green lift and one green run, a food court and ticket window, a patrol hut, and a garage. Seven days, with a storm dropped whenever the base melted out. That was 443 visits: 284 beginners, 71 intermediates, 21 advanced.
+
+- **Rating:** 0.33–0.39 a day.
+- **Why guests left:** 62% closing time, 17% too thirsty (there's no bar), 11% lifts stopped (the base melting out before the storm), and under 1% each for tired and hurt.
+- **Thoughts per visit:** "good to sit down" 6.4, falls 2.2, sick of waiting 0.91, thirsty 0.69, corduroy 0.40, too easy 0.20, great run 0.02.
+- **Great runs are rare because of falls:** of 490 judged runs, 356 had a fall. Falls cost the most mood of anything, so the falls item in [[Next Steps]] is the next lever on the rating.
+- **Guests rest often.** About six rests a visit come from line waits draining patience faster than skiing restores it, with one lift.
 
 Each step builds with `go build` and `go vet` and is judged in a headless Boreal run. No Go tests.
 
@@ -107,3 +117,4 @@ Each step builds with `go build` and `go vet` and is judged in a headless Boreal
 - 2026-10-07: Planned with the user after comparing the satisfaction code with RollerCoaster Tycoon, Parkitect, Planet Coaster, and Planet Zoo. Ranked first.
 - 2026-10-07: The user confirmed the three proposals (need pull, mood in every activity, departure reasons).
 - 2026-10-07: Steps 1–3 built: the effects table, condition thoughts, and mood in every activity. Thoughts per visit about 35 → 12 on the user's save.
+- 2026-10-07: Steps 4–7 built: departure reasons, the daily rating, service and patrol events, run verdicts, docs. Guests now ski terrain below their level and wish for more. Falls are the main drag on Boreal's rating.

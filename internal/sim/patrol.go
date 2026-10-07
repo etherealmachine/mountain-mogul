@@ -3,6 +3,7 @@ package sim
 import (
 	"fmt"
 	"math"
+	"mountain-mogul/internal/ai"
 	"sort"
 
 	"github.com/go-gl/mathgl/mgl32"
@@ -334,6 +335,7 @@ func (s *Simulation) patrollerToInjury(p *world.Patroller, base *world.Building,
 	}
 	if s.patrollerGlide(p, speed, dt) {
 		target.OnPatrollerID = p.ID
+		s.patrolReached(target)
 		p.ActionTimer = world.PatrollerOnSceneSeconds
 		p.State = world.PatrollerOnScene
 	}
@@ -421,10 +423,34 @@ func (s *Simulation) patrollerEnRoute(p *world.Patroller, base *world.Building, 
 	p.TargetPos = target.Pos
 	if s.patrollerDrive(p, dt) {
 		target.OnPatrollerID = p.ID
+		s.patrolReached(target)
 		p.ActionTimer = world.PatrollerOnSceneSeconds
 		p.State = world.PatrollerOnScene
 	}
 }
+
+// patrolReached is the injured guest's verdict on how long help took,
+// from the injury to a patroller at their side.
+func (s *Simulation) patrolReached(g *world.Guest) {
+	waited := injuryWaitTime - g.InjuryWaitTimer
+	switch {
+	case waited <= patrolFastSec:
+		s.applyEvent(g, ai.ThoughtPatrolFast)
+	case waited >= patrolSlowSec:
+		s.applyEvent(g, ai.ThoughtPatrolSlow)
+	default:
+		s.applyEvent(g, ai.ThoughtPatrolCame)
+	}
+}
+
+// Patrol response times, in sim seconds from injury to a patroller at the
+// guest's side: about 40 and 100 minutes on the clock. A snowmobile from
+// a hut near the lift base answers a mid-mountain call in about the
+// first; a lift ride and ski down takes about the second.
+const (
+	patrolFastSec = 120.0
+	patrolSlowSec = 300.0
+)
 
 func (s *Simulation) patrollerTarget(p *world.Patroller) *world.Guest {
 	for _, g := range s.World.OnMountain {
@@ -478,6 +504,7 @@ func (s *Simulation) patrollerDropPatient(p *world.Patroller, base *world.Buildi
 			mgl32.Vec2{p.Pos[0], p.Pos[2]}, g.ID)
 		// Patched up, they walk to their car; the departure counts when
 		// they drive off, as for any guest.
+		s.setDepartReason(g, ai.DepartHurt)
 		s.directHomePlan(g)
 	}
 	p.TargetGuestID = 0
