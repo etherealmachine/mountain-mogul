@@ -8,8 +8,6 @@ import (
 )
 
 const (
-	groomMogulDecay = 0.5
-
 	arriveCellSlack = world.CellSize * 0.5
 
 	// sectionGroomThreshold: a cat heads out for its nightly pass when any
@@ -120,6 +118,7 @@ func (s *Simulation) groomAlong(cat *world.Snowcat, a [2]float32, step world.Rou
 	b := step.P
 	t.Groom.StampSegment(a[0], a[1], b[0], b[1], step.LatFrom, step.Lat, step.Sign)
 	t.Surface.ClearTrackSwath(a[0], a[1], b[0], b[1], world.SnowcatTillerWidth/2)
+	t.FlattenMogulSwath(a[0], a[1], b[0], b[1], world.SnowcatTillerWidth/2)
 	done := s.catGroomed[cat.ID]
 	cx, cz := int(b[0]/world.CellSize), int(b[1]/world.CellSize)
 	for dx := -1; dx <= 1; dx++ {
@@ -427,6 +426,5 @@ func groomCell(w *world.World, c [2]int) {
 	}
 	cell.Grooming = 1.0
 	cell.SkierTraffic = 0
-	cell.MogulSize *= groomMogulDecay
 	w.Terrain.SnowDirty = true
 }

@@ -181,3 +181,80 @@ func (t *Terrain) LoadMoguls(b []byte) bool {
 	}
 	return true
 }
+
+// ScaleMoguls multiplies every mogul by factor (0..1): snow filling them
+// in, or a thaw rounding them off.
+func (t *Terrain) ScaleMoguls(factor float32) {
+	m := t.Moguls
+	if m == nil || factor >= 1 {
+		return
+	}
+	factor = max(factor, 0)
+	for cx := 0; cx < t.Width; cx++ {
+		for cz := 0; cz < t.Height; cz++ {
+			t.reconcileMoguls(cx, cz)
+			if t.Cells[cx][cz].MogulSize == 0 {
+				continue
+			}
+			for z := cz * MogulPxPerCell; z < (cz+1)*MogulPxPerCell; z++ {
+				for x := cx * MogulPxPerCell; x < (cx+1)*MogulPxPerCell; x++ {
+					i := z*m.W + x
+					m.Px[i] = uint16(float32(m.Px[i])*factor + 0.5)
+				}
+			}
+			t.writeMogulAverage(cx, cz)
+		}
+	}
+}
+
+// FlattenMogulSwath levels the moguls a cat's tiller drove over from
+// (x0, z0) to (x1, z1): gone within halfWidth of the line, easing back to
+// untouched over a metre past it, so the edges of a narrow pass stay
+// bumpy.
+func (t *Terrain) FlattenMogulSwath(x0, z0, x1, z1, halfWidth float32) {
+	m := t.Moguls
+	if m == nil {
+		return
+	}
+	const soft = 1.0
+	reach := halfWidth + soft
+	x0p, x1p := int(math.Floor(float64(min(x0, x1)-reach))), int(math.Ceil(float64(max(x0, x1)+reach)))
+	z0p, z1p := int(math.Floor(float64(min(z0, z1)-reach))), int(math.Ceil(float64(max(z0, z1)+reach)))
+	x0p, z0p = max(x0p, 0), max(z0p, 0)
+	x1p, z1p = min(x1p, m.W), min(z1p, m.H)
+	if x0p >= x1p || z0p >= z1p {
+		return
+	}
+	for cx := x0p / MogulPxPerCell; cx <= (x1p-1)/MogulPxPerCell; cx++ {
+		for cz := z0p / MogulPxPerCell; cz <= (z1p-1)/MogulPxPerCell; cz++ {
+			t.reconcileMoguls(cx, cz)
+		}
+	}
+	dx, dz := x1-x0, z1-z0
+	l2 := dx*dx + dz*dz
+	for pz := z0p; pz < z1p; pz++ {
+		for px := x0p; px < x1p; px++ {
+			i := pz*m.W + px
+			if m.Px[i] == 0 {
+				continue
+			}
+			cx, cz := float32(px)+0.5, float32(pz)+0.5
+			s := float32(0)
+			if l2 > 0 {
+				s = min(max(((cx-x0)*dx+(cz-z0)*dz)/l2, 0), 1)
+			}
+			ex, ez := cx-(x0+dx*s), cz-(z0+dz*s)
+			d := float32(math.Sqrt(float64(ex*ex + ez*ez)))
+			if d >= reach {
+				continue
+			}
+			keep := max(d-halfWidth, 0) / soft
+			m.Px[i] = uint16(float32(m.Px[i])*keep + 0.5)
+		}
+	}
+	for cx := x0p / MogulPxPerCell; cx <= (x1p-1)/MogulPxPerCell; cx++ {
+		for cz := z0p / MogulPxPerCell; cz <= (z1p-1)/MogulPxPerCell; cz++ {
+			t.writeMogulAverage(cx, cz)
+		}
+	}
+}

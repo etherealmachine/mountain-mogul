@@ -1002,6 +1002,12 @@ func (s *Simulation) applyDailyWeather(dw DayWeather) {
 		if evt != weatherEventNone {
 			s.applyKindTransition(evt)
 		}
+		switch evt {
+		case weatherEventWarmClear:
+			t.ScaleMoguls(1 - mogulThawRound)
+		case weatherEventRain:
+			t.ScaleMoguls(1 - mogulRainRound)
+		}
 		// Melt runs hourly through the day (tickHourly).
 	}
 
@@ -1064,7 +1070,21 @@ func (s *Simulation) pushSnowLayer(dw DayWeather) {
 	if burialFactor >= 1 {
 		t.Groom.Clear()
 	}
+	t.ScaleMoguls(1 - clamp01(accumSWE/mogulFillSWE))
 }
+
+// Moguls are deeper than tracks, so they take more snow to fill: a day's
+// snowfall fills them in proportion to its water, all the way at
+// mogulFillSWE (about a metre of new snow).
+const mogulFillSWE = float32(0.1)
+
+// A thaw rounds moguls off: a warm clear day by mogulThawRound, a day of
+// rain by mogulRainRound. A hard freeze leaves them as they are; the
+// surface turns icy through its snow kind.
+const (
+	mogulThawRound = float32(0.1)
+	mogulRainRound = float32(0.2)
+)
 
 // applyKindTransition modifies the top layer's Kind on every terrain cell
 // according to the given non-precipitation weather event.
