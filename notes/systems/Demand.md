@@ -27,3 +27,4 @@ Spec: [[Demand Spec]]. Code: `internal/sim/demand.go`.
 - 2026-10-06: Arrivals come in carloads that drive in from their entry ([[Transit]] step 2); guests in arriving cars count toward occupancy, and the parking share in the price factor is the fee ÷ 2.4, the mean carload.
 - 2026-10-07: The rating became the day's average departing satisfaction; guests come at 0.4 rate when only easier terrain exists ([[Satisfaction Rework]]).
 - 2026-10-07: Per-guest preferred arrival times; arrivals from three hours before opening.
+- 2026-10-07: With no rental shop, half of the guests who'd rent skis stay home: the poll's chance is × (1 − rental share for their skill × 0.5) for guests without a pass ([[Service Improvements]]).
