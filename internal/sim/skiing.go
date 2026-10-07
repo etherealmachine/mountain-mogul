@@ -193,15 +193,19 @@ const (
 	// exhaustedThreshold mirrors GoHome's 0.05 cut-off.
 	exhaustedThreshold = float32(0.05)
 
-	// The mood target is moodBaseline plus the terrain's pull while
-	// skiing plus each active condition's pull (ai.Effects), clamped to
-	// [moodTargetMin, moodTargetMax]. Satisfaction closes moodDriftRate
-	// of the gap a second, so a brief bad patch barely shows but a
-	// sustained one (a long tree run, a hungry hour) does. Events can
-	// still push it outside the target's range.
-	moodBaseline  = float32(0.5)
+	// The mood target is the guest's Baseline plus the terrain's pull
+	// while skiing plus each active condition's pull (ai.Effects),
+	// clamped to [moodTargetMin, moodTargetMax]. Satisfaction closes
+	// moodDriftRate of the gap a second, so a brief bad patch barely
+	// shows but a sustained one (a long tree run, a hungry hour) does.
+	// Events can still push it outside the target's range. The baseline
+	// starts at baselineStart each visit and moves with experiences (a
+	// great run, an injury), within [baselineMin, baselineMax].
+	baselineStart = float32(0.5)
+	baselineMin   = float32(0.15)
+	baselineMax   = float32(0.85)
 	moodTargetMin = float32(0.15)
-	moodTargetMax = float32(0.80)
+	moodTargetMax = float32(0.90)
 	moodDriftRate = float32(0.006)
 	groomedPull   = float32(+0.15) // PrefersGroomed on groomed snow
 	ungroomedPull = float32(-0.08) // PrefersGroomed off it
@@ -1231,7 +1235,7 @@ func (s *Simulation) tickMood(a *world.Guest, dt float64) {
 		s.setCondition(a, ai.ThoughtLovingGlades, false)
 		s.setCondition(a, ai.ThoughtScaredInTrees, false)
 	}
-	target := moodBaseline + a.SkiTerrainPull
+	target := a.Baseline + a.SkiTerrainPull
 	if a.Conditions != 0 {
 		for k := ai.ThoughtKind(1); int(k) < ai.ThoughtKindCount; k++ {
 			if a.Conditions.Has(k) {

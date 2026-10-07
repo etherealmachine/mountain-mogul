@@ -500,6 +500,8 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 			gd.Energy = g.Energy
 			gd.Hunger = g.Hunger
 			gd.Thirst = g.Thirst
+			gd.Satisfaction = g.Satisfaction
+			gd.Baseline = g.Baseline
 			if !g.Plan.Done() {
 				gd.PlanStep = g.Plan.Step
 				gd.PlanSteps = make([]PlanActionData, len(g.Plan.Steps))
@@ -1116,6 +1118,11 @@ func dataToWorld(data ScenarioData) *world.World {
 				thirst = 1.0
 			}
 			g.Thirst = thirst
+			g.Satisfaction, g.Baseline = gd.Satisfaction, gd.Baseline
+			if g.Baseline <= 0 {
+				// Saved before mood was kept: as if they'd just arrived.
+				g.Satisfaction, g.Baseline = 0.6, 0.5
+			}
 			g.Balance = 1.0
 			if len(gd.PlanSteps) > 0 {
 				steps := make([]ai.PlanAction, len(gd.PlanSteps))

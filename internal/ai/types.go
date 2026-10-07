@@ -335,12 +335,15 @@ const ThoughtKindCount = int(thoughtKindSentinel)
 const _ = uint(64 - ThoughtKindCount) // fails to compile past 64 kinds
 
 // Effect is what one ThoughtKind reports. An event's Satisfaction is a
-// one-off delta, applied once by sim.applyEvent. A condition's
-// Satisfaction is a pull on the mood target that lasts while the
-// condition holds; the condition's thought is added once when it starts.
+// one-off delta, applied once by sim.applyEvent, and its Baseline moves
+// the guest's baseline for the rest of the visit: the level their mood
+// drifts back to. A condition's Satisfaction is a pull on the mood
+// target that lasts while the condition holds; the condition's thought
+// is added once when it starts.
 type Effect struct {
 	Condition    bool
 	Satisfaction float32
+	Baseline     float32
 }
 
 // Effects is the single table of what every thought reports. Nothing
@@ -348,16 +351,16 @@ type Effect struct {
 var Effects = [ThoughtKindCount]Effect{
 	// Events.
 	ThoughtFell:              {Satisfaction: -0.10},
-	ThoughtInjured:           {Satisfaction: -0.25},
-	ThoughtAbandoned:         {Satisfaction: -0.30},
-	ThoughtHurtGoingHome:     {Satisfaction: -0.15},
+	ThoughtInjured:           {Satisfaction: -0.25, Baseline: -0.05},
+	ThoughtAbandoned:         {Satisfaction: -0.30, Baseline: -0.10},
+	ThoughtHurtGoingHome:     {Satisfaction: -0.15, Baseline: -0.03},
 	ThoughtHitTree:           {Satisfaction: -0.15},
-	ThoughtCaughtInAvalanche: {Satisfaction: -0.10},
+	ThoughtCaughtInAvalanche: {Satisfaction: -0.10, Baseline: -0.03},
 	ThoughtLongLine:          {Satisfaction: -0.08},
 	ThoughtLineTooLong:       {Satisfaction: -0.08},
-	ThoughtLovingCorduroy:    {Satisfaction: +0.05}, // a run that averaged ≥90% groomed
-	ThoughtGreatRun:          {Satisfaction: +0.04},
-	ThoughtTooHard:           {Satisfaction: -0.08},
+	ThoughtLovingCorduroy:    {Satisfaction: +0.05},                  // a run that averaged ≥90% groomed
+	ThoughtGreatRun:          {Satisfaction: +0.04, Baseline: +0.04}, // Baseline scaled down by repeats (sim.judgeRun)
+	ThoughtTooHard:           {Satisfaction: -0.08, Baseline: -0.02},
 	ThoughtCrowdedRun:        {Satisfaction: -0.05},
 	ThoughtFellUnloading:     {Satisfaction: -0.05},
 	ThoughtGoodMeal:          {Satisfaction: +0.05},
@@ -365,7 +368,7 @@ var Effects = [ThoughtKindCount]Effect{
 	ThoughtRested:            {Satisfaction: +0.03},
 	ThoughtPatrolFast:        {Satisfaction: +0.06},
 	ThoughtPatrolCame:        {Satisfaction: +0.02},
-	ThoughtPatrolSlow:        {Satisfaction: -0.08},
+	ThoughtPatrolSlow:        {Satisfaction: -0.08, Baseline: -0.03},
 
 	// Conditions. Zero-pull conditions report a reason to leave.
 	ThoughtLovingGlades:   {Condition: true, Satisfaction: +0.12},

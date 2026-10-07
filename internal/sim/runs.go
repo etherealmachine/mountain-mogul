@@ -31,11 +31,18 @@ const (
 	// greatRunMinVertical is the least height, in metres, for a run to be
 	// a great one: a beginner hill's worth.
 	greatRunMinVertical = float32(40)
+	// A great run's lift to the baseline shrinks by these factors for
+	// each great run the guest already had today on the same trail and
+	// off the same lift: repeats of one trail wear off fast, and many
+	// trails off one lift slower, so a great day takes several lifts.
+	greatRunTrailRepeat = 0.6
+	greatRunLiftRepeat  = 0.75
 )
 
-// startRun begins a fresh descent record at the guest's position.
+// startRun begins a fresh descent record at the guest's position, from
+// the lift they're getting off if they are.
 func (s *Simulation) startRun(a *world.Guest) {
-	a.Run = world.Run{Start: s.SimTime, StartY: a.Pos[1]}
+	a.Run = world.Run{Start: s.SimTime, StartY: a.Pos[1], LiftID: a.Unload.LiftID}
 }
 
 // recordRun adds one skiing tick to the guest's run: time on the trail
@@ -105,8 +112,17 @@ func (s *Simulation) judgeRun(a *world.Guest) {
 	if a.Traits.PrefersGroomed && r.Groomed >= 0.9*r.Time {
 		s.applyEvent(a, ai.ThoughtLovingCorduroy, trail)
 	}
-	if main == level && !tooHard && !crowded && !fell && r.StartY-a.Pos[1] >= greatRunMinVertical {
-		s.applyEvent(a, ai.ThoughtGreatRun, trail)
+	great := main == level && !tooHard && !crowded && !fell && r.StartY-a.Pos[1] >= greatRunMinVertical
+	var trailGreats, liftGreats int32
+	if trail != 0 {
+		a.TrailTally, trailGreats = world.CountRun(a.TrailTally, trail, great)
+	}
+	if r.LiftID != 0 {
+		a.LiftTally, liftGreats = world.CountRun(a.LiftTally, r.LiftID, great)
+	}
+	if great {
+		scale := math.Pow(greatRunTrailRepeat, float64(trailGreats)) * math.Pow(greatRunLiftRepeat, float64(liftGreats))
+		s.applyEventScaled(a, ai.ThoughtGreatRun, float32(scale), trail)
 	}
 }
 

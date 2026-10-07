@@ -172,6 +172,16 @@ type Guest struct {
 	// departure it is captured as LastScore and folded into the rating.
 	Satisfaction float32
 
+	// Baseline is the level the guest's mood drifts back to: 0.5 on
+	// arrival, raised by good experiences (less for each repeat) and
+	// lowered by bad ones, for the rest of the visit.
+	Baseline float32
+
+	// TrailTally and LiftTally count this visit's runs, and great runs,
+	// by the trail they were mostly on and the lift they started from.
+	TrailTally []RunTally
+	LiftTally  []RunTally
+
 	// Thoughts is a small ring of recent ai.Thought entries — the
 	// player-visible "what's this guest thinking" surface. The newest
 	// thought is at Thoughts[ThoughtsHead-1] (mod len); CurrentThought
@@ -332,6 +342,31 @@ func (u Unloading) UnloadLift() float32 {
 	return u.SeatY * (1 - u.Gone/UnloadRise)
 }
 
+// RunTally is one trail's or lift's count of runs in a visit.
+type RunTally struct {
+	ID    uint64
+	Runs  int32
+	Great int32
+}
+
+// CountRun adds a run on id to tally, returning how many great runs id
+// had before this one.
+func CountRun(tally []RunTally, id uint64, great bool) ([]RunTally, int32) {
+	i := 0
+	for i < len(tally) && tally[i].ID != id {
+		i++
+	}
+	if i == len(tally) {
+		tally = append(tally, RunTally{ID: id})
+	}
+	before := tally[i].Great
+	tally[i].Runs++
+	if great {
+		tally[i].Great++
+	}
+	return tally, before
+}
+
 // RunTrailSlots is how many distinct trails a Run tracks time on.
 const RunTrailSlots = 4
 
@@ -340,6 +375,7 @@ const RunTrailSlots = 4
 // covered. Times are seconds of skiing.
 type Run struct {
 	Start    float64    // SimTime the descent began
+	LiftID   uint64     // the lift they unloaded from to start it; 0 otherwise
 	StartY   float32    // elevation at the start, for vertical
 	Time     float32    // seconds skiing
 	Distance float32    // metres skied
@@ -472,6 +508,9 @@ func (g *Guest) ResetForDeparture() {
 	g.Hunger = 0
 	g.Thirst = 0
 	g.Satisfaction = 0
+	g.Baseline = 0
+	g.TrailTally = g.TrailTally[:0]
+	g.LiftTally = g.LiftTally[:0]
 	for i := range g.Thoughts {
 		g.Thoughts[i] = ai.Thought{}
 	}

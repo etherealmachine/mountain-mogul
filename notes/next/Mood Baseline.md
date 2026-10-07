@@ -1,7 +1,7 @@
 ---
 title: Mood Baseline
 kind: plan
-status: planned
+status: done
 ---
 
 # Mood Baseline
@@ -35,18 +35,23 @@ From the user, 2026-10-07:
 
 ## Steps
 
-1. **Baseline.** Add `Guest.Baseline`, used by `tickMood`, starting at 0.5 and reset on departure. Behavior is unchanged at this point.
-2. **Experiences move it.** Add `Effect.Baseline` and the bad-experience values. Add per-trail and per-lift run counts, and raise the baseline in `judgeRun` with both decays. Check, headless on the regraded Boreal save (one lift, one green run): the rating should rise from about 0.4 toward the one-trail ceiling, about 0.57. Also check a test world with several trails off one lift (expecting it to stop near 0.66) and one with two lifts (expecting it higher).
-3. **Docs.** Update [[Satisfaction]] and [[Guests Spec]].
+1. Done: **Baseline.** `Guest.Baseline` starts at 0.5 (`baselineStart`) and replaces the fixed 0.5 in `tickMood`'s target. It's kept within 0.15–0.85, and the target's ceiling rose to 0.90 so the baseline's top shows. `Satisfaction` and `Baseline` are now saved for guests on the mountain (`sat`, `base`). Before, satisfaction reloaded as 0 for anyone on the hill.
+2. Done: **Experiences move it.** `ai.Effect.Baseline`: injured −0.05, hurt and going home −0.03, abandoned −0.10, slow patrol −0.03, too much for me −0.02, caught in an avalanche −0.03, and great run +0.04. `applyEventScaled` scales the great run by `0.6^t × 0.75^l`. Here t and l are this visit's earlier great runs on the same trail and off the same lift, from `Guest.TrailTally` and `Guest.LiftTally` (`world.CountRun`; a run's lift is the one unloaded from, `Run.LiftID`). Meals stay momentary, as in RollerCoaster Tycoon, where food mainly ends hunger and price against value is the lasting part (later).
+
+   Checked headless on the regraded Boreal save, 4 days. With one trail, the final baseline was 0.540 on average, 0.558 for the median guest, and 0.571 at most, against a limit of about 0.57. Split into three trails off the one lift: 0.540 average and 0.590 at most, under the one-lift limit of 0.66. No world with two lifts exists to check the multi-lift case; that rests on the limits above.
+
+   The rating only rose from 0.34–0.41 to 0.38–0.42, because guests leave with satisfaction about 0.39 against a baseline of about 0.55. At departure, 95% have "sick of waiting" and the exhausted condition active, and 81% thirsty (Boreal has no bar). The first two come from `tickResortClosed` zeroing every guest's patience after closing, as the lever for going home. Recorded in [[Next Steps]] as Closing zeroes patience; this baseline work can't show in the rating until that's fixed.
+3. Done: **Docs.** [[Satisfaction]] and [[Guests Spec]].
 
 Each step builds with `go build` and `go vet` and is judged headless. No Go tests.
 
 ## Open questions
 
-- Whether services lift the baseline (a great meal) or stay momentary.
+- Whether services lift the baseline. Meals stay momentary for now; a price-against-value judgment could move it later.
 - Whether the baseline should carry over between a regular's visits, toward the Regulars item. Not for now.
 
 ## Log
 
 - 2026-10-07: Planned with the user after the falls fix left Boreal's rating near 0.4.
 - 2026-10-07: The user decided: bad experiences lower the baseline; repeats decay per trail (faster) and per lift (slower); no carry-over for regulars yet.
+- 2026-10-07: Built: the baseline, its effects, and per-trail and per-lift repeats. The rating is held down by closing time zeroing patience (Next Steps).

@@ -454,8 +454,10 @@ Patience is clamped to `[0, 1]` on every write.
 
 Satisfaction changes in exactly two ways, and both read one table, `ai.Effects`, indexed by `ThoughtKind`:
 
-- **Drift** (`Simulation.tickMood`, every tick, for every guest on the mountain whatever they're doing). The target is 0.5, plus the grooming pull from the last skiing tick (+0.15 on groomed snow and −0.08 off it, for `PrefersGroomed` guests), plus the pull of every active condition, clamped to [0.15, 0.80]. Satisfaction closes 0.6% of the gap per sim second.
-- **Events** (`Simulation.applyEvent`). A one-off delta, clamped to [0, 1].
+- **Drift** (`Simulation.tickMood`, every tick, for every guest on the mountain whatever they're doing). The target is `Guest.Baseline`, plus the grooming pull from the last skiing tick (+0.15 on groomed snow and −0.08 off it, for `PrefersGroomed` guests), plus the pull of every active condition, clamped to [0.15, 0.90]. Satisfaction closes 0.6% of the gap per sim second.
+- **Events** (`Simulation.applyEvent`). A one-off delta, clamped to [0, 1], plus the row's `Baseline` change, with the baseline clamped to [0.15, 0.85].
+
+**The baseline** starts at 0.5 on arrival and is the guest's memory of the day; it doesn't decay. Lowered by injured (−0.05), hurt and going home (−0.03), abandoned (−0.10), slow patrol (−0.03), too much for me (−0.02), and caught in an avalanche (−0.03). Raised by a great run, by 0.04 × 0.6^t × 0.75^l (`applyEventScaled` in `judgeRun`), where t and l count this visit's earlier great runs on the same main trail and off the same lift (`Guest.TrailTally`, `Guest.LiftTally`). The lift is `Run.LiftID`, the one unloaded from. So one trail tops out near 0.57, and one lift near 0.66 however many trails it serves. `Satisfaction` and `Baseline` are saved for guests on the mountain.
 
 Every change is reported by a thought, and no thought changes a stat by itself.
 

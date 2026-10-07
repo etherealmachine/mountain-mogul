@@ -645,6 +645,7 @@ func (s *Simulation) spawnGuestAt(lot *world.Building, g *world.Guest, pos mgl32
 	g.Hunger = 0.5 + rng.Global().Float32()*0.5
 	g.Thirst = 0.5 + rng.Global().Float32()*0.5
 	g.Satisfaction = 0.6
+	g.Baseline = baselineStart
 	g.HasSeasonPass = hasValidPass(g, s.SimTime)
 	// Price the day ticket before planning so the planner sees the
 	// post-ticket budget. The guest arrives without a ticket and pays at
@@ -681,7 +682,15 @@ func (s *Simulation) spawnGuestAt(lot *world.Building, g *world.Guest, pos mgl32
 // applies the event's ai.Effects row and records the thought reporting
 // it, on the guest and in the day's tally.
 func (s *Simulation) applyEvent(a *world.Guest, kind ai.ThoughtKind, context ...uint64) {
-	a.Satisfaction = clamp32(a.Satisfaction+ai.Effects[kind].Satisfaction, 0, 1)
+	s.applyEventScaled(a, kind, 1, context...)
+}
+
+// applyEventScaled is applyEvent with the baseline change scaled, for an
+// event whose lasting effect wears off with repeats (a great run).
+func (s *Simulation) applyEventScaled(a *world.Guest, kind ai.ThoughtKind, baselineScale float32, context ...uint64) {
+	e := ai.Effects[kind]
+	a.Satisfaction = clamp32(a.Satisfaction+e.Satisfaction, 0, 1)
+	a.Baseline = clamp32(a.Baseline+e.Baseline*baselineScale, baselineMin, baselineMax)
 	s.recordThought(a, kind, context...)
 }
 

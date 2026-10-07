@@ -517,6 +517,10 @@ type GuestData struct {
 	Energy   float32    `json:"energy,omitempty"`
 	Hunger   float32    `json:"hunger,omitempty"`
 	Thirst   float32    `json:"thirst,omitempty"`
+	// Satisfaction and Baseline are the guest's mood and the level it
+	// drifts back to; absent in older saves (load uses the arrival values).
+	Satisfaction float32 `json:"sat,omitempty"`
+	Baseline     float32 `json:"base,omitempty"`
 	// Plan steps and cursor so agents resume mid-plan after load rather than
 	// replanning from an anchor-zero in-transit snapshot. GoalName and Target
 	// are re-derived by onPlanStepStart; only Steps+Step are stored.
