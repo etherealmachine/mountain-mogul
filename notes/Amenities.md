@@ -22,3 +22,4 @@ Guests reach these through [[GOAP]], not by wandering the shell. Planned in [[Ne
 ## Log
 
 - 2026-10-01: Lodge tiles, automatic doors, and the four services above are in. Rental and the rest of the base-area story are not.
+- 2026-10-07: Next for services: [[Service Improvements]] (jobs, value, quality, capacity, new types).

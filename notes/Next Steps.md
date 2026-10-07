@@ -14,9 +14,8 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 In the order to work on them:
 
 1. [[Moguls]]: moguls formed where guests turn on steep ungroomed snow, at sub-cell resolution like tracks; softened by snow, cleared only where the cat drove; drawn as a fall-line mogul field; skied with a balance cost and sought or avoided by taste.
-2. **Fix how services work**: the investigate-and-report items left under Bugs and Guests. Patrol ([[Patrol Day]]), falls ([[Lift Unloading]]), grooming (works: one cat grooms Boreal's run fully each night), and thirst and exhaustion (mostly how thoughts were counted, then the time scale) are done. Left: snow compacting too fast, and rechecking thirst at altitude and the after-closing tail with the new clock.
 
-Then: **gameplay before scenario goals**. A headless three-lift Boreal (2026-10-06) runs about 70 guests a day with the rating stuck near 30%, so goals can't be set until guests can have a good day. Priority 2 covers the investigate-and-report items; then the guest pool per scenario ([[First Week Balance]]). [[Scenario Goals and Rules]] steps 1–4 shipped and are tabled until then.
+Then: **gameplay before scenario goals**. A headless three-lift Boreal (2026-10-06) runs about 70 guests a day with the rating stuck near 30%, so goals can't be set until guests can have a good day. The investigate-and-report items are done (2026-10-07); next is the guest pool per scenario ([[First Week Balance]]). [[Scenario Goals and Rules]] steps 1–4 shipped and are tabled until then.
 
 Not ranked yet: everything below.
 
@@ -24,7 +23,6 @@ Not ranked yet: everything below.
 
 Diagnose each first, report the cause, then fix:
 
-- **Thirst drains fast at altitude**: diagnosed 2026-10-07. Thirst drains only while skiing, at a base of five clock hours to empty × an altitude factor (+0.05% per metre: ×2.1 at Boreal's 2,200 m) × exertion (up to ×3 for beginners off groomed snow). With the old clock most guests (66%) left thirsty; with the new clock and food-court drinks it's 2%, so this may be fine now. Recheck the altitude factor (perhaps relative to the climate's altitude) if thirst still dominates at high resorts.
 - **Fresh corduroy turns to crust overnight**: noticed 2026-10-07. Cats finish grooming by about 21:00, and the midnight weather update turns packed powder into crust on a cold clear day (`kindTransition`), so groomed runs open as crust. Decide whether grooming should come after the update, or packed powder shouldn't crust in one night ([[Snow]], [[Grooming]]).
 - **Snow compacts far too fast**: found 2026-10-07 on the re-dressed Boreal. Fresh snow starts at a believable depth (150 mm of water as 83 cm on the opening storm), but within three days 135 mm sits in 23 cm (density about 0.6), and by mid-January 263 mm in 37 cm (about 0.7). Settled early-season snow is about 0.25–0.35, so the slopes look thin over a decent pack. Diagnose the settling in [[Snow]] (`SnowLayer` densification) before changing it.
 
@@ -82,18 +80,12 @@ Diagnose each first, report the cause, then fix:
 
 ## Guests ([[GOAP]], [[Satisfaction]], [[Guest Types]])
 
-- **Thirst and hunger repeat too often**: in the three-lift test, about 35 "I need something to drink" and 10 "I could really use a meal" thoughts per guest visit, with a bar and food court at the base ([[Satisfaction]]). Diagnose: guests not reaching the bar, needs falling too fast, or the thought repeating every tick. Found 2026-10-07: condition thoughts were re-added every 12 sim seconds while the condition held. Counted once a stretch ([[Satisfaction Rework]]), Boreal shows 0.7 thirsty thoughts a visit, and 17% of guests leave thirsty because it has no bar, which is what the thought should say. Left: check thirst drain against a bar once one exists.
-- **Everyone leaves exhausted**: almost every guest left on "I'm too tired to ski" (−0.15), so the day ends on a bad note even for a good visit. Diagnose whether energy drains too fast, or whether a normal end of day should leave on a neutral or happy thought instead. Found 2026-10-07: the exit chart showed each guest's last thought, not why they left. With departure reasons ([[Satisfaction Rework]]), under 1% of Boreal's guests leave tired; most leave at closing. Left: guests still on the mountain two to three hours after the lifts close. Partly fixed 2026-10-07: closing used to zero everyone's patience, which made a rest outrank going home, so some guests stayed all night; now `World.ClosedForDay` makes `GoHome` outrank everything, and the last guest leaves 2.4–3.7 clock hours after closing. That tail was mostly the time scale, since fixed (a clock hour is now 900 sim seconds, not 180); recheck it.
-- **Falls**: about 3 falls and 3 injuries per guest visit on plain green, blue, and black trails ([[Skiing]]). Diagnosed 2026-10-07 on the user's Boreal save. Every fall, 392 in two days, was a beginner 5–20 m from the lift's top post, within 15 s of unloading, on ground of about 20°. Balance went from full to zero in under 2 s, and almost all of the drain was the slope term. No intermediate or advanced guest fell. The run itself is gentle (2% of its cells over 15°). The cause is the top station's apron ([[Lifts]], `scene/lift_apron.go`, added 2026-10-06 in 049eb95). The apron is levelled to the natural ground 4 m beyond the post, which here is uphill, so it sits 2–4 m above the station's ground. `apronWeight` is 0 on the cable side of the post with no bank, so there's a 2–4 m drop within one 5 m cell (18–30°, and 29° at the top cell), right where guests ski off down the lift line. Beginners have a 10° comfort slope and lose balance at 0.8/s on 20°, so they fall almost every lap. Hard to find because the thoughts named the trail, not the spot; the trail's overall steepness was fine; the falls look like ordinary run falls a second after unloading; and the step only shows at cell resolution around the station. Separately, the balance model gives beginners no way through a short steep patch (no slowing or side-slipping), so any bump of about twice their comfort slope knocks them over in under 2 s. Fixed by [[Lift Unloading]] (2026-10-07): on the regraded save the only falls are getting off the lift, about 3% of rides. Left open: whether beginners should side-slip or slow on short steep patches elsewhere.
-- **Guest pool per scenario**: done through [[Transit]]: each road entry has its own guest pool, so a scenario's catchment is the sum of its entries' pools. Boreal has two entries totalling 100,000 guests, enough for about 3,000 a day at a perfect rating.
 - **Calibrate the satisfaction ledger** (tabled by the user, 2026-10-07): every event amount and condition rate in `ai.Effects` was set for the old drifting model. On Boreal, intermediate and advanced guests carry "too easy" all day and can end at 0, and a storm day on an ungroomed green drops Cruisers from 0.53 to 0.32. Tune with a resort that has blue and black runs.
 - **What each skill wants**: the terrain half is in [[Snow Tastes]]. Beginners want rentals and easy terrain; intermediates want terrain plus food and places to rest; advanced skiers want terrain and no crowds. Feeds [[Demand]] and [[Satisfaction]]. *For* [[Kirkwood]].
 - **Snowboarders**: guests already roll Snowboard but still ski and look like skiers.
 - **Children and families**: their own guest type, arriving and moving as a group.
 - **Guest goals beyond lapping**: find the shortest line, go to après-ski, stay near the lodge. Powder hunting moved to [[Snow Tastes]].
 - **Regulars**: guests who remember their last visit and come back, or don't. *For* [[Mad River Glen]].
-- **Mood can't climb past about 0.5**: on the regraded Boreal save (2026-10-07, 5 days) falls are gone and guests have 1.5 great runs a visit, yet the rating is 0.34–0.41. Satisfaction drifts toward a 0.5 baseline with about a one-hour time constant ([[Satisfaction]], `tickMood`), so a good event (+0.03 to +0.06) fades within the hour. A guest ends the day near 0.5 minus their active pulls (sick of waiting, thirsty), whatever kind of day they had. A 70% rating goal can't be reached until good experiences can lift the target itself, as in RollerCoaster Tycoon, where rides raise a guest's happiness target. Built as [[Mood Baseline]] (2026-10-07); the rating is still held near 0.4 by Closing zeroes patience (Bugs).
-- **Rest loop**: on Boreal with one lift, guests rested about six times a visit (2.2 once falls were fixed, since falls drain energy); line waits drain patience faster than skiing restores it. Check the patience rates against lift line waits ([[Patience]]).
 - **Crowding**: guests notice crowded lodges, not only lift lines; crowded runs are in [[Snow Tastes]]. *For* [[Mad River Glen]].
 - **Mogul lovers**: an expert bombing a mogul run entertaining the lift above. Guests who seek moguls are the Bump Skier in [[Snow Tastes]].
 - **Non-skiing guests**: come for attractions, food, and the village. *Needs* attractions (under Real estate and attractions).
@@ -103,9 +95,10 @@ Diagnose each first, report the cause, then fix:
 ## Base area ([[Amenities]], [[Lodge Shell]], [[Pathfinding]])
 
 - [[Building Interiors]]: a legend for the cutaway's colors and doors, then procedurally placed furniture.
+- [[Service Improvements]]: a job for each service, price against value, building quality, capacity and lines at the door, and new service types. Waiting on the user: the bar's role, how quality is raised, and what rental shops do.
 - [[Rental Shop]]: the next amenity and the first staffing puzzle. Beginners want it (see skill wants).
-- **Amenity quality and views**: better buildings attract more guests ([[GOAP]]) and can charge more.
-- **Door queues and service rates**: buildings serve guests at a rate, and lines form at the door.
+- **Amenity quality and views**: better buildings attract more guests ([[GOAP]]) and can charge more. In [[Service Improvements]].
+- **Door queues and service rates**: buildings serve guests at a rate, and lines form at the door. In [[Service Improvements]].
 - **Lockers and ski school**: more base services; ski school *needs* staff.
 - **Footpaths**: painted paths between buildings, with guests walking skis-off. *For* [[Zermatt]].
 - **Ski racks**: where footpaths meet the snow. *Needs* footpaths.
@@ -238,3 +231,5 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-07: [[Moguls]] planned with the user, ranked after [[Snow Tastes]].
 - 2026-10-07: [[Snow Tastes]] step 4 shipped.
 - 2026-10-07: [[Snow Tastes]] done (step 5: boredom sends guests home from a resort that's run out for them; crowds by taste). [[Moguls]] is first.
+- 2026-10-07: Fix how services work is done: patrol, falls, grooming, thirst, exhaustion, and the after-closing tail (last guest now leaves 17–47 clock minutes after closing) are fixed or explained. Removed the resolved Bugs and Guests items; the snow compaction and overnight-crust bugs remain.
+- 2026-10-07: Wrote up [[Service Improvements]] (unranked, pending the user's decisions).
