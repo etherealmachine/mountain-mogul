@@ -239,6 +239,11 @@ type World struct {
 	// Terrain.accessible from this list.
 	Parcels []Parcel
 
+	// SkiArea is the ski-area boundary (ski_area.go); skiAreaCells caches
+	// the cells inside it, -1 when stale.
+	SkiArea      []SkiAreaOutline
+	skiAreaCells int
+
 	// Goals and Rules are what the scenario asks of the player (goals.go);
 	// GoalProgress holds how each goal stands, in the same order.
 	Goals        []Goal
@@ -301,6 +306,7 @@ func NewWorld(terrain *Terrain) *World {
 	return &World{
 		Terrain:         terrain,
 		nextID:          1,
+		skiAreaCells:    -1,
 		Cash:            StartingCash,
 		CreditLimit:     DefaultCreditLimit,
 		StartDate:       DefaultStartDate,

@@ -630,6 +630,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		Cars:         cars,
 		RoadEdges:    roadEdges,
 		Parcels:      parcels,
+		SkiArea:      skiAreaData(w),
 		Cash:         w.Cash,
 		DayTicket:    &w.DayTicketPrice,
 		Parking:      w.ParkingPrice,
@@ -1224,6 +1225,7 @@ func dataToWorld(data ScenarioData) *world.World {
 	}
 
 	// Restore parcels and derive the terrain accessibility grid.
+	w.SetSkiArea(skiAreaFromData(data.SkiArea))
 	for _, pd := range data.Parcels {
 		w.Parcels = append(w.Parcels, world.Parcel{
 			ID:    pd.ID,
@@ -1655,4 +1657,30 @@ func leavingFromData(d *LeavingData) world.Leaving {
 		return world.Leaving{}
 	}
 	return world.Leaving{Pending: true, Score: d.Score, Conditions: ai.ConditionMask(d.Conditions), Reason: ai.DepartReason(d.Reason)}
+}
+
+// skiAreaData is the ski-area boundary for saving.
+func skiAreaData(w *world.World) [][][2]float32 {
+	out := make([][][2]float32, 0, len(w.SkiArea))
+	for _, o := range w.SkiArea {
+		pts := make([][2]float32, len(o.Points))
+		for i, p := range o.Points {
+			pts[i] = [2]float32{p[0], p[1]}
+		}
+		out = append(out, pts)
+	}
+	return out
+}
+
+// skiAreaFromData is a saved ski-area boundary.
+func skiAreaFromData(d [][][2]float32) []world.SkiAreaOutline {
+	out := make([]world.SkiAreaOutline, 0, len(d))
+	for _, pts := range d {
+		o := world.SkiAreaOutline{Points: make([]mgl32.Vec2, len(pts))}
+		for i, p := range pts {
+			o.Points[i] = mgl32.Vec2{p[0], p[1]}
+		}
+		out = append(out, o)
+	}
+	return out
 }

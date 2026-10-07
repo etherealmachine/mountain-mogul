@@ -67,7 +67,10 @@ type Editor struct {
 	trailPopup       *ui.Window // trail opened by clicking it with no tool
 	// trail is the trail being painted while toolTrailPaint is active
 	// (editor_trails.go).
-	trail                     editorTrail
+	trail editorTrail
+	// skiDraft is the ski-area outline in progress (editor_ski_area.go).
+	skiDraft                  []mgl32.Vec2
+	skiRightDown              mgl32.Vec2 // where the right button went down, to tell a click from a pan
 	entryPopup                *ui.Window // road entry opened by clicking its post
 	lotTool                   lotTool
 	serviceTool               serviceTool                    // the building tool's session
@@ -217,6 +220,7 @@ func (e *Editor) Init(app *engine.App) error {
 
 	// Land: single button to start drawing a new parcel rectangle
 	e.toolButtons[toolTrailPaint] = e.menuBar.AddIconButton(render.IconFlag, "Trail", func() { e.activateTrailTool() })
+	e.toolButtons[toolSkiArea] = e.menuBar.AddIconButton(render.IconTriangle, "Ski Area", func() { e.activateSkiAreaTool() })
 
 	e.toolButtons[toolParcelRect] = e.menuBar.AddIconButton(render.IconGlobe, "Add Parcel", func() {
 		e.parcelRectIntent = parcelIntentNew
@@ -378,6 +382,8 @@ func (e *Editor) Update(dt float64) {
 			e.lotTool.reset(e.lotTool.only) // drop the drag, keep the tool
 		case e.lotPopup != nil && e.lotPopup.Visible:
 			e.lotPopup.Visible = false
+		case e.activeTool == toolSkiArea && len(e.skiDraft) > 0:
+			e.skiDraft = nil // drop the outline in progress, keep the tool
 		case e.trailPopup != nil && e.trailPopup.Visible:
 			e.trailPopup.Visible = false
 			e.trail.id = 0
@@ -433,6 +439,14 @@ func (e *Editor) Update(dt float64) {
 	if e.activeTool == toolParking && e.lotTool.mode == lotPending &&
 		(inp.Pressed[glfw.KeyEnter] || inp.Pressed[glfw.KeyKPEnter]) {
 		e.buildLot(r)
+	}
+	if e.activeTool == toolSkiArea {
+		if inp.Pressed[glfw.KeyEnter] || inp.Pressed[glfw.KeyKPEnter] {
+			e.closeSkiArea()
+		}
+		if inp.Pressed[glfw.KeyO] {
+			e.copyOSMSkiArea()
+		}
 	}
 	syncLotGhost(r, e.world, &e.lotTool, e.activeTool == toolParking)
 
@@ -695,6 +709,15 @@ func (e *Editor) Update(dt float64) {
 	if e.activeTool == toolTrailPaint && inp.RightHeld && e.hoverValid && !overChrome {
 		e.paintTrailAt(e.hoverCell, true)
 	}
+	// A right click that doesn't pan undoes a corner or removes an outline.
+	if e.activeTool == toolSkiArea {
+		if inp.RightClick {
+			e.skiRightDown = inp.MousePos
+		}
+		if inp.RightRelease && inp.MousePos.Sub(e.skiRightDown).Len() < 4 && e.hoverValid && !overChrome {
+			e.skiAreaRightClick(mgl32.Vec2{e.hoverWorld[0], e.hoverWorld[2]})
+		}
+	}
 	if !inp.LeftClick && !inp.LeftHeld && !inp.RightHeld {
 		e.finishTrailStroke()
 	}
@@ -722,7 +745,11 @@ func (e *Editor) Update(dt float64) {
 			}
 		}
 		if !overSlider {
-			if e.isPlacementTool() {
+			if e.activeTool == toolSkiArea {
+				if inp.LeftClick && e.hoverValid {
+					e.skiAreaClick(mgl32.Vec2{e.hoverWorld[0], e.hoverWorld[2]})
+				}
+			} else if e.isPlacementTool() {
 				shiftHeld := inp.Held[glfw.KeyLeftShift] || inp.Held[glfw.KeyRightShift]
 				// toolParcelRect can fire off-terrain (first or second click):
 				// clamp to map bounds so the rect can reach the edges.
@@ -1929,7 +1956,8 @@ func (e *Editor) buildEditorParcelOverlay(rectEnd [2]int) ([]uint8, int, int) {
 	hasParcels := len(e.world.Parcels) > 0 && e.showParcels()
 	hasRect := e.activeTool == toolParcelRect && e.parcelRectActive
 	hasTrails := len(e.world.Trails) > 0
-	if !hasParcels && !hasRect && !hasTrails {
+	hasSkiArea := len(e.world.SkiArea) > 0 || (e.activeTool == toolSkiArea && len(e.skiDraft) > 0)
+	if !hasParcels && !hasRect && !hasTrails && !hasSkiArea {
 		return nil, 0, 0
 	}
 	tw, th := t.Width, t.Height
@@ -1941,6 +1969,8 @@ func (e *Editor) buildEditorParcelOverlay(rectEnd [2]int) ([]uint8, int, int) {
 		i := (cz*tw + cx) * 4
 		pix[i], pix[i+1], pix[i+2], pix[i+3] = rv, gv, bv, av
 	}
+	// The ski-area boundary, under the parcels and trails.
+	e.drawSkiAreaOverlay(set)
 	// Parcels: dim tint for others, brighter for the one being edited.
 	parcels := e.world.Parcels
 	if !hasParcels {

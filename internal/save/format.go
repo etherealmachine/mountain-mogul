@@ -72,6 +72,7 @@ type ScenarioData struct {
 	RoadEdges   []RoadEdgeData   `json:"road_edges,omitempty"`
 	Cars        []CarData        `json:"cars,omitempty"`
 	Parcels     []ParcelData     `json:"parcels,omitempty"`
+	SkiArea     [][][2]float32   `json:"ski_area,omitempty"` // the ski-area boundary: outlines in world XZ
 	Cash        int              `json:"cash,omitempty"`
 	// Credit line state. CreditLimit is a pointer so a $0 line round-trips;
 	// nil (older saves) loads as DefaultCreditLimit.

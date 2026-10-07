@@ -1092,8 +1092,9 @@ func (s *Scenario) Init(app *engine.App) error {
 				{Name: "Easy terrain", Color: mgl32.Vec4{0.55, 1.0, 0.55, 1}},
 				{Name: "Intermediate terrain", Color: mgl32.Vec4{0.55, 0.75, 1.0, 1}},
 				{Name: "Advanced terrain", Color: mgl32.Vec4{0.85, 0.85, 0.85, 1}},
-				{Name: "Total skiable terrain", Color: mgl32.Vec4{0.55, 0.85, 1.0, 1}},
-				{Name: "Groomed terrain", Color: mgl32.Vec4{0.95, 0.95, 1.0, 1}},
+				{Name: "Marked runs", Color: mgl32.Vec4{0.55, 0.85, 1.0, 1}},
+				{Name: "Groomed runs", Color: mgl32.Vec4{0.95, 0.95, 1.0, 1}},
+				{Name: "Ski area", Color: mgl32.Vec4{0.80, 0.55, 1.0, 1}},
 			},
 			GetData: func() []ui.ChartPoint {
 				var green, blue, black int
@@ -1127,6 +1128,7 @@ func (s *Scenario) Init(app *engine.App) error {
 					float64(black),
 					float64(len(seenAll)),
 					float64(groomed),
+					float64(s.world.SkiAreaCells()),
 				}}}
 			},
 			FormatValue: func(v float64) string { return settings.FormatArea(int(v)) },

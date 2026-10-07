@@ -28,7 +28,7 @@ In order. Each step builds with `go build` and `go vet`, and gameplay is checked
    - Done: a guest's run range (`runRange`, `sim/demand.go`): their skill level and the level they want, which is one easier with a steep taste of −0.3 or less (happy cruising) and one harder at 0.5 or more (after a challenge). A run's verdict uses the range: too easy below it, too hard above it, great anywhere in it.
    - Done: demand by terrain mix (`terrainMatch`): each marked-run cell counts fully in the guest's range, 0.3 one level easier, 0.1 two easier, not at all harder; half the marked terrain suiting a guest draws them fully.
    - Done: groomed terrain in the Resort overview, beside the marked terrain by difficulty that was already there.
-   - Left: the ski-area boundary, drawn by the player over the OpenStreetMap layer, for skiable acres.
+   - Done: the ski-area boundary, drawn in the scenario editor over the OpenStreetMap layer (or copied from OpenStreetMap's where the import has one; Boreal's import has none), and its area in the Resort overview as "Ski area", beside marked, groomed, and by-difficulty runs ([[Scenario Editor]]).
 
    Checked headless over two days on the user's playtest save (marked runs 41% green, 49% blue, 8% black), against the old code: 132 arrivals against 160, advanced guests 8% against 13%; too easy 0.51 a guest against 0.97; great runs 1.86 a guest against 1.0. On their next save, with an ungroomed black run (18% black), advanced guests rose to 16%. The rating stays poor (15–32%): that's the balance step.
 3. **Balance so the goals are reachable.** Calibrate the satisfaction ledger (tabled until now, [[Satisfaction]]) and [[First Week Balance]]: a headless three-lift Boreal sits around 30–44%, against a 70% goal. Includes rental shops (since [[Service Improvements]], a resort without one gets about a quarter fewer beginners) and the rolled needs' shares.
@@ -54,3 +54,4 @@ In order. Each step builds with `go build` and `go vet`, and gameplay is checked
 - 2026-10-07: The demo is the free Steam demo, its own stripped build (step 10); snowmaking is stripped from it ([[Release]]).
 - 2026-10-07: The user's first playtest of a three-lift Boreal: terrain expectations added as step 2 (guests unhappy with easy terrain on a hill that's honestly easy); a closed-resort sign, fast-forward performance, visible traffic, and model and road polish added to later steps.
 - 2026-10-07: Step 2 mostly done: run range from the steep taste, demand by terrain mix, groomed terrain readout; the ski-area boundary is left.
+- 2026-10-07: Step 2 done: the ski-area boundary and its readout.
