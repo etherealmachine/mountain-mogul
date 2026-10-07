@@ -122,7 +122,6 @@ Found 2026-10-06 in a headless three-lift [[Boreal]] (three lifts, a green, blue
 
 ## Roads and arrivals ([[Parking and Roads]], [[Demand]])
 
-- **Traffic counts toward the day**: a guest's mood is recorded at the parking lot (`ActDepart`), before they wait in the car for the rest of their carload and before the drive out, and nothing drains patience or moves mood in a car, so jams on the way in or out cost nothing. Wanted by the user (2026-10-07): patience drains while leaving, so traffic troubles count. Sketch: keep `tickMood` and the need conditions running for guests in a car, drain patience while a car waits or crawls (arriving and leaving), add a "stuck in traffic" condition, and record the departure (satisfaction, reason, the day's rating) when the car leaves the map rather than at the lot. *Needs* [[Transit]].
 - **Road closures**: a closed road means no arrivals that day. *For* [[Alta]].
 - **Trains**: a second way to arrive, with no parking footprint. *For* [[Zermatt]].
 - **Tunnels**: roads and paths through terrain.
@@ -223,4 +222,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-07: Added Mood can't climb past about 0.5, found after the falls fix left Boreal's rating near 0.4.
 - 2026-10-07: [[Mood Baseline]] planned with the user and ranked first.
 - 2026-10-07: [[Mood Baseline]] shipped. Diagnosed Closing zeroes patience, which holds the rating near 0.4.
-- 2026-10-07: Fixed closing zeroing patience (`World.ClosedForDay`); Boreal's rating went from about 0.4 to 0.46–0.49. Added Traffic counts toward the day.
+- 2026-10-07: Fixed closing zeroing patience (`World.ClosedForDay`); Boreal's rating went from about 0.4 to 0.46–0.49. Traffic patience noted on [[Patience]].
