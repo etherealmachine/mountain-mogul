@@ -13,7 +13,7 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 
 In the order to work on them:
 
-1. [[Demo]]: the free Steam demo ([[Release]]: demo, then early access, then guest types as DLC), the Boreal tutorial and Kirkwood, playable for a few hours, as its own stripped build. Steps in order: the magic carpet; balance so the goals are reachable (ledger calibration, [[First Week Balance]], rental shops and rolled-need shares); goals for both scenarios and unlocking; the snow bugs; a Kirkwood map pass; a demo pop-up; UI, graphics, and menu polish.
+1. [[Demo]]: the free Steam demo ([[Release]]: demo, then early access, then guest types as DLC), the Boreal tutorial and Kirkwood, playable for a few hours, as its own stripped build. Steps in order: the magic carpet; terrain expectations (readouts, demand by terrain mix, a challenge preference); balance so the goals are reachable; goals and unlocking; the snow bugs; a Kirkwood map pass; a demo pop-up; UI polish (including a closed-resort sign); graphics polish; fast-forward performance; visible traffic; menus; the demo build.
 
 Not ranked yet: everything below.
 
@@ -248,3 +248,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-07: Overnight, staff, and logistics added to [[Services]] with the user.
 - 2026-10-07: [[Demo]] planned with the user and ranked first; rental shops folded into its balance step.
 - 2026-10-07: Release path noted ([[Release]]).
+- 2026-10-07: The user's first Boreal playtest folded into [[Demo]].

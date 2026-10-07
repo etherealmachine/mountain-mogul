@@ -24,15 +24,18 @@ From the user, 2026-10-07:
 In order. Each step builds with `go build` and `go vet`, and gameplay is checked headless or by screenshot.
 
 1. **Magic carpet.** A surface lift type for beginner areas: a short conveyor guests stand on, cheap, slow, low capacity, no chairs.
-2. **Balance so the goals are reachable.** Calibrate the satisfaction ledger (tabled until now, [[Satisfaction]]) and [[First Week Balance]]: a headless three-lift Boreal sits around 30–44%, against a 70% goal. Includes rental shops (since [[Service Improvements]], a resort without one gets about a quarter fewer beginners) and the rolled needs' shares.
-3. **Goals.** Boreal's targets from a headless run of a reasonable three-lift Boreal ([[Scenario Goals and Rules]] step 7); Kirkwood's goals, which need the rating broken down by skill; Kirkwood unlocking when Boreal is won (step 6).
-4. **Snow bugs** visible in the first days: fresh corduroy turning to crust overnight, and snow compacting far too fast ([[Next Steps]] Bugs).
-5. **Kirkwood map pass.** Hand-drawn parcels following the terrain, and checking the forest and the chair line ([[Kirkwood]]).
-6. **Demo pop-up.** On starting the game: what this is, what's in it, and where to send feedback.
-7. **UI polish.** Clear goal and rating feedback; named complaints, so the player knows what to fix ([[Next Steps]]); a build menu that reads well.
-8. **Graphics polish.** [[Terrain Realism]] leftovers, [[Hiding the Grid]], and Kirkwood's frame rate (about 35 fps against Boreal's 42).
-9. **Menus and settings.** Start screen, save, load, and quit, and a settings check.
-10. **The demo build.** A separate build (likely a `demo` build tag) without the editor, the other scenarios, debug flags, testbeds, or snowmaking; maybe obfuscated; packaged for Steam ([[Release]]).
+2. **Terrain expectations** (from the user's first playtest of a three-lift Boreal, 2026-10-07: ratings were poor, mostly guests unhappy that the terrain was too easy, though Boreal really is almost all easy intermediate). Guests should come expecting the terrain the resort has: readouts of skiable acres (needs a ski-area boundary; the import already has OpenStreetMap's), groomed acres, and marked runs by difficulty; demand weighing a resort's terrain mix, so an easy hill draws few experts; and a per-guest challenge preference (beginners and intermediates looking for a step up, experts happy cruising), so the experts who do come to Boreal are content there. Design to settle with the user first.
+3. **Balance so the goals are reachable.** Calibrate the satisfaction ledger (tabled until now, [[Satisfaction]]) and [[First Week Balance]]: a headless three-lift Boreal sits around 30–44%, against a 70% goal. Includes rental shops (since [[Service Improvements]], a resort without one gets about a quarter fewer beginners) and the rolled needs' shares.
+4. **Goals.** Boreal's targets from a headless run of a reasonable three-lift Boreal ([[Scenario Goals and Rules]] step 7); Kirkwood's goals, which need the rating broken down by skill; Kirkwood unlocking when Boreal is won (step 6).
+5. **Snow bugs** visible in the first days: fresh corduroy turning to crust overnight, and snow compacting far too fast ([[Next Steps]] Bugs).
+6. **Kirkwood map pass.** Hand-drawn parcels following the terrain, and checking the forest and the chair line ([[Kirkwood]]).
+7. **Demo pop-up.** On starting the game: what this is, what's in it, and where to send feedback.
+8. **UI polish.** Clear goal and rating feedback; named complaints, so the player knows what to fix ([[Next Steps]]); a build menu that reads well; a clear sign when the resort or its lifts are closed and the player has to open them (the user's playtest started with everything closed and nothing said so; no tutorial needed).
+9. **Graphics polish.** [[Terrain Realism]] leftovers, [[Hiding the Grid]], and Kirkwood's frame rate (about 35 fps against Boreal's 42); models, and procedural roads and buildings (from the playtest; the skiers' tracks already look good).
+10. **Fast-forward performance.** With only 50 guests, the top speeds were jumpy in the playtest; players will want to skip days quickly to earn money, so the sim needs to keep up at high speed.
+11. **Traffic you can see.** Traffic works (on the playtest save every car drove in from a map-edge entry, the first at 6:18), but about 15 cars an hour each spend some 5 clock minutes on the road, a second or two at high speed, so it read as cars appearing in the lot. Traffic is a big part of the game: busier, slower, or more visible arrivals.
+12. **Menus and settings.** Start screen, save, load, and quit, and a settings check.
+13. **The demo build.** A separate build (likely a `demo` build tag) without the editor, the other scenarios, debug flags, testbeds, or snowmaking; maybe obfuscated; packaged for Steam ([[Release]]).
 
 ## Open questions
 
@@ -43,3 +46,4 @@ In order. Each step builds with `go build` and `go vet`, and gameplay is checked
 
 - 2026-10-07: Planned with the user: Boreal and Kirkwood, nothing locked (price gates), no snowmaking, the magic carpet as the one new lift, no new services, no tutorial guidance beyond a pop-up.
 - 2026-10-07: The demo is the free Steam demo, its own stripped build (step 10); snowmaking is stripped from it ([[Release]]).
+- 2026-10-07: The user's first playtest of a three-lift Boreal: terrain expectations added as step 2 (guests unhappy with easy terrain on a hill that's honestly easy); a closed-resort sign, fast-forward performance, visible traffic, and model and road polish added to later steps.
