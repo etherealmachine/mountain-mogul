@@ -16,7 +16,7 @@ In the game now:
 - [[Tickets]] — day tickets and season passes, the gate on riding lifts
 - [[Rental Shop]] — rental skis, the gate on riding for guests who came without
 
-Each service meets guest needs, some rolled per visit (rentals, après at the [[Bar]], warming up in the [[Lounge]]), and lines guests up at the door when full ([[Service Improvements]]). Every day service the resort could offer, built or not, is collected in [[Services]], each with its own card: [[Snack Stand]], [[Cafe]], [[Restaurant]], [[Demo Shop]], [[Tune Shop]], [[Retail Shop]], [[Ski School]], [[Childcare]], [[Guest Services]], [[Lockers]], [[Shuttles and Parking]], and [[Activities]].
+Each service meets guest needs, some rolled per visit (rentals, après at the [[Bar]], warming up in the [[Lounge]]), and lines guests up at the door when full ([[Service Improvements]]). Every day service the resort could offer, built or not, is collected in [[Services]], each with its own card: [[Snack Stand]], [[Cafe]], [[Restaurant]], [[Demo Shop]], [[Tune Shop]], [[Retail Shop]], [[Ski School]], [[Childcare]], [[Guest Services]], [[Lockers]], [[Shuttles and Parking]], and [[Activities]]; overnight, [[Hotel]], [[Condos]], [[Houses]], [[Budget Lodging]], [[Spa]], [[Night Skiing]], [[Events]], and [[Grocery]]; for staff, [[Staff Housing]].
 
 Guests reach these through [[GOAP]], not by wandering the shell. Planned in [[Next Steps]]: views and a quality level that make an amenity more attractive and let it charge more, and staff who show up to run it.
 

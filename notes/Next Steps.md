@@ -53,7 +53,7 @@ Diagnose each first, report the cause, then fix:
 - [[Land and Boundaries]]: a ski area boundary, land purchase as a real decision, protected land, and protected buildings. Hand-drawn parcels are *for* [[Kirkwood]]; expensive land is *for* [[Palisades Tahoe]].
 - [[Gridless Drawing]]: draw parking lots, trails, and buildings as shapes instead of painting cells, keeping the grid only underneath for the sim and navigation. An idea for now: first work out what the grid buys each system.
 - **Trail closures and slow zones**: the player closes a run or paints a slow zone; guests respect them, mostly. *For* [[Alta]].
-- **Night skiing**: light chosen trails and lifts, pay to run the lights, and stay open past dark for an evening crowd. Operating hours and the day-night cycle already exist; trail lights need a lighting approach that scales past the 16 spotlights the shader handles today ([[Rendering]]). Lit evenings also cut into the time cats have to groom ([[Grooming]]). *For* [[Boreal]], which really does run at night.
+- **Night skiing** ([[Night Skiing]]): light chosen trails and lifts, pay to run the lights, and stay open past dark for an evening crowd. Operating hours and the day-night cycle already exist; trail lights need a lighting approach that scales past the 16 spotlights the shader handles today ([[Rendering]]). Lit evenings also cut into the time cats have to groom ([[Grooming]]). *For* [[Boreal]], which really does run at night.
 - **Backcountry**: gates through the boundary to terrain with no patrol or grooming, for experts only. *Needs* the boundary from [[Land and Boundaries]].
 - **Cat trails**: easy, narrow ways down for beginners that get crowded.
 - **Cat skiing**: snowcats carry advanced guests to ungroomed terrain. *For* the Revelstoke idea in [[Scenario Campaign]].
@@ -132,6 +132,7 @@ Diagnose each first, report the cause, then fix:
 
 ## Real estate and attractions ([[Finance]], [[Amenities]])
 
+- **Lodging** ([[Services]] Overnight): mixed, a trade-off between a [[Hotel]]'s ongoing revenue and selling land for [[Houses]], with [[Condos]] between; on-site beds raise demand, so a huge resort needs a village. Long term, after a playable demo.
 - **Condos**: a burst of income from sales, and owners who become regular guests.
 - **Hotels**: ongoing revenue, and guests who stay across days. *For* Portillo in [[Scenario Campaign]].
 - **Houses**: more income than condos, more land.
@@ -246,3 +247,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-07: Fixed the eight failing Go tests (stale fixtures and expectations); logged the silent point-placed service bug.
 - 2026-10-07: No rental shop now means renting in town and lower demand, not turning round.
 - 2026-10-07: [[Services]] listed with the user (unranked).
+- 2026-10-07: Overnight, staff, and logistics added to [[Services]] with the user.

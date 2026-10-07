@@ -12,6 +12,8 @@ A drink restores [[Thirst]] to full and charges the building's drink price (defa
 
 A bar offers a drink, which fulfils the thirst need: [[GOAP]] sends a guest here once thirst is below 0.25, ahead of more skiing; nearly empty, it outweighs going home, so a guest tries for a drink before leaving. The step is `UseService` with a drink ([[Service Improvements]]). A [[Food Court]] pours drinks too; what only a bar has is après-ski. Some guests arrive wanting it (30%): it tempts them from 14:30, more after a good day, and a guest who's done for the day after that, or still on the mountain when the lifts close, stops at the bar before heading home. Après takes a bar seat (8 a tile a floor) for three-quarters of an hour, costs two drinks, fills thirst, and scores more the better their day went ([[Service Improvements]] step 3).
 
+With overnight guests, après carries on into nightlife, an evening service ([[Services]], Overnight).
+
 A bar does not restore [[Energy]] or [[Patience]]. Rest requires a [[Lounge]] or a [[Food Court]].
 
 Spec: [[Guests Spec]].

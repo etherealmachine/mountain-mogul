@@ -8,7 +8,7 @@ status: idea
 
 A sit-down restaurant: a larger seated service with table service. Part of [[Amenities]]; one of the food services in [[Services]].
 
-A full meal like the [[Food Court]]'s, but longer and dearer, chosen by guests with money to spend and scoring higher when it's good. It's the natural first home for quality, which [[Service Improvements]] calls service depth, so it may wait for that.
+A full meal like the [[Food Court]]'s, but longer and dearer, chosen by guests with money to spend and scoring higher when it's good. It's the natural first home for quality, which [[Service Improvements]] calls service depth, so it may wait for that. With overnight guests it's also where they eat dinner, an evening need ([[Services]], Overnight).
 
 ## Log
 

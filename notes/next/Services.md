@@ -6,7 +6,7 @@ status: idea
 
 # Services
 
-Every service the resort can offer during the day, and what each is for. Breadth is how many guest needs and guest types the resort covers; depth is how good one service is (quality, in [[Service Improvements]]). Each service has its own card, written to become its documentation once built. Overnight services (hotels and the rest) come next.
+Every service the resort can offer during the day, and what each is for. Breadth is how many guest needs and guest types the resort covers; depth is how good one service is (quality, in [[Service Improvements]]). Each service has its own card, written to become its documentation once built. Day services first, then overnight services, the staff services that keep them running, and the logistics that supply them.
 
 ## Principle
 
@@ -47,6 +47,33 @@ Services should be buildable anywhere, not just in the base area, so a [[Snack S
 
 Later, simple logistics: snowcats, lifts, and gondolas supply on-mountain services, so a summit stand needs a way to be stocked. Left for later.
 
+## Overnight
+
+Long term: likely after a playable demo (the user, 2026-10-07).
+
+**Guests who stay.** Overnight guests stay several nights and ski several days: they sleep on the mountain (energy restored overnight), don't drive in each morning, and use the evening services. A stay is scored like any service, by the room's quality, price, and location on the guest's ledger; the resort's rating stays the daily one, from each day's activity. On-site lodging raises demand: beds on the mountain bring destination guests from farther away, so getting to a huge resort takes a village.
+
+**Lodging is a trade-off** between ongoing revenue and selling land:
+
+| Service | Revenue | Notes |
+|---|---|---|
+| [[Hotel]] | every night, with staff and upkeep | resort-run; quality and location matter most |
+| [[Condos]] | a sale, then a share of the rental pool | owners become regular guests |
+| [[Houses]] | the most up front, nothing after | the most land per guest |
+| [[Budget Lodging]] | cheap rooms | younger skiers on smaller budgets; RV and camping as its cheapest form |
+
+**Evening services:** dinner at the [[Restaurant]], nightlife at the [[Bar]] (après carrying on), the [[Spa]] (a new need, sore, after a big day), [[Night Skiing]], [[Events]], and a [[Grocery]] for guests who cook.
+
+Ties into land ([[Parcels]], zoning in [[Next Steps]] Real estate), roads ([[Transit]]), and location value (slopeside, ski-in/ski-out, views).
+
+## Staff services
+
+Staff aren't guests: they'll have their own code rather than guests' stats and services, though they may reuse the planner ([[GOAP]]) the way [[Transit]] and logistics might. [[Staff Housing]] is the first staff service: without it, a resort far from town can't hire enough people, which caps how many services and lifts can run. Staffing itself (instructors for the [[Ski School]], the [[Rental Shop]]'s morning rush, patrollers, lift operators) belongs here too.
+
+## Logistics
+
+On-mountain services need supplying: snowcats, lifts, and gondolas carry stock up, so a summit [[Snack Stand]] needs a way to be stocked, and a well-supplied service serves better. Simple at first; like staff, its own code, possibly reusing the planner as [[Transit]] does. Left for later.
+
 ## Order
 
 From the user's review, 2026-10-07, a likely order: snack stands and the food court's minimum size; the café and the coffee need; the [[Ski School]]; retail; the demo shop; lockers and guest services; activities and childcare once their guest types exist.
@@ -56,8 +83,10 @@ From the user's review, 2026-10-07, a likely order: snack stands and the food co
 - Snack stands mid-mountain need building anywhere: whether that comes first or stands start in the base area.
 - The food court's minimum size (2×2 is a guess).
 - Whether the [[Ski School]] gets a plan of its own.
-- Overnight services: hotels and the rest, to go over next.
+- Lodging as land the player zones and sells against buildings they run: mixed, decided; how zoning works isn't.
+- How a multi-night stay's ledger works day to day (scored per day for the rating, with the stay's services on it).
 
 ## Log
 
 - 2026-10-07: Listed with the user: day services by group, each with a card; building anywhere (cost and upkeep rising with elevation); logistics later; overnight services next.
+- 2026-10-07: Overnight (lodging mixed: hotels for ongoing revenue, land sold for houses, condos between; rating stays daily; on-site lodging raises demand, so a huge resort needs a village; long term, after a playable demo), staff services, and logistics sections, with cards.
