@@ -182,6 +182,8 @@ is the runtime entry point — extract snapshot, select goal, plan, translate.
    and calls `replan` — the same zero-then-replan pattern as the original
    bail, so GoHome routing through JoinQueue doesn't re-trigger the check.
 
+**Unloading** (`internal/sim/unloading.go`): when a chair's progress crosses 0.5, each rider is stood up on the snow under their seat (`seatWorldPos` at the top, from the chair mesh's slots), facing up the lift line, with `Guest.Unload` set. Their side (−1..+1) comes from the slot's chair-local Z, or from the seat index when no slots are registered (headless). Then `advancePlan` moves past `RideLift`. While `Unload.LiftID` is set and they aren't fallen, `tickGuests` runs `tickUnloading` instead of planning or skiing. That's a scripted glide at 2.5 m/s, 4 m straight, then a 6 m arc turning 30° (middle seats) to 70° (outer seats) toward their side, starting early if someone is down within 4 m ahead. It ends in normal skiing at the arc's heading and speed. Balance is held at 1. `unloadFallChance` rolls at the start (beginners 3% fixed-grip, 1% detachable; intermediates 0.5% / 0.2%; advanced 0.1% / 0; gondolas 0). A rider who falls goes down between 1 m and the middle of the arc, takes `ThoughtFellUnloading` (−0.05) and an `EventFall`, recovers through `tickFallen`, and finishes the glide. The renderer draws them easing from the seat's height to the snow over the first 1.25 m (`Unloading.UnloadLift`). The activity reads "Unloading".
+
 **Mid-ride lookahead replanning**: when an agent boards a chair,
 `replanOnBoard` calls `StoredPlanForLookahead` with an `ExtractLookahead`
 snapshot (simulates post-ride state, pre-records the ride). The result is

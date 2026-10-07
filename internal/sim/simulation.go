@@ -348,23 +348,14 @@ func (s *Simulation) tickLifts(dt float64) {
 
 					// Update ride tally so the planner's Explore goal prefers unridden lifts.
 					agent.RidenLifts = ai.AddRide(agent.RidenLifts, lift.ID)
-					topCell := lift.TopCell()
-					ty := w.Terrain.SurfaceElevationAt(topCell[0], topCell[1])
-					agent.Pos = mgl32.Vec3{lift.Top[0], ty, lift.Top[1]}
 
-					// Advance the plan past the just-completed RideLift so
+					// Stand the rider up at their seat, then advance the
+					// plan past the just-completed RideLift so
 					// onPlanStepStart sets TargetID for the next step
-					// (typically SkiToLift/SkiToLodge/SkiToParking). Then
-					// orient heading toward that target — while riding,
-					// Heading points up the lift cable, which would make
-					// the new tickSkier physics treat gravity as
-					// decelerating and the skier would never start.
+					// (typically SkiToLift/SkiToLodge/SkiToParking). They
+					// glide off the ramp (tickUnloading) before skiing to it.
+					s.startUnloading(agent, lift, j)
 					s.advancePlan(agent)
-					if pos, ok := planTargetWorldPos(w, agent); ok {
-						dx := pos[0] - agent.Pos[0]
-						dz := pos[2] - agent.Pos[2]
-						agent.Heading = float32(math.Atan2(float64(dx), float64(dz)))
-					}
 				}
 			}
 
@@ -575,6 +566,12 @@ func (s *Simulation) tickGuests(dt float64) {
 			continue
 		}
 		s.tickMood(agent, dt)
+		if agent.Unload.LiftID != 0 && !agent.Fallen {
+			// Scripted off the chair; planning resumes when they're clear.
+			// A rider who fell getting off recovers like any fall below.
+			s.tickUnloading(agent, dt)
+			continue
+		}
 		if agent.OnPatrollerID != 0 {
 			// Patroller is responsible for this guest's position and departure.
 			continue

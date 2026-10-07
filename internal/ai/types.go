@@ -310,10 +310,11 @@ const (
 	ThoughtCaughtInAvalanche
 
 	// Terrain against skill.
-	ThoughtTooEasy    // a run mostly below their level; holds until one at or above it
-	ThoughtGreatRun   // a run at their level, with real vertical, no fall, and room to ski
-	ThoughtTooHard    // a run above their level, or much of it past their comfort slope
-	ThoughtCrowdedRun // a run with other skiers close around them much of the way
+	ThoughtTooEasy       // a run mostly below their level; holds until one at or above it
+	ThoughtGreatRun      // a run at their level, with real vertical, no fall, and room to ski
+	ThoughtTooHard       // a run above their level, or much of it past their comfort slope
+	ThoughtCrowdedRun    // a run with other skiers close around them much of the way
+	ThoughtFellUnloading // fell getting off a chair at the top
 
 	// Services.
 	ThoughtGoodMeal   // finished a meal at a food court
@@ -358,6 +359,7 @@ var Effects = [ThoughtKindCount]Effect{
 	ThoughtGreatRun:          {Satisfaction: +0.04},
 	ThoughtTooHard:           {Satisfaction: -0.08},
 	ThoughtCrowdedRun:        {Satisfaction: -0.05},
+	ThoughtFellUnloading:     {Satisfaction: -0.05},
 	ThoughtGoodMeal:          {Satisfaction: +0.05},
 	ThoughtGoodDrink:         {Satisfaction: +0.04},
 	ThoughtRested:            {Satisfaction: +0.03},
@@ -428,6 +430,7 @@ var thoughtText = [ThoughtKindCount]string{
 	ThoughtGreatRun:          "what a great run!",
 	ThoughtTooHard:           "that run was too much for me",
 	ThoughtCrowdedRun:        "way too crowded on that run",
+	ThoughtFellUnloading:     "I fell getting off the lift!",
 	ThoughtGoodMeal:          "that meal hit the spot",
 	ThoughtGoodDrink:         "just what I needed",
 	ThoughtRested:            "good to sit down for a bit",
@@ -477,6 +480,7 @@ var ThoughtChartColor = [ThoughtKindCount][4]float32{
 	ThoughtGreatRun:          {0.35, 0.90, 0.75, 1},
 	ThoughtTooHard:           {0.90, 0.50, 0.25, 1},
 	ThoughtCrowdedRun:        {0.70, 0.45, 0.50, 1},
+	ThoughtFellUnloading:     {0.90, 0.55, 0.40, 1},
 	ThoughtGoodMeal:          {0.95, 0.75, 0.35, 1},
 	ThoughtGoodDrink:         {0.40, 0.80, 0.95, 1},
 	ThoughtRested:            {0.70, 0.85, 0.50, 1},

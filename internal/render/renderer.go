@@ -1447,7 +1447,8 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 			}
 			posY := pos[1]
 			if agent.OnLiftID == 0 {
-				posY = VisualElevationAt(w.Terrain, pos[0], pos[2])
+				// An unloading rider stands up from their seat's height.
+				posY = VisualElevationAt(w.Terrain, pos[0], pos[2]) + agent.Unload.UnloadLift()
 			}
 			color := guestColor(w, agent)
 			if agent.OnPatrollerID != 0 {

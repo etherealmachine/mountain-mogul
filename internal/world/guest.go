@@ -209,6 +209,10 @@ type Guest struct {
 
 	RidenLifts []ai.RideCount
 
+	// Unload is the guest's glide off a chair at a lift's top station;
+	// LiftID is 0 when they aren't unloading.
+	Unload Unloading
+
 	// Run is what the guest has skied on the current descent, from the
 	// top (usually a lift's) to wherever it ends; judged at the bottom.
 	Run Run
@@ -272,6 +276,9 @@ func Activity(w *World, g *Guest) string {
 	if g.Fallen {
 		return "Fallen"
 	}
+	if g.Unload.LiftID != 0 {
+		return "Unloading"
+	}
 	if g.OnLiftID != 0 {
 		return "On Lift"
 	}
@@ -301,6 +308,28 @@ func Activity(w *World, g *Guest) string {
 		}
 	}
 	return "Traveling"
+}
+
+// Unloading is a rider's scripted path off a chair (sim.tickUnloading).
+type Unloading struct {
+	LiftID uint64  // the lift they're getting off; 0 when not unloading
+	Side   float32 // where their seat sat across the chair, -1..+1: which way and how hard they peel off
+	Gone   float32 // metres travelled since standing up
+	FallAt float32 // metres along the path where they fall; 0 when they won't
+	SeatY  float32 // the seat's height above the snow where they stood up
+}
+
+// UnloadRise is how far, in metres along the unload path, a rider takes
+// to stand up from seat height to the snow (half a second at ramp speed).
+const UnloadRise = 1.25
+
+// UnloadLift is how far above the snow to draw an unloading rider: easing
+// from their seat's height to 0 over UnloadRise.
+func (u Unloading) UnloadLift() float32 {
+	if u.LiftID == 0 || u.Gone >= UnloadRise {
+		return 0
+	}
+	return u.SeatY * (1 - u.Gone/UnloadRise)
 }
 
 // RunTrailSlots is how many distinct trails a Run tracks time on.
@@ -454,6 +483,7 @@ func (g *Guest) ResetForDeparture() {
 	g.DayTicketPaid = 0
 	g.HasDayTicket = false
 	g.Run = Run{}
+	g.Unload = Unloading{}
 	g.SkisOn = false
 	g.SkiTransitionTimer = 0
 	g.RestTimer = 0
