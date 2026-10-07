@@ -14,8 +14,9 @@ In the game now:
 - [[Bar]] — drinks, restores thirst
 - [[Lounge]] — a place to sit, restores energy and patience
 - [[Tickets]] — day tickets and season passes, the gate on riding lifts
+- [[Rental Shop]] — rental skis, the gate on riding for guests who came without
 
-[[Rental Shop]] is the next one in the season story. Lockers, ski school, ski racks, and door queues are in the same part of [[Vision]] and do not have cards yet.
+Each service meets guest needs, some rolled per visit (rentals, après at the [[Bar]], warming up in the [[Lounge]]), and lines guests up at the door when full ([[Service Improvements]]). Lockers, ski school, and ski racks are in the same part of [[Vision]] and do not have cards yet.
 
 Guests reach these through [[GOAP]], not by wandering the shell. Planned in [[Next Steps]]: views and a quality level that make an amenity more attractive and let it charge more, and staff who show up to run it.
 
@@ -23,3 +24,4 @@ Guests reach these through [[GOAP]], not by wandering the shell. Planned in [[Ne
 
 - 2026-10-01: Lodge tiles, automatic doors, and the four services above are in. Rental and the rest of the base-area story are not.
 - 2026-10-07: Next for services: [[Service Improvements]] (jobs, value, quality, capacity, new types).
+- 2026-10-07: Rental shop added; services meet needs and line guests up at the door ([[Service Improvements]]).

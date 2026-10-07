@@ -48,15 +48,14 @@ ID-valued where the field is categorical; numeric where natural.
 ```go
 type WorldSnapshot struct {
     Pos        mgl32.Vec3
-    Patience   float32          // 0..1 — drains queuing, restored by skiing/riding/lodge
-    Energy     float32          // 0..1 — drains skiing, restored by RestAtLodge
-    Hunger     float32          // 0..1 — fixed drain, restored by EatAtFoodCourt; hits 0 → GoHome
-    Thirst     float32          // 0..1 — altitude+exertion drain, restored at a bar; hits 0 → GoHome
+    Patience   float32          // 0..1 — drains queuing, restored by skiing/riding/a seat; read by the skiing goals
+    Energy     float32          // 0..1 — drains skiing, restored by a seat; read by the skiing goals
+    Need       [ai.NeedCount]float32 // each need's urgency, 0..1 (world.Guest.NeedUrgency): hunger, thirst, rest
     AtLiftBase uint64           // 0 or lift ID
     AtLiftTop  uint64           // 0 or lift ID
     Queued     uint64           // 0 or lift ID
     OnLift     uint64           // 0 or lift ID
-    AtLodge    uint64           // 0 or lodge building ID
+    AtService  uint64           // 0 or a building that offers something to use (a seat, a meal, a drink)
     AtParking  uint64           // 0 or parking building ID
     Removed    bool             // terminal — agent has Departed
     RidenLifts map[uint64]int   // per-lift ride count (novelty driver)
@@ -70,7 +69,7 @@ that's the "no anchor" state the planner sees mid-descent. Action
 preconditions are usually one comparison; effects are usually one
 assignment.
 
-### Actions (8)
+### Actions
 
 | Action | Precondition | Effect (planner-side) | Base cost |
 |---|---|---|---|
@@ -78,10 +77,22 @@ assignment.
 | `JoinQueue(L)` | `AtLiftBase == L` | `Queued = L`; `AtLiftBase = 0` | `len(L.Queue) × queueSlotSec` |
 | `RideLift(L)` | `Queued == L` or `OnLift == L` | `AtLiftTop = L`; `OnLift = 0`; increment `RidenLifts[L]` | `L.LoopLength / (2·L.Speed)` + repeat penalty |
 | `SkiToLift(L)` | `AtLiftTop != 0`; ≥20 m descent to `L.Base` | `AtLiftBase = L`; `AtLiftTop = 0` | `dist / skiSpeedMps` |
-| `SkiToLodge(B)` | `AtLiftTop != 0`; ≥20 m descent to `B` | `AtLodge = B`; `AtLiftTop = 0` | `dist / skiSpeedMps` |
+| `SkiToService(B)` | `AtLiftTop != 0`; ≥20 m descent to `B`; `B` offers something to use | `AtService = B`; `AtLiftTop = 0` | `dist / skiSpeedMps` |
 | `SkiToParking(B)` | `AtLiftTop != 0`; ≥20 m descent to `B` | `AtParking = B`; `AtLiftTop = 0` | `dist / skiSpeedMps` |
-| `RestAtLodge(B)` | `AtLodge == B` | `Patience = 1` | `restDurationSec` (≈60 s) |
-| `EatAtFoodCourt(B)` | `AtLodge == B`; `B` has Food tiles and a door; `Diners < Seats`; budget ≥ `MealPrice` | `Hunger = 1`; budget −= `MealPrice` | `mealDurationSec` (90 s) |
+| `UseService(B, o)` | `AtService == B`; `B` offers `o` (`OffersUse`); its line is shorter than its pool holds (`LineOpen`); free, or budget ≥ price and price under 2.5× what they expect (`RefuseRatio`) | each need `o` fulfils (`world.OfferNeeds`) → urgency 0 (a seat also sets Patience and Energy to 1); budget −= price | `world.OfferDuration(o)` + `ExpectedWait` |
+
+Offers (`ai.Offer`, `world/offers.go`):
+
+| Offer | At | Fulfils | Takes | Price |
+|---|---|---|---|---|
+| Seat | lounge, or a food court | rest | 20 clock min | free |
+| Meal | food court (needs a seat) | hunger and thirst | 30 clock min | `MealPrice` |
+| Drink | bar, or a food court | thirst | 10 clock min | `DrinkPrice` |
+| Rent | rental shop | rentals | 15 clock min | `RentalPrice` |
+| Après | bar | après and thirst | 45 clock min | 2 × `DrinkPrice` |
+| Warm up | lounge | warmth | 15 clock min | free |
+
+The sim applies what an offer does to the guest's stats when the step finishes (`fulfilOffer`); the planner only sees urgencies. Pools, lines at the door, and how a visit scores (relief, quality, value, crowding, the wait) are in [[Service Improvements]] step 2.
 | `Depart(B)` | `AtParking == B` | `Removed = true` | `0` (terminal) |
 
 Boarding the chair is folded into `RideLift` — no separate `BoardChair`
@@ -101,15 +112,27 @@ incremented. A lift with no trail at the guest's own level costs
 `belowLevelPenaltySec` more, so they ride it only when nothing at their
 level runs.
 
-### Goals (4)
+### Goals
 
 | Goal | Satisfied when | Weight | Notes |
 |---|---|---|---|
 | `KeepSkiing` | `AtLiftTop != 0` | `Patience` (×0.5 if `Patience < 0.2`) | lapping fallback when Explore done |
-| `Rest` | `Patience ≥ 0.85` | `(1 − Patience)²` | fires a `SkiToLodge + RestAtLodge` plan |
+| `FulfillNeed(k)` | urgency ≤ the need's `done` | the need's curve above its `from` (`needSpecs`) | one per need; plans a `SkiToService + UseService` trip |
 | `Explore` | every **accessible** lift ridden once | `unridden_accessible_frac × Patience` | filtered by guest skill level |
-| `RelieveHunger` | `Hunger ≥ 0.25` | `1.05 + (0.25 − Hunger)` below 0.25, else 0 | fires a trip to the nearest food court; skipped when none is reachable |
-| `GoHome` | `Removed` | `1.0` if `min(Patience,Energy) < 0.05` or `Hunger < 0.05` or `Thirst < 0.05`, else `0` | fires on exhaustion, starvation, or dehydration |
+| `GoHome` | `Removed` | `1.0` if `min(Patience,Energy) < 0.05` or hunger or thirst urgency > 0.95, else `0` | fires on exhaustion, starvation, or dehydration |
+
+Needs (`needSpecs`, `goap/goal.go`):
+
+| Need | Urgency | Active above | Met at or below | Weight | Preempts a plan |
+|---|---|---|---|---|---|
+| Hunger | 1 − Hunger | 0.75 | 0.75 | `1.05 + (u − 0.75)` | yes |
+| Thirst | 1 − Thirst | 0.75 | 0.75 | `1.05 + (u − 0.75)` | yes |
+| Rest | 1 − min(Energy, Patience) | 0.85 | 0.15 | `u²`, or 1.5 above 0.95 | no; blocked → "needs a lodge" |
+| Rentals | 1 until rented (`NeedsGear`) | 0.5 | 0.5 | 1.2; `JoinQueue` refuses them until met | no; blocked → "nowhere to rent skis" |
+| Après | `Guest.Apres`: 0.8 × (0.5 + score) ramping 14:30–16:00; 1 once closed | 0 | 0 | 0.6u; 1.03 if done for the day; 2.1 at 1 (beats going home at closing) | no |
+| Warmth | `Guest.Chill` | 0.75 | 0.1 | `1.05 + (u − 0.75)` | yes; blocked → "nowhere to warm up" |
+
+Rentals, après, and warmth are rolled per visit (`Guest.RollVisitNeeds`); see [[Service Improvements]] step 3. `WalkToService(B)` walks from the base area (a lot, a building, a lift's foot) to a service building.
 
 **Goal priority**: `SelectGoal` picks the highest-weighted *unsatisfied* goal
 whose weight is **> 0**. Zero-weight goals are skipped — `GoHome` at full
@@ -401,9 +424,8 @@ flowchart TB
   (`world.SimSecondsPerHour`). Drains while queuing (about 20 clock
   minutes empty it; not before the lifts open) and walking without skis
   (a clock hour empties it); restored by active skiing (full in about
-  5.6 clock hours), riding (about 4.4), and instantly by `RestAtLodge`. The L0 `Rest` goal fires at low patience
-  (`Rest.Weight = (1 − Patience)²`), producing a `SkiToLodge +
-  RestAtLodge` plan. `GoHome` fires when Patience < 0.05. The skier
+  5.6 clock hours), riding (about 4.4), and instantly by a seat (`UseService`). The rest need fires at low patience
+  or energy, producing a `SkiToService + UseService(seat)` plan. `GoHome` fires when Patience < 0.05. The skier
   physics pipeline never reads Patience itself.
 - **Hunger and Thirst** are countdown timers. Both are randomised to
   `[0.5, 1.0)` at spawn and drain continuously during every skiing tick.
@@ -432,7 +454,7 @@ flowchart TB
 at 1.0 on arrival. When it reaches 0, `GoHome` fires and the guest leaves.
 
 `Energy` (0..1) is the physical fatigue budget. Drains while skiing; restored
-by `RestAtLodge`. When it reaches 0, `GoHome` fires.
+by a seat. When it reaches 0, `GoHome` fires.
 
 `Hunger` and `Thirst` (0..1) are countdown timers, restored by a food-court
 meal and a bar drink respectively. Both start at a random value in
@@ -445,7 +467,7 @@ notes above for drain rates.
 |---|---|---|
 | Active skiing (`tickSkier`) | full in ~5.6 clock hours | restores slowly from fun descents |
 | Riding a lift chair (`tickRiding`) | full in ~4.4 clock hours | restores: chair ride offsets earlier wait |
-| Lodge rest (`tickResting`) | instant `= 1` | full restore on `RestAtLodge` completion |
+| Lodge rest (`tickResting`) | instant `= 1` | full restore when a seat (`UseService`) finishes |
 
 Patience is clamped to `[0, 1]` on every write.
 
@@ -502,7 +524,7 @@ Every change is reported by a thought, and no thought changes a stat by itself.
 | `ThoughtCrowdedRun` | −0.05 | `judgeRun` |
 | `ThoughtLovingCorduroy` | none | `judgeRun`: why a great run was great, for a `Tastes.PrefersGroomed` guest on a run ≥ 90% groomed; recorded just before the great run, no effect of its own |
 
-**Runs.** Each descent step (`SkiToLift`, `SkiToLodge`, `SkiToParking`, `SkiTrail`) starts a `Guest.Run` (`startRun`). Every skiing tick adds to it (`recordRun`): seconds on green, blue, and black trail cells (`World.TrailAt`, an index rebuilt with the trail graph) or off-trail, seconds on up to four trails, seconds more than 5° past `ComfortSlope`, other moving skiers within about 7 m × seconds, grooming × seconds, distance, and the starting elevation. When the step completes, `judgeRun` scores runs of 20 s or more. The run's difficulty is the one with the most time, counted when at least half the run was on trails. Too hard: a difficulty above the guest's level, or a quarter of the run past the steep margin. Crowded: on average 1.5 or more skiers nearby. Great: at their level, not too hard, not crowded, no fall since the start, and at least 40 m of vertical. Thoughts name the run's main trail.
+**Runs.** Each descent step (`SkiToLift`, `SkiToService`, `SkiToParking`, `SkiTrail`) starts a `Guest.Run` (`startRun`). Every skiing tick adds to it (`recordRun`): seconds on green, blue, and black trail cells (`World.TrailAt`, an index rebuilt with the trail graph) or off-trail, seconds on up to four trails, seconds more than 5° past `ComfortSlope`, other moving skiers within about 7 m × seconds, grooming × seconds, distance, and the starting elevation. When the step completes, `judgeRun` scores runs of 20 s or more. The run's difficulty is the one with the most time, counted when at least half the run was on trails. Too hard: a difficulty above the guest's level, or a quarter of the run past the steep margin. Crowded: on average 1.5 or more skiers nearby. Great: at their level, not too hard, not crowded, no fall since the start, and at least 40 m of vertical. Thoughts name the run's main trail.
 
 **Terrain and skill.** Guests ride any lift serving a trail at or below their level (`skillDiff`; advanced guests ride anything), and prefer one at their level: a lift without one costs 240 s more in the planner (`belowLevelPenaltySec`). [[Demand]] sends guests at full rate when a trail matches their level, and at 0.4 when only easier trails exist (`terrainMatch`).
 

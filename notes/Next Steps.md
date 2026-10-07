@@ -13,7 +13,7 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 
 In the order to work on them:
 
-1. [[Service Improvements]] step 1: hunger, thirst, and rest as needs with urgencies, services that declare the needs they fulfil, one goal shape and one generic action. A refactor: guests behave as before.
+1. **Every scenario needs a rental shop**: since [[Service Improvements]] step 3, half of beginners arrive without skis and turn round where nothing rents them; Boreal lost 44 of 89 guests on a headless day. Add rental tiles to the bundled scenarios, or decide the shares per scenario ([[First Week Balance]]).
 
 Then: **gameplay before scenario goals**. A headless three-lift Boreal (2026-10-06) runs about 70 guests a day with the rating stuck near 30%, so goals can't be set until guests can have a good day. The investigate-and-report items are done (2026-10-07); next is the guest pool per scenario ([[First Week Balance]]). [[Scenario Goals and Rules]] steps 1–4 shipped and are tabled until then.
 
@@ -95,9 +95,8 @@ Diagnose each first, report the cause, then fix:
 ## Base area ([[Amenities]], [[Lodge Shell]], [[Pathfinding]])
 
 - [[Building Interiors]]: a legend for the cutaway's colors and doors, then procedurally placed furniture.
-- [[Rental Shop]]: the next amenity and the first staffing puzzle. Beginners want it (see skill wants).
-- **Amenity quality and views**: better buildings attract more guests ([[GOAP]]) and can charge more. In [[Service Improvements]].
-- **Door queues and service rates**: buildings serve guests at a rate, and lines form at the door. In [[Service Improvements]].
+- [[Rental Shop]] staff and ski racks: the shop is in ([[Service Improvements]]); staffing the morning rush and a rack at the snow are still story.
+- **Amenity quality and views**: better buildings attract more guests ([[GOAP]]) and can charge more. Quality is scored and priced ([[Service Improvements]] step 2); how it's raised, and views, are open.
 - **Lockers and ski school**: more base services; ski school *needs* staff.
 - **Footpaths**: painted paths between buildings, with guests walking skis-off. *For* [[Zermatt]].
 - **Ski racks**: where footpaths meet the snow. *Needs* footpaths.
@@ -239,3 +238,6 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-07: [[Moguls]] done (step 5, docs); off the Priority list, which is now empty.
 - 2026-10-07: [[Moguls]] step 6 (slowing down and steering clear) prioritized by the user and shipped the same day; Priority is empty again.
 - 2026-10-07: [[Service Improvements]] planned with the user (a needs model) and ranked first.
+- 2026-10-07: [[Service Improvements]] step 1 shipped.
+- 2026-10-07: [[Service Improvements]] step 2 shipped; door queues folded in.
+- 2026-10-07: [[Service Improvements]] done (step 3: rolled needs, the rental shop, après, warming up). Ranked first: rental shops in the scenarios.

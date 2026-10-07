@@ -81,16 +81,16 @@ type TrailEdge struct {
 
 `SkiTrail` is the GOAP action for a single trail traversal:
 
-- **Precondition:** guest's current anchor (`AtLiftTop`, `AtTrailEnd`, `AtLodge`, `AtParking`)
+- **Precondition:** guest's current anchor (`AtLiftTop`, `AtTrailEnd`, `AtService`, `AtParking`)
   matches `FromID`.
-- **Apply:** clears the old anchor; sets `AtLiftBase`, `AtLodge`, `AtParking`, or `AtTrailEnd`
+- **Apply:** clears the old anchor; sets `AtLiftBase`, `AtService`, `AtParking`, or `AtTrailEnd`
   depending on `ToKind`.
 - **Cost:** `Distance / skiSpeedMps` (10 m/s).
 
 `trailActions()` (called from `ApplicableActions`) looks up all edges from the current anchor
 via `w.TrailGraph.EdgesFrom` and emits one `SkiTrail` per edge.
 
-**Off-trail penalty** added to free-roam `SkiToLift / SkiToLodge / SkiToParking` when trail
+**Off-trail penalty** added to free-roam `SkiToLift / SkiToService / SkiToParking` when trail
 alternatives exist:
 
 | Skill | Penalty |

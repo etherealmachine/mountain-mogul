@@ -28,7 +28,7 @@ Shows three sections for the currently followed guest:
 
 **Goal weights** — every GOAP goal ranked by weight; the winner (highest-weight unsatisfied goal) is marked `>`. Goals already satisfied are labelled `(satisfied)`.
 
-**Snapshot** — the `Extract()` output used at the last replan: anchor IDs (`AtLiftBase`, `AtLiftTop`, `AtTrailEnd`, `AtLodge`, `AtParking`), Energy, Fun, Skill. An all-zero anchor block means the guest is in transit (walking a pathfinder path or mid-ski with no settled anchor).
+**Snapshot** — the `Extract()` output used at the last replan: anchor IDs (`AtLiftBase`, `AtLiftTop`, `AtTrailEnd`, `AtService`, `AtParking`), Energy, Fun, Skill. An all-zero anchor block means the guest is in transit (walking a pathfinder path or mid-ski with no settled anchor).
 
 **Plan** — the current action sequence, up to 12 steps shown (then `… +N more`). Each line shows the action name with step cost. The head step (currently executing) is step 0.
 
