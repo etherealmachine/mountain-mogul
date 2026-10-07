@@ -27,3 +27,4 @@ Spec: [[Guests Spec]], Satisfaction, Rating, and Thoughts.
 - 2026-10-07: A per-guest baseline that experiences move ([[Mood Baseline]]); mood is now saved for guests on the mountain.
 - 2026-10-07: Snow underfoot against tastes replaces the grooming and glade pulls ([[Snow Tastes]] step 2).
 - 2026-10-07: A ledger: events add once, conditions cost by the clock hour, nothing drifts back; recorded when the car leaves the map, with each condition still on costing once more. Replaces the baseline and drift ([[Mood Baseline]]).
+- 2026-10-07: Boredom ("skied this place to death", "nothing here is my kind of skiing") costs by the clock hour and sends the guest home; crowded runs cost as much as a guest dislikes crowds ([[Snow Tastes]] step 5).

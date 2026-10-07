@@ -10,7 +10,7 @@ The guest's strategic layer, in `internal/ai/goap/`. Each guest has a snapshot o
 
 It replans when the plan is empty, when the head action finishes, or when that action's precondition breaks. A need that crosses its threshold mid-plan can preempt the next step, so a guest who gets hungry on a lap heads for food instead of finishing the lap. It does not poll on a timer.
 
-The needs it weighs are [[Hunger]], [[Thirst]], [[Energy]], and [[Patience]]. [[Satisfaction]] is not a planning input; it is the score the resort rating reads when the guest leaves. [[Tickets]] gate whether a plan may board a lift.
+The needs it weighs are [[Hunger]], [[Thirst]], [[Energy]], and [[Patience]]. [[Satisfaction]] is not a planning input; it is the score the resort rating reads when the guest leaves. Tastes are: a lift costs more to ride when the terrain off its top doesn't suit the guest ([[Snow Tastes]]), and a guest who's bored of everything they'd ride heads home ahead of more skiing. [[Tickets]] gate whether a plan may board a lift.
 
 Where those needs get relieved is [[Amenities]]. Plans are rides on [[Lifts]] and runs along [[Trails]]; [[Skiing]] carries out each run.
 
@@ -22,3 +22,4 @@ The long spec is [[Guests Spec]]. It lags the code in places (the action table p
 - 2026-10-06: When a guest can't plan a lift ride, the thought says why: "the lifts are all closed", "there's nothing here I can ski" (no running lift serves their level), or, only when neither, "couldn't find where to buy a ticket" (`rideBlocker` in `planner.go`). Before, every such failure was blamed on the ticket window. Planner tests fixed: their lifts start stopped, their guests now hold a ticket, and the thirst test uses critical thirst, the only level that outweighs skiing at full patience.
 - 2026-10-07: Guests ride lifts serving trails at or below their level, preferring their own level (a lift without one costs 240 s more). The planner no longer writes guest state: what blocked a goal comes back in `Plan.Blocked` and the sim turns it into conditions ([[Satisfaction Rework]]).
 - 2026-10-07: At closing, `GoHome` weighs 2.0 (above every other goal) while `World.ClosedForDay` is set, instead of the sim zeroing everyone's patience; stats are left alone so the trip home still costs patience.
+- 2026-10-07: Lift choice reads the guest's tastes against each lift's trail conditions (and its line as crowding); boredom puts `GoHome` just above skiing ([[Snow Tastes]]).

@@ -26,3 +26,4 @@ Spec: [[Snow Spec]]. Plan: [[Real Grooming]]. Code: `internal/sim/snowcats.go`, 
 - 2026-10-06: The equipment shed is removed from the build tools and saves; the garage returns as a building service ([[Building Services]]).
 - 2026-10-06: The garage is a building service: one snowcat per two garage tiles, parked outside the garage door; sections are shared among garages ([[Building Services]]).
 - 2026-10-06: Snowcats are bought into garage space (4 tiles each) instead of coming with tiles ([[Patrol Day]] step 2).
+- 2026-10-07: Grooming is now a taste: Cruisers and Chargers steer onto corduroy and pick lifts with groomed runs; Powder Hounds and Bump Skiers would rather the cat skipped a run ([[Snow Tastes]]).

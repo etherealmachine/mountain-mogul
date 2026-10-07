@@ -13,7 +13,7 @@ A guest is anyone who comes to the resort, not only skiers. The code calls them 
 - **One guest record** in `internal/world/guest.go`, used both for the 10,000-person catchment and for guests on the mountain.
 - **Discipline**: the equipment a guest rides, either Ski or Snowboard. It's saved per guest, and about 20% of the catchment rolls Snowboard.
 - **Skill** and the traits derived from it (comfort speed, comfort slope, aggression, daily budget).
-- **Tastes**: seven affinities (groomed, powder, moguls, trees, steep, ice, crowds) rolled around an archetype that's more or less common by skill: Cruiser, Powder Hound, Bump Skier, Glade Rat, Charger ([[Snow Tastes]]). The follow panel names the nearest archetype.
+- **Tastes**: seven affinities (groomed, powder, moguls, trees, steep, ice, crowds) rolled around an archetype that's more or less common by skill: Cruiser, Powder Hound, Bump Skier, Glade Rat, Charger ([[Snow Tastes]]). The follow panel names the nearest archetype. Tastes steer their line, choose their lift, judge each run, and decide when they've had enough of a resort.
 
 ## Not wired up
 
@@ -40,3 +40,4 @@ None need fixing now. Each one is where a new type would hit a wall:
 
 - 2026-10-02: Checked the code. Discipline (Ski or Snowboard) is saved and rolled at 20% Snowboard, but nothing uses it yet.
 - 2026-10-07: Tastes replace the glade and groomer flags ([[Snow Tastes]] step 1).
+- 2026-10-07: Tastes now drive steering, lift choice, run verdicts, and boredom ([[Snow Tastes]]).

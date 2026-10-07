@@ -13,11 +13,10 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 
 In the order to work on them:
 
-1. [[Snow Tastes]]: steps 1–4 done (tastes; snow underfoot thoughts and tiring; run verdicts by taste; lift choice by trail conditions and steering by taste); next is step 5, variety, availability, and crowds. Snow underfoot moves the mood target, each run ends in an event, guests choose lifts and trails by taste, and repeated laps get boring.
-2. [[Moguls]]: moguls formed where guests turn on steep ungroomed snow, at sub-cell resolution like tracks; softened by snow, cleared only where the cat drove; drawn as a fall-line mogul field; skied with a balance cost and sought or avoided by taste.
-3. **Fix how services work**: the investigate-and-report items left under Bugs and Guests. Patrol ([[Patrol Day]]), falls ([[Lift Unloading]]), grooming (works: one cat grooms Boreal's run fully each night), and thirst and exhaustion (mostly how thoughts were counted, then the time scale) are done. Left: snow compacting too fast, and rechecking thirst at altitude and the after-closing tail with the new clock.
+1. [[Moguls]]: moguls formed where guests turn on steep ungroomed snow, at sub-cell resolution like tracks; softened by snow, cleared only where the cat drove; drawn as a fall-line mogul field; skied with a balance cost and sought or avoided by taste.
+2. **Fix how services work**: the investigate-and-report items left under Bugs and Guests. Patrol ([[Patrol Day]]), falls ([[Lift Unloading]]), grooming (works: one cat grooms Boreal's run fully each night), and thirst and exhaustion (mostly how thoughts were counted, then the time scale) are done. Left: snow compacting too fast, and rechecking thirst at altitude and the after-closing tail with the new clock.
 
-Then: **gameplay before scenario goals**. A headless three-lift Boreal (2026-10-06) runs about 70 guests a day with the rating stuck near 30%, so goals can't be set until guests can have a good day. Priority 3 covers the investigate-and-report items; then the guest pool per scenario ([[First Week Balance]]). [[Scenario Goals and Rules]] steps 1–4 shipped and are tabled until then.
+Then: **gameplay before scenario goals**. A headless three-lift Boreal (2026-10-06) runs about 70 guests a day with the rating stuck near 30%, so goals can't be set until guests can have a good day. Priority 2 covers the investigate-and-report items; then the guest pool per scenario ([[First Week Balance]]). [[Scenario Goals and Rules]] steps 1–4 shipped and are tabled until then.
 
 Not ranked yet: everything below.
 
@@ -238,3 +237,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-07: [[Snow Tastes]] step 3 shipped; calibrating the ledger tabled.
 - 2026-10-07: [[Moguls]] planned with the user, ranked after [[Snow Tastes]].
 - 2026-10-07: [[Snow Tastes]] step 4 shipped.
+- 2026-10-07: [[Snow Tastes]] done (step 5: boredom sends guests home from a resort that's run out for them; crowds by taste). [[Moguls]] is first.

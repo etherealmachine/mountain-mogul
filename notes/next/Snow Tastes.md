@@ -1,7 +1,7 @@
 ---
 title: Snow Tastes
 kind: plan
-status: in progress
+status: done
 ---
 
 # Snow Tastes
@@ -98,8 +98,10 @@ Made with the user on 2026-10-07:
    - Powder Hounds: 9% corduroy, 75% powder, 5% trees.
 
    Boreal's lift costs a Cruiser 206 s and a Powder Hound 346 s (a mostly groomed trail); after the storm, 228 s and 311 s. With only one lift, the split between lifts can't show in play yet.
-5. **Variety, availability, and crowds.** Use the per-trail run counts from [[Mood Baseline]], the boredom and "nothing here for me" conditions, `GoHome` weighted by the best remaining option, and the crowds term. Check: session length and satisfaction with one lift versus three.
-6. **Docs.** Update [[Satisfaction]], [[Skiing]], [[Grooming]], [[GOAP]], [[Guest Types]], and [[Guests Spec]].
+5. Done: **Variety, availability, and crowds.** With the ledger, laps already count for less (great runs' per-trail and per-lift decay, and the planner's repeat cost). `checkBoredom` (`sim/runs.go`) runs after each run. It values each lift the guest would ride as its taste match less 0.1 per run they've had off it today. When the best falls below −0.3 they're bored: "I've skied this place to death" after laps, or "nothing here is my kind of skiing" if it never suited them, each −0.05 per clock hour. `GoHome` then weighs 1.02, just above skiing, and they leave "Bored of the terrain". That replaces leaving because every lift has been ridden. Crowds: crowded runs cost as much as the guest dislikes crowds, and a lift's line counts as its crowding in the lift choice.
+
+   Checked on the user's Boreal save, 2 days (one lift, one green). The median stay fell from 7.3 to 4.4 clock hours, and 130 of 141 guests left bored (before: 139 of 146 at closing). Cruisers stay 4.9 hours (score 0.53 → 0.48), and the archetypes the green doesn't suit leave early and better off: Bump Skiers 2.5 hours, 0.08 → 0.34; Powder Hounds 1.6 hours, 0.12 → 0.27. Boreal never got busy enough for a crowded run. The check against three lifts waits for a three-lift world.
+6. Done: **Docs.** [[Satisfaction]], [[Skiing]], [[Grooming]], [[GOAP]], [[Guest Types]], [[Trails]], and [[Guests Spec]].
 
 Each step builds with `go build` and `go vet` and is judged in a headless Boreal run. No Go tests.
 
@@ -130,3 +132,4 @@ Each step builds with `go build` and `go vet` and is judged in a headless Boreal
 - 2026-10-07: Step 3: run verdicts by taste (great runs scaled by the match, miserable runs, first tracks); snowfall buries skier traffic.
 - 2026-10-07: [[Moguls]] planned; the moguls feature stays `Cell.MogulSize`, which the mogul map will feed as its cell average.
 - 2026-10-07: Step 4: lift choice by trail conditions and steering by taste (guests never followed trails); glade lovers go into the woods.
+- 2026-10-07: Steps 5–6: boredom and crowds, and docs. Done.
