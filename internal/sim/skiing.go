@@ -90,7 +90,7 @@ const (
 	groomingBonus    = 0.5 // weight on Σ grooming along the candidate path — pulls skiers toward corduroy on clear slopes, outvoted by trees when present
 	// groomEdgePenalty is added to a candidate's totalDensity (→ treePenalty
 	// multiplier) each time the sample transitions from groomed to ungroomed
-	// terrain. Only applied when self.Traits.PrefersGroomed is true. This
+	// terrain. Only applied when self.Traits.Tastes.PrefersGroomed() is true. This
 	// treats the piste edge as a soft obstacle and prevents the progressBonus
 	// from pulling the skier off a curved groomed trail.
 	groomEdgePenalty = 1.5
@@ -358,7 +358,7 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 	// In the trees: on at treeDensityThreshold, off once the cover thins
 	// below treeDensityClear.
 	gladeKind := ai.ThoughtScaredInTrees
-	if a.Traits.LikesGlades {
+	if a.Traits.Tastes.LikesGlades() {
 		gladeKind = ai.ThoughtLovingGlades
 	}
 	treesOn := treeDensity >= treeDensityThreshold ||
@@ -370,7 +370,7 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 	// through the glade conditions above; grooming has no thought yet
 	// (Snow Tastes makes it one).
 	a.SkiedThisTick = true
-	if a.Traits.PrefersGroomed {
+	if a.Traits.Tastes.PrefersGroomed() {
 		if onGroomed {
 			a.SkiTerrainPull = groomedPull
 		} else {
@@ -978,9 +978,9 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 	}
 
 	// Current-cell grooming used as the starting point for groom-edge
-	// crossing detection. Only relevant when self.Traits.PrefersGroomed.
+	// crossing detection. Only relevant when self.Traits.Tastes.PrefersGroomed().
 	var startGrooming float32
-	prefersGroomed := self != nil && self.Traits.PrefersGroomed
+	prefersGroomed := self != nil && self.Traits.Tastes.PrefersGroomed()
 	if prefersGroomed && t.InBoundsWorld(perc.Pos[0], perc.Pos[2]) {
 		_, startGrooming, _, _ = t.SnowAt(perc.Pos[0], perc.Pos[2])
 	}
@@ -1069,7 +1069,7 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 	// strongly than the default — enough to dominate direction choice on clear
 	// slopes without being overridden by tree avoidance when hazards are present.
 	groomWeight := float32(groomingBonus)
-	if self != nil && self.Traits.PrefersGroomed {
+	if self != nil && self.Traits.Tastes.PrefersGroomed() {
 		groomWeight *= 4
 	}
 

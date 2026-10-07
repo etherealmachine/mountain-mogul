@@ -59,12 +59,7 @@ func newPoolGuest(w *World, g *rand.Rand, home uint64) *Guest {
 	skill := rollSkill(g)
 	disc := rollDiscipline(g)
 	traits := ai.TraitsFor(skill)
-	gladeProb := float32(0.0)
-	if skill >= ai.SkillAdvancedThreshold {
-		gladeProb = 0.30
-	}
-	traits.LikesGlades = g.Float32() < gladeProb
-	traits.PrefersGroomed = g.Float32() < 0.60
+	traits.Tastes = RollTastes(skill, g)
 	traits.DailyBudget = DailyBudgetFor(skill)
 	return &Guest{
 		ID:              w.NextID(),
@@ -158,6 +153,41 @@ func rollSkill(g *rand.Rand) float32 {
 	default:
 		return SkillInTier(2, g)
 	}
+}
+
+// tasteSpread is how far a guest's tastes stray from their archetype's
+// centre (the standard deviation of each affinity).
+const tasteSpread = 0.25
+
+// RollTastes draws a guest's tastes: an archetype picked by how common it
+// is at their skill tier, then each affinity around its centre, kept to
+// -1..+1.
+func RollTastes(skill float32, g *rand.Rand) ai.Tastes {
+	tier := 0
+	switch {
+	case skill >= ai.SkillAdvancedThreshold:
+		tier = 2
+	case skill >= ai.SkillIntermediateThreshold:
+		tier = 1
+	}
+	var total float32
+	for _, a := range ai.Archetypes {
+		total += a.Share[tier]
+	}
+	pick := g.Float32() * total
+	arch := ai.Archetypes[0]
+	for _, a := range ai.Archetypes {
+		if pick < a.Share[tier] {
+			arch = a
+			break
+		}
+		pick -= a.Share[tier]
+	}
+	var t ai.Tastes
+	for i, c := range arch.Centre {
+		t[i] = max(-1, min(1, c+float32(g.NormFloat64())*tasteSpread))
+	}
+	return t
 }
 
 // SkillInTier draws a skill uniformly within a tier's band: 0 beginner,

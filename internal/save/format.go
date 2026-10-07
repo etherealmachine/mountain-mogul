@@ -473,8 +473,9 @@ type GuestData struct {
 	Skill           float32 `json:"skill,omitempty"`
 	VisitsPerSeason float32 `json:"vps,omitempty"`
 	HomeEntry       uint64  `json:"entry,omitempty"` // world.Guest.HomeEntryID
-	LikesGlades     bool    `json:"glades,omitempty"`
-	PrefersGroomed  bool    `json:"groomed,omitempty"`
+	// Tastes are the guest's ai.Tastes in TasteKind order; absent in
+	// saves from before tastes, which roll them from the guest's ID.
+	Tastes []float32 `json:"tastes,omitempty"`
 
 	// Career stats.
 	VisitsThisSeason int     `json:"vts,omitempty"`

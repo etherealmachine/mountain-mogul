@@ -35,20 +35,15 @@ func SkillTierName(skill float32) string {
 }
 
 // GuestTraits captures the per-guest inputs the controller reads.
-// Boolean preferences are coarse-grained for now (likes / doesn't);
-// fractional or per-axis preferences land if we need finer behaviour.
 type GuestTraits struct {
 	Skill        float32 // 0..1; 0–0.33 beginner, 0.33–0.66 intermediate, 0.66+ advanced
 	ComfortSpeed float32 // m/s; above ~comfort the brake controller engages
 	ComfortSlope float32 // radians; steeper than this is uncomfortable
 	Aggression   float32 // 0..1; scales target speed up
 
-	// LikesGlades: true ⇒ time in trees emits ThoughtLovingGlades
-	// (positive). False ⇒ emits ThoughtScaredInTrees (negative).
-	LikesGlades bool
-
-	// PrefersGroomed: true ⇒ groomed snow emits ThoughtLovingCorduroy (positive).
-	PrefersGroomed bool
+	// Tastes is what snow and terrain the guest enjoys, separate from
+	// what their skill lets them handle (Snow Tastes).
+	Tastes Tastes
 
 	// DailyBudget is the total amount a guest is willing to spend per visit.
 	// Derived from skill at pool creation ($40 + skill×$160); campaigns may
@@ -62,19 +57,19 @@ func TraitsFor(skill float32) GuestTraits {
 	switch {
 	case skill < SkillIntermediateThreshold:
 		return GuestTraits{
-			Skill:          skill,
-			ComfortSpeed:   5,
-			ComfortSlope:   10 * math.Pi / 180,
-			Aggression:     0.2,
-			PrefersGroomed: true,
+			Skill:        skill,
+			ComfortSpeed: 5,
+			ComfortSlope: 10 * math.Pi / 180,
+			Aggression:   0.2,
+			Tastes:       Archetypes[ArchetypeCruiser].Centre,
 		}
 	case skill < SkillAdvancedThreshold:
 		return GuestTraits{
-			Skill:          skill,
-			ComfortSpeed:   10,
-			ComfortSlope:   20 * math.Pi / 180,
-			Aggression:     0.5,
-			PrefersGroomed: true,
+			Skill:        skill,
+			ComfortSpeed: 10,
+			ComfortSlope: 20 * math.Pi / 180,
+			Aggression:   0.5,
+			Tastes:       Archetypes[ArchetypeCruiser].Centre,
 		}
 	default:
 		return GuestTraits{
@@ -84,6 +79,94 @@ func TraitsFor(skill float32) GuestTraits {
 			Aggression:   0.8,
 		}
 	}
+}
+
+// =============================================================================
+// TASTES
+// =============================================================================
+
+// TasteKind indexes Tastes: one kind of snow or terrain.
+type TasteKind uint8
+
+const (
+	TasteGroomed TasteKind = iota // corduroy
+	TastePowder                   // fresh, deep snow
+	TasteMoguls                   // bumps
+	TasteTrees                    // glades
+	TasteSteep                    // steep pitches for the trail's grade
+	TasteIce                      // boilerplate, crust, frozen granular
+	TasteCrowds                   // other skiers close by
+	TasteCount
+)
+
+// TasteName is each taste's short label for the follow panel.
+var TasteName = [TasteCount]string{"groomed", "powder", "moguls", "trees", "steep", "ice", "crowds"}
+
+// Tastes is how much a guest enjoys each kind of snow and terrain, from
+// -1 (hates it) to +1 (loves it). Rolled per guest around an archetype
+// (world.RollTastes); TasteLabel names the nearest one for the player.
+type Tastes [TasteCount]float32
+
+// Until snow underfoot reads tastes directly (Snow Tastes step 2), the
+// older glade and corduroy reactions key off these thresholds.
+const (
+	gladeLoverTaste   = 0.4
+	groomedLoverTaste = 0.3
+)
+
+// LikesGlades reports whether time in the trees is a pleasure (loving
+// these glades) rather than a fright (too many trees).
+func (t Tastes) LikesGlades() bool { return t[TasteTrees] >= gladeLoverTaste }
+
+// PrefersGroomed reports whether the guest seeks out corduroy.
+func (t Tastes) PrefersGroomed() bool { return t[TasteGroomed] >= groomedLoverTaste }
+
+// ArchetypeKind indexes Archetypes.
+type ArchetypeKind uint8
+
+const (
+	ArchetypeCruiser ArchetypeKind = iota
+	ArchetypePowderHound
+	ArchetypeBumpSkier
+	ArchetypeGladeRat
+	ArchetypeCharger
+	ArchetypeCount
+)
+
+// Archetype is a kind of skier: the tastes guests of that kind gather
+// around, and how common they are among beginners, intermediates, and
+// advanced guests (relative weights within each tier).
+type Archetype struct {
+	Name   string
+	Centre Tastes
+	Share  [3]float32
+}
+
+// Archetypes are the kinds of skier guests are rolled around. Centres
+// list groomed, powder, moguls, trees, steep, ice, crowds.
+var Archetypes = [ArchetypeCount]Archetype{
+	ArchetypeCruiser:     {"Cruiser", Tastes{+0.8, -0.4, -0.6, -0.5, -0.5, -0.6, -0.2}, [3]float32{0.80, 0.50, 0.15}},
+	ArchetypePowderHound: {"Powder Hound", Tastes{-0.4, +0.9, 0, +0.4, +0.3, -0.7, -0.7}, [3]float32{0.02, 0.10, 0.30}},
+	ArchetypeBumpSkier:   {"Bump Skier", Tastes{-0.3, +0.1, +0.9, 0, +0.4, -0.3, -0.2}, [3]float32{0.05, 0.20, 0.20}},
+	ArchetypeGladeRat:    {"Glade Rat", Tastes{-0.2, +0.5, +0.1, +0.9, +0.2, -0.5, -0.6}, [3]float32{0.03, 0.10, 0.20}},
+	ArchetypeCharger:     {"Charger", Tastes{+0.5, +0.2, -0.5, -0.3, +0.9, -0.1, -0.4}, [3]float32{0.10, 0.10, 0.15}},
+}
+
+// TasteLabel is the archetype nearest t: how the player sees a guest's
+// tastes. The sim never reads it.
+func TasteLabel(t Tastes) string {
+	best, bestD := ArchetypeCruiser, float32(math.MaxFloat32)
+	for k, a := range Archetypes {
+		var d float32
+		for i := range t {
+			diff := t[i] - a.Centre[i]
+			d += diff * diff
+		}
+		if d < bestD {
+			best, bestD = ArchetypeKind(k), d
+		}
+	}
+	return Archetypes[best].Name
 }
 
 // =============================================================================

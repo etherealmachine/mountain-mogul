@@ -109,7 +109,7 @@ func (s *Simulation) judgeRun(a *world.Guest) {
 	if crowded {
 		s.applyEvent(a, ai.ThoughtCrowdedRun, trail)
 	}
-	if a.Traits.PrefersGroomed && r.Groomed >= 0.9*r.Time {
+	if a.Traits.Tastes.PrefersGroomed() && r.Groomed >= 0.9*r.Time {
 		s.applyEvent(a, ai.ThoughtLovingCorduroy, trail)
 	}
 	great := main == level && !tooHard && !crowded && !fell && r.StartY-a.Pos[1] >= greatRunMinVertical

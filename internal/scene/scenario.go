@@ -4385,14 +4385,14 @@ func (f *followLabel) Draw(r *render.Renderer) {
 	if mode == "" {
 		mode = "—"
 	}
-	// Trait badges — short flags that show the player which preferences
-	// are driving this guest's terrain reactions.
-	badges := ai.SkillTierName(f.agent.Traits.Skill)
-	if f.agent.Traits.LikesGlades {
-		badges += " · glades"
-	}
-	if f.agent.Traits.PrefersGroomed {
-		badges += " · corduroy"
+	// Skill and the archetype their tastes are nearest, then the tastes
+	// themselves, so the player can see what this guest enjoys.
+	tastes := f.agent.Traits.Tastes
+	badges := ai.SkillTierName(f.agent.Traits.Skill) + " · " + ai.TasteLabel(tastes)
+	var tasteRow strings.Builder
+	tasteRow.WriteString("likes:")
+	for k, v := range tastes {
+		fmt.Fprintf(&tasteRow, "  %s %+.1f", ai.TasteName[k], v)
 	}
 	satisfactionPct := int(f.agent.Satisfaction * 100)
 	passStr := ""
@@ -4403,6 +4403,7 @@ func (f *followLabel) Draw(r *render.Renderer) {
 		fmt.Sprintf("%s #%d (%s)  |  %s  |  %s", f.agent.Name, f.agent.ID, badges, activity, mode),
 		fmt.Sprintf("%s    patience %d%%    energy %d%%    hunger %d%%    thirst %d%%    satisfaction %d%%", settings.FormatSpeed(f.agent.Speed), patiencePct, energyPct, hungerPct, thirstPct, satisfactionPct),
 		fmt.Sprintf("budget $%d%s", int(f.agent.RemainingBudget), passStr),
+		tasteRow.String(),
 	}
 	resolve := entityName(f.world)
 	if t := f.agent.CurrentThought(f.simTime); t.Kind != ai.ThoughtNone {

@@ -464,8 +464,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 			Name:             g.Name,
 			Discipline:       uint8(g.Discipline),
 			Skill:            g.Traits.Skill,
-			LikesGlades:      g.Traits.LikesGlades,
-			PrefersGroomed:   g.Traits.PrefersGroomed,
+			Tastes:           append([]float32(nil), g.Traits.Tastes[:]...),
 			VisitsPerSeason:  g.VisitsPerSeason,
 			HomeEntry:        g.HomeEntryID,
 			VisitsThisSeason: g.VisitsThisSeason,
@@ -1063,8 +1062,13 @@ func dataToWorld(data ScenarioData) *world.World {
 			id = w.NextID()
 		}
 		traits := ai.TraitsFor(gd.Skill)
-		traits.LikesGlades = gd.LikesGlades
-		traits.PrefersGroomed = gd.PrefersGroomed
+		if len(gd.Tastes) == int(ai.TasteCount) {
+			copy(traits.Tastes[:], gd.Tastes)
+		} else {
+			// Saved before tastes: roll them, the same for this guest on
+			// every load, as legacy skills are above.
+			traits.Tastes = world.RollTastes(gd.Skill, rand.New(rand.NewSource(int64(id))))
+		}
 		traits.DailyBudget = world.DailyBudgetFor(gd.Skill)
 		g := &world.Guest{
 			ID:               id,
