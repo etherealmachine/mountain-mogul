@@ -16,7 +16,8 @@ func dayTicketWorld() (*Simulation, *world.Building, *world.Building) {
 		liftFromTo(20, 54, 20, 2).
 		build()
 	lot := w.Buildings[0]
-	office := w.PlaceBuildingType(world.BuildingTicketOffice, lot.Pos[0]+10, lot.Pos[1])
+	// Just past the lot's edge: inside it there's no free cell to build on.
+	office := w.PlaceBuildingType(world.BuildingTicketOffice, lot.Pos[0]+lot.LotSize[0]/2+5, lot.Pos[1])
 	w.ResortOpen = true
 	return NewSimulationWithSeed(w, 1), lot, office
 }
@@ -119,17 +120,24 @@ func TestSpawnPassHolderPaysNothing(t *testing.T) {
 	}
 }
 
-// TestDayOfArrivalsRevenue: N arrivals in a day yield N × price once they
-// have all reached the window. Budget 100 at price 75 leaves too little
-// for a pass, so every guest buys a day ticket.
+// TestDayOfArrivalsRevenue: N arrivals in a day yield a day ticket each
+// once they have all reached the window, but for those who came without
+// skis: with no rental shop here they turn round in the car park. Budget
+// 100 at price 75 leaves too little for a pass, so every guest who stays
+// buys a day ticket.
 func TestDayOfArrivalsRevenue(t *testing.T) {
 	const n = 25
 	s, lot, _ := dayTicketWorld()
 	w := s.World
 	w.DayTicketPrice = 75
+	skiers := 0
 	for i := 0; i < n; i++ {
-		if !s.spawnGuest(lot, dayTicketGuest(w, 100)) {
+		g := dayTicketGuest(w, 100)
+		if !s.spawnGuest(lot, g) {
 			t.Fatalf("spawn %d failed", i)
+		}
+		if !g.NeedsGear {
+			skiers++
 		}
 	}
 	if got := w.History.ArrivalsToday; got != n {
@@ -138,12 +146,12 @@ func TestDayOfArrivalsRevenue(t *testing.T) {
 	if got := w.History.RevenueToday; got != 0 {
 		t.Fatalf("RevenueToday before the window = %d, want 0", got)
 	}
-	// 15 s at the default TimeScale is ~60 sim s: long enough for everyone
-	// to walk to the window, well inside one 240 s sim day.
+	// 15 s at the default TimeScale: long enough for everyone to walk to
+	// the window.
 	for i := 0; i < 150; i++ {
 		s.Tick(0.1)
 	}
-	if got, want := w.History.RevenueToday, n*75; got != want {
+	if got, want := w.History.RevenueToday, skiers*75; got != want {
 		t.Fatalf("RevenueToday = %d, want %d", got, want)
 	}
 }

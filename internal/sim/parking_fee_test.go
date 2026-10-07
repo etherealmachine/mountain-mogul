@@ -22,7 +22,9 @@ func TestParkingFeeDampsDemand(t *testing.T) {
 	if f := visitPriceFactor(w, g, 0, 0.5); f != 1 {
 		t.Fatalf("reference parking factor = %v, want 1", f)
 	}
-	w.ParkingPrice = 100
+	// $80 a car is $33 a guest (world.MeanCarload 2.4): with the $60
+	// ticket, $93 of their $100, dear but affordable.
+	w.ParkingPrice = 80
 	if f := visitPriceFactor(w, g, 0, 0.5); f <= 0 || f >= 1 {
 		t.Fatalf("steep parking factor = %v, want in (0, 1)", f)
 	}

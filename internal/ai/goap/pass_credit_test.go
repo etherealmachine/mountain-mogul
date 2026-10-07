@@ -11,7 +11,8 @@ import (
 // covers the difference.
 func TestSeasonPassCountsDayTicketCredit(t *testing.T) {
 	w, parking, _, _ := buildSmokeWorld(t)
-	w.PlaceBuildingType(world.BuildingTicketOffice, parking.Pos[0]+10, parking.Pos[1])
+	// Just past the lot's edge: inside it there's no free cell to build on.
+	w.PlaceBuildingType(world.BuildingTicketOffice, parking.Pos[0]+parking.LotSize[0]/2+5, parking.Pos[1])
 	w.SeasonPassPrice = 150
 
 	cases := []struct {

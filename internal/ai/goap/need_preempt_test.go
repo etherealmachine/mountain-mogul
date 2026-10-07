@@ -27,10 +27,16 @@ func TestNeedPreempts(t *testing.T) {
 		t.Fatal("hunger was already pressing at plan time")
 	}
 
-	// Mild thirst weighs less than a keen skier's KeepSkiing.
-	snap.Need[ai.NeedHunger], snap.Need[ai.NeedThirst] = 0, 0.8
+	// Thirst that hasn't crossed its threshold (a quarter left) doesn't
+	// preempt; once it has, it outweighs a keen skier's KeepSkiing, as
+	// hunger does.
+	snap.Need[ai.NeedHunger], snap.Need[ai.NeedThirst] = 0, 0.7
 	if NeedPreempts(&snap, w, &plan) {
-		t.Fatal("mild thirst shouldn't outweigh KeepSkiing")
+		t.Fatal("thirst under its threshold shouldn't preempt KeepSkiing")
+	}
+	snap.Need[ai.NeedThirst] = 0.8
+	if !NeedPreempts(&snap, w, &plan) {
+		t.Fatal("pressing thirst should preempt KeepSkiing")
 	}
 	snap.Need[ai.NeedThirst] = 0.96
 	if !NeedPreempts(&snap, w, &plan) {

@@ -25,6 +25,7 @@ Diagnose each first, report the cause, then fix:
 
 - **Fresh corduroy turns to crust overnight**: noticed 2026-10-07. Cats finish grooming by about 21:00, and the midnight weather update turns packed powder into crust on a cold clear day (`kindTransition`), so groomed runs open as crust. Decide whether grooming should come after the update, or packed powder shouldn't crust in one night ([[Snow]], [[Grooming]]).
 - **Snow compacts far too fast**: found 2026-10-07 on the re-dressed Boreal. Fresh snow starts at a believable depth (150 mm of water as 83 cm on the opening storm), but within three days 135 mm sits in 23 cm (density about 0.6), and by mid-January 263 mm in 37 cm (about 0.7). Settled early-season snow is about 0.25–0.35, so the slopes look thin over a decent pack. Diagnose the settling in [[Snow]] (`SnowLayer` densification) before changing it. Also blocked moguls, which now gate on snow water instead of visible depth (2026-10-07).
+- **Point-placed services fail silently with no free cell**: found 2026-10-07 fixing tests. `PlaceBuildingType` for a lodge, bar, or ticket office (tests, testbeds, the editor's ticket office) converts to a service building only on free cells (`placePointService`); with none (say, inside a parking lot) it quietly stays an old-style building with no tiles or doors that serves nothing, and guests looking for it go home. It should fail visibly or find room. Belongs with footpaths and pathing work ([[Pathfinding]], [[Lodge Shell]]).
 
 ## Scenarios and campaign ([[Scenarios]], [[Scenario Campaign]])
 
@@ -98,7 +99,7 @@ Diagnose each first, report the cause, then fix:
 - [[Rental Shop]] staff and ski racks: the shop is in ([[Service Improvements]]); staffing the morning rush and a rack at the snow are still story.
 - **Amenity quality and views**: better buildings attract more guests ([[GOAP]]) and can charge more. Quality is scored and priced ([[Service Improvements]] step 2); how it's raised, and views, are open.
 - **Lockers and ski school**: more base services; ski school *needs* staff.
-- **Footpaths**: painted paths between buildings, with guests walking skis-off. *For* [[Zermatt]].
+- **Footpaths**: painted paths between buildings, with guests walking skis-off, and pathing that uses them (the user, 2026-10-07: paths and pathing are needed at some point). *For* [[Zermatt]].
 - **Ski racks**: where footpaths meet the snow. *Needs* footpaths.
 - [[Building Tool]]: build a shell first (Lodge, Tent, or Shed, dragged out as a ghost), then assign rooms in the building's panel; services leave the toolbar. Planned after the user found the mixed menu confusing.
 - **Lodge storeys and styles**: more storeys, a style choice, and a shuffle button.
@@ -241,3 +242,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-07: [[Service Improvements]] step 1 shipped.
 - 2026-10-07: [[Service Improvements]] step 2 shipped; door queues folded in.
 - 2026-10-07: [[Service Improvements]] done (step 3: rolled needs, the rental shop, après, warming up). Ranked first: rental shops in the scenarios.
+- 2026-10-07: Fixed the eight failing Go tests (stale fixtures and expectations); logged the silent point-placed service bug.

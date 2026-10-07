@@ -136,7 +136,8 @@ func TestPlayerActionEvents(t *testing.T) {
 		t.Fatalf("Len = %d, want 2", w.Events.Len())
 	}
 	built := w.Events.At(0)
-	if built.Kind != world.EventBuildPlaced || built.Message != "Built Bar" ||
+	// A point-placed bar is a one-service lodge, named for its service.
+	if built.Kind != world.EventBuildPlaced || built.Message != "Built "+b.Label() ||
 		built.Pos != b.Pos || built.EntityID != b.ID || built.SimTime != 500 {
 		t.Fatalf("build event = %+v", built)
 	}
