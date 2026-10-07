@@ -38,10 +38,11 @@ func splitNames(raw string) []string {
 }
 
 // SeedGuests fills w.Guests with `count` potential visitors. Each guest
-// gets a random name, discipline, skill, and per-season visit frequency
-// drawn from a long-tail distribution: most guests are casual (1–3
-// visits/season), a small minority are regulars (one visit every day or
-// two). Snowboarders are ~20% of the catchment.
+// gets a random name, skill, and per-season visit frequency drawn from a
+// long-tail distribution: most guests are casual (1–3 visits/season), a
+// small minority are regulars (one visit every day or two). Everyone
+// skis: snowboarders come with their own behaviour as DLC (Release), and
+// Discipline stays so they can.
 func SeedGuests(w *World, seed int64, count int) {
 	if w == nil || count <= 0 {
 		return
@@ -57,14 +58,13 @@ func SeedGuests(w *World, seed int64, count int) {
 // (0 for none).
 func newPoolGuest(w *World, g *rand.Rand, home uint64) *Guest {
 	skill := rollSkill(g)
-	disc := rollDiscipline(g)
 	traits := ai.TraitsFor(skill)
 	traits.Tastes = RollTastes(skill, g)
 	traits.DailyBudget = DailyBudgetFor(skill)
 	return &Guest{
 		ID:              w.NextID(),
 		Name:            firstNames[g.Intn(len(firstNames))] + " " + lastNames[g.Intn(len(lastNames))],
-		Discipline:      disc,
+		Discipline:      Ski,
 		Traits:          traits,
 		VisitsPerSeason: rollVisitsPerSeason(g),
 		ArrivalOffset:   RollArrivalOffset(g),
@@ -219,13 +219,6 @@ func SkillInTier(tier int, g *rand.Rand) float32 {
 	default:
 		return ai.SkillAdvancedThreshold + g.Float32()*(1-ai.SkillAdvancedThreshold)
 	}
-}
-
-func rollDiscipline(g *rand.Rand) Discipline {
-	if g.Float32() < 0.2 {
-		return Snowboard
-	}
-	return Ski
 }
 
 func rollVisitsPerSeason(g *rand.Rand) float32 {

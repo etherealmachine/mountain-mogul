@@ -54,6 +54,9 @@ type Editor struct {
 	hoverValid       bool
 	radiusSlider     *ui.VSlider // shown for any brush tool
 	densitySlider    *ui.VSlider // plant tool only
+	strengthSlider   *ui.VSlider // terrain brushes only
+	// stroke is the terrain brush stroke in progress (terrain_brush.go).
+	stroke terrainStroke
 	// Parcel rect-selection state
 	parcelRectStart           [2]int
 	parcelRectActive          bool
@@ -203,6 +206,10 @@ func (e *Editor) Init(app *engine.App) error {
 	e.toolButtons[toolPlantTrees] = e.terrainSubmenu.AddChild(render.IconTreeEvergreen, "Plant", func() { e.setTool(toolPlantTrees) })
 	e.toolButtons[toolAuto] = e.terrainSubmenu.AddChild(render.IconSnowflake, "Auto", func() { e.setTool(toolAuto) })
 	e.toolButtons[toolGlade] = e.terrainSubmenu.AddChild(render.IconAxe, "Glade", func() { e.setTool(toolGlade) })
+	e.toolButtons[toolSmooth] = e.terrainSubmenu.AddChild(render.IconWaves, "Smooth", func() { e.setTool(toolSmooth) })
+	e.toolButtons[toolFlatten] = e.terrainSubmenu.AddChild(render.IconGridFour, "Flatten", func() { e.setTool(toolFlatten) })
+	e.toolButtons[toolRaise] = e.terrainSubmenu.AddChild(render.IconArrowFatUp, "Raise", func() { e.setTool(toolRaise) })
+	e.toolButtons[toolLower] = e.terrainSubmenu.AddChild(render.IconArrowFatDown, "Lower", func() { e.setTool(toolLower) })
 
 	// Land: single button to start drawing a new parcel rectangle
 	e.toolButtons[toolParcelRect] = e.menuBar.AddIconButton(render.IconGlobe, "Add Parcel", func() {
@@ -269,6 +276,8 @@ func (e *Editor) Init(app *engine.App) error {
 	// generous on radius so users can paint a whole forest in one stroke.
 	e.radiusSlider = ui.NewVSlider(0, 0, 18, 200, 1, 30, float32(defaultBrushRadius), "Radius")
 	e.densitySlider = ui.NewVSlider(0, 0, 18, 200, 0, 100, 100, "Density")
+	e.strengthSlider = ui.NewVSlider(0, 0, 18, 200, 5, 100, 40, "Strength")
+	e.strengthSlider.ValueFormat = "%.0f%%"
 
 	// Auto-gen sliders — drive both forest and snow generation. Persistent
 	// across tool toggles so the player's last settings stick around.
@@ -298,6 +307,11 @@ func (e *Editor) Init(app *engine.App) error {
 const (
 	toolAuto       = toolMode(102)
 	toolParcelRect = toolMode(103) // two-click rectangle selection for parcel authoring
+	// Terrain brushes (terrain_brush.go).
+	toolSmooth  = toolMode(104)
+	toolFlatten = toolMode(105)
+	toolRaise   = toolMode(106)
+	toolLower   = toolMode(107)
 )
 
 // parcelRectIntent describes what a committed rect selection should do.
@@ -549,6 +563,11 @@ func (e *Editor) Update(dt float64) {
 				sliderActive = true
 			}
 		}
+		if e.isTerrainBrush() {
+			if e.strengthSlider.HandleInput(inp) {
+				sliderActive = true
+			}
+		}
 	}
 
 	// Auto-gen sliders — adjusting any of them re-runs both the snow and
@@ -661,6 +680,7 @@ func (e *Editor) Update(dt float64) {
 	// Clear the suppress flag once the mouse button is fully released.
 	if !inp.LeftClick && !inp.LeftHeld {
 		e.suppressBrushUntilRelease = false
+		e.endTerrainStroke(r)
 		if e.activeTool == toolParking && e.lotTool.dragging() {
 			e.lotTool.release(mgl32.Vec2{e.hoverWorld[0], e.hoverWorld[2]})
 			if e.lotTool.mode == lotPending {
@@ -672,6 +692,7 @@ func (e *Editor) Update(dt float64) {
 	if !sliderActive && !overChrome && !inp.LeftClickConsumed && !e.suppressBrushUntilRelease {
 		overSlider := e.toolUsesRadiusSlider() && e.radiusSlider.Contains(inp.MousePos[0], inp.MousePos[1])
 		overSlider = overSlider || (e.toolUsesDensitySlider() && e.densitySlider.Contains(inp.MousePos[0], inp.MousePos[1]))
+		overSlider = overSlider || (e.isTerrainBrush() && e.strengthSlider.Contains(inp.MousePos[0], inp.MousePos[1]))
 		if e.activeTool == toolAuto {
 			for _, s := range e.autoSliders() {
 				if s.Contains(inp.MousePos[0], inp.MousePos[1]) {
@@ -1159,7 +1180,7 @@ func (e *Editor) brushRadius() int {
 // toolUsesRadiusSlider reports whether the radius slider is relevant for
 // the active tool.
 func (e *Editor) toolUsesRadiusSlider() bool {
-	return e.activeTool == toolPlantTrees || e.activeTool == toolGlade
+	return e.activeTool == toolPlantTrees || e.activeTool == toolGlade || e.isTerrainBrush()
 }
 
 // toolUsesDensitySlider reports whether the density slider is relevant for
@@ -1180,6 +1201,8 @@ func (e *Editor) applyEditorTool(gx, gz int, r *render.Renderer, dt float32) {
 	case toolGlade:
 		removeTrees(w.Terrain, gladeSelection(w.Terrain, gx, gz, e.brushRadius(), editorGladeShare))
 		refreshTreesAround(r, w, gx, gz, e.brushRadius()+1)
+	case toolSmooth, toolFlatten, toolRaise, toolLower:
+		e.applyTerrainBrush(r, dt)
 	}
 }
 
@@ -2025,6 +2048,9 @@ func (e *Editor) Render(r *render.Renderer) {
 		if e.toolUsesDensitySlider() {
 			edDrawables = append(edDrawables, e.densitySlider)
 		}
+		if e.isTerrainBrush() {
+			edDrawables = append(edDrawables, e.strengthSlider)
+		}
 	}
 	if e.activeTool == toolAuto {
 		e.layoutAutoSliders(r)
@@ -2120,6 +2146,10 @@ func (e *Editor) layoutBrushSliders(r *render.Renderer) {
 	e.densitySlider.Y = y
 	e.densitySlider.W = trackW
 	e.densitySlider.H = trackH
+	e.strengthSlider.X = 80
+	e.strengthSlider.Y = y
+	e.strengthSlider.W = trackW
+	e.strengthSlider.H = trackH
 }
 
 // layoutAutoSliders positions the auto-gen sliders inside the snow panel.
