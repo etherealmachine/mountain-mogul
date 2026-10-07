@@ -263,6 +263,13 @@ type TrailData struct {
 	Cells      [][2]int `json:"cells,omitempty"`
 }
 
+// LeavingData is a world.Leaving: score, conditions, and reason.
+type LeavingData struct {
+	Score      float32 `json:"score"`
+	Conditions uint64  `json:"conds,omitempty"`
+	Reason     uint8   `json:"reason,omitempty"`
+}
+
 // HistoryData is the saved daily ring of resort stats — see
 // world.History. Samples is stored in chronological order
 // (oldest-first), so loaders can iterate without bothering about the
@@ -475,7 +482,9 @@ type GuestData struct {
 	// ArrivalOffset is the guest's preferred arrival, hours after
 	// opening; absent in older saves, which roll it from the guest's ID.
 	ArrivalOffset *float32 `json:"arrive,omitempty"`
-	HomeEntry     uint64   `json:"entry,omitempty"` // world.Guest.HomeEntryID
+	// Leaving is a departure waiting for the guest's car to drive off.
+	Leaving   *LeavingData `json:"leaving,omitempty"`
+	HomeEntry uint64       `json:"entry,omitempty"` // world.Guest.HomeEntryID
 	// Tastes are the guest's ai.Tastes in TasteKind order; absent in
 	// saves from before tastes, which roll them from the guest's ID.
 	Tastes []float32 `json:"tastes,omitempty"`
@@ -521,10 +530,9 @@ type GuestData struct {
 	Energy   float32    `json:"energy,omitempty"`
 	Hunger   float32    `json:"hunger,omitempty"`
 	Thirst   float32    `json:"thirst,omitempty"`
-	// Satisfaction and Baseline are the guest's mood and the level it
-	// drifts back to; absent in older saves (load uses the arrival values).
-	Satisfaction float32 `json:"sat,omitempty"`
-	Baseline     float32 `json:"base,omitempty"`
+	// Satisfaction is the guest's score so far; absent in older saves
+	// (load starts them at the arrival value).
+	Satisfaction *float32 `json:"sat,omitempty"`
 	// Plan steps and cursor so agents resume mid-plan after load rather than
 	// replanning from an anchor-zero in-transit snapshot. GoalName and Target
 	// are re-derived by onPlanStepStart; only Steps+Step are stored.

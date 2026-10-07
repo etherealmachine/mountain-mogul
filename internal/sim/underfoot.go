@@ -8,28 +8,19 @@ import (
 )
 
 // Snow underfoot is what the snow and terrain under a skiing guest are
-// like, feature by feature, against their tastes (ai.Tastes): the more a
-// guest loves what's under their skis, the higher their mood target, and
-// the more they dislike it, the lower it goes and the faster they tire.
-// Slopes past a guest's comfort frighten them whatever they like. Strong
-// matches and mismatches are condition thoughts that report the pull; the
-// pull itself is the taste term, so the thoughts carry no effect of their
-// own.
+// like, feature by feature, against their tastes (ai.Tastes). Strong
+// matches and mismatches are condition thoughts, and slopes past a
+// guest's comfort frighten them whatever they like; the more a guest
+// dislikes what's under their skis, the faster they tire. What it does to
+// their score comes at the end of each run, in its verdict (Snow Tastes
+// step 3), so these thoughts carry no effect of their own.
 
 const (
-	// underfootWeight turns a taste × feature (each −1..1, 0..1) into a
-	// pull on the mood target; the whole taste term is held to
-	// ±underfootMaxPull.
-	underfootWeight  = float32(0.15)
-	underfootMaxPull = float32(0.25)
 	// A taste × feature of underfootOnMatch starts that feature's
 	// thought; it ends below underfootOffMatch, or when the guest stops
 	// skiing.
 	underfootOnMatch  = float32(0.4)
 	underfootOffMatch = float32(0.2)
-	// Fear: a pull of up to fearPull, reached fearSpan past the guest's
-	// ComfortSlope.
-	fearPull = float32(0.15)
 	// underfootTiring is how much faster a guest tires per unit of
 	// dislike for the snow under them.
 	underfootTiring = float32(0.5)
@@ -98,17 +89,16 @@ func (s *Simulation) underfootFeatures(a *world.Guest, cell *world.Cell, slope f
 
 // tickUnderfoot reads the snow under a skiing guest against their tastes,
 // averaged over the last few seconds of skiing: it starts and ends the
-// underfoot thoughts, and returns the pull on the mood target (the taste
-// term plus fear) and how much the guest dislikes what they're on (for
-// tiring).
-func (s *Simulation) tickUnderfoot(a *world.Guest, cell *world.Cell, slope, dt float32) (pull, dislike float32) {
+// underfoot thoughts (fear, fearSpan past ComfortSlope at its fullest,
+// among them), and returns how much the guest dislikes what they're on,
+// for tiring.
+func (s *Simulation) tickUnderfoot(a *world.Guest, cell *world.Cell, slope, dt float32) (dislike float32) {
 	f := s.underfootFeatures(a, cell, slope)
 	t := a.Traits.Tastes
 	blend := min(dt/underfootSmoothSec, 1)
 	for k := range f {
 		a.Underfoot[k] += (t[k]*f[k] - a.Underfoot[k]) * blend
 		m := a.Underfoot[k]
-		pull += m
 		dislike += max(0, -m)
 		for side, kind := range underfootThoughts[k] {
 			if kind == ai.ThoughtNone {
@@ -122,9 +112,8 @@ func (s *Simulation) tickUnderfoot(a *world.Guest, cell *world.Cell, slope, dt f
 			s.setCondition(a, kind, on)
 		}
 	}
-	pull = clamp32(pull*underfootWeight, -underfootMaxPull, underfootMaxPull)
 	a.UnderfootFear += (clamp32((slope-a.Traits.ComfortSlope)/fearSpan, 0, 1) - a.UnderfootFear) * blend
 	fear := a.UnderfootFear
 	s.setCondition(a, ai.ThoughtTooSteep, fear >= 0.5 || (a.Conditions.Has(ai.ThoughtTooSteep) && fear >= 0.2))
-	return pull - fear*fearPull, dislike
+	return dislike
 }

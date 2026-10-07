@@ -31,7 +31,7 @@ const (
 	// greatRunMinVertical is the least height, in metres, for a run to be
 	// a great one: a beginner hill's worth.
 	greatRunMinVertical = float32(40)
-	// A great run's lift to the baseline shrinks by these factors for
+	// A great run's bonus to the score shrinks by these factors for
 	// each great run the guest already had today on the same trail and
 	// off the same lift: repeats of one trail wear off fast, and many
 	// trails off one lift slower, so a great day takes several lifts.

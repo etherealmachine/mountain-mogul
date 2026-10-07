@@ -264,12 +264,12 @@ func hasValidPass(g *world.Guest, simTime float64) bool {
 	return g.SeasonPassExpiry > 0 && simTime < g.SeasonPassExpiry
 }
 
-// recordDeparture is called once at the moment of ActDepart, before the
-// guest's Removed flag is set. Captures the session Satisfaction as
-// LastScore and bumps career stats. The day's departures set the rating
-// at rollover (History.DayRating).
-func (d *DemandSystem) recordDeparture(w *world.World, g *world.Guest, today time.Time) {
-	g.LastScore = g.Satisfaction
+// recordDeparture is called once when a guest's car leaves the map
+// (finishDeparture). Captures their final score as LastScore and bumps
+// career stats. The day's departures set the rating at rollover
+// (History.DayRating).
+func (d *DemandSystem) recordDeparture(w *world.World, g *world.Guest, score float32, today time.Time) {
+	g.LastScore = score
 	g.LifetimeVisits++
 	g.VisitsThisSeason++
 	g.LastVisit = today

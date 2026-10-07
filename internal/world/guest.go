@@ -166,17 +166,12 @@ type Guest struct {
 	// purchased. Pass holders ride any open lift for free.
 	HasSeasonPass bool
 
-	// Satisfaction is the 0..1 session mood. Initialised to the
-	// baseline (0.5) on arrival; drifts toward a target that terrain and active conditions
-	// pull on, and jumps on events. Only sim.applyEvent and the drift
-	// write it; ai.Effects holds every amount. Rating() returns it; at
-	// departure it is captured as LastScore and folded into the rating.
+	// Satisfaction is the guest's score for the day, 0..1: a ledger that
+	// starts at 0.5, takes each event's ai.Effects amount once, and loses
+	// each active condition's rate per clock hour. Nothing fades back.
+	// Only sim.applyEvent and the condition update write it. At the car
+	// it's set aside in Leaving and recorded when the car drives off.
 	Satisfaction float32
-
-	// Baseline is the level the guest's mood drifts back to: 0.5 on
-	// arrival, raised by good experiences (less for each repeat) and
-	// lowered by bad ones, for the rest of the visit.
-	Baseline float32
 
 	// TrailTally and LiftTally count this visit's runs, and great runs,
 	// by the trail they were mostly on and the lift they started from.
@@ -194,11 +189,14 @@ type Guest struct {
 	// and each start of a condition. Indexed by ai.ThoughtKind.
 	ThoughtCounts [ai.ThoughtKindCount]int
 
-	// SkiTerrainPull and SkiedThisTick are what a skiing tick leaves for
-	// the next mood update: the terrain's pull on the mood target, and
-	// that the guest skied at all. The mood update zeroes both.
-	SkiTerrainPull float32
-	SkiedThisTick  bool
+	// SkiedThisTick is whether the guest skied since the last condition
+	// update, which clears the snow-underfoot conditions when they didn't.
+	SkiedThisTick bool
+
+	// Leaving is the departure set aside when the guest reaches their car
+	// (sim's ActDepart), recorded when the car leaves the map. It
+	// survives ResetForDeparture.
+	Leaving Leaving
 
 	// DepartReason is why the guest is going home, set once when they
 	// decide to leave; DepartNone while they're still skiing.
@@ -348,6 +346,16 @@ func (u Unloading) UnloadLift() float32 {
 		return 0
 	}
 	return u.SeatY * (1 - u.Gone/UnloadRise)
+}
+
+// Leaving is a departure waiting for the car to leave the map: the
+// guest's score as they got in, the conditions still on, and why they
+// left. The end of their day adds each condition's hourly rate once more.
+type Leaving struct {
+	Pending    bool
+	Score      float32
+	Conditions ai.ConditionMask
+	Reason     ai.DepartReason
 }
 
 // RunTally is one trail's or lift's count of runs in a visit.
@@ -516,7 +524,6 @@ func (g *Guest) ResetForDeparture() {
 	g.Hunger = 0
 	g.Thirst = 0
 	g.Satisfaction = 0
-	g.Baseline = 0
 	g.TrailTally = g.TrailTally[:0]
 	g.LiftTally = g.LiftTally[:0]
 	for i := range g.Thoughts {

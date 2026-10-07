@@ -851,6 +851,7 @@ func (s *Simulation) removeCar(c *world.Car) {
 		if g.CarID != c.ID {
 			continue
 		}
+		s.finishDeparture(g) // off the map: their day is done
 		g.CarID, g.CarLot = 0, 0
 		if g.State == world.InCar {
 			g.State = world.AtHome

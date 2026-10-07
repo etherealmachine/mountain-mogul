@@ -421,16 +421,15 @@ const ThoughtKindCount = int(thoughtKindSentinel)
 // ConditionMask has one bit per ThoughtKind.
 const _ = uint(64 - ThoughtKindCount) // fails to compile past 64 kinds
 
-// Effect is what one ThoughtKind reports. An event's Satisfaction is a
-// one-off delta, applied once by sim.applyEvent, and its Baseline moves
-// the guest's baseline for the rest of the visit: the level their mood
-// drifts back to. A condition's Satisfaction is a pull on the mood
-// target that lasts while the condition holds; the condition's thought
-// is added once when it starts.
+// Effect is what one ThoughtKind reports. A guest's satisfaction is a
+// ledger of their day: an event's Satisfaction is added once by
+// sim.applyEvent and stays. A condition's Satisfaction is a rate per
+// clock hour, added for as long as the condition holds, and once more
+// if it's still on when the guest drives away (the end of their day);
+// its thought is added once when it starts.
 type Effect struct {
 	Condition    bool
 	Satisfaction float32
-	Baseline     float32
 }
 
 // Effects is the single table of what every thought reports. Nothing
@@ -438,16 +437,16 @@ type Effect struct {
 var Effects = [ThoughtKindCount]Effect{
 	// Events.
 	ThoughtFell:              {Satisfaction: -0.10},
-	ThoughtInjured:           {Satisfaction: -0.25, Baseline: -0.05},
-	ThoughtAbandoned:         {Satisfaction: -0.30, Baseline: -0.10},
-	ThoughtHurtGoingHome:     {Satisfaction: -0.15, Baseline: -0.03},
+	ThoughtInjured:           {Satisfaction: -0.25},
+	ThoughtAbandoned:         {Satisfaction: -0.30},
+	ThoughtHurtGoingHome:     {Satisfaction: -0.15},
 	ThoughtHitTree:           {Satisfaction: -0.15},
-	ThoughtCaughtInAvalanche: {Satisfaction: -0.10, Baseline: -0.03},
+	ThoughtCaughtInAvalanche: {Satisfaction: -0.10},
 	ThoughtLongLine:          {Satisfaction: -0.08},
 	ThoughtLineTooLong:       {Satisfaction: -0.08},
-	ThoughtLovingCorduroy:    {},                                     // why a run was great (sim.judgeRun): a report, no effect of its own
-	ThoughtGreatRun:          {Satisfaction: +0.04, Baseline: +0.04}, // Baseline scaled down by repeats (sim.judgeRun)
-	ThoughtTooHard:           {Satisfaction: -0.08, Baseline: -0.02},
+	ThoughtLovingCorduroy:    {},                    // why a run was great (sim.judgeRun): a report, no effect of its own
+	ThoughtGreatRun:          {Satisfaction: +0.04}, // scaled down by repeats (sim.judgeRun)
+	ThoughtTooHard:           {Satisfaction: -0.08},
 	ThoughtCrowdedRun:        {Satisfaction: -0.05},
 	ThoughtFellUnloading:     {Satisfaction: -0.05},
 	ThoughtGoodMeal:          {Satisfaction: +0.05},
@@ -455,7 +454,7 @@ var Effects = [ThoughtKindCount]Effect{
 	ThoughtRested:            {Satisfaction: +0.03},
 	ThoughtPatrolFast:        {Satisfaction: +0.06},
 	ThoughtPatrolCame:        {Satisfaction: +0.02},
-	ThoughtPatrolSlow:        {Satisfaction: -0.08, Baseline: -0.03},
+	ThoughtPatrolSlow:        {Satisfaction: -0.08},
 
 	// Conditions. Zero-pull conditions report a reason to leave.
 	// Snow underfoot: the pull is the taste term (sim.tickUnderfoot).
@@ -479,6 +478,31 @@ var Effects = [ThoughtKindCount]Effect{
 	ThoughtLiftsClosed:    {Condition: true},
 	ThoughtNothingForMe:   {Condition: true},
 	ThoughtLinesFull:      {Condition: true},
+}
+
+// ConditionTag is each condition's short name, for marking which are on
+// next to a guest's score.
+var ConditionTag = [ThoughtKindCount]string{
+	ThoughtHungry:         "hungry",
+	ThoughtThirsty:        "thirsty",
+	ThoughtImpatient:      "sick of waiting",
+	ThoughtNeedsLodge:     "no lodge",
+	ThoughtTooEasy:        "too easy",
+	ThoughtTired:          "tired",
+	ThoughtExhausted:      "exhausted",
+	ThoughtTooExpensive:   "can't afford it",
+	ThoughtNoTicketWindow: "no ticket window",
+	ThoughtLiftsClosed:    "lifts closed",
+	ThoughtNothingForMe:   "nothing to ski",
+	ThoughtLinesFull:      "lines full",
+	ThoughtLovingGlades:   "loving glades",
+	ThoughtScaredInTrees:  "scared in trees",
+	ThoughtLovingPowder:   "loving powder",
+	ThoughtDeepSnow:       "deep snow",
+	ThoughtLovingBumps:    "loving bumps",
+	ThoughtHatingBumps:    "hating bumps",
+	ThoughtIcy:            "icy",
+	ThoughtTooSteep:       "too steep",
 }
 
 // ConditionMask is the set of condition thoughts currently holding for a

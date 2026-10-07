@@ -195,20 +195,9 @@ const (
 	// exhaustedThreshold mirrors GoHome's 0.05 cut-off.
 	exhaustedThreshold = float32(0.05)
 
-	// The mood target is the guest's Baseline plus the terrain's pull
-	// while skiing plus each active condition's pull (ai.Effects),
-	// clamped to [moodTargetMin, moodTargetMax]. Satisfaction closes
-	// moodDriftRate of the gap a second, so a brief bad patch barely
-	// shows but a sustained one (a long tree run, a hungry hour) does.
-	// Events can still push it outside the target's range. The baseline
-	// starts at baselineStart each visit and moves with experiences (a
-	// great run, an injury), within [baselineMin, baselineMax].
-	baselineStart = float32(0.5)
-	baselineMin   = float32(0.15)
-	baselineMax   = float32(0.85)
-	moodTargetMin = float32(0.15)
-	moodTargetMax = float32(0.90)
-	moodDriftRate = float32(0.006)
+	// scoreStart is every guest's satisfaction on arrival: the ledger of
+	// their day starts here.
+	scoreStart = float32(0.5)
 )
 
 // =============================================================================
@@ -349,12 +338,10 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 	}
 	const groomingThreshold = 0.50
 	onGroomed := grooming >= groomingThreshold
-	underfootPull, dislike := s.tickUnderfoot(a, cell, perc.SlopeAngle, float32(dt))
+	dislike := s.tickUnderfoot(a, cell, perc.SlopeAngle, float32(dt))
 	s.recordRun(a, cx, cz, grooming, perc.SlopeAngle, float32(dt))
 
-	// The snow underfoot's pull on the mood target, read by tickMood.
 	a.SkiedThisTick = true
-	a.SkiTerrainPull = underfootPull
 
 	// Patience gain from active skiing.
 	a.Patience += float32(dt * patienceGainPerSecSkiing)
@@ -1197,10 +1184,10 @@ func (s *Simulation) applyTrailEvent(a *world.Guest, kind ai.ThoughtKind) {
 	s.applyEvent(a, kind)
 }
 
-// tickMood drifts a guest's satisfaction toward its target, whatever
-// they're doing: skiing, in line, riding, walking, or resting. It runs on
-// what the previous tick's activity left: the terrain pull (zeroed here,
-// so it only counts on ticks the guest skied) and the active conditions.
+// tickMood updates a guest's conditions and charges the active ones to
+// their score, whatever they're doing: each condition's ai.Effects rate
+// per clock hour, for as long as it holds. Snow-underfoot conditions end
+// when the guest didn't ski since the last update.
 func (s *Simulation) tickMood(a *world.Guest, dt float64) {
 	s.tickNeedConditions(a)
 	if !a.SkiedThisTick {
@@ -1208,18 +1195,17 @@ func (s *Simulation) tickMood(a *world.Guest, dt float64) {
 			s.setCondition(a, k, false)
 		}
 	}
-	target := a.Baseline + a.SkiTerrainPull
-	if a.Conditions != 0 {
-		for k := ai.ThoughtKind(1); int(k) < ai.ThoughtKindCount; k++ {
-			if a.Conditions.Has(k) {
-				target += ai.Effects[k].Satisfaction
-			}
+	a.SkiedThisTick = false
+	if a.Conditions == 0 {
+		return
+	}
+	var rate float32
+	for k := ai.ThoughtKind(1); int(k) < ai.ThoughtKindCount; k++ {
+		if a.Conditions.Has(k) {
+			rate += ai.Effects[k].Satisfaction
 		}
 	}
-	target = clamp32(target, moodTargetMin, moodTargetMax)
-	a.Satisfaction = clamp32(a.Satisfaction+(target-a.Satisfaction)*moodDriftRate*float32(dt), 0, 1)
-	a.SkiTerrainPull = 0
-	a.SkiedThisTick = false
+	a.Satisfaction = clamp32(a.Satisfaction+rate*float32(dt)/world.SimSecondsPerHour, 0, 1)
 }
 
 // tickNeedConditions turns the need conditions on and off from the

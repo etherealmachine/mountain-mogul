@@ -4395,14 +4395,25 @@ func (f *followLabel) Draw(r *render.Renderer) {
 	for k, v := range tastes {
 		fmt.Fprintf(&tasteRow, "  %s %+.1f", ai.TasteName[k], v)
 	}
-	satisfactionPct := int(f.agent.Satisfaction * 100)
+	// The score so far, marked with the conditions on right now (those
+	// with a rate are costing it every clock hour).
+	score := fmt.Sprintf("score %d%%", int(f.agent.Satisfaction*100))
+	var tags []string
+	for k := ai.ThoughtKind(1); int(k) < ai.ThoughtKindCount; k++ {
+		if f.agent.Conditions.Has(k) && ai.ConditionTag[k] != "" {
+			tags = append(tags, ai.ConditionTag[k])
+		}
+	}
+	if len(tags) > 0 {
+		score += " (" + strings.Join(tags, ", ") + ")"
+	}
 	passStr := ""
 	if f.agent.HasSeasonPass {
 		passStr = "  · season pass"
 	}
 	rows := []string{
 		fmt.Sprintf("%s #%d (%s)  |  %s  |  %s", f.agent.Name, f.agent.ID, badges, activity, mode),
-		fmt.Sprintf("%s    patience %d%%    energy %d%%    hunger %d%%    thirst %d%%    satisfaction %d%%", settings.FormatSpeed(f.agent.Speed), patiencePct, energyPct, hungerPct, thirstPct, satisfactionPct),
+		fmt.Sprintf("%s    patience %d%%    energy %d%%    hunger %d%%    thirst %d%%    %s", settings.FormatSpeed(f.agent.Speed), patiencePct, energyPct, hungerPct, thirstPct, score),
 		fmt.Sprintf("budget $%d%s", int(f.agent.RemainingBudget), passStr),
 		tasteRow.String(),
 	}

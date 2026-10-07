@@ -660,9 +660,7 @@ func (s *Simulation) spawnGuestAt(lot *world.Building, g *world.Guest, pos mgl32
 	g.Energy = 1.0
 	g.Hunger = 0.5 + rng.Global().Float32()*0.5
 	g.Thirst = 0.5 + rng.Global().Float32()*0.5
-	// Arrive at the baseline: mood moves from there with the day.
-	g.Baseline = baselineStart
-	g.Satisfaction = baselineStart
+	g.Satisfaction = scoreStart
 	g.HasSeasonPass = hasValidPass(g, s.SimTime)
 	// Price the day ticket before planning so the planner sees the
 	// post-ticket budget. The guest arrives without a ticket and pays at
@@ -702,12 +700,10 @@ func (s *Simulation) applyEvent(a *world.Guest, kind ai.ThoughtKind, context ...
 	s.applyEventScaled(a, kind, 1, context...)
 }
 
-// applyEventScaled is applyEvent with the baseline change scaled, for an
-// event whose lasting effect wears off with repeats (a great run).
-func (s *Simulation) applyEventScaled(a *world.Guest, kind ai.ThoughtKind, baselineScale float32, context ...uint64) {
-	e := ai.Effects[kind]
-	a.Satisfaction = clamp32(a.Satisfaction+e.Satisfaction, 0, 1)
-	a.Baseline = clamp32(a.Baseline+e.Baseline*baselineScale, baselineMin, baselineMax)
+// applyEventScaled is applyEvent with the amount scaled, for an event
+// that counts for less with repeats (a great run on the same trail).
+func (s *Simulation) applyEventScaled(a *world.Guest, kind ai.ThoughtKind, scale float32, context ...uint64) {
+	a.Satisfaction = clamp32(a.Satisfaction+ai.Effects[kind].Satisfaction*scale, 0, 1)
 	s.recordThought(a, kind, context...)
 }
 
@@ -1595,11 +1591,36 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		// reaper clears sim scratch fields, then flip Removed so
 		// reapDeparted will splice this Guest out of OnMountain and into
 		// their car.
+		// Set the departure aside until the car drives off the map
+		// (finishDeparture); a guest with no car leaves now.
 		s.setDepartReason(a, s.departReasonFor(a))
-		s.Demand.recordDeparture(s.World, a, s.DateAt(s.SimTime))
-		w.History.RecordDeparture(a.Satisfaction, a.DepartReason)
+		a.Leaving = world.Leaving{Pending: true, Score: a.Satisfaction, Conditions: a.Conditions, Reason: a.DepartReason}
+		if a.CarID == 0 {
+			s.finishDeparture(a)
+		}
 		a.Removed = true
 	}
+}
+
+// finishDeparture records a guest's day once they've left the map: their
+// score with the end-of-day term (each condition still on as they drove
+// away costs its hourly rate once more), their career stats, and the
+// day's departure for the rating and the "Why guests left" chart.
+func (s *Simulation) finishDeparture(g *world.Guest) {
+	l := g.Leaving
+	if !l.Pending {
+		return
+	}
+	g.Leaving = world.Leaving{}
+	score := l.Score
+	for k := ai.ThoughtKind(1); int(k) < ai.ThoughtKindCount; k++ {
+		if l.Conditions.Has(k) {
+			score += ai.Effects[k].Satisfaction
+		}
+	}
+	score = clamp32(score, 0, 1)
+	s.Demand.recordDeparture(s.World, g, score, s.DateAt(s.SimTime))
+	s.World.History.RecordDeparture(score, l.Reason)
 }
 
 // setDepartReason records why a guest is going home. The first reason

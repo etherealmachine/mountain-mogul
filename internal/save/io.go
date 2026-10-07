@@ -466,6 +466,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 			Skill:            g.Traits.Skill,
 			Tastes:           append([]float32(nil), g.Traits.Tastes[:]...),
 			ArrivalOffset:    &g.ArrivalOffset,
+			Leaving:          leavingToData(g.Leaving),
 			VisitsPerSeason:  g.VisitsPerSeason,
 			HomeEntry:        g.HomeEntryID,
 			VisitsThisSeason: g.VisitsThisSeason,
@@ -500,8 +501,8 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 			gd.Energy = g.Energy
 			gd.Hunger = g.Hunger
 			gd.Thirst = g.Thirst
-			gd.Satisfaction = g.Satisfaction
-			gd.Baseline = g.Baseline
+			sat := g.Satisfaction
+			gd.Satisfaction = &sat
 			if !g.Plan.Done() {
 				gd.PlanStep = g.Plan.Step
 				gd.PlanSteps = make([]PlanActionData, len(g.Plan.Steps))
@@ -1082,6 +1083,7 @@ func dataToWorld(data ScenarioData) *world.World {
 			Traits:           traits,
 			VisitsPerSeason:  gd.VisitsPerSeason,
 			ArrivalOffset:    arrivalOffset,
+			Leaving:          leavingFromData(gd.Leaving),
 			HomeEntryID:      gd.HomeEntry,
 			VisitsThisSeason: gd.VisitsThisSeason,
 			LifetimeVisits:   gd.LifetimeVisits,
@@ -1128,10 +1130,9 @@ func dataToWorld(data ScenarioData) *world.World {
 				thirst = 1.0
 			}
 			g.Thirst = thirst
-			g.Satisfaction, g.Baseline = gd.Satisfaction, gd.Baseline
-			if g.Baseline <= 0 {
-				// Saved before mood was kept: as if they'd just arrived.
-				g.Satisfaction, g.Baseline = 0.5, 0.5
+			g.Satisfaction = 0.5 // saved before scores were kept: as if just arrived
+			if gd.Satisfaction != nil {
+				g.Satisfaction = *gd.Satisfaction
 			}
 			g.Balance = 1.0
 			if len(gd.PlanSteps) > 0 {
@@ -1619,4 +1620,20 @@ func loadCars(w *world.World, data []CarData) {
 			}
 		}
 	}
+}
+
+// leavingToData saves a pending departure, nil when there is none.
+func leavingToData(l world.Leaving) *LeavingData {
+	if !l.Pending {
+		return nil
+	}
+	return &LeavingData{Score: l.Score, Conditions: uint64(l.Conditions), Reason: uint8(l.Reason)}
+}
+
+// leavingFromData restores a pending departure.
+func leavingFromData(d *LeavingData) world.Leaving {
+	if d == nil {
+		return world.Leaving{}
+	}
+	return world.Leaving{Pending: true, Score: d.Score, Conditions: ai.ConditionMask(d.Conditions), Reason: ai.DepartReason(d.Reason)}
 }
