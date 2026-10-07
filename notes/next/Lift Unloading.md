@@ -23,7 +23,7 @@ From the user, 2026-10-07:
 - **Unloading is its own state.** It can be drawn as an unloading animation and decide when guests fall, instead of the balance model.
 - **Falls getting off beginner lifts are real** and should stay, at a believable rate that the unloading state controls.
 
-Recommended here, for the user to confirm:
+Confirmed by the user, 2026-10-07:
 
 - **Bank the apron's cable side** like its other sides, and cap every apron bank at a beginner-safe grade (about 12°), rather than levelling the apron to the station's ground (which shrinks the step but doesn't remove it on steep hills).
 
@@ -63,3 +63,4 @@ Each step builds with `go build` and `go vet` and is checked headless or by scre
 ## Log
 
 - 2026-10-07: Planned with the user after diagnosing falls at the top station.
+- 2026-10-07: The user confirmed the apron fix (bank the cable side, cap the grade) and the ranking.
