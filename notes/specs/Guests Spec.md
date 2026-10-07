@@ -454,8 +454,10 @@ Patience is clamped to `[0, 1]` on every write.
 
 Satisfaction changes in exactly two ways, and both read one table, `ai.Effects`, indexed by `ThoughtKind`:
 
-- **Drift** (`Simulation.tickMood`, every tick, for every guest on the mountain whatever they're doing). The target is `Guest.Baseline`, plus the grooming pull from the last skiing tick (+0.15 on groomed snow and −0.08 off it, for `PrefersGroomed` guests), plus the pull of every active condition, clamped to [0.15, 0.90]. Satisfaction closes 0.6% of the gap per sim second.
+- **Drift** (`Simulation.tickMood`, every tick, for every guest on the mountain whatever they're doing). The target is `Guest.Baseline`, plus the grooming pull from the last skiing tick (+0.15 on groomed snow and −0.08 off it, for guests whose tastes prefer groomed snow, `Tastes.PrefersGroomed`: groomed ≥ 0.3), plus the pull of every active condition, clamped to [0.15, 0.90]. Satisfaction closes 0.6% of the gap per sim second.
 - **Events** (`Simulation.applyEvent`). A one-off delta, clamped to [0, 1], plus the row's `Baseline` change, with the baseline clamped to [0.15, 0.85].
+
+**Tastes.** `GuestTraits.Tastes` (`ai.Tastes`) holds seven affinities from −1 to +1, in `TasteKind` order: groomed, powder, moguls, trees, steep, ice, crowds. `world.RollTastes` picks an archetype by its share at the guest's skill tier (`ai.Archetypes`: Cruiser, Powder Hound, Bump Skier, Glade Rat, Charger), then draws each affinity around its centre with a 0.25 spread. `ai.TasteLabel` names the nearest archetype for the follow panel. Until snow underfoot reads tastes ([[Snow Tastes]] step 2), the glade and corduroy reactions use `Tastes.LikesGlades` (trees ≥ 0.4) and `Tastes.PrefersGroomed` (groomed ≥ 0.3). Saved as `tastes`; saves without it roll tastes from the guest's ID. `TraitsFor` (testbeds) gives beginners and intermediates the Cruiser centre and advanced guests neutral tastes.
 
 **The baseline** starts at 0.5 on arrival and is the guest's memory of the day; it doesn't decay. Lowered by injured (−0.05), hurt and going home (−0.03), abandoned (−0.10), slow patrol (−0.03), too much for me (−0.02), and caught in an avalanche (−0.03). Raised by a great run, by 0.04 × 0.6^t × 0.75^l (`applyEventScaled` in `judgeRun`), where t and l count this visit's earlier great runs on the same main trail and off the same lift (`Guest.TrailTally`, `Guest.LiftTally`). The lift is `Run.LiftID`, the one unloaded from. So one trail tops out near 0.57, and one lift near 0.66 however many trails it serves. `Satisfaction` and `Baseline` are saved for guests on the mountain.
 
@@ -465,7 +467,7 @@ Every change is reported by a thought, and no thought changes a stat by itself.
 
 | Condition | On | Off | Pull |
 |---|---|---|---|
-| `ThoughtLovingGlades` / `ThoughtScaredInTrees` | tree cover ≥ 0.30 while skiing (by `LikesGlades`) | below 0.20, or not skiing | +0.12 / −0.18 |
+| `ThoughtLovingGlades` / `ThoughtScaredInTrees` | tree cover ≥ 0.30 while skiing (loving if `Tastes.LikesGlades`: trees ≥ 0.4) | below 0.20, or not skiing | +0.12 / −0.18 |
 | `ThoughtHungry`, `ThoughtThirsty`, `ThoughtImpatient` | Hunger, Thirst, Patience < 0.15 | > 0.25 | −0.10 each |
 | `ThoughtTired` | Energy < 0.15 (and not exhausted) | > 0.25 | 0 |
 | `ThoughtExhausted` | min(Patience, Energy) < 0.05 | > 0.15 | 0 |
@@ -489,7 +491,7 @@ Every change is reported by a thought, and no thought changes a stat by itself.
 | `ThoughtGreatRun` | +0.04 | `judgeRun` |
 | `ThoughtTooHard` | −0.08 | `judgeRun` |
 | `ThoughtCrowdedRun` | −0.05 | `judgeRun` |
-| `ThoughtLovingCorduroy` | +0.05 | `judgeRun`, a `PrefersGroomed` guest on a run ≥ 90% groomed |
+| `ThoughtLovingCorduroy` | +0.05 | `judgeRun`, a `Tastes.PrefersGroomed` guest on a run ≥ 90% groomed |
 
 **Runs.** Each descent step (`SkiToLift`, `SkiToLodge`, `SkiToParking`, `SkiTrail`) starts a `Guest.Run` (`startRun`). Every skiing tick adds to it (`recordRun`): seconds on green, blue, and black trail cells (`World.TrailAt`, an index rebuilt with the trail graph) or off-trail, seconds on up to four trails, seconds more than 5° past `ComfortSlope`, other moving skiers within about 7 m × seconds, grooming × seconds, distance, and the starting elevation. When the step completes, `judgeRun` scores runs of 20 s or more. The run's difficulty is the one with the most time, counted when at least half the run was on trails. Too hard: a difficulty above the guest's level, or a quarter of the run past the steep margin. Crowded: on average 1.5 or more skiers nearby. Great: at their level, not too hard, not crowded, no fall since the start, and at least 40 m of vertical. Thoughts name the run's main trail.
 

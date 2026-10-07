@@ -3,7 +3,6 @@ title: Next Steps
 kind: plan
 status: planned
 ---
-
 # Next Steps
 
 Everything planned, in one place. A step big enough to need its own design gets a plan note in `notes/next/` and a link here; small items stay as a line under their area. When something ships, delete its line and update the system card's log.
@@ -14,7 +13,7 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 
 In the order to work on them:
 
-1. [[Snow Tastes]]: continuous taste affinities per guest (groomed, powder, moguls, trees, steep, ice, crowds), shown to the player as an archetype label. Snow underfoot moves the mood target, each run ends in an event, guests choose lifts and trails by taste, and repeated laps get boring.
+1. [[Snow Tastes]]: step 1 done (tastes rolled per guest around five archetypes, labelled in the follow panel); next is step 2, snow underfoot. Snow underfoot moves the mood target, each run ends in an event, guests choose lifts and trails by taste, and repeated laps get boring.
 2. **Fix how services work**: the investigate-and-report items under Bugs and Guests (patrol, grooming, thirst, exhaustion, falls), in the new service model. Patrol is fixed by [[Patrol Day]] (steps 1–6 done; step 7 moved into [[Satisfaction Rework]]). Falls are fixed by [[Lift Unloading]]. Next is grooming. Thirst and exhaustion were mostly how thoughts were counted (see the Guests items).
 
 Then: **gameplay before scenario goals**. A headless three-lift Boreal (2026-10-06) runs about 70 guests a day with the rating stuck near 30%, so goals can't be set until guests can have a good day. Priority 2 covers the investigate-and-report items; then the guest pool per scenario ([[First Week Balance]]). [[Scenario Goals and Rules]] steps 1–4 shipped and are tabled until then.
@@ -25,6 +24,7 @@ Not ranked yet: everything below.
 
 Found 2026-10-06 in a headless three-lift [[Boreal]] (three lifts, a green, blue, and black trail, a lodge with tickets, food, bar, and lounge, a patrol hut and an equipment shed, 30 days, about 2,100 visits). Diagnose each first, report the cause, then fix:
 
+- **Snow compacts far too fast**: found 2026-10-07 on the re-dressed Boreal. Fresh snow starts at a believable depth (150 mm of water as 83 cm on the opening storm), but within three days 135 mm sits in 23 cm (density about 0.6), and by mid-January 263 mm in 37 cm (about 0.7). Settled early-season snow is about 0.25–0.35, so the slopes look thin over a decent pack. Diagnose the settling in [[Snow]] (`SnowLayer` densification) before changing it.
 - **Patrol never rescues anyone**: every one of about 6,000 injuries also gave "no one came to help me", with a patrol hut placed beside the lift base ([[Ski Patrol]]). Could be the hut placement in the test, patrollers that can't path, or a real bug. A lead (2026-10-06): a snowmobile stops on bare ground (`noSnowUnderfoot`), and the drop-off point (then a parking lot, now the patrol door) is plowed bare, so a patroller carrying a patient may never arrive. Diagnosed 2026-10-06: confirmed, and the drop-off has the same problem; fixed by [[Patrol Day]].
 - **No grooming shows**: with an equipment shed, no guest thought "this corduroy is perfect" in 30 days ([[Grooming]]). Could be the cat having no section or route in the test, or a real bug.
 
@@ -223,3 +223,6 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-07: [[Mood Baseline]] planned with the user and ranked first.
 - 2026-10-07: [[Mood Baseline]] shipped. Diagnosed Closing zeroes patience, which holds the rating near 0.4.
 - 2026-10-07: Fixed closing zeroing patience (`World.ClosedForDay`); Boreal's rating went from about 0.4 to 0.46–0.49. Traffic patience noted on [[Patience]].
+- 2026-10-07: [[Snow Tastes]] step 1 shipped.
+- 2026-10-07: Diagnosed Boreal's thin early season: clear days 8–10 °C too warm, and a start date older than the snowpack it lays down.
+- 2026-10-07: Fixed clear days running 15–20 °C too warm; Auto snow replays the season's weather; Boreal re-dressed at default snow strength, opening 20 December 2026. Found snow compacting too fast.

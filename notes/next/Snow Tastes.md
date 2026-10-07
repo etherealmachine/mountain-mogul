@@ -1,7 +1,7 @@
 ---
 title: Snow Tastes
 kind: plan
-status: planned
+status: in progress
 ---
 
 # Snow Tastes
@@ -63,7 +63,14 @@ Made with the user on 2026-10-07:
 
 ## Steps
 
-1. **Tastes and labels.** Add `ai.Tastes` and the archetype table. Roll tastes in `newPoolGuest`, save them in place of `glades` and `groomed` (old saves break, which is fine before release), and add `ai.TasteLabel`. The follow panel shows the label and the affinities. Check: the taste mix in a Boreal guest pool by skill.
+1. Done: **Tastes and labels.** `ai.Tastes` is seven affinities indexed by `TasteKind`, with the archetype table `ai.Archetypes` (centres and shares by tier) and `ai.TasteLabel`. `world.RollTastes` rolls them in `newPoolGuest` (spread 0.25). They're saved as `tastes`, replacing `glades` and `groomed`; older saves roll tastes from each guest's ID, as legacy skills already are. The follow panel shows skill · archetype, plus a "likes:" row with the seven affinities. Until step 2, the old reactions read `Tastes.LikesGlades` (trees ≥ 0.4) and `Tastes.PrefersGroomed` (groomed ≥ 0.3); testbeds get the Cruiser centre for beginners and intermediates and neutral tastes for advanced guests, as the old defaults were.
+
+   Checked on Boreal's pool of 10,000 (bundled and the user's save, which roll identically):
+   - Beginners: 80% Cruiser, 10% Charger, 5% Bump Skier, 3% Glade Rat, 2% Powder Hound.
+   - Intermediates: 52% Cruiser, 19% Bump Skier, 11% Charger, 10% Powder Hound, 9% Glade Rat.
+   - Advanced: 28% Powder Hound, 22% Bump Skier, 22% Glade Rat, 15% Cruiser, 13% Charger.
+
+   Likes glades: 4% / 15% / 35% by tier (was 0 / 0 / 30%). Prefers groomed: 86% / 59% / 26% (was 60% everywhere), which shifts the grooming pull until step 2 replaces it.
 2. **Snow underfoot.** Compute per-cell features, add the taste term and the fear term to the mood target, add the condition thoughts, and make energy drain read tastes. The glade and corduroy rows move here. Check, on the headless three-lift [[Boreal]]: average satisfaction by archetype, groomed everything versus groomed nothing.
 3. **Run events.** Started in [[Satisfaction Rework]]: `Guest.Run` records each descent and `judgeRun` gives too easy, too hard, crowded, corduroy, and great-run verdicts. Left: add taste match, fresh-powder cells, and first tracks to the summary, and score great runs by taste. Check: runs per visit by outcome; powder hounds score higher the morning after a storm than a week later.
 4. **Choosing by taste.** Add `Trail.Conditions` on a slow refresh. Taste-scored lift and trail choice replaces `Explore`'s "any lift not yet ridden". Steering reads the trees affinity. Check: after a storm on Boreal, powder hounds concentrate on the ungroomed black, and cruisers stay on corduroy.
@@ -93,3 +100,4 @@ Each step builds with `go build` and `go vet` and is judged in a headless Boreal
 
 - 2026-10-07: Planned with the user: continuous affinities with archetype labels for the player. Ranked second, after [[Satisfaction Rework]].
 - 2026-10-07: The run summary and judging shipped with [[Satisfaction Rework]]; step 3 now extends them with tastes.
+- 2026-10-07: Step 1: tastes, archetypes, labels, saving, and the follow panel.

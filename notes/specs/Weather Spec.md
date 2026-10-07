@@ -54,13 +54,17 @@ Twelve profiles (January–December) each carry tendency weights `(Clear, Overca
 
 ## Per-State Parameters
 
-| State | Persistence | Temp offset (°C) | Temp noise σ | Cloud base | Cloud range |
-|-------|-------------|-------------------|--------------|------------|-------------|
-| Clear | 0.75 | +4 | 4 | 0.05 | 0.15 |
-| Overcast | 0.68 | 0 | 4 | 0.70 | 0.25 |
-| LightSnow | 0.65 | −2 | 3 | 0.80 | 0.18 |
-| HeavySnow | 0.60 | −5 | 3 | 0.90 | 0.10 |
-| Rain | 0.60 | +5 | 3 | 0.75 | 0.20 |
+| State | Persistence | Temp offset (°C) | Temp noise σ | Half-swing (°C) | Cloud base | Cloud range |
+|-------|-------------|-------------------|--------------|-----------------|------------|-------------|
+| Clear | 0.75 | +1 | 3 | 6.5 | 0.05 | 0.15 |
+| Overcast | 0.68 | 0 | 3 | 4.5 | 0.70 | 0.25 |
+| LightSnow | 0.65 | −1.5 | 2.5 | 3.5 | 0.80 | 0.18 |
+| HeavySnow | 0.60 | −3 | 2.5 | 2.5 | 0.90 | 0.10 |
+| Rain | 0.60 | +3 | 2.5 | 3.5 | 0.75 | 0.20 |
+
+A day's high and low are its mean ± the state's half-swing. With a climate, every half-swing is scaled by one factor so the month's average swing matches the record, which is why their ratios matter: with clear days at 5 °C and overcast at 2.5 °C, a mostly cloudy month doubled the clear-day swing. With the +4 °C clear-day offset on top, clear December days at Boreal ran to highs of 16–20 °C and lows of −18 °C (2026-10-07). The month's mean and average range still match the record by construction.
+
+**The season so far.** The sim runs the chain from 1 September of the current season up to the start date before playing (`Chain.RunUpTo`), and the starting snow replays the same days (`SeasonSnowpack`), so the weather after the start continues the season whose snow is on the ground.
 
 ## Terrain Effects
 
@@ -155,3 +159,7 @@ Icons are drawn by `ui.DrawWeatherIcon` per `ui.WeatherKind`:
 - **Demand / arrivals** — guest arrival probability uses resort rating, terrain match, and lift occupancy. Bad weather does not suppress arrivals.
 - **Guest satisfaction** — no weather-satisfaction coupling.
 - **Wind field** — wind direction is a static parameter set at scenario load by the procedural snow generator, not updated daily.
+
+## Log
+
+- 2026-10-07: Narrower per-state offsets, noise, and swing ratios; the chain runs from 1 September to the start date.
