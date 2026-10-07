@@ -207,7 +207,7 @@ func NewRenderer(w, h int, assetDir string) (*Renderer, error) {
 	lightingPath := shaderDir + "lighting.glsl"
 
 	var err error
-	r.TerrainShader, err = LoadShaderTess(shaderDir+"terrain.vert", shaderDir+"terrain.tesc", shaderDir+"terrain.tese", shaderDir+"terrain.frag", lightingPath)
+	r.TerrainShader, err = LoadShaderTess(shaderDir+"terrain.vert", shaderDir+"terrain.tesc", shaderDir+"terrain.tese", shaderDir+"terrain.frag", lightingPath, shaderDir+"mogul.glsl")
 	if err != nil {
 		return nil, fmt.Errorf("terrain shader: %w", err)
 	}
@@ -616,6 +616,75 @@ func (r *Renderer) FlushGroom(t *world.Terrain) {
 	gl.TexSubImage2D(gl.TEXTURE_2D, 0,
 		int32(box.Min.X), int32(box.Min.Y), int32(box.Dx()), int32(box.Dy()),
 		gl.RGBA, gl.UNSIGNED_SHORT, gl.Ptr(g.Pixels[(box.Min.Y*g.W+box.Min.X)*4:]))
+	gl.PixelStorei(gl.UNPACK_ROW_LENGTH, 0)
+	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 4)
+	gl.BindTexture(gl.TEXTURE_2D, 0)
+}
+
+// Texture units for the mogul map and its fall lines.
+const (
+	mogulTexUnit    = 10
+	mogulDirTexUnit = 11
+)
+
+// newLinearTex makes a clamped, linearly filtered texture and leaves it
+// bound.
+func newLinearTex(tex *uint32) {
+	if *tex != 0 {
+		gl.DeleteTextures(1, tex)
+	}
+	gl.GenTextures(1, tex)
+	gl.BindTexture(gl.TEXTURE_2D, *tex)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+}
+
+// BuildMogulTex (re)allocates the GPU mirrors of Terrain.Moguls and its
+// fall lines, which it recomputes from the ground. Later growth goes
+// through FlushMoguls.
+func (r *Renderer) BuildMogulTex(t *world.Terrain) {
+	if t == nil || t.Moguls == nil {
+		return
+	}
+	m := t.Moguls
+	t.SyncMoguls()
+	t.RefreshMogulFallLines()
+	newLinearTex(&r.scene.mogulTex)
+	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 2)
+	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.R16, int32(m.W), int32(m.H), 0,
+		gl.RED, gl.UNSIGNED_SHORT, gl.Ptr(m.Px))
+	newLinearTex(&r.scene.mogulDirTex)
+	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
+	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RG8, int32(t.Width), int32(t.Height), 0,
+		gl.RG, gl.UNSIGNED_BYTE, gl.Ptr(m.Dir))
+	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 4)
+	gl.BindTexture(gl.TEXTURE_2D, 0)
+	m.Dirty = false
+	m.DirtyBox = image.Rectangle{}
+}
+
+// FlushMoguls brings cells whose MogulSize was set directly into the map
+// (melt-out, avalanches) and uploads the pixels changed since last time.
+func (r *Renderer) FlushMoguls(t *world.Terrain) {
+	if t == nil || t.Moguls == nil || r.scene.mogulTex == 0 {
+		return
+	}
+	t.SyncMoguls()
+	m := t.Moguls
+	if !m.Dirty {
+		return
+	}
+	box := m.DirtyBox
+	m.Dirty = false
+	m.DirtyBox = image.Rectangle{}
+	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 2)
+	gl.PixelStorei(gl.UNPACK_ROW_LENGTH, int32(m.W))
+	gl.BindTexture(gl.TEXTURE_2D, r.scene.mogulTex)
+	gl.TexSubImage2D(gl.TEXTURE_2D, 0,
+		int32(box.Min.X), int32(box.Min.Y), int32(box.Dx()), int32(box.Dy()),
+		gl.RED, gl.UNSIGNED_SHORT, gl.Ptr(m.Px[box.Min.Y*m.W+box.Min.X:]))
 	gl.PixelStorei(gl.UNPACK_ROW_LENGTH, 0)
 	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 4)
 	gl.BindTexture(gl.TEXTURE_2D, 0)
@@ -1272,6 +1341,15 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 			gl.BindTexture(gl.TEXTURE_2D, r.scene.groomTex)
 		} else {
 			gl.BindTexture(gl.TEXTURE_2D, r.transparentTexID)
+		}
+		r.TerrainShader.SetInt("uMogulMap", mogulTexUnit)
+		r.TerrainShader.SetInt("uMogulDir", mogulDirTexUnit)
+		for unit, tex := range map[int]uint32{mogulTexUnit: r.scene.mogulTex, mogulDirTexUnit: r.scene.mogulDirTex} {
+			gl.ActiveTexture(gl.TEXTURE0 + uint32(unit))
+			if tex == 0 {
+				tex = r.transparentTexID
+			}
+			gl.BindTexture(gl.TEXTURE_2D, tex)
 		}
 		gl.ActiveTexture(gl.TEXTURE0)
 

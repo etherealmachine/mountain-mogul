@@ -24,10 +24,8 @@ uniform float uTerrainMaxY;
 //   R = skier track intensity (decays in sim time)
 //   G = tree-well depth      (persistent until tree edits)
 //   B, A = reserved
-// uWorldSize is the terrain extent in metres = cells × 5, so
-// vWorldPos.xz / uWorldSize is the texture's UV.
+// vWorldPos.xz / uWorldSize (mogul.glsl) is the texture's UV.
 uniform sampler2D uSnowSurface;
-uniform vec2      uWorldSize;
 
 // Where snowcats groomed, mirrored from world.GroomMap at 1 m per texel:
 //   R = groomed, GB = cat heading as (cos 2θ, sin 2θ) mapped to 0..1,
@@ -279,9 +277,13 @@ void main() {
     float grooming = clamp(snowState.x, 0.0, 1.0);
     float packed   = clamp(snowState.y, 0.0, 1.0);
     float ice      = clamp(snowState.z, 0.0, 1.0);
-    float mogul    = clamp(snowState.w, 0.0, 1.0);
     // Metres of surface per pixel; fine detail fades out once it's sub-pixel.
     float pxM = max(length(dFdx(vWorldPos)), length(dFdy(vWorldPos)));
+    // How big the moguls are: the 1 m mogul map up close, the cell
+    // average once a metre is under a couple of pixels (the map has no
+    // mips, so it would shimmer).
+    float mogulFar = smoothstep(1.5, 3.0, pxM);
+    float mogul    = mix(mogulSize(vWorldPos.xz), clamp(snowState.w, 0.0, 1.0), mogulFar);
     // Avalanche-debris marker: ice > packed is a combination no weather-formed kind
     // produces (debris is written with packed=0.20, ice=0.45). Drives colour and
     // surface-roughness overrides below; suppresses powder and sparkle.
@@ -543,13 +545,18 @@ void main() {
             const float driftAmp = 0.6; // metres
             kick.xz -= g * driftAmp * driftness;
         }
-        float mogulK = mogul * (1.0 - smoothstep(2.0, 4.0, pxM));
-        if (mogulK > 0.01 && snowness > 0.1) {
-            vec2 p0 = vWorldPos.xz;
-            vec2 g = fbmGrad(p0 / 3.0, pxM / 3.0) / 3.0 * 0.6
-                   + fbmGrad(p0 * 0.7, pxM * 0.7) * 0.7 * 0.4;
-            const float mogulAmp = 0.8;
-            kick.xz -= g * mogulAmp * mogulK;
+        // Moguls: lit from the mogul field's slope (mogul.glsl), the same
+        // surface the tessellation raises up close. Gone once a bump spans
+        // too few pixels; the far shading below stands in.
+        float mogulK = (1.0 - smoothstep(1.0, 2.5, pxM)) * snowness;
+        if (mogul > 0.01 && mogulK > 0.01) {
+            const float e = 0.25;
+            vec2  p0 = vWorldPos.xz;
+            vec2  d  = mogulFallLine(p0);
+            float h0 = mogulHeight(p0, d);
+            vec2  g  = vec2(mogulHeight(p0 + vec2(e, 0.0), d) - h0,
+                            mogulHeight(p0 + vec2(0.0, e), d) - h0) / e;
+            kick.xz -= g * mogulK;
         }
         if (well > 0.01) {
             // ∇G via offset samples — the well texture is in metres of
@@ -622,6 +629,9 @@ void main() {
     vec3 warm    = vec3(1.00, 0.95, 0.85);
     vec3 tint    = mix(cool, warm, diff);
     vec3 shaded  = base * mix(vec3(1.0), tint, snowness);
+    // A mogul field too far off to light bump by bump reads a little
+    // darker, from the shadows in its troughs.
+    shaded *= 1.0 - 0.12 * mogul * smoothstep(1.0, 2.5, pxM) * snowness;
 
     // Baked AO shades only the sky fill (valleys and cliff bases see less
     // sky); direct sun is already handled by sunVis.

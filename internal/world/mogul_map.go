@@ -1,6 +1,9 @@
 package world
 
-import "math"
+import (
+	"image"
+	"math"
+)
 
 // MogulMap is how big the moguls are at each metre of the mountain, 0..1,
 // grown along the lines skiers actually take (sim's wearSnowUnderfoot).
@@ -18,8 +21,18 @@ type MogulMap struct {
 	W, H int      // pixels, one per metre
 	Px   []uint16 // 0..mogulFull; 16 bits so a tick's sliver of growth isn't rounded away
 
-	hCells  int
-	cellAvg []float32 // the MogulSize the map last wrote to each cell (x*hCells+z)
+	// Dirty marks pixels changed since the renderer last uploaded them.
+	Dirty    bool
+	DirtyBox image.Rectangle
+
+	// Dir is each cell's smoothed fall line, (dx, dz) mapped to 0..255,
+	// two bytes per cell in rows of cells (z*wCells+x): the direction the
+	// drawn mogul field runs (mogul_field.go). Filled by
+	// RefreshMogulFallLines.
+	Dir []uint8
+
+	wCells, hCells int
+	cellAvg        []float32 // the MogulSize the map last wrote to each cell (x*hCells+z)
 }
 
 // MogulPxPerCell is the mogul map's resolution: one pixel per metre.
@@ -31,7 +44,25 @@ const mogulFull = 65535
 // NewMogulMap allocates an empty map for a terrain of wCells × hCells.
 func NewMogulMap(wCells, hCells int) *MogulMap {
 	w, h := wCells*MogulPxPerCell, hCells*MogulPxPerCell
-	return &MogulMap{W: w, H: h, Px: make([]uint16, w*h), hCells: hCells, cellAvg: make([]float32, wCells*hCells)}
+	return &MogulMap{W: w, H: h, Px: make([]uint16, w*h), wCells: wCells, hCells: hCells, cellAvg: make([]float32, wCells*hCells)}
+}
+
+func (m *MogulMap) markDirty(r image.Rectangle) {
+	r = r.Intersect(image.Rect(0, 0, m.W, m.H))
+	if r.Empty() {
+		return
+	}
+	if m.Dirty {
+		m.DirtyBox = m.DirtyBox.Union(r)
+	} else {
+		m.DirtyBox = r
+	}
+	m.Dirty = true
+}
+
+// mogulCellRect is cell (cx, cz)'s pixels.
+func mogulCellRect(cx, cz int) image.Rectangle {
+	return image.Rect(cx*MogulPxPerCell, cz*MogulPxPerCell, (cx+1)*MogulPxPerCell, (cz+1)*MogulPxPerCell)
 }
 
 // StampMoguls grows the moguls around world (wx, wz) by amount (0..1 at
@@ -76,6 +107,7 @@ func (t *Terrain) StampMoguls(wx, wz, amount, limit float32) {
 	for i := 0; i < nTouched; i++ {
 		t.writeMogulAverage(touched[i][0], touched[i][1])
 	}
+	m.markDirty(image.Rect(px-1, pz-1, px+2, pz+2))
 }
 
 // reconcileMoguls scales cell (cx, cz)'s pixels to its MogulSize if
@@ -104,6 +136,7 @@ func (t *Terrain) reconcileMoguls(cx, cz int) {
 		}
 	}
 	m.cellAvg[k] = want
+	m.markDirty(mogulCellRect(cx, cz))
 }
 
 // writeMogulAverage sets cell (cx, cz)'s MogulSize to its pixels' average.
@@ -168,6 +201,7 @@ func (t *Terrain) LoadMoguls(b []byte) bool {
 	for i, v := range b {
 		m.Px[i] = uint16(v)<<8 | uint16(v)
 	}
+	m.markDirty(image.Rect(0, 0, m.W, m.H))
 	for cx := 0; cx < t.Width; cx++ {
 		for cz := 0; cz < t.Height; cz++ {
 			var sum int
@@ -202,6 +236,7 @@ func (t *Terrain) ScaleMoguls(factor float32) {
 					m.Px[i] = uint16(float32(m.Px[i])*factor + 0.5)
 				}
 			}
+			m.markDirty(mogulCellRect(cx, cz))
 			t.writeMogulAverage(cx, cz)
 		}
 	}
@@ -257,4 +292,5 @@ func (t *Terrain) FlattenMogulSwath(x0, z0, x1, z1, halfWidth float32) {
 			t.writeMogulAverage(cx, cz)
 		}
 	}
+	m.markDirty(image.Rect(x0p, z0p, x1p, z1p))
 }

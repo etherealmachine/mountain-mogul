@@ -33,6 +33,10 @@ type SceneResources struct {
 	// groomTex is the GPU mirror of Terrain.Groom, one texel per metre.
 	groomTex uint32
 
+	// mogulTex mirrors Terrain.Moguls (R16, one texel per metre) and
+	// mogulDirTex its fall lines (RG8, one texel per cell).
+	mogulTex, mogulDirTex uint32
+
 	// cellOverlayTex is a per-cell RGBA8 overlay texture (one texel per
 	// terrain cell). The terrain shader alpha-blends it over the surface.
 	// Used for trail and grooming-route highlights. Linear-filtered so
@@ -116,6 +120,12 @@ func (s *SceneResources) Delete() {
 	if s.groomTex != 0 {
 		gl.DeleteTextures(1, &s.groomTex)
 		s.groomTex = 0
+	}
+	for _, tex := range []*uint32{&s.mogulTex, &s.mogulDirTex} {
+		if *tex != 0 {
+			gl.DeleteTextures(1, tex)
+			*tex = 0
+		}
 	}
 	s.materialSrc = nil
 	for _, tex := range []*uint32{&s.cornerSnowTexA, &s.cornerSnowTexB, &s.detailTex, &s.materialTex} {

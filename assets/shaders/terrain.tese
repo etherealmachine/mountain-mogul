@@ -111,7 +111,6 @@ void main() {
     }
 
     float packed     = clamp(snow.y, 0.0, 1.0);
-    float mogul      = clamp(snow.w, 0.0, 1.0);
     float powderness = (1.0 - packed) * smoothstep(0.0, 0.5, snowDepth);
 
     // Base snow height — separates density differences geometrically.
@@ -124,18 +123,16 @@ void main() {
     }
     pos.y += snowDepth;
 
-    // Noise kicks — same amplitudes as the procedural normal-map
-    // kicks in terrain.frag (lines 212-231), converting the fake bump into
-    // actual geometry. The FS normal-map kick remains as a detail layer on top.
+    // Powder noise — same amplitude as the procedural normal-map kick
+    // in terrain.frag, converting the fake bump into actual geometry. The FS normal-map kick remains as a detail layer on top.
     float disp = 0.0;
     if (powderness > 0.05) {
         vec2 off = vec2(17.3, 91.7);
         disp += fbmNoise(pos.xz / 5.0 + off) * 0.10 * powderness;
     }
-    if (mogul > 0.01) {
-        float h = fbmNoise(pos.xz / 3.0) * 0.6 + fbmNoise(pos.xz * 2.1 / 3.0) * 0.4;
-        disp += h * 0.8 * mogul;
-    }
+    // The mogul field (mogul.glsl); world.MogulHeightAt adds the same, so
+    // skiers ride the bumps.
+    disp += mogulHeight(pos.xz, mogulFallLine(pos.xz));
     pos.y += disp;
 
     vNormal           = faceN;

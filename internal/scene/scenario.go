@@ -1360,6 +1360,7 @@ func (s *Scenario) installWorld(w *world.World) {
 	w.Terrain.RestampTreeWells()
 	r.BuildSnowSurfaceTex(w.Terrain)
 	r.BuildGroomTex(w.Terrain)
+	r.BuildMogulTex(w.Terrain)
 	r.RebuildStaticBatch(w)
 	r.RebuildRoads(w)
 	for _, lift := range w.Lifts {
@@ -2136,6 +2137,7 @@ func (s *Scenario) Update(dt float64) {
 	if g := s.world.Terrain.Groom; g != nil && g.Dirty {
 		r.FlushGroom(s.world.Terrain)
 	}
+	r.FlushMoguls(s.world.Terrain)
 
 	// Camera follow: track the selected agent using the freshest positions.
 	// In first-person mode, drive the perspective camera to the skier's

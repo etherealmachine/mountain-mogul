@@ -350,6 +350,7 @@ func (e *Editor) refreshWorldLayers() {
 	r := e.app.Renderer
 	r.FlushTerrainVerts(e.world.Terrain)
 	r.BuildGroomTex(e.world.Terrain)
+	r.BuildMogulTex(e.world.Terrain)
 	r.RebuildStaticBatch(e.world)
 }
 
@@ -550,6 +551,7 @@ func (e *Editor) applyLayerHeights(base *world.TerrainBase, heights []float32) {
 	r.BuildTerrainMesh(w.Terrain)
 	r.BuildSnowSurfaceTex(w.Terrain)
 	r.BuildGroomTex(w.Terrain)
+	r.BuildMogulTex(w.Terrain)
 	r.RebuildStaticBatch(w)
 	r.RebuildRoads(w)
 }

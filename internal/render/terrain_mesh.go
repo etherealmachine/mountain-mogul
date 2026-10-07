@@ -450,8 +450,8 @@ func cornerSurfaceY(t *world.Terrain, cx, cz int) float32 {
 // (wx, wz): the jittered triangle under the point, interpolated from its
 // corners' ground and snow, plus TerrainDetail. The GPU subdivides the
 // same triangles and adds the same values, so agents and objects sit on
-// the drawn surface; only the mogul and powder bumps (under a metre,
-// noise) are left out.
+// the drawn surface, moguls included (world.MogulHeightAt); only the
+// powder bumps (about 10 cm of noise) are left out.
 func VisualElevationAt(t *world.Terrain, wx, wz float32) float32 {
 	if t.Width < 2 || t.Height < 2 {
 		return 0
@@ -507,7 +507,7 @@ func VisualElevationAt(t *world.Terrain, wx, wz float32) float32 {
 	if t.Detail != nil {
 		y += t.Detail.At(gx, gz)
 	}
-	return y
+	return y + t.MogulHeightAt(wx, wz)
 }
 
 // cornerJitterScale damps jitter at thin-snow corners (lift station

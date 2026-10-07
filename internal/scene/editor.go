@@ -125,6 +125,7 @@ func (e *Editor) Init(app *engine.App) error {
 	r.BuildTerrainMesh(w.Terrain)
 	r.BuildSnowSurfaceTex(w.Terrain)
 	r.BuildGroomTex(w.Terrain)
+	r.BuildMogulTex(w.Terrain)
 	r.RebuildStaticBatch(w)
 	r.RebuildRoads(w)
 	for _, lift := range w.Lifts {
@@ -1246,6 +1247,7 @@ func (e *Editor) applyImportedTerrain(imp ImportedTerrain, r *render.Renderer) {
 	r.BuildTerrainMesh(t)
 	r.BuildSnowSurfaceTex(t)
 	r.BuildGroomTex(t)
+	r.BuildMogulTex(t)
 	r.RebuildStaticBatch(e.world)
 
 	// Centre the camera on the imported terrain.
