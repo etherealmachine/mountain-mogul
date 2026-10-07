@@ -28,3 +28,4 @@ Spec: [[Demand Spec]]. Code: `internal/sim/demand.go`.
 - 2026-10-07: The rating became the day's average departing satisfaction; guests come at 0.4 rate when only easier terrain exists ([[Satisfaction Rework]]).
 - 2026-10-07: Per-guest preferred arrival times; arrivals from three hours before opening.
 - 2026-10-07: With no rental shop, half of the guests who'd rent skis stay home: the poll's chance is × (1 − rental share for their skill × 0.5) for guests without a pass ([[Service Improvements]]).
+- 2026-10-07: Terrain match weighs the resort's marked runs against each guest's run range (their level and what their steep taste wants): fully in range, 0.3 one easier, 0.1 two easier, none harder; half the terrain suiting them draws them fully ([[Demo]] step 2).

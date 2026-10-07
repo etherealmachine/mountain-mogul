@@ -133,3 +133,4 @@ Each step builds with `go build` and `go vet` and is judged in a headless Boreal
 - 2026-10-07: [[Moguls]] planned; the moguls feature stays `Cell.MogulSize`, which the mogul map will feed as its cell average.
 - 2026-10-07: Step 4: lift choice by trail conditions and steering by taste (guests never followed trails); glade lovers go into the woods.
 - 2026-10-07: Steps 5–6: boredom and crowds, and docs. Done.
+- 2026-10-07: The steep taste now also shifts the run level a guest wants, for demand and run verdicts ([[Demo]] step 2).
