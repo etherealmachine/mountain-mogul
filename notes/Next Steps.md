@@ -13,7 +13,7 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 
 In the order to work on them:
 
-1. [[Moguls]]: moguls formed where guests turn on steep ungroomed snow, at sub-cell resolution like tracks; softened by snow, cleared only where the cat drove; drawn as a fall-line mogul field; skied with a balance cost and sought or avoided by taste.
+1. [[Moguls]]: step 1 done (a 1 m mogul map grown along skiers' lines by turning, slope, and snow); next is step 2, snow, grooming, and weather. Moguls formed where guests turn on steep ungroomed snow, at sub-cell resolution like tracks; softened by snow, cleared only where the cat drove; drawn as a fall-line mogul field; skied with a balance cost and sought or avoided by taste.
 
 Then: **gameplay before scenario goals**. A headless three-lift Boreal (2026-10-06) runs about 70 guests a day with the rating stuck near 30%, so goals can't be set until guests can have a good day. The investigate-and-report items are done (2026-10-07); next is the guest pool per scenario ([[First Week Balance]]). [[Scenario Goals and Rules]] steps 1–4 shipped and are tabled until then.
 
@@ -24,7 +24,7 @@ Not ranked yet: everything below.
 Diagnose each first, report the cause, then fix:
 
 - **Fresh corduroy turns to crust overnight**: noticed 2026-10-07. Cats finish grooming by about 21:00, and the midnight weather update turns packed powder into crust on a cold clear day (`kindTransition`), so groomed runs open as crust. Decide whether grooming should come after the update, or packed powder shouldn't crust in one night ([[Snow]], [[Grooming]]).
-- **Snow compacts far too fast**: found 2026-10-07 on the re-dressed Boreal. Fresh snow starts at a believable depth (150 mm of water as 83 cm on the opening storm), but within three days 135 mm sits in 23 cm (density about 0.6), and by mid-January 263 mm in 37 cm (about 0.7). Settled early-season snow is about 0.25–0.35, so the slopes look thin over a decent pack. Diagnose the settling in [[Snow]] (`SnowLayer` densification) before changing it.
+- **Snow compacts far too fast**: found 2026-10-07 on the re-dressed Boreal. Fresh snow starts at a believable depth (150 mm of water as 83 cm on the opening storm), but within three days 135 mm sits in 23 cm (density about 0.6), and by mid-January 263 mm in 37 cm (about 0.7). Settled early-season snow is about 0.25–0.35, so the slopes look thin over a decent pack. Diagnose the settling in [[Snow]] (`SnowLayer` densification) before changing it. Also blocked moguls, which now gate on snow water instead of visible depth (2026-10-07).
 
 ## Scenarios and campaign ([[Scenarios]], [[Scenario Campaign]])
 
@@ -233,3 +233,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-07: [[Snow Tastes]] done (step 5: boredom sends guests home from a resort that's run out for them; crowds by taste). [[Moguls]] is first.
 - 2026-10-07: Fix how services work is done: patrol, falls, grooming, thirst, exhaustion, and the after-closing tail (last guest now leaves 17–47 clock minutes after closing) are fixed or explained. Removed the resolved Bugs and Guests items; the snow compaction and overnight-crust bugs remain.
 - 2026-10-07: Wrote up [[Service Improvements]] (unranked, pending the user's decisions).
+- 2026-10-07: [[Moguls]] step 1 shipped.

@@ -171,7 +171,7 @@ Each active-skiing tick accumulates `SkierTraffic` on the cell underfoot. When t
 
 `SkierTraffic` decays 15 % per in-game day (~4-day half-life) so untrafficked runs reset between busy periods.
 
-`Grooming` decays at −0.02/s from skier passes (unchanged). `MogulSize` grows +0.005·(1−Grooming)/s when `VisibleSnowDepth > 0.3 m` (unchanged).
+`Grooming` decays at −0.02/s from skier passes. Moguls grow in the 1 m mogul map (`world.MogulMap`), stamped about 1 m around each skier at 0.03/s × turning (off the fall line, full at 45°) × slope (5° to 20°) × snow (at least 0.1 m SWE, 0.3× on icy surfaces) × (1 − Grooming), each pixel capped by slope (0.25 on the gentlest, 1 from 20°); `MogulSize` is each cell's average of the map ([[Moguls]]).
 
 ---
 

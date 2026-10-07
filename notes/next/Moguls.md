@@ -1,7 +1,7 @@
 ---
 title: Moguls
 kind: plan
-status: planned
+status: in progress
 ---
 
 # Moguls
@@ -35,7 +35,17 @@ From the user, 2026-10-07: plan it, ranked after [[Snow Tastes]], and build Snow
 
 ## Steps
 
-1. **Mogul map and growth.** The map, growth stamped along paths and weighted by turning, slope, and snow, and `Cell.MogulSize` as its cell average. Check headless on a steep ungroomed run versus a flat one: moguls on the steep fall line, little on the flat.
+1. Done: **Mogul map and growth.** `world.MogulMap` (`mogul_map.go`) is its own map at 1 m per pixel, not a `SurfaceDetail` channel: moguls are 3–5 m apart, so 1 m is enough, and it's cheaper. Pixels are 16-bit, because a tick's growth rounds away at 8 bits. It's saved with the game at 8 bits (`moguls`), and saves without it fill evenly from each cell's `MogulSize`. Each cell's `MogulSize` is its pixels' average, so physics, tastes, and trail conditions read what they did. Anything else that sets `MogulSize` directly (grooming, melt-out, avalanches, earthworks) is reconciled the next time the map touches the cell, or before a save (`SyncMoguls`): the cell's pixels are scaled to match.
+
+   `growMoguls` (`sim/skiing.go`) replaces the old growth of 0.005 a second for any skier on any cell. Growth is stamped about 1 m around the skier at 0.03 a second, multiplied by:
+   - turning: how far their line crosses the fall line, full at 45°
+   - slope: none below 5°, full from 20°
+   - snow: at least 0.1 m of water, and 0.3 on crust, boilerplate, or frozen granular
+   - 1 − grooming
+
+   Each pixel is capped by slope, at 0.25 on the gentlest slope that grows moguls rising to 1 at 20°, so a green gets bumpy but never becomes a bump run. Changed with the user while checking: they expected Boreal's gentle green to get moguls after about a week ungroomed. The first version (10° to 25°, no cap, a 30 cm visible-depth gate) grew almost nothing and stalled after two days, because the snowpack's over-settling (Bugs, in [[Next Steps]]) left the run under 30 cm of visible depth while it held 120–165 mm of water. So the gate is on water, not depth.
+
+   Checked on the user's Boreal save, a week ungroomed. Average mogul size by slope at day 7 (biggest cell): 5–8° 0.04 (0.27), 8–11° 0.11 (0.53), 11–14° 0.16 (0.63), over 14° 0.31 (0.77), growing steadily from day 1. Flats stay smooth. The biggest moguls off the run (0.56, at 14°) are just beside it, where taste steering takes some guests off the edge.
 2. **Snow, grooming, and weather.** Snowfall softens; grooming clears its lanes only; warm days round, freezes ice. Check: a storm night softens a mogul field, and a narrow cat pass leaves bumpy edges.
 3. **Drawing.** Mogul-spaced, fall-line-aligned bumps with troughs; real height close up. Check by screenshot on a skied-out black.
 4. **Skiing.** The balance cost by speed and skill, and steering toward or away by taste. Check: beginners fall more on a mogul field, and bump lovers end their runs on more of it than bump haters.
@@ -45,10 +55,10 @@ Each step builds with `go build` and `go vet` and is judged headless or by scree
 
 ## Open questions
 
-- Whether the map goes in `SurfaceDetail`'s B channel (0.25 m, shares the track machinery) or its own 1 m map (cheaper, like `GroomMap`).
-- Whether moguls are saved (tracks aren't; moguls take days to build, so probably yes).
 - Whether the player can choose to leave a run ungroomed for moguls (a trail setting), which [[Grooming]] would need anyway for powder days.
 
 ## Log
 
 - 2026-10-07: Planned with the user after reviewing how moguls work today. Ranked after [[Snow Tastes]].
+- 2026-10-07: Step 1: the 1 m mogul map, growth along skiers' lines by turning, slope, and snow.
+- 2026-10-07: Step 1 tuned with the user: growth from 5° to 20° with a size cap by slope, gated on snow water; a week ungroomed leaves Boreal's green bumpy.
