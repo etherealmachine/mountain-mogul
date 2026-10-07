@@ -165,14 +165,18 @@ const (
 	//     fresh corduroy; a 5 m cell at 10 m/s sees ~0.5 s per pass.
 	//   trafficRate: SkierTraffic units accumulated per second while skiing.
 	//   trafficThresh*: SkierTraffic thresholds that trigger a kind transition.
-	//   mogulFormRate: mogul growth rate, scaled by (1 − Grooming).
+	//   mogulFormRate: mogul growth per second of a skier over a metre of
+	//   snow, at full turning, slope, and softness (growMoguls).
 	groomingWearRate      = 0.005
 	trafficRate           = 1.0         // units/s; ~0.5 units per pass at 10 m/s
 	trafficThreshPowder   = float32(40) // ~40 passes
 	trafficThreshWindSlab = float32(60)
 	trafficThreshCrust    = float32(20) // crust shatters quickly
-	mogulFormRate         = 0.005
-	mogulMinSnowDepth     = 0.3
+	mogulFormRate         = 0.03
+	// mogulMinSnowSWE is the snow, in metres of water, needed for moguls:
+	// about 30 cm of settled snow. Gated on water rather than visible
+	// depth, which the snowpack's settling understates.
+	mogulMinSnowSWE = float32(0.1)
 
 	// patienceGainPerSecSkiing is patience restored per sim-second of
 	// active downhill skiing: full in about 5.6 clock hours. Offset
@@ -436,7 +440,7 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 
 	prevPos := a.Pos
 	apply(s.World.Terrain, a, dec, perc, dt)
-	wearSnowUnderfoot(s.World.Terrain, a.Pos, dt)
+	wearSnowUnderfoot(s.World.Terrain, a, dt)
 	splatSkierTrack(s.World.Terrain, a, prevPos)
 	recordFrame(s, a, target, dist, perc, dec)
 	return false
@@ -484,9 +488,10 @@ func splatSkierTrack(t *world.Terrain, a *world.Guest, prevPos mgl32.Vec3) {
 // Cell.SnowAccumulation — is conserved by construction; the visible snow
 // depth therefore drops automatically as packing rises (depth =
 // accumulation / density(packed)), matching how real snow behaves under
-// traffic and groomer treads. MogulSize grows proportionally to
-// (1 − Grooming) on cells with enough visible snow to form a bump.
-func wearSnowUnderfoot(t *world.Terrain, pos mgl32.Vec3, dt float64) {
+// traffic and groomer treads. Moguls grow along the skier's line
+// (growMoguls).
+func wearSnowUnderfoot(t *world.Terrain, a *world.Guest, dt float64) {
+	pos := a.Pos
 	xi := int(pos[0] / world.CellSize)
 	zi := int(pos[2] / world.CellSize)
 	if !t.InBounds(xi, zi) {
@@ -519,13 +524,7 @@ func wearSnowUnderfoot(t *world.Terrain, pos mgl32.Vec3, dt float64) {
 			dirty = true
 		}
 	}
-	if c.VisibleSnowDepth() > mogulMinSnowDepth && c.MogulSize < 1 {
-		c.MogulSize += float32(mogulFormRate*dt) * (1 - c.Grooming)
-		if c.MogulSize > 1 {
-			c.MogulSize = 1
-		}
-		dirty = true
-	}
+	growMoguls(t, a, xi, zi, dt)
 	if dirty {
 		t.SnowDirty = true
 	}
@@ -926,10 +925,10 @@ func standCoverScale(t ai.Tastes) float32 {
 //
 // Score = progressBonus × cos(offset)
 //
-//	+ tasteSteerWeight × Σ taste × feature (point along projected line)
-//	− Σ treePenalty × density(point along projected line)
-//	− boundaryPenalty × (off-map sample count)
-//	+ sideCommitBonus × sign(prevTactical) × sign(offset)   [conditional]
+//   - tasteSteerWeight × Σ taste × feature (point along projected line)
+//     − Σ treePenalty × density(point along projected line)
+//     − boundaryPenalty × (off-map sample count)
+//   - sideCommitBonus × sign(prevTactical) × sign(offset)   [conditional]
 //
 // The progress term keeps the skier on axis when nothing obstructs. The
 // side-commit term breaks the symmetry of obstacles centred on axis so
@@ -1479,4 +1478,45 @@ func cheapestLiftTicket(w *world.World) int {
 		}
 	}
 	return min
+}
+
+// Moguls form where skiers turn on steep, soft, deep snow: growth per
+// second at the skier's spot is mogulFormRate × turning × slope × snow ×
+// (1 − grooming), stamped into the mogul map along their line, up to a
+// size that grows with the slope.
+var (
+	mogulTurnFull  = float32(math.Pi / 4)        // off the fall line by this much counts as full turning
+	mogulSlopeFrom = float32(5 * math.Pi / 180)  // no moguls below this slope
+	mogulSlopeTo   = float32(20 * math.Pi / 180) // full growth, and full-size moguls, from this slope
+	// mogulGentleCap is the biggest moguls get on the gentlest slope that
+	// grows them: a green skied for a week gets bumpy, not a bump run.
+	// The cap rises with the slope to 1 at mogulSlopeTo.
+	mogulGentleCap = float32(0.25)
+	mogulIcySnow   = float32(0.3) // growth on a hard, icy surface
+)
+
+// growMoguls grows the moguls under a skier at cell (xi, zi): more the
+// more their line crosses the fall line (turning), the steeper the slope,
+// the softer the snow (given enough of it), and the less groomed the cell.
+func growMoguls(t *world.Terrain, a *world.Guest, xi, zi int, dt float64) {
+	c := &t.Cells[xi][zi]
+	if c.TotalSWE() < mogulMinSnowSWE {
+		return
+	}
+	fx, fz := t.FallLineAt(xi, zi)
+	fl := float32(math.Hypot(float64(fx), float64(fz)))
+	hx, hz := float32(math.Sin(float64(a.Heading))), float32(math.Cos(float64(a.Heading)))
+	off := float32(math.Abs(float64(hx*fz-hz*fx))) / fl // sin of the angle off the fall line
+	turn := clamp32(float32(math.Asin(float64(clamp32(off, 0, 1))))/mogulTurnFull, 0, 1)
+	slope := float32(math.Atan(float64(c.Slope)))
+	steep := clamp32((slope-mogulSlopeFrom)/(mogulSlopeTo-mogulSlopeFrom), 0, 1)
+	snow := float32(1)
+	if top := c.TopLayer(); top != nil {
+		switch top.Kind {
+		case world.KindBoilerplate, world.KindFrozenGranular, world.KindCrust:
+			snow = mogulIcySnow
+		}
+	}
+	grow := float32(mogulFormRate*dt) * turn * steep * snow * (1 - c.Grooming)
+	t.StampMoguls(a.Pos[0], a.Pos[2], grow, mogulGentleCap+(1-mogulGentleCap)*steep)
 }

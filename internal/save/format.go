@@ -37,6 +37,10 @@ type ScenarioData struct {
 	// Groom is the 1 m groom map (world.GroomMap pixels); empty when
 	// nothing is groomed. Saves without it rebuild from cell grooming.
 	Groom []byte `json:"groom,omitempty"`
+	// Moguls is the 1 m mogul map (world.MogulMap pixels); empty when
+	// there are none. Saves without it fill moguls evenly from each
+	// cell's MogulSize.
+	Moguls []byte `json:"moguls,omitempty"`
 	// Detail is sub-cell ground detail at 1.25 m (world.TerrainDetail
 	// bytes), e.g. from lidar; empty for the plain 5 m mesh.
 	Detail []byte `json:"detail,omitempty"`

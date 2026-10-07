@@ -44,8 +44,8 @@ const (
 	// them, less lapStaleness for each run they've had off it today. When
 	// the best value left falls below boredFloor they're bored (if they've
 	// lapped it) or it was never their kind of skiing.
-	lapStaleness = float32(0.1)
-	boredFloor   = float32(-0.3)
+	lapStaleness     = float32(0.1)
+	boredFloor       = float32(-0.3)
 	firstTracksShare = float32(1.0 / 3)
 	freshPowderMin   = float32(0.5)
 	freshTrafficMax  = float32(0.5)

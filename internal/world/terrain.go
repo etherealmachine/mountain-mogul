@@ -441,6 +441,10 @@ type Terrain struct {
 	// Groom records where snowcats groomed, at 1 m. See groom_map.go.
 	Groom *GroomMap
 
+	// Moguls is how big the moguls are at each metre; each cell's
+	// MogulSize is its average (mogul_map.go).
+	Moguls *MogulMap
+
 	// Detail is sub-cell height detail drawn on top of the 5 m mesh, or
 	// nil for none. See terrain_detail.go.
 	Detail *TerrainDetail
@@ -498,6 +502,7 @@ func NewTerrain(w, h int) *Terrain {
 		Cells:   cells,
 		Surface: NewSurfaceDetail(w, h),
 		Groom:   NewGroomMap(w, h),
+		Moguls:  NewMogulMap(w, h),
 		trees:   make([][]Tree, w*h),
 	}
 }

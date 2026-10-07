@@ -1,8 +1,8 @@
 package world
 
 import (
-	"mountain-mogul/internal/ai"
 	"math"
+	"mountain-mogul/internal/ai"
 
 	"github.com/go-gl/mathgl/mgl32"
 )

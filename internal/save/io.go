@@ -605,6 +605,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		Objects:      objects,
 		Trees:        trees,
 		Groom:        groomPixels(t),
+		Moguls:       mogulPixels(t),
 		Detail:       detailBytes(t),
 		Material:     materialBytes(t),
 		LakeOf:       t.LakeOf,
@@ -822,6 +823,7 @@ func dataToWorld(data ScenarioData) *world.World {
 		t.AddTree(world.Tree{X: data.Trees[i], Z: data.Trees[i+1]})
 	}
 	t.RecomputeSlopes()
+	t.LoadMoguls(data.Moguls)
 	if !t.Groom.Load(data.Groom) {
 		t.RestampGroomFromCells()
 	}
@@ -1382,6 +1384,13 @@ func saveTiles(b *world.Building) [][3]int {
 		out[i] = [3]int{c[0], c[1], int(b.ServiceAt(c))}
 	}
 	return out
+}
+
+// mogulPixels is the mogul map to save, in line with every cell's
+// MogulSize, or nil when there are no moguls.
+func mogulPixels(t *world.Terrain) []byte {
+	t.SyncMoguls()
+	return t.Moguls.Bytes()
 }
 
 // groomPixels is the groom map to save, or nil when nothing is groomed.
