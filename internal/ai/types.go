@@ -398,6 +398,7 @@ const (
 	ThoughtTooHard       // a run above their level, or much of it past their comfort slope
 	ThoughtCrowdedRun    // a run with other skiers close around them much of the way
 	ThoughtFellUnloading // fell getting off a chair at the top
+	ThoughtLinesFull     // every lift line they'd use is longer than they'll join
 
 	// Services.
 	ThoughtGoodMeal   // finished a meal at a food court
@@ -467,6 +468,7 @@ var Effects = [ThoughtKindCount]Effect{
 	ThoughtNoTicketWindow: {Condition: true},
 	ThoughtLiftsClosed:    {Condition: true},
 	ThoughtNothingForMe:   {Condition: true},
+	ThoughtLinesFull:      {Condition: true},
 }
 
 // ConditionMask is the set of condition thoughts currently holding for a
@@ -517,6 +519,7 @@ var thoughtText = [ThoughtKindCount]string{
 	ThoughtTooHard:           "that run was too much for me",
 	ThoughtCrowdedRun:        "way too crowded on that run",
 	ThoughtFellUnloading:     "I fell getting off the lift!",
+	ThoughtLinesFull:         "every lift line is way too long",
 	ThoughtGoodMeal:          "that meal hit the spot",
 	ThoughtGoodDrink:         "just what I needed",
 	ThoughtRested:            "good to sit down for a bit",
@@ -567,6 +570,7 @@ var ThoughtChartColor = [ThoughtKindCount][4]float32{
 	ThoughtTooHard:           {0.90, 0.50, 0.25, 1},
 	ThoughtCrowdedRun:        {0.70, 0.45, 0.50, 1},
 	ThoughtFellUnloading:     {0.90, 0.55, 0.40, 1},
+	ThoughtLinesFull:         {0.75, 0.35, 0.65, 1},
 	ThoughtGoodMeal:          {0.95, 0.75, 0.35, 1},
 	ThoughtGoodDrink:         {0.40, 0.80, 0.95, 1},
 	ThoughtRested:            {0.70, 0.85, 0.50, 1},

@@ -92,11 +92,16 @@ func BuildingCost(t BuildingType) int {
 	return LodgeCost
 }
 
-// The clock runs 20× faster than guest movement: one clock minute is three
-// sim seconds, so a 9:00–16:00 ski day is 1260 sim s (~5 real minutes at
-// 4×) and fits a typical ~800 s visit. Day and night run at the same rate.
+// The clock runs 4× faster than guest movement: one clock minute is 15
+// sim seconds, so a 9:00–16:00 ski day is 6300 sim s: a 2.5-minute chair
+// ride is 10 clock minutes, and a guest gets a dozen or more runs. Day and
+// night run at the same rate. Movement and other physical durations stay
+// in sim seconds; anything meant as clock time (needs, waits, meals) is
+// written in SimSecondsPerHour. It was 180 (20×) until 2026-10-07, which
+// left guests two or three runs a day and lifts carrying a fifth of what
+// they should; saves rescale on load.
 const (
-	SimSecondsPerHour = 180.0
+	SimSecondsPerHour = 900.0
 	SecondsPerSimDay  = 24 * SimSecondsPerHour
 
 	// LegacySecondsPerSimDay is the day length of saves written before the

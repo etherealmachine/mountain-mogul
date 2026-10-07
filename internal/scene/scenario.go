@@ -602,12 +602,13 @@ const (
 	trackMaxPoints  = 6000 // hard cap; old points dropped when exceeded
 )
 
-// speedOptions lists the time-scale presets shown in the top bar.
-// 4× is the default (~1 real hour per ~186-day ski season). 1× drags a
-// season out to ~4 hours for granular debugging; 20× compresses it to
-// ~12 minutes for fast-forward. The simulation substeps internally (see
-// Simulation.Tick) so the L1 controller still sees a small dt at the
-// upper preset. Pause is its own button — not in this list.
+// speedOptions lists the time-scale presets shown in the top bar. A clock
+// day is world.SecondsPerSimDay (21,600 sim s): 6 wall hours at 1×, which
+// shows movement at real speed; 1.5 hours at 4×; 18 minutes at 20×. Turbo
+// (turboOptions) gets through nights and off days: about 45 seconds a day
+// at 500×. The simulation substeps internally (see Simulation.Tick) so the
+// L1 controller still sees a small dt at the upper preset. Pause is its
+// own button — not in this list.
 var speedOptions = []float64{1, 4, 20}
 
 // turboOptions are the tiers reached by clicking the fastest speed button

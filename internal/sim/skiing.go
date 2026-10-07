@@ -141,8 +141,8 @@ const (
 	fallInjuryChanceMax = float32(0.006)
 	fallSeriousShare    = float32(0.3)
 	// injuryWaitTime is how long a seriously hurt guest waits for patrol
-	// before giving up: ten minutes of movement (600 sim seconds, about
-	// 3.3 hours on the clock, which runs 20× faster; see
+	// before giving up: ten minutes of movement (600 sim seconds, 40
+	// minutes on the clock, which runs 4× faster; see
 	// world.SimSecondsPerHour). Long enough for a patroller to walk to a
 	// lift, ride it, and ski down, so abandonment is rare.
 	injuryWaitTime = float32(600.0)
@@ -165,23 +165,25 @@ const (
 	mogulMinSnowDepth     = 0.3
 
 	// patienceGainPerSecSkiing is patience restored per sim-second of
-	// active downhill skiing. Offset against the drain from queuing —
-	// a guest who skis freely without long waits stays patient all day.
-	patienceGainPerSecSkiing = 1.0 / 1000.0
+	// active downhill skiing: full in about 5.6 clock hours. Offset
+	// against the drain from queuing — a guest who skis freely without
+	// long waits stays patient all day.
+	patienceGainPerSecSkiing = 1.0 / (5.56 * world.SimSecondsPerHour)
 
 	// Energy drain rates. Normal skiing drains in ~2 hours of continuous
-	// skiing. Falls cause a large one-shot hit. Ungroomed-snow penalties
-	// are applied by energyDrainRate based on skill tier × snow kind.
+	// skiing (real time, sim seconds: about 8 clock hours). Falls cause a
+	// large one-shot hit. Ungroomed-snow penalties are applied by
+	// energyDrainRate based on skill tier × snow kind.
 	energyDrainPerSecSkiing = 1.0 / 7200.0
 	energyFallDrain         = 0.30
 
 	// Hunger drains at a fixed rate regardless of terrain: full to empty
-	// in five clock hours (900 sim-seconds), so a guest arriving fed gets
-	// hungry around lunchtime.
-	hungerDrainPerSec = 1.0 / 900.0
+	// in five clock hours of skiing, so a guest arriving fed gets hungry
+	// around lunchtime.
+	hungerDrainPerSec = 1.0 / (5 * world.SimSecondsPerHour)
 
 	// Thirst base rate (five clock hours to empty) scaled by altitude and exertion.
-	thirstDrainPerSec      = 1.0 / 900.0
+	thirstDrainPerSec      = 1.0 / (5 * world.SimSecondsPerHour)
 	thirstAltitudePerMetre = float32(0.0005) // +50% at 1000 m, ×2 at 2000 m
 
 	// criticalStatThreshold mirrors goap.restTriggerThreshold: below it

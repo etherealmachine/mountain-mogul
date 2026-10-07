@@ -26,6 +26,13 @@ type Action interface {
 // Tunables
 // =============================================================================
 
+// MaxQueuePersons is the hard cap on queue depth a guest will tolerate
+// when planning: about half a clock hour of expected wait. Queues longer
+// than this cause JoinQueue's precondition to fail, forcing the planner
+// to seek an alternative lift. The cap is bypassed when Patience < 0.05
+// so that GoHome routing can still ride up and exit a lift base.
+var MaxQueuePersons = int(math.Floor(world.SimSecondsPerHour / 2 / queueSlotSec))
+
 const (
 	// Cost-per-second baseline. Costs are in "seconds-equivalent" so the
 	// planner can compare walking, queuing, riding, and skiing uniformly.
@@ -33,13 +40,6 @@ const (
 	skiSpeedMps  = 10.0 // average descent speed for cost estimation; the
 	// L1 controller ultimately decides actual speed
 	queueSlotSec = 8.0 // average wait per slot in line
-
-	// MaxQueuePersons is the hard cap on queue depth a guest will tolerate
-	// when planning. Queues longer than this cause JoinQueue's precondition
-	// to fail, forcing the planner to seek an alternative lift. The cap is
-	// bypassed when Patience < 0.05 so that GoHome routing can still ride
-	// up and exit a lift base.
-	MaxQueuePersons = 20
 
 	// Lift-novelty bonus. First ride of a lift is "free"; each repeat ride
 	// adds repeatPenaltyPerRide to RideLift's cost, capped so a much-ridden
@@ -58,9 +58,9 @@ const (
 	// Modeled as a chunky atomic action rather than a series of timed
 	// recovery ticks so the planner doesn't need to chain dozens of small
 	// rest actions to satisfy the Rest goal.
-	restDurationSec = 60.0
+	restDurationSec = world.SimSecondsPerHour / 3
 	// mealDurationSec mirrors sim.mealSec.
-	mealDurationSec = 90.0
+	mealDurationSec = world.SimSecondsPerHour / 2
 
 	// Minimum vertical drop for a SkiTo* action to be applicable. Below
 	// this, the destination is effectively at the same elevation as the
@@ -552,7 +552,7 @@ func (a *RelieveThirstAtBar) Apply(s *WorldSnapshot, w *world.World) {
 }
 
 func (a *RelieveThirstAtBar) Cost(s *WorldSnapshot, w *world.World) float32 {
-	return 30.0 // brief stop for a drink
+	return world.SimSecondsPerHour / 6 // a drink: ten clock minutes, as sim.drinkSec
 }
 
 // Depart is the terminal action that removes the agent from the sim.

@@ -444,9 +444,9 @@ func (s *Simulation) patrolReached(g *world.Guest) {
 }
 
 // Patrol response times, in sim seconds from injury to a patroller at the
-// guest's side: about 40 and 100 minutes on the clock. A snowmobile from
-// a hut near the lift base answers a mid-mountain call in about the
-// first; a lift ride and ski down takes about the second.
+// guest's side (8 and 20 minutes on the clock). A snowmobile from a hut
+// near the lift base answers a mid-mountain call in about the first; a
+// lift ride and ski down takes about the second.
 const (
 	patrolFastSec = 120.0
 	patrolSlowSec = 300.0

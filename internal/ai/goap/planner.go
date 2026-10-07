@@ -195,19 +195,38 @@ func appendBlocked(blocked []ai.ThoughtKind, k ai.ThoughtKind) []ai.ThoughtKind 
 }
 
 // rideBlocker is the thought for why a guest can't plan a lift ride,
-// checked in order: no lift running, none running for their level, or
-// (with neither) no ticket and no way to buy one. ThoughtNone when none
-// of these is the reason.
+// checked in order: no lift running, none running for their level, every
+// line they could join over MaxQueuePersons, or (with none of those) no
+// ticket and no way to buy one. ThoughtNone when none of these is the
+// reason.
 func rideBlocker(s *WorldSnapshot, w *world.World) ai.ThoughtKind {
 	switch {
 	case !w.AnyLiftRunning():
 		return ai.ThoughtLiftsClosed
 	case !w.RunningLiftFor(skillDiff(s.Skill)):
 		return ai.ThoughtNothingForMe
+	case s.Patience >= 0.05 && allLinesFull(s, w):
+		return ai.ThoughtLinesFull
 	case !hasTicket(s):
 		return ai.ThoughtNoTicketWindow
 	}
 	return ai.ThoughtNone
+}
+
+// allLinesFull reports whether every running lift the guest would ride
+// has a line longer than they'll join.
+func allLinesFull(s *WorldSnapshot, w *world.World) bool {
+	any := false
+	for _, l := range w.Lifts {
+		if !l.Open || l.OnHold || !liftAccessible(l, s.Skill, w) {
+			continue
+		}
+		any = true
+		if l.QueueLen() <= MaxQueuePersons {
+			return false
+		}
+	}
+	return any
 }
 
 // ridesLift reports whether goal g can only be met by riding a lift.

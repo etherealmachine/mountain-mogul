@@ -16,27 +16,27 @@ const (
 	CellSize  = 5.0  // metres per grid cell
 
 	// patienceGainPerSecRiding is patience restored per sim-second
-	// while riding a lift chair.
-	patienceGainPerSecRiding = 1.0 / 800.0
+	// while riding a lift chair: full in about 4.4 clock hours of riding.
+	patienceGainPerSecRiding = 1.0 / (4.44 * world.SimSecondsPerHour)
 
 	// patienceDrainPerSecQueuing drains patience while standing in a lift
-	// queue. At 1/60 per sec, ~60 cumulative queue-seconds exhaust patience.
-	patienceDrainPerSecQueuing = 1.0 / 60.0
+	// queue: about 20 clock minutes of queuing exhaust it.
+	patienceDrainPerSecQueuing = 1.0 / (world.SimSecondsPerHour / 3)
 
 	// patienceDrainPerSecWalking drains patience while a guest walks
-	// without skis (on a building footprint or bare ground). Slower
-	// than the queue drain; a brief lodge crossing is harmless but a
-	// long barefoot traverse noticeably costs patience.
-	patienceDrainPerSecWalking = 1.0 / 180.0
-
-	// longQueuePersons is the queue depth at which a guest considers
-	// the line "long." At ~8 s/person this is ~120 s of expected wait.
-	longQueuePersons = 15
+	// without skis (on a building footprint or bare ground): a clock hour
+	// of it exhausts patience. Slower than the queue drain; a brief lodge
+	// crossing is harmless but a long barefoot traverse costs patience.
+	patienceDrainPerSecWalking = 1.0 / world.SimSecondsPerHour
 
 	// queueSlotSec mirrors goap.queueSlotSec: expected wait per person in
 	// line. Used here for the patience-prediction check at JoinQueue time.
 	queueSlotSec = 8.0
 )
+
+// longQueuePersons is the queue depth at which a guest considers the line
+// "long": about a quarter of a clock hour of expected wait.
+var longQueuePersons = int(math.Floor(world.SimSecondsPerHour / 4 / queueSlotSec))
 
 // Simulation drives all agent and building behaviour.
 type Simulation struct {
@@ -754,7 +754,7 @@ func (s *Simulation) setBlocked(a *world.Guest, blocked []ai.ThoughtKind) {
 }
 
 // plannerConditions are the conditions only the planner reports.
-var plannerConditions = [...]ai.ThoughtKind{ai.ThoughtNeedsLodge, ai.ThoughtLiftsClosed, ai.ThoughtNothingForMe, ai.ThoughtNoTicketWindow}
+var plannerConditions = [...]ai.ThoughtKind{ai.ThoughtNeedsLodge, ai.ThoughtLiftsClosed, ai.ThoughtNothingForMe, ai.ThoughtNoTicketWindow, ai.ThoughtLinesFull}
 
 // maybeSampleHistory pushes one DailySample per in-game day boundary
 // the sim has crossed since the last call. Snapshots GuestsOnMountain
@@ -1197,13 +1197,17 @@ func meltCell(c *world.Cell, melt float32) {
 // Planning layer — drives target / queue / removal off the stored ai.Plan
 // =============================================================================
 
-// restAtLodgeSec mirrors goap.restDurationSec — the planner costs
-// RestAtLodge as ~60 s and tickResting counts down for the same
-// duration so plan cost and runtime stay in sync.
-const restAtLodgeSec = 60.0
+// restAtLodgeSec mirrors goap.restDurationSec — a rest takes 20 clock
+// minutes; the planner costs RestAtLodge the same so plan cost and
+// runtime stay in sync.
+const restAtLodgeSec = world.SimSecondsPerHour / 3
 
-// mealSec mirrors goap.mealDurationSec — how long a diner holds a seat.
-const mealSec = 90.0
+// mealSec mirrors goap.mealDurationSec — how long a diner holds a seat:
+// half a clock hour.
+const mealSec = world.SimSecondsPerHour / 2
+
+// drinkSec is how long a drink takes: ten clock minutes.
+const drinkSec = world.SimSecondsPerHour / 6
 
 // tickPlanning is the per-agent replan / advance check. Runs first in
 // the per-agent loop so any implicit state it sets (Queued, TargetID,
@@ -1560,7 +1564,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		a.Speed = 0
 		a.TargetID = 0
 	case ai.ActRelieveThirst:
-		a.RestTimer = 30.0 // brief stop for a drink
+		a.RestTimer = drinkSec
 		a.Speed = 0
 		a.TargetID = 0
 		if b := findBuildingByID(w, step.BldgID); b != nil && b.DrinkPrice > 0 {
@@ -1620,6 +1624,8 @@ func (s *Simulation) departReasonFor(a *world.Guest) ai.DepartReason {
 		return ai.DepartLiftsClosed
 	case has(ai.ThoughtNothingForMe):
 		return ai.DepartNothingToSki
+	case has(ai.ThoughtLinesFull):
+		return ai.DepartLines
 	case has(ai.ThoughtTooExpensive):
 		return ai.DepartMoney
 	case a.Patience < exhaustedThreshold:
