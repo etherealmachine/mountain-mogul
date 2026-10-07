@@ -71,7 +71,18 @@ Made with the user on 2026-10-07:
    - Advanced: 28% Powder Hound, 22% Bump Skier, 22% Glade Rat, 15% Cruiser, 13% Charger.
 
    Likes glades: 4% / 15% / 35% by tier (was 0 / 0 / 30%). Prefers groomed: 86% / 59% / 26% (was 60% everywhere), which shifts the grooming pull until step 2 replaces it.
-2. **Snow underfoot.** Compute per-cell features, add the taste term and the fear term to the mood target, add the condition thoughts, and make energy drain read tastes. The glade and corduroy rows move here. Check, on the headless three-lift [[Boreal]]: average satisfaction by archetype, groomed everything versus groomed nothing.
+2. Done: **Snow underfoot.** `sim/underfoot.go`. Features per cell, each 0 to 1:
+   - groomed: the cell's grooming
+   - powder: fresh ungroomed powder, about 30 cm (0.03 m of water) for 1
+   - moguls: mogul size
+   - trees: tree cover
+   - steep: 10° for 0 up to 35° for 1
+   - ice: boilerplate or frozen granular 1, crust 0.25 (mostly corduroy firming overnight on a cold clear day, not sheet ice)
+   - crowds: moving skiers within about 7 m, 3 for 1
+
+   Each guest keeps a running average of each taste × feature over about 6 sim seconds of skiing (`Guest.Underfoot`, reset at each run's start). Reading single cells made the thoughts flicker: 13 "sheet ice" a visit before, 0.06 after. The taste term is the sum × 0.15, held to ±0.25, plus a fear term of up to −0.15 at 10° past `ComfortSlope`; it replaces the fixed grooming pull and the glade conditions' pulls (`SkiTerrainPull`). Condition thoughts start at ±0.4 and end below 0.2 or off skis, and report the term rather than carrying an effect: "this powder is unreal" / "this deep snow is wearing me out", "loving these bumps" / "these bumps are killing me", "loving these glades" / "too many trees!", "it's sheet ice up here", and "this is way too steep for me" (fear). Energy drains faster by 1 + 0.5 × the guest's dislike underfoot. `Tastes.LikesGlades` is gone; `PrefersGroomed` stays for steering and great-run reasons.
+
+   Checked on the user's Boreal save, 2 days, groomed every night versus never. Beginners (mostly Cruisers) end at 0.55–0.58 and intermediates and advanced at 0.35–0.43 either way. Ungroomed brings bump complaints (0.6 → 1.4 a visit) and sheet ice (0.06 → 7.6, about once a run: skied snow freezes to boilerplate on cold clear days). Final satisfaction barely moves with grooming, because the pull only lasts while skiing and mood drifts back to the baseline on the lift and the walk out. Step 3 (great runs by taste) is what makes snow quality reach the baseline and the rating.
 3. **Run events.** Started in [[Satisfaction Rework]]: `Guest.Run` records each descent and `judgeRun` gives too easy, too hard, crowded, corduroy, and great-run verdicts. Left: add taste match, fresh-powder cells, and first tracks to the summary, and score great runs by taste. Check: runs per visit by outcome; powder hounds score higher the morning after a storm than a week later.
 4. **Choosing by taste.** Add `Trail.Conditions` on a slow refresh. Taste-scored lift and trail choice replaces `Explore`'s "any lift not yet ridden". Steering reads the trees affinity. Check: after a storm on Boreal, powder hounds concentrate on the ungroomed black, and cruisers stay on corduroy.
 5. **Variety, availability, and crowds.** Use the per-trail run counts from [[Mood Baseline]], the boredom and "nothing here for me" conditions, `GoHome` weighted by the best remaining option, and the crowds term. Check: session length and satisfaction with one lift versus three.
@@ -101,3 +112,4 @@ Each step builds with `go build` and `go vet` and is judged in a headless Boreal
 - 2026-10-07: Planned with the user: continuous affinities with archetype labels for the player. Ranked second, after [[Satisfaction Rework]].
 - 2026-10-07: The run summary and judging shipped with [[Satisfaction Rework]]; step 3 now extends them with tastes.
 - 2026-10-07: Step 1: tastes, archetypes, labels, saving, and the follow panel.
+- 2026-10-07: Step 2: snow underfoot against tastes, smoothed over a few seconds; its pull is momentary until step 3.

@@ -13,7 +13,7 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 
 In the order to work on them:
 
-1. [[Snow Tastes]]: step 1 done (tastes rolled per guest around five archetypes, labelled in the follow panel); next is step 2, snow underfoot. Snow underfoot moves the mood target, each run ends in an event, guests choose lifts and trails by taste, and repeated laps get boring.
+1. [[Snow Tastes]]: steps 1–2 done (tastes rolled around five archetypes; snow underfoot moves mood and brings thoughts while skiing); next is step 3, great runs scored by taste, which is what lets snow quality reach the rating. Snow underfoot moves the mood target, each run ends in an event, guests choose lifts and trails by taste, and repeated laps get boring.
 2. **Fix how services work**: the investigate-and-report items left under Bugs and Guests. Patrol ([[Patrol Day]]), falls ([[Lift Unloading]]), grooming (works: one cat grooms Boreal's run fully each night), and thirst and exhaustion (mostly how thoughts were counted, then the time scale) are done. Left: snow compacting too fast, and rechecking thirst at altitude and the after-closing tail with the new clock.
 
 Then: **gameplay before scenario goals**. A headless three-lift Boreal (2026-10-06) runs about 70 guests a day with the rating stuck near 30%, so goals can't be set until guests can have a good day. Priority 2 covers the investigate-and-report items; then the guest pool per scenario ([[First Week Balance]]). [[Scenario Goals and Rules]] steps 1–4 shipped and are tabled until then.
@@ -25,6 +25,7 @@ Not ranked yet: everything below.
 Diagnose each first, report the cause, then fix:
 
 - **Thirst drains fast at altitude**: diagnosed 2026-10-07. Thirst drains only while skiing, at a base of five clock hours to empty × an altitude factor (+0.05% per metre: ×2.1 at Boreal's 2,200 m) × exertion (up to ×3 for beginners off groomed snow). With the old clock most guests (66%) left thirsty; with the new clock and food-court drinks it's 2%, so this may be fine now. Recheck the altitude factor (perhaps relative to the climate's altitude) if thirst still dominates at high resorts.
+- **Fresh corduroy turns to crust overnight**: noticed 2026-10-07. Cats finish grooming by about 21:00, and the midnight weather update turns packed powder into crust on a cold clear day (`kindTransition`), so groomed runs open as crust. Decide whether grooming should come after the update, or packed powder shouldn't crust in one night ([[Snow]], [[Grooming]]).
 - **Snow compacts far too fast**: found 2026-10-07 on the re-dressed Boreal. Fresh snow starts at a believable depth (150 mm of water as 83 cm on the opening storm), but within three days 135 mm sits in 23 cm (density about 0.6), and by mid-January 263 mm in 37 cm (about 0.7). Settled early-season snow is about 0.25–0.35, so the slopes look thin over a decent pack. Diagnose the settling in [[Snow]] (`SnowLayer` densification) before changing it.
 
 ## Scenarios and campaign ([[Scenarios]], [[Scenario Campaign]])
@@ -230,3 +231,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-07: Food courts pour drinks and meals fill thirst; thirst outweighs skiing below 0.25; corduroy is the read-only reason for a great run; per-guest arrival times from three hours before opening. Recorded the time scale, thirst drain, and starting satisfaction findings.
 - 2026-10-07: A clock hour is 900 sim seconds (was 180). On Boreal: 27–30 guests lined up at opening, 7.7 great runs a visit, 2% leave thirsty, rating 0.52, about 42 s of CPU per day for about 80 guests. Queue limits became clock-based, and a guest facing only full lines now says so instead of blaming the ticket window.
 - 2026-10-07: Guests start at their baseline (0.5), not 0.6. Closed the patrol and grooming bugs (patrol fixed by Patrol Day; on the user's Boreal save one cat grooms the run fully every night and skiing wears it to about 0.6 by mid-afternoon).
+- 2026-10-07: [[Snow Tastes]] step 2 shipped. Noted groomed runs opening as crust.

@@ -455,7 +455,7 @@ Patience is clamped to `[0, 1]` on every write.
 
 Satisfaction changes in exactly two ways, and both read one table, `ai.Effects`, indexed by `ThoughtKind`:
 
-- **Drift** (`Simulation.tickMood`, every tick, for every guest on the mountain whatever they're doing). The target is `Guest.Baseline`, plus the grooming pull from the last skiing tick (+0.15 on groomed snow and −0.08 off it, for guests whose tastes prefer groomed snow, `Tastes.PrefersGroomed`: groomed ≥ 0.3), plus the pull of every active condition, clamped to [0.15, 0.90]. Satisfaction closes 0.6% of the gap per sim second.
+- **Drift** (`Simulation.tickMood`, every tick, for every guest on the mountain whatever they're doing). The target is `Guest.Baseline`, plus the snow underfoot's pull from the last skiing tick (`tickUnderfoot`: each taste × that feature of the snow, averaged over about 6 s of skiing, × 0.15 and held to ±0.25, plus up to −0.15 of fear past `ComfortSlope`), plus the pull of every active condition, clamped to [0.15, 0.90]. Satisfaction closes 0.6% of the gap per sim second.
 - **Events** (`Simulation.applyEvent`). A one-off delta, clamped to [0, 1], plus the row's `Baseline` change, with the baseline clamped to [0.15, 0.85].
 
 **Tastes.** `GuestTraits.Tastes` (`ai.Tastes`) holds seven affinities from −1 to +1, in `TasteKind` order: groomed, powder, moguls, trees, steep, ice, crowds. `world.RollTastes` picks an archetype by its share at the guest's skill tier (`ai.Archetypes`: Cruiser, Powder Hound, Bump Skier, Glade Rat, Charger), then draws each affinity around its centre with a 0.25 spread. `ai.TasteLabel` names the nearest archetype for the follow panel. Until snow underfoot reads tastes ([[Snow Tastes]] step 2), the glade and corduroy reactions use `Tastes.LikesGlades` (trees ≥ 0.4) and `Tastes.PrefersGroomed` (groomed ≥ 0.3). Saved as `tastes`; saves without it roll tastes from the guest's ID. `TraitsFor` (testbeds) gives beginners and intermediates the Cruiser centre and advanced guests neutral tastes.
@@ -468,7 +468,7 @@ Every change is reported by a thought, and no thought changes a stat by itself.
 
 | Condition | On | Off | Pull |
 |---|---|---|---|
-| `ThoughtLovingGlades` / `ThoughtScaredInTrees` | tree cover ≥ 0.30 while skiing (loving if `Tastes.LikesGlades`: trees ≥ 0.4) | below 0.20, or not skiing | +0.12 / −0.18 |
+| Snow underfoot: `ThoughtLovingPowder` / `ThoughtDeepSnow`, `ThoughtLovingBumps` / `ThoughtHatingBumps`, `ThoughtLovingGlades` / `ThoughtScaredInTrees`, `ThoughtIcy`, `ThoughtTooSteep` | the averaged taste × feature reaches ±0.4 (fear 0.5) | below 0.2, or not skiing | 0: they report the snow underfoot's pull |
 | `ThoughtHungry`, `ThoughtThirsty`, `ThoughtImpatient` | Hunger, Thirst, Patience < 0.15 | > 0.25 | −0.10 each |
 | `ThoughtTired` | Energy < 0.15 (and not exhausted) | > 0.25 | 0 |
 | `ThoughtExhausted` | min(Patience, Energy) < 0.05 | > 0.15 | 0 |
