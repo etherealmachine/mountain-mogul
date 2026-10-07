@@ -107,16 +107,10 @@ var TasteName = [TasteCount]string{"groomed", "powder", "moguls", "trees", "stee
 // (world.RollTastes); TasteLabel names the nearest one for the player.
 type Tastes [TasteCount]float32
 
-// Until snow underfoot reads tastes directly (Snow Tastes step 2), the
-// older glade and corduroy reactions key off these thresholds.
-const (
-	gladeLoverTaste   = 0.4
-	groomedLoverTaste = 0.3
-)
-
-// LikesGlades reports whether time in the trees is a pleasure (loving
-// these glades) rather than a fright (too many trees).
-func (t Tastes) LikesGlades() bool { return t[TasteTrees] >= gladeLoverTaste }
+// groomedLoverTaste is the groomed taste from which a guest seeks out
+// corduroy: steering keeps them on it, and a great run on it is great
+// because of it.
+const groomedLoverTaste = 0.3
 
 // PrefersGroomed reports whether the guest seeks out corduroy.
 func (t Tastes) PrefersGroomed() bool { return t[TasteGroomed] >= groomedLoverTaste }
@@ -400,6 +394,15 @@ const (
 	ThoughtFellUnloading // fell getting off a chair at the top
 	ThoughtLinesFull     // every lift line they'd use is longer than they'll join
 
+	// Snow underfoot against the guest's tastes (sim/underfoot.go). They
+	// report the taste term's pull, which carries the effect.
+	ThoughtLovingPowder // deep fresh powder, for a powder lover
+	ThoughtDeepSnow     // deep fresh powder, for someone who'd rather not
+	ThoughtLovingBumps  // moguls, for a bump lover
+	ThoughtHatingBumps  // moguls, for someone who hates them
+	ThoughtIcy          // an icy surface, for someone who minds
+	ThoughtTooSteep     // well past their comfortable slope
+
 	// Services.
 	ThoughtGoodMeal   // finished a meal at a food court
 	ThoughtGoodDrink  // finished a drink at a bar
@@ -455,8 +458,15 @@ var Effects = [ThoughtKindCount]Effect{
 	ThoughtPatrolSlow:        {Satisfaction: -0.08, Baseline: -0.03},
 
 	// Conditions. Zero-pull conditions report a reason to leave.
-	ThoughtLovingGlades:   {Condition: true, Satisfaction: +0.12},
-	ThoughtScaredInTrees:  {Condition: true, Satisfaction: -0.18},
+	// Snow underfoot: the pull is the taste term (sim.tickUnderfoot).
+	ThoughtLovingGlades:   {Condition: true},
+	ThoughtScaredInTrees:  {Condition: true},
+	ThoughtLovingPowder:   {Condition: true},
+	ThoughtDeepSnow:       {Condition: true},
+	ThoughtLovingBumps:    {Condition: true},
+	ThoughtHatingBumps:    {Condition: true},
+	ThoughtIcy:            {Condition: true},
+	ThoughtTooSteep:       {Condition: true},
 	ThoughtHungry:         {Condition: true, Satisfaction: -0.10},
 	ThoughtThirsty:        {Condition: true, Satisfaction: -0.10},
 	ThoughtImpatient:      {Condition: true, Satisfaction: -0.10},
@@ -520,6 +530,12 @@ var thoughtText = [ThoughtKindCount]string{
 	ThoughtCrowdedRun:        "way too crowded on that run",
 	ThoughtFellUnloading:     "I fell getting off the lift!",
 	ThoughtLinesFull:         "every lift line is way too long",
+	ThoughtLovingPowder:      "this powder is unreal",
+	ThoughtDeepSnow:          "this deep snow is wearing me out",
+	ThoughtLovingBumps:       "loving these bumps",
+	ThoughtHatingBumps:       "these bumps are killing me",
+	ThoughtIcy:               "it's sheet ice up here",
+	ThoughtTooSteep:          "this is way too steep for me",
 	ThoughtGoodMeal:          "that meal hit the spot",
 	ThoughtGoodDrink:         "just what I needed",
 	ThoughtRested:            "good to sit down for a bit",
@@ -571,6 +587,12 @@ var ThoughtChartColor = [ThoughtKindCount][4]float32{
 	ThoughtCrowdedRun:        {0.70, 0.45, 0.50, 1},
 	ThoughtFellUnloading:     {0.90, 0.55, 0.40, 1},
 	ThoughtLinesFull:         {0.75, 0.35, 0.65, 1},
+	ThoughtLovingPowder:      {0.70, 0.90, 1.00, 1},
+	ThoughtDeepSnow:          {0.55, 0.65, 0.80, 1},
+	ThoughtLovingBumps:       {0.60, 0.85, 0.45, 1},
+	ThoughtHatingBumps:       {0.85, 0.55, 0.30, 1},
+	ThoughtIcy:               {0.60, 0.80, 0.95, 1},
+	ThoughtTooSteep:          {0.95, 0.35, 0.20, 1},
 	ThoughtGoodMeal:          {0.95, 0.75, 0.35, 1},
 	ThoughtGoodDrink:         {0.40, 0.80, 0.95, 1},
 	ThoughtRested:            {0.70, 0.85, 0.50, 1},

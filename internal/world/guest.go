@@ -220,6 +220,13 @@ type Guest struct {
 
 	RidenLifts []ai.RideCount
 
+	// Underfoot is each taste × feature of the snow under the guest, and
+	// UnderfootFear their fear of the slope, averaged over the last few
+	// seconds of skiing (sim.tickUnderfoot) so one odd cell doesn't start
+	// or stop a thought. Reset at the start of each run.
+	Underfoot     [ai.TasteCount]float32
+	UnderfootFear float32
+
 	// Unload is the guest's glide off a chair at a lift's top station;
 	// LiftID is 0 when they aren't unloading.
 	Unload Unloading

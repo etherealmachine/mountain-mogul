@@ -209,8 +209,6 @@ const (
 	moodTargetMin = float32(0.15)
 	moodTargetMax = float32(0.90)
 	moodDriftRate = float32(0.006)
-	groomedPull   = float32(+0.15) // PrefersGroomed on groomed snow
-	ungroomedPull = float32(-0.08) // PrefersGroomed off it
 )
 
 // =============================================================================
@@ -335,50 +333,28 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 	a.LastTactical = dec.TacticalOffset
 	a.Sense = senseFrom(perc, dec)
 
-	// Trait-driven terrain thoughts. Reads the cell under the guest and
-	// emits thoughts based on glade and grooming preferences — these
-	// thoughts count toward the session rating.
+	// The cell under the guest: snow underfoot against their tastes, and
+	// the run record.
 	cx := int(a.Pos[0] / CellSize)
 	cz := int(a.Pos[2] / CellSize)
-	var treeDensity, grooming float32
+	var cell *world.Cell
+	var grooming float32
 	var surfKind world.SnowKind
 	if s.World.Terrain.InBounds(cx, cz) {
-		cell := s.World.Terrain.Cells[cx][cz]
-		treeDensity = cell.TreeCover()
+		cell = &s.World.Terrain.Cells[cx][cz]
 		grooming = cell.Grooming
 		if top := cell.TopLayer(); top != nil {
 			surfKind = top.Kind
 		}
 	}
-	const (
-		treeDensityThreshold = 0.30
-		treeDensityClear     = 0.20
-		groomingThreshold    = 0.50
-	)
+	const groomingThreshold = 0.50
 	onGroomed := grooming >= groomingThreshold
-
-	// In the trees: on at treeDensityThreshold, off once the cover thins
-	// below treeDensityClear.
-	gladeKind := ai.ThoughtScaredInTrees
-	if a.Traits.Tastes.LikesGlades() {
-		gladeKind = ai.ThoughtLovingGlades
-	}
-	treesOn := treeDensity >= treeDensityThreshold ||
-		(a.Conditions.Has(gladeKind) && treeDensity >= treeDensityClear)
-	s.setCondition(a, gladeKind, treesOn)
+	underfootPull, dislike := s.tickUnderfoot(a, cell, perc.SlopeAngle, float32(dt))
 	s.recordRun(a, cx, cz, grooming, perc.SlopeAngle, float32(dt))
 
-	// The terrain's pull on the mood target, read by tickMood. Trees pull
-	// through the glade conditions above; grooming has no thought yet
-	// (Snow Tastes makes it one).
+	// The snow underfoot's pull on the mood target, read by tickMood.
 	a.SkiedThisTick = true
-	if a.Traits.Tastes.PrefersGroomed() {
-		if onGroomed {
-			a.SkiTerrainPull = groomedPull
-		} else {
-			a.SkiTerrainPull = ungroomedPull
-		}
-	}
+	a.SkiTerrainPull = underfootPull
 
 	// Patience gain from active skiing.
 	a.Patience += float32(dt * patienceGainPerSecSkiing)
@@ -388,7 +364,7 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 
 	// Energy drain from skiing. Rate depends on skill tier × snow kind;
 	// see energyDrainRate for the full table.
-	a.Energy -= energyDrainRate(a.Traits.Skill, surfKind, onGroomed) * float32(dt)
+	a.Energy -= energyDrainRate(a.Traits.Skill, surfKind, onGroomed) * (1 + underfootTiring*dislike) * float32(dt)
 	if a.Energy < 0 {
 		a.Energy = 0
 	}
@@ -1228,8 +1204,9 @@ func (s *Simulation) applyTrailEvent(a *world.Guest, kind ai.ThoughtKind) {
 func (s *Simulation) tickMood(a *world.Guest, dt float64) {
 	s.tickNeedConditions(a)
 	if !a.SkiedThisTick {
-		s.setCondition(a, ai.ThoughtLovingGlades, false)
-		s.setCondition(a, ai.ThoughtScaredInTrees, false)
+		for _, k := range underfootConditions {
+			s.setCondition(a, k, false)
+		}
 	}
 	target := a.Baseline + a.SkiTerrainPull
 	if a.Conditions != 0 {

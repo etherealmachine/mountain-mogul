@@ -43,6 +43,7 @@ const (
 // the lift they're getting off if they are.
 func (s *Simulation) startRun(a *world.Guest) {
 	a.Run = world.Run{Start: s.SimTime, StartY: a.Pos[1], LiftID: a.Unload.LiftID}
+	a.Underfoot, a.UnderfootFear = [ai.TasteCount]float32{}, 0
 }
 
 // recordRun adds one skiing tick to the guest's run: time on the trail
