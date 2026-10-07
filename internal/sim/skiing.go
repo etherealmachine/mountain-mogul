@@ -570,6 +570,7 @@ func (s *Simulation) tickFallen(a *world.Guest, dt float64) {
 		a.Balance = float32(fallStartBalance)
 		a.Speed = 0
 		a.TurnSide = 0
+		getUpClearOfTrunk(a)
 		if a.HurtGoHome {
 			// A minor injury: up again, but done for the day.
 			a.HurtGoHome = false
@@ -1160,21 +1161,78 @@ func apply(t *world.Terrain, a *world.Guest, dec Decision, perc Perception, dt f
 }
 
 // hitsTrunk reports whether the guest is within trunkHitRadius of a trunk
-// while moving toward it fast enough to hit it. Moving away doesn't
-// count, so a skier who fell against a tree can push off again.
+// while closing on it at trunkHitMinSpeed or more: their speed toward
+// it, not just their speed, so glancing past or pushing off doesn't
+// count. The trunk they last hit doesn't count until they're clear of it
+// (trunkClearDist), so a skier who fell against a tree can't keep
+// hitting it while getting going again.
 func hitsTrunk(t *world.Terrain, a *world.Guest) bool {
+	if a.HasTrunk {
+		dx, dz := a.Pos[0]-a.Trunk[0], a.Pos[2]-a.Trunk[1]
+		if dx*dx+dz*dz > trunkClearDist*trunkClearDist {
+			a.HasTrunk = false
+		}
+	}
 	if a.Speed < trunkHitMinSpeed {
 		return false
 	}
+	_, ok := trunkAhead(t, a)
+	return ok
+}
+
+// trunkAhead is the nearest trunk within trunkHitRadius that the guest
+// is closing on at trunkHitMinSpeed or more, other than the one they
+// last hit.
+func trunkAhead(t *world.Terrain, a *world.Guest) (world.Tree, bool) {
 	hx := float32(math.Sin(float64(a.Heading)))
 	hz := float32(math.Cos(float64(a.Heading)))
-	hit := false
+	var best world.Tree
+	bestD := float32(math.Inf(1))
 	t.ForEachTreeNear(a.Pos[0], a.Pos[2], trunkHitRadius, func(tr world.Tree, _, _ int) {
-		if (tr.X-a.Pos[0])*hx+(tr.Z-a.Pos[2])*hz > 0 {
-			hit = true
+		if a.HasTrunk && tr.X == a.Trunk[0] && tr.Z == a.Trunk[1] {
+			return
+		}
+		dx, dz := tr.X-a.Pos[0], tr.Z-a.Pos[2]
+		d := float32(math.Hypot(float64(dx), float64(dz)))
+		if d < 1e-3 {
+			return
+		}
+		if a.Speed*(dx*hx+dz*hz)/d >= trunkHitMinSpeed && d < bestD {
+			best, bestD = tr, d
 		}
 	})
-	return hit
+	return best, bestD < float32(math.Inf(1))
+}
+
+// trunkClearDist is how far a guest must get from the trunk they hit
+// before it can knock them down again, in metres.
+const trunkClearDist = float32(3)
+
+// getUpClearOfTrunk turns a guest who fell against a trunk to ski on
+// past it: their heading goes to whichever side of the trunk is nearer
+// their way, angled away from it, and they stand at least a metre from
+// it.
+func getUpClearOfTrunk(a *world.Guest) {
+	if !a.HasTrunk {
+		return
+	}
+	away := mgl32.Vec2{a.Pos[0] - a.Trunk[0], a.Pos[2] - a.Trunk[1]}
+	if away.Len() < 1e-3 {
+		away = mgl32.Vec2{-float32(math.Sin(float64(a.Heading))), -float32(math.Cos(float64(a.Heading)))}
+	}
+	away = away.Normalize()
+	if d := (mgl32.Vec2{a.Pos[0] - a.Trunk[0], a.Pos[2] - a.Trunk[1]}).Len(); d < 1 {
+		a.Pos[0] += away[0] * (1 - d)
+		a.Pos[2] += away[1] * (1 - d)
+	}
+	// Past the trunk on the side nearer where they're going.
+	want := mgl32.Vec2{a.Plan.Target[0] - a.Pos[0], a.Plan.Target[2] - a.Pos[2]}
+	side := mgl32.Vec2{-away[1], away[0]}
+	if want.Dot(side) < 0 {
+		side = side.Mul(-1)
+	}
+	dir := side.Add(away.Mul(0.5)).Normalize()
+	a.Heading = float32(math.Atan2(float64(dir[0]), float64(dir[1])))
 }
 
 // treeHit knocks the guest down after skiing into a trunk: a fall, and an
@@ -1185,6 +1243,9 @@ func (s *Simulation) treeHit(a *world.Guest) {
 	a.Energy = clamp32(a.Energy-energyFallDrain, 0, 1)
 	a.Events = append(a.Events, ai.GuestEvent{Kind: ai.EventFall, Time: s.SimTime})
 	injuryChance := clamp32(a.Speed/injuryMaxSpeed, 0, 1) * trunkInjuryChanceMax
+	if tr, ok := trunkAhead(s.World.Terrain, a); ok {
+		a.Trunk, a.HasTrunk = [2]float32{tr.X, tr.Z}, true
+	}
 	a.Speed = 0
 	s.applyEvent(a, ai.ThoughtHitTree)
 	if rng.Global().Float32() < injuryChance {

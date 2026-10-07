@@ -532,6 +532,9 @@ type Scenario struct {
 
 	// Trail-paint mode: while toolTrailPaint is active, the player
 	// drag-paints (left) or erases (right) cells on the active trail.
+	// fenceHour is the clock hour the fences were last built for.
+	fenceHour int
+
 	activeTrailID      uint64
 	trailDifficulty    world.TerrainDifficulty // difficulty for the next new trail
 	lastTrailPaintCell [2]int
@@ -2194,9 +2197,19 @@ func (s *Scenario) Update(dt float64) {
 // steering-debug visualisation in the debug-line buffer, and separately
 // pushes the cell overlay texture (trails + grooming routes) to the renderer.
 func (s *Scenario) updateOverlay(r *render.Renderer) {
-	// Rebuild parcel fence geometry when parcels change.
+	// Rebuild parcel fence geometry when parcels change, and every clock
+	// hour so the fences ride the snow as it falls and melts.
+	if hour := int(s.sim.SimTime / world.SimSecondsPerHour); hour != s.fenceHour {
+		s.fenceHour = hour
+		if len(s.world.SkiArea) > 0 || len(s.world.Parcels) > 0 {
+			s.parcelBoundaryDirty = true
+		}
+	}
 	if s.parcelBoundaryDirty {
 		postVerts, ropeLines := buildParcelFence(s.world)
+		skiPosts, skiRope := buildSkiAreaFence(s.world)
+		postVerts = append(postVerts, skiPosts...)
+		ropeLines = append(ropeLines, skiRope...)
 		r.SetFencePostVerts(postVerts)
 		r.SetBoundaryLines(ropeLines)
 		s.parcelBoundaryDirty = false

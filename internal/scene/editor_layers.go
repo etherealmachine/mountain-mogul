@@ -31,7 +31,10 @@ type layersPanel struct {
 	toggleBtn *ui.Button // the menu bar's Layers button
 	changeBtn *ui.Button
 	reloadBtn *ui.Button // imports the base's square again
-	reload    *reloadJob
+	osmBtn    *ui.Button // fetches the OpenStreetMap features again
+	// osmRefresh is a running OpenStreetMap refresh (editor_osm_refresh.go).
+	osmRefresh *osmRefreshJob
+	reload     *reloadJob
 
 	// queued lists world layers to run or clear, by ID. They wait a
 	// frame so the panel can show them running first.
@@ -115,6 +118,12 @@ func (p *layersPanel) layout(top float32, base *world.TerrainBase) {
 		p.reloadBtn.W, p.reloadBtn.H = 28, 28
 		p.reloadBtn.X = p.changeBtn.X - 6 - p.reloadBtn.W
 		p.reloadBtn.Y = p.changeBtn.Y
+	}
+	if p.osmBtn != nil {
+		// On the OpenStreetMap row, last, at the right.
+		p.osmBtn.W, p.osmBtn.H = 24, 24
+		p.osmBtn.X = p.x + p.w - layersPad - p.osmBtn.W
+		p.osmBtn.Y = p.rowsY + float32(rows-1)*layersRowH + (layersRowH-p.osmBtn.H)/2
 	}
 }
 
@@ -206,6 +215,7 @@ func groundOff(base *world.TerrainBase) []string {
 func (e *Editor) handleLayersInput(inp *engine.Input, top float32) {
 	e.pollLayerJob()
 	e.pollReload()
+	e.pollOSMRefresh()
 	e.runQueuedWorldLayers()
 	p := &e.layers
 	base := e.world.TerrainBase
@@ -228,6 +238,7 @@ func (e *Editor) handleLayersInput(inp *engine.Input, top float32) {
 	}
 	p.changeBtn.SetHovered(p.changeBtn.Contains(mx, my))
 	p.reloadBtn.SetHovered(base != nil && p.reload == nil && p.reloadBtn.Contains(mx, my))
+	p.osmBtn.SetHovered(base != nil && p.osmRefresh == nil && p.osmBtn.Contains(mx, my))
 	if !inp.LeftClick || inp.LeftClickConsumed || !p.contains(mx, my) {
 		return
 	}
@@ -238,6 +249,10 @@ func (e *Editor) handleLayersInput(inp *engine.Input, top float32) {
 	}
 	if base != nil && p.reload == nil && p.reloadBtn.Contains(mx, my) {
 		p.reloadBtn.Click()
+		return
+	}
+	if base != nil && p.osmRefresh == nil && p.osmBtn.Contains(mx, my) {
+		p.osmBtn.Click()
 		return
 	}
 	if base == nil || my < p.rowsY {
@@ -591,6 +606,7 @@ func (e *Editor) drawLayersPanel(r *render.Renderer, top float32) {
 	p.changeBtn.Draw(r)
 	if base != nil {
 		p.reloadBtn.Draw(r)
+		p.osmBtn.Draw(r)
 	}
 
 	stage := ""
@@ -663,6 +679,8 @@ func (e *Editor) drawLayersPanel(r *render.Renderer, top float32) {
 	case p.reload != nil:
 		stage, _, _, _ := p.reload.status()
 		status = "Reloading: " + stage + "..."
+	case p.osmRefresh != nil:
+		status = "Refreshing OpenStreetMap..."
 	case p.job != nil:
 		status = "Rebuilding the ground..."
 	case len(p.queued) > 0:

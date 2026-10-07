@@ -262,6 +262,12 @@ type Guest struct {
 	ColdSense  float32
 	Chill      float32
 
+	// Trunk is the tree trunk the guest last skied into, while they're
+	// still near it (sim.treeHit): they get up clear of it, and it can't
+	// knock them down again until they've skied away. Not saved.
+	Trunk    [2]float32
+	HasTrunk bool
+
 	// Visit is the UseService step in progress: waiting at the door
 	// for a seat or a turn at the counter, then what's needed to score
 	// it when it ends. Not saved: a loaded guest starts the step afresh.

@@ -139,9 +139,7 @@ func (e *Editor) drawSkiAreaOverlay(set func(cx, cz int, r, g, b, a uint8)) {
 			}
 		}
 	}
-	for _, o := range e.world.SkiArea {
-		shade(o, 35, 170)
-	}
+	drawSkiArea(e.world, 35, 170, set)
 	if e.activeTool != toolSkiArea || len(e.skiDraft) == 0 {
 		return
 	}

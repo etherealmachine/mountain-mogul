@@ -41,7 +41,7 @@ func (w *World) AddSkiArea(points []mgl32.Vec2) {
 		return
 	}
 	w.SkiArea = append(w.SkiArea, SkiAreaOutline{Points: append([]mgl32.Vec2(nil), points...)})
-	w.skiAreaCells = -1
+	w.skiAreaCells, w.skiAreaMask = -1, nil
 }
 
 // RemoveSkiAreaAt removes the outline around world (x, z), reporting
@@ -50,7 +50,7 @@ func (w *World) RemoveSkiAreaAt(x, z float32) bool {
 	for i, o := range w.SkiArea {
 		if o.Contains(x, z) {
 			w.SkiArea = append(w.SkiArea[:i], w.SkiArea[i+1:]...)
-			w.skiAreaCells = -1
+			w.skiAreaCells, w.skiAreaMask = -1, nil
 			return true
 		}
 	}
@@ -60,26 +60,51 @@ func (w *World) RemoveSkiAreaAt(x, z float32) bool {
 // SetSkiArea replaces the boundary (save loading).
 func (w *World) SetSkiArea(outlines []SkiAreaOutline) {
 	w.SkiArea = outlines
-	w.skiAreaCells = -1
+	w.skiAreaCells, w.skiAreaMask = -1, nil
 }
 
-// SkiAreaCells is how many terrain cells have their centre inside the
-// boundary: the skiable terrain. Cached until the boundary changes.
-func (w *World) SkiAreaCells() int {
+// SkiAreaMask is, for each terrain cell (z*Width + x), whether its
+// centre is inside the boundary; nil without one. Cached until the
+// boundary changes, so overlays can draw it every frame.
+func (w *World) SkiAreaMask() []bool {
 	if len(w.SkiArea) == 0 || w.Terrain == nil {
-		return 0
+		return nil
 	}
-	if w.skiAreaCells >= 0 {
-		return w.skiAreaCells
+	if w.skiAreaMask != nil {
+		return w.skiAreaMask
 	}
+	t := w.Terrain
+	m := make([]bool, t.Width*t.Height)
 	n := 0
-	for x := 0; x < w.Terrain.Width; x++ {
-		for z := 0; z < w.Terrain.Height; z++ {
-			if w.InSkiArea((float32(x)+0.5)*CellSize, (float32(z)+0.5)*CellSize) {
-				n++
+	for _, o := range w.SkiArea {
+		if len(o.Points) < 3 {
+			continue
+		}
+		lo, hi := o.Points[0], o.Points[0]
+		for _, p := range o.Points {
+			lo = mgl32.Vec2{min(lo[0], p[0]), min(lo[1], p[1])}
+			hi = mgl32.Vec2{max(hi[0], p[0]), max(hi[1], p[1])}
+		}
+		x0, z0 := max(int(lo[0]/CellSize), 0), max(int(lo[1]/CellSize), 0)
+		x1, z1 := min(int(hi[0]/CellSize), t.Width-1), min(int(hi[1]/CellSize), t.Height-1)
+		for z := z0; z <= z1; z++ {
+			for x := x0; x <= x1; x++ {
+				if k := z*t.Width + x; !m[k] && o.Contains((float32(x)+0.5)*CellSize, (float32(z)+0.5)*CellSize) {
+					m[k] = true
+					n++
+				}
 			}
 		}
 	}
-	w.skiAreaCells = n
-	return n
+	w.skiAreaMask, w.skiAreaCells = m, n
+	return m
+}
+
+// SkiAreaCells is how many terrain cells have their centre inside the
+// boundary: the skiable terrain.
+func (w *World) SkiAreaCells() int {
+	if w.SkiAreaMask() == nil {
+		return 0
+	}
+	return w.skiAreaCells
 }

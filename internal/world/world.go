@@ -243,6 +243,7 @@ type World struct {
 	// the cells inside it, -1 when stale.
 	SkiArea      []SkiAreaOutline
 	skiAreaCells int
+	skiAreaMask  []bool
 
 	// Goals and Rules are what the scenario asks of the player (goals.go);
 	// GoalProgress holds how each goal stands, in the same order.

@@ -95,6 +95,7 @@ func osmCounts(base *world.TerrainBase) string {
 	}
 	add(len(base.Lifts), "lift", "lifts")
 	add(len(base.Runs), "run", "runs")
+	add(len(base.Areas), "ski area", "ski areas")
 	add(len(base.Roads), "road", "roads")
 	add(len(base.Streams), "stream", "streams")
 	add(len(base.Lakes), "lake", "lakes")

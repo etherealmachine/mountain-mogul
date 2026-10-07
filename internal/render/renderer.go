@@ -1362,6 +1362,7 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	if r.overlayVertCount > 0 && r.DebugShader != nil {
 		r.DebugShader.Use()
 		r.DebugShader.SetMat4("uViewProj", vp)
+		r.DebugShader.SetVec3("uTint", mgl32.Vec3{1, 1, 1})
 		gl.DepthMask(false)
 		gl.BindVertexArray(r.overlayVAO)
 		gl.DrawArrays(gl.TRIANGLES, 0, r.overlayVertCount)
@@ -1708,6 +1709,7 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	if r.DebugShader != nil {
 		r.DebugShader.Use()
 		r.DebugShader.SetMat4("uViewProj", vp)
+		r.DebugShader.SetVec3("uTint", mgl32.Vec3{1, 1, 1})
 		if r.debugVertCount > 0 {
 			gl.BindVertexArray(r.debugVAO)
 			gl.LineWidth(2.5)
@@ -1721,6 +1723,8 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 			gl.BindVertexArray(0)
 			gl.LineWidth(1.0)
 		}
+		// Fences are in the world: lit like it, roughly.
+		r.DebugShader.SetVec3("uTint", fenceTint(light))
 		if r.fencePostVertCount > 0 {
 			gl.BindVertexArray(r.fencePostVAO)
 			gl.DrawArrays(gl.TRIANGLES, 0, r.fencePostVertCount)
@@ -2478,4 +2482,16 @@ func spinModeFor(axis string) float32 {
 		return 3.0
 	}
 	return 0.0
+}
+
+// fenceTint is about how lit something unshaded in the world is: the sky
+// fill plus the sun's share on an upright surface, so fence posts and
+// boundary rope dim at dusk and night like everything around them.
+func fenceTint(l Lighting) mgl32.Vec3 {
+	sun := max(l.SunDir[1], 0)*0.5 + 0.25
+	v := l.Ambient.Add(l.SunColor.Mul(sun))
+	for i := range v {
+		v[i] = min(max(v[i], 0.06), 1)
+	}
+	return v
 }
