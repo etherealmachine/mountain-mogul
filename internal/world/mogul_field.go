@@ -65,6 +65,15 @@ func (t *Terrain) MogulHeightAt(wx, wz float32) float32 {
 	return mogulAmp * s * mogulShape(wx, wz, dx, dz)
 }
 
+// MogulSizeAt is how big the moguls are at world (wx, wz), 0..1, from the
+// 1 m map.
+func (t *Terrain) MogulSizeAt(wx, wz float32) float32 {
+	if t.Moguls == nil {
+		return 0
+	}
+	return mogulSizeAt(t.Moguls, wx, wz)
+}
+
 // mogulSizeAt samples the map as the GPU's linear filter does, texel
 // centres at +0.5 m.
 func mogulSizeAt(m *MogulMap, wx, wz float32) float32 {

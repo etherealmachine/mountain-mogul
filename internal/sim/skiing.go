@@ -93,6 +93,12 @@ const (
 	// hazards when present. 2.5 keeps a Cruiser on corduroy about as hard
 	// as the old fixed grooming bonus did.
 	tasteSteerWeight = 2.5
+	// mogulSteerAversion × (1 − taste) is taken off every guest's moguls
+	// taste when steering: everyone but a bump skier heads for the
+	// smoother side of a mogul run, unless that side is icy or treed (both
+	// disliked too), while a guest who loves moguls outright keeps the
+	// full pull.
+	mogulSteerAversion = 0.6
 	// gladeCoverRelief is how much a love of trees lowers the tree-stand
 	// part of the hazard: a trees taste of 1 avoids stands at
 	// 1 − gladeCoverRelief strength. Individual trunks are avoided by
@@ -236,6 +242,7 @@ type Perception struct {
 
 	AtCellDensity float32
 	InTrees       bool
+	MogulSize     float32 // underfoot, from the 1 m mogul map
 }
 
 // Decision is what the controller emits each tick. Consumed by apply().
@@ -680,6 +687,7 @@ func perceive(t *world.Terrain, a *world.Guest, target mgl32.Vec3) Perception {
 		InArrival:     axisDist < ArrivalRadius,
 		AtCellDensity: atCell,
 		InTrees:       atCell > inTreesThreshold,
+		MogulSize:     t.MogulSizeAt(pos[0], pos[2]),
 	}
 }
 
@@ -720,6 +728,7 @@ func decide(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, a *world.Gue
 		worstProbe = probeL
 	}
 	targetSpeed *= 1.0 - 0.4*clamp32(worstProbe/0.4, 0, 1)
+	targetSpeed *= mogulSpeedScale(a.Traits, perc.MogulSize)
 	overspeed := float32(0)
 	if perc.Speed > targetSpeed && targetSpeed > 0.01 {
 		overspeed = (perc.Speed - targetSpeed) / targetSpeed
@@ -962,6 +971,9 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 		tastes = self.Traits.Tastes
 		coverScale = standCoverScale(tastes)
 	}
+	// Moguls are hard work: only a guest who really likes them steers in
+	// (mogulSteerAversion, fading out as the taste nears 1).
+	tastes[ai.TasteMoguls] -= mogulSteerAversion * (1 - tastes[ai.TasteMoguls])
 
 	// Current-cell grooming used as the starting point for groom-edge
 	// crossing detection. Only relevant when self.Traits.Tastes.PrefersGroomed().
@@ -1021,7 +1033,11 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 			}
 			prevGrooming = grooming
 			if cell := t.CellAtWorld(x, z); cell != nil {
-				totalTaste += tasteMatch(tastes, cellFeatures(cell, cellSlope(cell)))
+				f := cellFeatures(cell, cellSlope(cell))
+				// Moguls at 1 m, so the less skied-out edge of a run
+				// shows up.
+				f[ai.TasteMoguls] = t.MogulSizeAt(x, z)
+				totalTaste += tasteMatch(tastes, f)
 			}
 		}
 		samples[i] = sampleData{ang, totalDensity, totalTaste, boundaryHits, groomEdgeCrossings}
@@ -1270,6 +1286,7 @@ func stressDelta(traits ai.GuestTraits, perc Perception, dec Decision) float32 {
 	if perc.AtCellDensity > inTreesThreshold {
 		d -= (perc.AtCellDensity - inTreesThreshold) * 0.4
 	}
+	d -= mogulStress(traits, perc)
 
 	if d < -1 {
 		d = -1
@@ -1278,6 +1295,47 @@ func stressDelta(traits ai.GuestTraits, perc Perception, dec Decision) float32 {
 		d = 0.4
 	}
 	return d
+}
+
+// Moguls knock skiers about: balance drains by mogulBalanceCost a second
+// on full moguls at mogulRefSpeed, in proportion to size and speed, and
+// by (1 − skill)² of that, so skill absorbs it fast: a beginner on big
+// moguls at 5 m/s goes down in about seven seconds, an intermediate at
+// 8 m/s about breaks even with recovery (0.15 a second), and an expert
+// barely feels them. A love of bumps eases it by up to mogulTasteRelief.
+const (
+	mogulBalanceCost = float32(0.6)
+	mogulRefSpeed    = float32(6)
+	mogulTasteRelief = float32(0.5)
+)
+
+// Guests back off in moguls: the speed they aim for drops by up to
+// mogulSlowMax on full moguls, less with skill (an expert by
+// 1 − mogulSlowSkill of it) and less again the more they love bumps.
+const (
+	mogulSlowMax   = float32(0.5)
+	mogulSlowSkill = float32(0.6)
+)
+
+// mogulSpeedScale is what the moguls underfoot do to a guest's target
+// speed.
+func mogulSpeedScale(traits ai.GuestTraits, size float32) float32 {
+	if size <= 0.01 {
+		return 1
+	}
+	return 1 - mogulSlowMax*size*
+		(1-mogulSlowSkill*clamp32(traits.Skill, 0, 1))*
+		(1-clamp32(traits.Tastes[ai.TasteMoguls], 0, 1))
+}
+
+// mogulStress is how fast the moguls underfoot drain balance.
+func mogulStress(traits ai.GuestTraits, perc Perception) float32 {
+	if perc.MogulSize <= 0.01 || perc.Speed <= 0 {
+		return 0
+	}
+	unskill := 1 - clamp32(traits.Skill, 0, 1)
+	relief := unskill * unskill * (1 - mogulTasteRelief*max(traits.Tastes[ai.TasteMoguls], 0))
+	return mogulBalanceCost * perc.MogulSize * perc.Speed / mogulRefSpeed * relief
 }
 
 // =============================================================================
