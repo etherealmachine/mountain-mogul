@@ -171,7 +171,7 @@ Each active-skiing tick accumulates `SkierTraffic` on the cell underfoot. When t
 
 `SkierTraffic` decays 15 % per in-game day (~4-day half-life) so untrafficked runs reset between busy periods.
 
-`Grooming` decays at −0.02/s from skier passes. Moguls grow in the 1 m mogul map (`world.MogulMap`), stamped about 1 m around each skier at 0.03/s × turning (off the fall line, full at 45°) × slope (5° to 20°) × snow (at least 0.1 m SWE, 0.3× on icy surfaces) × (1 − Grooming), each pixel capped by slope (0.25 on the gentlest, 1 from 20°); `MogulSize` is each cell's average of the map ([[Moguls]]).
+`Grooming` decays at −0.02/s from skier passes. Moguls grow in the 1 m mogul map (`world.MogulMap`), stamped about 1 m around each skier at 0.03/s × turning (off the fall line, full at 45°) × slope (5° to 20°) × snow (at least 0.1 m SWE, 0.3× on icy surfaces) × (1 − Grooming), each pixel capped by slope (0.25 on the gentlest, 1 from 20°); `MogulSize` is each cell's average of the map ([[Moguls]]). A day's snowfall scales every mogul by 1 − SWE / 0.1 (`mogulFillSWE`); a warm clear day by 0.9 and a day of rain by 0.8 (`ScaleMoguls`).
 
 ---
 
@@ -182,6 +182,8 @@ When a snowcat grooms a cell (`sim/snowcats.go`):
 - Top layer Kind → **Packed Powder**
 - `Grooming` → 1.0
 - `SkierTraffic` → 0
+
+As it drives, the cat flattens the mogul map under its tiller, easing back to untouched over a metre past the tiller's edge (`FlattenMogulSwath`); moguls in a cell outside the swath stay.
 
 Grooming sets Kind rather than raising a Packed scalar. A freshly groomed run is definitively Packed Powder regardless of what Kind it was before.
 

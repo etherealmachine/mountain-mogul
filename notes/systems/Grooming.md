@@ -6,7 +6,7 @@ status: shipped
 
 # Grooming
 
-Snowcats live at a snowcat garage (a building service; a cat needs 4 garage tiles and is bought in the garage popup, see [[Patrol Day]]) and work a painted route split into one section per cat. They park while the lifts run. After closing, each active cat makes one pass of its section that night if any snow-covered cell in it has worn below 90% groomed. A groomed cell becomes packed powder with fresh corduroy, and moguls are knocked down.
+Snowcats live at a snowcat garage (a building service; a cat needs 4 garage tiles and is bought in the garage popup, see [[Patrol Day]]) and work a painted route split into one section per cat. They park while the lifts run. After closing, each active cat makes one pass of its section that night if any snow-covered cell in it has worn below 90% groomed. A groomed cell becomes packed powder with fresh corduroy, and the moguls under the tiller are flattened; the edges past the last lane stay bumpy ([[Moguls]]).
 
 Each groomed trail is laid out as side-by-side passes 4.5 m apart with a 5 m tiller: down the fall line, or along the trail on narrow runs that cross the slope, like cat tracks. Passes curve with the run and converge in gullies. A cat drives its passes in order, alternating direction, with a U-turn between neighbours and a straight transit between groups. Sections are sets of passes, assigned to garages by distance and capacity and split among a garage's cats by length. Cats still drive straight over trees between passes.
 
@@ -27,3 +27,4 @@ Spec: [[Snow Spec]]. Plan: [[Real Grooming]]. Code: `internal/sim/snowcats.go`, 
 - 2026-10-06: The garage is a building service: one snowcat per two garage tiles, parked outside the garage door; sections are shared among garages ([[Building Services]]).
 - 2026-10-06: Snowcats are bought into garage space (4 tiles each) instead of coming with tiles ([[Patrol Day]] step 2).
 - 2026-10-07: Grooming is now a taste: Cruisers and Chargers steer onto corduroy and pick lifts with groomed runs; Powder Hounds and Bump Skiers would rather the cat skipped a run ([[Snow Tastes]]).
+- 2026-10-07: Cats flatten moguls only under the tiller, not the whole cell ([[Moguls]] step 2).
