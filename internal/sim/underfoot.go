@@ -90,13 +90,16 @@ func (s *Simulation) underfootFeatures(a *world.Guest, cell *world.Cell, slope f
 // tickUnderfoot reads the snow under a skiing guest against their tastes,
 // averaged over the last few seconds of skiing: it starts and ends the
 // underfoot thoughts (fear, fearSpan past ComfortSlope at its fullest,
-// among them), and returns how much the guest dislikes what they're on,
-// for tiring.
-func (s *Simulation) tickUnderfoot(a *world.Guest, cell *world.Cell, slope, dt float32) (dislike float32) {
+// among them). It returns how much the guest dislikes what they're on,
+// for tiring; and, for the run's verdict, how well this cell suits them
+// (the sum of taste × feature) and how much fresh powder it has.
+func (s *Simulation) tickUnderfoot(a *world.Guest, cell *world.Cell, slope, dt float32) (dislike, match, powder float32) {
 	f := s.underfootFeatures(a, cell, slope)
 	t := a.Traits.Tastes
 	blend := min(dt/underfootSmoothSec, 1)
+	powder = f[ai.TastePowder]
 	for k := range f {
+		match += t[k] * f[k]
 		a.Underfoot[k] += (t[k]*f[k] - a.Underfoot[k]) * blend
 		m := a.Underfoot[k]
 		dislike += max(0, -m)
@@ -115,5 +118,5 @@ func (s *Simulation) tickUnderfoot(a *world.Guest, cell *world.Cell, slope, dt f
 	a.UnderfootFear += (clamp32((slope-a.Traits.ComfortSlope)/fearSpan, 0, 1) - a.UnderfootFear) * blend
 	fear := a.UnderfootFear
 	s.setCondition(a, ai.ThoughtTooSteep, fear >= 0.5 || (a.Conditions.Has(ai.ThoughtTooSteep) && fear >= 0.2))
-	return dislike
+	return dislike, match, powder
 }

@@ -403,6 +403,10 @@ const (
 	ThoughtIcy          // an icy surface, for someone who minds
 	ThoughtTooSteep     // well past their comfortable slope
 
+	// Run verdicts by taste (sim.judgeRun).
+	ThoughtFirstTracks  // a powder lover skied fresh untracked powder
+	ThoughtMiserableRun // the snow all the way down was what they dislike
+
 	// Services.
 	ThoughtGoodMeal   // finished a meal at a food court
 	ThoughtGoodDrink  // finished a drink at a bar
@@ -445,7 +449,9 @@ var Effects = [ThoughtKindCount]Effect{
 	ThoughtLongLine:          {Satisfaction: -0.08},
 	ThoughtLineTooLong:       {Satisfaction: -0.08},
 	ThoughtLovingCorduroy:    {},                    // why a run was great (sim.judgeRun): a report, no effect of its own
-	ThoughtGreatRun:          {Satisfaction: +0.04}, // scaled down by repeats (sim.judgeRun)
+	ThoughtGreatRun:          {Satisfaction: +0.04}, // scaled by taste and down by repeats (sim.judgeRun)
+	ThoughtFirstTracks:       {Satisfaction: +0.04},
+	ThoughtMiserableRun:      {Satisfaction: -0.05},
 	ThoughtTooHard:           {Satisfaction: -0.08},
 	ThoughtCrowdedRun:        {Satisfaction: -0.05},
 	ThoughtFellUnloading:     {Satisfaction: -0.05},
@@ -560,6 +566,8 @@ var thoughtText = [ThoughtKindCount]string{
 	ThoughtHatingBumps:       "these bumps are killing me",
 	ThoughtIcy:               "it's sheet ice up here",
 	ThoughtTooSteep:          "this is way too steep for me",
+	ThoughtFirstTracks:       "first tracks!",
+	ThoughtMiserableRun:      "that run was miserable",
 	ThoughtGoodMeal:          "that meal hit the spot",
 	ThoughtGoodDrink:         "just what I needed",
 	ThoughtRested:            "good to sit down for a bit",
@@ -617,6 +625,8 @@ var ThoughtChartColor = [ThoughtKindCount][4]float32{
 	ThoughtHatingBumps:       {0.85, 0.55, 0.30, 1},
 	ThoughtIcy:               {0.60, 0.80, 0.95, 1},
 	ThoughtTooSteep:          {0.95, 0.35, 0.20, 1},
+	ThoughtFirstTracks:       {0.85, 0.95, 1.00, 1},
+	ThoughtMiserableRun:      {0.70, 0.30, 0.30, 1},
 	ThoughtGoodMeal:          {0.95, 0.75, 0.35, 1},
 	ThoughtGoodDrink:         {0.40, 0.80, 0.95, 1},
 	ThoughtRested:            {0.70, 0.85, 0.50, 1},
@@ -738,6 +748,14 @@ func (t Thought) Display(resolve func(uint64) string) string {
 	case ThoughtTooEasy:
 		if n := name(0); n != "" {
 			return n + " is too easy, I want something harder"
+		}
+	case ThoughtFirstTracks:
+		if n := name(0); n != "" {
+			return "first tracks on " + n + "!"
+		}
+	case ThoughtMiserableRun:
+		if n := name(0); n != "" {
+			return n + " was miserable"
 		}
 	case ThoughtCrowdedRun:
 		if n := name(0); n != "" {

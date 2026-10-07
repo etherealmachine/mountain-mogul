@@ -1048,6 +1048,8 @@ func (s *Simulation) pushSnowLayer(dw DayWeather) {
 			}
 
 			c.Grooming *= 1 - burialFactor
+			// Fresh snow buries the old tracks: untracked again.
+			c.SkierTraffic *= 1 - burialFactor
 		}
 	}
 	// What steep ground can't hold sluffs down to where it can.

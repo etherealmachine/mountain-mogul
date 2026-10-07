@@ -338,8 +338,8 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 	}
 	const groomingThreshold = 0.50
 	onGroomed := grooming >= groomingThreshold
-	dislike := s.tickUnderfoot(a, cell, perc.SlopeAngle, float32(dt))
-	s.recordRun(a, cx, cz, grooming, perc.SlopeAngle, float32(dt))
+	dislike, match, powder := s.tickUnderfoot(a, cell, perc.SlopeAngle, float32(dt))
+	s.recordRun(a, cell, cx, cz, grooming, perc.SlopeAngle, match, powder, float32(dt))
 
 	a.SkiedThisTick = true
 

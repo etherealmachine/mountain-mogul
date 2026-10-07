@@ -31,6 +31,18 @@ const (
 	// greatRunMinVertical is the least height, in metres, for a run to be
 	// a great one: a beginner hill's worth.
 	greatRunMinVertical = float32(40)
+	// runMiserable is the average taste match at or below which a run
+	// was miserable for the guest (their dislikes all the way down), and
+	// can't be great.
+	runMiserable = float32(-0.3)
+	// First tracks: a powder lover (powder taste ≥ firstTracksLover) who
+	// skied fresh powder for at least firstTracksShare of the run. Fresh
+	// means a powder feature of freshPowderMin on a cell with less than
+	// freshTrafficMax of SkierTraffic since it fell.
+	firstTracksLover = float32(0.4)
+	firstTracksShare = float32(1.0 / 3)
+	freshPowderMin   = float32(0.5)
+	freshTrafficMax  = float32(0.5)
 	// A great run's bonus to the score shrinks by these factors for
 	// each great run the guest already had today on the same trail and
 	// off the same lift: repeats of one trail wear off fast, and many
@@ -48,12 +60,17 @@ func (s *Simulation) startRun(a *world.Guest) {
 
 // recordRun adds one skiing tick to the guest's run: time on the trail
 // under them (or off-trail), steepness against their comfort, skiers
-// nearby, grooming, and distance.
-func (s *Simulation) recordRun(a *world.Guest, cx, cz int, grooming, slope, dt float32) {
+// nearby, grooming, how well the snow suits them (match, from
+// tickUnderfoot), fresh untracked powder, and distance.
+func (s *Simulation) recordRun(a *world.Guest, cell *world.Cell, cx, cz int, grooming, slope, match, powder, dt float32) {
 	r := &a.Run
 	r.Time += dt
 	r.Distance += a.Speed * dt
 	r.Groomed += grooming * dt
+	r.Taste += match * dt
+	if cell != nil && powder >= freshPowderMin && cell.SkierTraffic < freshTrafficMax {
+		r.Fresh += dt
+	}
 	if slope > a.Traits.ComfortSlope+runSteepMargin {
 		r.Steep += dt
 	}
@@ -74,7 +91,11 @@ func (s *Simulation) recordRun(a *world.Guest, cx, cz int, grooming, slope, dt f
 	r.Crowd += float32(near) * dt
 }
 
-// judgeRun turns a finished run into thoughts. The run's difficulty is
+// judgeRun turns a finished run into thoughts and its score. How well the
+// snow suited the guest (the run's average taste match) scales a great
+// run's bonus by 1 + the match; a run at or below runMiserable is
+// miserable instead. A powder lover who skied enough fresh, untracked
+// powder gets first tracks. The run's difficulty is
 // the trail difficulty it spent the most time on, compared with the
 // guest's level: easier keeps or starts the too-easy condition, at or
 // above their level ends it, and above it (or too much time on slopes
@@ -100,6 +121,13 @@ func (s *Simulation) judgeRun(a *world.Guest) {
 	tooHard := r.Steep >= runSteepShare*r.Time || (main >= 0 && main > level)
 	crowded := r.Crowd/r.Time >= runCrowded
 	fell := fellSince(a, r.Start)
+	taste := clamp32(r.Taste/r.Time, -1, 1)
+	if taste <= runMiserable {
+		s.applyEvent(a, ai.ThoughtMiserableRun, trail)
+	}
+	if a.Traits.Tastes[ai.TastePowder] >= firstTracksLover && r.Fresh >= firstTracksShare*r.Time {
+		s.applyEvent(a, ai.ThoughtFirstTracks, trail)
+	}
 
 	if main >= 0 {
 		s.setCondition(a, ai.ThoughtTooEasy, main < level, trail)
@@ -110,7 +138,7 @@ func (s *Simulation) judgeRun(a *world.Guest) {
 	if crowded {
 		s.applyEvent(a, ai.ThoughtCrowdedRun, trail)
 	}
-	great := main == level && !tooHard && !crowded && !fell && r.StartY-a.Pos[1] >= greatRunMinVertical
+	great := main == level && !tooHard && !crowded && !fell && taste > runMiserable && r.StartY-a.Pos[1] >= greatRunMinVertical
 	var trailGreats, liftGreats int32
 	if trail != 0 {
 		a.TrailTally, trailGreats = world.CountRun(a.TrailTally, trail, great)
@@ -124,7 +152,7 @@ func (s *Simulation) judgeRun(a *world.Guest) {
 		if a.Traits.Tastes.PrefersGroomed() && r.Groomed >= 0.9*r.Time {
 			s.recordThought(a, ai.ThoughtLovingCorduroy, trail)
 		}
-		scale := math.Pow(greatRunTrailRepeat, float64(trailGreats)) * math.Pow(greatRunLiftRepeat, float64(liftGreats))
+		scale := math.Pow(greatRunTrailRepeat, float64(trailGreats)) * math.Pow(greatRunLiftRepeat, float64(liftGreats)) * float64(1+taste)
 		s.applyEventScaled(a, ai.ThoughtGreatRun, float32(scale), trail)
 	}
 }
