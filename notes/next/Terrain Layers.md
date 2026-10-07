@@ -66,3 +66,4 @@ Terrain passes run as layers in a Layers panel in the [[Scenario Editor]] instea
 - 2026-10-06: Lakes joins as the last ground layer, with no slider: OpenStreetMap lakes levelled to their water surface ([[Creeks and Lakes]]).
 - 2026-10-06: Creeks joins as a ground layer, between Erode and Lakes, with no slider ([[Creeks and Lakes]]).
 - 2026-10-07: Auto snow replays the season's actual weather instead of monthly averages; `tools/redress` reruns the world layers on a save.
+- 2026-10-07: Note: rebuilding the layers discards the editor's ground brush edits ([[Scenario Editor]]).

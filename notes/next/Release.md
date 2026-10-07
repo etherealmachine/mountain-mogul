@@ -23,9 +23,9 @@ A different build, not a mode of the full game:
 ## Open questions
 
 - What early access ships with beyond the demo: the rest of the [[Scenario Campaign]], the editor, and which [[Services]].
-- Guest types before their DLC: about 20% of guests already roll snowboard ([[Guest Types]]) and ride as skiers; whether the base game keeps them as skiers, hides them, or drops the roll.
 - Whether the demo's saves carry over into the full game.
 
 ## Log
 
 - 2026-10-07: Release path from the user: free Steam demo as its own stripped build, early access, guest types as DLC.
+- 2026-10-07: Dropped the snowboard roll until the DLC ([[Guest Types]]).
