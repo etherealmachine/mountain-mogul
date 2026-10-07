@@ -9,14 +9,14 @@ import (
 	"mountain-mogul/internal/world"
 )
 
-// SeasonSnowpack is a typical season's snowpack for a place, day by day
-// from 1 September, from its climate and the melt model the sim uses
-// (snowmelt.go). It's a mean season: every day gets its month's average
-// snowfall and temperature, with the day-to-day temperature spread folded
-// into the degree-days, so it reads like the snow-station median rather
-// than any one year. It's tabled by altitude, by slope (the elevation
-// gradient) and by how much of the sun the surrounding terrain lets
-// through, so lookups for every cell are cheap.
+// SeasonSnowpack is a season's snowpack for a place, day by day from 1
+// September: the weather chain's days for that season (the same ones the
+// sim plays, Chain.RunUpTo) run through the melt model the sim uses
+// (snowmelt.go). Each day brings its own snowfall, rain, high and low,
+// and cloud, lapsed from the base area to each altitude band. It's
+// tabled by altitude, by slope (the elevation gradient) and by how much
+// of the sun the surrounding terrain lets through, so lookups for every
+// cell are cheap.
 type SeasonSnowpack struct {
 	Start time.Time // 1 September of the season
 
@@ -34,23 +34,16 @@ const (
 	packGradSteps  = 9   // gradient samples per axis, from -packGradMax to packGradMax
 	packGradMax    = 1.2 // rise/run; steeper ground clamps to it
 	packShadeSteps = 3   // sun let through by terrain: 0, ½, 1
-	packTempSpread = 4   // °C, day-to-day spread of the daily mean
 	packRecentDays = 7
 )
 
 // packClasses is the slope and shade classes per altitude band.
 const packClasses = packGradSteps * packGradSteps * packShadeSteps
 
-// spreadNodes and spreadWeights are 3-point Gauss–Hermite quadrature for
-// a normal spread of packTempSpread around the month's mean temperature.
-var (
-	spreadNodes   = [3]float32{-1.7320508 * packTempSpread, 0, 1.7320508 * packTempSpread}
-	spreadWeights = [3]float32{1.0 / 6, 2.0 / 3, 1.0 / 6}
-)
-
 // NewSeasonSnowpack runs the season starting 1 September of year for
-// climate c at latitude latDeg, for altitudes minAlt to maxAlt.
-func NewSeasonSnowpack(c *world.Climate, latDeg float64, year int, minAlt, maxAlt float32) *SeasonSnowpack {
+// climate c at latitude latDeg, for altitudes minAlt to maxAlt, with the
+// weather at baseAlt as the sim has it (NewChainFor).
+func NewSeasonSnowpack(c *world.Climate, latDeg float64, year int, baseAlt, minAlt, maxAlt float32) *SeasonSnowpack {
 	s := &SeasonSnowpack{
 		Start: time.Date(year, time.September, 1, 0, 0, 0, 0, time.UTC),
 		alt0:  minAlt,
@@ -60,17 +53,18 @@ func NewSeasonSnowpack(c *world.Climate, latDeg float64, year int, minAlt, maxAl
 	n := s.days * s.nAlt * packClasses
 	s.swe, s.recent = make([]float32, n), make([]float32, n)
 
-	// Per day: the month's interpolated climate and each slope class's sun.
+	// Per day: the weather at the base and each slope class's sun.
 	type dayInputs struct {
-		cm       world.ClimateMonth
+		wx       DayWeather
 		exposure [packGradSteps * packGradSteps]float32
 	}
 	inputs := make([]dayInputs, s.days)
+	chain := NewChainFor(c, baseAlt)
 	for d := range inputs {
 		date := s.Start.AddDate(0, 0, d)
 		in := &inputs[d]
-		in.cm = climateOn(c, date)
-		sun := newDaySun(latDeg, date, in.cm.Cloud)
+		in.wx = chain.Advance(date)
+		sun := newDaySun(latDeg, date, in.wx.CloudCover)
 		for gj := 0; gj < packGradSteps; gj++ {
 			for gi := 0; gi < packGradSteps; gi++ {
 				in.exposure[gj*packGradSteps+gi] = sun.exposure(gradSample(gi), gradSample(gj))
@@ -87,21 +81,17 @@ func NewSeasonSnowpack(c *world.Climate, latDeg float64, year int, minAlt, maxAl
 			fell := make([]float32, packRecentDays)
 			for a := range bands {
 				alt := s.alt0 + float32(a)*packAltStep
+				lapse := lapseRate * (alt - baseAlt)
 				for k := 0; k < packClasses; k++ {
 					g, shade := k/packShadeSteps, float32(k%packShadeSteps)/(packShadeSteps-1)
 					var swe, recent float32
 					clear(fell)
 					for d := range inputs {
 						in := &inputs[d]
-						temp := in.cm.TempMean - lapseRate*(alt-c.RefAltitude)
-						wetMM := in.cm.WetDays * in.cm.WetMM
-						snowFrac := 1 - clamp32((temp+1)/5, 0, 1)
-						snow := wetMM * snowFrac / 1000
-						var pdd float32
-						for q, dt := range spreadNodes {
-							pdd += spreadWeights[q] * positiveDegreeDays(temp+dt, in.cm.TempRange/2)
-						}
-						melt := meltFactor(in.exposure[g]*shade)*pdd + wetMM*(1-snowFrac)*rainMeltPerMM
+						mean := (in.wx.TempHigh+in.wx.TempLow)/2 - lapse
+						half := (in.wx.TempHigh - in.wx.TempLow) / 2
+						snow := in.wx.AccumSWE
+						melt := meltFactor(in.exposure[g]*shade)*positiveDegreeDays(mean, half) + in.wx.RainMM*rainMeltPerMM
 						swe = max(swe+snow-melt, 0)
 						recent += snow - fell[d%packRecentDays]
 						fell[d%packRecentDays] = snow

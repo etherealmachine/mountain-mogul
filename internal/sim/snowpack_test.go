@@ -20,7 +20,7 @@ func testClimate() *world.Climate {
 }
 
 func TestSeasonSnowpack(t *testing.T) {
-	p := NewSeasonSnowpack(testClimate(), 40, 2026, 1500, 3000)
+	p := NewSeasonSnowpack(testClimate(), 40, 2026, 1500, 1500, 3000)
 	at := func(date string, alt, gz float32) float32 {
 		d, _ := time.Parse("2006-01-02", date)
 		swe, recent := p.At(p.Day(d), alt, 0, gz, 1)

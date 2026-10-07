@@ -188,8 +188,10 @@ func NewSimulationWithSeed(w *world.World, seed int64) *Simulation {
 	// Start the demand poll timer at the loaded clock so the first poll
 	// covers one interval, not the whole elapsed season.
 	sim.Demand.LastPoll = w.SimTime
-	// Sample today's weather for the world's current date so an October
-	// start opens on October weather rather than NewChain's placeholder.
+	// Run the weather through the season so far, then sample today's, so
+	// the season continues the one the starting snow was laid from
+	// (SeasonSnowpack) and an October start opens on October weather.
+	sim.Weather.RunUpTo(sim.DateAt(w.SimTime))
 	sim.closedForDay = sim.ClosedForDay()
 	w.ClosedForDay = sim.closedForDay
 	sim.yesterday = sim.Weather.Advance(sim.DateAt(w.SimTime))

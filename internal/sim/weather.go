@@ -88,6 +88,25 @@ func NewChainFor(c *world.Climate, baseAltitude float32) *Chain {
 	return ch
 }
 
+// SeasonStart is 1 September of the ski season date falls in.
+func SeasonStart(date time.Time) time.Time {
+	year := date.Year()
+	if date.Month() < time.September {
+		year--
+	}
+	return time.Date(year, time.September, 1, 0, 0, 0, 0, time.UTC)
+}
+
+// RunUpTo advances the chain through every day from the start of date's
+// season to the day before date, so date's weather continues the season
+// that led to it, the same season SeasonSnowpack replays.
+func (c *Chain) RunUpTo(date time.Time) {
+	end := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, time.UTC)
+	for d := SeasonStart(date); d.Before(end); d = d.AddDate(0, 0, 1) {
+		c.Advance(d)
+	}
+}
+
 // Today returns the most recently generated day's weather without advancing.
 func (c *Chain) Today() DayWeather { return c.today }
 
@@ -237,34 +256,40 @@ var persistence = [weatherStateCount]float32{
 }
 
 // stateTempOffset[s] shifts the month's meanTempC when this state is active.
-// Snow states push colder; rain pushes warmer (physically motivated).
+// Snow states push colder; rain pushes warmer. Clear days get only a
+// little: their warm afternoons come from the wide daily swing, and
+// adding both made clear winter days 15–20 °C too warm.
 var stateTempOffset = [weatherStateCount]float32{
-	+4, // Clear — radiant warming
-	0,  // Overcast
-	-2, // LightSnow
-	-5, // HeavySnow
-	+5, // Rain — requires above-freezing air mass
+	+1,   // Clear
+	0,    // Overcast
+	-1.5, // LightSnow
+	-3,   // HeavySnow
+	+3,   // Rain — requires above-freezing air mass
 }
 
 // stateTempNoise[s] is the standard deviation of the daily temperature sample.
 var stateTempNoise = [weatherStateCount]float32{
-	4, // Clear
-	4, // Overcast
-	3, // LightSnow
-	3, // HeavySnow
-	3, // Rain
+	3,   // Clear
+	3,   // Overcast
+	2.5, // LightSnow
+	2.5, // HeavySnow
+	2.5, // Rain
 }
 
 // stateDiurnal[s] is the half-swing of the daily temperature cycle in °C.
 // Added to the mean to get TempHigh and subtracted to get TempLow.
 // Clear days have the largest swing (cold nights, warm sun); storm/overcast
-// days suppress radiation and narrow the range.
+// days suppress radiation and narrow the range. A climate scales them all
+// by one factor so the month's average swing matches the record
+// (climateProfiles), so their ratios matter as much as their sizes: kept
+// close enough that a mostly cloudy month doesn't stretch clear days to
+// a 20 °C swing.
 var stateDiurnal = [weatherStateCount]float32{
-	5.0, // Clear — strong radiative swing
-	2.5, // Overcast — clouds act as blanket
-	2.0, // LightSnow — overcast + latent heat narrow the range
-	1.5, // HeavySnow — blizzard; near-uniform temperature
-	2.5, // Rain — moderate swing; warm air mass
+	6.5, // Clear — strong radiative swing
+	4.5, // Overcast — clouds act as blanket
+	3.5, // LightSnow — overcast + latent heat narrow the range
+	2.5, // HeavySnow — blizzard; near-uniform temperature
+	3.5, // Rain — moderate swing; warm air mass
 }
 
 // cloudBase[s] and cloudNoise[s] define the cloud-cover range per state.

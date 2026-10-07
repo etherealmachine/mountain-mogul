@@ -232,7 +232,7 @@ func snowpackFor(w *world.World, c *layerCache) *sim.SeasonSnowpack {
 	if c.pack == nil || c.pack.Start.Year() != year {
 		f := c.fieldsFor(w.Terrain)
 		const margin = 100 // metres, for later raising and lowering
-		c.pack = sim.NewSeasonSnowpack(w.Climate, sim.SiteOf(w).LatDeg, year,
+		c.pack = sim.NewSeasonSnowpack(w.Climate, sim.SiteOf(w).LatDeg, year, w.BaseAltitude+f.minE,
 			w.BaseAltitude+f.minE-margin, w.BaseAltitude+f.maxE+margin)
 	}
 	return c.pack
