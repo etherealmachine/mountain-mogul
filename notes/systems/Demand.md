@@ -6,7 +6,7 @@ status: partial
 
 # Demand
 
-Where guests come from. A fixed catchment of guests, each with a skill and a daily budget, is polled every 30 sim-seconds. Each guest at home rolls to arrive based on the resort rating, how well the terrain suits their skill (full rate with a trail at their level, 0.4 with only easier ones), how crowded the [[Lifts]] are, and whether the day ticket plus parking fits their budget. Arrivals follow the clock: a morning rush, nobody in the last hour, nobody while the resort is closed.
+Where guests come from. A fixed catchment of guests, each with a skill and a daily budget, is polled every 30 sim-seconds. Each guest at home rolls to arrive based on the resort rating, how well the terrain suits their skill (full rate with a trail at their level, 0.4 with only easier ones), how crowded the [[Lifts]] are, and whether the day ticket plus parking fits their budget. Arrivals follow each guest's preferred time (`Guest.ArrivalOffset`, hours after opening): a quarter are eager, arriving 1.5 to 2.5 hours early to be in line when the lifts start; half come from an hour before opening to an hour and a half after; a quarter come 1.5 to 4 hours after. Each guest's arrivals spread about 20 minutes around their time. Nobody arrives in the last hour or while the resort is closed, and the mountain opens to arrivals three hours before the lifts. Guests can line up at a lift that's switched on but not yet running, without losing patience.
 
 The resort rating is the average final [[Satisfaction]] of the guests who left the day before, set at midnight. A better rating draws more guests and lets the resort charge more before they balk.
 
@@ -26,3 +26,4 @@ Spec: [[Demand Spec]]. Code: `internal/sim/demand.go`.
 - 2026-10-06: The guest pool comes from the road entries' pools when a map has entries (each guest lives beyond one), else the default 10,000 ([[Transit]]).
 - 2026-10-06: Arrivals come in carloads that drive in from their entry ([[Transit]] step 2); guests in arriving cars count toward occupancy, and the parking share in the price factor is the fee ÷ 2.4, the mean carload.
 - 2026-10-07: The rating became the day's average departing satisfaction; guests come at 0.4 rate when only easier terrain exists ([[Satisfaction Rework]]).
+- 2026-10-07: Per-guest preferred arrival times; arrivals from three hours before opening.

@@ -491,7 +491,7 @@ Every change is reported by a thought, and no thought changes a stat by itself.
 | `ThoughtGreatRun` | +0.04 | `judgeRun` |
 | `ThoughtTooHard` | −0.08 | `judgeRun` |
 | `ThoughtCrowdedRun` | −0.05 | `judgeRun` |
-| `ThoughtLovingCorduroy` | +0.05 | `judgeRun`, a `Tastes.PrefersGroomed` guest on a run ≥ 90% groomed |
+| `ThoughtLovingCorduroy` | none | `judgeRun`: why a great run was great, for a `Tastes.PrefersGroomed` guest on a run ≥ 90% groomed; recorded just before the great run, no effect of its own |
 
 **Runs.** Each descent step (`SkiToLift`, `SkiToLodge`, `SkiToParking`, `SkiTrail`) starts a `Guest.Run` (`startRun`). Every skiing tick adds to it (`recordRun`): seconds on green, blue, and black trail cells (`World.TrailAt`, an index rebuilt with the trail graph) or off-trail, seconds on up to four trails, seconds more than 5° past `ComfortSlope`, other moving skiers within about 7 m × seconds, grooming × seconds, distance, and the starting elevation. When the step completes, `judgeRun` scores runs of 20 s or more. The run's difficulty is the one with the most time, counted when at least half the run was on trails. Too hard: a difficulty above the guest's level, or a quarter of the run past the steep margin. Crowded: on average 1.5 or more skiers nearby. Great: at their level, not too hard, not crowded, no fall since the start, and at least 40 m of vertical. Thoughts name the run's main trail.
 
