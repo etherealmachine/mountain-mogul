@@ -14,7 +14,9 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 
 In the order to work on them:
 
-1. **Fix how services work**: the investigate-and-report items under Bugs and Guests (patrol, grooming, thirst, exhaustion, falls), in the new service model. Patrol is diagnosed and planned as [[Patrol Day]] (steps 1–5 done: rarer injuries with a ten-minute wait, garage space, the patrol morning, snowmobile or lift-and-ski response, toboggans; patrol rescues again; step 6, hiking to any injury, fixed a no-response bug found in play; step 7, response time in satisfaction, is left); grooming, thirst, exhaustion, and falls are next to diagnose.
+1. [[Satisfaction Rework]]: stats change per tick and on events from one effects table, thoughts become read-only reports counted once per episode, departures record a reason, the rating becomes the day's average satisfaction, and each service is defined by its stat effects. Takes over [[Patrol Day]] step 7 (response time in satisfaction).
+2. [[Snow Tastes]]: continuous taste affinities per guest (groomed, powder, moguls, trees, steep, ice, crowds), shown to the player as an archetype label. Snow underfoot moves the mood target, each run ends in an event, guests choose lifts and trails by taste, and repeated laps get boring.
+3. **Fix how services work**: the investigate-and-report items under Bugs and Guests (patrol, grooming, thirst, exhaustion, falls), in the new service model. Patrol is fixed by [[Patrol Day]] (steps 1–6 done; step 7 moved into [[Satisfaction Rework]]). Falls and grooming are next to diagnose; thirst and exhaustion are re-measured after Satisfaction Rework steps 2 and 4, since much of each is how thoughts are counted.
 
 Then: **gameplay before scenario goals**. A headless three-lift Boreal (2026-10-06) runs about 70 guests a day with the rating stuck near 30%, so goals can't be set until guests can have a good day. Priority 1 covers the investigate-and-report items; then the guest pool per scenario ([[First Week Balance]]). [[Scenario Goals and Rules]] steps 1–4 shipped and are tabled until then.
 
@@ -57,7 +59,7 @@ Found 2026-10-06 in a headless three-lift [[Boreal]] (three lifts, a green, blue
 - **Backcountry**: gates through the boundary to terrain with no patrol or grooming, for experts only. *Needs* the boundary from [[Land and Boundaries]].
 - **Cat trails**: easy, narrow ways down for beginners that get crowded.
 - **Cat skiing**: snowcats carry advanced guests to ungroomed terrain. *For* the Revelstoke idea in [[Scenario Campaign]].
-- **Guests react to trunks**: glade-loving and tree-shy guests respond to trunks nearby instead of the cell's tree cover ([[Stored Trees]]). *For* [[Asahidake]].
+- **Guests react to trunks**: glade-loving and tree-shy guests respond to trunks nearby instead of the cell's tree cover ([[Stored Trees]]). The trees taste in [[Snow Tastes]] reads this once it exists. *For* [[Asahidake]].
 - **Editor glade tools**: a glade highlight and thinning slider in the [[Scenario Editor]], matching the play tool.
 - **Real-world features from OpenStreetMap**: pick real lifts, roads, and parking structures and build them into the scenario. The editor's OpenStreetMap overlay already draws the lifts, runs, and roads on the ground with labels ([[Scenario Editor]]); left are parking and buildings (not fetched yet) and picking a feature to build from it.
 - **Biomes**: forested, sub-alpine, and alpine zones changing build cost, grooming quality, and injury risk.
@@ -81,17 +83,17 @@ Found 2026-10-06 in a headless three-lift [[Boreal]] (three lifts, a green, blue
 
 ## Guests ([[GOAP]], [[Satisfaction]], [[Guest Types]])
 
-- **Thirst and hunger repeat too often**: in the three-lift test, about 35 "I need something to drink" and 10 "I could really use a meal" thoughts per guest visit, with a bar and food court at the base ([[Satisfaction]]). Diagnose: guests not reaching the bar, needs falling too fast, or the thought repeating every tick.
-- **Everyone leaves exhausted**: almost every guest left on "I'm too tired to ski" (−0.15), so the day ends on a bad note even for a good visit. Diagnose whether energy drains too fast, or whether a normal end of day should leave on a neutral or happy thought instead. Also seen on the Boreal rig (2026-10-06): guests still skiing two to three hours after the lifts close.
+- **Thirst and hunger repeat too often**: in the three-lift test, about 35 "I need something to drink" and 10 "I could really use a meal" thoughts per guest visit, with a bar and food court at the base ([[Satisfaction]]). Diagnose: guests not reaching the bar, needs falling too fast, or the thought repeating every tick. Partly found 2026-10-07: condition thoughts are re-added every 12 sim seconds while the condition holds, so one thirsty stretch counts many times; fixed by [[Satisfaction Rework]] step 2, then re-measure.
+- **Everyone leaves exhausted**: almost every guest left on "I'm too tired to ski" (−0.15), so the day ends on a bad note even for a good visit. Diagnose whether energy drains too fast, or whether a normal end of day should leave on a neutral or happy thought instead. Partly found 2026-10-07: the exit chart shows each guest's last thought, not why they left, and exhaustion costs no satisfaction in the sim (only the chart weights it); departure reasons come in [[Satisfaction Rework]] step 4. Also seen on the Boreal rig (2026-10-06): guests still skiing two to three hours after the lifts close.
 - **Falls**: about 3 falls and 3 injuries per guest visit on plain green, blue, and black trails. Check skill matching and fall rates ([[Skiing]]).
 - **Guest pool per scenario**: done through [[Transit]]: each road entry has its own guest pool, so a scenario's catchment is the sum of its entries' pools. Boreal has two entries totalling 100,000 guests, enough for about 3,000 a day at a perfect rating.
-- **What each skill wants**: beginners want rentals and easy terrain; intermediates want terrain plus food and places to rest; advanced skiers want terrain and no crowds. Feeds [[Demand]] and [[Satisfaction]]. *For* [[Kirkwood]].
+- **What each skill wants**: the terrain half is in [[Snow Tastes]]. Beginners want rentals and easy terrain; intermediates want terrain plus food and places to rest; advanced skiers want terrain and no crowds. Feeds [[Demand]] and [[Satisfaction]]. *For* [[Kirkwood]].
 - **Snowboarders**: guests already roll Snowboard but still ski and look like skiers.
 - **Children and families**: their own guest type, arriving and moving as a group.
-- **Guest goals beyond lapping**: hunt powder, find the shortest line, go to après-ski, stay near the lodge. Powder hunting is *for* [[Asahidake]].
+- **Guest goals beyond lapping**: find the shortest line, go to après-ski, stay near the lodge. Powder hunting moved to [[Snow Tastes]].
 - **Regulars**: guests who remember their last visit and come back, or don't. *For* [[Mad River Glen]].
-- **Crowding**: guests notice crowded runs and lodges, not only lift lines. *For* [[Mad River Glen]].
-- **Mogul lovers**: guests who seek moguls, and an expert bombing a mogul run entertaining the lift above.
+- **Crowding**: guests notice crowded lodges, not only lift lines; crowded runs are in [[Snow Tastes]]. *For* [[Mad River Glen]].
+- **Mogul lovers**: an expert bombing a mogul run entertaining the lift above. Guests who seek moguls are the Bump Skier in [[Snow Tastes]].
 - **Non-skiing guests**: come for attractions, food, and the village. *Needs* attractions (under Real estate and attractions).
 - **Named complaints**: rating feedback that lists the top complaints (long lines, wrong difficulty, falls, full parking).
 - **Guest trip history**: a gameplay version of the follow-guest panel with runs taken, vertical, and time on the mountain.
@@ -210,3 +212,5 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-06: Planned [[Building Tool]] (shell first, then rooms), unranked.
 - 2026-10-06: [[Rotated Buildings]] done (Boreal rebuilt); fixing services is now priority 1.
 - 2026-10-06: [[Patrol Day]]: patrollers hike to any injury; helivac and overtime noted for later.
+- 2026-10-07: [[Satisfaction Rework]] planned with the user and ranked first; Fix how services work moves to second.
+- 2026-10-07: [[Snow Tastes]] planned with the user and ranked second; folded in the terrain half of skill wants, mogul lovers, powder hunting, and crowded runs.
