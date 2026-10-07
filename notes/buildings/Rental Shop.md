@@ -12,7 +12,7 @@ In the season story it sits on the walk from parking to [[Tickets]] to the lift.
 
 It gates getting on the mountain at all, alongside [[Tickets]]. Guests roll whether they came without skis each visit: half of beginners, 15% of intermediates, 5% of advanced, never a pass holder; they bring the rental money on top of their budget. Until they rent they can't join a lift line, so their first stop is the shop (15 clock minutes, 3 guests a tile at once, a line at the door when full). With no rental shop at the resort, they rent in town on the way instead, on their own money ("had to rent skis in town", −0.02), so the resort misses the sale; and half of those who'd rent stay home (`NoRentalsStayHome` in the demand poll: about a quarter of beginners). If a shop exists but rentals become impossible or far too dear mid-day, a guest still needing skis goes home ("nowhere to rent skis", "Couldn't rent skis"). ([[Service Improvements]] step 3).
 
-Still story only: staff, a ski rack at the snow, and returning the skis.
+Still story only: staff, a ski rack at the snow, and returning the skis. A [[Demo Shop]] for confident skiers who want to try new skis is planned beside it ([[Services]]).
 
 Spec: [[Vision]], season 2.
 

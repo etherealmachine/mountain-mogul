@@ -96,6 +96,7 @@ Diagnose each first, report the cause, then fix:
 ## Base area ([[Amenities]], [[Lodge Shell]], [[Pathfinding]])
 
 - [[Building Interiors]]: a legend for the cutaway's colors and doors, then procedurally placed furniture.
+- [[Services]]: the range of day services (snack stands, a café and the coffee need, ski school, retail, demo skis, lockers, guest services and a pass office, shuttles, activities), a card each; building anywhere, with cost and upkeep rising with elevation; supply by snowcat and lift later. Overnight services next.
 - [[Rental Shop]] staff and ski racks: the shop is in ([[Service Improvements]]); staffing the morning rush and a rack at the snow are still story.
 - **Amenity quality and views**: better buildings attract more guests ([[GOAP]]) and can charge more. Quality is scored and priced ([[Service Improvements]] step 2); how it's raised, and views, are open.
 - **Lockers and ski school**: more base services; ski school *needs* staff.
@@ -244,3 +245,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-07: [[Service Improvements]] done (step 3: rolled needs, the rental shop, après, warming up). Ranked first: rental shops in the scenarios.
 - 2026-10-07: Fixed the eight failing Go tests (stale fixtures and expectations); logged the silent point-placed service bug.
 - 2026-10-07: No rental shop now means renting in town and lower demand, not turning round.
+- 2026-10-07: [[Services]] listed with the user (unranked).

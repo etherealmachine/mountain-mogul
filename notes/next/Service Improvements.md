@@ -6,7 +6,7 @@ status: done
 
 # Service Improvements
 
-Give each base-area service a job of its own, make price, quality, and capacity matter to guests, and add the next service types. The services work ([[Building Services]], the satisfaction ledger in [[Satisfaction]]); what's missing is a reason to build one over another, or a better one over a cheaper one. Part of [[Amenities]]. Ranked first in [[Next Steps]].
+Service depth: give each base-area service a job of its own, make price, quality, and capacity matter to guests, and add the next service types. The services work ([[Building Services]], the satisfaction ledger in [[Satisfaction]]); what's missing is a reason to build one over another, or a better one over a cheaper one. Part of [[Amenities]]; breadth, the range of services, is [[Services]]. Ranked first in [[Next Steps]].
 
 ## Why
 
