@@ -12,7 +12,7 @@ Lift types run from a fixed double through the fixed quad, high-speed quad, high
 
 The [[Trails]] off a lift's top decide which skill levels it serves.
 
-At the top, riders stand up from their seats and glide about 4 m straight off the ramp onto the station's flat apron, away from the cable. Then they peel left or right by where they sat (outer seats harder), and only then ski toward their next target. Each station's apron is banked on every side and fitted so no ground the earthwork touches is steeper than 15°. Some riders fall getting off: about 3% of beginners on fixed-grip chairs and 1% on detachables, fewer for better skiers, none on gondolas.
+At the top, riders stand up from their seats and glide about 4 m straight off the ramp onto the station's flat apron, away from the cable. Then they peel left or right by where they sat (outer seats harder), and only then ski toward their next target. Around each station's apron the earthwork cuts and fills only ground steeper than 15° from its edge, and doesn't make natural slopes steeper ([[Terrain]]). Some riders fall getting off: about 3% of beginners on fixed-grip chairs and 1% on detachables, fewer for better skiers, none on gondolas.
 
 Not built yet, from [[Vision]] and [[Next Steps]]: wear, breakdowns, wind holds, downloading, and refusing overlapping lifts ([[Lift Operations]]); lift attendants as people on the map (each lift already pays for two a day); partly filled chairs; and lift lines that wrap around buildings.
 
@@ -24,3 +24,4 @@ Code: `internal/world/lift.go`. Upgrades: `UpgradeLift` in `internal/world/world
 - 2026-10-06: Stations get a flat apron in front of the post, on the bullwheel side where skiers queue and ski off (about 8 × 12 m, flat in the lidar too), rather than a raised pad; nothing on the cable side changes ([[Terrain]]).
 - 2026-10-07: Unloading is a teleport to the top post, and the top apron has an unbanked step on the cable side; together they cause nearly all falls. Planned as [[Lift Unloading]].
 - 2026-10-07: Unloading from the seat with a glide and peel-off, unload falls by skill and lift type, and aprons banked on every side under 15° ([[Lift Unloading]]).
+- 2026-10-07: Aprons grade only what they must; the old fitter could dig a pit into a knoll ([[Terrain]]).
