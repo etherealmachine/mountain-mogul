@@ -647,18 +647,12 @@ func (s *Simulation) maybeStartSkiTransition(a *world.Guest) {
 		// Further away (e.g. at the lift top after a heatwave stripped the
 		// base snow) they should still ski down rather than walking the whole
 		// mountain.
-		head := a.Plan.Head()
-		leaving := head.Kind == ai.ActSkiToLodge || head.Kind == ai.ActSkiToParking || a.Plan.Goal == ai.GoalDepart
-		nearDest := false
-		if leaving && a.Plan.Target != (mgl32.Vec3{}) {
-			dx := a.Plan.Target[0] - a.Pos[0]
-			dz := a.Plan.Target[2] - a.Pos[2]
-			const nearDestM = 30.0
-			nearDest = dx*dx+dz*dz < nearDestM*nearDestM
+		if target, ok := liveTarget(s.World, a); ok {
+			if d, leaving := leavingDistance(a, target); leaving && d <= skisOnNearDest {
+				return
+			}
 		}
-		if !leaving || !nearDest {
-			a.SkiTransitionTimer = -1.0 // putting skis on
-		}
+		a.SkiTransitionTimer = -1.0 // putting skis on
 	}
 }
 

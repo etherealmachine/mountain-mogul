@@ -503,13 +503,18 @@ func entranceWorldPos(w *world.World, b *world.Building, from mgl32.Vec3, svc wo
 
 // visitService is the service guest a is heading to a building for: the
 // one the step after the head uses, so guests walk to the right door.
-func visitService(a *world.Guest) world.Service {
+func visitService(w *world.World, a *world.Guest) world.Service {
 	if a.Plan.Head().Kind == ai.ActWalkToTicketOffice {
 		return world.ServiceTickets
 	}
 	if next := a.Plan.Step + 1; next < len(a.Plan.Steps) {
-		switch a.Plan.Steps[next].Kind {
+		switch step := a.Plan.Steps[next]; step.Kind {
 		case ai.ActRestAtLodge:
+			// A lodge without a lounge seats resting guests in its food
+			// court, so head for that door.
+			if b := findBuildingByID(w, step.BldgID); b != nil && !b.Offers(world.ServiceLounge) {
+				return world.ServiceFood
+			}
 			return world.ServiceLounge
 		case ai.ActEat:
 			return world.ServiceFood
@@ -520,6 +525,11 @@ func visitService(a *world.Guest) world.Service {
 		}
 	}
 	return world.ServiceNone
+}
+
+// endsInDeparture reports whether plan p takes the guest home.
+func endsInDeparture(p ai.Plan) bool {
+	return len(p.Steps) > 0 && p.Steps[len(p.Steps)-1].Kind == ai.ActDepart
 }
 
 // countDiners recounts each lodge's seated diners from guests mid-meal.
@@ -1231,6 +1241,13 @@ func (s *Simulation) tickPlanning(a *world.Guest) {
 		} else {
 			a.AtTrailEnd = 0
 		}
+		// Closed for the day: a plan that doesn't end in going home (a
+		// rest planned on the lift before closing) gives way to GoHome at
+		// the next step.
+		if s.World.ClosedForDay && head.Kind != ai.ActJoinQueue && !endsInDeparture(a.Plan) {
+			s.replan(a)
+			return
+		}
 		// Step boundaries are the safe points to drop a plan for a need
 		// that turned pressing mid-plan — except in a lift line.
 		if head.Kind != ai.ActJoinQueue && a.Plan.GoalName != "GoHome" && goap.NeedPreempts(&snap, s.World, &a.Plan) {
@@ -1410,13 +1427,13 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 			return
 		}
 		a.TargetID = b.ID
-		if visitService(a) == world.ServiceBar {
+		if visitService(w, a) == world.ServiceBar {
 			a.Plan.Goal = ai.GoalRelieveThirst
 		} else {
 			a.Plan.Goal = ai.GoalNone
 		}
 		a.Plan.GoalID = b.ID
-		a.Plan.Target = entranceWorldPos(w, b, a.Pos, visitService(a))
+		a.Plan.Target = entranceWorldPos(w, b, a.Pos, visitService(w, a))
 	case ai.ActSkiToParking:
 		s.startRun(a)
 		b := findBuildingByID(w, step.BldgID)
@@ -1451,7 +1468,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 				a.Plan.Goal = ai.GoalNone
 			}
 			a.Plan.GoalID = b.ID
-			a.Plan.Target = entranceWorldPos(w, b, a.Pos, visitService(a))
+			a.Plan.Target = entranceWorldPos(w, b, a.Pos, visitService(w, a))
 		default:
 			// Trail-to-trail: steer toward destination trail's centroid.
 			if t := w.FindTrail(step.TrailID); t != nil {
@@ -1780,7 +1797,7 @@ func planTargetWorldPos(w *world.World, a *world.Guest) (mgl32.Vec3, bool) {
 		}
 	case ai.ActSkiToLodge, ai.ActSkiToParking, ai.ActWalkToTicketOffice:
 		if b := findBuildingByID(w, step.BldgID); b != nil {
-			return entranceWorldPos(w, b, a.Pos, visitService(a)), true
+			return entranceWorldPos(w, b, a.Pos, visitService(w, a)), true
 		}
 	case ai.ActSkiTrail:
 		return a.Plan.Target, a.Plan.Target != (mgl32.Vec3{})
@@ -2024,15 +2041,9 @@ func (s *Simulation) tickLocomote(agent *world.Guest, dt float64) {
 		// destination so a departing guest still skis down from the lift
 		// top rather than removing skis immediately after unloading.
 		if agent.SkisOn && agent.SkiTransitionTimer == 0 {
-			head := agent.Plan.Head()
-			if head.Kind == ai.ActSkiToLodge || head.Kind == ai.ActSkiToParking || agent.Plan.Goal == ai.GoalDepart {
-				dx := targetPos[0] - agent.Pos[0]
-				dz := targetPos[2] - agent.Pos[2]
-				const nearDest = 30.0
-				if dx*dx+dz*dz < nearDest*nearDest {
-					agent.SkiTransitionTimer = 1.0
-					return
-				}
+			if d, ok := leavingDistance(agent, targetPos); ok && d < skisOffNearDest {
+				agent.SkiTransitionTimer = 1.0
+				return
 			}
 		}
 		s.recordWalkTick(agent, targetPos)
@@ -2046,6 +2057,37 @@ func (s *Simulation) tickLocomote(agent *world.Guest, dt float64) {
 		return
 	}
 	s.tickSkier(agent, targetPos, dt)
+}
+
+// Near a lodge or parking lot guests walk the last stretch: skis come off
+// within skisOffNearDest of the door, and don't go back on until beyond
+// skisOnNearDest. Both are measured to the same live door (resolveTarget),
+// so a guest at the edge can't swap skis forever, as one did when one
+// check used the door picked at the step's start and the other the door
+// nearest now.
+const (
+	skisOffNearDest = 30.0
+	skisOnNearDest  = 40.0
+)
+
+// leavingDistance is how far a guest heading into a lodge or to their
+// car is from target (the door they're walking to), and false when
+// they're heading anywhere else.
+func leavingDistance(a *world.Guest, target mgl32.Vec3) (float32, bool) {
+	head := a.Plan.Head()
+	if head.Kind != ai.ActSkiToLodge && head.Kind != ai.ActSkiToParking && a.Plan.Goal != ai.GoalDepart {
+		return 0, false
+	}
+	return mgl32.Vec2{target[0] - a.Pos[0], target[2] - a.Pos[2]}.Len(), true
+}
+
+// liveTarget is where a guest is heading right now: their target entity's
+// door or lift line, else their plan's target point.
+func liveTarget(w *world.World, a *world.Guest) (mgl32.Vec3, bool) {
+	if a.TargetID != 0 {
+		return resolveTarget(w, a.TargetID, a)
+	}
+	return a.Plan.Target, a.Plan.Target != (mgl32.Vec3{})
 }
 
 // shouldSki returns true when the goal lies in the downhill direction from
@@ -2112,7 +2154,7 @@ func resolveTarget(w *world.World, id uint64, a *world.Guest) (mgl32.Vec3, bool)
 	}
 	for _, b := range w.Buildings {
 		if b.ID == id {
-			return entranceWorldPos(w, b, a.Pos, visitService(a)), true
+			return entranceWorldPos(w, b, a.Pos, visitService(w, a)), true
 		}
 	}
 	return mgl32.Vec3{}, false
