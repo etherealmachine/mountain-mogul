@@ -91,7 +91,8 @@ Found 2026-10-06 in a headless three-lift [[Boreal]] (three lifts, a green, blue
 - **Children and families**: their own guest type, arriving and moving as a group.
 - **Guest goals beyond lapping**: find the shortest line, go to après-ski, stay near the lodge. Powder hunting moved to [[Snow Tastes]].
 - **Regulars**: guests who remember their last visit and come back, or don't. *For* [[Mad River Glen]].
-- **Rest loop**: on Boreal with one lift, guests rest about six times a visit; line waits drain patience faster than skiing restores it. Check the patience rates against lift line waits ([[Patience]]).
+- **Mood can't climb past about 0.5**: on the regraded Boreal save (2026-10-07, 5 days) falls are gone and guests have 1.5 great runs a visit, yet the rating is 0.34–0.41. Satisfaction drifts toward a 0.5 baseline with about a one-hour time constant ([[Satisfaction]], `tickMood`), so a good event (+0.03 to +0.06) fades within the hour. A guest ends the day near 0.5 minus their active pulls (sick of waiting, thirsty), whatever kind of day they had. A 70% rating goal can't be reached until good experiences can lift the target itself, as in RollerCoaster Tycoon, where rides raise a guest's happiness target. Decide how events should move the target, or a slower memory of the day, before tuning numbers.
+- **Rest loop**: on Boreal with one lift, guests rested about six times a visit (2.2 once falls were fixed, since falls drain energy); line waits drain patience faster than skiing restores it. Check the patience rates against lift line waits ([[Patience]]).
 - **Crowding**: guests notice crowded lodges, not only lift lines; crowded runs are in [[Snow Tastes]]. *For* [[Mad River Glen]].
 - **Mogul lovers**: an expert bombing a mogul run entertaining the lift above. Guests who seek moguls are the Bump Skier in [[Snow Tastes]].
 - **Non-skiing guests**: come for attractions, food, and the village. *Needs* attractions (under Real estate and attractions).
@@ -218,3 +219,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-07: Diagnosed falls: the top-station apron's unbanked cable side leaves a 2–4 m step where beginners ski off the lift.
 - 2026-10-07: [[Lift Unloading]] planned with the user and ranked first, ahead of [[Snow Tastes]].
 - 2026-10-07: [[Lift Unloading]] shipped; [[Snow Tastes]] is first again.
+- 2026-10-07: Added Mood can't climb past about 0.5, found after the falls fix left Boreal's rating near 0.4.
