@@ -102,7 +102,7 @@ func (c *DebugConsole) exec(cmd string) {
 		}
 		c.toast("Avalanche!")
 	case "regrade":
-		regradeEmbankments(c.world)
+		RegradeEmbankments(c.world)
 		if c.flushTerrain != nil {
 			c.flushTerrain()
 		}

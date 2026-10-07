@@ -173,11 +173,11 @@ func markApron(t *world.Terrain, out map[[2]int]bool, station, axis mgl32.Vec2, 
 	}
 }
 
-// regradeEmbankments regrades the ground around every existing lift
+// RegradeEmbankments regrades the ground around every existing lift
 // station (carved aprons) and painted pad (embankments), keeping their
 // current heights.
 // Repairs terrain graded before embankments existed.
-func regradeEmbankments(w *world.World) {
+func RegradeEmbankments(w *world.World) {
 	t := w.Terrain
 	for _, l := range w.Lifts {
 		if l.IsHeli() {

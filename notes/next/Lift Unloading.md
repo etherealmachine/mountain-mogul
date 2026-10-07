@@ -1,7 +1,7 @@
 ---
 title: Lift Unloading
 kind: plan
-status: planned
+status: in progress
 ---
 
 # Lift Unloading
@@ -45,7 +45,9 @@ Balance is held at full while unloading, and set to 1 when it ends.
 
 ## Steps
 
-1. **Apron banks.** Bank the cable side, cap bank grade, and add the repair pass for existing lifts. Check, on the user's Boreal save: no cell within 20 m of the top post steeper than about 12°, and headless falls near the top post drop from about 200 a day toward zero (before any unloading change).
+1. Done: **Apron banks.** `apronWeight` banks every side, the cable side included. `fitApron` picks each station's bank (8–24 m) and apron height (up to 4 m from its target, in half-metre steps) so that no cell the carve touches is steeper than `liftApronMaxGrade`. It measures slope as the terrain does (gradient magnitude, `apronExcess`); if nothing fits, it takes the least-steep try. Changed from the plan: the cap is 15°, not 12°. A flat apron cut into an ordinary 11° hill can't keep its banks under 12°. 15° is where a beginner's slope drain matches their balance recovery. The repair is the existing debug-console `regrade` (now `scene.RegradeEmbankments`) plus `tools/regrade in.save out.save`, which changes only the ground. Applied to `assets/scenarios/boreal.save`, and to the user's save as a new file, `save-2026-10-06-2213-regraded.save`, leaving the original alone.
+
+   Checked on the user's Boreal save. The steepest cell within 20 m of the top post went from 29.6° (26 cells over 12.5°) to 17.2° (5 cells over 15.5°), and those 5 are on the natural hill. Falls within 25 m of the top post in a headless day went from 229 to 0, with 0 elsewhere both times (same seed, about 110 departures).
 2. **Unloading state.** Add `Guest.Unload` and the "Unloading" activity, start it from each rider's seat at the unload point, run the glide and peel-off, and hand off to skiing. Remove the teleport to `lift.Top`. Check headless: recorded rider paths stay on the apron, peel to their seat's side, and leave the lane before the next chair arrives; no rider's path crosses the post's cell.
 3. **Unload falls.** The roll, the fall in the unload zone, the new event and thought, and the following riders steering around. Check headless: unload falls per thousand rides by skill and lift type, near the starting rates.
 4. **Drawing it.** The rider stands up from the seat and glides down the ramp. This depends on the animation approach (Rendering, in [[Next Steps]]). A first version can blend from the seated pose to the skiing pose over the rise, using what the skier shader does now. Check: screenshots of a busy double and a six-pack unloading.
@@ -64,3 +66,4 @@ Each step builds with `go build` and `go vet` and is checked headless or by scre
 
 - 2026-10-07: Planned with the user after diagnosing falls at the top station.
 - 2026-10-07: The user confirmed the apron fix (bank the cable side, cap the grade) and the ranking.
+- 2026-10-07: Step 1: aprons banked on every side and fitted under 15°; Boreal's falls at the top post went from 229 a day to 0.
