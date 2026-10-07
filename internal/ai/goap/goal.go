@@ -263,6 +263,10 @@ func liftAccessible(l *world.Lift, skill float32, w *world.World) bool {
 	return w.ServicesForLift(l.ID).Has(diff)
 }
 
+// goHomeClosedWeight outranks every other goal's weight (Rest tops out
+// at 1.5), so at closing time guests head for their car.
+const goHomeClosedWeight = 2.0
+
 // GoHome is satisfied when the agent has Departed (terminal Removed
 // flag). Weight rises with tiredness AND with how much of the resort
 // the skier has already explored — a fresh skier who's ridden every
@@ -277,6 +281,10 @@ func (GoHome) IsSatisfied(s *WorldSnapshot, w *world.World) bool {
 }
 
 func (GoHome) Weight(s *WorldSnapshot, w *world.World) float32 {
+	// Closed for the day: home before anything else, even a rest.
+	if w.ClosedForDay {
+		return goHomeClosedWeight
+	}
 	// GoHome fires when Patience or Energy is critically low (Rest handles
 	// the recoverable range), when Hunger or Thirst is exhausted, or when
 	// the guest can no longer afford any lift.

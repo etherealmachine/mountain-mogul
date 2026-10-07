@@ -495,6 +495,8 @@ Every change is reported by a thought, and no thought changes a stat by itself.
 
 **Terrain and skill.** Guests ride any lift serving a trail at or below their level (`skillDiff`; advanced guests ride anything), and prefer one at their level: a lift without one costs 240 s more in the planner (`belowLevelPenaltySec`). [[Demand]] sends guests at full rate when a trail matches their level, and at 0.4 when only easier trails exist (`terrainMatch`).
 
+**Closing time.** While `World.ClosedForDay` is set (by `tickResortClosed`, mirroring `Simulation.ClosedForDay`), `GoHome.Weight` returns 2.0, above every other goal (`Rest` peaks at 1.5), and lift lines are sent home at the moment of closing. Guests' stats aren't touched, so patience keeps draining on the way out.
+
 **Departure reasons.** `Guest.DepartReason` is set once, when the guest decides to leave: explicitly for closing time, a minor injury or patrol first aid, being abandoned, and no route to a ticket window; otherwise by `departReasonFor` when the planner picks `GoHome`, or at `ActDepart` as a fallback. In that order: closing time, no ticket window, lifts stopped, nothing to ski, out of money, patience gone (lines), out of energy, hunger, thirst, else done for the day. `History` counts reasons per day for the "Why guests left" chart. Done, tired, hungry, thirsty, and closing are an ordinary end to the day (`ai.DepartNormal`).
 
 **The thoughts ring.** It holds the last 6 thoughts (`thoughtsCap`) and doesn't skip repeats. `CurrentThought` returns the newest thought still on the guest's mind: an event within `ThoughtTTL` (12 sim s), or a condition that still holds. `ThoughtCounts` and the day's tally count each event and each start of a condition; the "Guest thoughts" chart ranks them by count.

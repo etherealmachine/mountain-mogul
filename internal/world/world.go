@@ -199,6 +199,11 @@ type World struct {
 	// way. New games and scenarios start closed; testbeds start open.
 	ResortOpen bool
 
+	// ClosedForDay mirrors sim.ClosedForDay for the planner: the mountain
+	// is done for the day, so guests on it should head home. Set by the
+	// sim every tick; not saved.
+	ClosedForDay bool
+
 	// OpenHour and CloseHour are the daily lift operating hours in clock
 	// hours (9.5 = 9:30). While the resort is open, lifts load, guests
 	// arrive and snowcats stay in the shed only between them.

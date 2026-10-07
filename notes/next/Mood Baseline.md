@@ -55,3 +55,4 @@ Each step builds with `go build` and `go vet` and is judged headless. No Go test
 - 2026-10-07: Planned with the user after the falls fix left Boreal's rating near 0.4.
 - 2026-10-07: The user decided: bad experiences lower the baseline; repeats decay per trail (faster) and per lift (slower); no carry-over for regulars yet.
 - 2026-10-07: Built: the baseline, its effects, and per-trail and per-lift repeats. The rating is held down by closing time zeroing patience (Next Steps).
+- 2026-10-07: With closing no longer zeroing patience, the regraded Boreal save rates 0.46–0.49 (satisfaction at exit 0.47 against a baseline of 0.54); 72% of guests still leave thirsty, since it has no bar.

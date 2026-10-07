@@ -56,23 +56,17 @@ func (s *Simulation) ClosedForDay() bool {
 	return h >= w.CloseHour || h < w.OpenHour-preOpenArrivalHours
 }
 
-// tickResortClosed keeps every on-mountain guest's Patience at zero while
-// the mountain is closed for the day, so each replan picks GoHome over
-// more skiing. Riding and skiing regenerate Patience each tick, hence
-// doing this every tick rather than once at closing. At closing time the
-// lift lines are sent home.
+// tickResortClosed tells the planner whether the mountain is closed for
+// the day (World.ClosedForDay), which makes GoHome outrank every other
+// goal; guests' stats are left alone, so the trip home still costs them.
+// At closing time the lift lines are sent home.
 func (s *Simulation) tickResortClosed() {
 	closed := s.ClosedForDay()
 	if closed && !s.closedForDay && s.World.ResortOpen {
 		s.sendQueuesHome()
 	}
 	s.closedForDay = closed
-	if !closed {
-		return
-	}
-	for _, g := range s.World.OnMountain {
-		g.Patience = 0
-	}
+	s.World.ClosedForDay = closed
 }
 
 // arrivalTimeConstHours shapes the arrival curve: arrivals peak as the

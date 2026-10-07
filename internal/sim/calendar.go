@@ -101,6 +101,7 @@ func (s *Simulation) SkipClockEffects() {
 	s.lastHour = int(s.SimTime / simSecondsPerHour)
 	s.Demand.LastPoll = s.SimTime
 	s.closedForDay = s.ClosedForDay()
+	s.World.ClosedForDay = s.closedForDay
 }
 
 // LiftsRunning reports whether lifts are loading right now: the resort is

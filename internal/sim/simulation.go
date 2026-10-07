@@ -191,6 +191,7 @@ func NewSimulationWithSeed(w *world.World, seed int64) *Simulation {
 	// Sample today's weather for the world's current date so an October
 	// start opens on October weather rather than NewChain's placeholder.
 	sim.closedForDay = sim.ClosedForDay()
+	w.ClosedForDay = sim.closedForDay
 	sim.yesterday = sim.Weather.Advance(sim.DateAt(w.SimTime))
 	sim.tomorrow = sim.Weather.Forecast(sim.DateAt(w.SimTime), 1)[0]
 	for _, a := range w.OnMountain {
