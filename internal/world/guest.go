@@ -1,6 +1,7 @@
 package world
 
 import (
+	"math/rand"
 	"time"
 
 	"github.com/go-gl/mathgl/mgl32"
@@ -245,10 +246,26 @@ type Guest struct {
 	// Zero = no active transition.
 	SkiTransitionTimer float32
 
-	// RestTimer counts down the atomic RestAtLodge action. While >0 the
-	// guest is parked at a lodge recovering; on expiry Energy resets to
-	// 1 and the plan advances.
+	// RestTimer counts down a visit (UseService: a seat, a meal, a
+	// drink). While >0 the guest is inside; on expiry the sim applies
+	// what the offer does and the plan advances.
 	RestTimer float32
+
+	// Needs this visit came with (RollVisitNeeds): NeedsGear until they
+	// rent skis; WantsApres until they've been to the bar, with Apres
+	// its urgency, set by the sim from the clock and their day; ColdSense
+	// how much the cold gets to them (0 for most), with Chill how cold
+	// they are, built up outdoors by the sim and cleared by warming up.
+	NeedsGear  bool
+	WantsApres bool
+	Apres      float32
+	ColdSense  float32
+	Chill      float32
+
+	// Visit is the UseService step in progress: waiting at the door
+	// for a seat or a turn at the counter, then what's needed to score
+	// it when it ends. Not saved: a loaded guest starts the step afresh.
+	Visit Visit
 
 	// Removed flags the terminal in-session state set by the GOAP Depart
 	// action. The per-tick dispatch skips Removed guests and reapDeparted
@@ -547,4 +564,44 @@ func (g *Guest) ResetForDeparture() {
 	g.Events = g.Events[:0]
 	g.Sense = ai.Sense{}
 	g.LastTrackPos = mgl32.Vec3{}
+}
+
+// Visit is a guest's UseService step: the line at the door, then the
+// visit itself (Service Improvements).
+type Visit struct {
+	Waiting   bool    // lined up at the door
+	WaitSince float64 // sim time they joined the line
+	Waited    float64 // sim seconds spent in the line
+	Urgency   float32 // the most urgent need it fulfils, when they got in
+	Paid      int     // what it cost
+	Ratio     float32 // what it cost over what they expected (world.Building.PriceRatio); 0 when free
+}
+
+// Shares of guests who arrive with each rolled need (Service
+// Improvements; the shares may come from the scenario's guest pool
+// later). Rentals by skill tier: beginners mostly haven't bought skis.
+var (
+	RentalShareByTier = [3]float32{0.5, 0.15, 0.05}
+	ApresShare        = float32(0.3)
+	ColdShare         = float32(0.4)
+)
+
+// RollVisitNeeds rolls the needs g arrives with today. Pass holders own
+// their skis.
+func (g *Guest) RollVisitNeeds(r *rand.Rand) {
+	tier := 0
+	switch {
+	case g.Traits.Skill >= ai.SkillAdvancedThreshold:
+		tier = 2
+	case g.Traits.Skill >= ai.SkillIntermediateThreshold:
+		tier = 1
+	}
+	g.NeedsGear = !g.HasSeasonPass && r.Float32() < RentalShareByTier[tier]
+	g.WantsApres = r.Float32() < ApresShare
+	g.Apres = 0
+	g.ColdSense = 0
+	if r.Float32() < ColdShare {
+		g.ColdSense = 0.5 + 0.5*r.Float32()
+	}
+	g.Chill = 0
 }

@@ -38,7 +38,7 @@ func (a *SkiTrail) Precondition(s *WorldSnapshot, w *world.World) bool {
 	case world.KindTrail:
 		return s.AtTrailEnd == a.FromID
 	case world.KindBuilding:
-		return s.AtLodge == a.FromID || s.AtBar == a.FromID || s.AtParking == a.FromID || s.AtTicketOffice == a.FromID
+		return s.AtService == a.FromID || s.AtParking == a.FromID || s.AtTicketOffice == a.FromID
 	}
 	return false
 }
@@ -47,8 +47,7 @@ func (a *SkiTrail) Apply(s *WorldSnapshot, w *world.World) {
 	// Clear the current anchor.
 	s.AtLiftTop = 0
 	s.AtTrailEnd = 0
-	s.AtLodge = 0
-	s.AtBar = 0
+	s.AtService = 0
 	s.AtParking = 0
 	s.AtTicketOffice = 0
 
@@ -124,11 +123,8 @@ func currentAnchorID(s *WorldSnapshot) uint64 {
 	if s.AtTrailEnd != 0 {
 		return s.AtTrailEnd
 	}
-	if s.AtLodge != 0 {
-		return s.AtLodge
-	}
-	if s.AtBar != 0 {
-		return s.AtBar
+	if s.AtService != 0 {
+		return s.AtService
 	}
 	if s.AtParking != 0 {
 		return s.AtParking

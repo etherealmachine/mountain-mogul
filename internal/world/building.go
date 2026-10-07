@@ -74,21 +74,28 @@ type Building struct {
 	// tiled shell in that grid and Tiles each cell's service. Doors are
 	// derived by RefreshDoors (Pos sits on the first). FloorY is the floor
 	// height, fixed by the first tile so the building doesn't shift as it
-	// grows. StyleSeed picks facade variants and the palette. Diners is
+	// grows. StyleSeed picks facade variants and the palette. Diners was
 	// the sim's live count of guests eating here (not saved).
 	// Kind is what it's built as and Storeys how many storeys it has (a
 	// lodge can have up to three; 0 counts as one, see Floors).
-	Origin     mgl32.Vec2
-	Kind       ShellKind
-	Storeys    int
-	Tiles      map[[2]int]Service
-	Doors      []Door
-	FloorY     float32
-	FloorSet   bool
-	StyleSeed  uint32
-	MealPrice  int
-	DrinkPrice int
-	Diners     int
+	Origin      mgl32.Vec2
+	Kind        ShellKind
+	Storeys     int
+	Tiles       map[[2]int]Service
+	Doors       []Door
+	FloorY      float32
+	FloorSet    bool
+	StyleSeed   uint32
+	MealPrice   int
+	DrinkPrice  int
+	RentalPrice int
+	// Quality is how good the building is to visit, 0..1: it raises what
+	// guests will pay and scores each visit (Service Improvements).
+	// DefaultQuality until there's a way to raise it.
+	Quality float32
+	// InUse and Waiting count guests using each pool (seats, counter)
+	// and lined up at the door for it; recounted every tick by the sim.
+	InUse, Waiting [PoolCount]int
 }
 
 // DoorCell returns the grid cell containing the building's anchor — the

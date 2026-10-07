@@ -823,7 +823,7 @@ func (b *builder) skierAt(gx, gz int, skill float32) *builder {
 	a.Plan = ai.Plan{
 		GoalName: "TestbedGoal",
 		Steps: []ai.PlanAction{
-			{Kind: ai.ActSkiToLodge, BldgID: b.lastLodge.ID},
+			{Kind: ai.ActSkiToService, BldgID: b.lastLodge.ID},
 			{Kind: ai.ActDepart, BldgID: b.lastLodge.ID},
 		},
 	}

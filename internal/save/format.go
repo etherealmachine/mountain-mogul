@@ -401,6 +401,8 @@ type BuildingData struct {
 	StyleSeed  uint32   `json:"style,omitempty"`
 	MealPrice  int      `json:"meal,omitempty"`
 	DrinkPrice int      `json:"drink,omitempty"`
+	Rental     int      `json:"rent,omitempty"`
+	Quality    *float32 `json:"q,omitempty"`
 }
 
 // SnowcatData is a saved cat. ShedID links it back to its shed; both
@@ -468,6 +470,7 @@ type PlanActionData struct {
 	LiftID  uint64  `json:"l,omitempty"`
 	BldgID  uint64  `json:"b,omitempty"`
 	TrailID uint64  `json:"t,omitempty"`
+	Use     uint8   `json:"u,omitempty"` // ActUseService: ai.Offer
 	Cost    float32 `json:"c,omitempty"`
 }
 

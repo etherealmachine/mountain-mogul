@@ -470,6 +470,8 @@ func (w *World) PlaceBuildingType(typ BuildingType, x, z float32) *Building {
 	case BuildingLodge, BuildingBar, BuildingTicketOffice:
 		b.MealPrice = DefaultMealPrice
 		b.DrinkPrice = DefaultDrinkPrice
+		b.RentalPrice = DefaultRentalPrice
+		b.Quality = DefaultQuality
 	case BuildingSnowGun:
 		b.SnowGunEnabled = true
 	}

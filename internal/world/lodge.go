@@ -28,6 +28,7 @@ const (
 	ServiceTickets         // day tickets and season passes
 	ServicePatrol          // ski patrol: a patroller and snowmobile per tile
 	ServiceGarage          // snowcat garage: space for snowcats and snowmobiles (garage.go)
+	ServiceRentals         // rental shop: skis for guests who came without
 	ServiceCount
 )
 
@@ -62,6 +63,8 @@ var serviceInfo = [ServiceCount]ServiceInfo{
 		TileCost: 40_000, TileDailyCost: 250}, // a patroller and their snowmobile
 	ServiceGarage: {Label: "Snowcat garage", Accent: mgl32.Vec3{0.82, 0.84, 0.86}, Overlay: [3]uint8{120, 130, 140},
 		TileCost: 15_000, TileDailyCost: 30}, // the floor and doors; vehicles are bought into it
+	ServiceRentals: {Label: "Rental shop", Accent: mgl32.Vec3{0.75, 0.90, 0.70}, Overlay: [3]uint8{90, 170, 80},
+		TileCost: 30_000, TileDailyCost: 120, ForGuests: true}, // fleet upkeep and a tech at the bench
 }
 
 // Info is the service's entry in the registry.
@@ -95,6 +98,7 @@ const (
 	FoodCourtSeatsPerCell = 10
 	DefaultMealPrice      = 18 // dollars per meal
 	DefaultDrinkPrice     = 8  // dollars per drink
+	DefaultRentalPrice    = 40 // dollars for a day's rental skis
 
 	// A lodge placed by a single point (testbeds, tests) is this many
 	// cells on a side.
@@ -413,13 +417,15 @@ func PreviewTile(origin mgl32.Vec2, rot float32, k ShellKind, storeys int, c [2]
 // height under it; later tiles grade to that height.
 func (w *World) PlaceServiceBuilding(origin mgl32.Vec2, rot float32, tiles map[[2]int]Service, seed uint32) *Building {
 	b := &Building{
-		ID:         w.NextID(),
-		Type:       BuildingLodge,
-		Origin:     origin,
-		Rotation:   rot,
-		StyleSeed:  seed,
-		MealPrice:  DefaultMealPrice,
-		DrinkPrice: DefaultDrinkPrice,
+		ID:          w.NextID(),
+		Type:        BuildingLodge,
+		Origin:      origin,
+		Rotation:    rot,
+		StyleSeed:   seed,
+		MealPrice:   DefaultMealPrice,
+		DrinkPrice:  DefaultDrinkPrice,
+		RentalPrice: DefaultRentalPrice,
+		Quality:     DefaultQuality,
 	}
 	w.Buildings = append(w.Buildings, b)
 	w.SetTiles(b, tiles)
@@ -798,7 +804,8 @@ func (w *World) placePointService(b *Building) {
 		return
 	}
 	b.Type, b.Origin, b.Rotation = BuildingLodge, mgl32.Vec2{}, 0
-	b.MealPrice, b.DrinkPrice = DefaultMealPrice, DefaultDrinkPrice
+	b.MealPrice, b.DrinkPrice, b.RentalPrice = DefaultMealPrice, DefaultDrinkPrice, DefaultRentalPrice
+	b.Quality = DefaultQuality
 	if b.StyleSeed == 0 {
 		b.StyleSeed = uint32(b.ID)
 	}

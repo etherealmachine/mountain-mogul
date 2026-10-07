@@ -53,8 +53,6 @@ func TestPlanFromParking(t *testing.T) {
 		Pos:             mgl32.Vec3{parking.Pos[0], 0, parking.Pos[1]},
 		Patience:        1.0,
 		Energy:          1.0,
-		Hunger:          1.0,
-		Thirst:          1.0,
 		Skill:           1.0,
 		RemainingBudget: 1000,
 		HasDayTicket:    true, // these tests plan rides, not ticket buying
@@ -97,8 +95,6 @@ func TestExplorePrefersUnridden(t *testing.T) {
 		Pos:             mgl32.Vec3{liftA.Top[0], 0, liftA.Top[1]},
 		Patience:        0.7,
 		Energy:          1.0,
-		Hunger:          1.0,
-		Thirst:          1.0,
 		Skill:           1.0,
 		RemainingBudget: 1000,
 		HasDayTicket:    true, // these tests plan rides, not ticket buying
@@ -140,25 +136,24 @@ func TestRelieveThirst(t *testing.T) {
 		Pos:             mgl32.Vec3{liftA.Top[0], 0, liftA.Top[1]},
 		Patience:        1.0,
 		Energy:          1.0,
-		Hunger:          1.0,
-		Thirst:          0.04,
 		Skill:           1.0,
 		RemainingBudget: 1000,
 		HasDayTicket:    true, // these tests plan rides, not ticket buying
 		AtLiftTop:       liftA.ID,
 	}
+	snap.Need[ai.NeedThirst] = 0.96
 	goal := SelectGoal(&snap, w)
-	if goal.Name() != "RelieveThirst" {
-		t.Fatalf("expected RelieveThirst at Thirst=0.04, got %s", goal.Name())
+	if goal.Name() != "FulfillThirst" {
+		t.Fatalf("expected FulfillThirst at thirst urgency 0.96, got %s", goal.Name())
 	}
 	p := NewPlanner()
 	plan := p.Plan(snap, goal, w)
 	if plan == nil {
-		t.Fatal("RelieveThirst plan came back nil")
+		t.Fatal("FulfillThirst plan came back nil")
 	}
 	last := plan[len(plan)-1]
-	if !strings.HasPrefix(last.Name(), "RelieveThirstAtBar") {
-		t.Errorf("RelieveThirst plan should end in RelieveThirstAtBar; got tail %q (full plan: %v)", last.Name(), planNames(plan))
+	if !strings.HasPrefix(last.Name(), "UseDrink") {
+		t.Errorf("FulfillThirst plan should end in UseDrink; got tail %q (full plan: %v)", last.Name(), planNames(plan))
 	}
 }
 

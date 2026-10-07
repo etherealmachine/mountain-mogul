@@ -177,6 +177,7 @@ func (e *Editor) Init(app *engine.App) error {
 		{world.ServiceTickets, render.IconCoin},
 		{world.ServicePatrol, render.IconHeart},
 		{world.ServiceGarage, render.IconGarage},
+		{world.ServiceRentals, render.IconStack},
 	} {
 		svc := sv.svc
 		e.serviceButtons[svc] = e.buildingsSubmenu.AddChild(sv.icon, svc.Label(), func() { e.activateServiceTool(svc) })

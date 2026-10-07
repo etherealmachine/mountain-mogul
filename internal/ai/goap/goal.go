@@ -26,9 +26,12 @@ type Goal interface {
 var AllGoals = []Goal{
 	GetSeasonPass{},
 	KeepSkiing{},
-	Rest{},
-	RelieveThirst{},
-	RelieveHunger{},
+	FulfillNeed{ai.NeedHunger},
+	FulfillNeed{ai.NeedThirst},
+	FulfillNeed{ai.NeedRest},
+	FulfillNeed{ai.NeedRentals},
+	FulfillNeed{ai.NeedApres},
+	FulfillNeed{ai.NeedWarmth},
 	Explore{},
 	GoHome{},
 }
@@ -47,6 +50,9 @@ func (GetSeasonPass) IsSatisfied(s *WorldSnapshot, w *world.World) bool {
 func (GetSeasonPass) Weight(s *WorldSnapshot, w *world.World) float32 {
 	if s.HasSeasonPass || s.RemainingBudget < passCost(s, w) {
 		return 0
+	}
+	if s.Need[ai.NeedRentals] > 0 && !canRent(s, w) {
+		return 0 // no use for a pass without skis
 	}
 	for _, b := range w.Buildings {
 		if b.Offers(world.ServiceTickets) {
@@ -80,104 +86,86 @@ func (KeepSkiing) Weight(s *WorldSnapshot, w *world.World) float32 {
 	return combined
 }
 
-// Rest is satisfied at Patience ≥ restThreshold. Weight is quadratic in
-// (1 − Patience) so it only fires when the skier is genuinely frustrated —
-// otherwise KeepSkiing dominates and the skier keeps cycling lifts.
-type Rest struct{}
+// FulfillNeed is the goal of meeting one need (ai.NeedKind) at a
+// building that offers something for it. Each need's thresholds and
+// weight curve are in needSpecs; the goal only reads urgencies, never
+// the stats behind them.
+type FulfillNeed struct{ Kind ai.NeedKind }
 
-const (
-	// restSatisfiedThreshold is the minimum combined (Patience, Energy) level
-	// at which the Rest goal considers itself done. Kept high so a lodge rest
-	// runs to completion rather than stopping at the first tick above the
-	// fire threshold.
-	restSatisfiedThreshold = 0.85
-	// restTriggerThreshold is the level below which the Rest goal activates.
-	// At 0.15 the guest is nearly exhausted before they look for a lodge.
-	restTriggerThreshold = 0.15
-)
-
-func (Rest) Name() string { return "Rest" }
-
-func (Rest) IsSatisfied(s *WorldSnapshot, w *world.World) bool {
-	return s.Patience >= restSatisfiedThreshold && s.Energy >= restSatisfiedThreshold
+// needSpec is how a need competes for a guest's time: active above
+// urgency from, met at or below urgency done, and weighted by weight
+// while active. preempts lets the need cut into a plan made before it
+// pressed; blocked is the thought when no building can meet it.
+type needSpec struct {
+	from, done float32
+	weight     func(u float32, s *WorldSnapshot) float32
+	preempts   bool
+	blocked    ai.ThoughtKind
 }
 
-func (Rest) Weight(s *WorldSnapshot, w *world.World) float32 {
-	combined := s.Patience
-	if s.Energy < combined {
-		combined = s.Energy
+// bodilyWeight is hunger's and thirst's: above KeepSkiing's best (1.0)
+// as soon as they press, so a guest heads for food or a drink before it
+// sours their day, and above GoHome's base when nearly empty.
+func bodilyWeight(u float32, _ *WorldSnapshot) float32 { return 1.05 + (u - 0.75) }
+
+var needSpecs = [ai.NeedCount]needSpec{
+	// Hunger and thirst press below a quarter left, and a meal or a drink
+	// fills them.
+	ai.NeedHunger: {from: 0.75, done: 0.75, weight: bodilyWeight, preempts: true},
+	ai.NeedThirst: {from: 0.75, done: 0.75, weight: bodilyWeight, preempts: true},
+	// Rest presses only when energy or patience is nearly gone (under
+	// 0.15), and a rest runs until both are back over 0.85. Quadratic, so
+	// skiing wins until the guest is genuinely spent; nearly empty it tops
+	// KeepSkiing and GoHome, so they try for a lodge before giving up.
+	ai.NeedRest: {from: 0.85, done: 0.15, weight: func(u float32, _ *WorldSnapshot) float32 {
+		if u > 0.95 {
+			return 1.5
+		}
+		return u * u
+	}, blocked: ai.ThoughtNeedsLodge},
+	// Rentals is a hard gate (JoinQueue won't let a guest without skis
+	// ride): first thing on arrival, ahead of skiing and a pass, and with
+	// nowhere to rent the guest goes home (GoHome).
+	ai.NeedRentals: {from: 0.5, done: 0.5, weight: func(float32, *WorldSnapshot) float32 { return 1.2 }, blocked: ai.ThoughtNoRentals},
+	// Après is a want: worth little next to skiing in the late afternoon,
+	// but a guest who's done for the day then (bored, or spent) stops at
+	// the bar on the way out, and once the lifts close (urgency 1) every
+	// après guest does.
+	ai.NeedApres: {from: 0, done: 0, weight: func(u float32, s *WorldSnapshot) float32 {
+		switch {
+		case u >= 1:
+			return goHomeClosedWeight + 0.1
+		case s.Bored || min(s.Patience, s.Energy) < 0.05:
+			return goHomeBoredWeight + 0.01
+		}
+		return 0.6 * u
+	}},
+	// Warmth presses like hunger once a guest is chilled, and they look
+	// for a lounge's fire.
+	ai.NeedWarmth: {from: 0.75, done: 0.1, weight: bodilyWeight, preempts: true, blocked: ai.ThoughtNoLounge},
+}
+
+func (g FulfillNeed) Name() string { return "Fulfill" + ai.NeedLabels[g.Kind] }
+
+func (g FulfillNeed) IsSatisfied(s *WorldSnapshot, w *world.World) bool {
+	return s.Need[g.Kind] <= needSpecs[g.Kind].done
+}
+
+func (g FulfillNeed) Weight(s *WorldSnapshot, w *world.World) float32 {
+	spec := needSpecs[g.Kind]
+	if u := s.Need[g.Kind]; u > spec.from {
+		return spec.weight(u, s)
 	}
-	if combined >= restTriggerThreshold {
-		return 0
-	}
-	d := 1 - combined
-	w2 := d * d
-	// Boost weight above KeepSkiing's max when critically low so Rest is
-	// tried before GoHome and ThoughtNeedsLodge can fire if no lodge exists.
-	if combined < 0.05 {
-		w2 = 1.5
-	}
-	return w2
+	return 0
 }
 
-// RelieveThirst is satisfied when thirst is above the trigger threshold.
-// Below 0.25 it outweighs skiing, as hunger does, so the guest heads for
-// a drink; nearly empty, it exceeds GoHome so they try before giving up.
-// After drinking (Thirst restored to 1.0), the goal is satisfied again
-// and will re-fire the next time thirst drains back down.
-type RelieveThirst struct{}
-
-func (RelieveThirst) Name() string { return "RelieveThirst" }
-
-func (RelieveThirst) IsSatisfied(s *WorldSnapshot, w *world.World) bool {
-	return s.Thirst >= 0.25
-}
-
-func (RelieveThirst) Weight(s *WorldSnapshot, w *world.World) float32 {
-	if s.Thirst >= 0.25 {
-		return 0
-	}
-	// Like hunger: above KeepSkiing's max as soon as the guest is getting
-	// thirsty, so they go for a drink (a bar, or a food court) before
-	// thirst starts to sour their day, and above GoHome's base when
-	// nearly empty.
-	return 1.05 + (0.25 - s.Thirst)
-}
-
-// RelieveHunger fires once hunger drops below 0.25 and is satisfied by a
-// meal at a lodge food court. Its weight starts above KeepSkiing's max so
-// a hungry guest heads for lunch; with no reachable food court the
-// planner falls through to the next goal.
-type RelieveHunger struct{}
-
-func (RelieveHunger) Name() string { return "RelieveHunger" }
-
-func (RelieveHunger) IsSatisfied(s *WorldSnapshot, w *world.World) bool {
-	return s.Hunger >= 0.25
-}
-
-func (RelieveHunger) Weight(s *WorldSnapshot, w *world.World) float32 {
-	if s.Hunger >= 0.25 {
-		return 0
-	}
-	return 1.05 + (0.25 - s.Hunger)
-}
-
-// needGoals pairs each bodily need with the goal that relieves it.
-var needGoals = []struct {
-	need ai.NeedMask
-	goal Goal
-}{
-	{ai.NeedHunger, RelieveHunger{}},
-	{ai.NeedThirst, RelieveThirst{}},
-}
-
-// PressingNeeds returns the needs whose relief goals are unsatisfied.
+// PressingNeeds returns the needs that preempt plans (needSpec.preempts)
+// and are unmet.
 func PressingNeeds(s *WorldSnapshot, w *world.World) ai.NeedMask {
 	var m ai.NeedMask
-	for _, n := range needGoals {
-		if !n.goal.IsSatisfied(s, w) {
-			m |= n.need
+	for k := ai.NeedKind(0); k < ai.NeedCount; k++ {
+		if needSpecs[k].preempts && !(FulfillNeed{k}).IsSatisfied(s, w) {
+			m |= k.Mask()
 		}
 	}
 	return m
@@ -193,11 +181,12 @@ func NeedPreempts(s *WorldSnapshot, w *world.World, plan *ai.Plan) bool {
 			planWeight = g.Weight(s, w)
 		}
 	}
-	for _, n := range needGoals {
-		if plan.Pressing&n.need != 0 || n.goal.Name() == plan.GoalName || n.goal.IsSatisfied(s, w) {
+	for k := ai.NeedKind(0); k < ai.NeedCount; k++ {
+		g := FulfillNeed{k}
+		if !needSpecs[k].preempts || plan.Pressing.Has(k) || g.Name() == plan.GoalName || g.IsSatisfied(s, w) {
 			continue
 		}
-		if n.goal.Weight(s, w) > planWeight {
+		if g.Weight(s, w) > planWeight {
 			return true
 		}
 	}
@@ -259,7 +248,7 @@ func liftAccessible(l *world.Lift, skill float32, w *world.World) bool {
 	return w.ServicesForLift(l.ID).Has(diff)
 }
 
-// goHomeClosedWeight outranks every other goal's weight (Rest tops out
+// goHomeClosedWeight outranks every other goal's weight (rest tops out
 // at 1.5), so at closing time guests head for their car.
 const goHomeClosedWeight = 2.0
 
@@ -299,13 +288,28 @@ func (GoHome) Weight(s *WorldSnapshot, w *world.World) float32 {
 	if combined < 0.05 {
 		return 1.0
 	}
-	if s.Hunger < 0.05 || s.Thirst < 0.05 {
+	if s.Need[ai.NeedHunger] > 0.95 || s.Need[ai.NeedThirst] > 0.95 {
 		return 1.0
 	}
 	if !s.HasSeasonPass && s.CheapestTicket > 0 && s.RemainingBudget < s.CheapestTicket {
 		return 1.0
 	}
+	// Came without skis and nowhere will rent them any.
+	if s.Need[ai.NeedRentals] > 0 && !canRent(s, w) {
+		return 1.0
+	}
 	return 0
+}
+
+// canRent reports whether some building rents skis at a price the guest
+// will pay.
+func canRent(s *WorldSnapshot, w *world.World) bool {
+	for _, b := range w.Buildings {
+		if b.Type == world.BuildingLodge && b.OffersUse(ai.OfferRentals) && affordable(b, ai.OfferRentals, s) {
+			return true
+		}
+	}
+	return false
 }
 
 // SelectGoal returns the highest-weighted unsatisfied goal, or nil if

@@ -28,18 +28,20 @@ type WorldSnapshot struct {
 	Pos      mgl32.Vec3
 	Patience float32 // 0..1; drains while queuing, restored by skiing/riding/lodge
 	Energy   float32 // 0..1; drains while skiing, restored by RestAtLodge
-	Hunger   float32 // 0..1; fixed drain, restored by a food-court meal; hits 0 → GoHome
-	Thirst   float32 // 0..1; drain scales with altitude and exertion; hits 0 → GoHome
-	Skill    float32
-	Tastes   ai.Tastes // what snow and terrain the guest enjoys, for choosing lifts
-	Bored    bool      // nothing left worth another run (sim.checkBoredom): time to go home
+	// Need is each need's urgency, 0..1 (world.Guest.NeedUrgency). The
+	// need goals read these, never the stats behind them; using an offer
+	// zeroes the needs it fulfils. Patience and Energy above stay for the
+	// skiing goals.
+	Need   [ai.NeedCount]float32
+	Skill  float32
+	Tastes ai.Tastes // what snow and terrain the guest enjoys, for choosing lifts
+	Bored  bool      // nothing left worth another run (sim.checkBoredom): time to go home
 
 	AtLiftBase     uint64 // 0 or lift ID — at the base of this lift, not yet queued
 	AtLiftTop      uint64 // 0 or lift ID — just unloaded at the top
 	Queued         uint64 // 0 or lift ID — standing in this lift's queue
 	OnLift         uint64 // 0 or lift ID — riding a chair
-	AtLodge        uint64 // 0 or lodge building ID
-	AtBar          uint64 // 0 or bar building ID
+	AtService      uint64 // 0 or the building guests can use something at (a seat, a meal, a drink)
 	AtParking      uint64 // 0 or parking building ID
 	AtTrailEnd     uint64 // 0 or trail ID — arrived at a trail-to-trail junction
 	AtTicketOffice uint64 // 0 or ticket office building ID
@@ -53,6 +55,9 @@ type WorldSnapshot struct {
 	// fares (or the season pass fee); when it falls below CheapestTicket
 	// the GoHome goal fires (unless the guest has a pass).
 	RemainingBudget float32
+	// Budget is the guest's whole daily budget: how much they expect to
+	// pay for things (world.ExpectedPrice), not what they have left.
+	Budget float32
 	// PassCredit is today's day ticket, bought or owed, credited toward a
 	// season pass bought this visit. A pass costs SeasonPassPrice -
 	// PassCredit out of RemainingBudget.
@@ -110,12 +115,12 @@ func Extract(a *world.Guest, w *world.World) WorldSnapshot {
 		Pos:             a.Pos,
 		Patience:        a.Patience,
 		Energy:          a.Energy,
-		Hunger:          a.Hunger,
-		Thirst:          a.Thirst,
+		Need:            needUrgencies(a),
 		Skill:           a.Traits.Skill,
 		Tastes:          a.Traits.Tastes,
 		Bored:           a.Conditions.Has(ai.ThoughtBored) || a.Conditions.Has(ai.ThoughtNotMySkiing),
 		RemainingBudget: a.RemainingBudget,
+		Budget:          a.Traits.DailyBudget,
 		PassCredit:      float32(a.DayTicketPaid + a.DayTicketDue),
 		CheapestTicket:  cheapestTicket(w),
 		HasSeasonPass:   a.HasSeasonPass,
@@ -194,16 +199,13 @@ func Extract(a *world.Guest, w *world.World) WorldSnapshot {
 // guest came in by). Clears the other building anchors. Reports whether
 // b is somewhere guests can be.
 func setAtBuilding(s *WorldSnapshot, b *world.Building) bool {
-	s.AtLodge, s.AtBar, s.AtParking, s.AtTicketOffice = 0, 0, 0, 0
+	s.AtService, s.AtParking, s.AtTicketOffice = 0, 0, 0
 	switch {
 	case b.Type == world.BuildingParking:
 		s.AtParking = b.ID
 	case b.IsShell() && b.ServesGuests():
-		if b.OffersRest() {
-			s.AtLodge = b.ID
-		}
-		if b.ServesDrinks() {
-			s.AtBar = b.ID
+		if b.OffersAnyUse() {
+			s.AtService = b.ID
 		}
 		if b.Offers(world.ServiceTickets) {
 			s.AtTicketOffice = b.ID
@@ -225,12 +227,12 @@ func ExtractLookahead(a *world.Guest, liftID uint64, w *world.World) WorldSnapsh
 		Pos:             a.Pos,
 		Patience:        a.Patience,
 		Energy:          a.Energy,
-		Hunger:          a.Hunger,
-		Thirst:          a.Thirst,
+		Need:            needUrgencies(a),
 		Skill:           a.Traits.Skill,
 		Tastes:          a.Traits.Tastes,
 		Bored:           a.Conditions.Has(ai.ThoughtBored) || a.Conditions.Has(ai.ThoughtNotMySkiing),
 		RemainingBudget: a.RemainingBudget,
+		Budget:          a.Traits.DailyBudget,
 		PassCredit:      float32(a.DayTicketPaid + a.DayTicketDue),
 		CheapestTicket:  cheapestTicket(w),
 		HasSeasonPass:   a.HasSeasonPass,
@@ -239,6 +241,15 @@ func ExtractLookahead(a *world.Guest, liftID uint64, w *world.World) WorldSnapsh
 		AtTrailEnd:      a.AtTrailEnd,
 		RidenLifts:      rides,
 	}
+}
+
+// needUrgencies is each of a's needs' urgency.
+func needUrgencies(a *world.Guest) [ai.NeedCount]float32 {
+	var u [ai.NeedCount]float32
+	for k := ai.NeedKind(0); k < ai.NeedCount; k++ {
+		u[k] = a.NeedUrgency(k)
+	}
+	return u
 }
 
 // cheapestTicket returns the minimum per-ride fare across all lifts, or 0

@@ -1257,6 +1257,7 @@ func (s *Simulation) tickNeedConditions(a *world.Guest) {
 	exhausted := holds(has(ai.ThoughtExhausted), combined, exhaustedThreshold, criticalStatThreshold)
 	s.setCondition(a, ai.ThoughtExhausted, exhausted)
 	s.setCondition(a, ai.ThoughtTired, !exhausted && holds(has(ai.ThoughtTired), a.Energy, criticalStatThreshold, needClearThreshold))
+	s.setCondition(a, ai.ThoughtCold, holds(has(ai.ThoughtCold), 1-a.Chill, criticalStatThreshold, 0.4))
 	cheap := cheapestLiftTicket(s.World)
 	s.setCondition(a, ai.ThoughtTooExpensive, cheap > 0 && a.RemainingBudget < float32(cheap))
 }

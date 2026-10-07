@@ -34,7 +34,7 @@ func (s *Simulation) sendQueuesHome() {
 	for _, l := range s.World.Lifts {
 		for _, g := range ejectQueue(l) {
 			s.setDepartReason(g, ai.DepartClosing)
-			s.directHomePlan(g)
+			s.homeAtClosing(g)
 		}
 	}
 }

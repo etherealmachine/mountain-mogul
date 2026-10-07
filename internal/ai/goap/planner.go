@@ -162,8 +162,13 @@ func (p *Planner) pickPlan(snap WorldSnapshot, a *world.Guest, w *world.World) a
 		}
 		actions := p.Plan(snap, gr.Goal, w)
 		if actions == nil {
-			if _, ok := gr.Goal.(Rest); ok {
-				blocked = appendBlocked(blocked, ai.ThoughtNeedsLodge)
+			if fn, ok := gr.Goal.(FulfillNeed); ok {
+				switch {
+				case pricedOut(&snap, w, fn.Kind):
+					blocked = appendBlocked(blocked, ai.ThoughtPricesTooHigh)
+				case needSpecs[fn.Kind].blocked != ai.ThoughtNone:
+					blocked = appendBlocked(blocked, needSpecs[fn.Kind].blocked)
+				}
 			}
 			if ridesLift(gr.Goal) {
 				if k := rideBlocker(&snap, w); k != ai.ThoughtNone {
@@ -207,6 +212,8 @@ func rideBlocker(s *WorldSnapshot, w *world.World) ai.ThoughtKind {
 		return ai.ThoughtNothingForMe
 	case s.Patience >= 0.05 && allLinesFull(s, w):
 		return ai.ThoughtLinesFull
+	case s.Need[ai.NeedRentals] > 0:
+		return ai.ThoughtNoRentals
 	case !hasTicket(s):
 		return ai.ThoughtNoTicketWindow
 	}
@@ -334,7 +341,10 @@ func (h *nodeHeap) Pop() any {
 func stateKey(s *WorldSnapshot) string {
 	pb := int(s.Patience * 100)
 	eb := int(s.Energy * 100)
-	tb := int(s.Thirst * 100)
+	var nb [ai.NeedCount]int
+	for k, u := range s.Need {
+		nb[k] = int(u * 100)
+	}
 	ridden := 0
 	for _, r := range s.RidenLifts {
 		ridden += r.Count
@@ -342,10 +352,10 @@ func stateKey(s *WorldSnapshot) string {
 	// Key includes all IDs that define an agent's discrete location and
 	// status. Pos is omitted (L1 handles continuous movement); stats are
 	// bucketed to 0.01 to keep the search space finite.
-	return fmt.Sprintf("P%dE%dT%dB%dTop%dQ%dL%dLdg%dBar%dPrk%dTkt%dR%dX%vJ%dSP%vDT%v",
-		pb, eb, tb,
+	return fmt.Sprintf("P%dE%dN%vB%dTop%dQ%dL%dSvc%dPrk%dTkt%dR%dX%vJ%dSP%vDT%v",
+		pb, eb, nb,
 		s.AtLiftBase, s.AtLiftTop, s.Queued, s.OnLift,
-		s.AtLodge, s.AtBar, s.AtParking, s.AtTicketOffice,
+		s.AtService, s.AtParking, s.AtTicketOffice,
 		ridden, s.Removed,
 		s.AtTrailEnd,
 		s.HasSeasonPass, s.HasDayTicket,

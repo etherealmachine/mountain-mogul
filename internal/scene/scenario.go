@@ -872,6 +872,7 @@ func (s *Scenario) Init(app *engine.App) error {
 		{world.ServiceTickets, render.IconCoin},
 		{world.ServicePatrol, render.IconHeart},
 		{world.ServiceGarage, render.IconGarage},
+		{world.ServiceRentals, render.IconStack},
 	} {
 		svc := sv.svc
 		s.serviceButtons[svc] = s.amenitiesSubmenu.AddChild(sv.icon, svc.Label(), func() { s.activateServiceTool(svc) })
@@ -4488,9 +4489,9 @@ func (p *plannerDebugPanel) Draw(r *render.Renderer) {
 		liftRef(p.world, snap.AtLiftBase),
 		liftRef(p.world, snap.AtLiftTop),
 		liftRef(p.world, snap.Queued)))
-	rows = append(rows, fmt.Sprintf("  onLift=%s  lodge=%s  lot=%s",
+	rows = append(rows, fmt.Sprintf("  onLift=%s  service=%s  lot=%s",
 		liftRef(p.world, snap.OnLift),
-		buildingRef(p.world, snap.AtLodge),
+		buildingRef(p.world, snap.AtService),
 		buildingRef(p.world, snap.AtParking)))
 
 	// Trail graph summary — anchor edges + total edge count.

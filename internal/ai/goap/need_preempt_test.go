@@ -9,13 +9,13 @@ import (
 
 func TestNeedPreempts(t *testing.T) {
 	w := world.NewWorld(world.NewTerrain(8, 8))
-	snap := WorldSnapshot{Patience: 1, Energy: 1, Hunger: 1, Thirst: 1}
+	snap := WorldSnapshot{Patience: 1, Energy: 1}
 	plan := ai.Plan{GoalName: "KeepSkiing", Pressing: PressingNeeds(&snap, w)}
 	if NeedPreempts(&snap, w, &plan) {
 		t.Fatal("no need is pressing yet")
 	}
 
-	snap.Hunger = 0.2
+	snap.Need[ai.NeedHunger] = 0.8
 	if !NeedPreempts(&snap, w, &plan) {
 		t.Fatal("hunger crossing its threshold should preempt KeepSkiing")
 	}
@@ -28,11 +28,11 @@ func TestNeedPreempts(t *testing.T) {
 	}
 
 	// Mild thirst weighs less than a keen skier's KeepSkiing.
-	snap.Hunger, snap.Thirst = 1, 0.2
+	snap.Need[ai.NeedHunger], snap.Need[ai.NeedThirst] = 0, 0.8
 	if NeedPreempts(&snap, w, &plan) {
 		t.Fatal("mild thirst shouldn't outweigh KeepSkiing")
 	}
-	snap.Thirst = 0.04
+	snap.Need[ai.NeedThirst] = 0.96
 	if !NeedPreempts(&snap, w, &plan) {
 		t.Fatal("critical thirst should preempt KeepSkiing")
 	}

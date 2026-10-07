@@ -2,6 +2,7 @@ package sim
 
 import (
 	"math"
+	"sort"
 	"time"
 
 	"github.com/go-gl/mathgl/mgl32"
@@ -22,6 +23,15 @@ const (
 	// patienceDrainPerSecQueuing drains patience while standing in a lift
 	// queue: about 20 clock minutes of queuing exhaust it.
 	patienceDrainPerSecQueuing = 1.0 / (world.SimSecondsPerHour / 3)
+
+	// patienceDrainPerSecServiceLine drains patience while waiting at a
+	// building's door to be served: half the lift-line rate, since
+	// they're out of the wind (Service Improvements).
+	patienceDrainPerSecServiceLine = patienceDrainPerSecQueuing / 2
+
+	// serviceLineThoughtSec is a wait at the door long enough to complain
+	// about: ten clock minutes.
+	serviceLineThoughtSec = world.SimSecondsPerHour / 6
 
 	// patienceDrainPerSecWalking drains patience while a guest walks
 	// without skis (on a building footprint or bare ground): a clock hour
@@ -510,20 +520,10 @@ func visitService(w *world.World, a *world.Guest) world.Service {
 	}
 	if next := a.Plan.Step + 1; next < len(a.Plan.Steps) {
 		switch step := a.Plan.Steps[next]; step.Kind {
-		case ai.ActRestAtLodge:
-			// A lodge without a lounge seats resting guests in its food
-			// court, so head for that door.
-			if b := findBuildingByID(w, step.BldgID); b != nil && !b.Offers(world.ServiceLounge) {
-				return world.ServiceFood
-			}
-			return world.ServiceLounge
-		case ai.ActEat:
-			return world.ServiceFood
-		case ai.ActRelieveThirst:
+		case ai.ActUseService:
 			if b := findBuildingByID(w, step.BldgID); b != nil {
-				return b.DrinkService()
+				return b.UseDoor(step.Use)
 			}
-			return world.ServiceBar
 		case ai.ActBuyDayTicket, ai.ActBuySeasonPass:
 			return world.ServiceTickets
 		}
@@ -536,20 +536,91 @@ func endsInDeparture(p ai.Plan) bool {
 	return len(p.Steps) > 0 && p.Steps[len(p.Steps)-1].Kind == ai.ActDepart
 }
 
-// countDiners recounts each lodge's seated diners from guests mid-meal.
-// onPlanStepStart bumps the count as guests sit so seats fill within a tick.
-func countDiners(w *world.World) {
+// countUse recounts each building's guests using and waiting for each
+// pool (seats, counter) from guests mid-visit. beginVisit bumps InUse as
+// guests get in, so a pool fills within a tick.
+func countUse(w *world.World) {
 	for _, b := range w.Buildings {
-		b.Diners = 0
+		b.InUse, b.Waiting = [world.PoolCount]int{}, [world.PoolCount]int{}
 	}
 	for _, a := range w.OnMountain {
-		if a.RestTimer <= 0 || a.Plan.Head().Kind != ai.ActEat {
+		head := a.Plan.Head()
+		if head.Kind != ai.ActUseService || (a.RestTimer <= 0 && !a.Visit.Waiting) {
 			continue
 		}
-		if b := findBuildingByID(w, a.Plan.Head().BldgID); b != nil {
-			b.Diners++
+		b := findBuildingByID(w, head.BldgID)
+		if b == nil {
+			continue
+		}
+		if a.Visit.Waiting {
+			b.Waiting[b.UsePool(head.Use)]++
+		} else {
+			b.InUse[b.UsePool(head.Use)]++
 		}
 	}
+}
+
+// serveLines lets guests waiting at a door in, first come first served,
+// as seats and turns at the counter free up.
+func (s *Simulation) serveLines() {
+	w := s.World
+	var waiting []*world.Guest
+	for _, a := range w.OnMountain {
+		if a.Visit.Waiting {
+			waiting = append(waiting, a)
+		}
+	}
+	if len(waiting) == 0 {
+		return
+	}
+	sort.SliceStable(waiting, func(i, j int) bool { return waiting[i].Visit.WaitSince < waiting[j].Visit.WaitSince })
+	for _, a := range waiting {
+		head := a.Plan.Head()
+		b := findBuildingByID(w, head.BldgID)
+		if b == nil || head.Kind != ai.ActUseService {
+			a.Visit.Waiting = false
+			continue
+		}
+		if b.HasRoomFor(head.Use) {
+			a.Visit.Waiting = false
+			a.Visit.Waited = s.SimTime - a.Visit.WaitSince
+			b.Waiting[b.UsePool(head.Use)]--
+			s.beginVisit(a, b, head.Use)
+		}
+	}
+}
+
+// beginVisit starts guest a using o at b: they take a seat or a turn at
+// the counter, pay, and note what they'll score the visit on when it
+// ends (fulfilOffer).
+func (s *Simulation) beginVisit(a *world.Guest, b *world.Building, o ai.Offer) {
+	w := s.World
+	a.RestTimer = world.OfferDuration(o)
+	a.Speed = 0
+	a.TargetID = 0
+	b.InUse[b.UsePool(o)]++
+	a.Visit.Urgency = 0
+	needs := world.OfferNeeds(o)
+	for k := ai.NeedKind(0); k < ai.NeedCount; k++ {
+		if needs.Has(k) {
+			a.Visit.Urgency = max(a.Visit.Urgency, a.NeedUrgency(k))
+		}
+	}
+	a.Visit.Paid, a.Visit.Ratio = 0, 0
+	if price := b.UsePrice(o); price > 0 {
+		a.Visit.Ratio = b.PriceRatio(o, a.Traits.DailyBudget)
+		a.Visit.Paid = price
+		w.Cash += price
+		w.History.RecordRevenue(useRevenue(b, o), price)
+		a.RemainingBudget -= float32(price)
+	}
+}
+
+// tickWaitingForService holds a guest in the line at a building's door,
+// facing it, while their patience drains; serveLines lets them in.
+func (s *Simulation) tickWaitingForService(a *world.Guest, dt float64) {
+	a.Speed = 0
+	a.Patience = max(a.Patience-float32(dt*patienceDrainPerSecServiceLine), 0)
 }
 
 // liftBaseWorldPos returns the lift base anchor as a world-space Vec3.
@@ -568,7 +639,9 @@ func liftBaseWorldPos(w *world.World, l *world.Lift) mgl32.Vec3 {
 // mid-pass.
 func (s *Simulation) tickGuests(dt float64) {
 	w := s.World
-	countDiners(w)
+	countUse(w)
+	s.serveLines()
+	s.tickVisitNeeds(dt)
 	// Pre-pass: correct stale SkisOn state introduced between ticks (e.g.
 	// by heatwave or other external snow mutations applied outside the
 	// substep loop).
@@ -610,6 +683,8 @@ func (s *Simulation) tickGuests(dt float64) {
 			s.tickRiding(agent, dt)
 		case agent.Queued:
 			s.tickQueued(agent, dt)
+		case agent.Visit.Waiting:
+			s.tickWaitingForService(agent, dt)
 		case agent.RestTimer > 0:
 			s.tickResting(agent, dt)
 		case agent.SkiTransitionTimer != 0:
@@ -663,6 +738,7 @@ func (s *Simulation) spawnGuestAt(lot *world.Building, g *world.Guest, pos mgl32
 	g.Thirst = 0.5 + rng.Global().Float32()*0.5
 	g.Satisfaction = scoreStart
 	g.HasSeasonPass = hasValidPass(g, s.SimTime)
+	g.RollVisitNeeds(rng.Global())
 	// Price the day ticket before planning so the planner sees the
 	// post-ticket budget. The guest arrives without a ticket and pays at
 	// the window (ActBuyDayTicket); pass holders owe nothing.
@@ -673,10 +749,21 @@ func (s *Simulation) spawnGuestAt(lot *world.Building, g *world.Guest, pos mgl32
 	g.DayTicketPaid = 0
 	g.HasDayTicket = false
 	g.RemainingBudget = g.Traits.DailyBudget - float32(ticket+parking)
+	if g.NeedsGear {
+		// They came knowing they'd rent, and brought the money for it.
+		g.RemainingBudget += world.DefaultRentalPrice
+	}
 	g.Removed = false
 
 	w.OnMountain = append(w.OnMountain, g)
 	s.replan(g)
+	if g.NeedsGear && !anyRentals(w) {
+		// Came without skis to a resort that doesn't rent them: they
+		// turn round in the car park.
+		s.setCondition(g, ai.ThoughtNoRentals, true)
+		s.setDepartReason(g, ai.DepartNoRentals)
+		s.directHomePlan(g)
+	}
 	head := g.Plan.Head()
 	bad := g.Plan.Done() ||
 		(head.Kind == ai.ActWalkToLift && len(g.Path) == 0)
@@ -752,7 +839,7 @@ func (s *Simulation) setBlocked(a *world.Guest, blocked []ai.ThoughtKind) {
 }
 
 // plannerConditions are the conditions only the planner reports.
-var plannerConditions = [...]ai.ThoughtKind{ai.ThoughtNeedsLodge, ai.ThoughtLiftsClosed, ai.ThoughtNothingForMe, ai.ThoughtNoTicketWindow, ai.ThoughtLinesFull}
+var plannerConditions = [...]ai.ThoughtKind{ai.ThoughtNeedsLodge, ai.ThoughtLiftsClosed, ai.ThoughtNothingForMe, ai.ThoughtNoTicketWindow, ai.ThoughtLinesFull, ai.ThoughtPricesTooHigh, ai.ThoughtNoRentals, ai.ThoughtNoLounge}
 
 // maybeSampleHistory pushes one DailySample per in-game day boundary
 // the sim has crossed since the last call. Snapshots GuestsOnMountain
@@ -1221,18 +1308,6 @@ func meltCell(c *world.Cell, melt float32) {
 // Planning layer — drives target / queue / removal off the stored ai.Plan
 // =============================================================================
 
-// restAtLodgeSec mirrors goap.restDurationSec — a rest takes 20 clock
-// minutes; the planner costs RestAtLodge the same so plan cost and
-// runtime stay in sync.
-const restAtLodgeSec = world.SimSecondsPerHour / 3
-
-// mealSec mirrors goap.mealDurationSec — how long a diner holds a seat:
-// half a clock hour.
-const mealSec = world.SimSecondsPerHour / 2
-
-// drinkSec is how long a drink takes: ten clock minutes.
-const drinkSec = world.SimSecondsPerHour / 6
-
 // tickPlanning is the per-agent replan / advance check. Runs first in
 // the per-agent loop so any implicit state it sets (Queued, TargetID,
 // RestTimer, Removed) is visible to the dispatch switch below it.
@@ -1309,7 +1384,7 @@ func fellSince(a *world.Guest, simTime float64) bool {
 // can score sessions by run count.
 func isDescentKind(k ai.PlanActionKind) bool {
 	switch k {
-	case ai.ActSkiToLift, ai.ActSkiToLodge, ai.ActSkiToParking, ai.ActSkiTrail:
+	case ai.ActSkiToLift, ai.ActSkiToService, ai.ActSkiToParking, ai.ActSkiTrail:
 		return true
 	}
 	return false
@@ -1409,7 +1484,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		// Before opening they queue and wait for the first chair.
 		if s.ClosedForDay() {
 			s.setDepartReason(a, ai.DepartClosing)
-			s.directHomePlan(a)
+			s.homeAtClosing(a)
 			return
 		}
 		// Safety-net: no riding without a pass or a day ticket.
@@ -1451,18 +1526,14 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		a.Plan.Goal = ai.GoalLift
 		a.Plan.GoalID = lift.ID
 		a.Plan.Target = lift.BackOfQueueWorldPos(w.Terrain)
-	case ai.ActSkiToLodge:
+	case ai.ActSkiToService:
 		s.startRun(a)
 		b := findBuildingByID(w, step.BldgID)
 		if b == nil {
 			return
 		}
 		a.TargetID = b.ID
-		if next := a.Plan.Step + 1; next < len(a.Plan.Steps) && a.Plan.Steps[next].Kind == ai.ActRelieveThirst {
-			a.Plan.Goal = ai.GoalRelieveThirst
-		} else {
-			a.Plan.Goal = ai.GoalNone
-		}
+		a.Plan.Goal = ai.GoalNone
 		a.Plan.GoalID = b.ID
 		a.Plan.Target = entranceWorldPos(w, b, a.Pos, visitService(w, a))
 	case ai.ActSkiToParking:
@@ -1511,6 +1582,23 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 				a.TargetID = 0
 			}
 		}
+	case ai.ActWalkToService:
+		b := findBuildingByID(w, step.BldgID)
+		if b == nil {
+			return
+		}
+		a.TargetID = b.ID
+		a.Plan.Goal = ai.GoalNone
+		a.Plan.GoalID = b.ID
+		svc := visitService(w, a)
+		a.Plan.Target = entranceWorldPos(w, b, a.Pos, svc)
+		startCell := [2]int{
+			int(math.Floor(float64(a.Pos[0] / CellSize))),
+			int(math.Floor(float64(a.Pos[2] / CellSize))),
+		}
+		_, door := b.NearestServiceEntrance(svc, mgl32.Vec2{a.Pos[0], a.Pos[2]})
+		a.Path = s.Pathfinder.FindPath(startCell, door)
+		a.PathIdx = 0
 	case ai.ActWalkToTicketOffice:
 		b := findBuildingByID(w, step.BldgID)
 		if b == nil {
@@ -1583,35 +1671,20 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		a.HasSeasonPass = true
 		_ = b // building exists — purchase confirmed
 
-	case ai.ActRestAtLodge:
-		a.RestTimer = restAtLodgeSec
-		a.Speed = 0
-		a.TargetID = 0
-	case ai.ActRelieveThirst:
-		a.RestTimer = drinkSec
-		a.Speed = 0
-		a.TargetID = 0
-		if b := findBuildingByID(w, step.BldgID); b != nil && b.DrinkPrice > 0 {
-			w.Cash += b.DrinkPrice
-			revenue := world.RevenueBar
-			if b.DrinkService() == world.ServiceFood {
-				revenue = world.RevenueFood
-			}
-			w.History.RecordRevenue(revenue, b.DrinkPrice)
-			a.RemainingBudget -= float32(b.DrinkPrice)
-		}
-	case ai.ActEat:
+	case ai.ActUseService:
 		b := findBuildingByID(w, step.BldgID)
 		if b == nil {
 			return
 		}
-		a.RestTimer = mealSec
-		a.Speed = 0
-		a.TargetID = 0
-		b.Diners++
-		w.Cash += b.MealPrice
-		w.History.RecordRevenue(world.RevenueFood, b.MealPrice)
-		a.RemainingBudget -= float32(b.MealPrice)
+		a.Visit = world.Visit{}
+		if !b.HasRoomFor(step.Use) {
+			// Full: line up at the door (serveLines lets them in).
+			a.Visit.Waiting, a.Visit.WaitSince = true, s.SimTime
+			a.Speed, a.TargetID = 0, 0
+			b.Waiting[b.UsePool(step.Use)]++
+			return
+		}
+		s.beginVisit(a, b, step.Use)
 	case ai.ActDepart:
 		// Capture session stats (LastScore, LifetimeVisits, LastVisit,
 		// VisitsThisSeason) on the persistent Guest record before the
@@ -1667,6 +1740,8 @@ func (s *Simulation) departReasonFor(a *world.Guest) ai.DepartReason {
 	switch {
 	case s.ClosedForDay():
 		return ai.DepartClosing
+	case has(ai.ThoughtNoRentals):
+		return ai.DepartNoRentals
 	case has(ai.ThoughtNoTicketWindow):
 		return ai.DepartNoTicket
 	case has(ai.ThoughtLiftsClosed):
@@ -1748,18 +1823,18 @@ func planActionComplete(step ai.PlanAction, a *world.Guest, snap goap.WorldSnaps
 		return snap.Queued == step.LiftID
 	case ai.ActRideLift:
 		return snap.AtLiftTop == step.LiftID
-	case ai.ActSkiToLodge:
-		return snap.AtLodge == step.BldgID || snap.AtBar == step.BldgID
+	case ai.ActSkiToService:
+		return snap.AtService == step.BldgID
 	case ai.ActSkiToParking:
 		return snap.AtParking == step.BldgID
 	case ai.ActWalkToTicketOffice:
 		return snap.AtTicketOffice == step.BldgID
+	case ai.ActWalkToService:
+		return snap.AtService == step.BldgID
 	case ai.ActBuySeasonPass, ai.ActBuyDayTicket:
 		return true // executed atomically in onPlanStepStart
-	case ai.ActRestAtLodge:
-		return a.RestTimer <= 0
-	case ai.ActRelieveThirst, ai.ActEat:
-		return a.RestTimer <= 0
+	case ai.ActUseService:
+		return a.RestTimer <= 0 && !a.Visit.Waiting
 	case ai.ActDepart:
 		// Terminal — the Removed flag is the real signal; this is
 		// queried only when the agent hasn't been reaped yet.
@@ -1769,7 +1844,7 @@ func planActionComplete(step ai.PlanAction, a *world.Guest, snap goap.WorldSnaps
 			return snap.AtLiftBase == step.LiftID
 		}
 		if step.BldgID != 0 {
-			return snap.AtLodge == step.BldgID || snap.AtParking == step.BldgID || snap.AtBar == step.BldgID
+			return snap.AtService == step.BldgID || snap.AtParking == step.BldgID
 		}
 		// Trail-to-trail: proximity to Plan.Target (the destination trail centroid).
 		dx := a.Pos[0] - a.Plan.Target[0]
@@ -1788,13 +1863,13 @@ func planActionPreconditionHolds(step ai.PlanAction, snap goap.WorldSnapshot, w 
 	case ai.ActWalkToLift, ai.ActJoinQueue, ai.ActRideLift, ai.ActSkiToLift:
 		l := findLiftByID(w, step.LiftID)
 		return l != nil && l.Open && !l.OnHold
-	case ai.ActSkiToLodge, ai.ActSkiToParking, ai.ActRestAtLodge, ai.ActRelieveThirst,
-		ai.ActDepart, ai.ActWalkToTicketOffice, ai.ActBuySeasonPass, ai.ActBuyDayTicket:
+	case ai.ActSkiToService, ai.ActSkiToParking,
+		ai.ActDepart, ai.ActWalkToTicketOffice, ai.ActWalkToService, ai.ActBuySeasonPass, ai.ActBuyDayTicket:
 		b := findBuildingByID(w, step.BldgID)
 		return b != nil && b.Usable()
-	case ai.ActEat:
+	case ai.ActUseService:
 		b := findBuildingByID(w, step.BldgID)
-		return b != nil && b.ServesFood()
+		return b != nil && b.OffersUse(step.Use)
 	case ai.ActSkiTrail:
 		// Destination entity must still exist.
 		if step.LiftID != 0 {
@@ -1817,21 +1892,160 @@ func (s *Simulation) tickResting(a *world.Guest, dt float64) {
 	a.RestTimer -= float32(dt)
 	if a.RestTimer <= 0 {
 		a.RestTimer = 0
-		// Restore stats based on which building we just finished visiting.
-		switch a.Plan.Head().Kind {
-		case ai.ActRestAtLodge:
-			a.Patience = 1
-			a.Energy = 1
-			s.applyEvent(a, ai.ThoughtRested)
-		case ai.ActRelieveThirst:
-			a.Thirst = 1
-			s.applyEvent(a, ai.ThoughtGoodDrink)
-		case ai.ActEat:
-			a.Hunger = 1
-			a.Thirst = 1 // a meal comes with a drink
-			s.applyEvent(a, ai.ThoughtGoodMeal)
+		if head := a.Plan.Head(); head.Kind == ai.ActUseService {
+			s.fulfilOffer(a, findBuildingByID(s.World, head.BldgID), head.Use)
 		}
 	}
+}
+
+// fulfilOffer is what using o at b does for guest a: the stats behind
+// the needs it meets (world.OfferNeeds) fill, and the visit scores on
+// the ledger (Service Improvements):
+//
+//   - relief: the offer's event, scaled by how urgent the need was when
+//     they got in (reliefScale), so a meal when starving counts for more
+//     than a snack
+//   - quality: a nice place adds, a shabby one takes away, and a packed
+//     one takes a little
+//   - value: good value adds, overpriced takes away
+//   - the wait: a long one in the line at the door takes away
+func (s *Simulation) fulfilOffer(a *world.Guest, b *world.Building, o ai.Offer) {
+	relief := reliefScale(a.Visit.Urgency)
+	switch o {
+	case ai.OfferSeat:
+		a.Patience = 1
+		a.Energy = 1
+		s.applyEventScaled(a, ai.ThoughtRested, relief)
+	case ai.OfferMeal:
+		a.Hunger = 1
+		a.Thirst = 1 // a meal comes with a drink
+		s.applyEventScaled(a, ai.ThoughtGoodMeal, relief)
+	case ai.OfferDrink:
+		a.Thirst = 1
+		s.applyEventScaled(a, ai.ThoughtGoodDrink, relief)
+	case ai.OfferRentals:
+		a.NeedsGear = false
+		s.applyEvent(a, ai.ThoughtRentedGear)
+	case ai.OfferApres:
+		a.WantsApres, a.Apres = false, 0
+		a.Thirst = 1
+		// The better their day, the better the après.
+		s.applyEventScaled(a, ai.ThoughtGreatApres, clamp32(a.Satisfaction/0.5, 0.25, 2))
+	case ai.OfferWarmUp:
+		a.Chill = 0
+		s.applyEventScaled(a, ai.ThoughtWarmedUp, relief)
+	}
+	if b != nil {
+		switch q := b.Quality; {
+		case q >= 0.6:
+			s.applyEventScaled(a, ai.ThoughtNicePlace, (q-0.5)/0.5, b.ID)
+		case q <= 0.4:
+			s.applyEventScaled(a, ai.ThoughtShabby, (0.5-q)/0.5, b.ID)
+		}
+		if b.Occupancy(o) >= 0.9 {
+			s.applyEvent(a, ai.ThoughtPackedInside, b.ID)
+		}
+	}
+	switch r := a.Visit.Ratio; {
+	case r <= 0:
+	case r <= world.GoodValueRatio:
+		s.applyEvent(a, ai.ThoughtGoodValue)
+	case r >= world.OverpricedRatio:
+		s.applyEventScaled(a, ai.ThoughtOverpriced, clamp32((r-world.OverpricedRatio)/(world.RefuseRatio-world.OverpricedRatio), 0.25, 1))
+	}
+	if a.Visit.Waited >= serviceLineThoughtSec {
+		s.applyEvent(a, ai.ThoughtServiceLine)
+	}
+	a.Visit = world.Visit{}
+}
+
+// Rolled needs over the day (Service Improvements step 3).
+const (
+	// chillPerHourPerDegree is how fast a guest who feels the cold
+	// (ColdSense 1) chills outdoors per clock hour per degree below
+	// freezing: at −10 °C, half way to chilled through in an hour.
+	chillPerHourPerDegree = float32(1.0 / 20)
+	// warmPerHour is how fast being indoors (any visit) warms them.
+	warmPerHour = float32(3)
+	// apresFrom and apresFull are the clock hours après starts to
+	// tempt and when it's as tempting as it gets before closing.
+	apresFrom = 14.5
+	apresFull = 16.0
+)
+
+// tickVisitNeeds moves the rolled needs along: chill builds outdoors on
+// cold days for guests who feel the cold and goes indoors; the urge for
+// après grows through the late afternoon, more after a good day, and is
+// full once the lifts close.
+func (s *Simulation) tickVisitNeeds(dt float64) {
+	temp := s.TempNow()
+	hours := float32(dt / world.SimSecondsPerHour)
+	hour := float32(HourOfDay(s.SimTime))
+	closed := s.ClosedForDay()
+	for _, a := range s.World.OnMountain {
+		if a.ColdSense > 0 {
+			if a.RestTimer > 0 {
+				a.Chill = max(a.Chill-warmPerHour*hours, 0)
+			} else if temp < 0 {
+				a.Chill = min(a.Chill+a.ColdSense*chillPerHourPerDegree*(-temp)*hours, 1)
+			}
+		}
+		if a.WantsApres {
+			switch {
+			case closed && hour > apresFrom:
+				a.Apres = 1
+			default:
+				ramp := clamp32((hour-apresFrom)/(apresFull-apresFrom), 0, 1)
+				a.Apres = min(ramp*0.8*clamp32(0.5+a.Satisfaction, 0.5, 1.5), 0.99)
+			}
+		}
+	}
+}
+
+// anyRentals reports whether any building rents skis.
+func anyRentals(w *world.World) bool {
+	for _, b := range w.Buildings {
+		if b.Type == world.BuildingLodge && b.OffersUse(ai.OfferRentals) {
+			return true
+		}
+	}
+	return false
+}
+
+// homeAtClosing sends a guest home when the lifts close, unless they
+// want après and there's a bar to go to: then they replan, and the après
+// need (urgency 1 once closed) takes them there first.
+func (s *Simulation) homeAtClosing(a *world.Guest) {
+	if a.WantsApres {
+		for _, b := range s.World.Buildings {
+			if b.Type == world.BuildingLodge && b.OffersUse(ai.OfferApres) {
+				a.Apres = 1
+				a.Plan.Steps = nil
+				return
+			}
+		}
+	}
+	s.directHomePlan(a)
+}
+
+// reliefScale is how much a visit's relief counts for, by how urgent the
+// need was: 1 at the urgency a need starts pressing (0.75), more when
+// nearly empty, less for a top-up.
+func reliefScale(urgency float32) float32 {
+	return clamp32(0.25+urgency, 0.25, 1.25)
+}
+
+// useRevenue is the revenue line using o at b falls under: meals and the
+// food court's drinks are food, a bar's drinks and après are the bar's,
+// rentals are rentals.
+func useRevenue(b *world.Building, o ai.Offer) world.RevenueKind {
+	switch {
+	case o == ai.OfferRentals:
+		return world.RevenueRentals
+	case o == ai.OfferApres, o == ai.OfferDrink && b.DrinkService() == world.ServiceBar:
+		return world.RevenueBar
+	}
+	return world.RevenueFood
 }
 
 // reapDeparted removes agents flagged by ActDepart at the end of
@@ -1860,7 +2074,7 @@ func planTargetWorldPos(w *world.World, a *world.Guest) (mgl32.Vec3, bool) {
 		if l := findLiftByID(w, step.LiftID); l != nil {
 			return l.BackOfQueueWorldPos(w.Terrain), true
 		}
-	case ai.ActSkiToLodge, ai.ActSkiToParking, ai.ActWalkToTicketOffice:
+	case ai.ActSkiToService, ai.ActSkiToParking, ai.ActWalkToTicketOffice, ai.ActWalkToService:
 		if b := findBuildingByID(w, step.BldgID); b != nil {
 			return entranceWorldPos(w, b, a.Pos, visitService(w, a)), true
 		}
@@ -2140,7 +2354,7 @@ const (
 // they're heading anywhere else.
 func leavingDistance(a *world.Guest, target mgl32.Vec3) (float32, bool) {
 	head := a.Plan.Head()
-	if head.Kind != ai.ActSkiToLodge && head.Kind != ai.ActSkiToParking && a.Plan.Goal != ai.GoalDepart {
+	if head.Kind != ai.ActSkiToService && head.Kind != ai.ActSkiToParking && a.Plan.Goal != ai.GoalDepart {
 		return 0, false
 	}
 	return mgl32.Vec2{target[0] - a.Pos[0], target[2] - a.Pos[2]}.Len(), true

@@ -41,16 +41,16 @@ func TestHungryGuestEatsAtFoodCourt(t *testing.T) {
 	cash := w.Cash
 
 	s.replan(g)
-	if k := g.Plan.Head().Kind; k != ai.ActEat {
-		t.Fatalf("head step = %v, want ActEat (goal %s)", k, g.Plan.GoalName)
+	if h := g.Plan.Head(); h.Kind != ai.ActUseService || h.Use != ai.OfferMeal {
+		t.Fatalf("head step = %v, want a meal (goal %s)", h, g.Plan.GoalName)
 	}
 	if w.Cash != cash+20 || w.History.RevenueByKindToday[world.RevenueFood] != 20 {
 		t.Fatalf("cash %d→%d, food revenue %d; want +20", cash, w.Cash, w.History.RevenueByKindToday[world.RevenueFood])
 	}
-	if g.RemainingBudget != 80 || b.Diners != 1 {
-		t.Fatalf("budget %v diners %d, want 80 and 1", g.RemainingBudget, b.Diners)
+	if g.RemainingBudget != 80 || b.InUse[world.PoolFoodSeats] != 1 {
+		t.Fatalf("budget %v diners %d, want 80 and 1", g.RemainingBudget, b.InUse[world.PoolFoodSeats])
 	}
-	s.tickResting(g, mealSec+1)
+	s.tickResting(g, float64(world.OfferDuration(ai.OfferMeal))+1)
 	if g.Hunger != 1 {
 		t.Fatalf("hunger after meal = %v, want 1", g.Hunger)
 	}
@@ -59,9 +59,11 @@ func TestHungryGuestEatsAtFoodCourt(t *testing.T) {
 func TestFullFoodCourtTurnsGuestsAway(t *testing.T) {
 	s, b := foodCourtWorld(t)
 	g := hungryGuestAtDoor(s, b)
-	b.Diners = b.Seats()
+	// Every seat taken and a line as long as the room holds.
+	b.InUse[world.PoolFoodSeats] = b.Seats()
+	b.Waiting[world.PoolFoodSeats] = b.Seats()
 	s.replan(g)
-	if g.Plan.Head().Kind == ai.ActEat {
+	if h := g.Plan.Head(); h.Kind == ai.ActUseService && h.Use == ai.OfferMeal {
 		t.Fatal("guest sat down in a full food court")
 	}
 }
@@ -82,7 +84,7 @@ func TestDoorlessLodgeIsUnreachable(t *testing.T) {
 		t.Fatal("lodge without doors should be unusable")
 	}
 	s.replan(g)
-	if g.Plan.Head().Kind == ai.ActEat {
+	if h := g.Plan.Head(); h.Kind == ai.ActUseService && h.Use == ai.OfferMeal {
 		t.Fatal("guest ate in a lodge with no doors")
 	}
 }

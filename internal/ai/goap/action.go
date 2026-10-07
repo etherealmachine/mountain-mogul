@@ -60,14 +60,6 @@ const (
 	// love (Snow Tastes).
 	tasteMissSec = 300.0
 
-	// Rest duration constant — Rest restores Energy to ~full in one action.
-	// Modeled as a chunky atomic action rather than a series of timed
-	// recovery ticks so the planner doesn't need to chain dozens of small
-	// rest actions to satisfy the Rest goal.
-	restDurationSec = world.SimSecondsPerHour / 3
-	// mealDurationSec mirrors sim.mealSec.
-	mealDurationSec = world.SimSecondsPerHour / 2
-
 	// Minimum vertical drop for a SkiTo* action to be applicable. Below
 	// this, the destination is effectively at the same elevation as the
 	// lift top, and skiing-to-it is degenerate. Keeps the action graph
@@ -111,8 +103,7 @@ func (a *WalkToLift) Apply(s *WorldSnapshot, w *world.World) {
 		return
 	}
 	s.Pos = mgl32.Vec3{l.Base[0], s.Pos[1], l.Base[1]}
-	s.AtLodge = 0
-	s.AtBar = 0
+	s.AtService = 0
 	s.AtParking = 0
 	s.AtTicketOffice = 0
 	s.AtTrailEnd = 0
@@ -149,8 +140,9 @@ func (a *JoinQueue) Precondition(s *WorldSnapshot, w *world.World) bool {
 	// Reject if the queue is too long, unless patience is already exhausted.
 	// The exhausted exception keeps GoHome routing functional: a guest leaving
 	// the mountain still needs to join a queue and ride up to exit a lift base.
-	// No riding without a season pass or a day ticket from the window.
-	if !hasTicket(s) {
+	// No riding without a season pass or a day ticket from the window,
+	// or without skis: a guest who came without rents first.
+	if !hasTicket(s) || s.Need[ai.NeedRentals] > 0 {
 		return false
 	}
 	if s.Patience >= 0.05 && l.QueueLen() > MaxQueuePersons {
@@ -261,8 +253,7 @@ func (a *SkiToLift) Apply(s *WorldSnapshot, w *world.World) {
 		return
 	}
 	s.AtLiftTop = 0
-	s.AtLodge = 0
-	s.AtBar = 0
+	s.AtService = 0
 	s.AtParking = 0
 	s.AtTicketOffice = 0
 	s.AtTrailEnd = 0
@@ -279,28 +270,29 @@ func (a *SkiToLift) Cost(s *WorldSnapshot, w *world.World) float32 {
 	return distXZ(mgl32.Vec3{src.Top[0], 0, src.Top[1]}, dst.Base[0], dst.Base[1]) / skiSpeedMps
 }
 
-// SkiToLodge descends from a lift top to a lodge. Used in plans that
-// satisfy the Rest goal.
-type SkiToLodge struct{ LodgeID uint64 }
+// SkiToService descends from a lift top to a building that offers
+// something to use (a seat, a meal, a drink). Used in plans that fulfil
+// a need.
+type SkiToService struct{ BldgID uint64 }
 
-func (a *SkiToLodge) Name() string {
-	return fmt.Sprintf("SkiToLodge(%d)", a.LodgeID)
+func (a *SkiToService) Name() string {
+	return fmt.Sprintf("SkiToService(%d)", a.BldgID)
 }
 
-func (a *SkiToLodge) Precondition(s *WorldSnapshot, w *world.World) bool {
+func (a *SkiToService) Precondition(s *WorldSnapshot, w *world.World) bool {
 	if s.Removed || s.AtLiftTop == 0 {
 		return false
 	}
 	src := findLift(w, s.AtLiftTop)
-	dst := findBuilding(w, a.LodgeID, world.BuildingLodge)
-	if src == nil || dst == nil || !dst.OffersRest() {
+	dst := findBuilding(w, a.BldgID, world.BuildingLodge)
+	if src == nil || dst == nil || !dst.OffersAnyUse() {
 		return false
 	}
 	return liftTopElev(w, src)-buildingElev(w, dst) >= minDescentMeters
 }
 
-func (a *SkiToLodge) Apply(s *WorldSnapshot, w *world.World) {
-	b := findBuilding(w, a.LodgeID, world.BuildingLodge)
+func (a *SkiToService) Apply(s *WorldSnapshot, w *world.World) {
+	b := findBuilding(w, a.BldgID, world.BuildingLodge)
 	if b == nil {
 		return
 	}
@@ -310,49 +302,9 @@ func (a *SkiToLodge) Apply(s *WorldSnapshot, w *world.World) {
 	s.Pos = mgl32.Vec3{b.Pos[0], s.Pos[1], b.Pos[1]}
 }
 
-func (a *SkiToLodge) Cost(s *WorldSnapshot, w *world.World) float32 {
+func (a *SkiToService) Cost(s *WorldSnapshot, w *world.World) float32 {
 	src := findLift(w, s.AtLiftTop)
-	dst := findBuilding(w, a.LodgeID, world.BuildingLodge)
-	if src == nil || dst == nil {
-		return math.MaxFloat32
-	}
-	return distXZ(mgl32.Vec3{src.Top[0], 0, src.Top[1]}, dst.Pos[0], dst.Pos[1]) / skiSpeedMps
-}
-
-// SkiToBar descends from a lift top to a bar. Used in plans that
-// satisfy the RelieveThirst goal.
-type SkiToBar struct{ BarID uint64 }
-
-func (a *SkiToBar) Name() string {
-	return fmt.Sprintf("SkiToBar(%d)", a.BarID)
-}
-
-func (a *SkiToBar) Precondition(s *WorldSnapshot, w *world.World) bool {
-	if s.Removed || s.AtLiftTop == 0 {
-		return false
-	}
-	src := findLift(w, s.AtLiftTop)
-	dst := findBuilding(w, a.BarID, world.BuildingLodge)
-	if src == nil || dst == nil || !dst.ServesDrinks() {
-		return false
-	}
-	return liftTopElev(w, src)-buildingElev(w, dst) >= minDescentMeters
-}
-
-func (a *SkiToBar) Apply(s *WorldSnapshot, w *world.World) {
-	b := findBuilding(w, a.BarID, world.BuildingLodge)
-	if b == nil {
-		return
-	}
-	s.AtLiftTop = 0
-	s.AtTrailEnd = 0
-	setAtBuilding(s, b)
-	s.Pos = mgl32.Vec3{b.Pos[0], s.Pos[1], b.Pos[1]}
-}
-
-func (a *SkiToBar) Cost(s *WorldSnapshot, w *world.World) float32 {
-	src := findLift(w, s.AtLiftTop)
-	dst := findBuilding(w, a.BarID, world.BuildingLodge)
+	dst := findBuilding(w, a.BldgID, world.BuildingLodge)
 	if src == nil || dst == nil {
 		return math.MaxFloat32
 	}
@@ -385,8 +337,7 @@ func (a *SkiToParking) Apply(s *WorldSnapshot, w *world.World) {
 		return
 	}
 	s.AtLiftTop = 0
-	s.AtLodge = 0
-	s.AtBar = 0
+	s.AtService = 0
 	s.AtTicketOffice = 0
 	s.AtTrailEnd = 0
 	s.AtParking = b.ID
@@ -444,6 +395,42 @@ func (a *WalkToTicketOffice) Cost(s *WorldSnapshot, w *world.World) float32 {
 	return distXZ(s.Pos, b.Pos[0], b.Pos[1]) / walkSpeedMps
 }
 
+// WalkToService walks from the base area (a lot, a building, the foot
+// of a lift) to a building that offers something to use: rentals on
+// arrival, après after the lifts close, or lunch between laps.
+type WalkToService struct{ BldgID uint64 }
+
+func (a *WalkToService) Name() string {
+	return fmt.Sprintf("WalkToService(%d)", a.BldgID)
+}
+
+func (a *WalkToService) Precondition(s *WorldSnapshot, w *world.World) bool {
+	if s.Removed || s.OnLift != 0 || s.Queued != 0 || s.AtLiftTop != 0 || s.AtService == a.BldgID {
+		return false
+	}
+	b := findBuilding(w, a.BldgID, world.BuildingLodge)
+	return b != nil && b.OffersAnyUse()
+}
+
+func (a *WalkToService) Apply(s *WorldSnapshot, w *world.World) {
+	b := findBuilding(w, a.BldgID, world.BuildingLodge)
+	if b == nil {
+		return
+	}
+	s.AtLiftBase = 0
+	s.AtTrailEnd = 0
+	setAtBuilding(s, b)
+	s.Pos = mgl32.Vec3{b.Pos[0], s.Pos[1], b.Pos[1]}
+}
+
+func (a *WalkToService) Cost(s *WorldSnapshot, w *world.World) float32 {
+	b := findBuilding(w, a.BldgID, world.BuildingLodge)
+	if b == nil {
+		return math.MaxFloat32
+	}
+	return distXZ(s.Pos, b.Pos[0], b.Pos[1]) / walkSpeedMps
+}
+
 // BuyDayTicket is an atomic action executed at a ticket office: the guest
 // pays the day ticket priced at arrival. RemainingBudget already excludes
 // it, so only the ticket flag changes here; the simulation moves the cash
@@ -493,83 +480,84 @@ func (a *BuySeasonPass) Cost(s *WorldSnapshot, w *world.World) float32 {
 	return 5.0 // brief transaction; planner sees minimal queue cost
 }
 
-// RestAtLodge is an atomic recovery action — one application restores
-// Energy to near full. Models a single ~minute-long stop at a lodge
-// rather than chaining many small recovery ticks, which would balloon
-// plan length.
-type RestAtLodge struct{ LodgeID uint64 }
-
-func (a *RestAtLodge) Name() string {
-	return fmt.Sprintf("RestAtLodge(%d)", a.LodgeID)
+// UseService uses something a building offers (a seat, a meal, a
+// drink): it fulfils the needs that offer meets (world.OfferNeeds) and
+// costs its price, its time, and the expected wait at the door. A guest
+// won't join a line longer than the place holds, or pay far more than
+// they expect (world.RefuseRatio).
+type UseService struct {
+	BldgID uint64
+	Use    ai.Offer
 }
 
-func (a *RestAtLodge) Precondition(s *WorldSnapshot, w *world.World) bool {
-	return !s.Removed && s.AtLodge == a.LodgeID
+func (a *UseService) Name() string {
+	return fmt.Sprintf("Use%s(%d)", ai.OfferLabels[a.Use], a.BldgID)
 }
 
-func (a *RestAtLodge) Apply(s *WorldSnapshot, w *world.World) {
-	s.Patience = 1
-	s.Energy = 1
-}
-
-func (a *RestAtLodge) Cost(s *WorldSnapshot, w *world.World) float32 {
-	return restDurationSec
-}
-
-// EatAtFoodCourt buys a meal at a lodge food court: restores Hunger and
-// spends MealPrice. Needs a free seat, so a packed food court turns
-// hungry guests away.
-type EatAtFoodCourt struct{ LodgeID uint64 }
-
-func (a *EatAtFoodCourt) Name() string {
-	return fmt.Sprintf("EatAtFoodCourt(%d)", a.LodgeID)
-}
-
-func (a *EatAtFoodCourt) Precondition(s *WorldSnapshot, w *world.World) bool {
-	if s.Removed || s.AtLodge != a.LodgeID {
+func (a *UseService) Precondition(s *WorldSnapshot, w *world.World) bool {
+	if s.Removed || s.AtService != a.BldgID {
 		return false
 	}
-	b := findBuilding(w, a.LodgeID, world.BuildingLodge)
-	return b != nil && b.ServesFood() && b.Diners < b.Seats() && s.RemainingBudget >= float32(b.MealPrice)
-}
-
-func (a *EatAtFoodCourt) Apply(s *WorldSnapshot, w *world.World) {
-	s.Hunger = 1
-	s.Thirst = 1 // a meal comes with a drink
-	if b := findBuilding(w, a.LodgeID, world.BuildingLodge); b != nil {
-		s.RemainingBudget -= float32(b.MealPrice)
-	}
-}
-
-func (a *EatAtFoodCourt) Cost(s *WorldSnapshot, w *world.World) float32 {
-	return mealDurationSec
-}
-
-// RelieveThirstAtBar is an atomic recovery action — restores Thirst and sets
-// ThirstRelieved = true.
-type RelieveThirstAtBar struct{ BarID uint64 }
-
-func (a *RelieveThirstAtBar) Name() string {
-	return fmt.Sprintf("RelieveThirstAtBar(%d)", a.BarID)
-}
-
-func (a *RelieveThirstAtBar) Precondition(s *WorldSnapshot, w *world.World) bool {
-	if s.Removed || s.AtBar != a.BarID {
+	b := findBuilding(w, a.BldgID, world.BuildingLodge)
+	if b == nil || !b.OffersUse(a.Use) || !b.LineOpen(a.Use) {
 		return false
 	}
-	b := findBuilding(w, a.BarID, world.BuildingLodge)
-	return b != nil && b.ServesDrinks() && s.RemainingBudget >= float32(b.DrinkPrice)
+	return affordable(b, a.Use, s)
 }
 
-func (a *RelieveThirstAtBar) Apply(s *WorldSnapshot, w *world.World) {
-	s.Thirst = 1
-	if b := findBuilding(w, a.BarID, world.BuildingLodge); b != nil {
-		s.RemainingBudget -= float32(b.DrinkPrice)
+func (a *UseService) Apply(s *WorldSnapshot, w *world.World) {
+	needs := world.OfferNeeds(a.Use)
+	for k := ai.NeedKind(0); k < ai.NeedCount; k++ {
+		if needs.Has(k) {
+			s.Need[k] = 0
+		}
+	}
+	if needs.Has(ai.NeedRest) {
+		// The skiing goals read these directly.
+		s.Patience, s.Energy = 1, 1
+	}
+	if b := findBuilding(w, a.BldgID, world.BuildingLodge); b != nil {
+		s.RemainingBudget -= float32(b.UsePrice(a.Use))
 	}
 }
 
-func (a *RelieveThirstAtBar) Cost(s *WorldSnapshot, w *world.World) float32 {
-	return world.SimSecondsPerHour / 6 // a drink: ten clock minutes, as sim.drinkSec
+func (a *UseService) Cost(s *WorldSnapshot, w *world.World) float32 {
+	c := world.OfferDuration(a.Use)
+	if b := findBuilding(w, a.BldgID, world.BuildingLodge); b != nil {
+		c += b.ExpectedWait(a.Use)
+	}
+	return c
+}
+
+// affordable reports whether the guest will pay for o at b: free, or
+// within what they have left and under world.RefuseRatio of what they
+// expect it to cost.
+func affordable(b *world.Building, o ai.Offer, s *WorldSnapshot) bool {
+	price := b.UsePrice(o)
+	return price == 0 || (s.RemainingBudget >= float32(price) && b.PriceRatio(o, s.Budget) < world.RefuseRatio)
+}
+
+// pricedOut reports whether need k could be met somewhere but every
+// place that offers it charges more than the guest will pay
+// (world.RefuseRatio): the planner's reason for "everything here costs
+// too much".
+func pricedOut(s *WorldSnapshot, w *world.World, k ai.NeedKind) bool {
+	offered := false
+	for _, b := range w.Buildings {
+		if b.Type != world.BuildingLodge {
+			continue
+		}
+		for o := ai.OfferNone + 1; o < ai.OfferCount; o++ {
+			if !world.OfferNeeds(o).Has(k) || !b.OffersUse(o) {
+				continue
+			}
+			offered = true
+			if b.UsePrice(o) == 0 || b.PriceRatio(o, s.Budget) < world.RefuseRatio {
+				return false
+			}
+		}
+	}
+	return offered
 }
 
 // Depart is the terminal action that removes the agent from the sim.
@@ -640,10 +628,7 @@ func ApplicableActions(s *WorldSnapshot, w *world.World) []Action {
 		for _, b := range w.Buildings {
 			switch b.Type {
 			case world.BuildingLodge:
-				if a := (&SkiToLodge{LodgeID: b.ID}); a.Precondition(s, w) {
-					out = append(out, a)
-				}
-				if a := (&SkiToBar{BarID: b.ID}); a.Precondition(s, w) {
+				if a := (&SkiToService{BldgID: b.ID}); a.Precondition(s, w) {
 					out = append(out, a)
 				}
 			case world.BuildingParking:
@@ -655,26 +640,29 @@ func ApplicableActions(s *WorldSnapshot, w *world.World) []Action {
 		}
 	}
 
-	// At a lodge, bar, or parking — rest, relieve thirst, or depart.
-	if s.AtLodge != 0 {
-		a := &RestAtLodge{LodgeID: s.AtLodge}
-		if a.Precondition(s, w) {
-			out = append(out, a)
-		}
-		if e := (&EatAtFoodCourt{LodgeID: s.AtLodge}); e.Precondition(s, w) {
-			out = append(out, e)
-		}
-	}
-	if s.AtBar != 0 {
-		a := &RelieveThirstAtBar{BarID: s.AtBar}
-		if a.Precondition(s, w) {
-			out = append(out, a)
+	// At a service building — use what it offers; at parking — depart.
+	if s.AtService != 0 {
+		for o := ai.OfferNone + 1; o < ai.OfferCount; o++ {
+			if a := (&UseService{BldgID: s.AtService, Use: o}); a.Precondition(s, w) {
+				out = append(out, a)
+			}
 		}
 	}
 	if s.AtParking != 0 {
 		a := &Depart{LotID: s.AtParking}
 		if a.Precondition(s, w) {
 			out = append(out, a)
+		}
+	}
+	// Walk to a service building from the base area.
+	if !s.Removed && s.OnLift == 0 && s.Queued == 0 && s.AtLiftTop == 0 {
+		for _, b := range w.Buildings {
+			if b.Type != world.BuildingLodge {
+				continue
+			}
+			if a := (&WalkToService{BldgID: b.ID}); a.Precondition(s, w) {
+				out = append(out, a)
+			}
 		}
 	}
 	// Walk to ticket office from any ground position (not on a lift or in a queue).
@@ -731,24 +719,19 @@ func ToPlanActions(actions []Action, snap WorldSnapshot, w *world.World) []ai.Pl
 		case *SkiToLift:
 			pa.Kind = ai.ActSkiToLift
 			pa.LiftID = t.LiftID
-		case *SkiToLodge:
-			pa.Kind = ai.ActSkiToLodge
-			pa.BldgID = t.LodgeID
-		case *SkiToBar:
-			pa.Kind = ai.ActSkiToLodge // map to Lodge kind per internal/ai/types.go
-			pa.BldgID = t.BarID
+		case *SkiToService:
+			pa.Kind = ai.ActSkiToService
+			pa.BldgID = t.BldgID
+		case *WalkToService:
+			pa.Kind = ai.ActWalkToService
+			pa.BldgID = t.BldgID
 		case *SkiToParking:
 			pa.Kind = ai.ActSkiToParking
 			pa.BldgID = t.LotID
-		case *RestAtLodge:
-			pa.Kind = ai.ActRestAtLodge
-			pa.BldgID = t.LodgeID
-		case *RelieveThirstAtBar:
-			pa.Kind = ai.ActRelieveThirst
-			pa.BldgID = t.BarID
-		case *EatAtFoodCourt:
-			pa.Kind = ai.ActEat
-			pa.BldgID = t.LodgeID
+		case *UseService:
+			pa.Kind = ai.ActUseService
+			pa.BldgID = t.BldgID
+			pa.Use = t.Use
 		case *Depart:
 			pa.Kind = ai.ActDepart
 			pa.BldgID = t.LotID
@@ -793,16 +776,14 @@ func PlanActionLabel(pa ai.PlanAction, w *world.World) string {
 		return "RideLift(" + liftLabel(w, pa.LiftID) + ")"
 	case ai.ActSkiToLift:
 		return "SkiToLift(" + liftLabel(w, pa.LiftID) + ")"
-	case ai.ActSkiToLodge:
-		return "SkiToLodge(" + buildingLabel(w, pa.BldgID) + ")"
+	case ai.ActSkiToService:
+		return "SkiToService(" + buildingLabel(w, pa.BldgID) + ")"
+	case ai.ActWalkToService:
+		return "WalkToService(" + buildingLabel(w, pa.BldgID) + ")"
 	case ai.ActSkiToParking:
 		return "SkiToParking(" + buildingLabel(w, pa.BldgID) + ")"
-	case ai.ActRestAtLodge:
-		return "RestAtLodge(" + buildingLabel(w, pa.BldgID) + ")"
-	case ai.ActRelieveThirst:
-		return "RelieveThirst(" + buildingLabel(w, pa.BldgID) + ")"
-	case ai.ActEat:
-		return "Eat(" + buildingLabel(w, pa.BldgID) + ")"
+	case ai.ActUseService:
+		return ai.OfferLabels[pa.Use] + "(" + buildingLabel(w, pa.BldgID) + ")"
 	case ai.ActDepart:
 		return "Depart(" + buildingLabel(w, pa.BldgID) + ")"
 	case ai.ActWalkToTicketOffice:
@@ -836,18 +817,14 @@ func DisplayName(a Action, w *world.World) string {
 		return "RideLift(" + liftLabel(w, act.LiftID) + ")"
 	case *SkiToLift:
 		return "SkiToLift(" + liftLabel(w, act.LiftID) + ")"
-	case *SkiToLodge:
-		return "SkiToLodge(" + buildingLabel(w, act.LodgeID) + ")"
-	case *SkiToBar:
-		return "SkiToBar(" + buildingLabel(w, act.BarID) + ")"
+	case *SkiToService:
+		return "SkiToService(" + buildingLabel(w, act.BldgID) + ")"
+	case *WalkToService:
+		return "WalkToService(" + buildingLabel(w, act.BldgID) + ")"
 	case *SkiToParking:
 		return "SkiToParking(" + buildingLabel(w, act.LotID) + ")"
-	case *RestAtLodge:
-		return "RestAtLodge(" + buildingLabel(w, act.LodgeID) + ")"
-	case *RelieveThirstAtBar:
-		return "RelieveThirst(" + buildingLabel(w, act.BarID) + ")"
-	case *EatAtFoodCourt:
-		return "Eat(" + buildingLabel(w, act.LodgeID) + ")"
+	case *UseService:
+		return ai.OfferLabels[act.Use] + "(" + buildingLabel(w, act.BldgID) + ")"
 	case *Depart:
 		return "Depart(" + buildingLabel(w, act.LotID) + ")"
 	case *WalkToTicketOffice:

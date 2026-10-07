@@ -334,6 +334,8 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 			SnowGunEnabled:  b.SnowGunEnabled,
 			StyleSeed:       b.StyleSeed,
 			MealPrice:       b.MealPrice,
+			Quality:         &b.Quality,
+			Rental:          b.RentalPrice,
 			DrinkPrice:      b.DrinkPrice,
 		}
 		if b.IsShell() {
@@ -512,6 +514,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 						LiftID:  pa.LiftID,
 						BldgID:  pa.BldgID,
 						TrailID: pa.TrailID,
+						Use:     uint8(pa.Use),
 						Cost:    pa.Cost,
 					}
 				}
@@ -1145,6 +1148,7 @@ func dataToWorld(data ScenarioData) *world.World {
 						LiftID:  pd.LiftID,
 						BldgID:  pd.BldgID,
 						TrailID: pd.TrailID,
+						Use:     ai.Offer(pd.Use),
 						Cost:    pd.Cost,
 					}
 				}
@@ -1373,6 +1377,12 @@ func loadServiceBuilding(w *world.World, bd BuildingData) *world.Building {
 	}
 	if bd.DrinkPrice > 0 {
 		b.DrinkPrice = bd.DrinkPrice
+	}
+	if bd.Rental > 0 {
+		b.RentalPrice = bd.Rental
+	}
+	if bd.Quality != nil {
+		b.Quality = *bd.Quality
 	}
 	return b
 }

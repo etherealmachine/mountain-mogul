@@ -175,8 +175,7 @@ type GoalKind int
 const (
 	GoalNone GoalKind = iota
 	GoalLift
-	GoalDepart        // heading to a parking lot / bus stop / train station to leave the resort
-	GoalRelieveThirst // heading to a bar to drink something
+	GoalDepart // heading to a parking lot / bus stop / train station to leave the resort
 )
 
 // PlanActionKind tags an L0 plan step so the simulation can drive
@@ -191,16 +190,15 @@ const (
 	ActJoinQueue
 	ActRideLift
 	ActSkiToLift
-	ActSkiToLodge
+	ActSkiToService // ski down to a building to use something it offers
 	ActSkiToParking
-	ActRestAtLodge
+	ActUseService // use what a building offers (PlanAction.Use): a seat, a meal, a drink
 	ActDepart
 	ActSkiTrail           // ski a player-defined trail from one entity to another
 	ActWalkToTicketOffice // walk to the ticket office building
 	ActBuySeasonPass      // purchase a season pass at the ticket office
-	ActRelieveThirst      // stop at a bar to drink something
 	ActBuyDayTicket       // buy today's day ticket at the ticket office
-	ActEat                // buy a meal at a lodge food court
+	ActWalkToService      // walk from the base area to a building to use something it offers
 )
 
 // PlanAction is one step in the stored L0 plan — plain data, no behaviour.
@@ -213,6 +211,7 @@ type PlanAction struct {
 	LiftID  uint64
 	BldgID  uint64
 	TrailID uint64 // ActSkiTrail: via trail (= destination for trail-to-trail)
+	Use     Offer  // ActUseService: what the guest uses there
 	Cost    float32
 }
 
@@ -239,13 +238,54 @@ type Plan struct {
 	Blocked []ThoughtKind
 }
 
-// NeedMask is a set of bodily needs (hunger, thirst).
-type NeedMask uint8
+// NeedKind is something a guest needs during their day, which the
+// resort's services fulfil (Service Improvements). Each has an urgency,
+// 0..1, that the planner weighs against skiing; the sim decides what the
+// urgency comes from (world.Guest.NeedUrgency) and what fulfilling it
+// does to the guest's stats.
+type NeedKind uint8
 
 const (
-	NeedHunger NeedMask = 1 << iota
+	NeedHunger NeedKind = iota
 	NeedThirst
+	NeedRest // energy and patience
+	// Needs a guest arrives with (world.Guest.RollVisitNeeds).
+	NeedRentals // came without skis: a hard gate on riding until they rent
+	NeedApres   // wants après-ski: grows late in the afternoon, faster after a good day
+	NeedWarmth  // feels the cold: chilled outdoors on cold days
+	NeedCount
 )
+
+// NeedLabels name the needs for goal names and the HUD.
+var NeedLabels = [NeedCount]string{"Hunger", "Thirst", "Rest", "Rentals", "Apres", "Warmth"}
+
+// NeedMask is a set of needs.
+type NeedMask uint8
+
+// Mask is the set holding only k.
+func (k NeedKind) Mask() NeedMask { return 1 << k }
+
+// Has reports whether k is in m.
+func (m NeedMask) Has(k NeedKind) bool { return m&k.Mask() != 0 }
+
+// Offer is something a guest can use at a building, and the needs it
+// fulfils (world.OfferNeeds): a seat, a meal, a drink. A building
+// offers what its service tiles provide (world.Building.OffersUse).
+type Offer uint8
+
+const (
+	OfferNone    Offer = iota
+	OfferSeat          // sit down: rest
+	OfferMeal          // a meal, with a drink: hunger and thirst
+	OfferDrink         // a drink: thirst
+	OfferRentals       // rental skis: rentals
+	OfferApres         // après-ski at the bar: après
+	OfferWarmUp        // a seat by the fire in the lounge: warmth
+	OfferCount
+)
+
+// OfferLabels name the offers for plan steps on the HUD.
+var OfferLabels = [OfferCount]string{"None", "Rest", "Eat", "Drink", "Rent", "Apres", "WarmUp"}
 
 // Done reports whether the plan is exhausted — no steps or the cursor has
 // advanced past the last one. The simulation re-plans when this is true.
@@ -413,9 +453,25 @@ const (
 	ThoughtNotMySkiing // nothing here was ever their kind of skiing
 
 	// Services.
-	ThoughtGoodMeal   // finished a meal at a food court
-	ThoughtGoodDrink  // finished a drink at a bar
-	ThoughtRested     // finished a rest at a lounge or food court
+	ThoughtGoodMeal  // finished a meal at a food court
+	ThoughtGoodDrink // finished a drink at a bar
+	ThoughtRested    // finished a rest at a lounge or food court
+	// How a visit went (sim.fulfilOffer): its value for money, the
+	// building's quality, and the wait to be served.
+	ThoughtGoodValue     // paid less than they expected for it
+	ThoughtOverpriced    // paid well over what they expected
+	ThoughtPricesTooHigh // planner: every place that could serve a need charges more than they'll pay
+	ThoughtServiceLine   // waited a long time at the door to be served
+	ThoughtNicePlace     // a high-quality building
+	ThoughtShabby        // a low-quality building
+	ThoughtPackedInside  // the building was nearly full
+	// Needs a guest arrives with.
+	ThoughtRentedGear // picked up rental skis
+	ThoughtNoRentals  // planner: came without skis and nowhere rents them
+	ThoughtGreatApres // après-ski at the bar; counts for more after a good day
+	ThoughtWarmedUp   // warmed up in a lounge
+	ThoughtCold       // chilled through
+	ThoughtNoLounge   // planner: chilled with nowhere to warm up
 	ThoughtPatrolFast // patrol reached them quickly
 	ThoughtPatrolCame // patrol reached them in a reasonable time
 	ThoughtPatrolSlow // patrol took a long time to reach them
@@ -463,6 +519,15 @@ var Effects = [ThoughtKindCount]Effect{
 	ThoughtGoodMeal:          {Satisfaction: +0.05},
 	ThoughtGoodDrink:         {Satisfaction: +0.04},
 	ThoughtRested:            {Satisfaction: +0.03},
+	ThoughtGoodValue:         {Satisfaction: +0.02},
+	ThoughtOverpriced:        {Satisfaction: -0.04},
+	ThoughtServiceLine:       {Satisfaction: -0.04},
+	ThoughtNicePlace:         {Satisfaction: +0.03},
+	ThoughtShabby:            {Satisfaction: -0.03},
+	ThoughtPackedInside:      {Satisfaction: -0.02},
+	ThoughtRentedGear:        {Satisfaction: +0.01},
+	ThoughtGreatApres:        {Satisfaction: +0.05},
+	ThoughtWarmedUp:          {Satisfaction: +0.03},
 	ThoughtPatrolFast:        {Satisfaction: +0.06},
 	ThoughtPatrolCame:        {Satisfaction: +0.02},
 	ThoughtPatrolSlow:        {Satisfaction: -0.08},
@@ -491,6 +556,10 @@ var Effects = [ThoughtKindCount]Effect{
 	ThoughtLiftsClosed:    {Condition: true},
 	ThoughtNothingForMe:   {Condition: true},
 	ThoughtLinesFull:      {Condition: true},
+	ThoughtPricesTooHigh:  {Condition: true, Satisfaction: -0.05},
+	ThoughtNoRentals:      {Condition: true, Satisfaction: -0.10},
+	ThoughtCold:           {Condition: true, Satisfaction: -0.08},
+	ThoughtNoLounge:       {Condition: true, Satisfaction: -0.05},
 }
 
 // ConditionTag is each condition's short name, for marking which are on
@@ -500,6 +569,10 @@ var ConditionTag = [ThoughtKindCount]string{
 	ThoughtThirsty:        "thirsty",
 	ThoughtImpatient:      "sick of waiting",
 	ThoughtNeedsLodge:     "no lodge",
+	ThoughtPricesTooHigh:  "pricey",
+	ThoughtNoRentals:      "no rentals",
+	ThoughtCold:           "cold",
+	ThoughtNoLounge:       "no lounge",
 	ThoughtTooEasy:        "too easy",
 	ThoughtBored:          "bored",
 	ThoughtNotMySkiing:    "not my skiing",
@@ -582,6 +655,19 @@ var thoughtText = [ThoughtKindCount]string{
 	ThoughtGoodMeal:          "that meal hit the spot",
 	ThoughtGoodDrink:         "just what I needed",
 	ThoughtRested:            "good to sit down for a bit",
+	ThoughtGoodValue:         "good value for the money",
+	ThoughtOverpriced:        "that was way overpriced",
+	ThoughtPricesTooHigh:     "everything here costs too much",
+	ThoughtServiceLine:       "waited ages to get served",
+	ThoughtNicePlace:         "what a nice place",
+	ThoughtShabby:            "this place is shabby",
+	ThoughtPackedInside:      "it's packed in there",
+	ThoughtRentedGear:        "got my rental skis",
+	ThoughtNoRentals:         "nowhere to rent skis",
+	ThoughtGreatApres:        "great way to end the day",
+	ThoughtWarmedUp:          "nice to warm up by the fire",
+	ThoughtCold:              "I'm freezing",
+	ThoughtNoLounge:          "nowhere to warm up",
 	ThoughtPatrolFast:        "patrol got to me so fast",
 	ThoughtPatrolCame:        "thank goodness, patrol is here",
 	ThoughtPatrolSlow:        "help took forever to get here",
@@ -643,6 +729,19 @@ var ThoughtChartColor = [ThoughtKindCount][4]float32{
 	ThoughtGoodMeal:          {0.95, 0.75, 0.35, 1},
 	ThoughtGoodDrink:         {0.40, 0.80, 0.95, 1},
 	ThoughtRested:            {0.70, 0.85, 0.50, 1},
+	ThoughtGoodValue:         {0.60, 0.85, 0.55, 1},
+	ThoughtOverpriced:        {0.90, 0.50, 0.40, 1},
+	ThoughtPricesTooHigh:     {0.90, 0.45, 0.35, 1},
+	ThoughtServiceLine:       {0.80, 0.45, 0.70, 1},
+	ThoughtNicePlace:         {0.65, 0.85, 0.70, 1},
+	ThoughtShabby:            {0.75, 0.55, 0.45, 1},
+	ThoughtPackedInside:      {0.80, 0.55, 0.60, 1},
+	ThoughtRentedGear:        {0.55, 0.75, 0.85, 1},
+	ThoughtNoRentals:         {0.85, 0.40, 0.30, 1},
+	ThoughtGreatApres:        {0.95, 0.70, 0.35, 1},
+	ThoughtWarmedUp:          {0.95, 0.60, 0.40, 1},
+	ThoughtCold:              {0.55, 0.70, 0.95, 1},
+	ThoughtNoLounge:          {0.60, 0.50, 0.80, 1},
 	ThoughtPatrolFast:        {0.30, 0.85, 0.60, 1},
 	ThoughtPatrolCame:        {0.60, 0.80, 0.60, 1},
 	ThoughtPatrolSlow:        {0.80, 0.30, 0.45, 1},
@@ -668,6 +767,7 @@ const (
 	DepartLiftsClosed               // every lift stopped during open hours
 	DepartNothingToSki              // no running lift with a trail for them
 	DepartBored                     // nothing left worth another run to them
+	DepartNoRentals                 // came without skis and couldn't rent any
 	departReasonSentinel
 )
 
@@ -689,6 +789,7 @@ var DepartReasonLabel = [DepartReasonCount]string{
 	DepartLiftsClosed:  "Lifts stopped",
 	DepartNothingToSki: "Nothing to ski",
 	DepartBored:        "Bored of the terrain",
+	DepartNoRentals:    "Couldn't rent skis",
 }
 
 // DepartNormal reports whether a reason is an ordinary end to a day:
@@ -717,6 +818,7 @@ var DepartReasonColor = [DepartReasonCount][4]float32{
 	DepartLiftsClosed:  {0.50, 0.55, 0.65, 1},
 	DepartNothingToSki: {0.75, 0.55, 0.45, 1},
 	DepartBored:        {0.65, 0.65, 0.75, 1},
+	DepartNoRentals:    {0.85, 0.55, 0.30, 1},
 }
 
 // Thought is one entry in a Guest's bounded thoughts ring. Persists in
