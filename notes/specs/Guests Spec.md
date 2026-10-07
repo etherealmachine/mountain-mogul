@@ -319,9 +319,10 @@ buildings.
 
 Continuous steering controller. The pipeline runs once per agent per tick
 from `tickSkier` in `internal/sim/skiing.go`. There is **no technique
-enum** and **no waypoint planner** — S-turns, brake wedging, and tree
-avoidance all emerge from a single steering function reading a small
-typed perception bundle.
+enum** — S-turns, speed checks, swerves, and tree avoidance all emerge
+from a single steering function reading a small typed perception bundle.
+Free-skiing steps are steered at a route waypoint round forest
+(`ski_route.go`); the turning model is in `ski_turns.go`.
 
 ```mermaid
 flowchart TB
@@ -345,20 +346,21 @@ flowchart TB
     Axis2["<b>composeAxis</b><br/>blend(AxisDir, FallDir·FallScale)<br/>→ axisHeading"]
     Tact["<b>sampleTactical</b><br/>7 candidate offsets · ±60° · 8 segments<br/>horizon = speed·3.5 s clamped [22, 70] m<br/>corridor ±10 m perpendicular — worst-of-three density<br/>score = progress·cos(off) − 4·Σdensity − 8·boundaryHits<br/>+ 0.5·Σgrooming  <i>(centre-only)</i><br/>+ 0.4·sign(prev)·sign(off)  <i>(gated on maxDensity&gt;0.5)</i><br/>+ tiny RNG jitter to break symmetric ties"]
     Speed["<b>targetSpeed</b><br/>ComfortSpeed·(0.7 + 0.6·Aggression)<br/>× 0.5 if InArrival<br/>× (1 − 0.4·clamp(worstProbe/0.4))<br/>floor at skiWalkSpeed (2 m/s)"]
-    Brake["<b>brakeAngle</b><br/>overspeed = (Speed − target)/target<br/>brakeAngle = clamp(overspeed·1.5, 0, 40°)"]
-    Side["<b>TurnSide commit</b> — persistent, dwell-gated<br/>dropped to 0 when obstacleSeen OR brakeAngle &lt; 8°<br/>flips to opposite when |deviation| &gt; 0.85·brakeAngle<br/>AND TurnDwell ≥ 1.2 s<br/>initial side from heading deviation, else coin-flip"]
-    Out["<b>desiredHeading</b> = axisHeading + tactical + side·brakeAngle<br/><b>scrub</b> = 4·(overspeed − 0.6) clamped to 6 m/s²<br/>active only above 60% overspeed"]
-    Axis2 --> Tact --> Speed --> Brake --> Side --> Out
+    Brake["<b>turn amplitude</b><br/>on slopes (FallScale ≥ 0.5) above 3 m/s<br/>amp = 25° + 20°·(1 − skill) + 1.5·(Speed − target)/target<br/>clamped [10°, 75°]"]
+    Side["<b>TurnSide commit</b> — persistent, dwell-gated<br/>edge(side) = clamp(tactical + side·amp, ±90°)<br/>flips when heading is within 0.15·amp of the edge<br/>AND TurnDwell ≥ 1.5 − 0.7·skill s"]
+    Out["<b>desiredHeading</b> = axisHeading + edge(side)<br/><b>turn rate</b> = carve rate, skidding toward pivot rate with overspeed (full at +50%)<br/><b>scrub</b> = 4·(overspeed − 0.6) clamped to 6 m/s²"]
+    Swerve["<b>swerve</b> — trunks, towers, skiers within max(5 m, speed·1.5 s)<br/>arc to desired at turn rate blocked? → pivot to the clear arc nearest desired<br/>none clear → longest arc, scrub 4·(1 + skill), creep at 1 m/s"]
+    Axis2 --> Tact --> Speed --> Brake --> Side --> Out --> Swerve
   end
 
   L2 --> L3
 
   subgraph L3["L3 · Apply — physics integration"]
     direction TB
-    Head["<b>heading</b><br/>rotateToward(desired) capped at headingRateMax (40°/s)<br/>— matches realistic edge-transfer rate"]
+    Head["<b>heading</b><br/>rotateToward(desired) at dec.TurnRate<br/>carve rate = (5 + 9·skill) m/s² / speed · pivot rate = 60° + 120°·skill /s<br/>turning past the carve rate skids: −6 m/s² and balance −1.2·(1 − skill) /s at full pivot"]
     Fric["<b>effectiveFriction</b> — snow-modulated (muBase, muEdge)<br/>Grooming · Packed · Powder gate · MogulSize · Ice<br/>each shifts the corduroy baseline (see Snow Spec)"]
-    Accel["<b>acceleration</b><br/>a = g·sinθ·cos(off) <br/>− μ_base·g·cosθ<br/>− μ_edge·g·cosθ·|sin(off)|<br/>− k_drag·v²<br/>− dec.Scrub"]
-    Pos["<b>position</b><br/>pos.xz += (sin h, cos h)·speed·dt<br/>pos.y = surface elevation<br/>floor speed ≥ skiWalkSpeed (2 m/s)"]
+    Accel["<b>acceleration</b><br/>a = g·sinθ·cos(off) <br/>− μ_base·g·cosθ<br/>− μ_edge·g·cosθ·|sin(off)|<br/>− k_drag·v²<br/>− dec.Scrub − 6·skid"]
+    Pos["<b>position</b><br/>pos.xz += (sin h, cos h)·speed·dt<br/>pos.y = surface elevation<br/>floor speed ≥ skiWalkSpeed (2 m/s), 1 m/s when stopping"]
     Head --> Fric --> Accel --> Pos
   end
 
@@ -376,16 +378,26 @@ flowchart TB
 
 ### Notes on the architecture
 
-- **Plan A — no technique enum.** Straight, carved, and brake-heavy outputs
-  all come from one steering function. The brake angle (`TurnSide ×
-  brakeAngle`) is what produces emergent S-turns: while overspeed,
-  brakeAngle > 0 → desired heading is off the fall line → edge friction
-  scrubs speed → speed drops → brakeAngle shrinks → if heading has reached
-  the arc edge on the committed side, flip TurnSide and carve back.
-- **No path planner.** `a.Plan.Target` tracks the L1 goal target, set
-  once by `onPlanStepStart` per L0 step. There are no waypoints, no
-  routes inside L1. The controller seeks the goal directly and lets
-  `sampleTactical` deal with obstacles in front of it.
+- **Plan A — no technique enum.** Straight, carved, skidded, and swerving
+  outputs all come from one steering function. Linked turns (`TurnSide ×
+  amplitude`) run on any real slope; the amplitude grows with overspeed,
+  so edge friction scrubs more the faster the guest is going, and the
+  turns skid round faster as a speed check.
+- **Two turn rates.** Carving is limited by lateral grip (rate = grip /
+  speed), so a fast skier can't carve tight; pivoting (skidding) is fast
+  but sheds speed and, for the less skilled, balance. Before 2026-10-07
+  there was one 40°/s cap for everyone and turns only came from
+  overspeed: lines were nearly straight and nobody could dodge a trunk.
+- **Swerves on an arc.** The swerve check sweeps the arc the guest would
+  actually take turning at the given rate, not a straight line: in a
+  glade, the straight line to a clear heading misses the trunks crossed
+  while turning onto it. Hazards are read live (trunks, towers, other
+  skiers), so nothing is precomputed.
+- **Routes round forest.** `a.Plan.Target` tracks the L1 goal target, set
+  once by `onPlanStepStart` per L0 step. When the straight line to it
+  runs through forest, `routeTarget` plans a path over the cells (A*,
+  cost 1 + 20·cover, plus climbing) and steers at its next waypoint;
+  `sampleTactical` and the swerve handle what's in front.
 - **Single forward sampler.** `sampleTactical` scores 7 candidate arcs at
   ±60° around `axisHeading`. Each arc is 8 segments deep; every segment
   reads tree density at the centre **and** at ±10 m perpendicular, taking
@@ -397,16 +409,12 @@ flowchart TB
   only when the fan actually sees an obstacle (`maxDensity > 0.5`). Without
   that gate, `prevTactical` would self-perpetuate and slowly drift the
   skier off-axis even on a clear slope.
-- **S-turn suppression while avoiding.** When `obstacleSeen`, TurnSide is
-  forced to 0 — the tactical offset already takes the heading off the fall
-  line, so cross-fall friction still scrubs speed, and the S-turn
-  oscillation would otherwise fight the lateral commitment by swinging
-  heading back through axis every cycle. Real skiers don't S-turn through
-  trees.
-- **Turn dwell minimum.** A committed turn side can't flip again until 1.2 s
-  has passed (`turnDwellMin`). Combined with the 40°/s heading rate cap
-  this puts each carve at ~1.2 s minimum and a full S-cycle at ~2.4 s —
-  cruising rhythm, not slalom.
+- **Turns through trees.** Guests keep linking turns while avoiding: the
+  tactical offset moves the line they turn about. (Until 2026-10-07 turns
+  were switched off while avoiding, which left guests running into glades
+  far over their target speed.)
+- **Turn dwell minimum.** A committed turn side can't flip again until
+  1.5 s (skill 0) to 0.8 s (skill 1) has passed (`turnDwell`).
 - **Snow-modulated friction.** `effectiveFriction` reads `SnowAt(pos)` and
   shifts the (muBase, muEdge) pair per Grooming / Packed / Powder /
   MogulSize / Ice. See [[Snow Spec]] for the multiplier table.
