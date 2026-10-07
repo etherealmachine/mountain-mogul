@@ -491,7 +491,9 @@ Every change is reported by a thought, and no thought changes a stat by itself.
 | `ThoughtPatrolFast` / `ThoughtPatrolCame` / `ThoughtPatrolSlow` | +0.06 / +0.02 / −0.08 | `patrolReached`: ≤ 120, between, ≥ 300 sim s from injury to a patroller |
 | `ThoughtLongLine`, `ThoughtLineTooLong` | −0.08 | `ActJoinQueue` |
 | `ThoughtGoodMeal`, `ThoughtGoodDrink`, `ThoughtRested` | +0.05, +0.04, +0.03 | `tickResting`, when the visit finishes |
-| `ThoughtGreatRun` | +0.04 | `judgeRun` |
+| `ThoughtGreatRun` | +0.04 × (1 + the run's taste match) × repeats | `judgeRun` |
+| `ThoughtMiserableRun` | −0.05 | `judgeRun`: average taste match −0.3 or worse (then not great) |
+| `ThoughtFirstTracks` | +0.04 | `judgeRun`: a powder lover on fresh untracked powder for a third of the run |
 | `ThoughtTooHard` | −0.08 | `judgeRun` |
 | `ThoughtCrowdedRun` | −0.05 | `judgeRun` |
 | `ThoughtLovingCorduroy` | none | `judgeRun`: why a great run was great, for a `Tastes.PrefersGroomed` guest on a run ≥ 90% groomed; recorded just before the great run, no effect of its own |
