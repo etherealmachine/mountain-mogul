@@ -171,7 +171,41 @@ Each active-skiing tick accumulates `SkierTraffic` on the cell underfoot. When t
 
 `SkierTraffic` decays 15 % per in-game day (~4-day half-life) so untrafficked runs reset between busy periods.
 
-`Grooming` decays at −0.02/s from skier passes. Moguls grow in the 1 m mogul map (`world.MogulMap`), stamped about 1 m around each skier at 0.03/s × turning (off the fall line, full at 45°) × slope (5° to 20°) × snow (at least 0.1 m SWE, 0.3× on icy surfaces) × (1 − Grooming), each pixel capped by slope (0.25 on the gentlest, 1 from 20°); `MogulSize` is each cell's average of the map ([[Moguls]]). A day's snowfall scales every mogul by 1 − SWE / 0.1 (`mogulFillSWE`); a warm clear day by 0.9 and a day of rain by 0.8 (`ScaleMoguls`).
+`Grooming` decays at −0.02/s from skier passes. Skiing also builds moguls (next section).
+
+---
+
+## Moguls
+
+Plan and history: [[Moguls]].
+
+**The map.** `world.MogulMap` (`mogul_map.go`) holds mogul size, 0..1, at 1 m per pixel (16-bit, so a tick's growth isn't rounded away). `Cell.MogulSize` is each cell's average of its 25 pixels, and physics, tastes, and trail conditions read that. Code that sets `MogulSize` directly (melt-out, avalanches, aprons, parking, earthworks) is reconciled the next time the map touches the cell, every frame by the renderer (`FlushMoguls`), and before a save (`SyncMoguls`): the cell's pixels are scaled to the new average, zeroed, or filled evenly if the map was empty there.
+
+**Growth** (`growMoguls`, `sim/skiing.go`). Stamped about 1 m around each skier (3×3 pixels, neighbours at half) at 0.03/s ×
+
+- turning: how far the line crosses the fall line, full at 45°
+- slope: none below 5°, full from 20°
+- snow: at least 0.1 m SWE, and 0.3× on crust, boilerplate, or frozen granular
+- 1 − Grooming
+
+Each pixel is capped by slope, at 0.25 on the gentlest slope that grows moguls, rising to 1 at 20°. A week ungroomed puts about 0.1–0.3 on Boreal's green.
+
+**Removal.**
+
+| Cause | Effect |
+|---|---|
+| Snowfall | every mogul × (1 − SWE / 0.1), so about a metre of new snow fills them (`mogulFillSWE`) |
+| Warm clear day | × 0.9 (`mogulThawRound`) |
+| Rain | × 0.8 (`mogulRainRound`) |
+| Hard freeze | none; the surface turns icy through its kind |
+| Snowcat | flattened under the tiller, easing back to untouched over a metre past its edge (`FlattenMogulSwath`) |
+| Melt-out, avalanche, apron, parking | the cell's `MogulSize` set to 0 or scaled, then reconciled |
+
+**Skiing.** `MogulSize` raises base friction up to 1.6× and edge friction up to 1.1× (`effectiveFriction`). The size underfoot, read from the map (`Terrain.MogulSizeAt`), drains balance at 0.6/s × size × speed ÷ 6 m/s × (1 − skill)², eased by up to half by the moguls taste (`mogulStress`); base recovery is 0.15/s. Guests aim for up to 50% less speed on full moguls, × (1 − 0.6 × skill) × (1 − moguls taste) (`mogulSpeedScale`). Steering scores the moguls (from the map) along each candidate line by the moguls taste less 0.6 × (1 − taste) (`mogulSteerAversion`), so only bump lovers seek them ([[Snow Tastes]]).
+
+**Drawing.** See Rendering below. `world.MogulHeightAt` (`mogul_field.go`) mirrors the shader's field exactly, and `render.VisualElevationAt` adds it, so guests ride the drawn bumps.
+
+**Saved** as `moguls`: the map at 8 bits, omitted when empty. Saves without it fill each cell evenly from `mg`.
 
 ---
 
@@ -217,7 +251,7 @@ The terrain vertex carries `aSnow = (Grooming, Packed, Ice, MogulSize)` at attri
 
 - **Grooming** — corduroy stripes + cool tint.
 - **Packed** — blue tint mix.
-- **MogulSize** — the cell average, used only once a metre is under a couple of pixels; closer, the shader reads the 1 m mogul map itself (`uMogulMap`, with fall lines in `uMogulDir`) and draws the mogul field from `mogul.glsl`: real height from the tessellation, lighting from the same surface, a slight darkening at a distance ([[Moguls]]).
+- **MogulSize** — the cell average, used only once a metre is under a couple of pixels. Closer, the shader reads the 1 m mogul map itself (`uMogulMap`, R16) and each cell's fall line, smoothed over 3×3 cells (`uMogulDir`, RG8, `RefreshMogulFallLines`), and draws the field in `assets/shaders/mogul.glsl`, shared by the tessellation and fragment stages. The surface is a staggered lattice, 6 m across the fall line by 7 m down it, laid out per 12 m tile along the local fall line and blended between tiles, with two octaves of warp and a size per mound. Mounds rise and troughs carve down alike, ±0.45 m × size, joined over saddles. The tessellation raises it up close, the fragment shader lights it from the same surface, and past about 2.5 m per pixel it gives way to a darkening of up to 12%.
 - **Ice** — specular lobe boost + silver-blue tint.
 
 ---
@@ -273,7 +307,7 @@ Not saved. Fully re-derivable on load: G stamped from saved `TreeDensity`, B rec
 
 ## Physics
 
-`effectiveFriction` in `sim/skiing.go` applies Kind multipliers to the base/edge friction coefficients used by the integrator. For Powder, an additional depth-gated drag kicks in when `VisibleSnowDepth > 0.5 m`. `Grooming` and `MogulSize` modifiers apply on top of Kind, unchanged from before.
+`effectiveFriction` in `sim/skiing.go` applies Kind multipliers to the base/edge friction coefficients used by the integrator. For Powder, an additional depth-gated drag kicks in when `VisibleSnowDepth > 0.5 m`. `Grooming` and `MogulSize` modifiers apply on top of Kind, unchanged from before. Moguls also cost balance (Moguls, above).
 
 ---
 
@@ -348,7 +382,6 @@ The existing fall/injury path then handles the rest: patrol dispatch, rescue, sa
 
 ## Future work
 
-- **Glade tolerance trait** — per-skier willingness to enter trees; currently all skiers avoid trees equally.
 - **Weather-driven demand** — bad weather suppressing arrivals or guest satisfaction.
 - **Wind field** — daily wind direction as a simulation variable rather than a static scenario parameter.
 - **Lift cable clearance** — cables currently sit at `Surface + CableHeight`; physically they should clear ground regardless of snow depth.

@@ -1,12 +1,12 @@
 ---
 title: Moguls
 kind: plan
-status: in progress
+status: done
 ---
 
 # Moguls
 
-Moguls that form where guests actually ski, look like a mogul field, soften under new snow, come off where the cat actually grooms, and matter to how guests ski and choose runs. Today they're a single number per 5 m cell that grows with time spent on it and is drawn as random shading. Part of [[Snow]] and [[Skiing]]; feeds the moguls taste in [[Snow Tastes]].
+Moguls that form where guests actually ski, look like a mogul field, soften under new snow, come off where the cat actually grooms, and matter to how guests ski and choose runs. Before this plan they were a single number per 5 m cell that grew with time spent on it and were drawn as random shading (Why, below); how they work now is in [[Snow Spec]] (Moguls). Part of [[Snow]] and [[Skiing]]; feeds the moguls taste in [[Snow Tastes]].
 
 ## Why
 
@@ -52,8 +52,14 @@ From the user, 2026-10-07: plan it, ranked after [[Snow Tastes]], and build Snow
 3. Done: **Drawing.** The mogul map goes to the GPU at 1 m (`R16`) with each cell's fall line (`RG8`, smoothed over 3×3 cells, `RefreshMogulFallLines`), uploaded where it changed each frame (`FlushMoguls`, which also catches cells melt-out or avalanches cleared). `assets/shaders/mogul.glsl`, shared by the tessellation and fragment stages, draws mounds pushed up and troughs carved down as far, joined over saddles, so the field is one rolling surface rather than separate bumps (changed with the user: mounds on a flat floor read as isolated bumps). The mounds sit in a staggered lattice 6 m apart across the fall line and 7 m down it, so the lanes between them run diagonally. Each 12 m tile lays the lattice out along its own fall line and blends into its neighbours, two octaves of warp keep the rows from looking ruled, and each mound gets its own size. Height runs ±0.45 m × size, crest to trough bottom: the tessellation raises it up close, the fragment shader lights it from the same surface, and past about 2 m per pixel it gives way to a slight darkening from the trough shadows. `world.MogulHeightAt` mirrors the shader exactly (integer hashes, no float noise), and `VisualElevationAt` adds it, so skiers ride the drawn bumps. The old random value-noise bumps are gone. Not done: spacing that tightens where better skiers turn, and troughs dug along each skier's actual line; the lattice's lanes stand in for both.
 
    Checked by screenshot on Boreal's steepest run (23°) with full moguls: an irregular staggered field of mounds up close, a dotted mogul run from far off. A week's natural growth (about 0.3 on the steeper green) draws the same pattern at a third of the height.
-4. **Skiing.** The balance cost by speed and skill, and steering toward or away by taste. Check: beginners fall more on a mogul field, and bump lovers end their runs on more of it than bump haters.
-5. **Docs.** [[Snow]], [[Skiing]], [[Grooming]], [[Snow Spec]].
+4. Done: **Skiing.** Moguls drain balance by 0.6 a second × the size underfoot (read from the 1 m map) × speed ÷ 6 m/s × (1 − skill)², eased by up to half for bump lovers (`mogulStress`, `sim/skiing.go`); base recovery is 0.15 a second. So a beginner on big moguls at 5 m/s goes down in about seven seconds, an intermediate at 8 m/s about breaks even, and an expert barely feels them. Steering needed nothing new: the taste term already scores the moguls along each candidate line. Slowing down and steering clear came next (step 6).
+
+   The first cost, 0.25 with skill taking off up to 85% linearly, added no beginner falls: beginners ski the gentle green at 4–5 m/s, where the moguls are small and the drain never beat recovery. Checked headless over two days on the user's Boreal save, cats off, moguls laid by slope (0.8 × (slope − 5°)/15°) in 15 m patches on the runs. Falls per guest, without moguls → with: beginners 0.28 → 0.58, intermediates 0 → 0.30, advanced 0 → 0. Mean mogul size underfoot on the runs: bump lovers 0.18, bump haters 0.14.
+5. Done: **Docs.** [[Snow Spec]] has a Moguls section (map, growth, removal, skiing, drawing, save); [[Snow]], [[Skiing]], and [[Grooming]] say what moguls do.
+
+6. Done: **Slowing down and steering clear** (added with the user after step 5). Guests aim for up to half their speed less on full moguls, less so with skill (an expert slows by 40% of that) and with a love of bumps (`mogulSpeedScale`). When steering, everyone's moguls taste is lowered by 0.6 × (1 − taste) (`mogulSteerAversion`), so everyone but a bump skier heads for the smoother side of a mogul run, while a guest who loves moguls outright keeps the full pull. An icy or treed side still loses: ice is disliked by every archetype, and steering keeps 10 m clear of tree stands. Steering reads moguls from the 1 m map at each sample point, so the less skied-out side of a run shows up.
+
+   Checked headless over two days on the user's Boreal save, cats off, moguls by slope in 10 m stripes down the runs (alternate stripes at a fifth of the size). Time on big moguls (over 0.3), without → with: bump lovers 37% → 31%, neutral 26% → 15%, haters 21% → 18%; beginners' falls 1.03 → 0.78 each, and guests are slower on moguls than off them. A first test with only the outer cell of each run smooth showed no change: Boreal's runs are lined with trees, which steering keeps clear of, the "unless there are trees" case. A flat aversion of 0.4 or 0.6 also took bump lovers off the moguls, hence the fade.
 
 Each step builds with `go build` and `go vet` and is judged headless or by screenshot. No Go tests.
 
@@ -68,3 +74,6 @@ Each step builds with `go build` and `go vet` and is judged headless or by scree
 - 2026-10-07: Step 1 tuned with the user: growth from 5° to 20° with a size cap by slope, gated on snow water; a week ungroomed leaves Boreal's green bumpy.
 - 2026-10-07: Step 2: snowfall fills moguls by its water (full at 0.1 m), cats flatten only under the tiller, thaws and rain round them off.
 - 2026-10-07: Step 3: moguls drawn as a fall-line mogul field from the 1 m map, with real height that skiers ride.
+- 2026-10-07: Step 4: moguls cost balance by size, speed, and skill; beginners fall twice as often on a mogul field, experts no more.
+- 2026-10-07: Step 5: docs. Done.
+- 2026-10-07: Step 6, added with the user: guests slow down in moguls and steer for the smoother side unless they love bumps.

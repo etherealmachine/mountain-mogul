@@ -11,9 +11,7 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 
 ## Priority
 
-In the order to work on them:
-
-1. [[Moguls]]: steps 1–3 done (a 1 m mogul map grown along skiers' lines by turning, slope, and snow; filled by snowfall, flattened under the tiller, rounded by thaws; drawn as a fall-line mogul field skiers ride); next is step 4, skiing. Moguls formed where guests turn on steep ungroomed snow, at sub-cell resolution like tracks; softened by snow, cleared only where the cat drove; drawn as a fall-line mogul field; skied with a balance cost and sought or avoided by taste.
+In the order to work on them: nothing ranked since [[Moguls]] finished (2026-10-07).
 
 Then: **gameplay before scenario goals**. A headless three-lift Boreal (2026-10-06) runs about 70 guests a day with the rating stuck near 30%, so goals can't be set until guests can have a good day. The investigate-and-report items are done (2026-10-07); next is the guest pool per scenario ([[First Week Balance]]). [[Scenario Goals and Rules]] steps 1–4 shipped and are tabled until then.
 
@@ -87,7 +85,7 @@ Diagnose each first, report the cause, then fix:
 - **Guest goals beyond lapping**: find the shortest line, go to après-ski, stay near the lodge. Powder hunting moved to [[Snow Tastes]].
 - **Regulars**: guests who remember their last visit and come back, or don't. *For* [[Mad River Glen]].
 - **Crowding**: guests notice crowded lodges, not only lift lines; crowded runs are in [[Snow Tastes]]. *For* [[Mad River Glen]].
-- **Mogul lovers**: an expert bombing a mogul run entertaining the lift above. Guests who seek moguls are the Bump Skier in [[Snow Tastes]].
+- **Mogul lovers**: an expert bombing a mogul run entertaining the lift above. Guests who seek moguls are the Bump Skier in [[Snow Tastes]], and the moguls they seek are [[Moguls]].
 - **Non-skiing guests**: come for attractions, food, and the village. *Needs* attractions (under Real estate and attractions).
 - **Named complaints**: rating feedback that lists the top complaints (long lines, wrong difficulty, falls, full parking).
 - **Guest trip history**: a gameplay version of the follow-guest panel with runs taken, vertical, and time on the mountain.
@@ -236,3 +234,6 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-07: [[Moguls]] step 1 shipped.
 - 2026-10-07: [[Moguls]] step 2 shipped.
 - 2026-10-07: [[Moguls]] step 3 shipped.
+- 2026-10-07: [[Moguls]] step 4 shipped.
+- 2026-10-07: [[Moguls]] done (step 5, docs); off the Priority list, which is now empty.
+- 2026-10-07: [[Moguls]] step 6 (slowing down and steering clear) prioritized by the user and shipped the same day; Priority is empty again.
