@@ -263,6 +263,10 @@ func liftAccessible(l *world.Lift, skill float32, w *world.World) bool {
 // at 1.5), so at closing time guests head for their car.
 const goHomeClosedWeight = 2.0
 
+// goHomeBoredWeight puts going home just above KeepSkiing's best (1.0)
+// for a bored guest, below a pressing need or a rest.
+const goHomeBoredWeight = 1.02
+
 // GoHome is satisfied when the agent has Departed (terminal Removed
 // flag). Weight rises with tiredness AND with how much of the resort
 // the skier has already explored — a fresh skier who's ridden every
@@ -280,6 +284,10 @@ func (GoHome) Weight(s *WorldSnapshot, w *world.World) float32 {
 	// Closed for the day: home before anything else, even a rest.
 	if w.ClosedForDay {
 		return goHomeClosedWeight
+	}
+	// Nothing left worth another run: home, ahead of more skiing.
+	if s.Bored {
+		return goHomeBoredWeight
 	}
 	// GoHome fires when Patience or Energy is critically low (Rest handles
 	// the recoverable range), when Hunger or Thirst is exhausted, or when

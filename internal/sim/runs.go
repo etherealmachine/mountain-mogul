@@ -40,6 +40,12 @@ const (
 	// means a powder feature of freshPowderMin on a cell with less than
 	// freshTrafficMax of SkierTraffic since it fell.
 	firstTracksLover = float32(0.4)
+	// Boredom: a lift's value to a guest is how well its terrain suits
+	// them, less lapStaleness for each run they've had off it today. When
+	// the best value left falls below boredFloor they're bored (if they've
+	// lapped it) or it was never their kind of skiing.
+	lapStaleness = float32(0.1)
+	boredFloor   = float32(-0.3)
 	firstTracksShare = float32(1.0 / 3)
 	freshPowderMin   = float32(0.5)
 	freshTrafficMax  = float32(0.5)
@@ -107,6 +113,7 @@ func (s *Simulation) judgeRun(a *world.Guest) {
 	if r.Time < runMinSec {
 		return
 	}
+	defer s.checkBoredom(a)
 	trail := r.MainTrail()
 	level := diffIndex(skillToDifficulty(a.Traits.Skill))
 	main := -1
@@ -135,8 +142,9 @@ func (s *Simulation) judgeRun(a *world.Guest) {
 	if tooHard {
 		s.applyEvent(a, ai.ThoughtTooHard, trail)
 	}
-	if crowded {
-		s.applyEvent(a, ai.ThoughtCrowdedRun, trail)
+	// Crowding bothers a guest as much as they dislike crowds.
+	if mind := -a.Traits.Tastes[ai.TasteCrowds]; crowded && mind > 0.1 {
+		s.applyEventScaled(a, ai.ThoughtCrowdedRun, min(mind, 1), trail)
 	}
 	great := main == level && !tooHard && !crowded && !fell && taste > runMiserable && r.StartY-a.Pos[1] >= greatRunMinVertical
 	var trailGreats, liftGreats int32
@@ -155,6 +163,42 @@ func (s *Simulation) judgeRun(a *world.Guest) {
 		scale := math.Pow(greatRunTrailRepeat, float64(trailGreats)) * math.Pow(greatRunLiftRepeat, float64(liftGreats)) * float64(1+taste)
 		s.applyEventScaled(a, ai.ThoughtGreatRun, float32(scale), trail)
 	}
+}
+
+// checkBoredom values each lift the guest would ride (its terrain's taste
+// match, less lapStaleness per run off it today) and starts the boredom
+// conditions when the best is below boredFloor: "skied this place to
+// death" when they've lapped it, "nothing here is my kind of skiing" when
+// it never suited them. Run after each run, so every guest gets one.
+func (s *Simulation) checkBoredom(a *world.Guest) {
+	w := s.World
+	level := skillToDifficulty(a.Traits.Skill)
+	rideable := level | (level - 1)
+	if a.Traits.Skill >= ai.SkillAdvancedThreshold {
+		rideable = 0
+	}
+	best, laps, any := float32(math.Inf(-1)), int32(0), false
+	for _, l := range w.Lifts {
+		if !l.Open || l.OnHold || (rideable != 0 && !w.ServicesForLift(l.ID).Has(rideable)) {
+			continue
+		}
+		c, ok := w.LiftConditions(l.ID)
+		if !ok {
+			continue
+		}
+		var runs int32
+		for _, t := range a.LiftTally {
+			if t.ID == l.ID {
+				runs = t.Runs
+			}
+		}
+		if v := tasteMatch(a.Traits.Tastes, c) - lapStaleness*float32(runs); v > best {
+			best, laps, any = v, runs, true
+		}
+	}
+	bored := any && best < boredFloor
+	s.setCondition(a, ai.ThoughtBored, bored && laps > 0)
+	s.setCondition(a, ai.ThoughtNotMySkiing, bored && laps == 0)
 }
 
 // diffIndex maps a single trail difficulty to 0 (green), 1 (blue), or 2

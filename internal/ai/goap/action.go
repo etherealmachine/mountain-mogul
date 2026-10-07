@@ -216,6 +216,8 @@ func (a *RideLift) Cost(s *WorldSnapshot, w *world.World) float32 {
 	}
 	// Terrain that suits the guest's tastes makes a lift the better ride.
 	if c, ok := w.LiftConditions(a.LiftID); ok {
+		// The line is how crowded the lift is.
+		c[ai.TasteCrowds] = min(1, float32(l.QueueLen())/float32(MaxQueuePersons))
 		var m float32
 		for k := range c {
 			m += s.Tastes[k] * c[k]

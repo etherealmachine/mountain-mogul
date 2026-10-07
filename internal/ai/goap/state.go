@@ -32,6 +32,7 @@ type WorldSnapshot struct {
 	Thirst   float32 // 0..1; drain scales with altitude and exertion; hits 0 → GoHome
 	Skill    float32
 	Tastes   ai.Tastes // what snow and terrain the guest enjoys, for choosing lifts
+	Bored    bool      // nothing left worth another run (sim.checkBoredom): time to go home
 
 	AtLiftBase     uint64 // 0 or lift ID — at the base of this lift, not yet queued
 	AtLiftTop      uint64 // 0 or lift ID — just unloaded at the top
@@ -113,6 +114,7 @@ func Extract(a *world.Guest, w *world.World) WorldSnapshot {
 		Thirst:          a.Thirst,
 		Skill:           a.Traits.Skill,
 		Tastes:          a.Traits.Tastes,
+		Bored:           a.Conditions.Has(ai.ThoughtBored) || a.Conditions.Has(ai.ThoughtNotMySkiing),
 		RemainingBudget: a.RemainingBudget,
 		PassCredit:      float32(a.DayTicketPaid + a.DayTicketDue),
 		CheapestTicket:  cheapestTicket(w),
@@ -227,6 +229,7 @@ func ExtractLookahead(a *world.Guest, liftID uint64, w *world.World) WorldSnapsh
 		Thirst:          a.Thirst,
 		Skill:           a.Traits.Skill,
 		Tastes:          a.Traits.Tastes,
+		Bored:           a.Conditions.Has(ai.ThoughtBored) || a.Conditions.Has(ai.ThoughtNotMySkiing),
 		RemainingBudget: a.RemainingBudget,
 		PassCredit:      float32(a.DayTicketPaid + a.DayTicketDue),
 		CheapestTicket:  cheapestTicket(w),

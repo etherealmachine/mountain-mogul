@@ -1655,6 +1655,8 @@ func (s *Simulation) departReasonFor(a *world.Guest) ai.DepartReason {
 		return ai.DepartNothingToSki
 	case has(ai.ThoughtLinesFull):
 		return ai.DepartLines
+	case has(ai.ThoughtBored), has(ai.ThoughtNotMySkiing):
+		return ai.DepartBored
 	case has(ai.ThoughtTooExpensive):
 		return ai.DepartMoney
 	case a.Patience < exhaustedThreshold:

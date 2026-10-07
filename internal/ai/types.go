@@ -407,6 +407,11 @@ const (
 	ThoughtFirstTracks  // a powder lover skied fresh untracked powder
 	ThoughtMiserableRun // the snow all the way down was what they dislike
 
+	// Variety (sim.checkBoredom): the best lift left for them has fallen
+	// too low, from laps or from never suiting them.
+	ThoughtBored       // lapped the terrain until nothing's worth another run
+	ThoughtNotMySkiing // nothing here was ever their kind of skiing
+
 	// Services.
 	ThoughtGoodMeal   // finished a meal at a food court
 	ThoughtGoodDrink  // finished a drink at a bar
@@ -477,6 +482,8 @@ var Effects = [ThoughtKindCount]Effect{
 	ThoughtImpatient:      {Condition: true, Satisfaction: -0.10},
 	ThoughtNeedsLodge:     {Condition: true, Satisfaction: -0.10},
 	ThoughtTooEasy:        {Condition: true, Satisfaction: -0.08},
+	ThoughtBored:          {Condition: true, Satisfaction: -0.05},
+	ThoughtNotMySkiing:    {Condition: true, Satisfaction: -0.05},
 	ThoughtTired:          {Condition: true},
 	ThoughtExhausted:      {Condition: true},
 	ThoughtTooExpensive:   {Condition: true},
@@ -494,6 +501,8 @@ var ConditionTag = [ThoughtKindCount]string{
 	ThoughtImpatient:      "sick of waiting",
 	ThoughtNeedsLodge:     "no lodge",
 	ThoughtTooEasy:        "too easy",
+	ThoughtBored:          "bored",
+	ThoughtNotMySkiing:    "not my skiing",
 	ThoughtTired:          "tired",
 	ThoughtExhausted:      "exhausted",
 	ThoughtTooExpensive:   "can't afford it",
@@ -568,6 +577,8 @@ var thoughtText = [ThoughtKindCount]string{
 	ThoughtTooSteep:          "this is way too steep for me",
 	ThoughtFirstTracks:       "first tracks!",
 	ThoughtMiserableRun:      "that run was miserable",
+	ThoughtBored:             "I've skied this place to death",
+	ThoughtNotMySkiing:       "nothing here is my kind of skiing",
 	ThoughtGoodMeal:          "that meal hit the spot",
 	ThoughtGoodDrink:         "just what I needed",
 	ThoughtRested:            "good to sit down for a bit",
@@ -627,6 +638,8 @@ var ThoughtChartColor = [ThoughtKindCount][4]float32{
 	ThoughtTooSteep:          {0.95, 0.35, 0.20, 1},
 	ThoughtFirstTracks:       {0.85, 0.95, 1.00, 1},
 	ThoughtMiserableRun:      {0.70, 0.30, 0.30, 1},
+	ThoughtBored:             {0.60, 0.60, 0.60, 1},
+	ThoughtNotMySkiing:       {0.55, 0.50, 0.70, 1},
 	ThoughtGoodMeal:          {0.95, 0.75, 0.35, 1},
 	ThoughtGoodDrink:         {0.40, 0.80, 0.95, 1},
 	ThoughtRested:            {0.70, 0.85, 0.50, 1},
@@ -654,6 +667,7 @@ const (
 	DepartNoTicket                  // couldn't reach a ticket window
 	DepartLiftsClosed               // every lift stopped during open hours
 	DepartNothingToSki              // no running lift with a trail for them
+	DepartBored                     // nothing left worth another run to them
 	departReasonSentinel
 )
 
@@ -674,6 +688,7 @@ var DepartReasonLabel = [DepartReasonCount]string{
 	DepartNoTicket:     "Couldn't buy a ticket",
 	DepartLiftsClosed:  "Lifts stopped",
 	DepartNothingToSki: "Nothing to ski",
+	DepartBored:        "Bored of the terrain",
 }
 
 // DepartNormal reports whether a reason is an ordinary end to a day:
@@ -701,6 +716,7 @@ var DepartReasonColor = [DepartReasonCount][4]float32{
 	DepartNoTicket:     {0.85, 0.40, 0.30, 1},
 	DepartLiftsClosed:  {0.50, 0.55, 0.65, 1},
 	DepartNothingToSki: {0.75, 0.55, 0.45, 1},
+	DepartBored:        {0.65, 0.65, 0.75, 1},
 }
 
 // Thought is one entry in a Guest's bounded thoughts ring. Persists in
