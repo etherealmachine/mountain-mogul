@@ -574,6 +574,7 @@ func (s *Simulation) tickGuests(dt float64) {
 		if agent.Removed {
 			continue
 		}
+		s.tickMood(agent, dt)
 		if agent.OnPatrollerID != 0 {
 			// Patroller is responsible for this guest's position and departure.
 			continue
@@ -679,16 +680,59 @@ func (s *Simulation) spawnGuestAt(lot *world.Building, g *world.Guest, pos mgl32
 	return true
 }
 
-// addThought calls Guest.AddThought and, if the thought was not suppressed,
-// records it into the day's running tally so it appears in the same day's
-// history sample rather than waiting until the guest departs.
-func (s *Simulation) addThought(a *world.Guest, kind ai.ThoughtKind, context ...uint64) {
-	prev := a.ThoughtCounts[kind]
-	a.AddThought(kind, s.SimTime, context...)
-	if a.ThoughtCounts[kind] != prev {
-		s.World.History.RecordThought(kind)
+// applyEvent is the one place an event changes a guest's stats: it
+// applies the event's ai.Effects row and records the thought reporting
+// it, on the guest and in the day's tally.
+func (s *Simulation) applyEvent(a *world.Guest, kind ai.ThoughtKind, context ...uint64) {
+	a.Satisfaction = clamp32(a.Satisfaction+ai.Effects[kind].Satisfaction, 0, 1)
+	s.recordThought(a, kind, context...)
+}
+
+// setCondition turns a condition on or off for a guest. Turning on adds
+// its thought once, counted for the day; its pull on the mood target
+// (ai.Effects) lasts until it is turned off.
+func (s *Simulation) setCondition(a *world.Guest, kind ai.ThoughtKind, on bool, context ...uint64) {
+	if on == a.Conditions.Has(kind) {
+		return
+	}
+	a.Conditions.Set(kind, on)
+	if on {
+		s.recordThought(a, kind, context...)
 	}
 }
+
+// recordThought adds a thought to the guest's ring and the day's tally.
+func (s *Simulation) recordThought(a *world.Guest, kind ai.ThoughtKind, context ...uint64) {
+	a.AddThought(kind, s.SimTime, context...)
+	s.World.History.RecordThought(kind)
+}
+
+// holds reports whether a condition on a stat that falls toward 0 holds:
+// it starts below onset and, once on, lasts until the stat recovers past
+// clear, so a stat hovering at the threshold doesn't flicker.
+func holds(active bool, v, onset, clear float32) bool {
+	if active {
+		return v < clear
+	}
+	return v < onset
+}
+
+// setBlocked turns the planner-reported conditions on for this plan and
+// off for those it no longer reports.
+func (s *Simulation) setBlocked(a *world.Guest, blocked []ai.ThoughtKind) {
+	for _, k := range plannerConditions {
+		on := false
+		for _, b := range blocked {
+			if b == k {
+				on = true
+			}
+		}
+		s.setCondition(a, k, on)
+	}
+}
+
+// plannerConditions are the conditions only the planner reports.
+var plannerConditions = [...]ai.ThoughtKind{ai.ThoughtNeedsLodge, ai.ThoughtLiftsClosed, ai.ThoughtNothingForMe, ai.ThoughtNoTicketWindow}
 
 // maybeSampleHistory pushes one DailySample per in-game day boundary
 // the sim has crossed since the last call. Snapshots GuestsOnMountain
@@ -1169,7 +1213,7 @@ func (s *Simulation) tickPlanning(a *world.Guest) {
 			if a.Traits.PrefersGroomed && a.RunGroomingSamples > 0 {
 				avg := a.RunGroomingSum / float32(a.RunGroomingSamples)
 				if avg >= 0.9 {
-					s.addThought(a, ai.ThoughtLovingCorduroy)
+					s.applyEvent(a, ai.ThoughtLovingCorduroy)
 				}
 			}
 		}
@@ -1210,19 +1254,8 @@ func isDescentKind(k ai.PlanActionKind) bool {
 // spawn, when the plan exhausts, and when a precondition breaks.
 func (s *Simulation) replan(a *world.Guest) {
 	a.AtTrailEnd = 0 // clear any stale junction anchor before re-planning
-	// The planner emits these thoughts itself; tally them into today's
-	// history the same way addThought would.
-	planned := []ai.ThoughtKind{ai.ThoughtNeedsLodge, ai.ThoughtNoTicketWindow, ai.ThoughtLiftsClosed, ai.ThoughtNothingForMe}
-	var prev [4]int
-	for i, k := range planned {
-		prev[i] = a.ThoughtCounts[k]
-	}
-	a.Plan = s.Planner.StoredPlanFor(a, s.World, s.SimTime)
-	for i, k := range planned {
-		if a.ThoughtCounts[k] != prev[i] {
-			s.World.History.RecordThought(k)
-		}
-	}
+	a.Plan = s.Planner.StoredPlanFor(a, s.World)
+	s.setBlocked(a, a.Plan.Blocked)
 	if !a.Plan.Done() {
 		s.onPlanStepStart(a)
 		return
@@ -1239,7 +1272,8 @@ func (s *Simulation) replan(a *world.Guest) {
 // snapshot; we then prepend the in-flight RideLift so advancePlan at
 // unload steps past it and lands on the first post-ride action.
 func (s *Simulation) replanOnBoard(agent *world.Guest, lift *world.Lift) {
-	lookahead := s.Planner.StoredPlanForLookahead(agent, lift.ID, s.World, s.SimTime)
+	lookahead := s.Planner.StoredPlanForLookahead(agent, lift.ID, s.World)
+	s.setBlocked(agent, lookahead.Blocked)
 	if lookahead.Done() {
 		return
 	}
@@ -1320,15 +1354,13 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		// bail guard (Patience >= 0.05) is false — preventing recursion.
 		qLen := lift.QueueLen()
 		if a.Patience >= 0.05 && qLen > goap.MaxQueuePersons {
-			s.addThought(a, ai.ThoughtLineTooLong, lift.ID)
-			a.Satisfaction = clamp32(a.Satisfaction-0.08, 0, 1)
+			s.applyEvent(a, ai.ThoughtLineTooLong, lift.ID)
 			a.Patience = 0
 			s.replan(a)
 			return
 		}
 		if qLen >= longQueuePersons {
-			s.addThought(a, ai.ThoughtLongLine, lift.ID)
-			a.Satisfaction = clamp32(a.Satisfaction-0.08, 0, 1)
+			s.applyEvent(a, ai.ThoughtLongLine, lift.ID)
 		}
 		if len(lift.Lines) > 0 {
 			lineIdx := lift.ShortestLineIdx()
@@ -1431,7 +1463,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		if a.Path == nil && !a.HasSeasonPass && !a.HasDayTicket {
 			// No walkable route to the window: without a ticket there
 			// is nothing to do here, so give up rather than ski free.
-			s.addThought(a, ai.ThoughtNoTicketWindow)
+			s.setCondition(a, ai.ThoughtNoTicketWindow, true)
 			s.directHomePlan(a)
 		}
 

@@ -1204,18 +1204,15 @@ func thoughtChartSeries() []ui.ChartSeries {
 }
 
 // thoughtValuesFor builds the Values slice for a single ChartPoint from
-// counts, iterating in the same order as thoughtChartSeries.
+// counts, iterating in the same order as thoughtChartSeries. Ranked by
+// count: each event and each start of a condition counts once.
 func thoughtValuesFor(counts [ai.ThoughtKindCount]int) []float64 {
 	var vals []float64
 	for k := ai.ThoughtKind(1); int(k) < ai.ThoughtKindCount; k++ {
 		if ai.ThoughtLabel[k] == "" {
 			continue
 		}
-		wt := ai.ThoughtSatisfactionWeight[k]
-		if wt < 0 {
-			wt = -wt
-		}
-		vals = append(vals, float64(counts[k])*wt)
+		vals = append(vals, float64(counts[k]))
 	}
 	return vals
 }
@@ -1234,8 +1231,8 @@ func thoughtsToDistribution(w *world.World) []ui.ChartPoint {
 	return []ui.ChartPoint{{Values: thoughtValuesFor(w.History.ThoughtCountsToday)}}
 }
 
-// exitThoughtsToDistribution returns a ChartPoint weighted by satisfaction
-// impact for exit thoughts — the last thought each departing guest had.
+// exitThoughtsToDistribution returns a ChartPoint of exit thoughts — the
+// last thought each departing guest had.
 func exitThoughtsToDistribution(w *world.World) []ui.ChartPoint {
 	if w == nil || w.History == nil {
 		return nil

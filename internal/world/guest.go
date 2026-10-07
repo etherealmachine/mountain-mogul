@@ -165,12 +165,11 @@ type Guest struct {
 	// purchased. Pass holders ride any open lift for free.
 	HasSeasonPass bool
 
-	// Satisfaction is the 0..1 session quality score. Initialised to 0.6
-	// on arrival; drifts continuously toward a terrain-quality target each
-	// skiing tick; spikes up or down on discrete events (novel lift ride,
-	// fall, long queue, no lodge). Rating() returns it directly; at
-	// departure it is captured as LastScore and folded into ResortRating
-	// via EMA. Thoughts are display-only and no longer drive this value.
+	// Satisfaction is the 0..1 session mood. Initialised to 0.6 on
+	// arrival; drifts toward a target that terrain and active conditions
+	// pull on, and jumps on events. Only sim.applyEvent and the drift
+	// write it; ai.Effects holds every amount. Rating() returns it; at
+	// departure it is captured as LastScore and folded into the rating.
 	Satisfaction float32
 
 	// Thoughts is a small ring of recent ai.Thought entries — the
@@ -180,10 +179,20 @@ type Guest struct {
 	Thoughts     [thoughtsCap]ai.Thought
 	ThoughtsHead int // next write index
 
-	// ThoughtCounts tallies every AddThought call per kind for the session.
-	// Indexed by ai.ThoughtKind; accumulated into History.ThoughtCountsToday
-	// when the guest departs.
+	// ThoughtCounts tallies thoughts per kind for the session: each event,
+	// and each start of a condition. Indexed by ai.ThoughtKind.
 	ThoughtCounts [ai.ThoughtKindCount]int
+
+	// SkiTerrainPull and SkiedThisTick are what a skiing tick leaves for
+	// the next mood update: the terrain's pull on the mood target, and
+	// that the guest skied at all. The mood update zeroes both.
+	SkiTerrainPull float32
+	SkiedThisTick  bool
+
+	// Conditions is the set of condition thoughts holding right now. A
+	// condition's thought is added when its bit turns on; its pull on
+	// the mood target lasts while the bit is set.
+	Conditions ai.ConditionMask
 
 	// RidenLifts is the per-guest ride tally. The MVP novelty mechanic:
 	// first ride of a lift is the biggest Fun bump, subsequent rides
@@ -293,8 +302,7 @@ func Activity(w *World, g *Guest) string {
 }
 
 // thoughtsCap is the size of the Thoughts ring. Six is enough that a
-// few simultaneous stimuli (in-trees + low-energy + fall) all fit
-// without crowding out the oldest of the bunch within ai.ThoughtTTL.
+// few simultaneous stimuli (in-trees + low-energy + fall) all fit.
 const thoughtsCap = 6
 
 // Rating returns the guest's current 0..1 session satisfaction score.
@@ -304,19 +312,13 @@ func (g *Guest) Rating() float32 {
 	return g.Satisfaction
 }
 
-// AddThought pushes a new Thought onto the ring at simTime for display.
-// Duplicates within the TTL window are suppressed. context is an optional
-// list of entity IDs (lift, trail, etc.) used to format the display string.
-// Thoughts are display-only; Satisfaction is updated separately by the caller.
+// AddThought records a thought on the ring at simTime and counts it.
+// context is an optional list of entity IDs (lift, trail, etc.) used to
+// format the display string. It changes no stats: the sim calls it from
+// applyEvent and setCondition, which apply the effect it reports.
 func (g *Guest) AddThought(kind ai.ThoughtKind, simTime float64, context ...uint64) {
 	if kind == ai.ThoughtNone {
 		return
-	}
-	// Suppress if the same kind is already in-ring and fresh.
-	for _, t := range g.Thoughts {
-		if t.Kind == kind && simTime-t.Time < ai.ThoughtTTL {
-			return
-		}
 	}
 	var ctx []uint64
 	if len(context) > 0 {
@@ -327,8 +329,9 @@ func (g *Guest) AddThought(kind ai.ThoughtKind, simTime float64, context ...uint
 	g.ThoughtCounts[kind]++
 }
 
-// CurrentThought returns the most-recent unexpired thought (relative to
-// simTime), or a zero Thought when the ring is empty / all expired.
+// CurrentThought returns the most-recent thought still on the guest's
+// mind: an event thought within ai.ThoughtTTL, or a condition thought
+// whose condition still holds. A zero Thought when there is none.
 // Check t.Kind != ai.ThoughtNone to distinguish the "no thought" case.
 func (g *Guest) CurrentThought(simTime float64) ai.Thought {
 	for i := 0; i < thoughtsCap; i++ {
@@ -337,7 +340,7 @@ func (g *Guest) CurrentThought(simTime float64) ai.Thought {
 		if t.Kind == ai.ThoughtNone {
 			continue
 		}
-		if simTime-t.Time > ai.ThoughtTTL {
+		if simTime-t.Time > ai.ThoughtTTL && !g.Conditions.Has(t.Kind) {
 			continue
 		}
 		return t
@@ -390,6 +393,7 @@ func (g *Guest) ResetForDeparture() {
 		g.Thoughts[i] = ai.Thought{}
 	}
 	g.ThoughtsHead = 0
+	g.Conditions = 0
 	g.RidenLifts = g.RidenLifts[:0]
 	g.DayTicketDue = 0
 	g.DayTicketPaid = 0

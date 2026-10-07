@@ -156,6 +156,10 @@ type Plan struct {
 	// Needs already pressing when the plan was made. A need that turns
 	// pressing mid-plan can preempt it at the next step boundary.
 	Pressing NeedMask
+	// Blocked lists the conditions that kept higher-ranked goals from
+	// planning (no lodge to rest in, no lift to ride). The planner only
+	// reports them; the sim turns them into condition thoughts.
+	Blocked []ThoughtKind
 }
 
 // NeedMask is a set of bodily needs (hunger, thirst).
@@ -249,10 +253,11 @@ type GuestEvent struct {
 // THOUGHTS — RCT-style "what's this guest thinking" surface
 // =============================================================================
 
-// ThoughtKind enumerates the canned thoughts a guest can have in
-// response to game events. Keep the catalogue small and high-signal —
-// every entry needs a clear Display() string and a trigger somewhere in
-// the sim. The HUD reads the most-recent unexpired thought via
+// ThoughtKind enumerates the canned thoughts a guest can have. A thought
+// is a read-only report of something that changed the guest's stats: an
+// event (Effects[k].Condition false) or a condition that holds for a
+// while (true). Every entry needs an Effects row, a thoughtText string,
+// and a chart colour. The HUD reads the most-recent current thought via
 // Guest.CurrentThought.
 type ThoughtKind uint8
 
@@ -282,9 +287,10 @@ const (
 	ThoughtHungry  // Hunger critically low; guest departs
 	ThoughtThirsty // Thirst critically low; guest departs
 
-	// Fatigue events.
-	ThoughtTired     // min(Patience,Energy) below rest threshold; needs a lodge
+	// Fatigue conditions.
+	ThoughtTired     // Energy below the rest threshold; needs a lodge
 	ThoughtExhausted // min(Patience,Energy) critically low; guest departs
+	ThoughtImpatient // Patience below the rest threshold; fed up with waiting
 
 	// Budget events.
 	ThoughtTooExpensive   // RemainingBudget < cheapest lift ticket; guest departs
@@ -300,6 +306,9 @@ const (
 	// A minor injury: the guest gets themselves down and goes home early.
 	ThoughtHurtGoingHome
 
+	// Knocked over by avalanche debris; a fall or injury thought follows.
+	ThoughtCaughtInAvalanche
+
 	thoughtKindSentinel // must stay last; equals the total count
 )
 
@@ -307,30 +316,61 @@ const (
 // ThoughtNone). Use this to size arrays indexed by ThoughtKind.
 const ThoughtKindCount = int(thoughtKindSentinel)
 
-// ThoughtSatisfactionWeight is the signed satisfaction impact of each thought
-// kind. Positive = improves guest satisfaction, negative = reduces it.
-// Terrain thoughts use the drift-target deviation from the neutral 0.5 baseline;
-// discrete events use the exact delta applied at the moment the thought fires.
-var ThoughtSatisfactionWeight = [ThoughtKindCount]float64{
-	ThoughtLovingGlades:   +0.12,
-	ThoughtScaredInTrees:  -0.18,
-	ThoughtLovingCorduroy: +0.15,
-	ThoughtFell:           -0.10,
-	ThoughtInjured:        -0.25,
-	ThoughtAbandoned:      -0.30,
-	ThoughtLongLine:       -0.08,
-	ThoughtLineTooLong:    -0.08,
-	ThoughtNeedsLodge:     -0.06,
-	ThoughtHungry:         -0.08,
-	ThoughtThirsty:        -0.08,
-	ThoughtTired:          -0.05,
-	ThoughtExhausted:      -0.15,
-	ThoughtTooExpensive:   -0.20,
-	ThoughtNoTicketWindow: -0.20,
-	ThoughtHitTree:        -0.15,
-	ThoughtLiftsClosed:    -0.20,
-	ThoughtNothingForMe:   -0.20,
-	ThoughtHurtGoingHome:  -0.15,
+// ConditionMask has one bit per ThoughtKind.
+const _ = uint(32 - ThoughtKindCount) // fails to compile past 32 kinds
+
+// Effect is what one ThoughtKind reports. An event's Satisfaction is a
+// one-off delta, applied once by sim.applyEvent. A condition's
+// Satisfaction is a pull on the mood target that lasts while the
+// condition holds; the condition's thought is added once when it starts.
+type Effect struct {
+	Condition    bool
+	Satisfaction float32
+}
+
+// Effects is the single table of what every thought reports. Nothing
+// else holds event deltas or condition pulls.
+var Effects = [ThoughtKindCount]Effect{
+	// Events.
+	ThoughtFell:              {Satisfaction: -0.10},
+	ThoughtInjured:           {Satisfaction: -0.25},
+	ThoughtAbandoned:         {Satisfaction: -0.30},
+	ThoughtHurtGoingHome:     {Satisfaction: -0.15},
+	ThoughtHitTree:           {Satisfaction: -0.15},
+	ThoughtCaughtInAvalanche: {Satisfaction: -0.10},
+	ThoughtLongLine:          {Satisfaction: -0.08},
+	ThoughtLineTooLong:       {Satisfaction: -0.08},
+	ThoughtLovingCorduroy:    {Satisfaction: +0.05}, // a run that averaged ≥90% groomed
+
+	// Conditions. Zero-pull conditions report a reason to leave.
+	ThoughtLovingGlades:   {Condition: true, Satisfaction: +0.12},
+	ThoughtScaredInTrees:  {Condition: true, Satisfaction: -0.18},
+	ThoughtHungry:         {Condition: true, Satisfaction: -0.10},
+	ThoughtThirsty:        {Condition: true, Satisfaction: -0.10},
+	ThoughtImpatient:      {Condition: true, Satisfaction: -0.10},
+	ThoughtNeedsLodge:     {Condition: true, Satisfaction: -0.10},
+	ThoughtTired:          {Condition: true},
+	ThoughtExhausted:      {Condition: true},
+	ThoughtTooExpensive:   {Condition: true},
+	ThoughtNoTicketWindow: {Condition: true},
+	ThoughtLiftsClosed:    {Condition: true},
+	ThoughtNothingForMe:   {Condition: true},
+}
+
+// ConditionMask is the set of condition thoughts currently holding for a
+// guest, one bit per ThoughtKind.
+type ConditionMask uint32
+
+// Has reports whether condition k is active.
+func (m ConditionMask) Has(k ThoughtKind) bool { return m&(1<<k) != 0 }
+
+// Set turns condition k on or off.
+func (m *ConditionMask) Set(k ThoughtKind, on bool) {
+	if on {
+		*m |= 1 << k
+	} else {
+		*m &^= 1 << k
+	}
 }
 
 // thoughtText is the canonical base text for each ThoughtKind — the
@@ -339,25 +379,27 @@ var ThoughtSatisfactionWeight = [ThoughtKindCount]float64{
 // string exactly once here; Display() and ThoughtLabel are both derived
 // from it. A new ThoughtKind only needs an entry added here.
 var thoughtText = [ThoughtKindCount]string{
-	ThoughtLovingGlades:   "loving these glades",
-	ThoughtScaredInTrees:  "too many trees!",
-	ThoughtLovingCorduroy: "this corduroy is perfect",
-	ThoughtFell:           "ouch, that hurt",
-	ThoughtInjured:        "I'm hurt, I can't move",
-	ThoughtAbandoned:      "no one came to help me",
-	ThoughtLongLine:       "this line is way too long",
-	ThoughtLineTooLong:    "that line will take forever",
-	ThoughtNeedsLodge:     "this place needs a lodge",
-	ThoughtHungry:         "I could really use a meal",
-	ThoughtThirsty:        "I need something to drink",
-	ThoughtTired:          "I need a break",
-	ThoughtExhausted:      "I'm too tired to ski",
-	ThoughtTooExpensive:   "I can't afford this",
-	ThoughtNoTicketWindow: "couldn't find where to buy a ticket",
-	ThoughtHitTree:        "I hit a tree!",
-	ThoughtLiftsClosed:    "the lifts are all closed",
-	ThoughtNothingForMe:   "there's nothing here I can ski",
-	ThoughtHurtGoingHome:  "I tweaked something, calling it a day",
+	ThoughtLovingGlades:      "loving these glades",
+	ThoughtScaredInTrees:     "too many trees!",
+	ThoughtLovingCorduroy:    "this corduroy is perfect",
+	ThoughtFell:              "ouch, that hurt",
+	ThoughtInjured:           "I'm hurt, I can't move",
+	ThoughtAbandoned:         "no one came to help me",
+	ThoughtLongLine:          "this line is way too long",
+	ThoughtLineTooLong:       "that line will take forever",
+	ThoughtNeedsLodge:        "this place needs a lodge",
+	ThoughtHungry:            "I could really use a meal",
+	ThoughtThirsty:           "I need something to drink",
+	ThoughtTired:             "I need a break",
+	ThoughtExhausted:         "I'm too tired to ski",
+	ThoughtImpatient:         "I'm sick of waiting around",
+	ThoughtTooExpensive:      "I can't afford this",
+	ThoughtNoTicketWindow:    "couldn't find where to buy a ticket",
+	ThoughtHitTree:           "I hit a tree!",
+	ThoughtLiftsClosed:       "the lifts are all closed",
+	ThoughtNothingForMe:      "there's nothing here I can ski",
+	ThoughtHurtGoingHome:     "I tweaked something, calling it a day",
+	ThoughtCaughtInAvalanche: "an avalanche knocked me over!",
 }
 
 // ThoughtLabel is the chart series label for each thought kind — the
@@ -376,25 +418,27 @@ func init() {
 // ThoughtChartColor is the RGBA bar colour for each thought kind in charts.
 // Must match ThoughtLabel: every entry with a non-empty label needs a colour.
 var ThoughtChartColor = [ThoughtKindCount][4]float32{
-	ThoughtLovingGlades:   {0.30, 0.75, 0.40, 1},
-	ThoughtScaredInTrees:  {0.90, 0.35, 0.30, 1},
-	ThoughtLovingCorduroy: {0.45, 0.85, 0.55, 1},
-	ThoughtFell:           {0.85, 0.20, 0.20, 1},
-	ThoughtInjured:        {0.95, 0.10, 0.10, 1},
-	ThoughtAbandoned:      {0.60, 0.10, 0.80, 1},
-	ThoughtLongLine:       {0.80, 0.45, 0.70, 1},
-	ThoughtLineTooLong:    {0.70, 0.30, 0.60, 1},
-	ThoughtNeedsLodge:     {0.60, 0.50, 0.80, 1},
-	ThoughtHungry:         {0.95, 0.60, 0.20, 1},
-	ThoughtThirsty:        {0.25, 0.65, 0.90, 1},
-	ThoughtTired:          {0.80, 0.70, 0.30, 1},
-	ThoughtExhausted:      {0.65, 0.50, 0.20, 1},
-	ThoughtTooExpensive:   {0.95, 0.85, 0.20, 1},
-	ThoughtNoTicketWindow: {0.85, 0.40, 0.30, 1},
-	ThoughtHitTree:        {0.55, 0.35, 0.15, 1},
-	ThoughtLiftsClosed:    {0.50, 0.55, 0.65, 1},
-	ThoughtNothingForMe:   {0.75, 0.55, 0.45, 1},
-	ThoughtHurtGoingHome:  {0.90, 0.45, 0.35, 1},
+	ThoughtLovingGlades:      {0.30, 0.75, 0.40, 1},
+	ThoughtScaredInTrees:     {0.90, 0.35, 0.30, 1},
+	ThoughtLovingCorduroy:    {0.45, 0.85, 0.55, 1},
+	ThoughtFell:              {0.85, 0.20, 0.20, 1},
+	ThoughtInjured:           {0.95, 0.10, 0.10, 1},
+	ThoughtAbandoned:         {0.60, 0.10, 0.80, 1},
+	ThoughtLongLine:          {0.80, 0.45, 0.70, 1},
+	ThoughtLineTooLong:       {0.70, 0.30, 0.60, 1},
+	ThoughtNeedsLodge:        {0.60, 0.50, 0.80, 1},
+	ThoughtHungry:            {0.95, 0.60, 0.20, 1},
+	ThoughtThirsty:           {0.25, 0.65, 0.90, 1},
+	ThoughtTired:             {0.80, 0.70, 0.30, 1},
+	ThoughtExhausted:         {0.65, 0.50, 0.20, 1},
+	ThoughtImpatient:         {0.75, 0.40, 0.55, 1},
+	ThoughtTooExpensive:      {0.95, 0.85, 0.20, 1},
+	ThoughtNoTicketWindow:    {0.85, 0.40, 0.30, 1},
+	ThoughtHitTree:           {0.55, 0.35, 0.15, 1},
+	ThoughtLiftsClosed:       {0.50, 0.55, 0.65, 1},
+	ThoughtNothingForMe:      {0.75, 0.55, 0.45, 1},
+	ThoughtHurtGoingHome:     {0.90, 0.45, 0.35, 1},
+	ThoughtCaughtInAvalanche: {0.85, 0.85, 0.95, 1},
 }
 
 // Thought is one entry in a Guest's bounded thoughts ring. Persists in
@@ -443,9 +487,9 @@ func (t Thought) Display(resolve func(uint64) string) string {
 	return thoughtText[t.Kind]
 }
 
-// ThoughtTTL is the sim-time window during which a thought counts as
-// "currently on the guest's mind." Older entries are skipped by
-// CurrentThought even if they're still inside the ring.
+// ThoughtTTL is how long an event thought stays "currently on the
+// guest's mind" in the HUD. A condition thought stays current while its
+// condition holds.
 const ThoughtTTL = 12.0
 
 // Sense is a per-tick snapshot of the controller used by the renderer and

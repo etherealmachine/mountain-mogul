@@ -184,10 +184,27 @@ const (
 	thirstDrainPerSec      = 1.0 / 900.0
 	thirstAltitudePerMetre = float32(0.0005) // +50% at 1000 m, ×2 at 2000 m
 
-	// criticalStatThreshold mirrors goap.restTriggerThreshold: below this
-	// level ThoughtHungry / ThoughtThirsty are emitted each tick (rate-
-	// limited by ThoughtTTL) so the departure thought reflects the cause.
+	// criticalStatThreshold mirrors goap.restTriggerThreshold: below it
+	// the hungry, thirsty, impatient, and tired conditions start.
 	criticalStatThreshold = float32(0.15)
+	// needClearThreshold is where those conditions clear again: the 0.25
+	// at which a guest starts looking for the service.
+	needClearThreshold = float32(0.25)
+	// exhaustedThreshold mirrors GoHome's 0.05 cut-off.
+	exhaustedThreshold = float32(0.05)
+
+	// The mood target is moodBaseline plus the terrain's pull while
+	// skiing plus each active condition's pull (ai.Effects), clamped to
+	// [moodTargetMin, moodTargetMax]. Satisfaction closes moodDriftRate
+	// of the gap a second, so a brief bad patch barely shows but a
+	// sustained one (a long tree run, a hungry hour) does. Events can
+	// still push it outside the target's range.
+	moodBaseline  = float32(0.5)
+	moodTargetMin = float32(0.15)
+	moodTargetMax = float32(0.80)
+	moodDriftRate = float32(0.006)
+	groomedPull   = float32(+0.15) // PrefersGroomed on groomed snow
+	ungroomedPull = float32(-0.08) // PrefersGroomed off it
 )
 
 // =============================================================================
@@ -329,45 +346,34 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 	}
 	const (
 		treeDensityThreshold = 0.30
+		treeDensityClear     = 0.20
 		groomingThreshold    = 0.50
 	)
-	inTrees := treeDensity >= treeDensityThreshold
 	onGroomed := grooming >= groomingThreshold
 
-	if inTrees {
-		if a.Traits.LikesGlades {
-			s.addThought(a, ai.ThoughtLovingGlades)
-		} else {
-			s.addThought(a, ai.ThoughtScaredInTrees)
-		}
+	// In the trees: on at treeDensityThreshold, off once the cover thins
+	// below treeDensityClear.
+	gladeKind := ai.ThoughtScaredInTrees
+	if a.Traits.LikesGlades {
+		gladeKind = ai.ThoughtLovingGlades
 	}
+	treesOn := treeDensity >= treeDensityThreshold ||
+		(a.Conditions.Has(gladeKind) && treeDensity >= treeDensityClear)
+	s.setCondition(a, gladeKind, treesOn)
 	// Accumulate grooming for the run-end ThoughtLovingCorduroy check.
 	a.RunGroomingSum += grooming
 	a.RunGroomingSamples++
 
-	// Satisfaction drift toward a terrain-quality target. The target is
-	// derived from trait/terrain combinations; the drift rate is slow
-	// enough that a brief bad patch doesn't tank the score but sustained
-	// poor conditions (long tree run for a non-glade skier) do matter.
-	{
-		target := float32(0.5)
-		if inTrees {
-			if a.Traits.LikesGlades {
-				target += 0.12
-			} else {
-				target -= 0.18
-			}
+	// The terrain's pull on the mood target, read by tickMood. Trees pull
+	// through the glade conditions above; grooming has no thought yet
+	// (Snow Tastes makes it one).
+	a.SkiedThisTick = true
+	if a.Traits.PrefersGroomed {
+		if onGroomed {
+			a.SkiTerrainPull = groomedPull
+		} else {
+			a.SkiTerrainPull = ungroomedPull
 		}
-		if a.Traits.PrefersGroomed {
-			if onGroomed {
-				target += 0.15
-			} else {
-				target -= 0.08
-			}
-		}
-		target = clamp32(target, 0.25, 0.80)
-		const driftRate = float32(0.006)
-		a.Satisfaction += (target - a.Satisfaction) * driftRate * float32(dt)
 	}
 
 	// Patience gain from active skiing.
@@ -396,33 +402,13 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 		a.Thirst = 0
 	}
 
-	// Emit thoughts when critically low so the departure log reflects cause.
-	// AddThought's TTL suppression prevents spam.
-	if a.Hunger < criticalStatThreshold {
-		s.addThought(a, ai.ThoughtHungry)
-	}
-	if a.Thirst < criticalStatThreshold {
-		s.addThought(a, ai.ThoughtThirsty)
-	}
-	combined := a.Patience
-	if a.Energy < combined {
-		combined = a.Energy
-	}
-	if combined < 0.05 {
-		s.addThought(a, ai.ThoughtExhausted)
-	} else if combined < criticalStatThreshold {
-		s.addThought(a, ai.ThoughtTired)
-	}
-	if cheap := cheapestLiftTicket(s.World); cheap > 0 && a.RemainingBudget < float32(cheap) {
-		s.addThought(a, ai.ThoughtTooExpensive)
-	}
-
 	// Avalanche hit — if active debris is flowing through this cell, force a
 	// high-probability injury fall before the normal balance update.
 	{
 		xi := int(a.Pos[0] / CellSize)
 		zi := int(a.Pos[2] / CellSize)
 		if s.World.Terrain.InBounds(xi, zi) && s.World.Terrain.Cells[xi][zi].AvySnow > avyMinSnow && !a.Fallen {
+			s.applyEvent(a, ai.ThoughtCaughtInAvalanche)
 			a.Balance = 0
 			a.Fallen = true
 			a.Energy = clamp32(a.Energy-energyFallDrain, 0, 1)
@@ -430,15 +416,10 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 			a.Speed = 0
 			const avyInjuryChance = float32(0.70)
 			if rng.Global().Float32() < avyInjuryChance {
-				s.injure(a, true, 0.40)
+				s.injure(a, true)
 			} else {
 				a.FallTimer = float32(fallRecoverTime)
-				if step := a.Plan.Head(); step.Kind == ai.ActSkiTrail {
-					s.addThought(a, ai.ThoughtFell, step.TrailID)
-				} else {
-					s.addThought(a, ai.ThoughtFell)
-				}
-				a.Satisfaction = clamp32(a.Satisfaction-0.20, 0, 1)
+				s.applyTrailEvent(a, ai.ThoughtFell)
 			}
 			recordFrame(s, a, target, dist, perc, dec)
 			return false
@@ -467,15 +448,10 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 		injuryChance := (speedFactor + slopeFactor) / 2 * fallInjuryChanceMax
 		a.Speed = 0
 		if rng.Global().Float32() < injuryChance {
-			s.injure(a, rng.Global().Float32() < fallSeriousShare, 0.25)
+			s.injure(a, rng.Global().Float32() < fallSeriousShare)
 		} else {
 			a.FallTimer = float32(fallRecoverTime)
-			if step := a.Plan.Head(); step.Kind == ai.ActSkiTrail {
-				s.addThought(a, ai.ThoughtFell, step.TrailID)
-			} else {
-				s.addThought(a, ai.ThoughtFell)
-			}
-			a.Satisfaction = clamp32(a.Satisfaction-0.10, 0, 1)
+			s.applyTrailEvent(a, ai.ThoughtFell)
 		}
 		recordFrame(s, a, target, dist, perc, dec)
 		return false
@@ -596,8 +572,7 @@ func (s *Simulation) tickFallen(a *world.Guest, dt float64) {
 			a.TurnSide = 0
 			a.SkisOn = false
 			a.Patience = 0
-			a.Satisfaction = clamp32(a.Satisfaction-0.30, 0, 1)
-			s.addThought(a, ai.ThoughtAbandoned)
+			s.applyEvent(a, ai.ThoughtAbandoned)
 			// Build a direct walk-to-parking plan so the guest crawls to the
 			// nearest lot without routing through the lift system. Bypassing
 			// GOAP is intentional: the planner would route WalkToLift →
@@ -1212,36 +1187,79 @@ func (s *Simulation) treeHit(a *world.Guest) {
 	a.Events = append(a.Events, ai.GuestEvent{Kind: ai.EventFall, Time: s.SimTime})
 	injuryChance := clamp32(a.Speed/injuryMaxSpeed, 0, 1) * trunkInjuryChanceMax
 	a.Speed = 0
-	s.addThought(a, ai.ThoughtHitTree)
+	s.applyEvent(a, ai.ThoughtHitTree)
 	if rng.Global().Float32() < injuryChance {
-		s.injure(a, rng.Global().Float32() < trunkSeriousShare, 0.25)
+		s.injure(a, rng.Global().Float32() < trunkSeriousShare)
 		return
 	}
 	a.FallTimer = float32(fallRecoverTime)
-	a.Satisfaction = clamp32(a.Satisfaction-0.15, 0, 1)
 }
 
 // injure hurts a guest who has just fallen. A serious injury leaves them
 // where they lie waiting for patrol (up to injuryWaitTime); a minor one
 // lets them get up after the usual fall and head home on their own.
-// Either costs satisfaction (cost for a serious one, less for minor).
-func (s *Simulation) injure(a *world.Guest, serious bool, cost float32) {
+// Either costs satisfaction through its ai.Effects row.
+func (s *Simulation) injure(a *world.Guest, serious bool) {
 	a.Events = append(a.Events, ai.GuestEvent{Kind: ai.EventInjury, Time: s.SimTime})
 	if !serious {
 		a.FallTimer = float32(fallRecoverTime)
 		a.HurtGoHome = true
-		s.addThought(a, ai.ThoughtHurtGoingHome)
-		a.Satisfaction = clamp32(a.Satisfaction-cost*0.6, 0, 1)
+		s.applyEvent(a, ai.ThoughtHurtGoingHome)
 		return
 	}
 	a.Injured = true
 	a.InjuryWaitTimer = injuryWaitTime
+	s.applyTrailEvent(a, ai.ThoughtInjured)
+}
+
+// applyTrailEvent applies an event naming the trail the guest is on,
+// when they're on one.
+func (s *Simulation) applyTrailEvent(a *world.Guest, kind ai.ThoughtKind) {
 	if step := a.Plan.Head(); step.Kind == ai.ActSkiTrail {
-		s.addThought(a, ai.ThoughtInjured, step.TrailID)
-	} else {
-		s.addThought(a, ai.ThoughtInjured)
+		s.applyEvent(a, kind, step.TrailID)
+		return
 	}
-	a.Satisfaction = clamp32(a.Satisfaction-cost, 0, 1)
+	s.applyEvent(a, kind)
+}
+
+// tickMood drifts a guest's satisfaction toward its target, whatever
+// they're doing: skiing, in line, riding, walking, or resting. It runs on
+// what the previous tick's activity left: the terrain pull (zeroed here,
+// so it only counts on ticks the guest skied) and the active conditions.
+func (s *Simulation) tickMood(a *world.Guest, dt float64) {
+	s.tickNeedConditions(a)
+	if !a.SkiedThisTick {
+		s.setCondition(a, ai.ThoughtLovingGlades, false)
+		s.setCondition(a, ai.ThoughtScaredInTrees, false)
+	}
+	target := moodBaseline + a.SkiTerrainPull
+	if a.Conditions != 0 {
+		for k := ai.ThoughtKind(1); int(k) < ai.ThoughtKindCount; k++ {
+			if a.Conditions.Has(k) {
+				target += ai.Effects[k].Satisfaction
+			}
+		}
+	}
+	target = clamp32(target, moodTargetMin, moodTargetMax)
+	a.Satisfaction = clamp32(a.Satisfaction+(target-a.Satisfaction)*moodDriftRate*float32(dt), 0, 1)
+	a.SkiTerrainPull = 0
+	a.SkiedThisTick = false
+}
+
+// tickNeedConditions turns the need conditions on and off from the
+// guest's stats. Each starts at its threshold and clears once the stat
+// recovers past needClearThreshold, or for the budget, once it can pay.
+func (s *Simulation) tickNeedConditions(a *world.Guest) {
+	has := a.Conditions.Has
+	s.setCondition(a, ai.ThoughtHungry, holds(has(ai.ThoughtHungry), a.Hunger, criticalStatThreshold, needClearThreshold))
+	s.setCondition(a, ai.ThoughtThirsty, holds(has(ai.ThoughtThirsty), a.Thirst, criticalStatThreshold, needClearThreshold))
+	s.setCondition(a, ai.ThoughtImpatient, holds(has(ai.ThoughtImpatient), a.Patience, criticalStatThreshold, needClearThreshold))
+	combined := min(a.Patience, a.Energy)
+	exhausted := holds(has(ai.ThoughtExhausted), combined, exhaustedThreshold, criticalStatThreshold)
+	s.setCondition(a, ai.ThoughtExhausted, exhausted)
+	s.setCondition(a, ai.ThoughtTired, !exhausted && holds(has(ai.ThoughtTired), a.Energy, criticalStatThreshold, needClearThreshold))
+	cheap := cheapestLiftTicket(s.World)
+	s.setCondition(a, ai.ThoughtTooExpensive, cheap > 0 && a.RemainingBudget < float32(cheap))
 }
 
 // =============================================================================

@@ -129,31 +129,33 @@ func (p *Planner) PlanForGuest(a *world.Guest, w *world.World) ([]Action, Goal, 
 // StoredPlanFor returns a freshly computed ai.Plan ready to drop onto
 // world.Guest.Plan. The simulation's replan path uses this; the HUD
 // reads the stored result instead of recomputing each frame.
-func (p *Planner) StoredPlanFor(a *world.Guest, w *world.World, simTime float64) ai.Plan {
+func (p *Planner) StoredPlanFor(a *world.Guest, w *world.World) ai.Plan {
 	snap := Extract(a, w)
-	return p.planFromSnap(snap, a, w, simTime)
+	return p.planFromSnap(snap, a, w)
 }
 
 // StoredPlanForLookahead plans as if agent a has just unloaded from liftID.
 // Called at chair-load time so the guest has a complete post-ride plan before
 // reaching the top. The returned ai.Plan does NOT include the in-flight
 // RideLift step — callers prepend it.
-func (p *Planner) StoredPlanForLookahead(a *world.Guest, liftID uint64, w *world.World, simTime float64) ai.Plan {
+func (p *Planner) StoredPlanForLookahead(a *world.Guest, liftID uint64, w *world.World) ai.Plan {
 	snap := ExtractLookahead(a, liftID, w)
-	return p.planFromSnap(snap, a, w, simTime)
+	return p.planFromSnap(snap, a, w)
 }
 
 // planFromSnap runs goal-selection and A* from snap. Goals with weight ≤ 0
 // are skipped — zero-weight goals (GoHome at full patience) must not win
-// by default. If Rest is unreachable a thought is emitted and the next
-// goal is tried. Falls back to defaultLapPlan when no goal produces a plan.
-func (p *Planner) planFromSnap(snap WorldSnapshot, a *world.Guest, w *world.World, simTime float64) ai.Plan {
-	plan := p.pickPlan(snap, a, w, simTime)
+// by default. A goal that can't be planned (Rest with no lodge, a ride
+// with no lift) is reported in Plan.Blocked and the next goal is tried.
+// Falls back to defaultLapPlan when no goal produces a plan.
+func (p *Planner) planFromSnap(snap WorldSnapshot, a *world.Guest, w *world.World) ai.Plan {
+	plan := p.pickPlan(snap, a, w)
 	plan.Pressing = PressingNeeds(&snap, w)
 	return plan
 }
 
-func (p *Planner) pickPlan(snap WorldSnapshot, a *world.Guest, w *world.World, simTime float64) ai.Plan {
+func (p *Planner) pickPlan(snap WorldSnapshot, a *world.Guest, w *world.World) ai.Plan {
+	var blocked []ai.ThoughtKind
 	for _, gr := range RankedGoals(&snap, w) {
 		if gr.Satisfied || gr.Weight <= 0 {
 			continue
@@ -161,27 +163,35 @@ func (p *Planner) pickPlan(snap WorldSnapshot, a *world.Guest, w *world.World, s
 		actions := p.Plan(snap, gr.Goal, w)
 		if actions == nil {
 			if _, ok := gr.Goal.(Rest); ok {
-				a.AddThought(ai.ThoughtNeedsLodge, simTime)
-				a.Satisfaction -= 0.06
-				if a.Satisfaction < 0 {
-					a.Satisfaction = 0
-				}
+				blocked = appendBlocked(blocked, ai.ThoughtNeedsLodge)
 			}
 			if ridesLift(gr.Goal) {
 				if k := rideBlocker(&snap, w); k != ai.ThoughtNone {
-					a.AddThought(k, simTime)
+					blocked = appendBlocked(blocked, k)
 				}
 			}
 			continue
 		}
-		out := ai.Plan{GoalName: gr.Goal.Name()}
+		out := ai.Plan{GoalName: gr.Goal.Name(), Blocked: blocked}
 		if len(actions) > 0 {
 			out.Steps = ToPlanActions(actions, snap, w)
 		}
 		return out
 	}
 	// No unsatisfied goal with positive weight — keep lapping.
-	return defaultLapPlan(snap, a, w)
+	plan := defaultLapPlan(snap, a, w)
+	plan.Blocked = blocked
+	return plan
+}
+
+// appendBlocked adds k to the blocked list once.
+func appendBlocked(blocked []ai.ThoughtKind, k ai.ThoughtKind) []ai.ThoughtKind {
+	for _, b := range blocked {
+		if b == k {
+			return blocked
+		}
+	}
+	return append(blocked, k)
 }
 
 // rideBlocker is the thought for why a guest can't plan a lift ride,
