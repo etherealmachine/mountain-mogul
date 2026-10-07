@@ -397,19 +397,20 @@ flowchart TB
 - **Balance + fall** runs every tick orthogonally to L1–L3. Drains from
   speed/slope overshoot, hard scrub under load, and underfoot tree density
   above 0.3. Recovers at +0.15/s baseline, clamped to [-1, 0.4]/s.
-- **Patience** is the session frustration budget. Drains only while
-  queuing (`−1/600` per sim-second); restored by active skiing
-  (`+1/1000` per sim-second), riding (`+1/800` per sim-second), and
-  instantly by `RestAtLodge`. The L0 `Rest` goal fires at low patience
+- **Patience** is the session frustration budget, in clock units
+  (`world.SimSecondsPerHour`). Drains while queuing (about 20 clock
+  minutes empty it; not before the lifts open) and walking without skis
+  (a clock hour empties it); restored by active skiing (full in about
+  5.6 clock hours), riding (about 4.4), and instantly by `RestAtLodge`. The L0 `Rest` goal fires at low patience
   (`Rest.Weight = (1 − Patience)²`), producing a `SkiToLodge +
   RestAtLodge` plan. `GoHome` fires when Patience < 0.05. The skier
   physics pipeline never reads Patience itself.
 - **Hunger and Thirst** are countdown timers. Both are randomised to
   `[0.5, 1.0)` at spawn and drain continuously during every skiing tick.
   A food-court meal restores Hunger; a bar restores Thirst. Hunger
-  drains at a fixed `1/900` per sim-second (five clock hours to empty).
+  drains at a fixed rate: five clock hours of skiing to empty.
   Thirst drains at
-  `1/900 × altitudeFactor × exertionMultiplier` — altitude adds
+  the same base rate `× altitudeFactor × exertionMultiplier` — altitude adds
   `+0.05%` per metre above sea level; the exertion table matches the
   energy-drain skill×terrain tiers but is capped at 3×. When either
   drops below 0.15, `ThoughtHungry` / `ThoughtThirsty` is emitted each
@@ -442,8 +443,8 @@ notes above for drain rates.
 
 | Source | Rate | Activity |
 |---|---|---|
-| Active skiing (`tickSkier`) | `+1/1000` per sim-second | restores slowly from fun descents |
-| Riding a lift chair (`tickRiding`) | `+1/800` per sim-second | restores: chair ride offsets earlier wait |
+| Active skiing (`tickSkier`) | full in ~5.6 clock hours | restores slowly from fun descents |
+| Riding a lift chair (`tickRiding`) | full in ~4.4 clock hours | restores: chair ride offsets earlier wait |
 | Lodge rest (`tickResting`) | instant `= 1` | full restore on `RestAtLodge` completion |
 
 Patience is clamped to `[0, 1]` on every write.
@@ -523,7 +524,7 @@ distinct gameplay paths and it matters which one fired:
 day on the mountain and is physically spent or simply ran out of food and
 water. Energy drains at 1/7200 per sim-second (~2 h continuous to empty);
 falls add a −0.30 one-shot hit; overmatched terrain drains up to 6× faster.
-Hunger drains at 1/900 per sim-second (five clock hours); Thirst at 1/900 ×
+Hunger drains in five clock hours of skiing; Thirst at that base rate ×
 altitude × exertion. A resort with food courts and bars keeps guests out
 longer. All three start at natural levels (Energy = 1.0; Hunger and
 Thirst randomised to 0.5–1.0 at spawn). `ThoughtHungry` / `ThoughtThirsty`
