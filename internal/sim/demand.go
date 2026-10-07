@@ -150,7 +150,7 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 		if priceFactor == 0 {
 			continue
 		}
-		match := terrainMatch(s.World, g.Traits.Skill)
+		match := terrainMatch(s.World, g.Traits)
 		if match == 0 {
 			continue
 		}
@@ -349,39 +349,80 @@ func TerrainCapacity(w *world.World) float32 {
 	return float32(len(seen)) * guestsPerTrailCell
 }
 
-// terrainMatch is how well the resort's terrain suits a guest: 1 with a
-// painted trail at their skill level, easierTerrainMatch with only easier
-// trails (they'll come, less often, and wish for more), else 0. Either
-// way it needs a running lift they'd ride (one serving their level or
-// easier, or any for advanced guests, as the planner allows): guests
-// don't come to stand at a stopped lift or one with nothing for them.
-func terrainMatch(w *world.World, skill float32) float32 {
-	want := skillToDifficulty(skill)
+// terrainMatch is how well the resort's marked runs suit a guest, 0..1.
+// Each run cell counts by how its difficulty sits against the guest's
+// range (runRange: from the level they're comfortable at to the level
+// they want): fully in range, 0.3 one level easier, 0.1 two easier, not
+// at all harder. The share of suitable terrain over terrainMatchFull
+// counts in full, so a resort needn't be all one level to draw a guest,
+// but an easy hill with a few black runs draws few experts looking for a
+// challenge, and mostly those happy cruising. Only runs the player has
+// marked count. It needs a running lift they'd ride (one serving their
+// level or easier, or any for advanced guests, as the planner allows):
+// guests don't come to stand at a stopped lift or one with nothing for
+// them.
+func terrainMatch(w *world.World, traits ai.GuestTraits) float32 {
+	want := skillToDifficulty(traits.Skill)
 	ride := want | (want - 1) // their level and everything easier
-	if skill >= ai.SkillAdvancedThreshold {
+	if traits.Skill >= ai.SkillAdvancedThreshold {
 		ride = 0
 	}
 	if !w.RunningLiftFor(ride) {
 		return 0
 	}
-	match := float32(0)
+	lo, hi := runRange(traits)
+	var suits, total float32
 	for _, t := range w.Trails {
-		if len(t.Cells) == 0 {
+		d := diffIndex(t.Difficulty)
+		if d < 0 || len(t.Cells) == 0 {
 			continue
 		}
-		if t.Difficulty == want {
-			return 1
-		}
-		if t.Difficulty < want {
-			match = easierTerrainMatch
+		n := float32(len(t.Cells))
+		total += n
+		switch {
+		case d > hi:
+		case d >= lo:
+			suits += n
+		case d == lo-1:
+			suits += n * 0.3
+		default:
+			suits += n * 0.1
 		}
 	}
-	return match
+	if total == 0 {
+		return 0
+	}
+	return min(suits/total/terrainMatchFull, 1)
 }
 
-// easierTerrainMatch is terrainMatch for a resort whose trails are all
-// below a guest's level.
-const easierTerrainMatch = float32(0.4)
+// terrainMatchFull is the share of suitable marked terrain at which a
+// resort's terrain draws a guest as fully as it can.
+const terrainMatchFull = float32(0.5)
+
+// Steep tastes past these shift the run level a guest wants: one easier
+// for those who'd rather cruise, one harder for those after a challenge.
+const (
+	cruiseSteepTaste    = float32(-0.3)
+	challengeSteepTaste = float32(0.5)
+)
+
+// runRange is the run levels (0 green, 1 blue, 2 black) a guest is happy
+// skiing: from the easier of their skill level and the level they want
+// to the harder of the two. The level they want is their skill level,
+// one easier if they dislike steeps (happy cruising), one harder if they
+// love them (after a challenge).
+func runRange(traits ai.GuestTraits) (lo, hi int) {
+	level := diffIndex(skillToDifficulty(traits.Skill))
+	want := level
+	switch steep := traits.Tastes[ai.TasteSteep]; {
+	case steep <= cruiseSteepTaste:
+		want--
+	case steep >= challengeSteepTaste:
+		want++
+	}
+	want = min(max(want, 0), 2)
+	return min(level, want), max(level, want)
+}
 
 func skillToDifficulty(skill float32) world.TerrainDifficulty {
 	switch {

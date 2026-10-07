@@ -103,10 +103,12 @@ func (s *Simulation) recordRun(a *world.Guest, cell *world.Cell, cx, cz int, gro
 // miserable instead. A powder lover who skied enough fresh, untracked
 // powder gets first tracks. The run's difficulty is
 // the trail difficulty it spent the most time on, compared with the
-// guest's level: easier keeps or starts the too-easy condition, at or
-// above their level ends it, and above it (or too much time on slopes
-// past their comfort) is too much for them. A run at their level with
-// enough vertical, no fall, and room to ski is a great run.
+// levels the guest is happy skiing (runRange: their skill level and the
+// level they want, which their taste for steeps shifts): easier keeps or
+// starts the too-easy condition, within the range ends it, and harder
+// (or too much time on slopes past their comfort) is too much for them.
+// A run within the range with enough vertical, no fall, and room to ski
+// is a great run.
 func (s *Simulation) judgeRun(a *world.Guest) {
 	r := a.Run
 	a.Run = world.Run{}
@@ -115,7 +117,7 @@ func (s *Simulation) judgeRun(a *world.Guest) {
 	}
 	defer s.checkBoredom(a)
 	trail := r.MainTrail()
-	level := diffIndex(skillToDifficulty(a.Traits.Skill))
+	lo, hi := runRange(a.Traits)
 	main := -1
 	onTrail := r.ByDiff[0] + r.ByDiff[1] + r.ByDiff[2]
 	if onTrail >= runOnTrailShare*r.Time {
@@ -125,7 +127,7 @@ func (s *Simulation) judgeRun(a *world.Guest) {
 			}
 		}
 	}
-	tooHard := r.Steep >= runSteepShare*r.Time || (main >= 0 && main > level)
+	tooHard := r.Steep >= runSteepShare*r.Time || (main >= 0 && main > hi)
 	crowded := r.Crowd/r.Time >= runCrowded
 	fell := fellSince(a, r.Start)
 	taste := clamp32(r.Taste/r.Time, -1, 1)
@@ -137,7 +139,7 @@ func (s *Simulation) judgeRun(a *world.Guest) {
 	}
 
 	if main >= 0 {
-		s.setCondition(a, ai.ThoughtTooEasy, main < level, trail)
+		s.setCondition(a, ai.ThoughtTooEasy, main < lo, trail)
 	}
 	if tooHard {
 		s.applyEvent(a, ai.ThoughtTooHard, trail)
@@ -146,7 +148,7 @@ func (s *Simulation) judgeRun(a *world.Guest) {
 	if mind := -a.Traits.Tastes[ai.TasteCrowds]; crowded && mind > 0.1 {
 		s.applyEventScaled(a, ai.ThoughtCrowdedRun, min(mind, 1), trail)
 	}
-	great := main == level && !tooHard && !crowded && !fell && taste > runMiserable && r.StartY-a.Pos[1] >= greatRunMinVertical
+	great := main >= lo && main <= hi && !tooHard && !crowded && !fell && taste > runMiserable && r.StartY-a.Pos[1] >= greatRunMinVertical
 	var trailGreats, liftGreats int32
 	if trail != 0 {
 		a.TrailTally, trailGreats = world.CountRun(a.TrailTally, trail, great)
