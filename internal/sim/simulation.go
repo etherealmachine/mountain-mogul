@@ -660,8 +660,9 @@ func (s *Simulation) spawnGuestAt(lot *world.Building, g *world.Guest, pos mgl32
 	g.Energy = 1.0
 	g.Hunger = 0.5 + rng.Global().Float32()*0.5
 	g.Thirst = 0.5 + rng.Global().Float32()*0.5
-	g.Satisfaction = 0.6
+	// Arrive at the baseline: mood moves from there with the day.
 	g.Baseline = baselineStart
+	g.Satisfaction = baselineStart
 	g.HasSeasonPass = hasValidPass(g, s.SimTime)
 	// Price the day ticket before planning so the planner sees the
 	// post-ticket budget. The guest arrives without a ticket and pays at

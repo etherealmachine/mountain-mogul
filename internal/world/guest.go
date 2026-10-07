@@ -166,8 +166,8 @@ type Guest struct {
 	// purchased. Pass holders ride any open lift for free.
 	HasSeasonPass bool
 
-	// Satisfaction is the 0..1 session mood. Initialised to 0.6 on
-	// arrival; drifts toward a target that terrain and active conditions
+	// Satisfaction is the 0..1 session mood. Initialised to the
+	// baseline (0.5) on arrival; drifts toward a target that terrain and active conditions
 	// pull on, and jumps on events. Only sim.applyEvent and the drift
 	// write it; ai.Effects holds every amount. Rating() returns it; at
 	// departure it is captured as LastScore and folded into the rating.

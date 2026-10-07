@@ -1131,7 +1131,7 @@ func dataToWorld(data ScenarioData) *world.World {
 			g.Satisfaction, g.Baseline = gd.Satisfaction, gd.Baseline
 			if g.Baseline <= 0 {
 				// Saved before mood was kept: as if they'd just arrived.
-				g.Satisfaction, g.Baseline = 0.6, 0.5
+				g.Satisfaction, g.Baseline = 0.5, 0.5
 			}
 			g.Balance = 1.0
 			if len(gd.PlanSteps) > 0 {
