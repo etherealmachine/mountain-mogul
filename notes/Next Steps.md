@@ -14,10 +14,11 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 
 In the order to work on them:
 
-1. [[Snow Tastes]]: continuous taste affinities per guest (groomed, powder, moguls, trees, steep, ice, crowds), shown to the player as an archetype label. Snow underfoot moves the mood target, each run ends in an event, guests choose lifts and trails by taste, and repeated laps get boring.
-2. **Fix how services work**: the investigate-and-report items under Bugs and Guests (patrol, grooming, thirst, exhaustion, falls), in the new service model. Patrol is fixed by [[Patrol Day]] (steps 1–6 done; step 7 moved into [[Satisfaction Rework]]). Falls are fixed by [[Lift Unloading]]. Next is grooming. Thirst and exhaustion were mostly how thoughts were counted (see the Guests items).
+1. [[Mood Baseline]]: good runs raise the guest's baseline for the day, and repeats of the same run raise it by less, so varied terrain sends guests home happier. Unblocks a rating above about 0.5.
+2. [[Snow Tastes]]: continuous taste affinities per guest (groomed, powder, moguls, trees, steep, ice, crowds), shown to the player as an archetype label. Snow underfoot moves the mood target, each run ends in an event, guests choose lifts and trails by taste, and repeated laps get boring.
+3. **Fix how services work**: the investigate-and-report items under Bugs and Guests (patrol, grooming, thirst, exhaustion, falls), in the new service model. Patrol is fixed by [[Patrol Day]] (steps 1–6 done; step 7 moved into [[Satisfaction Rework]]). Falls are fixed by [[Lift Unloading]]. Next is grooming. Thirst and exhaustion were mostly how thoughts were counted (see the Guests items).
 
-Then: **gameplay before scenario goals**. A headless three-lift Boreal (2026-10-06) runs about 70 guests a day with the rating stuck near 30%, so goals can't be set until guests can have a good day. Priority 2 covers the investigate-and-report items; then the guest pool per scenario ([[First Week Balance]]). [[Scenario Goals and Rules]] steps 1–4 shipped and are tabled until then.
+Then: **gameplay before scenario goals**. A headless three-lift Boreal (2026-10-06) runs about 70 guests a day with the rating stuck near 30%, so goals can't be set until guests can have a good day. Priority 3 covers the investigate-and-report items; then the guest pool per scenario ([[First Week Balance]]). [[Scenario Goals and Rules]] steps 1–4 shipped and are tabled until then.
 
 Not ranked yet: everything below.
 
@@ -91,7 +92,7 @@ Found 2026-10-06 in a headless three-lift [[Boreal]] (three lifts, a green, blue
 - **Children and families**: their own guest type, arriving and moving as a group.
 - **Guest goals beyond lapping**: find the shortest line, go to après-ski, stay near the lodge. Powder hunting moved to [[Snow Tastes]].
 - **Regulars**: guests who remember their last visit and come back, or don't. *For* [[Mad River Glen]].
-- **Mood can't climb past about 0.5**: on the regraded Boreal save (2026-10-07, 5 days) falls are gone and guests have 1.5 great runs a visit, yet the rating is 0.34–0.41. Satisfaction drifts toward a 0.5 baseline with about a one-hour time constant ([[Satisfaction]], `tickMood`), so a good event (+0.03 to +0.06) fades within the hour. A guest ends the day near 0.5 minus their active pulls (sick of waiting, thirsty), whatever kind of day they had. A 70% rating goal can't be reached until good experiences can lift the target itself, as in RollerCoaster Tycoon, where rides raise a guest's happiness target. Decide how events should move the target, or a slower memory of the day, before tuning numbers.
+- **Mood can't climb past about 0.5**: on the regraded Boreal save (2026-10-07, 5 days) falls are gone and guests have 1.5 great runs a visit, yet the rating is 0.34–0.41. Satisfaction drifts toward a 0.5 baseline with about a one-hour time constant ([[Satisfaction]], `tickMood`), so a good event (+0.03 to +0.06) fades within the hour. A guest ends the day near 0.5 minus their active pulls (sick of waiting, thirsty), whatever kind of day they had. A 70% rating goal can't be reached until good experiences can lift the target itself, as in RollerCoaster Tycoon, where rides raise a guest's happiness target. Planned as [[Mood Baseline]].
 - **Rest loop**: on Boreal with one lift, guests rested about six times a visit (2.2 once falls were fixed, since falls drain energy); line waits drain patience faster than skiing restores it. Check the patience rates against lift line waits ([[Patience]]).
 - **Crowding**: guests notice crowded lodges, not only lift lines; crowded runs are in [[Snow Tastes]]. *For* [[Mad River Glen]].
 - **Mogul lovers**: an expert bombing a mogul run entertaining the lift above. Guests who seek moguls are the Bump Skier in [[Snow Tastes]].
@@ -220,3 +221,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-07: [[Lift Unloading]] planned with the user and ranked first, ahead of [[Snow Tastes]].
 - 2026-10-07: [[Lift Unloading]] shipped; [[Snow Tastes]] is first again.
 - 2026-10-07: Added Mood can't climb past about 0.5, found after the falls fix left Boreal's rating near 0.4.
+- 2026-10-07: [[Mood Baseline]] planned with the user and ranked first.
