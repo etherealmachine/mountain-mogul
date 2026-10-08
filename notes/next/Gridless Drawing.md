@@ -29,7 +29,7 @@ Before deciding, list what each system gets from cells and whether a shape could
 ## Open questions
 
 - What does the grid actually buy us, system by system? Some uses (snow, grooming, trees) are really a sampling grid and could stay. Others (trails, lots, building footprints) are things the player draws, where the grid is only an input constraint.
-- Trails: a polygon, or a centre line with a width the player can widen? How does painting additions onto an existing trail work?
+- Trails: a polygon, or a centre line with a width the player can widen? How does painting additions onto an existing trail work? (Decided for trails in [[Trail Network]]: nodes with a width each, and polygon zones.)
 - Parking: how do stalls and aisles lay out inside any polygon, compared with the rectangles of cells they fill today?
 - Buildings: free placement and rotation (rotation partly exists), and how a footprint maps to the levelled pad and to the cells that block walking.
 - Navigation: keep A* on cells built from the shapes, or build a real navigation mesh? What would routes around buildings and lift lines ([[Lifts]]) gain?

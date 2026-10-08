@@ -211,7 +211,7 @@ In-game HUD widgets. All drawing via the renderer's UI pass (batched quads).
 assets/
   icons/       PNG icons for toolbar/UI buttons
   models/      OBJ meshes
-    skier.obj  chair.obj  chair_quad.obj  snowcat.obj  car.obj
+    chair.obj  chair_quad.obj  snowcat.obj  car.obj
     building.obj  shed.obj  parking.obj
     tower.obj  lift_station.obj
     tree.obj  tree2.obj  tree3.obj  rock.obj  stump.obj

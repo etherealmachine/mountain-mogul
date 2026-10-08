@@ -6,7 +6,7 @@ status: partial
 
 # Lifts
 
-Lift types run from a fixed double through the fixed quad, high-speed quad, high-speed six-pack, and gondola, plus a heli-ski "lift" with no cable. Type sets seats per chair and cable speed. A lift can be upgraded to a better type on the same line for the price difference. Lift lines can be split into lanes. Heli is the only lift that charges per ride; everything else is covered by [[Tickets]].
+Lift types run from a fixed double through the fixed triple, fixed quad, high-speed quad, high-speed six-pack, and gondola, plus a heli-ski "lift" with no cable. Type sets seats per chair and cable speed. A lift can be upgraded to a better type on the same line for the price difference. Lift lines can be split into lanes. Heli is the only lift that charges per ride; everything else is covered by [[Tickets]].
 
 [[GOAP]] plans every ride: walk or ski to the base, join the line, ride to the top. Lines drain [[Patience]]. A guest won't join a line past 20 people, and if every lift they can use is over that cap they leave. A lift whose base has no [[Snow]] goes on hold until snow returns. Total lift capacity sets how crowded [[Demand]] thinks the resort is.
 
@@ -25,3 +25,7 @@ Code: `internal/world/lift.go`. Upgrades: `UpgradeLift` in `internal/world/world
 - 2026-10-07: Unloading is a teleport to the top post, and the top apron has an unbanked step on the cable side; together they cause nearly all falls. Planned as [[Lift Unloading]].
 - 2026-10-07: Unloading from the seat with a glide and peel-off, unload falls by skill and lift type, and aprons banked on every side under 15° ([[Lift Unloading]]).
 - 2026-10-07: Aprons grade only what they must; the old fitter could dig a pit into a knoll ([[Terrain]]).
+- 2026-10-08: The chairlift station model is a real terminal: a spoked bullwheel centred where the cables end, under a hood on a portal frame, with a drive box and an operator's hut.
+- 2026-10-08: Towers are tapered round poles with a crossarm above the cable, sheave trains carrying it, and a ladder. Chairs have a grip, hanger, frame, padded seat and backrest in a colour per type (red double, blue quad, navy 6-pack), armrests, a raised restraint bar, and a footrest; they're no longer tinted grey when empty.
+- 2026-10-08: Chairs hang lower: the footrest is the station cable height (3.65 m) below the cable, so riders' skis are on the snow at the bullwheel and the seat rides about 3.1 m under the cable.
+- 2026-10-08: Fixed triple: three seats at 2.5 m/s, green seat, $550k stations, $175/m, $350/day; doubles upgrade to a triple or a quad, triples to a quad.

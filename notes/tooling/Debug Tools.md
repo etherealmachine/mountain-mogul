@@ -11,6 +11,7 @@ In-game, after clicking a skier to follow them:
 - F3 draws the [[Skiing]] controller's fall line, chosen heading, and probe rays.
 - F4 shows [[GOAP]] goal weights, the current plan with step costs, and the snapshot it planned from.
 - F5 inspects the [[Snow]] and trees in the cell under the cursor, plus frame timings.
+- F6 colours guests by what they're doing (walking, queuing, on a lift, down) over their outfits.
 - L records the followed skier to a CSV in `debug/`, one row per skiing tick.
 - F12 saves a screenshot.
 
@@ -38,3 +39,5 @@ Spec: [[Debug Spec]]. Console: `internal/scene/debugconsole.go`.
 - 2026-10-06: `-cpuprofile` covers `-screenshot` runs; the benchmark reports the terrain's level of detail.
 - 2026-10-06: `-show-goals` opens the scenario goals panel (or the result panel when won or lost) in `-screenshot` runs.
 - 2026-10-06: `-editor-goals` (with `-editor-layers`) opens the Scenario details dialog on its Goals tab.
+- 2026-10-08: `-follow-rider` points the `-screenshot` camera at a guest riding a chair (switching when they get off), for checking chairs with riders.
+- 2026-10-08: F6 activity colours (guests now wear outfits); `-follow-guest <activity>` (or `any`) points the `-screenshot` camera at the first guest doing that; `-figure-gallery` lines up one guest figure in every pose at the camera target.

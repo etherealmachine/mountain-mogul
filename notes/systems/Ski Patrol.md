@@ -10,6 +10,8 @@ Patrol is a service in any building ([[Building Services]]): each patrol tile ba
 
 Injuries come from falls in [[Skiing]] and from being caught in an [[Avalanche]]. An injured guest waits where they fell, so the distance from a hut to the steep terrain is the response time. The injury has already cost the guest [[Satisfaction]] by the time patrol arrives.
 
+The player tracks falls three ways: a pin over every guest who is down (red while they get up, magenta while they wait for patrol), the Falls overlay (a heat map of where guests fell today), and the patrol popup's "Falls today" (the count, how many were off any run or getting off a lift, and the three runs with the most). A fall counts against the run the guest was skiing, even off its edge, else the run underfoot. Code: `internal/scene/fall_overlay.go`, `world.History.FallsToday`.
+
 Code: `internal/sim/patrol.go`, `internal/world/patroller.go`.
 
 ## Log
@@ -23,3 +25,4 @@ Code: `internal/sim/patrol.go`, `internal/world/patroller.go`.
 - 2026-10-06: Patrollers answer by snowmobile or by lift and skis, whichever is faster, and bring guests down by toboggan; injured guests wait ten minutes of movement ([[Patrol Day]] steps 4–5).
 - 2026-10-06: Patrollers hike to any injured guest when nothing is faster, so every injury gets a responder; a guest with help on the way waits for it ([[Patrol Day]] step 6).
 - 2026-10-06: The patient is drawn while being loaded and towed by toboggan, and walks to their car after first aid instead of vanishing ([[Patrol Day]] step 6).
+- 2026-10-08: Fall tracking: down-guest pins, the Falls heat-map overlay, and "Falls today" in the patrol popup.

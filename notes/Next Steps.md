@@ -13,7 +13,7 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 
 In the order to work on them:
 
-1. [[Demo]]: the free Steam demo ([[Release]]: demo, then early access, then guest types as DLC), the Boreal tutorial and Kirkwood, playable for a few hours, as its own stripped build. Steps in order: the magic carpet; terrain expectations (readouts, demand by terrain mix, a challenge preference); balance so the goals are reachable; goals and unlocking; the snow bugs; a Kirkwood map pass; a demo pop-up; UI polish (including a closed-resort sign); graphics polish; fast-forward performance; visible traffic; menus; the demo build.
+1. [[Demo]]: the free Steam demo ([[Release]]: demo, then early access, then guest types as DLC), the Boreal tutorial and Kirkwood, playable for a few hours, as its own stripped build. Steps in order: the magic carpet; terrain expectations (readouts, demand by terrain mix, a challenge preference); balance so the goals are reachable; goals and unlocking; the snow bugs; a Kirkwood map pass; a demo pop-up; UI polish (including a closed-resort sign); graphics polish; visible traffic; menus; the demo build.
 
 Not ranked yet: everything below.
 
@@ -24,6 +24,7 @@ Diagnose each first, report the cause, then fix:
 - **Fresh corduroy turns to crust overnight**: noticed 2026-10-07. Cats finish grooming by about 21:00, and the midnight weather update turns packed powder into crust on a cold clear day (`kindTransition`), so groomed runs open as crust. Decide whether grooming should come after the update, or packed powder shouldn't crust in one night ([[Snow]], [[Grooming]]).
 - **Snow compacts far too fast**: found 2026-10-07 on the re-dressed Boreal. Fresh snow starts at a believable depth (150 mm of water as 83 cm on the opening storm), but within three days 135 mm sits in 23 cm (density about 0.6), and by mid-January 263 mm in 37 cm (about 0.7). Settled early-season snow is about 0.25–0.35, so the slopes look thin over a decent pack. Diagnose the settling in [[Snow]] (`SnowLayer` densification) before changing it. Also blocked moguls, which now gate on snow water instead of visible depth (2026-10-07).
 - **Point-placed services fail silently with no free cell**: found 2026-10-07 fixing tests. `PlaceBuildingType` for a lodge, bar, or ticket office (tests, testbeds, the editor's ticket office) converts to a service building only on free cells (`placePointService`); with none (say, inside a parking lot) it quietly stays an old-style building with no tiles or doors that serves nothing, and guests looking for it go home. It should fail visibly or find room. Belongs with footpaths and pathing work ([[Pathfinding]], [[Lodge Shell]]).
+- **Beginners run wide on a green's steep bends**: 2026-10-08, after route costs ([[Crowd Scale]]). Of ~760 falls a day (250 guests, Boreal), about half are beginners just off the green Sunset Blvd. on the outside of its bends near cells 80–88, 194–208, where it crosses a 17–20° fall line (12–13° along the trail; beginners are comfortable to 10°). Their route goes round the bend; their steering carries them wide. 93 of 250 still give up. Next: speed control ahead of a bend in the steering layer (slow to what the line ahead allows, as `treeSpeedAhead` does for trees), and maybe a trail-rating warning when a green crosses ground that steep.
 
 ## Scenarios and campaign ([[Scenarios]], [[Scenario Campaign]])
 
@@ -45,6 +46,7 @@ Diagnose each first, report the cause, then fix:
 
 ## Terrain, trails, and land ([[Terrain]], [[Trails]], [[Trees]], [[Parcels]])
 
+- [[Trail Network]]: trails drawn as lines of nodes snapped to lifts, buildings, and other runs, each node with its own width; glades, bowls, and backcountry outlined as polygon zones. Steps 1–3 done (runs, the run tool, grooming clear of trees); left: areas (glades, bowls, backcountry) and redrawing Boreal's and Kirkwood's trails by hand, which have none until then.
 - [[Terrain Realism]]: make imported mountains look and behave like the real place. Done: mesh subdivision, lidar import, the climate block, [[Terrain Layers]] (Boreal and Kirkwood re-imported with every layer), auto snow and trees from real data, and Kirkwood's cliffs ([[Ground Materials]]). Creeks and lakes are priority 0. Left, in order: editor brushes to smooth and flatten the ground (the road, smoothing, and erosion layers are done), thermal erosion for scree, and snow that doesn't look plastic.
 - [[Creeks and Lakes]] leftovers: tune creek channels and how much is snow-bridged by eye on Kirkwood and Boreal; creeks freezing over in hard cold (from the lake model's frost); guests and pathing treating open creeks and open lakes as obstacles (and deciding whether a frozen lake is walkable); a lighter colour over shallow lake water.
 - [[Ground Materials]] step 5: sim behaviour from materials. Avalanches start on loaded slopes above rock bands ([[Avalanche]]), and guests avoid rock ([[Skiing]]) except experts dropping small cliffs (the "send it" easter egg). Also where objects and guests stand on rock (`VisualElevationAt` still counts snow there).
@@ -76,6 +78,7 @@ Diagnose each first, report the cause, then fix:
 - **Patrol enforces slow zones**: patrollers stand at slow zones and slow fast skiers. *Needs* slow zones.
 - **Clinic**: treats injuries on site instead of sending guests home.
 - **Medevac**: a helicopter for serious incidents.
+- **Skier-on-skier collisions**: today skiers only avoid each other (a 2.5 m danger zone when picking a line, and a swerve that clears a skier by 1.5 m); when that fails they pass through each other. A contact check like `hitsTrunk` would let two skiers collide: both fall, maybe an injury and a patrol call, more likely when fast, unskilled, or crowded. Makes crowding and mixed-skill runs visibly risky ([[Skiing]]). To be ranked by the user.
 
 ## Guests ([[GOAP]], [[Satisfaction]], [[Guest Types]])
 
@@ -100,7 +103,7 @@ Diagnose each first, report the cause, then fix:
 - **Lockers and ski school**: more base services; ski school *needs* staff.
 - **Footpaths**: painted paths between buildings, with guests walking skis-off, and pathing that uses them (the user, 2026-10-07: paths and pathing are needed at some point). *For* [[Zermatt]].
 - **Ski racks**: where footpaths meet the snow. *Needs* footpaths.
-- [[Building Tool]]: build a shell first (Lodge, Tent, or Shed, dragged out as a ghost), then assign rooms in the building's panel; services leave the toolbar. Planned after the user found the mixed menu confusing.
+- [[Building Tool]] leftovers: presets (a one-tile ticket booth, a patrol shed with a garage), hints in the Services menu for what each service needs, and the open questions in its note (heated empty floor, rooms with no outside wall).
 - **Lodge storeys and styles**: more storeys, a style choice, and a shuffle button.
 
 ## Staff
@@ -140,8 +143,11 @@ Diagnose each first, report the cause, then fix:
 
 ## Rendering and engine ([[Rendering]], [[Model Pipeline]])
 
+- [[Crowd Scale]]: measured 2026-10-08: a skiing guest costs ~3.3 µs per 1/30 s step, so 10,000 visitors a day would run at about 2× real time. The user wants one simpler sim, not coarse off-screen guests: a 1/10 s step is nearly free in fidelity (+44%), and the next costs are replanning and the walking pathfinder (see Bugs). To be ranked by the user.
+- **Fast-forward leftovers** from [[Fast-Forward Performance]]: a few 40–90 ms sim frames around midday at 50× and up, cause not traced; snow tile uploads cost about 0.4 ms a frame at 50× (one call per tile; could batch); parallel steering now only starts for 64+ skiers per core (waking threads every 1/30 s step cost more than it saved); the sim on its own goroutine if turbo still drops frames; `-profile`'s synthetic resort gets no guests any more, so it measures nothing.
 - **More performance**, if play shows it's needed: after coarse terrain levels by zoom (Kirkwood's whole map 13.7 → 8.6 ms GPU, 12 → 1.5 ms CPU), the measured leftovers are trees 2.0 ms (a simple far-away tree mesh), anti-aliasing 2.5 ms (already a setting), and the terrain fragment shader 3.4 ms; the horizon map rebuild (3.9 s of CPU on Kirkwood) after placing a lift may hitch.
-- [[Graphics Base]]: steps 1–6 shipped (anti-aliasing, light balance, snow breakup, trees, haze, map edge). Left: bough snow that lingers after a storm (needs a recent-snowfall value in the weather sim), gamma-correct lighting, and post-processing. The sim half of **Storm lag** below is also still unchecked.
+- [[Graphics Base]]: steps 1–6 shipped (anti-aliasing, light balance, snow breakup, trees, haze, map edge). Left: bough snow that lingers after a storm (now its own plan, [[Bough Snow]], below), gamma-correct lighting, and post-processing. The sim half of **Storm lag** below is also still unchecked.
+- [[Bough Snow]]: snow on the trees that builds through a storm and lingers after it, per cell instead of one value for the whole map: held for days in cold shade and up high, cleared first from low sunny slopes, shaken off by wind and washed off by rain. Today the trees go bare the day a storm ends. To be ranked by the user. *For* [[Asahidake]].
 - **Rock textures** ([[Ground Materials]] step 6): a finer rock texture, perhaps a normal map, for close views; and different textures for different rock types and terrains, chosen per scenario (Alta's granite and quartzite next to Kirkwood's volcanic breccia). A material brush in the editor goes with it.
 - [[Hiding the Grid]]: smooth the parcel fence and painted overlays so the 5 m cells don't show. Step 3 (grooming follows the cat) shipped with [[Real Grooming]].
 - **Groomed edge artifacts**: some artifacts still show along the edge of groomed areas after [[Real Grooming]]; capture close-ups with `-groom-now` and clean up the edge in `terrain.frag` ([[Grooming]]).
@@ -249,3 +255,16 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-07: [[Demo]] planned with the user and ranked first; rental shops folded into its balance step.
 - 2026-10-07: Release path noted ([[Release]]).
 - 2026-10-07: The user's first Boreal playtest folded into [[Demo]].
+- 2026-10-08: [[Fast-Forward Performance]] profiled and planned with the user, ranked first.
+- 2026-10-08: [[Fast-Forward Performance]] shipped; leftovers under Rendering and engine; skier-on-skier collisions noted under Safety. [[Demo]] is priority 1 again.
+- 2026-10-08: [[Bough Snow]] planned with the user (unranked, under Rendering and engine).
+- 2026-10-08: [[Building Tool]] shipped: separate Buildings and Services menus, empty floor, building and room popups.
+- 2026-10-08: [[Trail Network]] planned with the user (unranked); the lift graph-rebuild gap listed under Bugs.
+- 2026-10-08: [[Trail Network]] steps 1–3 built; Boreal and Kirkwood have no trails until they're redrawn (step 5).
+- 2026-10-08: [[Crowd Scale]] measured and planned (unranked); tile counts cached and building checks bounded along the way.
+- 2026-10-08: [[Crowd Scale]] simplification explored; falls and replanning added to Bugs.
+- 2026-10-08: Diagnosed falls (beginners free-skiing the fall line, falling in a loop) and replanning (failed walking paths to an enclosed lodge door flood the map).
+- 2026-10-08: Falls and door fixes: free skis from a lift top only for advanced guests keen on powder, trees or steeps (or tops with no trail); novices plan only trails at their level; a walk-to-parking step gets guests home from a lift base; each fall costs patience, and the fourth on one descent strands the guest for patrol (or a walk home on foot); doors present a step outside the building. Falls 8,733 → 667 and the day 110 s → 44 s, with failed door searches gone; found that skiers don't follow trails.
+- 2026-10-08: Route costs: a skier's route prices pitch past their comfort along the line and ground off trails at their level (unless they free-roam); trail-to-trail steps aim at the junction; a step from a trail junction needs that trail at the guest's level too; the lap fallback is a searched plan, not a straight free ski. Boreal, 250 guests: falls 8,733 → ~760, skier-hours 104 → 111, no 6 s fall loops.
+- 2026-10-08: Fall tracking, before changing behaviour (Sunset Blvd. may be a gameplay problem as much as a steering one): a pin over every guest who is down (red: getting up; magenta: waiting for patrol); a Falls overlay, a heat map of where guests fell today; and a "Falls today" section in the ski patrol popup (count, off-run and lift-unload counts, the three runs with the most). Falls are kept with the day's history (where, which run or lift), saved, and counted in each daily sample.
+- 2026-10-08: Skier model and falls: falls slide, lie, and get up by direction and skill, with yard sales; guests are a jointed figure posed from the sim, in their own outfits (activity colours on F6).

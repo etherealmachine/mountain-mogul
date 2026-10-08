@@ -38,7 +38,7 @@ In order. Each step builds with `go build` and `go vet`, and gameplay is checked
 7. **Demo pop-up.** On starting the game: what this is, what's in it, and where to send feedback.
 8. **UI polish.** Clear goal and rating feedback; named complaints, so the player knows what to fix ([[Next Steps]]); a build menu that reads well; a clear sign when the resort or its lifts are closed and the player has to open them (the user's playtest started with everything closed and nothing said so; no tutorial needed).
 9. **Graphics polish.** [[Terrain Realism]] leftovers, [[Hiding the Grid]], and Kirkwood's frame rate (about 35 fps against Boreal's 42); models, and procedural roads and buildings (from the playtest; the skiers' tracks already look good).
-10. **Fast-forward performance.** With only 50 guests, the top speeds were jumpy in the playtest; players will want to skip days quickly to earn money, so the sim needs to keep up at high speed.
+10. **Fast-forward performance.** With only 50 guests, the top speeds were jumpy in the playtest; players will want to skip days quickly to earn money, so the sim needs to keep up at high speed. Done in [[Fast-Forward Performance]] (2026-10-08).
 11. **Traffic you can see.** Traffic works (on the playtest save every car drove in from a map-edge entry, the first at 6:18), but about 15 cars an hour each spend some 5 clock minutes on the road, a second or two at high speed, so it read as cars appearing in the lot. Traffic is a big part of the game: busier, slower, or more visible arrivals.
 12. **Menus and settings.** Start screen, save, load, and quit, and a settings check.
 13. **The demo build.** A separate build (likely a `demo` build tag) without the editor, the other scenarios, debug flags, testbeds, or snowmaking; maybe obfuscated; packaged for Steam ([[Release]]).
@@ -57,3 +57,4 @@ In order. Each step builds with `go build` and `go vet`, and gameplay is checked
 - 2026-10-07: Step 2 done: the ski-area boundary and its readout.
 - 2026-10-07: Balance started: the repeated tree-hit bug found and fixed; the score breakdown recorded.
 - 2026-10-07: Skiers turn and swerve properly now (skill-based carve and pivot rates, linked turns on every slope, swerves round trunks, towers, and skiers) and route round forest: tree hits on the Boreal test about 55 → 1–3 a day.
+- 2026-10-08: Fast-forward performance profiled and pulled forward as [[Fast-Forward Performance]].

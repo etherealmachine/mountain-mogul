@@ -5,6 +5,8 @@ kind: spec
 
 # Trails
 
+> Partly out of date (2026-10-08): trails are now drawn as nodes with widths, not painted; cells are derived from the shape. See [[Trail Network]] for the model, tool, and drawing. The graph, GOAP, and save sections below still describe how cells are used.
+
 ## Core concept: trails are areas, not routes
 
 A trail is defined entirely by the **cells it covers**. Connectivity is **derived** — the game

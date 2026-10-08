@@ -30,3 +30,5 @@ Snow that varies with sun and aspect from the start, and looks less plastic, is 
 - 2026-10-06: Snow sheds from steep ground and rock down the fall line after Auto snow, each day's snowfall, and Add Storm, and the renderer draws snow off rock ([[Ground Materials]]).
 - 2026-10-06: Snow falling on an open lake disappears; lakes freeze and thaw daily from the weather ([[Creeks and Lakes]]).
 - 2026-10-07: Moguls rebuilt: a 1 m map grown where guests turn, filled by snow, flattened by the cat, drawn as a mogul field, and costing balance ([[Moguls]]).
+- 2026-10-08: Skier tracks fade in the shader by the minutes since they were skied, instead of a whole-texture fade every 30 s ([[Fast-Forward Performance]]).
+- 2026-10-08: Snow changes mark their cells, and the renderer re-uploads only those 16-cell tiles instead of the whole map each time ([[Fast-Forward Performance]]).

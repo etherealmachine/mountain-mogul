@@ -39,7 +39,7 @@ The shader changes together cost about 0.4 ms of GPU time on Boreal and nothing 
 
 ## Left
 
-- **Bough snow that lingers.** The weather sim only knows today, so snow vanishes from the trees the day a storm ends. Needs a small sim value for recent snowfall that sun, warmth, and wind wear down ([[Weather]]).
+- **Bough snow that lingers.** The weather sim only knows today, so snow vanishes from the trees the day a storm ends. Needs a small sim value for recent snowfall that sun, warmth, and wind wear down ([[Weather]]). Planned in [[Bough Snow]].
 - **Gamma-correct lighting.** Shifts every palette, so it's its own pass with a retune of colors.
 - **Post-processing.** Bloom on sparkle and lit windows, gentle color grading, a vignette. Needs an offscreen framebuffer.
 

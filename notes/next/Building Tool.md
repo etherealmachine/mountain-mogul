@@ -1,7 +1,7 @@
 ---
 title: Building Tool
 kind: plan
-status: idea
+status: shipped
 ---
 
 # Building Tool
@@ -25,6 +25,23 @@ Make building a resort's buildings read as two steps: build a shell, then fit ou
 5. **Same in the editor**, free and on any land.
 6. **Later: presets.** One-click starters like "ticket booth" (a one-tile tent with tickets) or "patrol shed" (a shed with patrol and a 2 × 2 garage), placed as a ghost.
 
+## Decisions
+
+From the user, 2026-10-08: buildings and services in **two separate menus** (not services in the building's panel, as proposed above); a building must be placed first, then services go in it; each service is selectable on its own with its own popup, and the building has its own popup with its actions and the list of its services. Footprint: **drag a rectangle**. Selecting: **building, then room**.
+
+## Built (2026-10-08)
+
+- **Empty floor.** A tile can have no service (`ServiceNone` in `Building.Tiles`, kept on save). Empty floor gets no door and costs no staffing. A **room** is a connected run of one service's tiles (`Building.Rooms`, `RoomAt`), each with its own door as before.
+- **Costs split.** Structure is $10,000 a tile in a lodge (scaled by kind, per storey; `ShellKind.StructureTileCost`) plus the kind's base cost for a new building (`world.ShellCost`); fit-out is the service's old tile price less the structure (`FitOutTileCost`, `FitOutCost`), so a tile with a service costs what it did. A storey costs every tile's structure and fit-out again. Taking a service out refunds nothing.
+- **Buildings menu** (Lodge, Tent, Shed): drag out a rectangle of floor on the building's own grid (up to 12 × 12, turned to the nearest road or lot; R turns it), shown as a ghost with its price; click inside it or press Enter to build, Esc drops it. A drag that starts beside a building adds floor to it (in its kind). Right-click a tile to remove it; the last tile removes the building.
+- **Services menu** (Lounge, Food court, Bar, Tickets, Ski patrol, Snowcat garage, Rentals): click or drag over a building's tiles to put the service in; right-click empties a tile. Clicking open ground says to build first.
+- **Building popup:** what it's built as, storeys, floor (tiles, how many empty), a button per room, daily cost, inbound guests, new style, delete. While it's open the building is a cutaway coloured by room.
+- **Room popup** (from the building's list, or a click on the room in the cutaway): its tiles and door, the service's own controls (meal, drink, and rental prices; diners; patrollers; garage space and vehicles; the resort's hours and prices at tickets), its daily cost, Remove (back to empty floor), Back to building. The room is highlighted in the cutaway and the rest dimmed.
+- **Editor:** the same two menus and tools, free and anywhere; its building popup lists rooms and empty floor.
+- Code: `internal/scene/service_tools.go` (tool session, popups), `internal/world/lodge.go` (empty floor, rooms, costs).
+
+Checked on the Goals Test save with a throwaway program: an empty 12-tile lodge has no rooms or doors and isn't used by guests; a food court and a ticket room each get a door; extending, removing a tile, and save and load keep empty floor. Found and fixed a hang where empty floor's flood fill walked off the building. Not checked by hand: dragging, painting, and the popups in play.
+
 ## Open questions
 
 - Should empty floor cost upkeep (heating) or count toward anything (seating when a lodge has no lounge)?
@@ -35,3 +52,5 @@ Make building a resort's buildings read as two steps: build a shell, then fit ou
 ## Log
 
 - 2026-10-06: Written up after the user found the mixed Buildings menu confusing: shell first, then rooms in the building's panel.
+
+- 2026-10-08: Built with the user's decisions: Buildings and Services menus, empty floor, rectangle footprint, building and room popups.

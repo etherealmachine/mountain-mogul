@@ -28,3 +28,4 @@ Spec: [[Snow Spec]]. Plan: [[Real Grooming]]. Code: `internal/sim/snowcats.go`, 
 - 2026-10-06: Snowcats are bought into garage space (4 tiles each) instead of coming with tiles ([[Patrol Day]] step 2).
 - 2026-10-07: Grooming is now a taste: Cruisers and Chargers steer onto corduroy and pick lifts with groomed runs; Powder Hounds and Bump Skiers would rather the cat skipped a run ([[Snow Tastes]]).
 - 2026-10-07: Cats flatten moguls only under the tiller, not the whole cell ([[Moguls]] step 2).
+- 2026-10-08: Cats groom only open snow: a pass keeps 3 m from every trunk, so the snow under trees stays natural ([[Trail Network]]).
