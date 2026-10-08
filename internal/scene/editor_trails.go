@@ -1,68 +1,100 @@
 package scene
 
 import (
+	"github.com/go-gl/glfw/v3.3/glfw"
+
+	"mountain-mogul/internal/engine"
+	"mountain-mogul/internal/render"
 	"mountain-mogul/internal/ui"
 	"mountain-mogul/internal/world"
 )
 
-// The scenario editor's trail tool: the Trail button starts a new green
-// trail and paints it (drag), right-drag erases; clicking a trail with no
-// tool opens its popup (name, difficulty, grooming, Add and Remove cells,
-// delete). Painting, colours, and the popup are shared with the game
-// (trail_tool.go).
+// The scenario editor's trail tools: the Trail button starts the run
+// tool (run_tool.go), as in the game; clicking a trail with no tool opens
+// its popup (name, difficulty, grooming, shape, Edit shape, delete). The
+// tool, drawing, and popup are shared with the game.
 
-// editorTrail is the trail the editor is painting or showing.
+// editorTrail is the trail whose popup is open.
 type editorTrail struct {
-	id       uint64 // the trail being painted, or whose popup is open
-	erase    bool   // left-drag removes cells (the popup's Remove)
-	stroking bool   // cells changed since the trail graph was rebuilt
+	id uint64
 }
 
-// activateTrailTool starts painting a new trail, or stops painting.
+// activateTrailTool starts the run tool for drawing new runs; re-clicking
+// the Trail button ends it. Runs are edited by selecting them
+// (editSelectedTrail).
 func (e *Editor) activateTrailTool() {
 	if e.activeTool == toolTrailPaint {
 		e.setTool(toolTrailPaint) // toggles off
-		e.tidyTrail()
+		e.endRunTool()
 		return
 	}
-	t := e.world.PlaceTrail("", world.DiffGreen)
-	e.trail = editorTrail{id: t.ID}
 	e.setTool(toolTrailPaint)
-	e.setToast("Drag to add cells. Right-drag to remove. Click the trail with no tool to set its difficulty. Esc to finish.")
+	e.runTool = newRunTool(world.DiffGreen)
+	e.setToast("Click near a lift top to start a run, then click to add nodes and click a lift base to finish ([ and ] set the width). Click a run with no tool to select and edit it.")
 }
 
-// paintTrailAt paints (or erases) the active trail under the brush.
-func (e *Editor) paintTrailAt(c [2]int, erase bool) {
-	if e.activeTool != toolTrailPaint || e.trail.id == 0 || !e.world.Terrain.InBounds(c[0], c[1]) {
-		return
+// editSelectedTrail runs a frame of editing the selected run (its popup
+// open, no tool) and reports whether it used the left click; clicks on
+// its handles or on the run go to it before anything else.
+func (e *Editor) editSelectedTrail(inp *engine.Input, covered bool) bool {
+	if e.activeTool != toolNone || e.showingTrail() == 0 {
+		e.trailEdit = runTool{}
+		return false
 	}
-	paintTrail(e.world, e.trail.id, c[0], c[1], erase)
-	e.trail.stroking = true
-	e.markDirty()
+	e.trailEdit.editing = e.showingTrail()
+	return e.runEnv().input(&e.trailEdit, runInput{
+		toolInput: toolInput{
+			mouse: inp.MousePos, covered: covered,
+			ground: e.hoverWorld, groundValid: e.hoverValid,
+			leftClick: inp.LeftClick && !inp.LeftClickConsumed, leftHeld: inp.LeftHeld,
+			rightClick: inp.RightClick, rightRelease: inp.RightRelease,
+		},
+		widen:  inp.Pressed[glfw.KeyRightBracket],
+		narrow: inp.Pressed[glfw.KeyLeftBracket],
+	})
 }
 
-// finishTrailStroke rebuilds the trail graph once a stroke ends, and
-// drops a new trail left with no cells once the tool is put down.
-func (e *Editor) finishTrailStroke() {
-	if e.trail.stroking {
-		e.world.RebuildTrailGraph()
-		e.trail.stroking = false
-	}
-	if e.activeTool != toolTrailPaint && (e.trailPopup == nil || !e.trailPopup.Visible) {
-		e.tidyTrail()
-	}
+// endRunTool clears the run tool's live drawing.
+func (e *Editor) endRunTool() {
+	e.runTool = runTool{}
+	e.app.Renderer.SetTrailLayer(render.TrailLayerLive, nil, nil)
 }
 
-// tidyTrail forgets the active trail, deleting it if it has no cells.
-func (e *Editor) tidyTrail() {
-	if e.trail.id == 0 {
-		return
+func (e *Editor) runEnv() runEnv {
+	return runEnv{w: e.world, toast: e.setToast, changed: e.markDirty}
+}
+
+// updateRunTool runs the run tool for a frame, and keeps the drawn
+// trails up to date (every trail is shown in the editor).
+func (e *Editor) updateRunTool(r *render.Renderer, inp *engine.Input, covered bool) {
+	e.trailEditUsed = e.editSelectedTrail(inp, covered)
+	if e.activeTool == toolTrailPaint {
+		e.runEnv().input(&e.runTool, runInput{
+			toolInput: toolInput{
+				mouse: inp.MousePos, covered: covered,
+				ground: e.hoverWorld, groundValid: e.hoverValid,
+				leftClick: inp.LeftClick && !inp.LeftClickConsumed, leftHeld: inp.LeftHeld,
+				rightClick: inp.RightClick, rightRelease: inp.RightRelease,
+				enter: inp.Pressed[glfw.KeyEnter] || inp.Pressed[glfw.KeyKPEnter],
+			},
+			widen:  inp.Pressed[glfw.KeyRightBracket],
+			narrow: inp.Pressed[glfw.KeyLeftBracket],
+			newRun: inp.Held[glfw.KeyLeftShift] || inp.Held[glfw.KeyRightShift],
+		})
 	}
-	if t := e.world.FindTrail(e.trail.id); t != nil && len(t.Cells) == 0 {
-		e.world.DeleteTrail(t.ID)
-		e.world.RebuildTrailGraph()
+	var tool *runTool
+	switch {
+	case e.activeTool == toolTrailPaint:
+		tool = &e.runTool
+	case e.trailEdit.editing != 0:
+		tool = &e.trailEdit
 	}
-	e.trail = editorTrail{}
+	e.trailDraw.live(r, e.world, tool)
+	var live uint64
+	if tool != nil && !tool.drawing {
+		live = tool.focus
+	}
+	e.trailDraw.update(r, e.world, e.time, true, e.showingTrail(), live)
 }
 
 // openTrailPopup shows trail t's popup.
@@ -79,16 +111,6 @@ func (e *Editor) openTrailWindow(t *world.Trail, confirmClear bool, screenW, scr
 	e.trail = editorTrail{id: t.ID}
 	win := newTrailWindow(e.world, t, confirmClear, trailHooks{
 		changed: e.markDirty,
-		edit: func(erase bool) {
-			e.trailPopup.Visible = false
-			e.setTool(toolTrailPaint)
-			e.trail = editorTrail{id: t.ID, erase: erase}
-			if erase {
-				e.setToast("Drag to remove cells. Esc to finish.")
-			} else {
-				e.setToast("Drag to add cells. Right-drag to remove. Esc to finish.")
-			}
-		},
 		deleted: func() {
 			e.markDirty()
 			e.trailPopup.Visible = false
@@ -101,10 +123,9 @@ func (e *Editor) openTrailWindow(t *world.Trail, confirmClear bool, screenW, scr
 	e.trailPopup = win
 }
 
-// showingTrail is the trail drawn brighter: the one being painted or
-// whose popup is open.
+// showingTrail is the trail drawn brighter: the one whose popup is open.
 func (e *Editor) showingTrail() uint64 {
-	if e.activeTool == toolTrailPaint || (e.trailPopup != nil && e.trailPopup.Visible) {
+	if e.trailPopup != nil && e.trailPopup.Visible {
 		return e.trail.id
 	}
 	return 0

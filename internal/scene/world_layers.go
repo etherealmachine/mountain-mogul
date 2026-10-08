@@ -328,7 +328,7 @@ func runSnowLayer(w *world.World, c *layerCache) {
 		}
 	}
 	sim.ApplyLakes(w)
-	t.SnowDirty = true
+	t.MarkAllSnowDirty()
 }
 
 func clearSnow(w *world.World) {
@@ -340,5 +340,5 @@ func clearSnow(w *world.World) {
 		}
 	}
 	t.Groom.Clear()
-	t.SnowDirty = true
+	t.MarkAllSnowDirty()
 }

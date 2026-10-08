@@ -66,7 +66,7 @@ func (s *Simulation) startAvalanche(t *world.Terrain, x, z int) bool {
 	c.AvyMomentum = 0
 	c.AvyTick = s.avyGen
 	s.avyFront = append(s.avyFront, [2]int{x, z})
-	t.SnowDirty = true
+	t.MarkSnowDirty(x, z)
 	return true
 }
 
@@ -124,7 +124,7 @@ func (s *Simulation) spreadAvyCell(t *world.Terrain, x, z int) {
 	c.Top.Kind = world.KindAvalancheDebris
 	c.Grooming = 0
 	c.MogulSize = 0
-	t.SnowDirty = true
+	t.MarkSnowDirty(x, z)
 
 	if passing < avyMinSnow {
 		return
@@ -173,7 +173,7 @@ func (s *Simulation) spreadAvyCell(t *world.Terrain, x, z int) {
 		// No eligible neighbours — wave has nowhere to go; pile remaining snow
 		// here rather than lose it.
 		c.Top.Accumulation += passing
-		t.SnowDirty = true
+		t.MarkSnowDirty(x, z)
 		return
 	}
 
@@ -187,7 +187,7 @@ func (s *Simulation) spreadAvyCell(t *world.Terrain, x, z int) {
 			nc.Top.Kind = world.KindAvalancheDebris
 			nc.Grooming = 0
 			nc.MogulSize = 0
-			t.SnowDirty = true
+			t.MarkSnowDirty(cd.nx, cd.nz)
 			continue
 		}
 		newMom := momentum + (cd.slope-avyRunoutSlope)*avyMomentumGain
@@ -209,6 +209,6 @@ func (s *Simulation) spreadAvyCell(t *world.Terrain, x, z int) {
 		}
 		nc.Grooming = 0
 		nc.MogulSize = 0
-		t.SnowDirty = true
+		t.MarkSnowDirty(cd.nx, cd.nz)
 	}
 }

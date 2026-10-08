@@ -427,11 +427,15 @@ type Terrain struct {
 	Width, Height int
 	Cells         [][]Cell // [x][z]
 
-	// SnowDirty signals to the renderer that a cell's snow state
-	// (Layers/Grooming/MogulSize) has changed and the terrain VBO needs
-	// a re-upload. The sim sets this; the scene flushes the mesh and
-	// clears the flag once per frame.
-	SnowDirty bool
+	// snowDirty tracks which tiles' snow state (layers, grooming,
+	// moguls) changed since the renderer's last flush: writers call
+	// MarkSnowDirty for the cells they touch, or MarkAllSnowDirty; the
+	// scene flushes those tiles and clears the marks once per frame
+	// (snow_dirty.go).
+	snowDirty snowDirty
+
+	// trunks caches each trunk's steering hazard at 1 m (trunk_field.go).
+	trunks trunkField
 
 	// Surface is a 1 m-resolution RGBA8 buffer mirroring the cell grid,
 	// carrying sub-cell features the 5 m mesh can't (skier tracks,

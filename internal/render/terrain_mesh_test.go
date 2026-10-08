@@ -73,7 +73,7 @@ func TestVisualElevationMatchesMesh(t *testing.T) {
 	verts, indices, chunks, _, _ := buildTerrainGeometry(tr)
 	snowA := make([]float32, n*n*4)
 	snowB := make([]float32, n*n*2)
-	cornerSnow(tr, 0, 0, n-1, n-1, snowA, snowB)
+	cornerSnow(tr, 0, 0, n-1, n-1, snowA, snowB, new([]cellSnow))
 
 	rng := rand.New(rand.NewSource(2))
 	checked := 0
@@ -127,13 +127,13 @@ func TestCornerSnowBlockMatchesFull(t *testing.T) {
 	tr := testTerrain(n)
 	fullA := make([]float32, n*n*4)
 	fullB := make([]float32, n*n*2)
-	cornerSnow(tr, 0, 0, n-1, n-1, fullA, fullB)
+	cornerSnow(tr, 0, 0, n-1, n-1, fullA, fullB, new([]cellSnow))
 
 	x0, z0, x1, z1 := 6, 4, 11, 9
 	w := x1 - x0 + 1
 	a := make([]float32, w*(z1-z0+1)*4)
 	b := make([]float32, w*(z1-z0+1)*2)
-	cornerSnow(tr, x0, z0, x1, z1, a, b)
+	cornerSnow(tr, x0, z0, x1, z1, a, b, new([]cellSnow))
 	nonzero := false
 	for z := z0; z <= z1; z++ {
 		for x := x0; x <= x1; x++ {

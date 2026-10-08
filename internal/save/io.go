@@ -514,6 +514,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 						LiftID:  pa.LiftID,
 						BldgID:  pa.BldgID,
 						TrailID: pa.TrailID,
+						Via:     pa.Via,
 						Use:     uint8(pa.Use),
 						Cost:    pa.Cost,
 					}
@@ -564,9 +565,17 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		trails[i] = TrailData{
 			ID:         tr.ID,
 			Name:       tr.Name,
+			Kind:       uint8(tr.Kind),
 			Difficulty: uint8(tr.Difficulty),
 			Groomed:    tr.Groomed,
-			Cells:      tr.Cells,
+			Start:      trailEndToData(tr.Start),
+			End:        trailEndToData(tr.End),
+		}
+		for _, n := range tr.Nodes {
+			trails[i].Nodes = append(trails[i].Nodes, [3]float32{n.Pos[0], n.Pos[1], n.Width})
+		}
+		for _, p := range tr.Outline {
+			trails[i].Outline = append(trails[i].Outline, [2]float32{p[0], p[1]})
 		}
 	}
 
@@ -725,6 +734,7 @@ func historyFromData(hd *HistoryData) *world.History {
 			Costs:            s.Costs,
 			Open:             s.Open,
 			Rating:           s.Rating,
+			Falls:            s.Falls,
 		}
 		copy(sample.RevenueByKind[:], s.RevenueByKind)
 		copy(sample.CostsByKind[:], s.CostsByKind)
@@ -740,6 +750,9 @@ func historyFromData(hd *HistoryData) *world.History {
 	h.DeparturesToday = hd.DeparturesToday
 	h.RevenueToday = hd.RevenueToday
 	copy(h.RevenueByKindToday[:], hd.RevenueByKind)
+	for _, f := range hd.Falls {
+		h.FallsToday = append(h.FallsToday, world.FallRecord{X: f.X, Z: f.Z, TrailID: f.TrailID, LiftID: f.LiftID})
+	}
 	return h
 }
 
@@ -749,6 +762,10 @@ func historyFromData(hd *HistoryData) *world.History {
 func historyToData(h *world.History) *HistoryData {
 	if h == nil {
 		return nil
+	}
+	var falls []FallData
+	for _, f := range h.FallsToday {
+		falls = append(falls, FallData{X: f.X, Z: f.Z, TrailID: f.TrailID, LiftID: f.LiftID})
 	}
 	ordered := h.Ordered()
 	samples := make([]DailySampleData, len(ordered))
@@ -764,6 +781,7 @@ func historyToData(h *world.History) *HistoryData {
 			CostsByKind:      intsOrNil(s.CostsByKind[:]),
 			Open:             s.Open,
 			Rating:           s.Rating,
+			Falls:            s.Falls,
 		}
 		if !s.Day.IsZero() {
 			samples[i].DayUnix = s.Day.Unix()
@@ -775,6 +793,7 @@ func historyToData(h *world.History) *HistoryData {
 		DeparturesToday: h.DeparturesToday,
 		RevenueToday:    h.RevenueToday,
 		RevenueByKind:   intsOrNil(h.RevenueByKindToday[:]),
+		Falls:           falls,
 	}
 }
 
@@ -1149,6 +1168,7 @@ func dataToWorld(data ScenarioData) *world.World {
 						LiftID:  pd.LiftID,
 						BldgID:  pd.BldgID,
 						TrailID: pd.TrailID,
+						Via:     pd.Via,
 						Use:     ai.Offer(pd.Use),
 						Cost:    pd.Cost,
 					}
@@ -1239,13 +1259,22 @@ func dataToWorld(data ScenarioData) *world.World {
 
 	// Restore trails. TrailGraph is derived on load rather than persisted.
 	for _, td := range data.Trails {
+		if len(td.Nodes) < 2 && len(td.Outline) < 3 {
+			continue // painted before trails were drawn: dropped
+		}
 		t := w.PlaceTrail(td.Name, world.TerrainDifficulty(td.Difficulty))
 		if td.ID != 0 {
 			t.ID = td.ID
 		}
-		t.Groomed = td.Groomed
-		t.Cells = td.Cells
-		t.SortCells()
+		t.Kind = world.TrailKind(td.Kind)
+		t.Groomed = td.Groomed && !t.Kind.IsArea()
+		for _, n := range td.Nodes {
+			t.Nodes = append(t.Nodes, world.TrailNode{Pos: mgl32.Vec2{n[0], n[1]}, Width: n[2]})
+		}
+		for _, p := range td.Outline {
+			t.Outline = append(t.Outline, mgl32.Vec2{p[0], p[1]})
+		}
+		t.Start, t.End = trailEndFromData(td.Start), trailEndFromData(td.End)
 	}
 	if len(w.Trails) > 0 {
 		w.RebuildTrailGraph()
@@ -1683,4 +1712,18 @@ func skiAreaFromData(d [][][2]float32) []world.SkiAreaOutline {
 		out = append(out, o)
 	}
 	return out
+}
+
+func trailEndToData(e world.TrailEnd) *TrailEndData {
+	if !e.Set {
+		return nil
+	}
+	return &TrailEndData{Kind: uint8(e.Kind), ID: e.ID}
+}
+
+func trailEndFromData(d *TrailEndData) world.TrailEnd {
+	if d == nil {
+		return world.TrailEnd{}
+	}
+	return world.TrailEnd{Set: true, Kind: world.EdgeKind(d.Kind), ID: d.ID}
 }

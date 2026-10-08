@@ -2,17 +2,19 @@ package scene
 
 import (
 	"fmt"
-
-	"github.com/go-gl/mathgl/mgl32"
 	"math/rand"
+
+	"github.com/go-gl/glfw/v3.3/glfw"
+
+	"mountain-mogul/internal/engine"
 	"mountain-mogul/internal/ui"
 	"mountain-mogul/internal/world"
 )
 
-// The editor's building tool: the game's (service_tools.go), free and on
-// any land. The Buildings menu picks what a new building is built as
-// (lodge, tent, shed) and the service to paint; clicking a building with
-// no tool opens its popup.
+// The editor's building and service tools: the game's (service_tools.go),
+// free and on any land. The Buildings menu drags out empty buildings
+// (lodge, tent, shed) and the Services menu puts services in them;
+// clicking a building with no tool opens its popup.
 
 // serviceEnv is the editor's build-tool surroundings.
 func (e *Editor) serviceEnv() serviceEnv {
@@ -29,36 +31,34 @@ func (e *Editor) serviceEnv() serviceEnv {
 	}
 }
 
-// activateServiceTool starts painting tiles of svc; picking the active
-// service again ends it.
+// activateServiceTool starts putting svc in buildings' tiles; picking
+// the active service again ends it.
 func (e *Editor) activateServiceTool(svc world.Service) {
-	if e.activeTool == toolService && e.serviceTool.svc == svc {
+	if e.activeTool == toolService && !e.serviceTool.building && e.serviceTool.svc == svc {
 		e.setTool(toolService) // toggles off
 		return
 	}
+	e.startServiceTool(serviceTool{svc: svc})
+	e.setToast(fmt.Sprintf("%s: click or drag over a building's tiles; right-click empties a tile.", svc.Label()))
+}
+
+// setNewShellKind starts the building tool for kind k; picking the
+// active kind again ends it.
+func (e *Editor) setNewShellKind(k world.ShellKind) {
+	if e.activeTool == toolService && e.serviceTool.building && e.serviceTool.kind == k {
+		e.setTool(toolService) // toggles off
+		return
+	}
+	e.startServiceTool(serviceTool{building: true, kind: k, seed: rand.Uint32()})
+	e.setToast(fmt.Sprintf("%s: drag out its floor (R turns it), then click inside or press Enter to build. Drag from a wall to extend; right-click a tile to remove it.", k.Label()))
+}
+
+func (e *Editor) startServiceTool(st serviceTool) {
 	if e.activeTool != toolService {
 		e.setTool(toolService)
 	}
-	e.serviceTool = serviceTool{svc: svc, kind: e.newShellKind, seed: rand.Uint32()}
+	e.serviceTool = st
 	e.syncToolButtons()
-	e.setToast(fmt.Sprintf("%s in a %s: click ground to start a building (R turns it), a wall to extend, a roof to switch; right-click removes.",
-		svc.Label(), e.newShellKind.Label()))
-}
-
-// setNewShellKind picks what new buildings are built as, keeping the
-// service being painted (lounge if none).
-func (e *Editor) setNewShellKind(k world.ShellKind) {
-	e.newShellKind = k
-	svc := world.ServiceLounge
-	if e.activeTool == toolService {
-		svc = e.serviceTool.svc
-	}
-	if e.activeTool == toolService {
-		e.serviceTool.kind = k
-		e.syncToolButtons()
-		return
-	}
-	e.activateServiceTool(svc)
 }
 
 // openShellPopup opens a service building's popup: what it's built as,
@@ -75,10 +75,12 @@ func (e *Editor) openShellPopup(id uint64, confirmDelete bool, screenW, screenH 
 		win.AddIntStepperFn("Storeys", func() string { return fmt.Sprintf("%d", b.Floors()) },
 			func() { e.setStoreys(b, b.Floors()-1) }, func() { e.setStoreys(b, b.Floors()+1) })
 	}
-	for sv := world.ServiceLounge; sv < world.ServiceCount; sv++ {
-		if n := b.TileCount(sv); n > 0 {
-			win.AddLabel(sv.Label(), func() string { return fmt.Sprintf("%d tiles", n) })
-		}
+	for _, room := range b.Rooms() {
+		n := len(room.Cells)
+		win.AddLabel(room.Service.Label(), func() string { return fmt.Sprintf("%d tiles", n) })
+	}
+	if n := b.EmptyTiles(); n > 0 {
+		win.AddLabel("Empty floor", func() string { return fmt.Sprintf("%d tiles", n) })
 	}
 	if b.TileCount(world.ServiceGarage) > 0 {
 		win.AddLabel("Garage", func() string {
@@ -151,13 +153,18 @@ func (e *Editor) setStoreys(b *world.Building, n int) {
 	e.markDirty()
 }
 
-// updateServiceTool runs the building tool for a frame: the pick under
-// the mouse and its ghost.
-func (e *Editor) updateServiceTool(mouse mgl32.Vec2, covered bool) {
+// updateServiceTool runs the building and service tools for a frame.
+func (e *Editor) updateServiceTool(inp *engine.Input, covered bool) {
 	if e.activeTool != toolService {
 		return
 	}
 	env := e.serviceEnv()
-	env.updatePick(&e.serviceTool, mouse, covered, e.hoverWorld, e.hoverValid)
+	env.input(&e.serviceTool, toolInput{
+		mouse: inp.MousePos, covered: covered,
+		ground: e.hoverWorld, groundValid: e.hoverValid,
+		leftClick: inp.LeftClick && !inp.LeftClickConsumed, leftHeld: inp.LeftHeld,
+		rightClick: inp.RightClick, rightRelease: inp.RightRelease,
+		enter: inp.Pressed[glfw.KeyEnter] || inp.Pressed[glfw.KeyKPEnter],
+	})
 	env.ghost(&e.serviceTool)
 }

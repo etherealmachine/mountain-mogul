@@ -26,6 +26,7 @@ uniform float uTerrainMaxY;
 //   B, A = reserved
 // vWorldPos.xz / uWorldSize (mogul.glsl) is the texture's UV.
 uniform sampler2D uSnowSurface;
+uniform float uTrackClock;      // game minutes, mod 65536 (world.TrackClock plus the fraction)
 
 // Where snowcats groomed, mirrored from world.GroomMap at 1 m per texel:
 //   R = groomed, GB = cat heading as (cos 2θ, sin 2θ) mapped to 0..1,
@@ -268,6 +269,32 @@ vec2 fbmGrad(vec2 p, float px) {
     return g / 1.75;
 }
 
+// Track fade per game minute, as ln: world.TrackFadePerMinute = 0.985².
+const float kTrackFade = 0.030227;
+
+// trackTexel is one surface-detail texel's track intensity now: its R
+// faded by the minutes since its clock (B low byte, A high byte).
+float trackTexel(ivec2 p, ivec2 size) {
+    vec4 s = texelFetch(uSnowSurface, clamp(p, ivec2(0), size - 1), 0);
+    if (s.r <= 0.0) return 0.0;
+    float then = floor(s.b * 255.0 + 0.5) + floor(s.a * 255.0 + 0.5) * 256.0;
+    float age  = mod(uTrackClock - then, 65536.0);
+    return s.r * exp(-kTrackFade * age);
+}
+
+// trackAt is the faded track intensity at uv, blended bilinearly by hand:
+// each texel fades by its own clock, which filtering the packed clock
+// bytes can't do.
+float trackAt(vec2 uv) {
+    ivec2 size = textureSize(uSnowSurface, 0);
+    vec2  p  = uv * vec2(size) - 0.5;
+    ivec2 i0 = ivec2(floor(p));
+    vec2  f  = p - floor(p);
+    float a = trackTexel(i0, size),               b = trackTexel(i0 + ivec2(1, 0), size);
+    float c = trackTexel(i0 + ivec2(0, 1), size), d = trackTexel(i0 + ivec2(1, 1), size);
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
 void main() {
     vec4  snowState = vSnow;
     float snowDepth = vSnowDepth;
@@ -290,15 +317,16 @@ void main() {
     float isDebris = step(packed + 0.02, ice);
 
     // Surface-detail sample — sub-cell features rendered from the
-    // texture written by the simulation. R = skier tracks, G = tree-well
-    // depth.
+    // texture written by the simulation. R = skier tracks (faded by their
+    // clock in B and A, trackAt), G = tree-well depth.
     vec4 surf = texture(uSnowSurface, vWorldPos.xz / uWorldSize);
+    float trackR = trackAt(vWorldPos.xz / uWorldSize);
     // Normalise raw R (additive splats, 0.25 per pass) so one pass reads
     // as half-intensity and two saturate. This caps the crossing peak at
     // the same visual level as a single pass, fixing the blobby gradient
     // artifact where ∇R → 0 at a local maximum. The cat wipes tracks as
     // it grooms, so any on corduroy are fresh wear and show in full.
-    float track = smoothstep(0.0, 0.5, surf.r);
+    float track = smoothstep(0.0, 0.5, trackR);
     float well  = surf.g;
 
     // Groomed look follows the cat's swath, faded by per-cell wear.
@@ -580,8 +608,8 @@ void main() {
             vec2 uvEpz = vec2(0, bumpEps) / uWorldSize;
             vec2 uv = vWorldPos.xz / uWorldSize;
             float r0 = track;
-            float rx = smoothstep(0.0, 0.5, texture(uSnowSurface, uv + uvEps).r);
-            float rz = smoothstep(0.0, 0.5, texture(uSnowSurface, uv + uvEpz).r);
+            float rx = smoothstep(0.0, 0.5, trackAt(uv + uvEps));
+            float rz = smoothstep(0.0, 0.5, trackAt(uv + uvEpz));
             const float trackAmp = 0.08; // metres — shallower than wells
             kick.x += (rx - r0) / bumpEps * trackAmp;
             kick.z += (rz - r0) / bumpEps * trackAmp;
@@ -796,11 +824,11 @@ void main() {
     }
 
     // Surface-detail debug — paint the raw uSnowSurface texture so the
-    // CPU→GPU pipeline is visible from the testbed. R=tracks, G=tree
-    // wells, B=groom edges. Replaces base shading like the bump-normal
+    // CPU→GPU pipeline is visible from the testbed. R=tracks (faded),
+    // G=tree wells. Replaces base shading like the bump-normal
     // overlay so the channels are legible on their own. Bound to `N`.
     if ((uOverlayMode & 256) != 0) {
-        fragColor.rgb = surf.rgb;
+        fragColor.rgb = vec3(trackR, surf.g, 0.0);
     }
 
     // Ground overlay — what the ground is made of, whatever covers it:

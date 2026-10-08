@@ -95,9 +95,17 @@ func (p *passPlanner) inCell(cx, cz int) bool {
 	return p.in[p.idx(cx, cz)]
 }
 
+// inside reports whether a cat's tiller can be centred on pt: on the
+// trail, and far enough from every trunk that it doesn't reach one
+// (cats groom open snow only, not under trees).
 func (p *passPlanner) inside(pt vec2) bool {
-	return p.inCell(int(math.Floor(float64(pt[0]/world.CellSize))), int(math.Floor(float64(pt[1]/world.CellSize))))
+	return p.inCell(int(math.Floor(float64(pt[0]/world.CellSize))), int(math.Floor(float64(pt[1]/world.CellSize)))) &&
+		p.t.TrunkClear(pt[0], pt[1], groomTrunkClearance)
 }
+
+// groomTrunkClearance is how far a pass keeps its centre from any trunk:
+// half the tiller and half a metre to spare.
+const groomTrunkClearance = world.SnowcatTillerWidth/2 + 0.5
 
 // extent is how far the trail runs from pt along ±dir, in metres.
 func (p *passPlanner) extent(pt, dir vec2) float32 {
@@ -372,8 +380,8 @@ func (p *passPlanner) plan() []world.GroomPass {
 	})
 	for _, c := range order {
 		centre := vec2{(float32(c[0]) + 0.5) * world.CellSize, (float32(c[1]) + 0.5) * world.CellSize}
-		if p.near(centre, passCoverDist) {
-			continue
+		if p.near(centre, passCoverDist) || !p.inside(centre) {
+			continue // covered already, or under the trees
 		}
 		from := len(p.passes)
 		pts, seedIdx := p.trace(centre, vec2{0, 1})
@@ -381,6 +389,9 @@ func (p *passPlanner) plan() []world.GroomPass {
 			// A corner too tight for a lane still gets a short stab.
 			h := p.dirAt(centre, vec2{0, 1})
 			pts, seedIdx = []vec2{{centre[0] - h[0]*0.5, centre[1] - h[1]*0.5}, {centre[0] + h[0]*0.5, centre[1] + h[1]*0.5}}, 0
+			if !p.inside(pts[0]) || !p.inside(pts[1]) {
+				continue
+			}
 		}
 		p.accept(pts, seedIdx)
 		p.grow(from)

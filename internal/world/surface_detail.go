@@ -3,19 +3,28 @@ package world
 import (
 	"image"
 	"math"
+	"runtime"
+	"sync"
 )
 
 // SurfaceDetail is a CPU-side RGBA8 buffer mirroring the terrain at 1 m
 // resolution (5× finer than the 5 m cell grid). Writers stamp sub-cell
 // features into named channels:
 //
-//	R — skier track intensity (decays in sim time)
+//	R — skier track intensity as of the pixel's clock
 //	G — tree-well depth      (persistent until tree edits)
-//	B, A — reserved          (ice patches, footprints, …)
+//	B, A — track clock       (game minute R was last stamped, 16 bits, B low)
 //
 // The renderer mirrors this to a GL_RGBA8 texture; the terrain fragment
 // shader samples it to render sub-cell features the 5 m mesh can't carry
 // (skier tracks, tree wells). Grooming has its own map (groom_map.go).
+//
+// Tracks fade with age in the shader (TrackFadePerMinute) rather than by
+// rewriting pixels, so ageing them costs nothing per frame. A pixel's R is
+// its intensity at its clock; anything that restamps the clock first folds
+// the fade since then into R, so (R, clock) always describes the same
+// visible track. AgeTracks does that for the whole buffer once a game day,
+// which keeps every live clock far from the 16-bit wrap (about 45 days).
 //
 // The buffer is fully re-derivable: G from the stored trees, R resets
 // to zero on load. So it is not saved.
@@ -88,7 +97,51 @@ func (s *SurfaceDetail) MarkAllDirty() {
 const (
 	chTrack    = 0 // R — skier track intensity
 	chTreeWell = 1 // G — tree-well depth
+	chClockLo  = 2 // B — track clock, low byte
+	chClockHi  = 3 // A — track clock, high byte
 )
+
+// TrackFadePerMinute is how much of a track's intensity is left after
+// one game minute: 0.985 per 30 s, about a 23-minute half-life. The
+// terrain shader applies the same rate (kTrackFade in terrain.frag).
+const TrackFadePerMinute = 0.985 * 0.985
+
+// TrackClock is the track clock for sim time simTime: whole game minutes,
+// wrapping at 16 bits.
+func TrackClock(simTime float64) uint16 {
+	return uint16(int64(simTime/60) & 0xffff)
+}
+
+// trackFade[age] is TrackFadePerMinute^age; ages past the table read as
+// fully faded (below 1/255 long before then).
+var trackFade = func() []float32 {
+	f := make([]float32, 512)
+	for i := range f {
+		f[i] = float32(math.Pow(TrackFadePerMinute, float64(i)))
+	}
+	return f
+}()
+
+// foldTrack restamps the pixel at off (its R byte) to clock now, folding
+// the fade since its old clock and then scale into R.
+func (s *SurfaceDetail) foldTrack(off int, now uint16, scale float32) {
+	px := s.Pixels[off : off+4 : off+4]
+	then := uint16(px[chClockLo]) | uint16(px[chClockHi])<<8
+	if then == now && scale == 1 {
+		return // stamped this minute: nothing has faded yet
+	}
+	if v := px[chTrack]; v != 0 {
+		age := int(now - then)
+		f := scale
+		if age < len(trackFade) {
+			f *= trackFade[age]
+		} else {
+			f = 0
+		}
+		px[chTrack] = uint8(float32(v) * f)
+	}
+	px[chClockLo], px[chClockHi] = uint8(now), uint8(now>>8)
+}
 
 // stampMaxChannelDisk writes a Gaussian-falloff disk into one channel,
 // taking the max with whatever's already there. Used by RestampTreeWells
@@ -158,14 +211,15 @@ func (s *SurfaceDetail) zeroChannel(channel int) {
 }
 
 // SplatTrack writes a 3×3 additive disk into R centred on the pixel
-// under world position (wx, wz). `intensity` is the peak R rise
-// (0..255); we cap per-pixel at 255. Marks Dirty and extends DirtyBox.
+// under world position (wx, wz), stamped at track clock now. `intensity`
+// is the peak R rise (0..255); we cap per-pixel at 255. Marks Dirty and
+// extends DirtyBox.
 //
 // Skier physics drives this from tickSkier on every substep when the
 // agent is actively skiing. At PxPerCell=20 the disk covers ~0.75 m
 // world-square, roughly skier width; adjacent substep splats overlap
 // into a continuous track.
-func (s *SurfaceDetail) SplatTrack(wx, wz float32, intensity uint8) {
+func (s *SurfaceDetail) SplatTrack(wx, wz float32, intensity uint8, now uint16) {
 	if s == nil || intensity == 0 {
 		return
 	}
@@ -199,6 +253,7 @@ func (s *SurfaceDetail) SplatTrack(wx, wz float32, intensity uint8) {
 	for z := z0; z < z1; z++ {
 		for x := x0; x < x1; x++ {
 			off := z*stride + x*4 + chTrack
+			s.foldTrack(off, now, 1)
 			v := int(s.Pixels[off]) + add
 			if v > 255 {
 				v = 255
@@ -214,7 +269,7 @@ func (s *SurfaceDetail) SplatTrack(wx, wz float32, intensity uint8) {
 // disks overlap into a continuous line at any TimeScale. Cheap for
 // short segments (the per-tick agent step is typically a handful of
 // pixels).
-func (s *SurfaceDetail) SplatTrackSegment(wx0, wz0, wx1, wz1 float32, intensity uint8) {
+func (s *SurfaceDetail) SplatTrackSegment(wx0, wz0, wx1, wz1 float32, intensity uint8, now uint16) {
 	if s == nil {
 		return
 	}
@@ -228,38 +283,41 @@ func (s *SurfaceDetail) SplatTrackSegment(wx0, wz0, wx1, wz1 float32, intensity 
 	inv := 1.0 / float32(steps)
 	for i := 0; i <= steps; i++ {
 		f := float32(i) * inv
-		s.SplatTrack(wx0+dx*f, wz0+dz*f, intensity)
+		s.SplatTrack(wx0+dx*f, wz0+dz*f, intensity, now)
 	}
 }
 
-// DecayTracks multiplies every R pixel by `factor` (clamped to [0, 1]).
-// Used by the slow demand-poll cadence to age skier tracks; factor ≈
-// 0.985 per 30 s sim time gives a ~30-min half-life.
-func (s *SurfaceDetail) DecayTracks(factor float32) {
+// AgeTracks restamps every track pixel to clock now, folding in the fade
+// since it was skied and then multiplying by factor (clamped to [0, 1]):
+// 1 just ages them, less buries them under new snow. Run once a game day
+// so no live clock gets near the wrap. Split across cores: the buffer is
+// tens of millions of pixels.
+func (s *SurfaceDetail) AgeTracks(now uint16, factor float32) {
 	if s == nil {
 		return
 	}
-	if factor < 0 {
-		factor = 0
+	factor = min(max(factor, 0), 1)
+	rows := s.PxHeight
+	workers := min(runtime.NumCPU(), rows)
+	if workers < 1 {
+		return
 	}
-	if factor > 1 {
-		factor = 1
+	stride := s.PxWidth * 4
+	var wg sync.WaitGroup
+	for w := range workers {
+		z0, z1 := rows*w/workers, rows*(w+1)/workers
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for off := z0*stride + chTrack; off < z1*stride; off += 4 {
+				if s.Pixels[off] != 0 {
+					s.foldTrack(off, now, factor)
+				}
+			}
+		}()
 	}
-	any := false
-	for i := chTrack; i < len(s.Pixels); i += 4 {
-		v := s.Pixels[i]
-		if v == 0 {
-			continue
-		}
-		nv := uint8(float32(v) * factor)
-		if nv != v {
-			s.Pixels[i] = nv
-			any = true
-		}
-	}
-	if any {
-		s.MarkAllDirty()
-	}
+	wg.Wait()
+	s.MarkAllDirty()
 }
 
 // ClearTrackSwath zeros R within halfWidth metres of the world-space

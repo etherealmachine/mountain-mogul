@@ -19,15 +19,23 @@ const (
 	KindTrail                    // trail-to-trail junction
 )
 
-// Trail is a named ski run defined by the grid cells it covers. Players
-// paint cells interactively; the simulation derives connectivity from
-// whichever entity footprints overlap those cells.
+// Trail is a named ski run or ungroomed area. Its shape is what the
+// player draws (trail_shape.go): a run's nodes and the ends they're
+// attached to, or an area's outline. Cells are derived from the shape
+// (ShapeTrail, not saved), and the simulation derives connectivity from
+// whichever entity footprints overlap them.
 type Trail struct {
 	ID         uint64
 	Name       string
+	Kind       TrailKind
 	Difficulty TerrainDifficulty
-	Groomed    bool // true ⇒ nearest shed services this trail automatically
-	Cells      [][2]int
+	Groomed    bool // true ⇒ a garage's cats groom it (runs only)
+
+	Nodes      []TrailNode  // a run's centre line, two or more
+	Start, End TrailEnd     // what a run's first and last nodes are attached to
+	Outline    []mgl32.Vec2 // an area's outline
+
+	Cells [][2]int // derived from the shape
 
 	// Conditions is what skiing the trail offers right now: the average
 	// of its cells' snow and terrain features, in ai.TasteKind order
@@ -141,46 +149,15 @@ func (t *Trail) SortCells() {
 	})
 }
 
-// AddTrailCells appends cells to a trail, silently ignoring duplicates.
-// Cells are kept in (x asc, z asc) order after every mutation.
-func (w *World) AddTrailCells(id uint64, cells [][2]int) {
-	t := w.FindTrail(id)
-	if t == nil {
-		return
-	}
-	existing := t.cellSet()
-	for _, c := range cells {
-		if !existing[c] {
-			t.Cells = append(t.Cells, c)
-			existing[c] = true
-		}
-	}
-	t.SortCells()
-}
-
-// RemoveTrailCells removes the given cells from a trail.
-// Order is preserved (already sorted from prior AddTrailCells calls).
-func (w *World) RemoveTrailCells(id uint64, cells [][2]int) {
-	t := w.FindTrail(id)
-	if t == nil {
-		return
-	}
-	rm := make(map[[2]int]bool, len(cells))
-	for _, c := range cells {
-		rm[c] = true
-	}
-	out := t.Cells[:0]
-	for _, c := range t.Cells {
-		if !rm[c] {
-			out = append(out, c)
-		}
-	}
-	t.Cells = out
-}
-
-// RebuildTrailGraph recomputes the connectivity graph from current trail
-// cell data and stores it on the world. Called after any trail mutation.
+// RebuildTrailGraph re-derives every trail's cells from its shape (runs'
+// ends follow the lifts they're attached to), then recomputes the
+// connectivity graph and stores it on the world. Called after any change
+// to trails, lifts, or buildings.
 func (w *World) RebuildTrailGraph() {
+	for _, t := range w.Trails {
+		w.ShapeTrail(t)
+	}
+	w.TrailVersion++
 	// Doors face lifts and parking, and trails end at doors.
 	w.RefreshAllDoors()
 	w.TrailGraph = BuildTrailGraph(w)
@@ -195,8 +172,10 @@ func (w *World) rebuildTrailAt() {
 	n := w.Terrain.Width * w.Terrain.Height
 	if len(w.trailAt) != n {
 		w.trailAt = make([]uint16, n)
+		w.trailDiffs = make([]TerrainDifficulty, n)
 	} else {
 		clear(w.trailAt)
+		clear(w.trailDiffs)
 	}
 	for i, t := range w.Trails {
 		for _, c := range t.Cells {
@@ -204,6 +183,7 @@ func (w *World) rebuildTrailAt() {
 				continue
 			}
 			k := c[1]*w.Terrain.Width + c[0]
+			w.trailDiffs[k] |= t.Difficulty
 			if prev := w.trailAt[k]; prev == 0 || w.Trails[prev-1].Difficulty < t.Difficulty {
 				w.trailAt[k] = uint16(i + 1)
 			}
@@ -224,50 +204,54 @@ func (w *World) TrailAt(cx, cz int) *Trail {
 	return w.Trails[w.trailAt[k]-1]
 }
 
-// BrushCells returns all grid cells within a circular radius of (cx, cz).
-// Radius is in cells (1 cell = CellSize metres).
-func BrushCells(cx, cz, radius int) [][2]int {
-	var out [][2]int
-	r2 := radius * radius
-	for dx := -radius; dx <= radius; dx++ {
-		for dz := -radius; dz <= radius; dz++ {
-			if dx*dx+dz*dz <= r2 {
-				out = append(out, [2]int{cx + dx, cz + dz})
-			}
-		}
+// TrailDiffsAt is the difficulties of every trail on cell (cx, cz), 0
+// off-trail.
+func (w *World) TrailDiffsAt(cx, cz int) TerrainDifficulty {
+	if w.Terrain == nil || !w.Terrain.InBounds(cx, cz) {
+		return 0
 	}
-	return out
+	if k := cz*w.Terrain.Width + cx; k < len(w.trailDiffs) {
+		return w.trailDiffs[k]
+	}
+	return 0
 }
 
-// PolylineCells returns all grid cells within radius of the polyline defined
-// by consecutive waypoints, with no gaps between stamps. Safe to pass
-// directly to AddTrailCells — duplicates are removed.
-func PolylineCells(waypoints [][2]int, radius int) [][2]int {
-	seen := make(map[[2]int]struct{})
-	var out [][2]int
-	stamp := func(cx, cz int) {
-		for _, c := range BrushCells(cx, cz, radius) {
-			if _, ok := seen[c]; !ok {
-				seen[c] = struct{}{}
-				out = append(out, c)
+// TrailJunction is where a guest skiing via, now at from, reaches dest:
+// the first point on via's centre line, onward from the point nearest
+// from, that lies on one of dest's cells (looking back along it if
+// there's none onward, for a run drawn uphill); else the dest cell
+// nearest from. False when dest has no cells.
+func TrailJunction(via, dest *Trail, from mgl32.Vec2) (mgl32.Vec2, bool) {
+	if dest == nil || len(dest.Cells) == 0 {
+		return mgl32.Vec2{}, false
+	}
+	if via != nil {
+		if line := via.Centerline(); len(line) > 0 {
+			on := dest.cellSet()
+			near, best := 0, float32(math.MaxFloat32)
+			for i, s := range line {
+				if d := s.Pos.Sub(from).LenSqr(); d < best {
+					near, best = i, d
+				}
+			}
+			hit := func(i int) bool {
+				p := line[i].Pos
+				return on[[2]int{int(p[0] / CellSize), int(p[1] / CellSize)}]
+			}
+			for i := near; i < len(line); i++ {
+				if hit(i) {
+					return line[i].Pos, true
+				}
+			}
+			for i := near; i >= 0; i-- {
+				if hit(i) {
+					return line[i].Pos, true
+				}
 			}
 		}
 	}
-	for i := 1; i < len(waypoints); i++ {
-		x0, z0 := float64(waypoints[i-1][0]), float64(waypoints[i-1][1])
-		x1, z1 := float64(waypoints[i][0]), float64(waypoints[i][1])
-		dx, dz := x1-x0, z1-z0
-		steps := int(math.Max(math.Abs(dx), math.Abs(dz)))
-		if steps == 0 {
-			stamp(int(math.Round(x0)), int(math.Round(z0)))
-			continue
-		}
-		for s := 0; s <= steps; s++ {
-			t := float64(s) / float64(steps)
-			stamp(int(math.Round(x0+t*dx)), int(math.Round(z0+t*dz)))
-		}
-	}
-	return out
+	x, z, _ := dest.NearestCellCenter(from[0], from[1])
+	return mgl32.Vec2{x, z}, true
 }
 
 func (w *World) nextTrailDefaultName() string {

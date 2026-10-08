@@ -133,8 +133,13 @@ func (b *Building) OnGround(c [2]int) bool {
 
 func (b *Building) rebuildGroundSet() {
 	b.groundSet = make(map[[2]int]struct{}, len(b.Ground))
-	for _, c := range b.Ground {
+	for i, c := range b.Ground {
 		b.groundSet[c] = struct{}{}
+		if i == 0 {
+			b.groundLo, b.groundHi = c, c
+		}
+		b.groundLo = [2]int{min(b.groundLo[0], c[0]), min(b.groundLo[1], c[1])}
+		b.groundHi = [2]int{max(b.groundHi[0], c[0]), max(b.groundHi[1], c[1])}
 	}
 }
 
@@ -145,6 +150,14 @@ func (b *Building) FootprintContains(x, z, margin float32) bool {
 		return b.LotRect().Contains(mgl32.Vec2{x, z}, margin)
 	}
 	if b.IsPainted() {
+		// Most guests are nowhere near: reject on the ground's bounds.
+		if b.groundSet != nil {
+			lo, hi := b.groundLo, b.groundHi
+			if x+margin < float32(lo[0])*CellSize || x-margin >= float32(hi[0]+1)*CellSize ||
+				z+margin < float32(lo[1])*CellSize || z-margin >= float32(hi[1]+1)*CellSize {
+				return false
+			}
+		}
 		for _, p := range [5]mgl32.Vec2{
 			{x, z}, {x - margin, z - margin}, {x + margin, z - margin},
 			{x - margin, z + margin}, {x + margin, z + margin},

@@ -19,6 +19,7 @@ func CreateWindow(title string, width, height int) (*glfw.Window, error) {
 	glfw.WindowHint(glfw.OpenGLForwardCompatible, glfw.True)
 	glfw.WindowHint(glfw.Resizable, glfw.True)
 	glfw.WindowHint(glfw.Samples, 4)
+	glfw.WindowHint(glfw.StencilBits, 8) // drawn trails shade each pixel once (render.drawTrailLayers)
 
 	win, err := glfw.CreateWindow(width, height, title, nil, nil)
 	if err != nil {

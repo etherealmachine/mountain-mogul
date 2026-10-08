@@ -63,6 +63,13 @@ type Building struct {
 	cellSet   map[[2]int]struct{}
 	Ground    [][2]int
 	groundSet map[[2]int]struct{}
+	// groundLo, groundHi bound Ground (cells, inclusive), for a quick
+	// reject before the per-cell lookups (FootprintContains).
+	groundLo, groundHi [2]int
+	// tileCounts is TileCount for each service, kept by SetTiles; zero
+	// tileCountsOK (a building built without SetTiles) counts afresh.
+	tileCounts   [ServiceCount]int
+	tileCountsOK bool
 
 	// SnowGun-only state. Enabled defaults to true on placement; the player
 	// can toggle it off from the popup to stop snow production and operating costs.

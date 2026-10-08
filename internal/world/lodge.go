@@ -195,19 +195,59 @@ func (b *Building) IsShell() bool {
 	return b.Type == BuildingLodge && len(b.Cells) > 0
 }
 
-// ServiceAt returns the service of shell cell c (ServiceNone off the shell).
+// ServiceAt returns the service of shell cell c: ServiceNone off the
+// shell, and on empty floor (a tile no service has been placed in).
 func (b *Building) ServiceAt(c [2]int) Service {
 	if !b.HasCell(c) {
 		return ServiceNone
 	}
-	if s := b.Tiles[c]; s != ServiceNone {
-		return s
+	return b.Tiles[c]
+}
+
+// Room is one connected run of a building's tiles sharing a service: what
+// the player selects and manages as a unit, with one door.
+type Room struct {
+	Service Service
+	Cells   [][2]int
+}
+
+// Rooms lists b's rooms, in the order of their first cell; empty floor
+// isn't a room.
+func (b *Building) Rooms() []Room {
+	var rooms []Room
+	seen := map[[2]int]bool{}
+	for _, c := range b.Cells {
+		if seen[c] {
+			continue
+		}
+		cells := b.floodService(c, seen)
+		if s := b.ServiceAt(c); s != ServiceNone {
+			rooms = append(rooms, Room{Service: s, Cells: cells})
+		}
 	}
-	return ServiceLounge
+	return rooms
+}
+
+// RoomAt returns the room holding cell c, false on empty floor or off
+// the shell.
+func (b *Building) RoomAt(c [2]int) (Room, bool) {
+	s := b.ServiceAt(c)
+	if s == ServiceNone {
+		return Room{}, false
+	}
+	return Room{Service: s, Cells: b.floodService(c, map[[2]int]bool{})}, true
+}
+
+// EmptyTiles counts b's tiles with no service.
+func (b *Building) EmptyTiles() int {
+	return b.TileCount(ServiceNone)
 }
 
 // TileCount returns how many tiles of s the building has.
 func (b *Building) TileCount(s Service) int {
+	if b.tileCountsOK && s < ServiceCount {
+		return b.tileCounts[s]
+	}
 	n := 0
 	for _, c := range b.Cells {
 		if b.ServiceAt(c) == s {
@@ -310,20 +350,29 @@ func (b *Building) IsPerimeterCell(c [2]int) bool {
 	return false
 }
 
-// Entrances returns the world XZ points guests walk to: each door cell's
-// centre. Non-shell buildings have their anchor as the only entrance.
+// DoorStep is where guests come and go by door d: the centre of the
+// tile just outside it, on the open ground RefreshDoors chose the door
+// for. Guests walk to the step, never into the shell, so a path to a
+// door always ends on ground they can stand on, however the building is
+// turned.
+func (b *Building) DoorStep(d Door) mgl32.Vec2 {
+	return b.TileCentre([2]int{d.Cell[0] + d.Dir[0], d.Cell[1] + d.Dir[1]})
+}
+
+// Entrances returns the world XZ points guests walk to: each door's
+// step. Non-shell buildings have their anchor as the only entrance.
 func (b *Building) Entrances() []mgl32.Vec2 {
 	if !b.IsShell() {
 		return []mgl32.Vec2{b.Pos}
 	}
 	out := make([]mgl32.Vec2, len(b.Doors))
 	for i, d := range b.Doors {
-		out[i] = b.TileCentre(d.Cell)
+		out[i] = b.DoorStep(d)
 	}
 	return out
 }
 
-// NearestEntrance returns the entrance closest to p and its door cell.
+// NearestEntrance returns the entrance closest to p and the cell of its step.
 func (b *Building) NearestEntrance(p mgl32.Vec2) (mgl32.Vec2, [2]int) {
 	return b.NearestServiceEntrance(ServiceNone, p)
 }
@@ -342,7 +391,7 @@ func (b *Building) NearestServiceEntrance(s Service, p mgl32.Vec2) (mgl32.Vec2, 
 			if pass == 0 && s != ServiceNone && d.Service != s {
 				continue
 			}
-			if c := b.TileCentre(d.Cell); !found || c.Sub(p).Len() < best.Sub(p).Len() {
+			if c := b.DoorStep(d); !found || c.Sub(p).Len() < best.Sub(p).Len() {
 				best, bestCell, found = c, cellOf(c), true
 			}
 		}
@@ -412,6 +461,19 @@ func PreviewTile(origin mgl32.Vec2, rot float32, k ShellKind, storeys int, c [2]
 	return ResolveLodgeShell(b)
 }
 
+// PreviewShell returns the kit tiles for empty floor at cells of a grid
+// at origin turned by rot, in a building of kind k with storeys storeys,
+// for the building tool's ghost.
+func PreviewShell(origin mgl32.Vec2, rot float32, k ShellKind, storeys int, cells [][2]int, seed uint32) []ShellTile {
+	b := &Building{Type: BuildingLodge, Origin: origin, Rotation: rot, Kind: k, Storeys: storeys, StyleSeed: seed, Tiles: map[[2]int]Service{}}
+	for _, c := range cells {
+		b.Tiles[c] = ServiceNone
+	}
+	b.Cells = sortedUniqueCells(cells)
+	b.rebuildCellSet()
+	return ResolveLodgeShell(b)
+}
+
 // PlaceServiceBuilding creates a service building from a tile map in a
 // grid at origin turned by rot. The floor is fixed at the mean ground
 // height under it; later tiles grade to that height.
@@ -444,23 +506,28 @@ func (w *World) meanGround(cells [][2]int) float32 {
 	return s / float32(len(cells))
 }
 
-// SetTiles replaces a building's tiles and re-derives everything that
-// depends on them: the map cells under it, walking blocked over the new
-// shell and restored on cells it gave up, doors re-placed, and Pos moved
-// to the primary door (or the shell centre while there is none).
+// SetTiles replaces a building's tiles (ServiceNone is empty floor) and
+// re-derives everything that depends on them: the map cells under it,
+// walking blocked over the new shell and restored on cells it gave up,
+// doors re-placed, and Pos moved to the primary door (or the shell
+// centre while there is none).
 func (w *World) SetTiles(b *Building, tiles map[[2]int]Service) {
 	old := b.Ground
 	cells := make([][2]int, 0, len(tiles))
 	b.Tiles = make(map[[2]int]Service, len(tiles))
 	for c, s := range tiles {
-		if s == ServiceNone {
-			continue
-		}
 		cells = append(cells, c)
 		b.Tiles[c] = s
 	}
 	b.Cells = sortedUniqueCells(cells)
 	b.rebuildCellSet()
+	b.tileCounts = [ServiceCount]int{}
+	for _, s := range b.Tiles {
+		if s < ServiceCount {
+			b.tileCounts[s]++
+		}
+	}
+	b.tileCountsOK = true
 
 	t := w.Terrain
 	b.Ground = shellGround(t, b)
@@ -536,27 +603,31 @@ func (w *World) SyncFleet(b *Building) {
 	}
 }
 
-// SetShellCells replaces the footprint, keeping each surviving tile's
-// service; new cells are lounge.
-func (w *World) SetShellCells(b *Building, cells [][2]int) {
-	tiles := make(map[[2]int]Service, len(cells))
+// AddShellCells adds empty floor at cells not already in b.
+func (w *World) AddShellCells(b *Building, cells [][2]int) {
+	tiles := b.TileMap()
 	for _, c := range cells {
-		tiles[c] = b.ServiceAt(c)
-		if tiles[c] == ServiceNone {
-			tiles[c] = ServiceLounge
+		if _, ok := tiles[c]; !ok {
+			tiles[c] = ServiceNone
 		}
 	}
 	w.SetTiles(b, tiles)
 }
 
-// SetTileService sets (or, with ServiceNone, removes) the tile at c.
+// SetTileService puts service s in tile c of b (ServiceNone empties it).
 func (w *World) SetTileService(b *Building, c [2]int, s Service) {
-	tiles := b.TileMap()
-	if s == ServiceNone {
-		delete(tiles, c)
-	} else {
-		tiles[c] = s
+	if !b.HasCell(c) {
+		return
 	}
+	tiles := b.TileMap()
+	tiles[c] = s
+	w.SetTiles(b, tiles)
+}
+
+// RemoveTile takes tile c out of b's footprint.
+func (w *World) RemoveTile(b *Building, c [2]int) {
+	tiles := b.TileMap()
+	delete(tiles, c)
 	w.SetTiles(b, tiles)
 }
 
@@ -609,6 +680,7 @@ func clearShellFloor(t *Terrain, x, z int) {
 	c.Base = 0
 	c.Top = SnowLayer{}
 	c.MogulSize = 0
+	t.MarkSnowDirty(x, z)
 	t.ClearTreesInCell(x, z)
 }
 
@@ -638,7 +710,7 @@ func (w *World) RefreshAllDoors() {
 	}
 }
 
-// RefreshDoors gives each connected run of same-service tiles one door:
+// RefreshDoors gives each room (connected run of same-service tiles) one door:
 // on the outside wall, opening onto walkable ground that no other
 // structure covers, closest to where that service's guests come from
 // (serviceDoorTarget). A run with no such wall gets none and is reached
@@ -652,6 +724,9 @@ func (w *World) RefreshDoors(b *Building) {
 		}
 		svc := b.ServiceAt(start)
 		region := b.floodService(start, seen)
+		if svc == ServiceNone {
+			continue // empty floor: nobody comes in for it
+		}
 		target, hasTarget := w.serviceDoorTarget(b, svc)
 		var best Door
 		bestScore, found := float32(math.MaxFloat32), false
@@ -692,7 +767,7 @@ func (b *Building) floodService(start [2]int, seen map[[2]int]bool) [][2]int {
 		region = append(region, c)
 		for _, d := range cardinals {
 			n := [2]int{c[0] + d[0], c[1] + d[1]}
-			if !seen[n] && b.ServiceAt(n) == svc {
+			if !seen[n] && b.HasCell(n) && b.ServiceAt(n) == svc {
 				seen[n] = true
 				stack = append(stack, n)
 			}
@@ -751,15 +826,29 @@ func (w *World) serviceDoorTarget(b *Building, s Service) (mgl32.Vec2, bool) {
 	return second()
 }
 
-// ServiceBuildingCost returns what adding one s tile to a building of
-// kind k with storeys storeys and n tiles costs: the tile on every
-// storey, and the kind's base cost with the first tile.
-func ServiceBuildingCost(k ShellKind, storeys int, s Service, n int) int {
-	cost := k.TileCost(s) * max(storeys, 1)
-	if n == 0 {
+// ShellCost is what n new tiles of empty floor cost in a building of kind
+// k with storeys storeys: the structure on every storey, plus the kind's
+// base cost when they start a new building.
+func ShellCost(k ShellKind, storeys, n int, newBuilding bool) int {
+	cost := k.StructureTileCost() * max(storeys, 1) * n
+	if newBuilding {
 		cost += k.BaseCost()
 	}
 	return cost
+}
+
+// FitOutCost is what putting service s in one tile of a building of kind
+// k with storeys storeys costs, on every storey. Taking a service out
+// refunds nothing.
+func FitOutCost(k ShellKind, storeys int, s Service) int {
+	return k.FitOutTileCost(s) * max(storeys, 1)
+}
+
+// ServiceBuildingCost returns what one s tile costs built and fitted out
+// in one go, in a building of kind k with storeys storeys and n tiles
+// already (the base cost comes with the first).
+func ServiceBuildingCost(k ShellKind, storeys int, s Service, n int) int {
+	return ShellCost(k, storeys, 1, n == 0) + FitOutCost(k, storeys, s)
 }
 
 // LodgeUpkeep is one open day's staffing and upkeep for service building b.
@@ -770,6 +859,24 @@ func LodgeUpkeep(b *Building) int {
 		tiles += b.ServiceAt(c).TileDailyCost()
 	}
 	return cost + int(float32(tiles*b.Floors())*b.Kind.dailyScale())
+}
+
+// RoomUpkeep is one open day's staffing and upkeep for room r of b: its
+// share of LodgeUpkeep, less the building's base.
+func RoomUpkeep(b *Building, r Room) int {
+	return int(float32(r.Service.TileDailyCost()*len(r.Cells)*b.Floors()) * b.Kind.dailyScale())
+}
+
+// RoomDoor returns room r's door, false when it has none.
+func (b *Building) RoomDoor(r Room) (Door, bool) {
+	for _, d := range b.Doors {
+		for _, c := range r.Cells {
+			if d.Cell == c {
+				return d, true
+			}
+		}
+	}
+	return Door{}, false
 }
 
 // placePointService turns a lodge, bar or ticket office placed by a

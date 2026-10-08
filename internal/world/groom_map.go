@@ -234,4 +234,5 @@ func (t *Terrain) GroomCell(x, z int) {
 	}
 	dx, dz := t.FallLineAt(x, z)
 	t.Groom.StampCell(x, z, dx, dz)
+	t.MarkSnowDirty(x, z)
 }

@@ -16,7 +16,7 @@ func catNightWorld() (*Simulation, *world.Trail) {
 		}
 	}
 	w := scene(20, 40).slope(10).
-		groomedTrail(world.DiffGreen, cells).
+		groomedRect(world.DiffGreen, 8, 5, 5, 26).
 		shedAt(10, 35).
 		build()
 	w.OpenHour, w.CloseHour = world.DefaultOpenHour, world.DefaultCloseHour

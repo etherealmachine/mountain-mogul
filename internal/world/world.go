@@ -136,11 +136,18 @@ type World struct {
 	// Rebuilt by RebuildTrailGraph whenever trails are added, removed, or edited.
 	// Nil until the first trail is placed.
 	TrailGraph *TrailGraph
+	// TrailVersion counts trail-graph rebuilds, so drawn trails know
+	// when to redraw.
+	TrailVersion uint64
 
 	// trailAt maps each terrain cell (z*Width+x) to 1 + its index in
 	// Trails, 0 for none; where trails overlap, the hardest wins.
 	// Derived, rebuilt with TrailGraph; read through TrailAt.
 	trailAt []uint16
+	// trailDiffs is each cell's difficulties: every trail on it, so a
+	// green under a blue still counts for a beginner. Read through
+	// TrailDiffsAt.
+	trailDiffs []TerrainDifficulty
 
 	// Guests is the master catchment — every potential visitor the resort
 	// could ever attract, ~10k entries seeded at world init. Identity +
@@ -611,6 +618,9 @@ func (w *World) PlaceLift(typ LiftType, bx, bz, tx, tz float32) *Lift {
 	if top := lift.TopCell(); w.Terrain.InBounds(top[0], top[1]) {
 		w.Terrain.Cells[top[0]][top[1]].Passable = false
 	}
+	// A lift on an existing trail connects to it now, not at the next
+	// trail edit.
+	w.RebuildTrailGraph()
 	return lift
 }
 
@@ -620,7 +630,9 @@ func (w *World) PlaceLift(typ LiftType, bx, bz, tx, tz float32) *Lift {
 // Returns 0 if from → to isn't a supported upgrade.
 func LiftUpgradeCost(from, to LiftType) int {
 	switch {
-	case from == LiftDouble && to == LiftFixedQuad,
+	case from == LiftDouble && to == LiftFixedTriple,
+		from == LiftDouble && to == LiftFixedQuad,
+		from == LiftFixedTriple && to == LiftFixedQuad,
 		from == LiftFixedQuad && to == LiftHSQuad,
 		from == LiftHSQuad && to == LiftHS6Pack:
 		return to.StationCost() - from.StationCost()
@@ -634,7 +646,8 @@ func LiftUpgradeCost(from, to LiftType) int {
 // afford it. Existing passengers are preserved (they keep their current
 // seat indices in the resized chair).
 //
-// Supported transitions: Double → FixedQuad, FixedQuad → HSQuad.
+// Supported transitions: Double → Triple or FixedQuad, Triple →
+// FixedQuad, FixedQuad → HSQuad, HSQuad → HS6Pack.
 // Cable, towers, queue, and chair positions are unchanged.
 func (w *World) UpgradeLift(l *Lift, target LiftType) bool {
 	if l == nil {
@@ -670,6 +683,7 @@ func (w *World) RemoveLift(id uint64) {
 				w.Terrain.Cells[top[0]][top[1]].Passable = true
 			}
 			w.Lifts = append(w.Lifts[:i], w.Lifts[i+1:]...)
+			w.RebuildTrailGraph()
 			return
 		}
 	}

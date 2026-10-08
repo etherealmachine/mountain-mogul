@@ -32,6 +32,20 @@ func (a *SkiTrail) Precondition(s *WorldSnapshot, w *world.World) bool {
 	if s.Removed {
 		return false
 	}
+	// Beginners and intermediates keep to trails at or below their level,
+	// as they keep to lifts with one (JoinQueue). Leaving from a trail
+	// means skiing along it to where this one starts, so that trail
+	// counts too.
+	if diff := skillDiff(s.Skill); diff != 0 {
+		if t := w.FindTrail(a.TrailID); t != nil && !t.Difficulty.Has(diff) {
+			return false
+		}
+		if a.FromKind == world.KindTrail {
+			if t := w.FindTrail(a.FromID); t != nil && !t.Difficulty.Has(diff) {
+				return false
+			}
+		}
+	}
 	switch a.FromKind {
 	case world.KindLiftTop:
 		return s.AtLiftTop == a.FromID

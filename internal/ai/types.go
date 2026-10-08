@@ -199,6 +199,7 @@ const (
 	ActBuySeasonPass      // purchase a season pass at the ticket office
 	ActBuyDayTicket       // buy today's day ticket at the ticket office
 	ActWalkToService      // walk from the base area to a building to use something it offers
+	ActWalkToParking      // walk from the base area to a parking lot
 )
 
 // PlanAction is one step in the stored L0 plan — plain data, no behaviour.
@@ -211,6 +212,7 @@ type PlanAction struct {
 	LiftID  uint64
 	BldgID  uint64
 	TrailID uint64 // ActSkiTrail: via trail (= destination for trail-to-trail)
+	Via     uint64 // ActSkiTrail: the trail skied, whatever the destination
 	Use     Offer  // ActUseService: what the guest uses there
 	Cost    float32
 }
@@ -476,6 +478,7 @@ const (
 	ThoughtPatrolFast   // patrol reached them quickly
 	ThoughtPatrolCame   // patrol reached them in a reasonable time
 	ThoughtPatrolSlow   // patrol took a long time to reach them
+	ThoughtGaveUp       // fell over and over on one descent; skis off, waiting for patrol
 
 	thoughtKindSentinel // must stay last; equals the total count
 )
@@ -505,6 +508,7 @@ var Effects = [ThoughtKindCount]Effect{
 	ThoughtFell:              {Satisfaction: -0.10},
 	ThoughtInjured:           {Satisfaction: -0.25},
 	ThoughtAbandoned:         {Satisfaction: -0.30},
+	ThoughtGaveUp:            {Satisfaction: -0.25},
 	ThoughtHurtGoingHome:     {Satisfaction: -0.15},
 	ThoughtHitTree:           {Satisfaction: -0.15},
 	ThoughtCaughtInAvalanche: {Satisfaction: -0.10},
@@ -623,6 +627,7 @@ var thoughtText = [ThoughtKindCount]string{
 	ThoughtFell:              "ouch, that hurt",
 	ThoughtInjured:           "I'm hurt, I can't move",
 	ThoughtAbandoned:         "no one came to help me",
+	ThoughtGaveUp:            "I keep falling, I can't get down this",
 	ThoughtLongLine:          "this line is way too long",
 	ThoughtLineTooLong:       "that line will take forever",
 	ThoughtNeedsLodge:        "this place needs a lodge",
@@ -698,6 +703,7 @@ var ThoughtChartColor = [ThoughtKindCount][4]float32{
 	ThoughtFell:              {0.85, 0.20, 0.20, 1},
 	ThoughtInjured:           {0.95, 0.10, 0.10, 1},
 	ThoughtAbandoned:         {0.60, 0.10, 0.80, 1},
+	ThoughtGaveUp:            {0.85, 0.20, 0.20, 1},
 	ThoughtLongLine:          {0.80, 0.45, 0.70, 1},
 	ThoughtLineTooLong:       {0.70, 0.30, 0.60, 1},
 	ThoughtNeedsLodge:        {0.60, 0.50, 0.80, 1},
@@ -772,6 +778,7 @@ const (
 	DepartNothingToSki              // no running lift with a trail for them
 	DepartBored                     // nothing left worth another run to them
 	DepartNoRentals                 // came without skis and couldn't rent any
+	DepartGaveUp                    // kept falling on a descent and gave up
 	departReasonSentinel
 )
 
@@ -787,6 +794,7 @@ var DepartReasonLabel = [DepartReasonCount]string{
 	DepartClosing:      "Lifts closed for the day",
 	DepartHurt:         "Hurt",
 	DepartAbandoned:    "Hurt, no one came to help",
+	DepartGaveUp:       "Kept falling, gave up",
 	DepartLines:        "Fed up with lines",
 	DepartMoney:        "Out of money",
 	DepartNoTicket:     "Couldn't buy a ticket",
@@ -816,6 +824,7 @@ var DepartReasonColor = [DepartReasonCount][4]float32{
 	DepartClosing:      {0.45, 0.65, 0.85, 1},
 	DepartHurt:         {0.90, 0.45, 0.35, 1},
 	DepartAbandoned:    {0.60, 0.10, 0.80, 1},
+	DepartGaveUp:       {0.85, 0.20, 0.20, 1},
 	DepartLines:        {0.80, 0.45, 0.70, 1},
 	DepartMoney:        {0.95, 0.85, 0.20, 1},
 	DepartNoTicket:     {0.85, 0.40, 0.30, 1},
@@ -858,6 +867,10 @@ func (t Thought) Display(resolve func(uint64) string) string {
 	case ThoughtInjured:
 		if n := name(0); n != "" {
 			return "I'm hurt on " + n + ", I can't move"
+		}
+	case ThoughtGaveUp:
+		if n := name(0); n != "" {
+			return "I keep falling on " + n + ", I can't get down"
 		}
 	case ThoughtGreatRun:
 		if n := name(0); n != "" {

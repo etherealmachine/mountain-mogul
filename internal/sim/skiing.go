@@ -106,9 +106,9 @@ const (
 	// like it does for trees. The radii are how far from a hazard a
 	// sample point starts seeing penalty — picked so the corridor sweep
 	// catches them well before the skier brushes through.
-	towerHazardRadius = 5.0 // lift towers are 0.6–0.9 m poles; the radius gives ~4 m of carving room
-	skierHazardRadius = 2.5 // ski-width is ~0.6 m; the radius is "don't ski into someone's blind spot"
-	trunkHazardRadius = 3.0 // a trunk is ~0.4 m across; the radius steers a skier around one specific tree
+	towerHazardRadius = 5.0                     // lift towers are 0.6–0.9 m poles; the radius gives ~4 m of carving room
+	skierHazardRadius = 2.5                     // ski-width is ~0.6 m; the radius is "don't ski into someone's blind spot"
+	trunkHazardRadius = world.TrunkHazardRadius // 3 m; a trunk is ~0.4 m across; the radius steers a skier around one specific tree
 
 	// Tree collisions: a skier whose position comes within trunkHitRadius
 	// of a trunk while moving toward it faster than trunkHitMinSpeed hits
@@ -125,7 +125,6 @@ const (
 	steepSlopeL = 0.20
 
 	// Balance / fall
-	fallRecoverTime  = 4.0
 	fallStartBalance = 0.7
 
 	// Injury on a fall. Chance = (speedFactor + slopeFactor) / 2 *
@@ -178,6 +177,13 @@ const (
 	// energyDrainRate based on skill tier × snow kind.
 	energyDrainPerSecSkiing = 1.0 / 7200.0
 	energyFallDrain         = 0.30
+
+	// Each fall costs a guest fallPatienceDrain of patience. A guest
+	// down for the fallGiveUpCount-th time on one descent stops trying:
+	// skis off, they wait for patrol like an injured guest and walk home
+	// if none comes.
+	fallPatienceDrain = 0.10
+	fallGiveUpCount   = 4
 
 	// Hunger drains at a fixed rate regardless of terrain: full to empty
 	// in five clock hours of skiing, so a guest arriving fed gets hungry
@@ -322,8 +328,21 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 	}
 
 	perc := perceive(s.World.Terrain, a, target)
+	seed := rng.Global().Uint64()
+	if s.skiBatch != nil {
+		// Steering for every skier is decided at once, across cores
+		// (decideSkiers); the rest of the tick runs after, in order.
+		*s.skiBatch = append(*s.skiBatch, skiJob{a: a, target: target, dist: dist, perc: perc, seed: seed})
+		return false
+	}
+	r := stepRand(seed)
+	dec := decide(s.World, s.towersScratch, s.spatial, a, perc, float32(dt), &s.steerScratch, &r)
+	return s.applySkier(a, target, dist, perc, dec, dt)
+}
 
-	dec := decide(s.World, s.towersScratch, s.spatial, a, perc, float32(dt), &s.hazardScratch)
+// applySkier runs the rest of a skier's tick once their steering is
+// decided: needs, falls, movement, and the snow underfoot.
+func (s *Simulation) applySkier(a *world.Guest, target mgl32.Vec3, dist float32, perc Perception, dec Decision, dt float64) bool {
 	if dec.TurnSide != a.TurnSide {
 		a.TurnDwell = 0
 	} else {
@@ -387,16 +406,11 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 		zi := int(a.Pos[2] / CellSize)
 		if s.World.Terrain.InBounds(xi, zi) && s.World.Terrain.Cells[xi][zi].AvySnow > avyMinSnow && !a.Fallen {
 			s.applyEvent(a, ai.ThoughtCaughtInAvalanche)
-			a.Balance = 0
-			a.Fallen = true
-			a.Energy = clamp32(a.Energy-energyFallDrain, 0, 1)
-			a.Events = append(a.Events, ai.GuestEvent{Kind: ai.EventFall, Time: s.SimTime})
-			a.Speed = 0
+			s.knockDown(a, world.FallForward)
 			const avyInjuryChance = float32(0.70)
 			if rng.Global().Float32() < avyInjuryChance {
 				s.injure(a, true)
 			} else {
-				a.FallTimer = float32(fallRecoverTime)
 				s.applyTrailEvent(a, ai.ThoughtFell)
 			}
 			recordFrame(s, a, target, dist, perc, dec)
@@ -416,19 +430,13 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 		a.Balance = 1
 	}
 	if a.Balance <= 0 {
-		a.Balance = 0
-		a.Fallen = true
-		a.Energy = clamp32(a.Energy-energyFallDrain, 0, 1)
-		a.Events = append(a.Events, ai.GuestEvent{Kind: ai.EventFall, Time: s.SimTime})
-
 		speedFactor := clamp32(a.Speed/injuryMaxSpeed, 0, 1)
 		slopeFactor := clamp32(perc.SlopeAngle/injuryMaxSlope, 0, 1)
 		injuryChance := (speedFactor + slopeFactor) / 2 * fallInjuryChanceMax
-		a.Speed = 0
+		s.knockDown(a, fallDirection(a.Traits, perc, dec))
 		if rng.Global().Float32() < injuryChance {
 			s.injure(a, rng.Global().Float32() < fallSeriousShare)
 		} else {
-			a.FallTimer = float32(fallRecoverTime)
 			s.applyTrailEvent(a, ai.ThoughtFell)
 		}
 		recordFrame(s, a, target, dist, perc, dec)
@@ -438,7 +446,7 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 	prevPos := a.Pos
 	apply(s.World.Terrain, a, dec, perc, dt)
 	wearSnowUnderfoot(s.World.Terrain, a, dt)
-	splatSkierTrack(s.World.Terrain, a, prevPos)
+	splatSkierTrack(s.World.Terrain, a, prevPos, world.TrackClock(s.SimTime))
 	recordFrame(s, a, target, dist, perc, dec)
 	return false
 }
@@ -453,7 +461,7 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 // at the top of a queue spread) doesn't paint dots underfoot.
 const minSplatSpeed = float32(1.0) // m/s
 
-func splatSkierTrack(t *world.Terrain, a *world.Guest, prevPos mgl32.Vec3) {
+func splatSkierTrack(t *world.Terrain, a *world.Guest, prevPos mgl32.Vec3, now uint16) {
 	if t == nil || t.Surface == nil {
 		return
 	}
@@ -474,7 +482,7 @@ func splatSkierTrack(t *world.Terrain, a *world.Guest, prevPos mgl32.Vec3) {
 	const intensity = uint8(64)
 	t.Surface.SplatTrackSegment(
 		a.LastTrackPos[0], a.LastTrackPos[2],
-		a.Pos[0], a.Pos[2], intensity,
+		a.Pos[0], a.Pos[2], intensity, now,
 	)
 	a.LastTrackPos = a.Pos
 }
@@ -523,50 +531,7 @@ func wearSnowUnderfoot(t *world.Terrain, a *world.Guest, dt float64) {
 	}
 	growMoguls(t, a, xi, zi, dt)
 	if dirty {
-		t.SnowDirty = true
-	}
-}
-
-// tickFallen counts the agent down out of the fallen window and resumes.
-// Injured guests wait for InjuryWaitTimer to expire; on expiry they give up,
-// take a hard satisfaction hit, and force a GoHome replan. Once a
-// patroller is on the way they wait however long it takes.
-func (s *Simulation) tickFallen(a *world.Guest, dt float64) {
-	if a.Injured {
-		if a.OnPatrollerID != 0 || s.guestClaimed(a.ID) {
-			return // help is loading them or on the way
-		}
-		a.InjuryWaitTimer -= float32(dt)
-		if a.InjuryWaitTimer <= 0 {
-			a.Injured = false
-			a.Fallen = false
-			a.Balance = float32(fallStartBalance)
-			a.Speed = 0
-			a.TurnSide = 0
-			a.SkisOn = false
-			a.Patience = 0
-			s.applyEvent(a, ai.ThoughtAbandoned)
-			// Build a direct walk-to-parking plan so the guest crawls to the
-			// nearest lot without routing through the lift system. Bypassing
-			// GOAP is intentional: the planner would route WalkToLift →
-			// RideLift → SkiToParking, which reads as "continued skiing."
-			s.injuredGiveUpPlan(a)
-		}
-		return
-	}
-	a.FallTimer -= float32(dt)
-	if a.FallTimer <= 0 {
-		a.Fallen = false
-		a.Balance = float32(fallStartBalance)
-		a.Speed = 0
-		a.TurnSide = 0
-		getUpClearOfTrunk(a)
-		if a.HurtGoHome {
-			// A minor injury: up again, but done for the day.
-			a.HurtGoHome = false
-			s.setDepartReason(a, ai.DepartHurt)
-			s.directHomePlan(a)
-		}
+		t.MarkSnowDirty(xi, zi)
 	}
 }
 
@@ -613,7 +578,7 @@ func (s *Simulation) maybeStartSkiTransition(a *world.Guest) {
 	walk := mustWalk(s.World, a.Pos[0], a.Pos[2])
 	if walk && a.SkisOn {
 		a.SkiTransitionTimer = 1.0 // removing skis
-	} else if !walk && !a.SkisOn {
+	} else if !walk && !a.SkisOn && !a.OnFoot {
 		// Don't put skis back on when close to the destination — the guest
 		// is about to arrive and shouldn't re-equip for the last few metres.
 		// Further away (e.g. at the lift top after a heatwave stripped the
@@ -706,10 +671,17 @@ func perceive(t *world.Terrain, a *world.Guest, target mgl32.Vec3) Perception {
 // on the committed side (after turnDwell), TurnSide flips and they carve
 // back. Linked turns carve at the guest's carve rate; swerves pivot faster
 // and skid (turnRates).
-func decide(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, a *world.Guest, perc Perception, dt float32, hazardBuf *[]hazardPoint) Decision {
+//
+// decide only reads the world and a, so many skiers can decide at once
+// (decideSkiers); r is the decision's own random stream for the same
+// reason.
+func decide(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, a *world.Guest, perc Perception, dt float32, sc *steerScratch, r *stepRand) Decision {
+	if sc == nil {
+		sc = new(steerScratch)
+	}
 	axisHeading := composeAxis(perc)
 
-	tactical, _, probeC, probeR, probeL := sampleTactical(w, towers, grid, a, perc, axisHeading, a.LastTactical)
+	tactical, _, probeC, probeR, probeL := sampleTactical(w, towers, grid, a, perc, axisHeading, a.LastTactical, r, &sc.near)
 
 	// Speed control. Base target from skill/traits, then reduce when trees
 	// are visible in the forward fan — real skiers back off in glades to
@@ -750,7 +722,7 @@ func decide(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, a *world.Gue
 	case amp == 0:
 		side = 0
 	case side == 0:
-		side = pickInitialSide(perc, wrapAngle(deviation-tactical))
+		side = pickInitialSide(perc, wrapAngle(deviation-tactical), r)
 	case side > 0 && deviation > edge(+1)-0.15*amp && dwellSatisfied:
 		side = -1
 	case side < 0 && deviation < edge(-1)+0.15*amp && dwellSatisfied:
@@ -774,10 +746,7 @@ func decide(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, a *world.Gue
 	// Anything on the line within the next second and a half: swerve
 	// round it at the pivot rate, or stop hard when there's no way past.
 	stopping, swerving := false, false
-	if hazardBuf == nil {
-		hazardBuf = new([]hazardPoint)
-	}
-	if h, urgent, stop := swerve(w, towers, grid, a, desired, turnRate, pivotRate, hazardBuf); urgent {
+	if h, urgent, stop := swerve(w, towers, grid, a, desired, turnRate, pivotRate, &sc.hazards); urgent {
 		desired = h
 		turnRate = pivotRate
 		swerving = true
@@ -851,7 +820,7 @@ func desiredSpeed(traits ai.GuestTraits, perc Perception) float32 {
 // pickInitialSide chooses which way to start a carve when entering the brake
 // regime. Coin-flipped — neither side is privileged. Future work could bias
 // away from terrain boundaries or worse-scoring tactical samples.
-func pickInitialSide(perc Perception, deviation float32) int8 {
+func pickInitialSide(perc Perception, deviation float32, r *stepRand) int8 {
 	// If heading already favours a side, commit to that — avoids an ugly
 	// 180° flip in the first tick of the carve.
 	if deviation > 0.05 {
@@ -860,7 +829,7 @@ func pickInitialSide(perc Perception, deviation float32) int8 {
 	if deviation < -0.05 {
 		return -1
 	}
-	if rng.Global().Float32() < 0.5 {
+	if r.Float32() < 0.5 {
 		return -1
 	}
 	return +1
@@ -885,62 +854,70 @@ func collectTowerXZs(w *world.World) []mgl32.Vec2 {
 //
 //   - terrain tree cover (Cell.TreeCover) × coverScale, so whole stands are
 //     avoided, less by guests who love glades (standCoverScale)
-//   - linear falloff inside trunkHazardRadius of any trunk
-//   - linear falloff inside towerHazardRadius of any lift tower
-//   - linear falloff inside skierHazardRadius of any other skier
+//   - falloff inside trunkHazardRadius of any trunk, read from the
+//     terrain's cached trunk field (world.TrunkHazardAt)
+//   - falloff inside towerHazardRadius of any lift tower
+//   - falloff inside skierHazardRadius of any other skier
 //
 // Combination is max(): one big hazard dominates. Cover keeps skiers out
 // of stands; the trunk, tower, and skier terms route them around single
-// obstacles the cover is too coarse to see.
-//
-// The agent term uses a spatial grid bucketed once per Tick — without
-// it, this function dominated the profile (70% CPU) once active agent
-// count crossed ~150 because every probe point iterated every other
-// agent. With the grid, hazardDensityAt is O(towers + nearby) per call.
-func hazardDensityAt(t *world.Terrain, towers []mgl32.Vec2, grid *spatialGrid, selfID uint64, x, z, coverScale float32) float32 {
+// obstacles the cover is too coarse to see. Towers and skiers come from
+// near, gathered once per decision around the whole fan (steerNear), so
+// each of the fan's sample points only checks the few that could reach it.
+func hazardDensityAt(t *world.Terrain, near *steerNear, x, z, coverScale float32) float32 {
 	d := t.TreeCoverAt(x, z) * coverScale
-
 	if d < 1 {
-		const trunkR2 = trunkHazardRadius * trunkHazardRadius
-		t.ForEachTreeNear(x, z, trunkHazardRadius, func(tr world.Tree, _, _ int) {
-			dx, dz := tr.X-x, tr.Z-z
-			if f := 1 - (dx*dx+dz*dz)/trunkR2; f > d {
-				d = f
-			}
-		})
+		d = max(d, t.TrunkHazardAt(x, z))
 	}
-
+	if near == nil {
+		return d
+	}
 	const towerR2 = towerHazardRadius * towerHazardRadius
-	for _, p := range towers {
-		dx := p[0] - x
-		dz := p[1] - z
-		r2 := dx*dx + dz*dz
-		if r2 < towerR2 {
-			f := 1 - r2/towerR2
-			if f > d {
-				d = f
-			}
+	for _, p := range near.towers {
+		dx, dz := p[0]-x, p[1]-z
+		if r2 := dx*dx + dz*dz; r2 < towerR2 {
+			d = max(d, 1-r2/towerR2)
 		}
 	}
-
 	const skierR2 = skierHazardRadius * skierHazardRadius
-	if grid != nil {
-		grid.forEachNear(x, z, func(other *world.Guest) {
-			if other.ID == selfID {
-				return
-			}
-			dx := other.Pos[0] - x
-			dz := other.Pos[2] - z
-			r2 := dx*dx + dz*dz
-			if r2 < skierR2 {
-				f := 1 - r2/skierR2
-				if f > d {
-					d = f
-				}
-			}
-		})
+	for _, p := range near.skiers {
+		dx, dz := p[0]-x, p[1]-z
+		if r2 := dx*dx + dz*dz; r2 < skierR2 {
+			d = max(d, 1-r2/skierR2)
+		}
 	}
 	return d
+}
+
+// steerNear is what a skier's fan of sample points could run into this
+// step: the lift towers and other skiers within reach of their position.
+type steerNear struct {
+	towers []mgl32.Vec2
+	skiers []mgl32.Vec2
+}
+
+// gather fills n with the towers and skiers (other than selfID) within
+// reach of (x, z), plus each kind's hazard radius.
+func (n *steerNear) gather(towers []mgl32.Vec2, grid *spatialGrid, selfID uint64, x, z, reach float32) {
+	n.towers, n.skiers = n.towers[:0], n.skiers[:0]
+	tr := reach + towerHazardRadius
+	for _, p := range towers {
+		if dx, dz := p[0]-x, p[1]-z; dx*dx+dz*dz <= tr*tr {
+			n.towers = append(n.towers, p)
+		}
+	}
+	if grid == nil {
+		return
+	}
+	sr := reach + skierHazardRadius
+	grid.forEachWithin(x, z, sr, func(o *world.Guest) {
+		if o.ID == selfID {
+			return
+		}
+		if dx, dz := o.Pos[0]-x, o.Pos[2]-z; dx*dx+dz*dz <= sr*sr {
+			n.skiers = append(n.skiers, mgl32.Vec2{o.Pos[0], o.Pos[2]})
+		}
+	})
 }
 
 // standCoverScale is how hard a guest avoids tree stands: 1 for anyone
@@ -968,7 +945,7 @@ func standCoverScale(t ai.Tastes) float32 {
 // score equally — but it's gated on actually seeing an obstacle in the
 // fan. Without that gate the commit bonus would slowly drift the skier
 // off-axis even on a clear slope, since prevTactical is self-perpetuating.
-func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self *world.Guest, perc Perception, axisHeading, prevTactical float32) (offset float32, obstacleSeen bool, probeC, probeR, probeL float32) {
+func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self *world.Guest, perc Perception, axisHeading, prevTactical float32, r *stepRand, near *steerNear) (offset float32, obstacleSeen bool, probeC, probeR, probeL float32) {
 	t := w.Terrain
 	horizon := perc.Speed * float32(sampleHorizonSec)
 	if horizon < float32(sampleMinDist) {
@@ -978,13 +955,14 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 		horizon = float32(sampleMaxDist)
 	}
 
-	// `towers` is the shared per-Tick scratch built once in Simulation.
-	// Self is excluded from the agent list so the skier doesn't avoid
-	// itself.
+	// The towers and other skiers any sample point could reach: the
+	// farthest sample is horizon ahead and corridorHalfWidth aside. Self
+	// is left out so the skier doesn't avoid itself.
 	var selfID uint64
 	if self != nil {
 		selfID = self.ID
 	}
+	near.gather(towers, grid, selfID, perc.Pos[0], perc.Pos[2], horizon+float32(corridorHalfWidth))
 
 	// The guest's tastes steer the line (tasteSteerWeight), and their
 	// love of trees eases how hard they avoid stands.
@@ -1042,11 +1020,11 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 			// Treats the candidate path as a corridor, so the skier
 			// avoids brushing the patch edge instead of grazing it.
 			// Hazard includes trees, lift towers, and other skiers.
-			density := hazardDensityAt(t, towers, grid, selfID, x, z, coverScale)
-			if dl := hazardDensityAt(t, towers, grid, selfID, x-rx*float32(corridorHalfWidth), z-rz*float32(corridorHalfWidth), coverScale); dl > density {
+			density := hazardDensityAt(t, near, x, z, coverScale)
+			if dl := hazardDensityAt(t, near, x-rx*float32(corridorHalfWidth), z-rz*float32(corridorHalfWidth), coverScale); dl > density {
 				density = dl
 			}
-			if dr := hazardDensityAt(t, towers, grid, selfID, x+rx*float32(corridorHalfWidth), z+rz*float32(corridorHalfWidth), coverScale); dr > density {
+			if dr := hazardDensityAt(t, near, x+rx*float32(corridorHalfWidth), z+rz*float32(corridorHalfWidth), coverScale); dr > density {
 				density = dr
 			}
 			totalDensity += density
@@ -1110,7 +1088,7 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 		// scores either side) gets resolved by the simulation's RNG instead
 		// of by iteration order — otherwise the "first encountered tie wins"
 		// rule biases every run to the same side regardless of seed.
-		score += (rng.Global().Float32() - 0.5) * 0.001
+		score += (r.Float32() - 0.5) * 0.001
 		if score > bestScore {
 			bestScore = score
 			offset = sd.ang
@@ -1271,21 +1249,15 @@ func getUpClearOfTrunk(a *world.Guest) {
 // treeHit knocks the guest down after skiing into a trunk: a fall, and an
 // injury with a chance that grows with speed.
 func (s *Simulation) treeHit(a *world.Guest) {
-	a.Balance = 0
-	a.Fallen = true
-	a.Energy = clamp32(a.Energy-energyFallDrain, 0, 1)
-	a.Events = append(a.Events, ai.GuestEvent{Kind: ai.EventFall, Time: s.SimTime})
 	injuryChance := clamp32(a.Speed/injuryMaxSpeed, 0, 1) * trunkInjuryChanceMax
 	if tr, ok := trunkAhead(s.World.Terrain, a); ok {
 		a.Trunk, a.HasTrunk = [2]float32{tr.X, tr.Z}, true
 	}
-	a.Speed = 0
+	s.knockDown(a, world.FallThrown)
 	s.applyEvent(a, ai.ThoughtHitTree)
 	if rng.Global().Float32() < injuryChance {
 		s.injure(a, rng.Global().Float32() < trunkSeriousShare)
-		return
 	}
-	a.FallTimer = float32(fallRecoverTime)
 }
 
 // injure hurts a guest who has just fallen. A serious injury leaves them
@@ -1295,7 +1267,6 @@ func (s *Simulation) treeHit(a *world.Guest) {
 func (s *Simulation) injure(a *world.Guest, serious bool) {
 	a.Events = append(a.Events, ai.GuestEvent{Kind: ai.EventInjury, Time: s.SimTime})
 	if !serious {
-		a.FallTimer = float32(fallRecoverTime)
 		a.HurtGoHome = true
 		s.applyEvent(a, ai.ThoughtHurtGoingHome)
 		return
@@ -1305,14 +1276,55 @@ func (s *Simulation) injure(a *world.Guest, serious bool) {
 	s.applyTrailEvent(a, ai.ThoughtInjured)
 }
 
+// giveUpRun ends a descent the guest can't manage: down for the
+// fallGiveUpCount-th time, they take their skis off and wait for patrol
+// as an injured guest does (Stranded marks them as unhurt).
+func (s *Simulation) giveUpRun(a *world.Guest) {
+	a.Injured, a.Stranded = true, true
+	a.InjuryWaitTimer = injuryWaitTime
+	a.SkisOn = false
+	a.Speed, a.TurnSide = 0, 0
+	s.applyTrailEvent(a, ai.ThoughtGaveUp)
+}
+
 // applyTrailEvent applies an event naming the trail the guest is on,
 // when they're on one.
 func (s *Simulation) applyTrailEvent(a *world.Guest, kind ai.ThoughtKind) {
-	if step := a.Plan.Head(); step.Kind == ai.ActSkiTrail {
-		s.applyEvent(a, kind, step.TrailID)
+	if id := plannedTrail(a); id != 0 {
+		s.applyEvent(a, kind, id)
 		return
 	}
 	s.applyEvent(a, kind)
+}
+
+// plannedTrail is the trail the guest's plan has them skiing, 0 when it
+// has them on none.
+func plannedTrail(a *world.Guest) uint64 {
+	step := a.Plan.Head()
+	if step.Kind != ai.ActSkiTrail {
+		return 0
+	}
+	if step.Via != 0 {
+		return step.Via
+	}
+	return step.TrailID
+}
+
+// recordFall logs a guest going down: on the guest, and in the day's
+// falls under the run they were skiing (their plan's, or the one
+// underfoot) or the lift they were getting off.
+func (s *Simulation) recordFall(a *world.Guest) {
+	a.Events = append(a.Events, ai.GuestEvent{Kind: ai.EventFall, Time: s.SimTime})
+	f := world.FallRecord{X: a.Pos[0], Z: a.Pos[2], LiftID: a.Unload.LiftID}
+	if f.LiftID == 0 {
+		f.TrailID = plannedTrail(a)
+		if f.TrailID == 0 {
+			if t := s.World.TrailAt(int(a.Pos[0]/CellSize), int(a.Pos[2]/CellSize)); t != nil {
+				f.TrailID = t.ID
+			}
+		}
+	}
+	s.World.History.RecordFall(f)
 }
 
 // tickMood updates a guest's conditions and charges the active ones to
@@ -1594,7 +1606,10 @@ func ComputeSteeringDebug(w *world.World, a *world.Guest, target mgl32.Vec3) Ste
 	// negligible compared with the per-frame Simulation grid.
 	grid := newSpatialGrid(float32(w.Terrain.Width)*CellSize, float32(w.Terrain.Height)*CellSize)
 	grid.rebuild(w.OnMountain)
-	dec := decide(w, towers, grid, &clone, perc, 0, nil)
+	// A fixed stream per guest, so drawing the overlay doesn't consume
+	// the game's random numbers.
+	r := stepRand(a.ID)
+	dec := decide(w, towers, grid, &clone, perc, 0, nil, &r)
 
 	horizon := perc.Speed * float32(sampleHorizonSec)
 	if horizon < float32(sampleMinDist) {
@@ -1614,13 +1629,15 @@ func ComputeSteeringDebug(w *world.World, a *world.Guest, target mgl32.Vec3) Ste
 	hx := float32(math.Sin(float64(a.Heading)))
 	hz := float32(math.Cos(float64(a.Heading)))
 	rx, rz := hz, -hx
+	var near steerNear
+	near.gather(towers, grid, a.ID, a.Pos[0], a.Pos[2], horizon)
 	angles := [3]float64{0, float64(sampleAngleMax), -float64(sampleAngleMax)}
 	for i, ang := range angles {
 		c := float32(math.Cos(ang))
 		s := float32(math.Sin(ang))
 		d := mgl32.Vec2{c*hx + s*rx, c*hz + s*rz}
 		out.Probes[i].Dir = d
-		out.Probes[i].Density = hazardDensityAt(t, towers, grid, a.ID, a.Pos[0]+d[0]*horizon, a.Pos[2]+d[1]*horizon, standCoverScale(a.Traits.Tastes))
+		out.Probes[i].Density = hazardDensityAt(t, &near, a.Pos[0]+d[0]*horizon, a.Pos[2]+d[1]*horizon, standCoverScale(a.Traits.Tastes))
 	}
 	return out
 }

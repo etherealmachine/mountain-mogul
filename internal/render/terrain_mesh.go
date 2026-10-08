@@ -2,6 +2,8 @@ package render
 
 import (
 	"math"
+	"runtime"
+	"sync"
 
 	"mountain-mogul/internal/world"
 
@@ -391,39 +393,63 @@ func terrainJitterXYZ(gx, gz, width, height int, cellSize float32) (float32, flo
 	return fx, 0, fz
 }
 
+// cellSnow is one cell's snow values as the corner textures carry them.
+type cellSnow struct{ g, pk, ic, mg, dp, is float32 }
+
 // cornerSnow fills the per-corner snow textures for corners
 // [x0, x1] × [z0, z1]: a holds (Grooming, Packed, Ice, MogulSize) and b
 // (visible depth, instability), each the average of the corner's cells
 // so groomed patches fade into their neighbours instead of stopping at a
-// cell edge. Rows run along x. maxDepth is the deepest corner.
-func cornerSnow(t *world.Terrain, x0, z0, x1, z1 int, a, b []float32) (maxDepth float32) {
+// cell edge. Rows run along x. maxDepth is the deepest corner. Each
+// cell's values are derived once into scratch (grown as needed), not
+// once per corner that touches it.
+func cornerSnow(t *world.Terrain, x0, z0, x1, z1 int, a, b []float32, scratch *[]cellSnow) (maxDepth float32) {
 	W, H := t.Width, t.Height
 	rw := x1 - x0 + 1
+	// Corner (cx, cz) averages cells [cx-1, cx] × [cz-1, cz], clipped.
+	cx0, cz0 := max(x0-1, 0), max(z0-1, 0)
+	cx1, cz1 := min(x1, W-1), min(z1, H-1)
+	cw := cx1 - cx0 + 1
+	n := cw * (cz1 - cz0 + 1)
+	if cap(*scratch) < n {
+		*scratch = make([]cellSnow, n)
+	}
+	cells := (*scratch)[:n]
+	for z := cz0; z <= cz1; z++ {
+		for x := cx0; x <= cx1; x++ {
+			c := &t.Cells[x][z]
+			cells[(z-cz0)*cw+(x-cx0)] = cellSnow{
+				g: c.Grooming, pk: c.SurfacePacked(), ic: c.SurfaceIce(),
+				mg: c.MogulSize, dp: c.VisibleSnowDepth(), is: c.InstabilityScore(),
+			}
+		}
+	}
 	for cz := z0; cz <= z1; cz++ {
 		for cx := x0; cx <= x1; cx++ {
-			var g, pk, ic, mg, dp, is, n float32
+			var sum cellSnow
+			var n float32
 			for z := max(cz-1, 0); z <= min(cz, H-1); z++ {
 				for x := max(cx-1, 0); x <= min(cx, W-1); x++ {
-					c := &t.Cells[x][z]
-					g += c.Grooming
-					pk += c.SurfacePacked()
-					ic += c.SurfaceIce()
-					mg += c.MogulSize
-					dp += c.VisibleSnowDepth()
-					is += c.InstabilityScore()
+					c := &cells[(z-cz0)*cw+(x-cx0)]
+					sum.g += c.g
+					sum.pk += c.pk
+					sum.ic += c.ic
+					sum.mg += c.mg
+					sum.dp += c.dp
+					sum.is += c.is
 					n++
 				}
 			}
 			i := (cz-z0)*rw + (cx - x0)
 			if n == 0 {
-				copy(a[i*4:i*4+4], []float32{0, 0, 0, 0})
+				a[i*4], a[i*4+1], a[i*4+2], a[i*4+3] = 0, 0, 0, 0
 				b[i*2], b[i*2+1] = 0, 0
 				continue
 			}
 			inv := 1 / n
-			a[i*4], a[i*4+1], a[i*4+2], a[i*4+3] = g*inv, pk*inv, ic*inv, mg*inv
-			b[i*2], b[i*2+1] = dp*inv, is*inv
-			maxDepth = max(maxDepth, dp*inv)
+			a[i*4], a[i*4+1], a[i*4+2], a[i*4+3] = sum.g*inv, sum.pk*inv, sum.ic*inv, sum.mg*inv
+			b[i*2], b[i*2+1] = sum.dp*inv, sum.is*inv
+			maxDepth = max(maxDepth, sum.dp*inv)
 		}
 	}
 	return maxDepth
@@ -605,32 +631,73 @@ func (r *Renderer) FlushTerrainVerts(t *world.Terrain) {
 	r.FlushTerrainMaterial(t)
 }
 
-// FlushSnowState re-uploads the per-corner snow textures after snow
-// state changes (snowfall, grooming, packing, moguls).
+// FlushSnowState re-uploads the per-corner snow textures for the whole
+// map after snow state changes everywhere (snowfall, melt, a new
+// terrain). Rows are split across cores.
 func (r *Renderer) FlushSnowState(t *world.Terrain) {
 	if r.scene.terrainMesh == nil {
 		return
 	}
+	s := r.scene
 	W, H := t.Width, t.Height
-	a := make([]float32, W*H*4)
-	b := make([]float32, W*H*2)
-	r.scene.terrainSnowPad = cornerSnow(t, 0, 0, W-1, H-1, a, b) + terrainDispPad
-	if r.scene.cornerSnowTexA == 0 {
-		r.scene.cornerSnowTexA = newDataTexture(gl.RGBA16F, W, H)
-		r.scene.cornerSnowTexB = newDataTexture(gl.RG32F, W, H)
+	if len(s.snowA) != W*H*4 {
+		s.snowA = make([]float32, W*H*4)
+		s.snowB = make([]float32, W*H*2)
 	}
-	gl.BindTexture(gl.TEXTURE_2D, r.scene.cornerSnowTexA)
-	gl.TexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, int32(W), int32(H), gl.RGBA, gl.FLOAT, gl.Ptr(a))
-	gl.BindTexture(gl.TEXTURE_2D, r.scene.cornerSnowTexB)
-	gl.TexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, int32(W), int32(H), gl.RG, gl.FLOAT, gl.Ptr(b))
+	workers := min(runtime.NumCPU(), H)
+	for len(s.snowScratch) < workers {
+		s.snowScratch = append(s.snowScratch, nil)
+	}
+	depths := make([]float32, workers)
+	var wg sync.WaitGroup
+	for w := range workers {
+		z0, z1 := H*w/workers, H*(w+1)/workers-1
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			depths[w] = cornerSnow(t, 0, z0, W-1, z1, s.snowA[z0*W*4:], s.snowB[z0*W*2:], &s.snowScratch[w])
+		}()
+	}
+	wg.Wait()
+	var maxDepth float32
+	for _, d := range depths {
+		maxDepth = max(maxDepth, d)
+	}
+	s.terrainSnowPad = maxDepth + terrainDispPad
+	if s.cornerSnowTexA == 0 {
+		s.cornerSnowTexA = newDataTexture(gl.RGBA16F, W, H)
+		s.cornerSnowTexB = newDataTexture(gl.RG32F, W, H)
+	}
+	gl.BindTexture(gl.TEXTURE_2D, s.cornerSnowTexA)
+	gl.TexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, int32(W), int32(H), gl.RGBA, gl.FLOAT, gl.Ptr(s.snowA))
+	gl.BindTexture(gl.TEXTURE_2D, s.cornerSnowTexB)
+	gl.TexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, int32(W), int32(H), gl.RG, gl.FLOAT, gl.Ptr(s.snowB))
 	gl.BindTexture(gl.TEXTURE_2D, 0)
 }
 
-// FlushInstabilityCells refreshes the snow textures around cells
-// [x0, x1] × [z0, z1] (inclusive), for edits that change only
-// instability, e.g. tree density (trees anchor the snowpack).
-func (r *Renderer) FlushInstabilityCells(t *world.Terrain, x0, z0, x1, z1 int) {
-	if r.scene.cornerSnowTexA == 0 {
+// FlushSnowDirty uploads the snow state the sim and tools marked since
+// the last flush (world.Terrain.MarkSnowDirty): the whole map when it was
+// all marked, otherwise just the marked tiles. Clears the marks.
+func (r *Renderer) FlushSnowDirty(t *world.Terrain) {
+	if !t.SnowDirtyAny() {
+		return
+	}
+	if t.SnowDirtyAll() || r.scene.cornerSnowTexA == 0 {
+		r.FlushSnowState(t)
+	} else {
+		t.ForEachSnowDirtyTile(func(x0, z0, x1, z1 int) {
+			r.FlushSnowCells(t, x0, z0, x1, z1)
+		})
+	}
+	t.ClearSnowDirty()
+}
+
+// FlushSnowCells refreshes the snow textures around cells [x0, x1] ×
+// [z0, z1] (inclusive): a tile the sim marked, or an edit that changes
+// only instability, e.g. tree density (trees anchor the snowpack).
+func (r *Renderer) FlushSnowCells(t *world.Terrain, x0, z0, x1, z1 int) {
+	s := r.scene
+	if s.cornerSnowTexA == 0 {
 		return
 	}
 	// Cells feed the corners [x0, x1+1] × [z0, z1+1].
@@ -640,12 +707,19 @@ func (r *Renderer) FlushInstabilityCells(t *world.Terrain, x0, z0, x1, z1 int) {
 		return
 	}
 	w, h := cx1-cx0+1, cz1-cz0+1
-	a := make([]float32, w*h*4)
-	b := make([]float32, w*h*2)
-	cornerSnow(t, cx0, cz0, cx1, cz1, a, b)
-	gl.BindTexture(gl.TEXTURE_2D, r.scene.cornerSnowTexA)
+	if cap(s.snowTileA) < w*h*4 {
+		s.snowTileA = make([]float32, w*h*4)
+		s.snowTileB = make([]float32, w*h*2)
+	}
+	a, b := s.snowTileA[:w*h*4], s.snowTileB[:w*h*2]
+	if s.snowScratch == nil {
+		s.snowScratch = make([][]cellSnow, 1)
+	}
+	depth := cornerSnow(t, cx0, cz0, cx1, cz1, a, b, &s.snowScratch[0])
+	s.terrainSnowPad = max(s.terrainSnowPad, depth+terrainDispPad)
+	gl.BindTexture(gl.TEXTURE_2D, s.cornerSnowTexA)
 	gl.TexSubImage2D(gl.TEXTURE_2D, 0, int32(cx0), int32(cz0), int32(w), int32(h), gl.RGBA, gl.FLOAT, gl.Ptr(a))
-	gl.BindTexture(gl.TEXTURE_2D, r.scene.cornerSnowTexB)
+	gl.BindTexture(gl.TEXTURE_2D, s.cornerSnowTexB)
 	gl.TexSubImage2D(gl.TEXTURE_2D, 0, int32(cx0), int32(cz0), int32(w), int32(h), gl.RG, gl.FLOAT, gl.Ptr(b))
 	gl.BindTexture(gl.TEXTURE_2D, 0)
 }

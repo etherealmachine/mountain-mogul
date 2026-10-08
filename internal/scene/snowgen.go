@@ -149,7 +149,7 @@ func (f *elevFields) applySnowAccum(t *world.Terrain, maxDepth, snowlineFrac, tr
 			apply(x, z, acc)
 		}
 	}
-	t.SnowDirty = true
+	t.MarkAllSnowDirty()
 }
 
 // elevFrac is elev as a fraction of the map's elevation range, in [0, 1].

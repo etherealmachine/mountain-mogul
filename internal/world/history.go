@@ -1,6 +1,8 @@
 package world
 
 import (
+	"cmp"
+	"slices"
 	"time"
 
 	"mountain-mogul/internal/ai"
@@ -105,6 +107,15 @@ type DailySample struct {
 	Rating           float32                   // resort rating at EOD
 	ThoughtCounts    [ai.ThoughtKindCount]int  // per-kind thought totals emitted during the day
 	DepartReasons    [ai.DepartReasonCount]int // why each guest who left that day went home
+	Falls            int                       // times a guest went down
+}
+
+// FallRecord is one guest going down, for the patrol report and the falls
+// overlay.
+type FallRecord struct {
+	X, Z    float32 // where, in world metres
+	TrailID uint64  // the run they were skiing; 0 off any run
+	LiftID  uint64  // the lift they were getting off, for a fall unloading
 }
 
 // History is a per-world ring of DailySamples plus the day-in-progress
@@ -125,6 +136,7 @@ type History struct {
 	ThoughtCountsToday [ai.ThoughtKindCount]int
 	DepartReasonsToday [ai.DepartReasonCount]int
 	SatisfactionToday  float32 // sum of departing guests' final satisfaction
+	FallsToday         []FallRecord
 }
 
 // NewHistory returns an empty History ready to start recording. The
@@ -183,6 +195,58 @@ func (h *History) RecordThought(kind ai.ThoughtKind) {
 	h.ThoughtCountsToday[kind]++
 }
 
+// RecordFall adds one fall to the day's. Safe to call when h is nil.
+func (h *History) RecordFall(f FallRecord) {
+	if h == nil {
+		return
+	}
+	h.FallsToday = append(h.FallsToday, f)
+}
+
+// FallReport sums the day's falls for the patrol report.
+type FallReport struct {
+	Total     int
+	OffRun    int        // off any run
+	Unloading int        // getting off a lift
+	Runs      []RunFalls // per run, most first
+}
+
+// RunFalls is one run's falls.
+type RunFalls struct {
+	TrailID uint64
+	Count   int
+}
+
+// FallReport sums FallsToday.
+func (h *History) FallReport() FallReport {
+	var r FallReport
+	if h == nil {
+		return r
+	}
+	r.Total = len(h.FallsToday)
+	byRun := map[uint64]int{}
+	for _, f := range h.FallsToday {
+		switch {
+		case f.LiftID != 0:
+			r.Unloading++
+		case f.TrailID == 0:
+			r.OffRun++
+		default:
+			byRun[f.TrailID]++
+		}
+	}
+	for id, n := range byRun {
+		r.Runs = append(r.Runs, RunFalls{TrailID: id, Count: n})
+	}
+	slices.SortFunc(r.Runs, func(a, b RunFalls) int {
+		if a.Count != b.Count {
+			return b.Count - a.Count
+		}
+		return cmp.Compare(a.TrailID, b.TrailID)
+	})
+	return r
+}
+
 // Push writes one finalised DailySample into the ring and resets the
 // per-day counters. Caller has already populated sample.ArrivalsToday /
 // sample.DeparturesToday from h.ArrivalsToday / h.DeparturesToday (or
@@ -203,6 +267,7 @@ func (h *History) Push(sample DailySample) {
 	h.ThoughtCountsToday = [ai.ThoughtKindCount]int{}
 	h.DepartReasonsToday = [ai.DepartReasonCount]int{}
 	h.SatisfactionToday = 0
+	h.FallsToday = nil
 }
 
 // Ordered returns the samples in chronological order (oldest first).

@@ -9,7 +9,8 @@ import "mountain-mogul/internal/world"
 const spatialCellSize = 5.0
 
 // spatialGrid is a flat 2D bucket of agents keyed by world cell. Built
-// once per Tick from w.OnMountain; queried by hazardDensityAt for each
+// every sim step from w.OnMountain, so positions are never more than one
+// 1/30 s step old at any game speed; queried by hazardDensityAt for each
 // candidate-arc sample point. Replaces the O(N) full-agent iteration
 // inside the L1 sampler with O(neighbours) — the per-substep work
 // for sampleTactical drops from O(168 × N²) to O(168 × N × k) where k
@@ -21,6 +22,7 @@ const spatialCellSize = 5.0
 type spatialGrid struct {
 	width, height int
 	buckets       [][]*world.Guest
+	used          []int // buckets filled since the last reset
 }
 
 // newSpatialGrid sizes the grid to cover the given terrain extent in
@@ -36,12 +38,14 @@ func newSpatialGrid(widthM, heightM float32) *spatialGrid {
 	}
 }
 
-// reset clears every bucket while keeping the underlying capacity for
-// reuse. Called at the top of each Tick before re-inserting agents.
+// reset empties the filled buckets, keeping their capacity for reuse.
+// Only the buckets in use are touched: the map has ~150k of them and a
+// reset runs every step.
 func (g *spatialGrid) reset() {
-	for i := range g.buckets {
+	for _, i := range g.used {
 		g.buckets[i] = g.buckets[i][:0]
 	}
+	g.used = g.used[:0]
 }
 
 // insert buckets one agent by its XZ position. Out-of-bounds agents
@@ -52,6 +56,9 @@ func (g *spatialGrid) insert(a *world.Guest) {
 		return
 	}
 	idx := cz*g.width + cx
+	if len(g.buckets[idx]) == 0 {
+		g.used = append(g.used, idx)
+	}
 	g.buckets[idx] = append(g.buckets[idx], a)
 }
 
@@ -74,6 +81,21 @@ func (g *spatialGrid) cellOf(x, z float32) (int, int, bool) {
 		return 0, 0, false
 	}
 	return cx, cz, true
+}
+
+// forEachWithin invokes fn on every agent bucketed in a cell that overlaps
+// the square of half-side r around (x, z); callers filter by distance.
+func (g *spatialGrid) forEachWithin(x, z, r float32, fn func(a *world.Guest)) {
+	x0, z0 := max(int((x-r)/spatialCellSize), 0), max(int((z-r)/spatialCellSize), 0)
+	x1, z1 := min(int((x+r)/spatialCellSize), g.width-1), min(int((z+r)/spatialCellSize), g.height-1)
+	for nz := z0; nz <= z1; nz++ {
+		row := nz * g.width
+		for nx := x0; nx <= x1; nx++ {
+			for _, a := range g.buckets[row+nx] {
+				fn(a)
+			}
+		}
+	}
 }
 
 // forEachNear invokes fn on every agent in the 3×3 cell neighbourhood

@@ -281,7 +281,7 @@ var Testbeds = []Testbed{
 			return scene(40, 100).slope(15).
 				parkingAt(20, 98).
 				liftFromTo(20, 95, 20, 5).
-				paintTrail(world.DiffBlue, world.PolylineCells(waypoints, 2)).
+				runTrail(world.DiffBlue, waypoints, 25).
 				groomPolyline(waypoints, 2).
 				goapSkierAt(20, 98, 0.5, 0.5).
 				build()
@@ -352,24 +352,8 @@ var Testbeds = []Testbed{
 		Name: "Snowcat U-shaped trail BFS transit",
 		Seed: 1,
 		Build: func() *world.World {
-			var cells [][2]int
-			for x := 8; x <= 12; x++ {
-				for z := 2; z <= 30; z++ {
-					cells = append(cells, [2]int{x, z})
-				}
-			}
-			for x := 13; x <= 27; x++ {
-				for z := 2; z <= 6; z++ {
-					cells = append(cells, [2]int{x, z})
-				}
-			}
-			for x := 28; x <= 32; x++ {
-				for z := 2; z <= 30; z++ {
-					cells = append(cells, [2]int{x, z})
-				}
-			}
 			return scene(40, 40).slope(15).
-				groomedTrail(world.DiffBlue, cells).
+				groomedRun(world.DiffBlue, [][2]int{{10, 30}, {10, 4}, {30, 4}, {30, 30}}, 25).
 				shedAt(20, 0).
 				build()
 		},
@@ -382,11 +366,9 @@ var Testbeds = []Testbed{
 		Name: "Snowcat curving run and cat track",
 		Seed: 1,
 		Build: func() *world.World {
-			run := world.PolylineCells([][2]int{{14, 2}, {16, 18}, {26, 32}, {46, 40}}, 4)
-			track := rectCells(4, 50, 52, 3)
 			return scene(60, 60).slope(14).
-				groomedTrail(world.DiffBlue, run).
-				groomedTrail(world.DiffGreen, track).
+				groomedRun(world.DiffBlue, [][2]int{{14, 2}, {16, 18}, {26, 32}, {46, 40}}, 45).
+				groomedRun(world.DiffGreen, [][2]int{{4, 51}, {55, 51}}, 15).
 				shedAt(30, 56).
 				build()
 		},
@@ -501,7 +483,7 @@ var Testbeds = []Testbed{
 			b := scene(40, 100).runout(60, 15, 3).
 				parkingAt(20, 98).
 				liftFromTo(20, 90, 20, 8).
-				paintTrail(world.DiffBlue, world.PolylineCells(waypoints, 2)).
+				runTrail(world.DiffBlue, waypoints, 25).
 				groomPolyline(waypoints, 2).
 				lodgeShell(3, rectCells(24, 84, 4, 4), rectCells(26, 84, 2, 4))
 			for i := 0; i < 8; i++ {
@@ -527,7 +509,7 @@ var Testbeds = []Testbed{
 			b := scene(40, 100).runout(60, 15, 3).
 				parkingAt(20, 98).
 				liftFromTo(20, 90, 20, 8).
-				paintTrail(world.DiffBlue, world.PolylineCells(waypoints, 2)).
+				runTrail(world.DiffBlue, waypoints, 25).
 				groomPolyline(waypoints, 2).
 				serviceBuilding(5,
 					serviceRect{world.ServiceLounge, 25, 80, 3, 3},
@@ -869,12 +851,11 @@ func (b *builder) treeRect(x1, z1, x2, z2 int, density float32) *builder {
 }
 
 // groomPolyline paints a fully-groomed, fully-packed lane on every cell
-// returned by world.PolylineCells(waypoints, radius). Mirrors the same
-// cell set that paintTrail uses, so a testbed can groom exactly the
-// painted trail by calling both with identical arguments.
+// within radius cells of the polyline through waypoints, about the
+// cells a runTrail of width (2·radius+1)·5 m along them covers.
 func (b *builder) groomPolyline(waypoints [][2]int, radius int) *builder {
 	t := b.w.Terrain
-	for _, c := range world.PolylineCells(waypoints, radius) {
+	for _, c := range polylineCells(waypoints, radius) {
 		if !t.InBounds(c[0], c[1]) {
 			continue
 		}
@@ -985,24 +966,68 @@ func (b *builder) liftFromTo(bx, bz, tx, tz int) *builder {
 	return b
 }
 
-// paintTrail registers the given cells as a new trail of the given difficulty
-// and rebuilds the trail graph.
-func (b *builder) paintTrail(diff world.TerrainDifficulty, cells [][2]int) *builder {
-	t := b.w.PlaceTrail("", diff)
-	b.w.AddTrailCells(t.ID, cells)
-	b.w.RebuildTrailGraph()
+// runTrail adds a run of the given difficulty and width (metres) through
+// the centres of the waypoint cells, and rebuilds the trail graph. Its
+// ends aren't attached: it connects to whatever its cells cover.
+func (b *builder) runTrail(diff world.TerrainDifficulty, waypoints [][2]int, width float32) *builder {
+	b.placeRun(diff, waypoints, width)
 	return b
 }
 
-// groomedTrail registers the given cells as a groomed trail of the given
-// difficulty and rebuilds the trail graph. The cat fleet will pick it up on
-// the first reassignment tick.
-func (b *builder) groomedTrail(diff world.TerrainDifficulty, cells [][2]int) *builder {
-	t := b.w.PlaceTrail("", diff)
-	b.w.AddTrailCells(t.ID, cells)
-	t.Groomed = true
-	b.w.RebuildTrailGraph()
+// groomedRect is a groomed run filling the cells [x0, x0+nx) × [z0, z0+nz):
+// along the rectangle's long axis, as wide as its short side.
+func (b *builder) groomedRect(diff world.TerrainDifficulty, x0, z0, nx, nz int) *builder {
+	var a, c [2]int
+	w := float32(min(nx, nz)) * world.CellSize
+	if nx >= nz {
+		a, c = [2]int{x0, z0 + nz/2}, [2]int{x0 + nx - 1, z0 + nz/2}
+	} else {
+		a, c = [2]int{x0 + nx/2, z0}, [2]int{x0 + nx/2, z0 + nz - 1}
+	}
+	return b.groomedRun(diff, [][2]int{a, c}, w)
+}
+
+// groomedRun is runTrail for a run the cats groom.
+func (b *builder) groomedRun(diff world.TerrainDifficulty, waypoints [][2]int, width float32) *builder {
+	b.placeRun(diff, waypoints, width).Groomed = true
 	return b
+}
+
+func (b *builder) placeRun(diff world.TerrainDifficulty, waypoints [][2]int, width float32) *world.Trail {
+	nodes := make([]world.TrailNode, len(waypoints))
+	for i, c := range waypoints {
+		nodes[i] = world.TrailNode{Pos: mgl32.Vec2{(float32(c[0]) + 0.5) * world.CellSize, (float32(c[1]) + 0.5) * world.CellSize}, Width: width}
+	}
+	t := b.w.PlaceRun("", diff, nodes, world.TrailEnd{}, world.TrailEnd{})
+	b.w.RebuildTrailGraph()
+	return t
+}
+
+// polylineCells returns the grid cells within radius of the polyline
+// through the waypoint cells, without gaps.
+func polylineCells(waypoints [][2]int, radius int) [][2]int {
+	seen := map[[2]int]bool{}
+	var out [][2]int
+	stamp := func(cx, cz int) {
+		for dx := -radius; dx <= radius; dx++ {
+			for dz := -radius; dz <= radius; dz++ {
+				if c := [2]int{cx + dx, cz + dz}; dx*dx+dz*dz <= radius*radius && !seen[c] {
+					seen[c] = true
+					out = append(out, c)
+				}
+			}
+		}
+	}
+	for i := 1; i < len(waypoints); i++ {
+		x0, z0 := float64(waypoints[i-1][0]), float64(waypoints[i-1][1])
+		dx, dz := float64(waypoints[i][0])-x0, float64(waypoints[i][1])-z0
+		steps := max(int(math.Max(math.Abs(dx), math.Abs(dz))), 1)
+		for s := 0; s <= steps; s++ {
+			u := float64(s) / float64(steps)
+			stamp(int(math.Round(x0+u*dx)), int(math.Round(z0+u*dz)))
+		}
+	}
+	return out
 }
 
 // shedAt places a shed with a 2 × 2 snowcat garage and one cat, its

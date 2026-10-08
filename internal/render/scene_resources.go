@@ -49,6 +49,11 @@ type SceneResources struct {
 	cornerSnowTexA uint32
 	cornerSnowTexB uint32
 	terrainSnowPad float32
+	// Scratch for snow flushes, reused frame to frame: the whole-map
+	// textures' source, a tile's, and per-worker cell values.
+	snowA, snowB         []float32
+	snowTileA, snowTileB []float32
+	snowScratch          [][]cellSnow
 
 	// detailTex mirrors Terrain.Detail; 0 when the terrain has none.
 	detailTex        uint32

@@ -110,16 +110,35 @@ func (k ShellKind) TileCost(s Service) int {
 	return int(float32(s.TileCost()) * k.tileCostScale())
 }
 
+// structureTileCost is the walls, roof, and floor of one lodge tile; a
+// service's tile cost covers it and its fit-out together.
+const structureTileCost = 10_000
+
+// StructureTileCost is one tile of empty floor in kind k, per storey.
+func (k ShellKind) StructureTileCost() int {
+	return int(structureTileCost * k.tileCostScale())
+}
+
+// FitOutTileCost is fitting service s into one tile of kind k, per
+// storey: the service's tile cost less the structure already paid for.
+func (k ShellKind) FitOutTileCost(s Service) int {
+	if s == ServiceNone {
+		return 0
+	}
+	return max(k.TileCost(s)-k.StructureTileCost(), 0)
+}
+
 // Floors is b's storey count, at least 1.
 func (b *Building) Floors() int {
 	return max(b.Storeys, 1)
 }
 
-// AddStoreyCost is what adding a storey to b costs: every tile again.
+// AddStoreyCost is what adding a storey to b costs: every tile again,
+// its structure and its fit-out.
 func (b *Building) AddStoreyCost() int {
 	cost := 0
 	for _, c := range b.Cells {
-		cost += b.Kind.TileCost(b.ServiceAt(c))
+		cost += b.Kind.StructureTileCost() + b.Kind.FitOutTileCost(b.ServiceAt(c))
 	}
 	return cost
 }

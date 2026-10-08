@@ -22,6 +22,7 @@ type shadowMap struct {
 	fbo, tex       uint32
 	staticShader   *Shader
 	dynamicShader  *Shader
+	figureShader   *Shader
 	lightVP        mgl32.Mat4
 	texelWorld     float32 // metres per shadow-map texel
 	ready          bool
@@ -38,6 +39,10 @@ func (s *shadowMap) init(shaderDir string) {
 		return
 	}
 	if s.dynamicShader, err = LoadShader(shaderDir+"shadow_dynamic.vert", shaderDir+"shadow.frag"); err != nil {
+		s.failedToCreate = true
+		return
+	}
+	if s.figureShader, err = LoadShader(shaderDir+"figure_shadow.vert", shaderDir+"shadow.frag"); err != nil {
 		s.failedToCreate = true
 		return
 	}
@@ -127,13 +132,16 @@ func (s *shadowMap) render(r *Renderer, lightDir mgl32.Vec3, groundY float32) {
 	s.dynamicShader.Use()
 	s.dynamicShader.SetMat4("uLightVP", s.lightVP)
 	for _, b := range []*Batch{
-		r.dynamicBatch, r.walkerBatch, r.snowcatBatch, r.patrollerBatch, r.carBatch,
-		r.chairBatch, r.chairQuadBatch, r.chair6PackBatch, r.gondolaBatch, r.helicopterBodyBatch,
+		r.snowcatBatch, r.patrollerBatch, r.carBatch,
+		r.chairBatch, r.chairTripleBatch, r.chairQuadBatch, r.chair6PackBatch, r.gondolaBatch, r.helicopterBodyBatch,
 	} {
 		if b != nil {
 			b.Draw()
 		}
 	}
+	s.figureShader.Use()
+	s.figureShader.SetMat4("uLightVP", s.lightVP)
+	r.figures.draw(s.figureShader)
 
 	gl.Disable(gl.POLYGON_OFFSET_FILL)
 	gl.BindFramebuffer(gl.FRAMEBUFFER, uint32(prevFBO))

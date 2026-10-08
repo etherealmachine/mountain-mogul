@@ -16,7 +16,6 @@ func (s *Simulation) tickSnowGuns(dt float64) {
 	const snowGunSWEPerCellPerSec = snowGunSWEPerCellPerHour / simSecondsPerHour
 	t := s.World.Terrain
 	swePerCell := float32(snowGunSWEPerCellPerSec * dt)
-	modified := false
 	for _, b := range s.World.Buildings {
 		if b.Type != world.BuildingSnowGun || !b.SnowGunEnabled {
 			continue
@@ -40,11 +39,9 @@ func (s *Simulation) tickSnowGuns(dt float64) {
 					cell.Base += cell.Top.Accumulation
 					cell.Top = world.SnowLayer{Kind: world.KindBase, Accumulation: swePerCell}
 				}
-				modified = true
 			}
 		}
-	}
-	if modified {
-		t.SnowDirty = true
+		r := world.SnowGunRangeCells
+		t.MarkSnowDirtyRect(cx-r, cz-r, cx+r, cz+r)
 	}
 }

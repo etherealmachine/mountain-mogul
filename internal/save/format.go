@@ -257,15 +257,26 @@ type PatrollerData struct {
 	LiftT      float32    `json:"lift_t,omitempty"`
 }
 
-// TrailData is a saved player-defined ski trail. Cells is the complete
-// list of grid cells the trail covers; connectivity is derived on load
-// and not persisted.
+// TrailData is a saved trail as drawn: a run's nodes (x, z, width) and
+// what its ends are attached to, or an area's outline (x, z). Its cells
+// and the trail graph are derived on load. Trails saved as painted cells
+// (no nodes or outline) don't load.
 type TrailData struct {
-	ID         uint64   `json:"id,omitempty"`
-	Name       string   `json:"name,omitempty"`
-	Difficulty uint8    `json:"diff,omitempty"`
-	Groomed    bool     `json:"groomed,omitempty"`
-	Cells      [][2]int `json:"cells,omitempty"`
+	ID         uint64        `json:"id,omitempty"`
+	Name       string        `json:"name,omitempty"`
+	Kind       uint8         `json:"kind,omitempty"`
+	Difficulty uint8         `json:"diff,omitempty"`
+	Groomed    bool          `json:"groomed,omitempty"`
+	Nodes      [][3]float32  `json:"nodes,omitempty"`
+	Start      *TrailEndData `json:"start,omitempty"`
+	End        *TrailEndData `json:"end,omitempty"`
+	Outline    [][2]float32  `json:"outline,omitempty"`
+}
+
+// TrailEndData is what a run's end is attached to (world.TrailEnd).
+type TrailEndData struct {
+	Kind uint8  `json:"kind"`
+	ID   uint64 `json:"id"`
 }
 
 // LeavingData is a world.Leaving: score, conditions, and reason.
@@ -286,6 +297,15 @@ type HistoryData struct {
 	DeparturesToday int               `json:"d,omitempty"`
 	RevenueToday    int               `json:"r,omitempty"`
 	RevenueByKind   []int             `json:"rk,omitempty"` // world.RevenueKind order
+	Falls           []FallData        `json:"f,omitempty"`  // world.History.FallsToday
+}
+
+// FallData mirrors world.FallRecord.
+type FallData struct {
+	X       float32 `json:"x"`
+	Z       float32 `json:"z"`
+	TrailID uint64  `json:"t,omitempty"`
+	LiftID  uint64  `json:"l,omitempty"`
 }
 
 // DailySampleData mirrors world.DailySample with msgpack-compact field
@@ -302,6 +322,7 @@ type DailySampleData struct {
 	CostsByKind      []int   `json:"ck,omitempty"` // world.CostKind order
 	Open             bool    `json:"o,omitempty"`
 	Rating           float32 `json:"rt,omitempty"`
+	Falls            int     `json:"f,omitempty"`
 }
 
 // RoadNodeData is one vertex in the road graph. ID is preserved across
@@ -471,6 +492,7 @@ type PlanActionData struct {
 	LiftID  uint64  `json:"l,omitempty"`
 	BldgID  uint64  `json:"b,omitempty"`
 	TrailID uint64  `json:"t,omitempty"`
+	Via     uint64  `json:"v,omitempty"` // ActSkiTrail: the trail skied
 	Use     uint8   `json:"u,omitempty"` // ActUseService: ai.Offer
 	Cost    float32 `json:"c,omitempty"`
 }

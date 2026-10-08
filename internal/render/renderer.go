@@ -33,6 +33,7 @@ const (
 	OverlayTrails        = 1 << 9  // show painted trail areas as semi-opaque colour patches
 	OverlayParcels       = 1 << 10 // editor: show parcel tints and price labels (CPU-side, not in shader)
 	OverlayGround        = 1 << 11 // what the ground is made of (Terrain.Material), snow or not
+	OverlayFalls         = 1 << 12 // where guests fell today, as a heat map (CPU-side cell overlay)
 )
 
 // DebugLine is a single world-space line segment for tuning overlays.
@@ -68,9 +69,9 @@ type Renderer struct {
 	// cutawayLodgeID is the lodge drawn roofless with low walls so its
 	// floor plan shows while it's being edited; 0 for none.
 	cutawayLodgeID        uint64
-	dynamicBatch          *Batch // skier mesh (SkisOn == true)
-	walkerBatch           *Batch // walker mesh (SkisOn == false)
+	figures               figures // guests and patrollers (figure.go)
 	chairBatch            *Batch
+	chairTripleBatch      *Batch
 	chairQuadBatch        *Batch
 	chair6PackBatch       *Batch
 	gondolaBatch          *Batch
@@ -116,6 +117,11 @@ type Renderer struct {
 	overlayVAO, overlayVBO uint32
 	overlayVertCount       int32 // the editor's map overlay: ribbons draped on the ground
 
+	// trailLayers are the drawn trails (SetTrailLayer): layer 0 the
+	// settled ones, rebuilt when trails change; layer 1 what changes
+	// every frame (the ghost, handles, the run being edited).
+	trailLayers [TrailLayerCount]trailLayer
+
 	weatherVAO uint32 // empty VAO for the full-screen-triangle weather pass
 
 	// WeatherOverlay controls the precipitation/sky overlay drawn after the
@@ -155,6 +161,12 @@ type Renderer struct {
 	HiddenGuestID    uint64     // skip this agent in the dynamic pass (used by first-person camera)
 	HiddenGuestPos   mgl32.Vec3 // anchor for HiddenRadius proximity culling
 	HiddenRadius     float32    // when >0, also skip agents within this XZ radius of HiddenGuestPos
+	// ActivityTint colours each guest by what they're doing (guestColor)
+	// over their outfit: a debug view.
+	ActivityTint bool
+	// FigureGallery lines up every figure pose at the camera target
+	// (-screenshot -figure-gallery).
+	FigureGallery bool
 	// TerrainOverlayMode is a bitmask of view overlays applied to the
 	// terrain mesh. Each enabled bit alpha-blends its overlay onto the
 	// base shading, so several can stack at once. Bits, in order:
@@ -222,6 +234,9 @@ func NewRenderer(w, h int, assetDir string) (*Renderer, error) {
 	r.DynamicShader, err = LoadShader(shaderDir+"dynamic.vert", shaderDir+"dynamic.frag", lightingPath)
 	if err != nil {
 		return nil, fmt.Errorf("dynamic shader: %w", err)
+	}
+	if err := r.figures.init(shaderDir); err != nil {
+		return nil, fmt.Errorf("figure shader: %w", err)
 	}
 
 	r.UIShader, err = LoadShader(shaderDir+"ui.vert", shaderDir+"ui.frag")
@@ -328,6 +343,11 @@ func NewRenderer(w, h int, assetDir string) (*Renderer, error) {
 	gl.VertexAttribPointerWithOffset(1, 3, gl.FLOAT, false, 24, 12)
 	gl.BindVertexArray(0)
 
+	for i := range r.trailLayers {
+		r.trailLayers[i].fill.init()
+		r.trailLayers[i].lines.init()
+	}
+
 	// Load all mesh types
 	r.initStaticMeshes()
 
@@ -403,14 +423,6 @@ func (r *Renderer) initStaticMeshes() {
 	// tint keeps the colour palette decision in the placement code.
 	r.staticBatches[MeshRoadNode] = NewStaticBatch(NewCylinderMesh(1.5, 0.15, 24), r.whiteTexID)
 
-	// Skier — dynamic batch. One instance per world.Guest with skis on.
-	skierMesh, skierTexID := LoadOBJ(modelDir + "skier.obj")
-	r.dynamicBatch = NewDynamicBatch(skierMesh, skierTexID)
-
-	// Walker — same guest figure but without skis; drawn when SkisOn==false.
-	walkerMesh, walkerTexID := LoadOBJ(modelDir + "walker.obj")
-	r.walkerBatch = NewDynamicBatch(walkerMesh, walkerTexID)
-
 	// Chair — dynamic batch (heading rotates each chair along the cable).
 	// Three variants: double, fixed-grip quad, and high-speed 6-pack. Each
 	// has its own batch + slot registration so per-rider seating works
@@ -420,6 +432,10 @@ func (r *Renderer) initStaticMeshes() {
 	r.chairBatch = NewDynamicBatch(chairMesh, chairTexID)
 	world.RegisterMeshSlots(world.MeshChair, LoadOBJSlots(chairPath))
 
+	chairTriplePath := modelDir + "chair_triple.obj"
+	chairTripleMesh, chairTripleTexID := LoadOBJ(chairTriplePath)
+	r.chairTripleBatch = NewDynamicBatch(chairTripleMesh, chairTripleTexID)
+	world.RegisterMeshSlots(world.MeshChairTriple, LoadOBJSlots(chairTriplePath))
 	chairQuadPath := modelDir + "chair_quad.obj"
 	chairQuadMesh, chairQuadTexID := LoadOBJ(chairQuadPath)
 	r.chairQuadBatch = NewDynamicBatch(chairQuadMesh, chairQuadTexID)
@@ -1322,6 +1338,8 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		// uWorldSize is the terrain extent in metres = cells × 5.
 		const cellSize = float32(5.0)
 		r.TerrainShader.SetInt("uSnowSurface", 1)
+		// Tracks fade in the shader by the minutes since their clock.
+		r.TerrainShader.SetFloat("uTrackClock", float32(math.Mod(w.SimTime/60, 65536)))
 		r.TerrainShader.SetVec2("uWorldSize", mgl32.Vec2{
 			float32(r.scene.terrainWidth) * cellSize,
 			float32(r.scene.terrainHeight) * cellSize,
@@ -1369,6 +1387,8 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		gl.BindVertexArray(0)
 		gl.DepthMask(true)
 	}
+
+	r.drawTrailLayers(vp)
 
 	// Static pass
 	r.StaticShader.Use()
@@ -1492,86 +1512,18 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	r.DynamicShader.SetFloat("uTime", time)
 	r.DynamicShader.SetFloat("uSpinRate", 0) // default; overridden per rotor draw
 
-	if r.dynamicBatch != nil || r.walkerBatch != nil {
-		skierInst := make([]DynamicInstance, 0, len(w.OnMountain))
-		walkerInst := make([]DynamicInstance, 0)
-		hr2 := r.HiddenRadius * r.HiddenRadius
-		rescuers := map[uint64]*world.Patroller{}
-		for _, p := range w.Patrollers {
-			rescuers[p.ID] = p
-		}
-		for _, agent := range w.OnMountain {
-			if r.HiddenGuestID != 0 && agent.ID == r.HiddenGuestID {
-				continue
-			}
-			// A patient lies where they fell while patrol loads them, rides
-			// out of sight on a snowmobile, and is towed a little behind a
-			// patroller's toboggan.
-			pos := agent.Pos
-			if p := rescuers[agent.OnPatrollerID]; p != nil {
-				switch p.State {
-				case world.PatrollerReturning:
-					continue
-				case world.PatrollerToboggan:
-					pos[0] = p.Pos[0] - float32(math.Sin(float64(p.Heading)))*patientTow
-					pos[2] = p.Pos[2] - float32(math.Cos(float64(p.Heading)))*patientTow
-				}
-			}
-			if hr2 > 0 {
-				dx := pos[0] - r.HiddenGuestPos[0]
-				dz := pos[2] - r.HiddenGuestPos[2]
-				if dx*dx+dz*dz < hr2 {
-					continue
-				}
-			}
-			posY := pos[1]
-			if agent.OnLiftID == 0 {
-				// An unloading rider stands up from their seat's height.
-				posY = VisualElevationAt(w.Terrain, pos[0], pos[2]) + agent.Unload.UnloadLift()
-			}
-			color := guestColor(w, agent)
-			if agent.OnPatrollerID != 0 {
-				color = injuredColor
-			}
-			if r.HighlightGuestID != 0 && agent.ID == r.HighlightGuestID {
-				color = [3]float32{1.0, 0.95, 0.1}
-			}
-			inst := DynamicInstance{
-				Position: [3]float32{pos[0], posY, pos[2]},
-				Heading:  agent.Heading,
-				Color:    color,
-				SpinMode: 1.0,
-			}
-			if agent.SkisOn {
-				skierInst = append(skierInst, inst)
-			} else {
-				walkerInst = append(walkerInst, inst)
-			}
-		}
-		// Patrollers on a lift or skis (patrol red).
-		for _, p := range w.Patrollers {
-			if !p.State.OnSkis() {
-				continue
-			}
-			y := p.Pos[1]
-			if p.State != world.PatrollerRiding {
-				y = VisualElevationAt(w.Terrain, p.Pos[0], p.Pos[2])
-			}
-			skierInst = append(skierInst, DynamicInstance{
-				Position: [3]float32{p.Pos[0], y, p.Pos[2]},
-				Heading:  p.Heading,
-				Color:    [3]float32{0.85, 0.12, 0.10},
-				SpinMode: 1.0,
-			})
-		}
-		if r.dynamicBatch != nil {
-			r.dynamicBatch.SetDynamic(skierInst)
-			r.dynamicBatch.Draw()
-		}
-		if r.walkerBatch != nil {
-			r.walkerBatch.SetDynamic(walkerInst)
-			r.walkerBatch.Draw()
-		}
+	// Guests and patrollers: jointed figures in their outfits.
+	r.figures.build(r, w)
+	if fs := r.figures.shader; fs != nil {
+		fs.Use()
+		light.apply(fs)
+		r.applyHaze(fs)
+		fs.SetFloat("uEmissive", 0)
+		r.terrainShadow.apply(fs, light.Shadows)
+		r.shadowMap.apply(fs, light.Shadows)
+		fs.SetMat4("uViewProj", vp)
+		r.figures.draw(fs)
+		r.DynamicShader.Use()
 	}
 
 	// Snowcats — same dynamic-instance path as agents. Driven by
@@ -1629,26 +1581,6 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		r.patrollerBatch.SetDynamic(pInst)
 		r.patrollerBatch.Draw()
 	}
-	if r.walkerBatch != nil {
-		var walkers []DynamicInstance
-		for _, p := range w.Patrollers {
-			// On scene they stand by the patient, however they came.
-			if !p.State.OnFoot() && p.State != world.PatrollerOnScene {
-				continue
-			}
-			walkers = append(walkers, DynamicInstance{
-				Position: [3]float32{p.Pos[0], VisualElevationAt(w.Terrain, p.Pos[0], p.Pos[2]), p.Pos[2]},
-				Heading:  p.Heading,
-				Color:    [3]float32{0.85, 0.12, 0.10},
-				SpinMode: 1.0,
-			})
-		}
-		if len(walkers) > 0 {
-			r.walkerBatch.SetDynamic(walkers)
-			r.walkerBatch.Draw()
-		}
-	}
-
 	// Helicopters — body + animated rotor parts, one set per HeliLift.
 	if r.helicopterBodyBatch != nil {
 		var bodyInst []DynamicInstance
@@ -1745,7 +1677,7 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	// Re-bind the dynamic shader: the debug pass above may have switched it.
 	if r.chairBatch != nil || r.chairQuadBatch != nil || r.chair6PackBatch != nil || r.gondolaBatch != nil {
 		r.DynamicShader.Use()
-		var doubles, quads, sixPacks, gondolas []DynamicInstance
+		var doubles, triples, quads, sixPacks, gondolas []DynamicInstance
 		for _, lift := range w.Lifts {
 			for _, chair := range lift.Chairs {
 				pos, heading := lift.ChairPos(chair.Progress, w.Terrain)
@@ -1756,9 +1688,11 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 						break
 					}
 				}
-				color := [3]float32{0.7, 0.7, 0.7}
+				// The chair models carry their own colours; a loaded
+				// chair reads a touch cooler.
+				color := [3]float32{1, 1, 1}
 				if hasPax {
-					color = [3]float32{0.55, 0.65, 0.85}
+					color = [3]float32{0.82, 0.88, 1}
 				}
 				inst := DynamicInstance{
 					Position: [3]float32{pos[0], pos[1], pos[2]},
@@ -1766,6 +1700,8 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 					Color:    color,
 				}
 				switch lift.Type {
+				case world.LiftFixedTriple:
+					triples = append(triples, inst)
 				case world.LiftFixedQuad, world.LiftHSQuad:
 					quads = append(quads, inst)
 				case world.LiftHS6Pack:
@@ -1780,6 +1716,10 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		if r.chairBatch != nil {
 			r.chairBatch.SetDynamic(doubles)
 			r.chairBatch.Draw()
+		}
+		if r.chairTripleBatch != nil {
+			r.chairTripleBatch.SetDynamic(triples)
+			r.chairTripleBatch.Draw()
 		}
 		if r.chairQuadBatch != nil {
 			r.chairQuadBatch.SetDynamic(quads)
@@ -2494,4 +2434,109 @@ func fenceTint(l Lighting) mgl32.Vec3 {
 		v[i] = min(max(v[i], 0.06), 1)
 	}
 	return v
+}
+
+// Trail layers (SetTrailLayer).
+const (
+	TrailLayerSettled = iota // every trail as it stands
+	TrailLayerLive           // the ghost, handles, and the run being edited
+	TrailLayerCount
+)
+
+// trailFillAlpha is how opaque a trail's fill is over the snow.
+const trailFillAlpha = 0.32
+
+// vertBuffer is a triangle list of pos(xyz) + colour(rgb) vertices.
+type vertBuffer struct {
+	vao, vbo uint32
+	n        int32
+}
+
+func (b *vertBuffer) init() {
+	gl.GenVertexArrays(1, &b.vao)
+	gl.GenBuffers(1, &b.vbo)
+	gl.BindVertexArray(b.vao)
+	gl.BindBuffer(gl.ARRAY_BUFFER, b.vbo)
+	gl.EnableVertexAttribArray(0)
+	gl.VertexAttribPointerWithOffset(0, 3, gl.FLOAT, false, 24, 0)
+	gl.EnableVertexAttribArray(1)
+	gl.VertexAttribPointerWithOffset(1, 3, gl.FLOAT, false, 24, 12)
+	gl.BindVertexArray(0)
+}
+
+func (b *vertBuffer) set(verts []float32) {
+	b.n = int32(len(verts) / 6)
+	if b.n == 0 {
+		return
+	}
+	gl.BindBuffer(gl.ARRAY_BUFFER, b.vbo)
+	gl.BufferData(gl.ARRAY_BUFFER, len(verts)*4, gl.Ptr(verts), gl.DYNAMIC_DRAW)
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+}
+
+func (b *vertBuffer) draw() {
+	if b.n == 0 {
+		return
+	}
+	gl.BindVertexArray(b.vao)
+	gl.DrawArrays(gl.TRIANGLES, 0, b.n)
+	gl.BindVertexArray(0)
+}
+
+// trailLayer is one layer of drawn trails: a see-through fill and solid
+// lines (edges, handles), each a triangle list draped on the snow.
+type trailLayer struct {
+	fill, lines vertBuffer
+}
+
+// SetTrailLayer uploads a layer of drawn trails: fill drawn see-through,
+// lines solid; each a triangle list, pos(xyz) + colour(rgb) per vertex.
+// Nil clears.
+func (r *Renderer) SetTrailLayer(layer int, fill, lines []float32) {
+	r.trailLayers[layer].fill.set(fill)
+	r.trailLayers[layer].lines.set(lines)
+}
+
+// drawTrailLayers draws the trails over the terrain, tested against its
+// depth but not writing any, so what's built sits on top.
+func (r *Renderer) drawTrailLayers(vp mgl32.Mat4) {
+	if r.DebugShader == nil {
+		return
+	}
+	any := false
+	for _, l := range r.trailLayers {
+		any = any || l.fill.n > 0 || l.lines.n > 0
+	}
+	if !any {
+		return
+	}
+	r.DebugShader.Use()
+	r.DebugShader.SetMat4("uViewProj", vp)
+	r.DebugShader.SetVec3("uTint", mgl32.Vec3{1, 1, 1})
+	gl.DepthMask(false)
+	// Pull the trails toward the camera a little, so the snow's
+	// tessellated detail between their vertices doesn't poke through.
+	gl.Enable(gl.POLYGON_OFFSET_FILL)
+	gl.PolygonOffset(-2, -8)
+	defer gl.Disable(gl.POLYGON_OFFSET_FILL)
+	gl.Enable(gl.BLEND)
+	gl.BlendColor(0, 0, 0, trailFillAlpha)
+	gl.BlendFunc(gl.CONSTANT_ALPHA, gl.ONE_MINUS_CONSTANT_ALPHA)
+	// Each pixel takes one trail's fill, the first drawn there, so
+	// overlapping and joined runs merge into one even tint instead of
+	// darkening where they stack.
+	gl.ClearStencil(0)
+	gl.Clear(gl.STENCIL_BUFFER_BIT)
+	gl.Enable(gl.STENCIL_TEST)
+	gl.StencilFunc(gl.EQUAL, 0, 0xFF)
+	gl.StencilOp(gl.KEEP, gl.KEEP, gl.INCR)
+	for i := range r.trailLayers {
+		r.trailLayers[i].fill.draw()
+	}
+	gl.Disable(gl.STENCIL_TEST)
+	gl.Disable(gl.BLEND)
+	for i := range r.trailLayers {
+		r.trailLayers[i].lines.draw()
+	}
+	gl.DepthMask(true)
 }

@@ -10,7 +10,7 @@ const (
 	TowerHeight     = 18.0 // height of lift tower poles — top of crossbar aligns with cable (metres)
 	CrossbarHalf    = 2.5  // half-length of tower T crossbar (metres)
 	CableGap        = 1.5  // lateral half-gap between up and down cables (metres)
-	BullwheelHeight = 3.65 // cable height at the station bullwheel — derived from lift_station.scad
+	BullwheelHeight = 3.65 // cable height at the station bullwheel — derived from lift_station.scad; chairs hang their footrests this far below the cable (lib/chair_kit.scad)
 	StationOffset   = 25.0 // distance from each station to the first/last tower; cable transitions over this span
 	ChairSpacingM   = 30.0 // one chair per N metres of loop (approx)
 )
@@ -22,12 +22,13 @@ const (
 type LiftType uint8
 
 const (
-	LiftDouble    LiftType = iota // 2-seat fixed grip (the original)
-	LiftFixedQuad                 // 4-seat fixed grip
-	LiftHSQuad                    // 4-seat high-speed detachable quad
-	LiftHS6Pack                   // 6-seat high-speed detachable 6-pack
-	LiftGondola                   // 8-person monocable detachable gondola
-	LiftHeli                      // helicopter heli-ski "lift" (no cable)
+	LiftDouble      LiftType = iota // 2-seat fixed grip (the original)
+	LiftFixedQuad                   // 4-seat fixed grip
+	LiftHSQuad                      // 4-seat high-speed detachable quad
+	LiftHS6Pack                     // 6-seat high-speed detachable 6-pack
+	LiftGondola                     // 8-person monocable detachable gondola
+	LiftHeli                        // helicopter heli-ski "lift" (no cable)
+	LiftFixedTriple                 // 3-seat fixed grip
 )
 
 // HeliPhase is the state of a heli-ski helicopter in its flight cycle.
@@ -58,6 +59,8 @@ type HeliData struct {
 // type carries.
 func (t LiftType) Capacity() int {
 	switch t {
+	case LiftFixedTriple:
+		return 3
 	case LiftFixedQuad, LiftHSQuad:
 		return 4
 	case LiftHS6Pack:
@@ -75,6 +78,8 @@ func (t LiftType) Capacity() int {
 // per-rider seat positioning in sim.tickRiding.
 func (t LiftType) MeshID() uint32 {
 	switch t {
+	case LiftFixedTriple:
+		return MeshChairTriple
 	case LiftFixedQuad, LiftHSQuad:
 		return MeshChairQuad
 	case LiftHS6Pack:
@@ -105,6 +110,8 @@ func (t LiftType) DefaultSpeed() float32 {
 // Label returns a short human-readable name for HUD / popup display.
 func (t LiftType) Label() string {
 	switch t {
+	case LiftFixedTriple:
+		return "Triple"
 	case LiftFixedQuad:
 		return "Fixed Quad"
 	case LiftHSQuad:
@@ -834,6 +841,8 @@ func (t LiftType) StationCost() int {
 	switch t {
 	case LiftDouble:
 		return 400_000
+	case LiftFixedTriple:
+		return 550_000
 	case LiftFixedQuad:
 		return 700_000
 	case LiftHSQuad:
@@ -853,6 +862,8 @@ func (t LiftType) PerMeterCost() int {
 	switch t {
 	case LiftDouble:
 		return 150
+	case LiftFixedTriple:
+		return 175
 	case LiftFixedQuad:
 		return 200
 	case LiftHSQuad:
@@ -872,6 +883,8 @@ func (t LiftType) RunningCostDay() int {
 	switch t {
 	case LiftDouble:
 		return 300
+	case LiftFixedTriple:
+		return 350
 	case LiftFixedQuad:
 		return 400
 	case LiftHSQuad:

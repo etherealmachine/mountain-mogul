@@ -35,6 +35,7 @@ func (t *Terrain) setCellTrees(x, z int, trees []Tree) {
 		n = 255
 	}
 	t.Cells[x][z].TreeCount = uint8(n)
+	t.markTrunksDirty(x, z)
 }
 
 // TreesInCell returns the trees stored in cell (x, z). The slice is the

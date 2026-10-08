@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/go-gl/mathgl/mgl32"
-
 	"mountain-mogul/internal/ai"
 	"mountain-mogul/internal/world"
 )
@@ -147,7 +145,7 @@ func (p *Planner) StoredPlanForLookahead(a *world.Guest, liftID uint64, w *world
 // are skipped — zero-weight goals (GoHome at full patience) must not win
 // by default. A goal that can't be planned (Rest with no lodge, a ride
 // with no lift) is reported in Plan.Blocked and the next goal is tried.
-// Falls back to defaultLapPlan when no goal produces a plan.
+// Falls back to lapPlan when no goal produces a plan.
 func (p *Planner) planFromSnap(snap WorldSnapshot, a *world.Guest, w *world.World) ai.Plan {
 	plan := p.pickPlan(snap, a, w)
 	plan.Pressing = PressingNeeds(&snap, w)
@@ -184,7 +182,7 @@ func (p *Planner) pickPlan(snap WorldSnapshot, a *world.Guest, w *world.World) a
 		return out
 	}
 	// No unsatisfied goal with positive weight — keep lapping.
-	plan := defaultLapPlan(snap, a, w)
+	plan := p.lapPlan(snap, w)
 	plan.Blocked = blocked
 	return plan
 }
@@ -245,54 +243,31 @@ func ridesLift(g Goal) bool {
 	return false
 }
 
-// defaultLapPlan builds a minimal [SkiToLift, JoinQueue, RideLift] plan
-// directly when no goal has positive unsatisfied weight. Picks the
-// skill-accessible lift reachable from snap.AtLiftTop with the fewest
-// prior rides (preferring novelty even when Explore is satisfied).
-// Returns an empty plan if no lap is possible.
-func defaultLapPlan(snap WorldSnapshot, a *world.Guest, w *world.World) ai.Plan {
-	if snap.AtLiftTop == 0 || !hasTicket(&snap) {
+// lapGoal is the fallback when no goal wants anything: get in another
+// lift line, the cheapest way the guest's rules allow (trails at their
+// level unless they free-roam), favouring lifts they've ridden least
+// (RideLift's repeat penalty doesn't apply here; JoinQueue's line cost
+// and the descent do).
+type lapGoal struct{}
+
+func (lapGoal) Name() string { return "KeepSkiing" }
+
+func (lapGoal) IsSatisfied(s *WorldSnapshot, w *world.World) bool { return s.Queued != 0 }
+
+func (lapGoal) Weight(s *WorldSnapshot, w *world.World) float32 { return 1 }
+
+// lapPlan plans lapGoal from snap: a descent (or a walk) to a lift line
+// and joining it; the guest plans the ride from the line. Empty when no
+// lap is possible.
+func (p *Planner) lapPlan(snap WorldSnapshot, w *world.World) ai.Plan {
+	if !hasTicket(&snap) {
 		return ai.Plan{}
 	}
-	src := findLift(w, snap.AtLiftTop)
-	if src == nil {
+	actions := p.Plan(snap, lapGoal{}, w)
+	if len(actions) == 0 {
 		return ai.Plan{}
 	}
-	var best *world.Lift
-	bestRides := int(^uint(0) >> 1)
-	for _, l := range w.Lifts {
-		if !liftAccessible(l, snap.Skill, w) {
-			continue
-		}
-		if !l.Open || l.OnHold {
-			continue
-		}
-		if liftTopElev(w, src)-liftBaseElev(w, l) < minDescentMeters {
-			continue
-		}
-		if len(l.Queue) > MaxQueuePersons {
-			continue
-		}
-		rides := ai.RideCountOf(snap.RidenLifts, l.ID)
-		if rides < bestRides {
-			bestRides = rides
-			best = l
-		}
-	}
-	if best == nil {
-		return ai.Plan{}
-	}
-	skiCost := distXZ(mgl32.Vec3{src.Top[0], 0, src.Top[1]}, best.Base[0], best.Base[1]) / skiSpeedMps
-	qCost := float32(len(best.Queue)) * queueSlotSec
-	rideCost := best.LoopLength() / (2 * best.Speed)
-	return ai.Plan{
-		GoalName: "KeepSkiing",
-		Steps: []ai.PlanAction{
-			{Kind: ai.ActSkiToLift, LiftID: best.ID, Cost: skiCost},
-			{Kind: ai.ActJoinQueue, LiftID: best.ID, Cost: qCost},
-			{Kind: ai.ActRideLift, LiftID: best.ID, Cost: rideCost},
-		},
-	}
+	return ai.Plan{GoalName: lapGoal{}.Name(), Steps: ToPlanActions(actions, snap, w)}
 }
 
 // reconstruct walks the parent chain from a goal node back to the start

@@ -34,6 +34,7 @@ const (
 	MeshPatrolHut    uint32 = MeshShed // patrol hut reuses shed mesh
 	MeshBar          uint32 = 23       // bar/restaurant (half-size lodge mesh)
 	MeshTicketOffice uint32 = 24       // ticket booth with service windows
+	MeshChairTriple  uint32 = 25       // 3-seat fixed grip chair
 )
 
 // MeshSlot is an anchor point baked into a mesh by the SCAD pipeline

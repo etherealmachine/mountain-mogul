@@ -28,11 +28,13 @@ type Editor struct {
 	toolButtons  map[toolMode]*ui.Button
 	// Submenu groups
 	buildingsSubmenu *ui.SubmenuButton
+	servicesSubmenu  *ui.SubmenuButton
 	transportSubmenu *ui.SubmenuButton
 	liftsSubmenu     *ui.SubmenuButton
 	terrainSubmenu   *ui.SubmenuButton
 	// Lift variant buttons (outside toolButtons — multiple share toolLiftBase/Top)
 	liftDoubleBtn    *ui.Button
+	liftTripleBtn    *ui.Button
 	liftQuadBtn      *ui.Button
 	liftHSQuadBtn    *ui.Button
 	liftHS6PackBtn   *ui.Button
@@ -65,19 +67,22 @@ type Editor struct {
 	parcelPopup      *ui.Window
 	lotPopup         *ui.Window // parking lot opened by clicking it with no tool
 	trailPopup       *ui.Window // trail opened by clicking it with no tool
-	// trail is the trail being painted while toolTrailPaint is active
-	// (editor_trails.go).
-	trail editorTrail
+	// trail is the trail whose popup is open; runTool the run tool's
+	// session while toolTrailPaint is active; trailDraw keeps the drawn
+	// trails up to date (editor_trails.go, run_tool.go).
+	trail         editorTrail
+	runTool       runTool
+	trailEdit     runTool // editing the selected run (editSelectedTrail)
+	trailEditUsed bool    // this frame's click went to editing the selected run
+	trailDraw     trailDrawing
 	// skiDraft is the ski-area outline in progress (editor_ski_area.go).
 	skiDraft                  []mgl32.Vec2
 	skiRightDown              mgl32.Vec2 // where the right button went down, to tell a click from a pan
 	entryPopup                *ui.Window // road entry opened by clicking its post
 	lotTool                   lotTool
 	serviceTool               serviceTool                    // the building tool's session
-	newShellKind              world.ShellKind                // what new buildings are built as
 	serviceButtons            map[world.Service]*ui.Button   // Buildings menu: one per service
 	kindButtons               map[world.ShellKind]*ui.Button // Buildings menu: lodge, tent, shed
-	serviceRightDown          mgl32.Vec2                     // where a right click began, to tell it from a pan
 	placeRotation             float32                        // rotation for the next building placed (R / Shift+R)
 	autoMaxSlider             *ui.VSlider
 	autoSnowlineSlider        *ui.VSlider
@@ -161,8 +166,8 @@ func (e *Editor) Init(app *engine.App) error {
 	e.menuBar = ui.NewMenuBar(0, 60)
 	e.menuBar.Centered = true
 
-	// Buildings submenu: what a new building is built as (lodge, tent,
-	// shed) and the service to paint, as in the game's Amenities.
+	// Buildings submenu: lodge, tent, shed, dragged out empty; Services
+	// submenu: what goes in them. As in the game.
 	e.buildingsSubmenu = e.menuBar.AddSubmenu(render.IconHouse, "Buildings")
 	e.kindButtons = map[world.ShellKind]*ui.Button{}
 	for _, kv := range []struct {
@@ -176,21 +181,11 @@ func (e *Editor) Init(app *engine.App) error {
 		k := kv.kind
 		e.kindButtons[k] = e.buildingsSubmenu.AddChild(kv.icon, k.Label(), func() { e.setNewShellKind(k) })
 	}
+	e.servicesSubmenu = e.menuBar.AddSubmenu(render.IconUsers, "Services")
 	e.serviceButtons = map[world.Service]*ui.Button{}
-	for _, sv := range []struct {
-		svc  world.Service
-		icon render.IconName
-	}{
-		{world.ServiceLounge, render.IconHouse},
-		{world.ServiceFood, render.IconUsers},
-		{world.ServiceBar, render.IconCocktail},
-		{world.ServiceTickets, render.IconCoin},
-		{world.ServicePatrol, render.IconHeart},
-		{world.ServiceGarage, render.IconGarage},
-		{world.ServiceRentals, render.IconStack},
-	} {
+	for _, sv := range serviceMenu {
 		svc := sv.svc
-		e.serviceButtons[svc] = e.buildingsSubmenu.AddChild(sv.icon, svc.Label(), func() { e.activateServiceTool(svc) })
+		e.serviceButtons[svc] = e.servicesSubmenu.AddChild(sv.icon, svc.Label(), func() { e.activateServiceTool(svc) })
 	}
 
 	// Transport submenu: Parking, Road, Edge Connect
@@ -202,6 +197,7 @@ func (e *Editor) Init(app *engine.App) error {
 	// Lifts submenu
 	e.liftsSubmenu = e.menuBar.AddSubmenu(render.IconCableCar, "Lifts")
 	e.liftDoubleBtn = e.liftsSubmenu.AddChild(render.IconCableCar, "Double", func() { e.activateLiftTool(world.LiftDouble) })
+	e.liftTripleBtn = e.liftsSubmenu.AddChild(render.IconCableCar, "Triple", func() { e.activateLiftTool(world.LiftFixedTriple) })
 	e.liftQuadBtn = e.liftsSubmenu.AddChild(render.IconCableCar, "Quad", func() { e.activateLiftTool(world.LiftFixedQuad) })
 	e.liftHSQuadBtn = e.liftsSubmenu.AddChild(render.IconCableCar, "HSQuad", func() { e.activateLiftTool(world.LiftHSQuad) })
 	e.liftHS6PackBtn = e.liftsSubmenu.AddChild(render.IconCableCar, "6-Pack", func() { e.activateLiftTool(world.LiftHS6Pack) })
@@ -345,13 +341,12 @@ func (e *Editor) Update(dt float64) {
 	r := e.app.Renderer
 	e.time += float32(dt)
 
-	// Coalesced snow-state flush: any tool that mutates SnowAccumulation /
-	// Grooming / Packed / Ice / MogulSize sets Terrain.SnowDirty and we
-	// push the result to the GPU once per frame. Matches the scenario's
-	// per-frame check so tools can be shared without per-call wiring.
-	if e.world != nil && e.world.Terrain != nil && e.world.Terrain.SnowDirty {
-		r.FlushSnowState(e.world.Terrain)
-		e.world.Terrain.SnowDirty = false
+	// Coalesced snow-state flush: any tool that changes snow marks the
+	// cells (Terrain.MarkSnowDirty) and we push them to the GPU once per
+	// frame, as the scenario does, so tools can be shared without
+	// per-call wiring.
+	if e.world != nil && e.world.Terrain != nil {
+		r.FlushSnowDirty(e.world.Terrain)
 	}
 
 	// Save As / overwrite prompts are the topmost modals — they take all
@@ -377,6 +372,10 @@ func (e *Editor) Update(dt float64) {
 		case e.roadEdit.active() || e.structureEdit.active():
 			e.roadEdit.clear()
 			e.structureEdit.clear()
+		case e.activeTool == toolService && e.serviceTool.laidOut():
+			e.serviceTool.dropRect() // drop the floor, keep the tool
+		case e.activeTool == toolTrailPaint && e.runTool.drawing:
+			e.runTool.drawing, e.runTool.nodes = false, nil // drop the run, keep the tool
 		case e.activeTool == toolParcelRect && e.parcelRectActive:
 			// Cancel the in-progress selection but stay in the tool.
 			e.parcelRectActive = false
@@ -416,8 +415,7 @@ func (e *Editor) Update(dt float64) {
 	if delta := rotateKeyDelta(inp); delta != 0 {
 		switch {
 		case e.activeTool == toolService:
-			e.serviceTool.rot = stepRotation(e.serviceTool.rot, delta)
-			e.serviceTool.turned = true
+			e.serviceTool.turn(delta)
 			e.setToast("Rotation " + rotationDegrees(e.serviceTool.rot))
 		case e.activeTool == toolParking:
 			if e.lotTool.rotate(e.world, delta) {
@@ -680,16 +678,8 @@ func (e *Editor) Update(dt float64) {
 		rotation:   e.placeRotation,
 		tint:       ghostTint(true, e.placementLegal()),
 	})
-	e.updateServiceTool(inp.MousePos, overChrome)
-	// A right click that doesn't pan removes the tile under it.
-	if e.activeTool == toolService {
-		if inp.RightClick {
-			e.serviceRightDown = inp.MousePos
-		}
-		if inp.RightRelease && inp.MousePos.Sub(e.serviceRightDown).Len() < 4 {
-			e.serviceEnv().remove(&e.serviceTool)
-		}
-	}
+	e.updateServiceTool(inp, overChrome)
+	e.updateRunTool(r, inp, overChrome)
 	// Editor mirrors the scenario's node-highlight behaviour while a
 	// road tool is active — same snap rules, same visual cue. While
 	// editing an existing road (toolNone selection), draw the full node
@@ -708,9 +698,6 @@ func (e *Editor) Update(dt float64) {
 	// follow the cursor while held. Suppressed when a slider is grabbing
 	// input or the cursor is over slider/menu chrome.
 	// Clear the suppress flag once the mouse button is fully released.
-	if e.activeTool == toolTrailPaint && inp.RightHeld && e.hoverValid && !overChrome {
-		e.paintTrailAt(e.hoverCell, true)
-	}
 	// A right click that doesn't pan undoes a corner or removes an outline.
 	if e.activeTool == toolSkiArea {
 		if inp.RightClick {
@@ -719,9 +706,6 @@ func (e *Editor) Update(dt float64) {
 		if inp.RightRelease && inp.MousePos.Sub(e.skiRightDown).Len() < 4 && e.hoverValid && !overChrome {
 			e.skiAreaRightClick(mgl32.Vec2{e.hoverWorld[0], e.hoverWorld[2]})
 		}
-	}
-	if !inp.LeftClick && !inp.LeftHeld && !inp.RightHeld {
-		e.finishTrailStroke()
 	}
 	if !inp.LeftClick && !inp.LeftHeld {
 		e.suppressBrushUntilRelease = false
@@ -764,11 +748,11 @@ func (e *Editor) Update(dt float64) {
 					e.applyPlacement(r, shiftHeld)
 				}
 			} else if e.activeTool == toolNone {
-				e.handleToolNoneMouse(r, inp.LeftClick, inp.LeftHeld)
-			} else if e.activeTool == toolService {
-				if inp.LeftClick {
-					e.serviceEnv().apply(&e.serviceTool)
+				if !e.trailEditUsed {
+					e.handleToolNoneMouse(r, inp.LeftClick, inp.LeftHeld)
 				}
+			} else if e.activeTool == toolService || e.activeTool == toolTrailPaint {
+				// Handled by updateServiceTool and updateRunTool.
 			} else if e.activeTool == toolParking {
 				if e.hoverValid {
 					pos := mgl32.Vec2{e.hoverWorld[0], e.hoverWorld[2]}
@@ -1020,6 +1004,9 @@ func (e *Editor) setTool(t toolMode) {
 	prev := e.activeTool
 	if e.app != nil && e.app.Renderer != nil {
 		e.endParkingSession(e.app.Renderer)
+		if prev == toolTrailPaint {
+			e.endRunTool()
+		}
 	}
 	isActive := e.activeTool == t ||
 		(t == toolLiftBase && e.activeTool == toolLiftTop) ||
@@ -1112,7 +1099,7 @@ func (e *Editor) clearAllLayers() {
 }
 
 // regenerateAuto runs the snow and forest generators with the current slider
-// values and pushes the results to the GPU. Snow goes via Terrain.SnowDirty
+// values and pushes the results to the GPU. Snow goes via Terrain.MarkAllSnowDirty
 // (flushed at the top of Update), forest goes via RebuildStaticBatch.
 //
 // The elevation-derived passes (flow accumulation, curvature, min/max
@@ -1156,14 +1143,17 @@ func (e *Editor) syncToolButtons() {
 		btn.SetActive(active)
 	}
 	for svc, btn := range e.serviceButtons {
-		btn.SetActive(e.activeTool == toolService && e.serviceTool.svc == svc)
+		btn.SetActive(e.activeTool == toolService && !e.serviceTool.building && e.serviceTool.svc == svc)
 	}
 	for k, btn := range e.kindButtons {
-		btn.SetActive(e.newShellKind == k)
+		btn.SetActive(e.activeTool == toolService && e.serviceTool.building && e.serviceTool.kind == k)
 	}
 	liftActive := e.activeTool == toolLiftBase || e.activeTool == toolLiftTop
 	if e.liftDoubleBtn != nil {
 		e.liftDoubleBtn.SetActive(liftActive && e.liftType == world.LiftDouble)
+	}
+	if e.liftTripleBtn != nil {
+		e.liftTripleBtn.SetActive(liftActive && e.liftType == world.LiftFixedTriple)
 	}
 	if e.liftQuadBtn != nil {
 		e.liftQuadBtn.SetActive(liftActive && e.liftType == world.LiftFixedQuad)
@@ -1182,7 +1172,7 @@ func (e *Editor) syncToolButtons() {
 	}
 	// Highlight submenu parent when any child is active.
 	for _, sub := range []*ui.SubmenuButton{
-		e.buildingsSubmenu, e.transportSubmenu, e.liftsSubmenu, e.terrainSubmenu,
+		e.buildingsSubmenu, e.servicesSubmenu, e.transportSubmenu, e.liftsSubmenu, e.terrainSubmenu,
 	} {
 		if sub != nil {
 			sub.Btn.SetActive(sub.HasActiveChild())
@@ -1256,8 +1246,6 @@ func (e *Editor) applyEditorTool(gx, gz int, r *render.Renderer, dt float32) {
 		refreshTreesAround(r, w, gx, gz, e.brushRadius()+1)
 	case toolSmooth, toolFlatten, toolRaise, toolLower:
 		e.applyTerrainBrush(r, dt)
-	case toolTrailPaint:
-		e.paintTrailAt([2]int{gx, gz}, e.trail.erase)
 	}
 }
 
@@ -1997,8 +1985,6 @@ func (e *Editor) buildEditorParcelOverlay(rectEnd [2]int) ([]uint8, int, int) {
 			set(c[0], c[1], rv, gv, bv, alpha)
 		}
 	}
-	// Trails over the parcels: every one, the one being edited brighter.
-	drawTrailOverlay(e.world.Trails, e.showingTrail(), true, set)
 	// Live rect selection preview — use the same cell set that would be
 	// committed on click: road-clipped by default, full rect when shift held.
 	if hasRect {

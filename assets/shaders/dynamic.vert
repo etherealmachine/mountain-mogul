@@ -8,7 +8,7 @@ layout(location = 2) in vec3 iPosition;
 layout(location = 3) in float iHeading;
 layout(location = 4) in vec3 iColor;
 layout(location = 5) in float iSpinMode;
-// 0 = rigid  1 = limb-bob (skiers)  2 = spin_y (main rotor)  3 = spin_z (tail rotor)
+// 0 = rigid  2 = spin_y (main rotor)  3 = spin_z (tail rotor)
 
 // per-vertex base colour from the 3MF pipeline (color() blocks in SCAD).
 // Meshes without per-vertex colour leave this unbound — the renderer sets
@@ -60,14 +60,7 @@ void main() {
         }
     }
 
-    // Limb-bob: small Y displacement for upper-body vertices of skiers/walkers.
-    float phase = sin(uTime * 3.0 + float(gl_InstanceID) * 1.618);
-    float animY = 0.0;
-    if (spinPos.y > 0.3 && iSpinMode > 0.4 && iSpinMode < 1.5) {
-        animY = phase * 0.05;
-    }
-
-    vec3 animPos = vec3(spinPos.x, spinPos.y + animY, spinPos.z);
+    vec3 animPos = spinPos;
     mat4 model = translate * rotY;
 
     vColor = iColor * aBaseColor;

@@ -6,19 +6,23 @@ import (
 
 	"github.com/go-gl/mathgl/mgl32"
 
+	"mountain-mogul/internal/ai/goap"
 	"mountain-mogul/internal/world"
 )
 
-// Routes around forest. A guest skiing (or walking) freely to a lift, a
-// building, or the car heads straight for it; where that line crosses
-// trees, they follow a route around them instead (skiRoute), planned on
-// the 5 m cell grid: tree cover costs extra by how much the guest minds
-// trees (standCoverScale, so a glade lover still cuts through a glade
-// when it's shorter), climbing costs extra since skiers can't go uphill
-// well, and buildings block. The route is cut down to the corners where
-// the line between waypoints would cross trees, and the guest steers at
-// the next one, skipping ahead whenever the way to the one after is
-// clear.
+// Routes. A guest skiing (or walking) to a lift, a building, the car or
+// the next trail heads straight for it when the line suits them; where
+// it doesn't, they follow a route of their own instead (skiRoute),
+// planned on the 5 m cell grid by what they mind (routeProfile): tree
+// cover by how much they mind trees (standCoverScale, so a glade lover
+// still cuts through a glade when it's shorter); pitch past their
+// comfort along the line, so a nervous skier traverses a steep face or
+// goes round it; for guests who keep to trails (all but the advanced
+// who'd rather roam), ground off any trail at their level; and climbing,
+// since skiers can't go uphill well. Buildings block. The route is cut
+// down to the corners where the line between waypoints stops suiting
+// them, and the guest steers at the next one, skipping ahead whenever
+// the way to the one after suits them.
 
 const (
 	// routeTreeCost is the extra cost of a cell of full tree cover, in
@@ -43,12 +47,119 @@ const (
 	// routeStraySq is how far (squared metres) a guest may be from the
 	// waypoint they're steering at before they plan again.
 	routeStraySq = float32(45 * 45)
+	// routeSteepCost is the extra cost of a cell, in cells, per unit of
+	// pitch past the guest's comfort along the step (felt ÷ comfort − 1):
+	// a beginner pointing down twice their comfortable pitch pays about
+	// twelve cells a cell, so traversing it, or going round, wins.
+	routeSteepCost = 12.0
+	// routeSteepClear is how far past comfort a straight line may feel
+	// before the guest plans a route instead.
+	routeSteepClear = float32(1.15)
+	// routeOffTrailCost is the extra cost of a cell off any trail the
+	// guest keeps to, in cells.
+	routeOffTrailCost = 4.0
+	// routeTrailSlack is how near either end of a straight line, in
+	// metres, it may leave the guest's trails and still suit them: lift
+	// lines and doors sit just off the trail.
+	routeTrailSlack = float32(20)
 )
+
+// routeProfile is what a guest's route weighs besides distance.
+type routeProfile struct {
+	w       *world.World
+	cover   float32                 // standCoverScale
+	comfort float32                 // tan of the comfort slope; 0 when pitch doesn't matter (on foot)
+	levels  world.TerrainDifficulty // trails they keep to; 0 for anywhere
+}
+
+// routeProfileFor is a's routeProfile now.
+func (s *Simulation) routeProfileFor(a *world.Guest) routeProfile {
+	p := routeProfile{w: s.World, cover: standCoverScale(a.Traits.Tastes)}
+	if !a.SkisOn {
+		return p
+	}
+	if a.Traits.ComfortSlope > 0 {
+		p.comfort = float32(math.Tan(float64(a.Traits.ComfortSlope)))
+	}
+	if len(s.World.Trails) > 0 {
+		p.levels = goap.TrailLevels(a.Traits.Skill, a.Traits.Tastes)
+	}
+	return p
+}
+
+// feltPitch is the pitch (rise over run) a guest feels going from p to
+// q, with elevations ep and eq, ending on cell c: along their line, but
+// never less than feltSlopeFloor of the fall line's (feltSlope).
+func feltPitch(c *world.Cell, p, q mgl32.Vec2, ep, eq float32) float32 {
+	along := abs32(eq-ep) / max(q.Sub(p).Len(), 0.01)
+	return max(along, float32(feltSlopeFloor)*c.Slope)
+}
+
+// offTrail reports whether cell (cx, cz) is off every trail the profile
+// keeps to.
+func (p *routeProfile) offTrail(cx, cz int) bool {
+	return p.levels != 0 && p.w.TrailDiffsAt(cx, cz)&p.levels == 0
+}
 
 // routeTarget is where a guest heading for goal steers this tick: goal
 // itself when the way is clear, else the next waypoint of a route around
 // the trees.
 func (s *Simulation) routeTarget(a *world.Guest, goal mgl32.Vec3) mgl32.Vec3 {
+	t := s.World.Terrain
+	g := mgl32.Vec2{goal[0], goal[2]}
+	pos := mgl32.Vec2{a.Pos[0], a.Pos[2]}
+	s.prepareRoute(a, goal)
+	r := &a.Route
+	if len(r.Points) == 0 {
+		return goal
+	}
+	// Skip ahead past reached waypoints, and (twice a second, as it's the
+	// costly part) past any the way beyond is clear of.
+	look := s.SimTime >= r.NextLook
+	if look {
+		r.NextLook = s.SimTime + routeLookSec
+	}
+	prof := s.routeProfileFor(a)
+	for r.Index < len(r.Points) {
+		if r.Points[r.Index].Sub(pos).Len() < routeWaypointReach {
+			r.Index++
+			continue
+		}
+		next := g
+		if r.Index+1 < len(r.Points) {
+			next = r.Points[r.Index+1]
+		}
+		if look && lineClear(t, pos, next, &prof) {
+			r.Index++
+			continue
+		}
+		break
+	}
+	if r.Index >= len(r.Points) {
+		return goal
+	}
+	p := r.Points[r.Index]
+	return mgl32.Vec3{p[0], t.InterpolatedSurfaceElevationAt(p[0], p[1]), p[1]}
+}
+
+// routeDue reports whether a's route to goal is due to be (re)planned:
+// the goal has moved, it was never checked, or the guest has strayed from
+// it, and the recheck time has come.
+func (s *Simulation) routeDue(a *world.Guest, goal mgl32.Vec3) bool {
+	g := mgl32.Vec2{goal[0], goal[2]}
+	pos := mgl32.Vec2{a.Pos[0], a.Pos[2]}
+	r := a.Route
+	if r.Goal.Sub(g).Len() > routeGoalMoved {
+		r = world.SkiRoute{Goal: g}
+	}
+	stray := len(r.Points) > 0 && r.Index < len(r.Points) && r.Points[r.Index].Sub(pos).LenSqr() > routeStraySq
+	return (!r.Checked || stray) && s.SimTime >= r.NextCheck
+}
+
+// prepareRoute (re)plans a's route round the trees to goal when it's due.
+// It reads only the terrain and a, and writes only a.Route, so many
+// guests' routes can be prepared at once (planRoutes).
+func (s *Simulation) prepareRoute(a *world.Guest, goal mgl32.Vec3) {
 	t := s.World.Terrain
 	g := mgl32.Vec2{goal[0], goal[2]}
 	pos := mgl32.Vec2{a.Pos[0], a.Pos[2]}
@@ -62,69 +173,52 @@ func (s *Simulation) routeTarget(a *world.Guest, goal mgl32.Vec3) mgl32.Vec3 {
 	if (!r.Checked || stray) && s.SimTime >= r.NextCheck {
 		r.Checked, r.NextCheck = true, s.SimTime+routeRecheckSec
 		r.Points, r.Index = nil, 0
-		scale := standCoverScale(a.Traits.Tastes)
-		if !lineClear(t, pos, g, scale) {
-			r.Points = planSkiRoute(t, pos, g, scale)
+		prof := s.routeProfileFor(a)
+		if !lineClear(t, pos, g, &prof) {
+			r.Points = planSkiRoute(t, pos, g, &prof)
 		}
 	}
-	if len(r.Points) == 0 {
-		return goal
-	}
-	// Skip ahead past reached waypoints, and (twice a second, as it's the
-	// costly part) past any the way beyond is clear of.
-	look := s.SimTime >= r.NextLook
-	if look {
-		r.NextLook = s.SimTime + routeLookSec
-	}
-	scale := standCoverScale(a.Traits.Tastes)
-	for r.Index < len(r.Points) {
-		if r.Points[r.Index].Sub(pos).Len() < routeWaypointReach {
-			r.Index++
-			continue
-		}
-		next := g
-		if r.Index+1 < len(r.Points) {
-			next = r.Points[r.Index+1]
-		}
-		if look && lineClear(t, pos, next, scale) {
-			r.Index++
-			continue
-		}
-		break
-	}
-	if r.Index >= len(r.Points) {
-		return goal
-	}
-	p := r.Points[r.Index]
-	return mgl32.Vec3{p[0], t.InterpolatedSurfaceElevationAt(p[0], p[1]), p[1]}
 }
 
-// lineClear reports whether the straight way from a to b keeps out of
-// trees the guest minds (cover × scale under inTreesThreshold) and off
-// buildings.
-func lineClear(t *world.Terrain, a, b mgl32.Vec2, scale float32) bool {
+// lineClear reports whether the straight way from a to b suits the
+// guest: out of trees they mind (cover × scale under inTreesThreshold),
+// off buildings, never much steeper along it than they're comfortable
+// with, and, away from its ends, on their trails.
+func lineClear(t *world.Terrain, a, b mgl32.Vec2, prof *routeProfile) bool {
 	d := b.Sub(a)
-	n := int(d.Len()/2.5) + 1
+	length := d.Len()
+	n := int(length/2.5) + 1
+	prev, prevY := a, t.InterpolatedSurfaceElevationAt(a[0], a[1])
 	for i := 1; i <= n; i++ {
-		p := a.Add(d.Mul(float32(i) / float32(n)))
+		f := float32(i) / float32(n)
+		p := a.Add(d.Mul(f))
 		cx, cz := int(p[0]/world.CellSize), int(p[1]/world.CellSize)
 		if !t.InBounds(cx, cz) {
 			continue
 		}
-		if t.TreeCoverAt(p[0], p[1])*scale > inTreesThreshold {
+		if t.TreeCoverAt(p[0], p[1])*prof.cover > inTreesThreshold {
 			return false
 		}
-		if i < n && !t.Cells[cx][cz].Walkable() {
+		cell := &t.Cells[cx][cz]
+		if i < n && !cell.Walkable() {
+			return false
+		}
+		y := t.InterpolatedSurfaceElevationAt(p[0], p[1])
+		if prof.comfort > 0 && feltPitch(cell, prev, p, prevY, y) > prof.comfort*routeSteepClear {
+			return false
+		}
+		prev, prevY = p, y
+		if along := f * length; along > routeTrailSlack && length-along > routeTrailSlack && prof.offTrail(cx, cz) {
 			return false
 		}
 	}
 	return true
 }
 
-// planSkiRoute finds a route from a to b around trees on the cell grid
-// and cuts it down to the waypoints where the straight line would cross
-// trees; nil when there's none.
-func planSkiRoute(t *world.Terrain, a, b mgl32.Vec2, scale float32) []mgl32.Vec2 {
+// planSkiRoute finds the route from a to b on the cell grid that suits
+// the guest best (routeProfile) and cuts it down to the waypoints where
+// the straight line would stop suiting them; nil when there's none.
+func planSkiRoute(t *world.Terrain, a, b mgl32.Vec2, prof *routeProfile) []mgl32.Vec2 {
 	start := [2]int{int(a[0] / world.CellSize), int(a[1] / world.CellSize)}
 	goal := [2]int{int(b[0] / world.CellSize), int(b[1] / world.CellSize)}
 	if !t.InBounds(start[0], start[1]) || !t.InBounds(goal[0], goal[1]) || start == goal {
@@ -147,7 +241,14 @@ func planSkiRoute(t *world.Terrain, a, b mgl32.Vec2, scale float32) []mgl32.Vec2
 		if c != goal && (!cell.Walkable() || !t.IsAccessible(c[0], c[1])) {
 			return math.Inf(1)
 		}
-		return 1 + routeTreeCost*float64(cell.TreeCover()*scale)
+		c2 := 1 + routeTreeCost*float64(cell.TreeCover()*prof.cover)
+		if prof.offTrail(c[0], c[1]) {
+			c2 += routeOffTrailCost
+		}
+		return c2
+	}
+	centre := func(c [2]int) mgl32.Vec2 {
+		return mgl32.Vec2{(float32(c[0]) + 0.5) * world.CellSize, (float32(c[1]) + 0.5) * world.CellSize}
 	}
 	heur := func(c [2]int) float64 {
 		return math.Hypot(float64(c[0]-goal[0]), float64(c[1]-goal[1]))
@@ -180,6 +281,12 @@ func planSkiRoute(t *world.Terrain, a, b mgl32.Vec2, scale float32) []mgl32.Vec2
 				step *= math.Sqrt2
 			}
 			step += routeClimbCost * float64(max(elev(nb)-elev(cur.pos), 0)) / world.CellSize
+			if prof.comfort > 0 {
+				felt := feltPitch(&t.Cells[nb[0]][nb[1]], centre(cur.pos), centre(nb), elev(cur.pos), elev(nb))
+				if over := felt/prof.comfort - 1; over > 0 {
+					step += routeSteepCost * float64(over)
+				}
+			}
 			if ng := cur.g + step; ng < g[idx(nb)] {
 				g[idx(nb)] = ng
 				came[idx(nb)] = int32(idx(cur.pos))
@@ -206,7 +313,7 @@ func planSkiRoute(t *world.Terrain, a, b mgl32.Vec2, scale float32) []mgl32.Vec2
 	from := a
 	for i := 0; i < len(cells); {
 		j := i
-		for j+1 < len(cells) && lineClear(t, from, cells[j+1], scale) {
+		for j+1 < len(cells) && lineClear(t, from, cells[j+1], prof) {
 			j++
 		}
 		out = append(out, cells[j])

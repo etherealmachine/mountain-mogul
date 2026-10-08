@@ -102,7 +102,7 @@ func BuildTrailGraph(w *World) *TrailGraph {
 			if b.IsShell() {
 				touches = false
 				for _, d := range b.Doors {
-					if c := cellOf(b.TileCentre(d.Cell)); trailTouchesDoor(cellSet, c) {
+					if c := cellOf(b.DoorStep(d)); trailTouchesDoor(cellSet, c) {
 						door, touches = c, true
 						break
 					}

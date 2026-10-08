@@ -153,7 +153,7 @@ func (t *Terrain) writeMogulAverage(cx, cz int) {
 	}
 	avg := float32(sum) / float32(MogulPxPerCell*MogulPxPerCell*mogulFull)
 	if t.Cells[cx][cz].MogulSize != avg {
-		t.SnowDirty = true
+		t.MarkSnowDirty(cx, cz)
 	}
 	t.Cells[cx][cz].MogulSize = avg
 	m.cellAvg[cx*m.hCells+cz] = avg

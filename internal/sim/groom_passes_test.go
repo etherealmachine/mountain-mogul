@@ -47,7 +47,7 @@ func checkPasses(t *testing.T, w *world.World, trail *world.Trail, dir vec2) flo
 
 // On an open slope, lanes run down the fall line (+z).
 func TestPassesFollowFallLine(t *testing.T) {
-	w := scene(30, 40).slope(15).groomedTrail(world.DiffBlue, rectCells(8, 4, 13, 31)).build()
+	w := scene(30, 40).slope(15).groomedRect(world.DiffBlue, 8, 4, 13, 31).build()
 	if a := checkPasses(t, w, w.Trails[0], vec2{0, 1}); a < 0.95 {
 		t.Errorf("lane alignment with fall line = %.2f, want ≥ 0.95", a)
 	}
@@ -55,7 +55,7 @@ func TestPassesFollowFallLine(t *testing.T) {
 
 // A narrow cat track across the slope gets lanes along its length (x).
 func TestPassesAlongCatTrack(t *testing.T) {
-	w := scene(60, 30).slope(12).groomedTrail(world.DiffGreen, rectCells(5, 12, 50, 3)).build()
+	w := scene(60, 30).slope(12).groomedRect(world.DiffGreen, 5, 12, 50, 3).build()
 	if a := checkPasses(t, w, w.Trails[0], vec2{1, 0}); a < 0.95 {
 		t.Errorf("lane alignment with the track = %.2f, want ≥ 0.95", a)
 	}
@@ -63,14 +63,13 @@ func TestPassesAlongCatTrack(t *testing.T) {
 
 // A run that bends from the fall line onto a traverse is fully covered.
 func TestPassesCoverCurvingRun(t *testing.T) {
-	cells := world.PolylineCells([][2]int{{10, 3}, {12, 20}, {20, 30}, {40, 33}}, 3)
-	w := scene(50, 45).slope(14).groomedTrail(world.DiffBlue, cells).build()
+	w := scene(50, 45).slope(14).groomedRun(world.DiffBlue, [][2]int{{10, 3}, {12, 20}, {20, 30}, {40, 33}}, 35).build()
 	checkPasses(t, w, w.Trails[0], vec2{0, 1})
 }
 
 // Two cats from one shed split a trail's passes about evenly by length.
 func TestSectionsSplitByLength(t *testing.T) {
-	w := scene(30, 40).slope(15).groomedTrail(world.DiffBlue, rectCells(6, 4, 17, 31)).shedAt(14, 37).build()
+	w := scene(30, 40).slope(15).groomedRect(world.DiffBlue, 6, 4, 17, 31).shedAt(14, 37).build()
 	w.SpawnSnowcat(w.Buildings[0])
 	s := NewSimulationWithSeed(w, 1)
 	s.reassignAllSections()

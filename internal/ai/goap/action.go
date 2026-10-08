@@ -54,6 +54,12 @@ const (
 	// nothing at their level is running.
 	belowLevelPenaltySec = 240.0
 
+	// freeRoamTaste is how much an advanced guest has to like powder,
+	// trees or steeps to leave the trails and ski the open mountain from
+	// a lift top (freeRoams). Everyone else skis trails where there are
+	// any.
+	freeRoamTaste = 0.4
+
 	// tasteMissSec is the most a lift's terrain can add to riding it for
 	// not suiting the guest: its full amount when the trails off the top
 	// are everything they dislike, none when they're everything they
@@ -353,6 +359,73 @@ func (a *SkiToParking) Cost(s *WorldSnapshot, w *world.World) float32 {
 	return distXZ(mgl32.Vec3{src.Top[0], 0, src.Top[1]}, dst.Pos[0], dst.Pos[1]) / skiSpeedMps
 }
 
+// WalkToParking walks from the base area to a parking lot: after a
+// trail down to a lift base, the way home. Ends at the lot like
+// SkiToParking.
+type WalkToParking struct{ LotID uint64 }
+
+func (a *WalkToParking) Name() string {
+	return fmt.Sprintf("WalkToParking(%d)", a.LotID)
+}
+
+func (a *WalkToParking) Precondition(s *WorldSnapshot, w *world.World) bool {
+	if s.Removed || s.OnLift != 0 || s.Queued != 0 || s.AtLiftTop != 0 || s.AtParking != 0 ||
+		(s.CarLot != 0 && a.LotID != s.CarLot) {
+		return false
+	}
+	return findBuilding(w, a.LotID, world.BuildingParking) != nil
+}
+
+func (a *WalkToParking) Apply(s *WorldSnapshot, w *world.World) {
+	b := findBuilding(w, a.LotID, world.BuildingParking)
+	if b == nil {
+		return
+	}
+	s.AtLiftBase = 0
+	s.AtTrailEnd = 0
+	s.AtService = 0
+	s.AtTicketOffice = 0
+	s.AtParking = b.ID
+	s.Pos = mgl32.Vec3{b.Pos[0], s.Pos[1], b.Pos[1]}
+}
+
+func (a *WalkToParking) Cost(s *WorldSnapshot, w *world.World) float32 {
+	b := findBuilding(w, a.LotID, world.BuildingParking)
+	if b == nil {
+		return math.MaxFloat32
+	}
+	return distXZ(s.Pos, b.Pos[0], b.Pos[1]) / walkSpeedMps
+}
+
+// freeRoams reports whether the guest would rather ski the open mountain
+// than the trails: advanced, and keen on powder, trees or steeps.
+// Beginners and intermediates never do, so a run beyond them is never
+// the planner's doing.
+func freeRoams(s *WorldSnapshot) bool {
+	return FreeRoams(s.Skill, s.Tastes)
+}
+
+// FreeRoams is freeRoams for a guest's skill and tastes.
+func FreeRoams(skill float32, tastes ai.Tastes) bool {
+	if skill < ai.SkillAdvancedThreshold {
+		return false
+	}
+	return max(tastes[ai.TastePowder], tastes[ai.TasteTrees], tastes[ai.TasteSteep]) >= freeRoamTaste
+}
+
+// TrailLevels is the trail difficulties a guest keeps to on the snow:
+// their level and below for beginners and intermediates, any trail for
+// an advanced guest, and 0 (anywhere) for one who free-roams.
+func TrailLevels(skill float32, tastes ai.Tastes) world.TerrainDifficulty {
+	switch {
+	case FreeRoams(skill, tastes):
+		return 0
+	case skill >= ai.SkillAdvancedThreshold:
+		return world.DiffGreen | world.DiffBlue | world.DiffBlack
+	}
+	return skillDiff(skill)
+}
+
 // WalkToTicketOffice moves the agent from any ground position to a ticket
 // office. Applicable when the guest still needs a day ticket, or holds one
 // and has enough budget left to upgrade to a season pass.
@@ -616,9 +689,9 @@ func ApplicableActions(s *WorldSnapshot, w *world.World) []Action {
 	// Trail-based descents from any anchor that has trail edges.
 	out = trailActions(out, s, w)
 
-	// Free-roam ski-down from a lift top (fallback; penalised when trail
-	// alternatives exist from this anchor).
-	if s.AtLiftTop != 0 {
+	// Free-roam ski-down from a lift top: only for guests who'd rather be
+	// off the trails, or from a top with no trail down at all.
+	if s.AtLiftTop != 0 && (freeRoams(s) || len(w.TrailGraph.EdgesFrom(s.AtLiftTop)) == 0) {
 		for _, l := range w.Lifts {
 			a := &SkiToLift{LiftID: l.ID}
 			if a.Precondition(s, w) {
@@ -652,6 +725,18 @@ func ApplicableActions(s *WorldSnapshot, w *world.World) []Action {
 		a := &Depart{LotID: s.AtParking}
 		if a.Precondition(s, w) {
 			out = append(out, a)
+		}
+	}
+	// Walk to the car from the base area: how a guest who skied a trail
+	// down to a lift base gets home.
+	if !s.Removed && s.OnLift == 0 && s.Queued == 0 && s.AtLiftTop == 0 && s.AtParking == 0 {
+		for _, b := range w.Buildings {
+			if b.Type != world.BuildingParking {
+				continue
+			}
+			if a := (&WalkToParking{LotID: b.ID}); a.Precondition(s, w) {
+				out = append(out, a)
+			}
 		}
 	}
 	// Walk to a service building from the base area.
@@ -728,6 +813,9 @@ func ToPlanActions(actions []Action, snap WorldSnapshot, w *world.World) []ai.Pl
 		case *SkiToParking:
 			pa.Kind = ai.ActSkiToParking
 			pa.BldgID = t.LotID
+		case *WalkToParking:
+			pa.Kind = ai.ActWalkToParking
+			pa.BldgID = t.LotID
 		case *UseService:
 			pa.Kind = ai.ActUseService
 			pa.BldgID = t.BldgID
@@ -747,6 +835,7 @@ func ToPlanActions(actions []Action, snap WorldSnapshot, w *world.World) []ai.Pl
 		case *SkiTrail:
 			pa.Kind = ai.ActSkiTrail
 			pa.TrailID = t.TrailID // via trail (display); overridden for trail-to-trail
+			pa.Via = t.TrailID
 			switch t.ToKind {
 			case world.KindLiftBase:
 				pa.LiftID = t.ToID
@@ -782,6 +871,8 @@ func PlanActionLabel(pa ai.PlanAction, w *world.World) string {
 		return "WalkToService(" + buildingLabel(w, pa.BldgID) + ")"
 	case ai.ActSkiToParking:
 		return "SkiToParking(" + buildingLabel(w, pa.BldgID) + ")"
+	case ai.ActWalkToParking:
+		return "WalkToParking(" + buildingLabel(w, pa.BldgID) + ")"
 	case ai.ActUseService:
 		return ai.OfferLabels[pa.Use] + "(" + buildingLabel(w, pa.BldgID) + ")"
 	case ai.ActDepart:

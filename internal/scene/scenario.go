@@ -105,7 +105,7 @@ func screenToWorld(cam *render.Camera, terrain *world.Terrain, mousePos mgl32.Ve
 // patched locally, and the tree instances rebuilt.
 func refreshTreesAround(r *render.Renderer, w *world.World, cx, cz, radius int) {
 	w.Terrain.RestampTreeWellsCells(cx-radius, cz-radius, cx+radius, cz+radius)
-	r.FlushInstabilityCells(w.Terrain, cx-radius, cz-radius, cx+radius, cz+radius)
+	r.FlushSnowCells(w.Terrain, cx-radius, cz-radius, cx+radius, cz+radius)
 	r.RebuildStaticBatch(w)
 }
 
@@ -476,13 +476,15 @@ type Scenario struct {
 	debugConsole     *DebugConsole
 	toolButtons      map[toolMode]*ui.Button
 	liftDoubleBtn    *ui.Button        // toolbar button for the double-chair lift variant
+	liftTripleBtn    *ui.Button        // toolbar button for the fixed-triple lift variant
 	liftQuadBtn      *ui.Button        // toolbar button for the fixed-quad lift variant
 	liftHSQuadBtn    *ui.Button        // toolbar button for the high-speed quad lift variant
 	liftHS6PackBtn   *ui.Button        // toolbar button for the high-speed 6-pack lift variant
 	liftGondolaBtn   *ui.Button        // toolbar button for the MDG gondola
 	liftHeliBtn      *ui.Button        // toolbar button for the helicopter heli-ski lift
 	liftsSubmenu     *ui.SubmenuButton // Lifts group (all chair/gondola/heli variants)
-	amenitiesSubmenu *ui.SubmenuButton // Amenities group (lodge)
+	buildingsSubmenu *ui.SubmenuButton // Buildings group: lodge, tent, shed
+	servicesSubmenu  *ui.SubmenuButton // Services group: what goes in them
 	transportSubmenu *ui.SubmenuButton // Transport group (parking, road)
 	activeTool       toolMode
 	liftType         world.LiftType // chair variant the toolLiftBase/Top flow will place
@@ -530,26 +532,36 @@ type Scenario struct {
 	lastGladeCell     [2]int
 	gladePreview      []world.Tree // this frame's gladeSelection, highlighted and priced
 
-	// Trail-paint mode: while toolTrailPaint is active, the player
-	// drag-paints (left) or erases (right) cells on the active trail.
 	// fenceHour is the clock hour the fences were last built for.
 	fenceHour int
+	// fallHeat is the falls overlay's pixels, built for fallHeatN falls;
+	// cellOverlayKey is what the uploaded cell overlay shows (see
+	// cellOverlayKey()).
+	fallHeat       []uint8
+	fallHeatN      int
+	cellOverlayKey int
 
-	activeTrailID      uint64
-	trailDifficulty    world.TerrainDifficulty // difficulty for the next new trail
-	lastTrailPaintCell [2]int
-	trailEraseMode     bool // true = left-drag removes cells; false = left-drag adds cells
+	// activeTrailID is the trail whose popup is open, drawn brighter.
+	activeTrailID   uint64
+	trailDifficulty world.TerrainDifficulty // difficulty for the next new run
+	// runTool is the run tool's session while toolTrailPaint is active;
+	// trailDraw keeps the drawn trails up to date (run_tool.go).
+	runTool   runTool
+	trailEdit runTool // editing the selected run (editSelectedTrail)
+	trailDraw trailDrawing
 
 	// lotTool is the parking tool's drag (draw a lot, or resize one by an
 	// edge) while toolParking is active.
 	lotTool lotTool
 	// serviceTool is the build session while toolService is active.
 	serviceTool serviceTool
-	// serviceButtons are the Amenities palette, one per service, and
-	// kindButtons pick what a new building is built as (newShellKind).
+	// selectedRoom is the room whose popup is open (in the building
+	// selectedBuildingID), highlighted in its cutaway.
+	selectedRoom roomSel
+	// serviceButtons are the Services menu, one per service, and
+	// kindButtons the Buildings menu, one per kind of building.
 	serviceButtons map[world.Service]*ui.Button
 	kindButtons    map[world.ShellKind]*ui.Button
-	newShellKind   world.ShellKind
 
 	// placeRotation is the rotation the next placed building gets,
 	// turned with R / Shift+R while a building tool is active.
@@ -790,6 +802,38 @@ func (s *Scenario) SetQueryServer(qs *sim.QueryServer) { s.queryServer = qs }
 // SetSeed overrides the RNG seed for this scenario's simulation.
 func (s *Scenario) SetSeed(seed int64) { s.simSeed = seed }
 
+// FollowFirstRider points the follow camera at the first guest riding a
+// chair, unless the guest it follows is still riding one, and reports
+// whether it is following a rider. Used by -screenshot -follow-rider.
+func (s *Scenario) FollowFirstRider() bool {
+	if g := s.findFollowedGuest(); g != nil && g.OnLiftID != 0 {
+		return true
+	}
+	for _, g := range s.world.OnMountain {
+		if g.OnLiftID != 0 {
+			s.setFollowGuest(g.ID)
+			return true
+		}
+	}
+	return false
+}
+
+// FollowFirstDoing points the follow camera at the first guest whose
+// world.Activity is activity, unless the guest it follows still is.
+// Used by -screenshot -follow-guest.
+func (s *Scenario) FollowFirstDoing(activity string) bool {
+	if g := s.findFollowedGuest(); g != nil && (activity == "any" || world.Activity(s.world, g) == activity) {
+		return true
+	}
+	for _, g := range s.world.OnMountain {
+		if activity == "any" || world.Activity(s.world, g) == activity {
+			s.setFollowGuest(g.ID)
+			return true
+		}
+	}
+	return false
+}
+
 // setFollowGuest sets the camera-followed guest and mirrors the ID into
 // world.FocusedGuestID so live SQL queries can use "WHERE followed = 1".
 func (s *Scenario) setFollowGuest(id uint64) {
@@ -862,24 +906,9 @@ func (s *Scenario) Init(app *engine.App) error {
 	s.toolBar = ui.NewMenuBar(0, toolBarH)
 	s.toolBar.Centered = true
 
-	// Amenities submenu: one button per building service
-	s.amenitiesSubmenu = s.toolBar.AddSubmenu(render.IconHouse, "Amenities")
-	s.serviceButtons = map[world.Service]*ui.Button{}
-	for _, sv := range []struct {
-		svc  world.Service
-		icon render.IconName
-	}{
-		{world.ServiceLounge, render.IconHouse},
-		{world.ServiceFood, render.IconUsers},
-		{world.ServiceBar, render.IconCocktail},
-		{world.ServiceTickets, render.IconCoin},
-		{world.ServicePatrol, render.IconHeart},
-		{world.ServiceGarage, render.IconGarage},
-		{world.ServiceRentals, render.IconStack},
-	} {
-		svc := sv.svc
-		s.serviceButtons[svc] = s.amenitiesSubmenu.AddChild(sv.icon, svc.Label(), func() { s.activateServiceTool(svc) })
-	}
+	// Buildings submenu: lodge, tent, shed. Each drags out an empty
+	// building; services go in it from the Services submenu.
+	s.buildingsSubmenu = s.toolBar.AddSubmenu(render.IconHouse, "Buildings")
 	s.kindButtons = map[world.ShellKind]*ui.Button{}
 	for _, kv := range []struct {
 		kind world.ShellKind
@@ -890,7 +919,16 @@ func (s *Scenario) Init(app *engine.App) error {
 		{world.ShellShed, render.IconGarage},
 	} {
 		k := kv.kind
-		s.kindButtons[k] = s.amenitiesSubmenu.AddChild(kv.icon, k.Label(), func() { s.setNewShellKind(k) })
+		s.kindButtons[k] = s.buildingsSubmenu.AddChild(kv.icon, k.Label(), func() { s.setNewShellKind(k) })
+	}
+
+	// Services submenu: one button per building service, put in the
+	// tiles of buildings already built.
+	s.servicesSubmenu = s.toolBar.AddSubmenu(render.IconUsers, "Services")
+	s.serviceButtons = map[world.Service]*ui.Button{}
+	for _, sv := range serviceMenu {
+		svc := sv.svc
+		s.serviceButtons[svc] = s.servicesSubmenu.AddChild(sv.icon, svc.Label(), func() { s.activateServiceTool(svc) })
 	}
 
 	// Operations submenu: Shed, Patrol
@@ -903,6 +941,7 @@ func (s *Scenario) Init(app *engine.App) error {
 	// Lifts submenu: all chair/gondola/heli variants
 	s.liftsSubmenu = s.toolBar.AddSubmenu(render.IconCableCar, "Lifts")
 	s.liftDoubleBtn = s.liftsSubmenu.AddChild(render.IconCableCar, "Double", func() { s.activateLiftTool(world.LiftDouble) })
+	s.liftTripleBtn = s.liftsSubmenu.AddChild(render.IconCableCar, "Triple", func() { s.activateLiftTool(world.LiftFixedTriple) })
 	s.liftQuadBtn = s.liftsSubmenu.AddChild(render.IconCableCar, "Quad", func() { s.activateLiftTool(world.LiftFixedQuad) })
 	s.liftHSQuadBtn = s.liftsSubmenu.AddChild(render.IconCableCar, "HSQuad", func() { s.activateLiftTool(world.LiftHSQuad) })
 	s.liftHS6PackBtn = s.liftsSubmenu.AddChild(render.IconCableCar, "6-Pack", func() { s.activateLiftTool(world.LiftHS6Pack) })
@@ -1011,6 +1050,8 @@ func (s *Scenario) Init(app *engine.App) error {
 	s.overlayPanel = ui.NewOverlayPanel()
 	s.overlayPanel.Top = topBarH
 	s.overlayPanel.Bottom = float32(app.Renderer.ScreenHeight()) - toolBarH
+	s.overlayPanel.AddRow(render.OverlayFalls, "Falls", render.IconArrowFatDown,
+		mgl32.Vec4{0.95, 0.25, 0.20, 1})
 	s.topBar.SetOverlayToggle(func() {
 		visible := s.overlayPanel.Toggle()
 		s.topBar.SetOverlayActive(visible)
@@ -1628,6 +1669,10 @@ func (s *Scenario) Update(dt float64) {
 			s.structureEdit.clear()
 		case s.activeTool == toolParking && s.lotTool.mode != lotIdle:
 			s.lotTool.reset(s.lotTool.only) // drop the drag, keep the tool
+		case s.activeTool == toolService && s.serviceTool.laidOut():
+			s.serviceTool.dropRect() // drop the floor, keep the tool
+		case s.activeTool == toolTrailPaint && s.runTool.drawing:
+			s.runTool.drawing, s.runTool.nodes = false, nil // drop the run, keep the tool
 		case s.activeTool != toolNone:
 			s.cancelTool()
 		default:
@@ -1652,8 +1697,7 @@ func (s *Scenario) Update(dt float64) {
 				s.setToast("A built lot doesn't turn: demolish it and draw a new one")
 			}
 		case s.activeTool == toolService:
-			s.serviceTool.rot = stepRotation(s.serviceTool.rot, delta)
-			s.serviceTool.turned = true
+			s.serviceTool.turn(delta)
 			s.setToast("Rotation " + rotationDegrees(s.serviceTool.rot))
 		case isBuildingPlacementTool(s.activeTool):
 			s.placeRotation = stepRotation(s.placeRotation, delta)
@@ -1718,6 +1762,12 @@ func (s *Scenario) Update(dt float64) {
 		if !s.debugSteering {
 			r.SetDebugLines(nil)
 		}
+	}
+
+	// F6: colour guests by what they're doing (walking, queuing, on a
+	// lift, ...) over their outfits.
+	if inp.Pressed[glfw.KeyF6] {
+		r.ActivityTint = !r.ActivityTint
 	}
 
 	// F4: toggle planner debug panel (goal weights, full plan, snapshot
@@ -1883,10 +1933,6 @@ func (s *Scenario) Update(dt float64) {
 		s.hoverParcel = nil
 	}
 
-	if s.activeTool == toolService {
-		s.updateServicePick(r, inp.MousePos)
-	}
-
 	s.gladePreview = nil
 	if s.activeTool == toolGlade {
 		s.gladePreview = s.gladeSelection()
@@ -1908,6 +1954,23 @@ func (s *Scenario) Update(dt float64) {
 	if s.activeTool == toolService {
 		s.serviceGhost(r)
 	}
+	// Drawn trails: every one while the Trails overlay or the run tool is
+	// on, else just the one whose popup is open; the run tool's live
+	// layer on top (run_tool.go).
+	trailsOn := s.overlayPanel != nil && s.overlayPanel.Mask()&render.OverlayTrails != 0
+	var live *runTool
+	switch {
+	case s.activeTool == toolTrailPaint:
+		live = &s.runTool
+	case s.trailEdit.editing != 0:
+		live = &s.trailEdit
+	}
+	var liveRun uint64
+	if live != nil && !live.drawing {
+		liveRun = live.focus
+	}
+	s.trailDraw.update(r, s.world, s.time, trailsOn || s.activeTool == toolTrailPaint, s.activeTrailID, liveRun)
+	s.trailDraw.live(r, s.world, live)
 	// Highlight every existing road node while the road tool is active so
 	// the player can see snap targets. The snap-target node (or the
 	// projected snap point on an edge) is rendered brighter. While
@@ -1937,6 +2000,7 @@ func (s *Scenario) Update(dt float64) {
 
 	// World click / drag — glade supports held-down; placement tools use click-only.
 	screenW := float32(r.ScreenWidth())
+	s.editSelectedTrail(r, inp, typing)
 	if !inp.LeftClickConsumed && inp.LeftClick && s.activeTool == toolNone && !s.uiCovers(inp.MousePos[0], inp.MousePos[1], screenW) {
 		// Skier pick takes priority over toolNone-level edits and popups.
 		if a := s.pickGuest(r.Camera, inp.MousePos); a != nil {
@@ -2020,10 +2084,6 @@ func (s *Scenario) Update(dt float64) {
 		if s.lastGladeCell != [2]int{-1, -1} {
 			s.lastGladeCell = [2]int{-1, -1}
 		}
-		if s.activeTool == toolTrailPaint && s.lastTrailPaintCell != [2]int{-1, -1} {
-			s.finishTrailPaintStroke()
-			s.lastTrailPaintCell = [2]int{-1, -1}
-		}
 		// A finished drag leaves a ghost waiting to be built.
 		if s.activeTool == toolParking && s.lotTool.dragging() {
 			s.lotTool.release(mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]})
@@ -2033,14 +2093,6 @@ func (s *Scenario) Update(dt float64) {
 		}
 	}
 
-	// Right-held erase for trail paint.
-	if s.activeTool == toolTrailPaint && inp.RightHeld && s.hoverValid {
-		gx, gz := s.hoverCell[0], s.hoverCell[1]
-		if s.world.Terrain.InBounds(gx, gz) {
-			s.applyTrailErase(gx, gz)
-			s.lastTrailPaintCell = [2]int{gx, gz}
-		}
-	}
 	// Parking: press to draw a lot (or grab an edge), drag to shape the
 	// ghost; click inside the ghost or press Enter to build it.
 	if s.activeTool == toolParking && !inp.LeftClickConsumed && s.hoverValid {
@@ -2066,14 +2118,34 @@ func (s *Scenario) Update(dt float64) {
 		s.buildLot()
 	}
 	s.syncLotGhost(r)
-	// A right click that doesn't pan removes the service tile under it.
+	// The run tool: draw runs node by node, edit their shape
+	// (run_tool.go).
+	if s.activeTool == toolTrailPaint {
+		covered := s.barsContain(inp.MousePos[1]) || s.uiCovers(inp.MousePos[0], inp.MousePos[1], float32(r.ScreenWidth()))
+		s.runEnv().input(&s.runTool, runInput{
+			toolInput: toolInput{
+				mouse: inp.MousePos, covered: covered,
+				ground: s.hoverWorld, groundValid: s.hoverValid,
+				leftClick: inp.LeftClick && !inp.LeftClickConsumed, leftHeld: inp.LeftHeld,
+				rightClick: inp.RightClick, rightRelease: inp.RightRelease,
+				enter: !typing && (inp.Pressed[glfw.KeyEnter] || inp.Pressed[glfw.KeyKPEnter]),
+			},
+			widen:  !typing && inp.Pressed[glfw.KeyRightBracket],
+			narrow: !typing && inp.Pressed[glfw.KeyLeftBracket],
+			newRun: inp.Held[glfw.KeyLeftShift] || inp.Held[glfw.KeyRightShift],
+		})
+	}
+	// The building and service tools: drag out floor, put services in
+	// tiles, right-click to remove (service_tools.go).
 	if s.activeTool == toolService {
-		if inp.RightClick {
-			s.serviceTool.rightDown = inp.MousePos
-		}
-		if inp.RightRelease && inp.MousePos.Sub(s.serviceTool.rightDown).Len() < 4 {
-			s.removeServiceTile()
-		}
+		covered := s.barsContain(inp.MousePos[1]) || s.uiCovers(inp.MousePos[0], inp.MousePos[1], float32(r.ScreenWidth()))
+		s.serviceEnv().input(&s.serviceTool, toolInput{
+			mouse: inp.MousePos, covered: covered,
+			ground: s.hoverWorld, groundValid: s.hoverValid,
+			leftClick: inp.LeftClick && !inp.LeftClickConsumed, leftHeld: inp.LeftHeld,
+			rightClick: inp.RightClick, rightRelease: inp.RightRelease,
+			enter: !typing && (inp.Pressed[glfw.KeyEnter] || inp.Pressed[glfw.KeyKPEnter]),
+		})
 	}
 
 	if !inp.LeftClickConsumed && !sliderActive {
@@ -2083,10 +2155,7 @@ func (s *Scenario) Update(dt float64) {
 		gladeDragged := s.activeTool == toolGlade && inp.LeftHeld &&
 			s.lastGladeCell != [2]int{-1, -1} &&
 			s.hoverCell != s.lastGladeCell
-		trailDragged := s.activeTool == toolTrailPaint && inp.LeftHeld &&
-			s.lastTrailPaintCell != [2]int{-1, -1} &&
-			s.hoverCell != s.lastTrailPaintCell
-		clickOrDrag := (inp.LeftClick && s.activeTool != toolParking) || gladeDragged || trailDragged
+		clickOrDrag := (inp.LeftClick && s.activeTool != toolParking && s.activeTool != toolService && s.activeTool != toolTrailPaint) || gladeDragged
 		if clickOrDrag && !s.uiCovers(inp.MousePos[0], inp.MousePos[1], screenW) && s.hoverValid {
 			overSlider := s.activeTool == toolGlade &&
 				(s.gladeRadiusSlider.Contains(inp.MousePos[0], inp.MousePos[1]) ||
@@ -2095,16 +2164,9 @@ func (s *Scenario) Update(dt float64) {
 			if !overSlider && s.world.Terrain.InBounds(gx, gz) {
 				if s.activeTool == toolNone && inp.LeftClick {
 					s.tryOpenPopup(s.hoverWorld, r.ScreenWidth(), r.ScreenHeight())
-				} else if s.activeTool == toolTrailPaint && inp.LeftClick && !trailDragged {
-					// In edit mode the active tool captures clicks; no trail-picking.
-					s.lastTrailPaintCell = s.hoverCell
-					s.applyTool(r)
 				} else {
 					if s.activeTool == toolGlade {
 						s.lastGladeCell = s.hoverCell
-					}
-					if s.activeTool == toolTrailPaint {
-						s.lastTrailPaintCell = s.hoverCell
 					}
 					s.applyTool(r)
 				}
@@ -2124,19 +2186,10 @@ func (s *Scenario) Update(dt float64) {
 		s.sim.QueryServer.Tick(s.world, s.sim)
 	}
 
-	// If the sim mutated any cell's snow state (cats grooming, eventually
-	// snowfall/decay too), re-upload the terrain vertex buffer so the
-	// fragment shader sees the new values. Coalesced to one flush per
-	// frame regardless of how many cells changed.
-	//
-	// FlushSnowState only rewrites the snow-state floats per vertex on
-	// the cached vert array — much cheaper than FlushTerrainVerts,
-	// which recomputes AO and smoothY for the whole map and was
-	// stalling the frame budget every time a cat groomed.
-	if s.world.Terrain.SnowDirty {
-		r.FlushSnowState(s.world.Terrain)
-		s.world.Terrain.SnowDirty = false
-	}
+	// Upload the snow state the sim changed this frame: just the tiles
+	// it marked (skiers, cats, guns), or the whole map after snowfall
+	// or melt.
+	r.FlushSnowDirty(s.world.Terrain)
 	// Lakes freezing and thawing change the material map; it uploads only
 	// when its version moves.
 	r.FlushTerrainMaterial(s.world.Terrain)
@@ -2221,9 +2274,13 @@ func (s *Scenario) updateOverlay(r *render.Renderer) {
 	}
 	r.SetLodgeCutaway(s.world, cutaway)
 
-	// Cell overlay texture (trails + grooming routes) — always updated.
-	pix, ow, oh := s.buildCellOverlay()
-	r.SetCellOverlay(pix, ow, oh)
+	// Cell overlay texture: rebuilt every frame while it's showing
+	// something that changes under the mouse, otherwise when it changes.
+	if key := s.cellOverlayContent(); key == 0 || key != s.cellOverlayKey {
+		pix, ow, oh := s.buildCellOverlay()
+		r.SetCellOverlay(pix, ow, oh)
+		s.cellOverlayKey = key
+	}
 
 	a := s.findFollowedGuest()
 
@@ -2302,16 +2359,17 @@ func (s *Scenario) buildCellOverlay() (pixels []uint8, w, h int) {
 	tw := s.world.Terrain.Width
 	th := s.world.Terrain.Height
 
-	trailOverlayOn := s.overlayPanel != nil && (s.overlayPanel.Mask()&render.OverlayTrails) != 0
-	hasActiveTrail := s.activeTrailID != 0
-	hasTrails := len(s.world.Trails) > 0 && (trailOverlayOn || hasActiveTrail)
 	hasLandOverlay := s.hoverParcel != nil // hover highlight when buying land
 	editedLodge := s.editedLodge()
-	if !hasTrails && !hasLandOverlay && editedLodge == nil {
+	fallsOn := s.overlayPanel != nil && s.overlayPanel.Mask()&render.OverlayFalls != 0
+	if !hasLandOverlay && editedLodge == nil && !fallsOn {
 		return nil, 0, 0
 	}
 
 	pix := make([]uint8, tw*th*4)
+	if fallsOn {
+		copy(pix, s.fallHeatPixels())
+	}
 	set := func(cx, cz int, r, g, b, a uint8) {
 		if cx < 0 || cx >= tw || cz < 0 || cz >= th {
 			return
@@ -2339,9 +2397,7 @@ func (s *Scenario) buildCellOverlay() (pixels []uint8, w, h int) {
 		}
 	}
 
-	// Trails — shown when overlay is on, or always for the selected/active trail.
-	drawTrailOverlay(s.world.Trails, s.activeTrailID, trailOverlayOn, set)
-	appendServiceOverlay(editedLodge, set)
+	appendServiceOverlay(editedLodge, s.selectedRoomCells(editedLodge), set)
 
 	return pix, tw, th
 }
@@ -2635,8 +2691,6 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 	gx, gz := s.hoverCell[0], s.hoverCell[1]
 	wx, wz := s.hoverWorld[0], s.hoverWorld[2]
 	switch s.activeTool {
-	case toolService:
-		s.applyServicePick()
 	case toolSnowGun:
 		if !w.Terrain.IsAccessible(gx, gz) {
 			s.setToast("Can't build on land you don't own")
@@ -2763,52 +2817,57 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		s.roadStart = end.pos
 	case toolRemove:
 		s.removeAt(s.hoverWorld, r)
-	case toolTrailPaint:
-		if s.trailEraseMode {
-			s.applyTrailErase(gx, gz)
-		} else {
-			s.applyTrailPaint(gx, gz)
-		}
-		s.lastTrailPaintCell = [2]int{gx, gz}
 	case toolLandBuy:
 		s.openLandBuyPopup(gx, gz, r.ScreenWidth(), r.ScreenHeight())
 	}
 }
 
-// trailPaintBrushRadius is the half-width of the trail-paint brush in cells.
-const trailPaintBrushRadius = 2
-
-// activateTrailTool enters trail-paint mode for a new trail. Re-clicking
-// the Trail button while already in paint mode deactivates the tool.
+// activateTrailTool starts the run tool for drawing new runs
+// (run_tool.go); re-clicking the Trail button ends it. Runs are edited
+// by selecting them (editSelectedTrail).
 func (s *Scenario) activateTrailTool() {
 	if s.activeTool == toolTrailPaint {
 		s.cancelTool()
 		return
 	}
-	t := s.world.PlaceTrail("", s.trailDifficulty)
-	s.activeTrailID = t.ID
-	s.trailEraseMode = false
-	s.lastTrailPaintCell = [2]int{-1, -1}
+	if s.activeTool != toolNone {
+		s.cancelTool()
+	}
+	s.runTool = newRunTool(s.trailDifficulty)
 	s.activeTool = toolTrailPaint
 	s.syncToolButtons()
-	s.setToast("Drag to add cells. Right-drag to remove. Esc to finish.")
+	s.setToast("Click near a lift top to start a run, then click to add nodes and click a lift base to finish. Click a run with no tool to select and edit it. Esc to finish.")
 }
 
-// applyTrailPaint adds cells under the brush to the active trail.
-func (s *Scenario) applyTrailPaint(gx, gz int) {
-	paintTrail(s.world, s.activeTrailID, gx, gz, false)
+// editSelectedTrail runs a frame of editing the selected run (its popup
+// open, no tool): its handles show, and clicks on them or on the run go
+// to it first, consuming the click.
+func (s *Scenario) editSelectedTrail(r *render.Renderer, inp *engine.Input, typing bool) {
+	if s.activeTool != toolNone || s.activeTrailID == 0 || s.popup == nil || !s.popup.Visible {
+		s.trailEdit = runTool{}
+		return
+	}
+	s.trailEdit.editing = s.activeTrailID
+	covered := s.barsContain(inp.MousePos[1]) || s.uiCovers(inp.MousePos[0], inp.MousePos[1], float32(r.ScreenWidth()))
+	used := s.runEnv().input(&s.trailEdit, runInput{
+		toolInput: toolInput{
+			mouse: inp.MousePos, covered: covered,
+			ground: s.hoverWorld, groundValid: s.hoverValid,
+			leftClick: inp.LeftClick && !inp.LeftClickConsumed, leftHeld: inp.LeftHeld,
+			rightClick: inp.RightClick, rightRelease: inp.RightRelease,
+		},
+		widen:  !typing && inp.Pressed[glfw.KeyRightBracket],
+		narrow: !typing && inp.Pressed[glfw.KeyLeftBracket],
+	})
+	if used && inp.LeftClick {
+		inp.LeftClickConsumed = true
+	}
 }
 
-// applyTrailErase removes cells under the brush from the active trail.
-func (s *Scenario) applyTrailErase(gx, gz int) {
-	paintTrail(s.world, s.activeTrailID, gx, gz, true)
-}
-
-// finishTrailPaintStroke rebuilds the TrailGraph after a drag-paint stroke ends
-// and invalidates section assignments since column counts may have changed.
-func (s *Scenario) finishTrailPaintStroke() {
-	s.world.RebuildTrailGraph()
-	s.sim.InvalidateSections()
+// runEnv is the game's run-tool surroundings: shape changes re-plan the
+// snowcats.
+func (s *Scenario) runEnv() runEnv {
+	return runEnv{w: s.world, toast: s.setToast, changed: func() { s.sim.InvalidateSections() }}
 }
 
 // findBuilding returns the building with the given ID, or nil.
@@ -2949,7 +3008,7 @@ func (s *Scenario) Render(r *render.Renderer) {
 	if s.eventPanel != nil {
 		s.eventPanel.Bottom = float32(r.ScreenHeight()) - s.toolBar.H
 	}
-	drawables := []render.UIDrawable{s.topBar, s.toolBar, s.overlayPanel, s.eventPanel}
+	drawables := []render.UIDrawable{&fallenMarkers{world: s.world}, s.topBar, s.toolBar, s.overlayPanel, s.eventPanel}
 
 	// Parcel price labels — shown when the land-buy tool is active so the
 	// player can see what each purchasable parcel costs before clicking.
@@ -3217,6 +3276,19 @@ func (s *Scenario) tryOpenPopup(clickPos mgl32.Vec3, screenW, screenH int) {
 			return
 		}
 	}
+	// With a building's popup open (drawn as a cutaway), a click on one
+	// of its rooms opens that room's popup; on empty floor, the
+	// building's again.
+	if b := s.editedLodge(); b != nil {
+		if c := b.TileAt(pick); b.HasCell(c) {
+			if _, ok := b.RoomAt(c); ok {
+				s.buildRoomPopup(b, c, false, screenW, screenH)
+			} else {
+				s.buildLodgePopup(b, false, screenW, screenH)
+			}
+			return
+		}
+	}
 	for _, b := range s.world.Buildings {
 		if !b.IsPainted() && b.Pos.Sub(pick).Len() <= buildingPickRadius {
 			s.openBuildingPopup(b, screenW, screenH)
@@ -3268,25 +3340,8 @@ func (s *Scenario) openTrailPopup(trail *world.Trail, screenW, screenH int) {
 // Confirm/Cancel instead of the normal Clear button.
 func (s *Scenario) buildTrailPopup(trail *world.Trail, confirmClear bool, screenW, screenH int) {
 	t := trail
-	enterEdit := func(erase bool) {
-		s.trailEraseMode = erase
-		s.activeTrailID = t.ID
-		s.trailDifficulty = t.Difficulty
-		s.lastTrailPaintCell = [2]int{-1, -1}
-		s.activeTool = toolTrailPaint
-		s.syncToolButtons()
-		if s.popup != nil {
-			s.popup.Visible = false
-		}
-		if erase {
-			s.setToast("Drag to remove cells. Esc to finish.")
-		} else {
-			s.setToast("Drag to add cells. Right-drag to remove. Esc to finish.")
-		}
-	}
 	w := newTrailWindow(s.world, t, confirmClear, trailHooks{
 		groomed: func() { s.sim.InvalidateSections() },
-		edit:    enterEdit,
 		deleted: func() {
 			// Guests mid-run on it plan afresh.
 			for _, a := range s.world.OnMountain {
@@ -3535,39 +3590,13 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 			s.openLiftPopup(l, screenW, screenH)
 		})
 	}
-	if l.Type == world.LiftDouble {
-		cost := world.LiftUpgradeCost(world.LiftDouble, world.LiftFixedQuad)
-		label := fmt.Sprintf("Upgrade to Quad ($%d)", cost)
-		w.AddActionButton(label, func() {
-			if !s.world.UpgradeLift(l, world.LiftFixedQuad) {
-				if !s.world.CanAfford(cost) {
-					s.setToast(fmt.Sprintf("Need $%d to upgrade — short by $%d",
-						cost, cost-s.world.Available()))
-				}
-				return
-			}
-			s.openLiftPopup(l, screenW, screenH)
-		})
-	}
-	if l.Type == world.LiftFixedQuad {
-		cost := world.LiftUpgradeCost(world.LiftFixedQuad, world.LiftHSQuad)
-		label := fmt.Sprintf("Upgrade to HS Quad ($%d)", cost)
-		w.AddActionButton(label, func() {
-			if !s.world.UpgradeLift(l, world.LiftHSQuad) {
-				if !s.world.CanAfford(cost) {
-					s.setToast(fmt.Sprintf("Need $%d to upgrade — short by $%d",
-						cost, cost-s.world.Available()))
-				}
-				return
-			}
-			s.openLiftPopup(l, screenW, screenH)
-		})
-	}
-	if l.Type == world.LiftHSQuad {
-		cost := world.LiftUpgradeCost(world.LiftHSQuad, world.LiftHS6Pack)
-		label := fmt.Sprintf("Upgrade to HS 6-Pack ($%d)", cost)
-		w.AddActionButton(label, func() {
-			if !s.world.UpgradeLift(l, world.LiftHS6Pack) {
+	for _, up := range liftUpgrades {
+		if l.Type != up.from {
+			continue
+		}
+		cost := world.LiftUpgradeCost(up.from, up.to)
+		w.AddActionButton(fmt.Sprintf("Upgrade to %s ($%d)", up.label, cost), func() {
+			if !s.world.UpgradeLift(l, up.to) {
 				if !s.world.CanAfford(cost) {
 					s.setToast(fmt.Sprintf("Need $%d to upgrade — short by $%d",
 						cost, cost-s.world.Available()))
@@ -3580,6 +3609,19 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 	w.Visible = true
 	w.Center(screenW, screenH)
 	s.popup = w
+}
+
+// liftUpgrades are the chair upgrades a lift popup offers, by the lift's
+// current type (world.LiftUpgradeCost prices them).
+var liftUpgrades = []struct {
+	from, to world.LiftType
+	label    string
+}{
+	{world.LiftDouble, world.LiftFixedTriple, "Triple"},
+	{world.LiftDouble, world.LiftFixedQuad, "Quad"},
+	{world.LiftFixedTriple, world.LiftFixedQuad, "Quad"},
+	{world.LiftFixedQuad, world.LiftHSQuad, "HS Quad"},
+	{world.LiftHSQuad, world.LiftHS6Pack, "HS 6-Pack"},
 }
 
 func (s *Scenario) openSnowcatPopup(cat *world.Snowcat, screenW, screenH int) {
@@ -3752,8 +3794,8 @@ func (s *Scenario) cancelTool() {
 	s.app.Renderer.ClearGhostRoad()
 	if s.activeTool == toolTrailPaint {
 		s.activeTrailID = 0
-		s.lastTrailPaintCell = [2]int{-1, -1}
-		s.trailEraseMode = false
+		s.runTool = runTool{}
+		s.app.Renderer.SetTrailLayer(render.TrailLayerLive, nil, nil)
 	}
 	if s.activeTool == toolParking {
 		s.lotTool.reset(0)
@@ -3935,14 +3977,17 @@ func (s *Scenario) syncToolButtons() {
 			(mode == toolRoadStart && s.activeTool == toolRoadEnd))
 	}
 	for svc, btn := range s.serviceButtons {
-		btn.SetActive(s.activeTool == toolService && s.serviceTool.svc == svc)
+		btn.SetActive(s.activeTool == toolService && !s.serviceTool.building && s.serviceTool.svc == svc)
 	}
 	for k, btn := range s.kindButtons {
-		btn.SetActive(s.newShellKind == k)
+		btn.SetActive(s.activeTool == toolService && s.serviceTool.building && s.serviceTool.kind == k)
 	}
 	liftActive := s.activeTool == toolLiftBase || s.activeTool == toolLiftTop
 	if s.liftDoubleBtn != nil {
 		s.liftDoubleBtn.SetActive(liftActive && s.liftType == world.LiftDouble)
+	}
+	if s.liftTripleBtn != nil {
+		s.liftTripleBtn.SetActive(liftActive && s.liftType == world.LiftFixedTriple)
 	}
 	if s.liftQuadBtn != nil {
 		s.liftQuadBtn.SetActive(liftActive && s.liftType == world.LiftFixedQuad)
@@ -3964,8 +4009,11 @@ func (s *Scenario) syncToolButtons() {
 	if s.liftsSubmenu != nil {
 		s.liftsSubmenu.Btn.SetActive(s.liftsSubmenu.HasActiveChild())
 	}
-	if s.amenitiesSubmenu != nil {
-		s.amenitiesSubmenu.Btn.SetActive(s.amenitiesSubmenu.HasActiveChild())
+	if s.servicesSubmenu != nil {
+		s.servicesSubmenu.Btn.SetActive(s.servicesSubmenu.HasActiveChild())
+	}
+	if s.buildingsSubmenu != nil {
+		s.buildingsSubmenu.Btn.SetActive(s.buildingsSubmenu.HasActiveChild())
 	}
 	if s.transportSubmenu != nil {
 		s.transportSubmenu.Btn.SetActive(s.transportSubmenu.HasActiveChild())

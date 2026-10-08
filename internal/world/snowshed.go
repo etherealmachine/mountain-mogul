@@ -185,7 +185,7 @@ func (t *Terrain) ShedSnow() float32 {
 		moved += excess
 	}
 	if moved > 0 {
-		t.SnowDirty = true
+		t.MarkAllSnowDirty()
 	}
 	return moved
 }

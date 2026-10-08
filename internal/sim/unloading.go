@@ -56,7 +56,7 @@ func (s *Simulation) startUnloading(a *world.Guest, lift *world.Lift, slotIdx in
 func unloadFallChance(skill float32, t world.LiftType) float32 {
 	var chance [3]float32 // beginner, intermediate, advanced
 	switch t {
-	case world.LiftDouble, world.LiftFixedQuad:
+	case world.LiftDouble, world.LiftFixedTriple, world.LiftFixedQuad:
 		chance = [3]float32{0.03, 0.005, 0.001}
 	case world.LiftHSQuad, world.LiftHS6Pack:
 		chance = [3]float32{0.01, 0.002, 0}
@@ -128,11 +128,8 @@ func (s *Simulation) tickUnloading(a *world.Guest, dt float64) {
 // unloading state stays, with the fall spent.
 func (s *Simulation) fallUnloading(a *world.Guest) {
 	a.Unload.FallAt = 0
-	a.Fallen = true
-	a.Balance = 0
 	a.Speed = 0
-	a.FallTimer = float32(fallRecoverTime)
-	a.Events = append(a.Events, ai.GuestEvent{Kind: ai.EventFall, Time: s.SimTime})
+	s.knockDown(a, world.FallSide)
 	s.applyEvent(a, ai.ThoughtFellUnloading, a.Unload.LiftID)
 }
 

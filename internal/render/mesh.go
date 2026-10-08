@@ -35,6 +35,7 @@ const (
 	MeshSnowGun      uint32 = 22 // snowmaking cannon on a tripod
 	MeshBar          uint32 = 23 // bar/restaurant (half-size lodge)
 	MeshTicketOffice uint32 = 24 // ticket booth with service windows
+	MeshChairTriple  uint32 = 25 // 3-seat fixed grip chair
 
 	// MeshLodgeTileBase + world.ShellMeshIndex(kind, tile) is the shell
 	// kits, one per building kind (models-src/{lodge,tent,shed}_*.scad);

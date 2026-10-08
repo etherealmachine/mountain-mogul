@@ -495,6 +495,7 @@ func (s *Simulation) patrollerDropPatient(p *world.Patroller, base *world.Buildi
 		g.OnPatrollerID = 0
 		g.Injured = false
 		g.Fallen = false
+		g.Tumble = world.Tumble{}
 		g.SkisOn = false
 		g.Speed, g.TurnSide, g.Patience = 0, 0, 0
 		g.Balance = float32(fallStartBalance)
@@ -504,7 +505,12 @@ func (s *Simulation) patrollerDropPatient(p *world.Patroller, base *world.Buildi
 			mgl32.Vec2{p.Pos[0], p.Pos[2]}, g.ID)
 		// Patched up, they walk to their car; the departure counts when
 		// they drive off, as for any guest.
-		s.setDepartReason(g, ai.DepartHurt)
+		if g.Stranded {
+			g.Stranded = false
+			s.setDepartReason(g, ai.DepartGaveUp)
+		} else {
+			s.setDepartReason(g, ai.DepartHurt)
+		}
 		s.directHomePlan(g)
 	}
 	p.TargetGuestID = 0

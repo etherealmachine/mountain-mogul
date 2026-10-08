@@ -106,10 +106,12 @@ type Guest struct {
 	// Implicit-state markers.
 	OnLiftID        uint64 // nonzero ⇒ riding the named lift's chair (locomotion is suspended)
 	Queued          bool   // in some lift.Queue, waiting to board
-	Fallen          bool   // briefly immobilised after a fall; clears when FallTimer expires
-	FallTimer       float32
+	Fallen          bool   // down after a fall, through getting up and collecting skis (Tumble)
+	Tumble          Tumble
 	Injured         bool    // injured after a severe fall; cannot self-recover
 	HurtGoHome      bool    // a minor injury: heads home once back on their feet
+	OnFoot          bool    // done skiing for the day (gave up, or hurt with no help): walks the rest of the way
+	Stranded        bool    // with Injured: not hurt, gave up after falling over and over; waits for patrol the same way
 	InjuryWaitTimer float32 // counts down while Injured; on expiry guest gives up and crawls home
 	OnPatrollerID   uint64  // nonzero ⇒ being transported by this patroller; locomotion suspended
 	AtTrailEnd      uint64  // nonzero ⇒ arrived at a trail-to-trail junction (ID = destination trail)
@@ -317,6 +319,9 @@ func Activity(w *World, g *Guest) string {
 	if g.OnPatrollerID != 0 {
 		return "Being Rescued"
 	}
+	if g.Injured && g.Stranded {
+		return "Stranded"
+	}
 	if g.Injured {
 		return "Injured"
 	}
@@ -433,6 +438,7 @@ type Run struct {
 	Groomed  float32    // grooming × seconds
 	Taste    float32    // how well the snow suited the guest (Σ taste × feature) × seconds
 	Fresh    float32    // seconds on fresh powder nobody had skied since it fell
+	Falls    int        // times down on this descent (sim.fallGiveUpCount)
 	Trails   [RunTrailSlots]RunTrail
 }
 
@@ -542,8 +548,10 @@ func (g *Guest) ResetForDeparture() {
 	g.OnLiftID = 0
 	g.Queued = false
 	g.Fallen = false
-	g.FallTimer = 0
+	g.Tumble = Tumble{}
 	g.Injured = false
+	g.Stranded = false
+	g.OnFoot = false
 	g.HurtGoHome = false
 	g.InjuryWaitTimer = 0
 	g.OnPatrollerID = 0
@@ -639,3 +647,43 @@ type SkiRoute struct {
 	NextCheck float64
 	NextLook  float64
 }
+
+// FallPhase is where a fallen guest is in going down and getting going
+// again.
+type FallPhase uint8
+
+const (
+	FallSliding    FallPhase = iota // down, sliding to a stop
+	FallDown                        // lying where they stopped
+	FallGettingUp                   // getting up, skis set across the fall line
+	FallCollecting                  // on foot, fetching skis knocked off, then clipping in
+)
+
+// FallDir is which way a guest went down. It sets how far they slide
+// and how they lie.
+type FallDir uint8
+
+const (
+	FallForward FallDir = iota // over the tips: too fast, or thrown by bumps
+	FallBack                   // sat back: steeper than they can handle
+	FallSide                   // onto the uphill hip: caught an edge, skidding, in trees
+	FallThrown                 // knocked back off a tree trunk
+)
+
+// Tumble is a guest's fall in progress, while Fallen.
+type Tumble struct {
+	Phase FallPhase
+	Dir   FallDir
+	Side  int8       // -1 left, +1 right: the side they went down on
+	Vel   [2]float32 // sliding velocity, world XZ, m/s
+	T     float32    // seconds into this phase
+	Dur   float32    // how long FallDown, FallGettingUp, or clipping in lasts
+	// SkisOff marks a ski knocked off in a yard sale (left, right), lying
+	// at Skis with heading SkiYaw until the guest walks back for it.
+	SkisOff [2]bool
+	Skis    [2][2]float32
+	SkiYaw  [2]float32
+}
+
+// SkiLost reports whether either ski is lying in the snow.
+func (t *Tumble) SkiLost() bool { return t.SkisOff[0] || t.SkisOff[1] }

@@ -136,7 +136,7 @@ func ApplyLakes(w *world.World) {
 			c := &t.Cells[x][z]
 			if c.Base > 0 || c.Top.Accumulation > 0 {
 				c.Base, c.Top = 0, world.SnowLayer{}
-				t.SnowDirty = true
+				t.MarkSnowDirty(x, z)
 			}
 		}
 	}

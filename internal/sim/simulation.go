@@ -100,15 +100,22 @@ type Simulation struct {
 	// cache means each refill is also allocation-free in steady state.
 	towersScratch []mgl32.Vec2
 
-	// spatial is the per-Tick agent grid the L1 hazard sampler reads.
+	// spatial is the per-step agent grid the L1 hazard sampler reads.
 	// Without it, hazardDensityAt iterates every other agent per
 	// query and sampleTactical becomes O(N²) in agent count — at 50×
 	// with the demand system pushing N past ~150 that wedged the main
 	// thread for seconds at a time. The grid is rebuilt once per Tick
 	// alongside towersScratch.
 	spatial *spatialGrid
-	// hazardScratch is the swerve check's reusable hazard list.
-	hazardScratch []hazardPoint
+	// steerScratch is decide's reusable buffers, and steerScratches one
+	// per core for parallel steering.
+	steerScratch   steerScratch
+	steerScratches []steerScratch
+	// skiJobs holds this step's skiers waiting on steering; skiBatch
+	// points at it while tickGuests is collecting them (ski_parallel.go).
+	skiJobs   []skiJob
+	skiBatch  *[]skiJob
+	routeJobs []routeJob // planRoutes' scratch
 
 	// OnDayRollover, if non-nil, is called once per in-game day after
 	// weather and snowfall have been applied. Used by the scene layer to
@@ -251,10 +258,9 @@ func (s *Simulation) Tick(dt float64) {
 	// don't move during a frame, so the L1 sampler in every substep /
 	// every agent can read the same slice.
 	s.refillTowersScratch()
-	// Rebucket every agent into the spatial grid for the L1 hazard
-	// sampler. Cheap — O(agents) — and turns hazardDensityAt's agent
-	// iteration from O(N) into O(near).
-	s.spatial.rebuild(s.World.OnMountain)
+	// Bring the cached trunk hazards up to date with any tree edits
+	// since the last frame, before skiers read them (in parallel).
+	s.World.Terrain.RefreshTrunkField()
 
 	remaining := dt * s.TimeScale
 	if s.StopAt > 0 && s.SimTime+remaining > s.StopAt {
@@ -289,6 +295,10 @@ func (s *Simulation) refillTowersScratch() {
 // come from here so substepping in Tick is the single place that
 // controls step size.
 func (s *Simulation) subTick(dt float64) {
+	// Rebucket every guest for the skier-avoidance queries, every step:
+	// a frame at fast-forward holds dozens of steps, and a skier can
+	// cross several buckets in that time. O(guests).
+	s.spatial.rebuild(s.World.OnMountain)
 	s.SimTime += dt
 	s.World.SimTime = s.SimTime
 	s.Demand.maybePoll(s)
@@ -653,6 +663,9 @@ func (s *Simulation) tickGuests(dt float64) {
 			agent.SkiTransitionTimer = 0
 		}
 	}
+	s.planRoutes()
+	s.skiJobs = s.skiJobs[:0]
+	s.skiBatch = &s.skiJobs
 	for _, agent := range w.OnMountain {
 		if agent.Removed {
 			continue
@@ -703,6 +716,21 @@ func (s *Simulation) tickGuests(dt float64) {
 		if agent.SkisOn && noSnowUnderfoot(s.World.Terrain, agent.Pos[0], agent.Pos[2]) {
 			agent.SkisOn = false
 			agent.SkiTransitionTimer = 0
+		}
+	}
+	// Skiers collected above decide their steering together, then move
+	// in the usual order (ski_parallel.go).
+	s.skiBatch = nil
+	s.decideSkiers(s.skiJobs, dt)
+	for i := range s.skiJobs {
+		j := &s.skiJobs[i]
+		if j.a.Removed {
+			continue
+		}
+		s.applySkier(j.a, j.target, j.dist, j.perc, j.dec, dt)
+		if j.a.SkisOn && noSnowUnderfoot(s.World.Terrain, j.a.Pos[0], j.a.Pos[2]) {
+			j.a.SkisOn = false
+			j.a.SkiTransitionTimer = 0
 		}
 	}
 	s.reapDeparted()
@@ -889,6 +917,7 @@ func (s *Simulation) maybeSampleHistory() {
 			Rating:           w.Rating,
 			ThoughtCounts:    w.History.ThoughtCountsToday,
 			DepartReasons:    w.History.DepartReasonsToday,
+			Falls:            len(w.History.FallsToday),
 		}
 		w.History.Push(sample)
 		s.logDaySummary(sample)
@@ -1037,7 +1066,7 @@ func (s *Simulation) TriggerAvalanche() {
 	if s.startAvalanche(t, pick.x, pick.z) {
 		s.logAvalanches(1, [2]int{pick.x, pick.z})
 	}
-	t.SnowDirty = true
+	t.MarkAllSnowDirty()
 }
 
 // TriggerHeatwave immediately applies one warm sunny day to the terrain —
@@ -1110,6 +1139,12 @@ func (s *Simulation) applyDailyWeather(dw DayWeather) {
 	// Lakes freeze, thicken, and thaw with the day's temperature.
 	s.stepLakes(dw)
 
+	// Age skier tracks once a day so their clocks never wrap (a snowy
+	// day already did, burying them).
+	if dw.State != WeatherLightSnow && dw.State != WeatherHeavySnow {
+		t.Surface.AgeTracks(world.TrackClock(s.SimTime), 1)
+	}
+
 	// Decay skier traffic on all cells once per day (~4 day half-life).
 	for x := range t.Cells {
 		for z := range t.Cells[x] {
@@ -1117,7 +1152,7 @@ func (s *Simulation) applyDailyWeather(dw DayWeather) {
 		}
 	}
 
-	t.SnowDirty = true
+	t.MarkAllSnowDirty()
 }
 
 // pushSnowLayer adds a new storm layer on top of every terrain cell. If the
@@ -1154,10 +1189,7 @@ func (s *Simulation) pushSnowLayer(dw DayWeather) {
 	t.ShedSnow()
 
 	// Bury skier tracks. 2 cm SWE fully covers any track.
-	trackFactor := float32(1.0) - burialFactor
-	if trackFactor < 1.0 {
-		t.Surface.DecayTracks(trackFactor)
-	}
+	t.Surface.AgeTracks(world.TrackClock(s.SimTime), 1-burialFactor)
 	if burialFactor >= 1 {
 		t.Groom.Clear()
 	}
@@ -1262,7 +1294,7 @@ func (s *Simulation) meltHour(dw DayWeather, date time.Time, hour float64, tempC
 		}
 	}
 	if melted {
-		t.SnowDirty = true
+		t.MarkAllSnowDirty()
 	}
 }
 
@@ -1550,6 +1582,21 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		a.Plan.Goal = ai.GoalDepart
 		a.Plan.GoalID = b.ID
 		a.Plan.Target = parkingWorldPos(w, b)
+	case ai.ActWalkToParking:
+		b := findBuildingByID(w, step.BldgID)
+		if b == nil {
+			return
+		}
+		a.TargetID = b.ID
+		a.Plan.Goal = ai.GoalDepart
+		a.Plan.GoalID = b.ID
+		a.Plan.Target = parkingWorldPos(w, b)
+		startCell := [2]int{
+			int(math.Floor(float64(a.Pos[0] / CellSize))),
+			int(math.Floor(float64(a.Pos[2] / CellSize))),
+		}
+		a.Path = s.Pathfinder.FindPath(startCell, b.DoorCell())
+		a.PathIdx = 0
 	case ai.ActSkiTrail:
 		s.startRun(a)
 		switch {
@@ -1576,9 +1623,10 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 			a.Plan.GoalID = b.ID
 			a.Plan.Target = entranceWorldPos(w, b, a.Pos, visitService(w, a))
 		default:
-			// Trail-to-trail: steer toward destination trail's centroid.
+			// Trail-to-trail: steer for where the trail skied meets
+			// the next one.
 			if t := w.FindTrail(step.TrailID); t != nil {
-				c := t.Centroid()
+				c, _ := world.TrailJunction(w.FindTrail(step.Via), t, mgl32.Vec2{a.Pos[0], a.Pos[2]})
 				y := w.Terrain.InterpolatedSurfaceElevationAt(c[0], c[1])
 				a.Plan.Target = mgl32.Vec3{c[0], y, c[1]}
 				a.Plan.Goal = ai.GoalNone
@@ -1829,7 +1877,7 @@ func planActionComplete(step ai.PlanAction, a *world.Guest, snap goap.WorldSnaps
 		return snap.AtLiftTop == step.LiftID
 	case ai.ActSkiToService:
 		return snap.AtService == step.BldgID
-	case ai.ActSkiToParking:
+	case ai.ActSkiToParking, ai.ActWalkToParking:
 		return snap.AtParking == step.BldgID
 	case ai.ActWalkToTicketOffice:
 		return snap.AtTicketOffice == step.BldgID
@@ -1867,7 +1915,7 @@ func planActionPreconditionHolds(step ai.PlanAction, snap goap.WorldSnapshot, w 
 	case ai.ActWalkToLift, ai.ActJoinQueue, ai.ActRideLift, ai.ActSkiToLift:
 		l := findLiftByID(w, step.LiftID)
 		return l != nil && l.Open && !l.OnHold
-	case ai.ActSkiToService, ai.ActSkiToParking,
+	case ai.ActSkiToService, ai.ActSkiToParking, ai.ActWalkToParking,
 		ai.ActDepart, ai.ActWalkToTicketOffice, ai.ActWalkToService, ai.ActBuySeasonPass, ai.ActBuyDayTicket:
 		b := findBuildingByID(w, step.BldgID)
 		return b != nil && b.Usable()
@@ -2078,7 +2126,7 @@ func planTargetWorldPos(w *world.World, a *world.Guest) (mgl32.Vec3, bool) {
 		if l := findLiftByID(w, step.LiftID); l != nil {
 			return l.BackOfQueueWorldPos(w.Terrain), true
 		}
-	case ai.ActSkiToService, ai.ActSkiToParking, ai.ActWalkToTicketOffice, ai.ActWalkToService:
+	case ai.ActSkiToService, ai.ActSkiToParking, ai.ActWalkToParking, ai.ActWalkToTicketOffice, ai.ActWalkToService:
 		if b := findBuildingByID(w, step.BldgID); b != nil {
 			return entranceWorldPos(w, b, a.Pos, visitService(w, a)), true
 		}

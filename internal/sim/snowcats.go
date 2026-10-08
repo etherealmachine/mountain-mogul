@@ -426,5 +426,5 @@ func groomCell(w *world.World, c [2]int) {
 	}
 	cell.Grooming = 1.0
 	cell.SkierTraffic = 0
-	w.Terrain.SnowDirty = true
+	w.Terrain.MarkSnowDirty(c[0], c[1])
 }

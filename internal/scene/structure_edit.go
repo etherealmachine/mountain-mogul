@@ -128,6 +128,7 @@ func dragStructure(r *render.Renderer, w *world.World, sel *structureEditSelecti
 			sel.lift.Top = target
 		}
 		applyLiftPlacementEffects(w, sel.lift)
+		w.RebuildTrailGraph() // the moved end may now touch other trails
 		r.FlushTerrainVerts(w.Terrain)
 		r.RemoveLiftCable(sel.lift.ID)
 		r.AddLiftCable(sel.lift, w.Terrain)

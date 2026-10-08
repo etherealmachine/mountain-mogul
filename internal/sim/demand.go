@@ -98,13 +98,6 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 		return // closed: nobody comes, pass holders included
 	}
 
-	// Piggyback the slow cadence with a one-pass linear decay of skier
-	// tracks in the surface-detail R channel. 0.985 per 30 s sim time
-	// ≈ 30-min half-life — tracks linger but don't accumulate forever.
-	if s.World != nil && s.World.Terrain != nil {
-		s.World.Terrain.Surface.DecayTracks(0.985)
-	}
-
 	liftCap := resortCapacity(s.World)
 	if liftCap <= 0 {
 		return // no lifts → no guests want to come
