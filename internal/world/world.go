@@ -289,6 +289,13 @@ type World struct {
 	// Scenario is the scenario's name, description, and campaign placing.
 	Scenario ScenarioInfo
 
+	// GroupMix is how the scenario's guests come in groups (group.go);
+	// zero for DefaultGroupMix. GroupsRev counts regroupings, for
+	// GuestGroups' cache.
+	GroupMix  GroupMix
+	GroupsRev int
+	groups    groupCache
+
 	// Geo is the real-world area the terrain was imported from, or nil
 	// for drawn maps and imports from before it was recorded.
 	Geo *GeoBounds

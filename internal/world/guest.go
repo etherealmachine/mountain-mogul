@@ -61,6 +61,9 @@ type Guest struct {
 	Traits          ai.GuestTraits // includes SkillLevel
 	VisitsPerSeason float32        // expected mean visits per ski season
 	ArrivalOffset   float32        // preferred arrival, clock hours after opening (negative: before)
+	// GroupID is the group the guest comes with (group.go): the first
+	// member's ID, shared by every member. 0 until FormGroups.
+	GroupID uint64
 
 	// =====================================================================
 	// Career stats — grow over time, drive future hysteresis (e.g. don't
@@ -310,6 +313,10 @@ type Guest struct {
 	// speed / TimeScale. Zero before the first splat or after a state
 	// reset (lift unload, fall recovery).
 	LastTrackPos mgl32.Vec3
+
+	// Party is the guest's group on the mountain today: who leads, the
+	// leader's plans and line, and the follower's place on it.
+	Party Party
 }
 
 // Activity returns a short human-readable label describing what the guest
@@ -582,6 +589,7 @@ func (g *Guest) ResetForDeparture() {
 	g.Events = g.Events[:0]
 	g.Sense = ai.Sense{}
 	g.LastTrackPos = mgl32.Vec3{}
+	g.Party = Party{}
 }
 
 // Visit is a guest's UseService step: the line at the door, then the

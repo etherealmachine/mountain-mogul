@@ -28,9 +28,12 @@ type ScenarioData struct {
 	CloseHour float32 `json:"close_hour,omitempty"`
 	// StartDate is World.StartDate, the date SimTime 0 maps to, as
 	// "2006-01-02". Absent loads world.DefaultStartDate.
-	StartDate string       `json:"start_date,omitempty"`
-	Cells     []CellData   `json:"cells"` // flat array, row-major (x-major)
-	Objects   []ObjectData `json:"objects"`
+	StartDate string `json:"start_date,omitempty"`
+	// GroupMix is World.GroupMix: mean group size, lesson share, mixed
+	// share. Absent loads world.DefaultGroupMix.
+	GroupMix []float32    `json:"group_mix,omitempty"`
+	Cells    []CellData   `json:"cells"` // flat array, row-major (x-major)
+	Objects  []ObjectData `json:"objects"`
 	// Trees is every stored tree as flat world-XZ pairs: x0, z0, x1, z1, …
 	// Older saves have none and carry per-cell TreeDensity instead.
 	Trees []float32 `json:"trees,omitempty"`
@@ -557,6 +560,7 @@ type GuestData struct {
 	// Leaving is a departure waiting for the guest's car to drive off.
 	Leaving   *LeavingData `json:"leaving,omitempty"`
 	HomeEntry uint64       `json:"entry,omitempty"` // world.Guest.HomeEntryID
+	Group     uint64       `json:"grp,omitempty"`   // world.Guest.GroupID
 	// Tastes are the guest's ai.Tastes in TasteKind order; absent in
 	// saves from before tastes, which roll them from the guest's ID.
 	Tastes []float32 `json:"tastes,omitempty"`

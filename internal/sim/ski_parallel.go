@@ -28,6 +28,8 @@ type skiJob struct {
 	a       *world.Guest
 	goal    mgl32.Vec3
 	seed    uint64
+	leader  *world.Guest // whose line a follows, when they can (groups.go)
+	off     int8         // a follower's step: onLine, or why they were off it
 	target  mgl32.Vec3
 	walk    bool
 	arrived bool
@@ -63,10 +65,22 @@ func decideRange(s *Simulation, jobs []skiJob, dt float64, sc *steerScratch) {
 	for i := range jobs {
 		j := &jobs[i]
 		a := j.a
-		// Around the trees, where the straight way crosses them: steer
-		// at the next waypoint, while the destination stays goal. This
-		// writes only a's route.
-		j.target = s.routeTarget(a, s.trailCarrot(a, j.goal), &sc.route)
+		// A follower on their leader's line steers for a point on it
+		// and keeps their place (followTarget). Otherwise, around the
+		// trees, where the straight way crosses them: steer at the
+		// next waypoint, while the destination stays goal. Either
+		// writes only a's own state.
+		follow, pace := false, freePace
+		if j.leader != nil {
+			var why int
+			j.target, pace, why = followTarget(t, a, j.leader, j.goal)
+			follow, j.off = why == onLine, int8(why)
+		} else if l := a.Party.Leader; l != nil && aheadOf(a, l) {
+			pace = followPace{1, l.Speed * followAheadPace} // let the leader lead
+		}
+		if !follow {
+			j.target = s.routeTarget(a, s.trailCarrot(a, j.goal), &sc.route)
+		}
 		if !shouldSki(t, a.Pos, j.target) && a.Speed <= skiWalkSpeed {
 			j.walk = true
 			continue
@@ -78,7 +92,7 @@ func decideRange(s *Simulation, jobs []skiJob, dt float64, sc *steerScratch) {
 		}
 		j.perc = perceive(t, a, j.target)
 		r := stepRand(j.seed)
-		j.dec = decide(s.World, s.towersScratch, s.spatial, a, j.perc, float32(dt), sc, &r)
+		j.dec = decide(s.World, s.towersScratch, s.spatial, a, j.perc, float32(dt), sc, &r, follow, pace)
 	}
 }
 

@@ -23,8 +23,9 @@ import (
 //	              * visitPriceFactor(g, rating)
 //	              * (1 − RentalShare × NoRentalsStayHome, with no rental shop and no pass)
 //
-// The poll's winners from each entry share cars, one to four to a car
-// (rollCarload), which drive in from the entry (traffic.go); the guests
+// Guests come in groups (world.FormGroups): the poll rolls each group's
+// visit once, at its members' mean chance, and a group drives in from its
+// entry in as few cars as hold it (traffic.go); the guests
 // move into w.OnMountain when the car parks. On Depart a guest waits in
 // the car, and when the carload is aboard it drives home and they
 // return to AtHome (career stats incremented), ready to be rolled again
@@ -147,50 +148,80 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 	if !hasParking(s.World) {
 		return // no lots → no arrivals
 	}
-	winners := map[uint64][]*world.Guest{} // by home entry
+	winners := map[uint64][][]*world.Guest{} // groups, by home entry
 
-	for _, g := range s.World.Guests {
-		if g.State != world.AtHome {
+	// A group's visit is one roll, at the chance its members would
+	// come on average, so a season brings each guest about as many
+	// visits as when they came alone.
+	for _, grp := range s.World.GuestGroups() {
+		var p float32
+		home, anyTicket := true, false
+		for _, g := range grp {
+			if g.State != world.AtHome {
+				home = false
+				break
+			}
+			p += visitChance(s, g, rating, busy, match(s.World, g), h0, h1, occFactor, hasRentals)
+			anyTicket = anyTicket || !hasValidPass(g, s.SimTime)
+		}
+		if !home || p <= 0 {
 			continue
 		}
-		priceFactor := visitPriceFactor(s.World, g, s.SimTime, rating)
-		if priceFactor == 0 {
-			continue
-		}
-		match := terrainMatch(s.World, g.Traits)
-		if match == 0 {
-			continue
-		}
-		dailyRate := g.VisitsPerSeason / world.SeasonDays * busy
-		p := dailyRate * float32(arrivalShare(s.World, g, h0, h1)) * rating * match * occFactor * priceFactor
-		if !hasRentals && !hasValidPass(g, s.SimTime) {
-			// Some who'd have rented skis stay home from a resort with
-			// no rental shop.
-			p *= 1 - world.RentalShare(g.Traits.Skill)*world.NoRentalsStayHome
-		}
-		if p <= 0 || rng.Global().Float32() >= p {
+		p /= float32(len(grp))
+		if rng.Global().Float32() >= p {
 			continue
 		}
 		// Day tickets are sold only at a ticket office; without one,
-		// only pass holders come.
-		if !hasOffice && !hasValidPass(g, s.SimTime) {
+		// only groups of pass holders come.
+		if !hasOffice && anyTicket {
 			d.logTurnedAway(s, "no ticket office")
 			continue
 		}
-		winners[g.HomeEntryID] = append(winners[g.HomeEntryID], g)
+		winners[grp[0].HomeEntryID] = append(winners[grp[0].HomeEntryID], grp)
 	}
 	entries := []uint64{0}
 	for _, e := range s.World.Entries() {
 		entries = append(entries, e.ID)
 	}
 	for _, e := range entries {
-		gs := winners[e]
-		for len(gs) > 0 {
-			n := min(rollCarload(), len(gs))
-			s.spawnCar(append([]*world.Guest(nil), gs[:n]...), e)
-			gs = gs[n:]
+		for _, grp := range winners[e] {
+			// A group bigger than a car comes in as few cars as hold it,
+			// filled evenly.
+			cars := (len(grp) + carSeats - 1) / carSeats
+			for i := 0; i < cars; i++ {
+				lo, hi := len(grp)*i/cars, len(grp)*(i+1)/cars
+				s.spawnCar(append([]*world.Guest(nil), grp[lo:hi]...), e)
+			}
 		}
 	}
+}
+
+// carSeats is how many guests a car holds.
+const carSeats = 4
+
+// match is terrainMatch for g.
+func match(w *world.World, g *world.Guest) float32 { return terrainMatch(w, g.Traits) }
+
+// visitChance is the chance guest g would come in this poll window
+// (h0 to h1, clock hours), alone: their visits a season spread over its
+// days, how busy the day is, when they like to arrive, the rating, the
+// terrain, how full the resort is, and the price.
+func visitChance(s *Simulation, g *world.Guest, rating, busy, match float32, h0, h1 float64, occFactor float32, hasRentals bool) float32 {
+	if match == 0 {
+		return 0
+	}
+	priceFactor := visitPriceFactor(s.World, g, s.SimTime, rating)
+	if priceFactor == 0 {
+		return 0
+	}
+	dailyRate := g.VisitsPerSeason / world.SeasonDays * busy
+	p := dailyRate * float32(arrivalShare(s.World, g, h0, h1)) * rating * match * occFactor * priceFactor
+	if !hasRentals && !hasValidPass(g, s.SimTime) {
+		// Some who'd have rented skis stay home from a resort with
+		// no rental shop.
+		p *= 1 - world.RentalShare(g.Traits.Skill)*world.NoRentalsStayHome
+	}
+	return p
 }
 
 // dayTicketCharge returns the day ticket guest g will pay for a visit

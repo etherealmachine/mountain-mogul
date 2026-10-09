@@ -344,7 +344,7 @@ func (s *Simulation) tickSkier(a *world.Guest, target mgl32.Vec3, dt float64) bo
 		return false
 	}
 	r := stepRand(seed)
-	dec := decide(s.World, s.towersScratch, s.spatial, a, perc, float32(dt), &s.steerScratch, &r)
+	dec := decide(s.World, s.towersScratch, s.spatial, a, perc, float32(dt), &s.steerScratch, &r, false, freePace)
 	return s.applySkier(a, target, dist, perc, dec, dt)
 }
 
@@ -455,6 +455,9 @@ func (s *Simulation) applySkier(a *world.Guest, target mgl32.Vec3, dist float32,
 	apply(s.World.Terrain, a, dec, perc, dt)
 	wearSnowUnderfoot(s.World.Terrain, a, dt)
 	splatSkierTrack(s.World.Terrain, a, prevPos, world.TrackClock(s.SimTime))
+	if leads(a) {
+		s.dropCrumb(a)
+	}
 	recordFrame(s, a, target, dist, perc, dec)
 	return false
 }
@@ -684,13 +687,19 @@ func perceive(t *world.Terrain, a *world.Guest, target mgl32.Vec3) Perception {
 // decide only reads the world and a, so many skiers can decide at once
 // (decideSkiers); r is the decision's own random stream for the same
 // reason.
-func decide(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, a *world.Guest, perc Perception, dt float32, sc *steerScratch, r *stepRand) Decision {
+func decide(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, a *world.Guest, perc Perception, dt float32, sc *steerScratch, r *stepRand, follow bool, pace followPace) Decision {
 	if sc == nil {
 		sc = new(steerScratch)
 	}
 	axisHeading := composeAxis(perc)
 
-	tactical, _, probeC, probeR, probeL := sampleTactical(w, towers, grid, a, perc, axisHeading, a.LastTactical, r, &sc.near)
+	// A follower skis their leader's line, which already found a way
+	// past the trees: no fan of hazard samples, only the swerve below
+	// for whatever's close (groups.go).
+	var tactical, probeC, probeR, probeL float32
+	if !follow {
+		tactical, _, probeC, probeR, probeL = sampleTactical(w, towers, grid, a, perc, axisHeading, a.LastTactical, r, &sc.near)
+	}
 
 	// Speed control. Base target from skill/traits, then reduce when trees
 	// are visible in the forward fan — real skiers back off in glades to
@@ -708,6 +717,11 @@ func decide(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, a *world.Gue
 	targetSpeed *= 1.0 - 0.4*clamp32(worstProbe/0.4, 0, 1)
 	targetSpeed = min(targetSpeed, treeSpeedAhead(w.Terrain, a, perc))
 	targetSpeed *= mogulSpeedScale(a.Traits, perc.MogulSize)
+	// A follower keeping their place in the group (followTarget).
+	targetSpeed *= pace.scale
+	if pace.cap > 0 {
+		targetSpeed = min(targetSpeed, max(pace.cap, skiWalkSpeed))
+	}
 	overspeed := float32(0)
 	if perc.Speed > targetSpeed && targetSpeed > 0.01 {
 		overspeed = (perc.Speed - targetSpeed) / targetSpeed
@@ -1713,7 +1727,7 @@ func ComputeSteeringDebug(w *world.World, a *world.Guest, target mgl32.Vec3) Ste
 	// A fixed stream per guest, so drawing the overlay doesn't consume
 	// the game's random numbers.
 	r := stepRand(a.ID)
-	dec := decide(w, towers, grid, &clone, perc, 0, nil, &r)
+	dec := decide(w, towers, grid, &clone, perc, 0, nil, &r, false, freePace)
 
 	horizon := perc.Speed * float32(sampleHorizonSec)
 	if horizon < float32(sampleMinDist) {

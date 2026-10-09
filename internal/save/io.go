@@ -472,6 +472,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 			Leaving:          leavingToData(g.Leaving),
 			VisitsPerSeason:  g.VisitsPerSeason,
 			HomeEntry:        g.HomeEntryID,
+			Group:            g.GroupID,
 			VisitsThisSeason: g.VisitsThisSeason,
 			LifetimeVisits:   g.LifetimeVisits,
 			LastStars:        g.LastStars,
@@ -615,6 +616,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		OpenHour:     w.OpenHour,
 		CloseHour:    w.CloseHour,
 		StartDate:    w.StartDate.Format(startDateLayout),
+		GroupMix:     groupMixData(w.GroupMix),
 		Width:        t.Width,
 		Height:       t.Height,
 		Cells:        cells,
@@ -1144,6 +1146,7 @@ func dataToWorld(data ScenarioData) *world.World {
 			ArrivalOffset:    arrivalOffset,
 			Leaving:          leavingFromData(gd.Leaving),
 			HomeEntryID:      gd.HomeEntry,
+			GroupID:          gd.Group,
 			VisitsThisSeason: gd.VisitsThisSeason,
 			LifetimeVisits:   gd.LifetimeVisits,
 			LastStars:        gd.LastStars,
@@ -1379,6 +1382,9 @@ func dataToWorld(data ScenarioData) *world.World {
 	// Make the guest pool match the road entries' pools (each guest lives
 	// beyond one entry), or seed the default pool for a map without
 	// entries, so pools edited in the editor take effect on the next load.
+	if m := data.GroupMix; len(m) == 3 {
+		w.GroupMix = world.GroupMix{MeanSize: m[0], Lessons: m[1], Mixed: m[2]}
+	}
 	guestSeed := w.Seed
 	if guestSeed == 0 {
 		guestSeed = 1 // legacy saves with no seed: stable fallback
@@ -1787,4 +1793,12 @@ func trailEndFromData(d *TrailEndData) world.TrailEnd {
 		return world.TrailEnd{}
 	}
 	return world.TrailEnd{Set: true, Kind: world.EdgeKind(d.Kind), ID: d.ID}
+}
+
+// groupMixData is m as saved: nil for the default.
+func groupMixData(m world.GroupMix) []float32 {
+	if m == (world.GroupMix{}) {
+		return nil
+	}
+	return []float32{m.MeanSize, m.Lessons, m.Mixed}
 }

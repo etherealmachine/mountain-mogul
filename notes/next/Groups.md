@@ -1,7 +1,7 @@
 ---
 title: Groups
 kind: plan
-status: idea
+status: partial
 ---
 
 # Groups
@@ -97,3 +97,17 @@ Each step builds with `go build` and `go vet`, and is checked headless and on sc
 
 - 2026-10-09: Written with the user after the [[Crowd Scale]] passes: one detailed sim for every guest, with followers sharing the leader's thinking; keep tracks, collisions, and terrain-grounded skiing per body.
 - 2026-10-09: The user: groups of one to thirteen (thirteen for a lesson); formed in demand before arrival; the group mix is a scenario setting (easier with beginner groups, a challenge with groups dragging an advanced skier along); each member leaves their own review; followers picking their own line undecided.
+- 2026-10-09: First working version on the Boreal Goals Test.
+  - **Groups in demand:** the catchment is grouped by `world.FormGroups` from the scenario's group mix (mean size, lesson share, mixed-skill share; Guests tab in the editor's scenario details, default 2.4 / 1% / 50%). Demand rolls a group once at its members' mean chance; a group over four comes in several cars.
+  - **Leader's plans:** the first member out of the car leads and plans for the group (`goap.poolGroup`: the weakest skill, the most pressing needs of followers with them). Its plans form a numbered chain, each recording the plan it replaced and after how many steps; followers ski copies a little behind and move onto the next plan at the same step (`sim/groups.go`). A lost follower picks the group up at a lift top, when getting out of the car, or when near the leader.
+  - **Waiting:** followers wait at a lift top for a leader still in its line or on it, and the leader waits for followers still riding.
+  - **Following the line:** followers steer at the leader's breadcrumbs (or at the leader in open snow), with no route search or hazard fan, held to the leader's speed when close or ahead.
+  - **Headless, Dec 7–10** (base → groups):
+    - ordinary days 30–37 s → 20–22 s;
+    - Christmas 61 s → 45 s;
+    - stars about 0.15 lower (3.0–3.07 against 3.14–3.23; Christmas 2.74 against 2.85);
+    - Christmas "it's packed in there" 84 → 300, from whole groups eating together.
+  - Followers ski 56–60% of their steps on the line.
+  - **Known:** a few followers a day crawl on a descent until a 15-minute fallback replans them.
+  - **Not done:** chairs filled by group, splitting up, group moments.
+

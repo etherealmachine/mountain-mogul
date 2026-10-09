@@ -2,6 +2,7 @@ package scene
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/go-gl/glfw/v3.3/glfw"
@@ -18,13 +19,16 @@ const maxScenarioOrder = 99
 // scenarioDetailsPrompt is the editor's modal for World.Scenario and its
 // goals, on two tabs. Details: name, location, and description fields,
 // difficulty and order steppers, and a tutorial toggle. Goals: the goals
-// and rules (editor_goals.go). It edits copies; OK hands them back,
+// and rules (editor_goals.go). Guests: how guests come in groups
+// (World.GroupMix), read back from mix. It edits copies; OK hands them back,
 // Cancel or Escape drops them. Tab moves between the text fields.
 type scenarioDetailsPrompt struct {
 	info   world.ScenarioInfo
 	goals  *goalsTab
-	tab    int // 0 details, 1 goals
-	tabBtn [2]*ui.Button
+	tab    int // 0 details, 1 goals, 2 guests
+	tabBtn [3]*ui.Button
+	mix    world.GroupMix
+	mixBtn [6]*ui.Button   // size, lessons, mixed: down and up each
 	fields []*ui.TextInput // name, location, description
 	focus  int
 
@@ -49,6 +53,21 @@ func newScenarioDetailsPrompt(info world.ScenarioInfo, goals []world.Goal, rules
 	p := &scenarioDetailsPrompt{info: info, goals: newGoalsTab(goals, rules), onOK: onOK, onCancel: onCancel}
 	p.tabBtn[0] = ui.NewButton(0, 0, 110, detailsRowH, "Details", func() { p.tab = 0 })
 	p.tabBtn[1] = ui.NewButton(0, 0, 110, detailsRowH, "Goals", func() { p.tab = 1 })
+	p.tabBtn[2] = ui.NewButton(0, 0, 110, detailsRowH, "Guests", func() { p.tab = 2 })
+	stepMix := func(v *float32, d, lo, hi float32) func() {
+		return func() { *v = max(lo, min(hi, float32(math.Round(float64((*v+d)*100)))/100)) }
+	}
+	for i, st := range []struct {
+		v         *float32
+		d, lo, hi float32
+	}{
+		{&p.mix.MeanSize, 0.2, 1, 6},
+		{&p.mix.Lessons, 0.01, 0, 0.5},
+		{&p.mix.Mixed, 0.1, 0, 1},
+	} {
+		p.mixBtn[2*i] = ui.NewButton(0, 0, 26, detailsRowH, "<", stepMix(st.v, -st.d, st.lo, st.hi))
+		p.mixBtn[2*i+1] = ui.NewButton(0, 0, 26, detailsRowH, ">", stepMix(st.v, st.d, st.lo, st.hi))
+	}
 	name := ui.NewTextInput(0, 0, 0, detailsRowH, info.Name)
 	location := ui.NewTextInput(0, 0, 0, detailsRowH, info.Location)
 	desc := ui.NewTextInput(0, 0, 0, 0, info.Description)
@@ -95,8 +114,11 @@ func (p *scenarioDetailsPrompt) result() world.ScenarioInfo {
 
 func (p *scenarioDetailsPrompt) buttons() []*ui.Button {
 	out := []*ui.Button{p.tabBtn[0], p.tabBtn[1], p.okBtn, p.cancelBtn}
-	if p.tab == 1 {
+	switch p.tab {
+	case 1:
 		return append(out, p.goals.buttons()...)
+	case 2:
+		return append(out, p.mixBtn[:]...)
 	}
 	return append(out, p.diffDown, p.diffUp, p.orderDown, p.orderUp, p.tutorialBtn)
 }
@@ -141,7 +163,18 @@ func (p *scenarioDetailsPrompt) layout(sw, sh float32) {
 		tx -= 8
 	}
 	p.goals.layout(p.x+detailsPad, p.y+56, detailsPromptW-2*detailsPad)
+	for i := 0; i < 3; i++ {
+		y := p.y + 50 + float32(i)*(detailsRowH+10)
+		p.mixBtn[2*i].X, p.mixBtn[2*i].Y = p.x+detailsPad+mixLabelW, y
+		p.mixBtn[2*i+1].X, p.mixBtn[2*i+1].Y = p.x+detailsPad+mixLabelW+26+mixValueW, y
+	}
 }
+
+// The Guests tab's label column and stepper value widths.
+const (
+	mixLabelW = float32(220)
+	mixValueW = float32(70)
+)
 
 func (p *scenarioDetailsPrompt) HandleInput(inp *engine.Input, sw, sh float32) {
 	p.layout(sw, sh)
@@ -194,6 +227,10 @@ func (p *scenarioDetailsPrompt) Draw(r *render.Renderer) {
 		p.goals.draw(r, p.x+detailsPad, p.y+56)
 		return
 	}
+	if p.tab == 2 {
+		p.drawMix(r)
+		return
+	}
 	for _, f := range p.fields {
 		f.Draw(r)
 	}
@@ -215,4 +252,33 @@ func (p *scenarioDetailsPrompt) Draw(r *render.Renderer) {
 	stepperValue(p.info.Difficulty, p.diffDown.X)
 	stepperValue(p.info.Order, p.orderDown.X)
 	r.Font.DrawText(r, "Description", lx, p.fields[2].Y-float32(render.GlyphH)-8, label)
+}
+
+// drawMix draws the Guests tab: the group mix's steppers, and what
+// they mean.
+func (p *scenarioDetailsPrompt) drawMix(r *render.Renderer) {
+	label := mgl32.Vec4{0.8, 0.86, 0.95, 1}
+	white := mgl32.Vec4{1, 1, 1, 1}
+	textOff := (detailsRowH - float32(render.GlyphH)) / 2
+	lx := p.x + detailsPad
+	rows := []struct{ name, value string }{
+		{"Group size (average)", fmt.Sprintf("%.1f", p.mix.MeanSize)},
+		{"Ski lessons (groups of 13)", fmt.Sprintf("%.0f%%", p.mix.Lessons*100)},
+		{"Mixed-skill groups", fmt.Sprintf("%.0f%%", p.mix.Mixed*100)},
+	}
+	for i, row := range rows {
+		b := p.mixBtn[2*i]
+		r.Font.DrawText(r, row.name, lx, b.Y+textOff, label)
+		r.Font.DrawText(r, row.value, b.X+26+(mixValueW-r.Font.TextWidth(row.value))/2, b.Y+textOff, white)
+	}
+	y := p.mixBtn[4].Y + detailsRowH + 24
+	for _, line := range []string{
+		"Guests come in groups of 1 to 13 that ski together. A group skis",
+		"where its weakest skier can, and eats and goes home together.",
+		"Groups that aren't mixed share one skill level. Lessons are beginners.",
+		"Guests are regrouped when you press OK.",
+	} {
+		r.Font.DrawText(r, line, lx, y, label)
+		y += float32(render.GlyphH) + 8
+	}
 }

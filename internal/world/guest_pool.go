@@ -52,6 +52,7 @@ func SeedGuests(w *World, seed int64, count int) {
 	for i := 0; i < count; i++ {
 		w.Guests = append(w.Guests, newPoolGuest(w, g, 0))
 	}
+	FormGroups(w, seed)
 }
 
 // newPoolGuest rolls one potential visitor who comes by road entry home
@@ -78,13 +79,15 @@ func newPoolGuest(w *World, g *rand.Rand, home uint64) *Guest {
 // it. Guests with no matching entry fill entries that are short before
 // new guests are rolled; entries with too many lose guests who are at
 // home. A map without entries keeps a DefaultGuestPoolSize pool with no
-// home entry. Run on load, so pools edited in the editor take effect.
+// home entry. Guests without a group are put in one (FormGroups). Run on
+// load, so pools edited in the editor take effect.
 func SyncGuestPool(w *World, seed int64) {
 	entries := w.Entries()
 	if len(entries) == 0 {
 		if len(w.Guests) == 0 {
 			SeedGuests(w, seed, DefaultGuestPoolSize)
 		}
+		FormGroups(w, seed)
 		return
 	}
 	valid := map[uint64]bool{}
@@ -130,6 +133,10 @@ func SyncGuestPool(w *World, seed int64) {
 		}
 	}
 	w.Guests = kept
+	// New guests, and those whose groups lost members they came with
+	// when guests were dropped, keep the groups they have; only guests
+	// without one are grouped.
+	FormGroups(w, seed)
 }
 
 // DailyBudgetFor is the dollars a guest of the given skill will spend on

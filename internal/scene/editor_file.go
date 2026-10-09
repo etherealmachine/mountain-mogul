@@ -59,6 +59,11 @@ func (e *Editor) openDetailsPrompt() {
 	e.escapeMenu.Hide()
 	e.detailsPrompt = newScenarioDetailsPrompt(e.world.Scenario, e.world.Goals, e.world.Rules,
 		func(info world.ScenarioInfo, goals []world.Goal, rules []string) {
+			if mix := e.detailsPrompt.mix; mix != e.world.Mix() {
+				e.world.GroupMix = mix
+				world.RegroupGuests(e.world, e.world.Seed)
+				e.markDirty()
+			}
 			e.detailsPrompt = nil
 			if info != e.world.Scenario || !slices.Equal(goals, e.world.Goals) || !slices.Equal(rules, e.world.Rules) {
 				e.world.Scenario = info
@@ -69,6 +74,7 @@ func (e *Editor) openDetailsPrompt() {
 		},
 		func() { e.detailsPrompt = nil },
 	)
+	e.detailsPrompt.mix = e.world.Mix()
 }
 
 // saveCurrent overwrites the open file. A blank scenario has no file yet,

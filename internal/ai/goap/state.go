@@ -130,6 +130,7 @@ func Extract(a *world.Guest, w *world.World) WorldSnapshot {
 		RidenLifts:      a.RidenLifts,
 		CarLot:          a.CarLot,
 	}
+	poolGroup(&snap, a)
 	if a.Queued {
 		for _, l := range w.Lifts {
 			for _, q := range l.Queue {
@@ -223,7 +224,7 @@ func setAtBuilding(s *WorldSnapshot, b *world.Building) bool {
 func ExtractLookahead(a *world.Guest, liftID uint64, w *world.World) WorldSnapshot {
 	rides := append(make([]ai.RideCount, 0, len(a.RidenLifts)), a.RidenLifts...)
 	rides = ai.AddRide(rides, liftID)
-	return WorldSnapshot{
+	snap := WorldSnapshot{
 		Pos:             a.Pos,
 		Patience:        a.Patience,
 		Energy:          a.Energy,
@@ -241,7 +242,37 @@ func ExtractLookahead(a *world.Guest, liftID uint64, w *world.World) WorldSnapsh
 		AtTrailEnd:      a.AtTrailEnd,
 		RidenLifts:      rides,
 	}
+	poolGroup(&snap, a)
+	return snap
 }
+
+// poolGroup plans for a group's leader as for the whole group: the
+// weakest member's skill, the lowest patience and energy, and the most
+// pressing of each need the group sees to together (not rentals, which
+// only the guest without skis needs). Followers copy the leader's plans
+// (sim/groups.go).
+//
+// Only followers with the leader count: near them, on the leader's plan
+// (not lost and planning for themselves).
+func poolGroup(s *WorldSnapshot, a *world.Guest) {
+	for _, f := range a.Party.Followers {
+		if f.State != world.OnMountain || f.Removed || !f.WithLeader() || f.Pos.Sub(a.Pos).Len() > poolNear {
+			continue
+		}
+		s.Skill = min(s.Skill, f.Traits.Skill)
+		s.Patience = min(s.Patience, f.Patience)
+		s.Energy = min(s.Energy, f.Energy)
+		for k := ai.NeedKind(0); k < ai.NeedCount; k++ {
+			if k != ai.NeedRentals {
+				s.Need[k] = max(s.Need[k], f.NeedUrgency(k))
+			}
+		}
+	}
+}
+
+// poolNear is how close, in metres, a follower has to be for the leader
+// to plan for them.
+const poolNear = 200
 
 // needUrgencies is each of a's needs' urgency.
 func needUrgencies(a *world.Guest) [ai.NeedCount]float32 {

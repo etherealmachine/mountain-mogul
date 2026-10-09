@@ -115,6 +115,12 @@ type Simulation struct {
 	skiJobs   []skiJob
 	skiBatch  *[]skiJob
 	routeJobs []routeJob // planRoutes' scratch
+	// arriving is the lot a guest getting out of their car is planning
+	// from (spawnGuestAt), for planFrom; 0 otherwise.
+	arriving   uint64
+	groupStats GroupStats
+	// planGen numbers group leaders' plans (groups.go).
+	planGen uint32
 
 	// OnDayRollover, if non-nil, is called once per in-game day after
 	// weather and snowfall have been applied. Used by the scene layer to
@@ -220,6 +226,7 @@ func NewSimulationWithSeed(w *world.World, seed int64) *Simulation {
 			sim.onPlanStepStart(a)
 		}
 	}
+	sim.regroup()
 	return sim
 }
 
@@ -387,6 +394,9 @@ func (s *Simulation) tickLifts(dt float64) {
 					// (typically SkiToLift/SkiToLodge/SkiToParking). They
 					// glide off the ramp (tickUnloading) before skiing to it.
 					s.startUnloading(agent, lift, j)
+					if agent.Party.Leader != nil {
+						agent.Party.TopLift, agent.Party.TopSince = lift.ID, s.SimTime
+					}
 					s.advancePlan(agent)
 					s.aimUnload(agent)
 				}
@@ -711,6 +721,8 @@ func (s *Simulation) tickGuests(dt float64) {
 			s.tickSkiTransition(agent, dt)
 		case len(agent.Path) > 0 && agent.PathIdx < len(agent.Path):
 			s.tickPath(agent, dt)
+		case s.holdForGroup(agent):
+			agent.Speed = 0 // waiting at the top for the group
 		default:
 			s.tickLocomote(agent, dt)
 		}
@@ -729,6 +741,14 @@ func (s *Simulation) tickGuests(dt float64) {
 	s.decideSkiers(s.skiJobs, dt)
 	for i := range s.skiJobs {
 		j := &s.skiJobs[i]
+		if j.a.Party.Leader != nil {
+			s.groupStats.Steps++
+			if j.off == onLine {
+				s.groupStats.OnLine++
+			} else {
+				s.groupStats.Off[j.off]++
+			}
+		}
 		if j.a.Removed {
 			continue
 		}
@@ -803,7 +823,10 @@ func (s *Simulation) spawnGuestAt(lot *world.Building, g *world.Guest, pos mgl32
 	g.Removed = false
 
 	w.OnMountain = append(w.OnMountain, g)
+	s.joinParty(g)
+	s.arriving = lot.ID
 	s.replan(g)
+	s.arriving = 0
 	if rentedInTown {
 		s.applyEvent(g, ai.ThoughtRentedInTown)
 	}
@@ -812,6 +835,7 @@ func (s *Simulation) spawnGuestAt(lot *world.Building, g *world.Guest, pos mgl32
 		(head.Kind == ai.ActWalkToLift && len(g.Path) == 0)
 	if bad {
 		// Roll back: pop from OnMountain, reset to AtHome.
+		leaveParty(g)
 		w.OnMountain = w.OnMountain[:len(w.OnMountain)-1]
 		g.ResetForDeparture()
 		return false
@@ -1432,17 +1456,21 @@ func (s *Simulation) tickPlanning(a *world.Guest) {
 		// rest planned on the lift before closing) gives way to GoHome at
 		// the next step.
 		if s.World.ClosedForDay && head.Kind != ai.ActJoinQueue && !endsInDeparture(a.Plan) {
+			a.Plan.Step++ // the head's done
 			s.replan(a)
 			return
 		}
 		// Step boundaries are the safe points to drop a plan for a need
 		// that turned pressing mid-plan — except in a lift line.
-		if head.Kind != ai.ActJoinQueue && a.Plan.GoalName != "GoHome" {
+		// A follower on the leader's plan leaves their needs to the
+		// leader (goap.poolGroup).
+		if head.Kind != ai.ActJoinQueue && a.Plan.GoalName != "GoHome" && (a.Party.Leader == nil || a.Party.Gen == 0) {
 			// A copy, so only this step boundary pays for the snapshot
 			// escaping into the goals' Weight (an interface call): snap
 			// itself stays on the stack every tick.
 			held := snap
 			if goap.NeedPreempts(&held, s.World, &a.Plan) {
+				a.Plan.Step++ // the head's done
 				s.replan(a)
 				return
 			}
@@ -1453,6 +1481,12 @@ func (s *Simulation) tickPlanning(a *world.Guest) {
 	if !planActionPreconditionHolds(head, snap, s.World) {
 		s.replan(a)
 		return
+	}
+	if a.Party.Leader != nil && isDescentKind(head.Kind) && s.SimTime-a.Run.Start > followStuckSec {
+		// A follower whose descent has gone on far too long: the
+		// leader's plan didn't fit where they were. Their own.
+		a.AtTrailEnd = 0
+		s.planAlone(a)
 	}
 }
 
@@ -1474,7 +1508,8 @@ func (s *Simulation) checkPlans() {
 			}
 			snap := goap.Extract(a, w)
 			head := a.Plan.Head()
-			s.planQuiet[i] = !planActionComplete(head, a, snap) && planActionPreconditionHolds(head, snap, w)
+			s.planQuiet[i] = !planActionComplete(head, a, snap) && planActionPreconditionHolds(head, snap, w) &&
+				!(a.Party.Leader != nil && isDescentKind(head.Kind) && s.SimTime-a.Run.Start > followStuckSec)
 		}
 	})
 }
@@ -1507,7 +1542,23 @@ func isDescentKind(k ai.PlanActionKind) bool {
 // spawn, when the plan exhausts, and when a precondition breaks.
 func (s *Simulation) replan(a *world.Guest) {
 	a.AtTrailEnd = 0 // clear any stale junction anchor before re-planning
+	if s.followPlan(a) {
+		return
+	}
+	s.planAlone(a)
+}
+
+// planAlone is replan for a guest making their own plan: alone, leading
+// a group (shared with them), or a follower off the leader's plans.
+func (s *Simulation) planAlone(a *world.Guest) {
+	done := min(a.Plan.Step, len(a.Plan.Steps))
 	a.Plan = s.Planner.StoredPlanFor(a, s.World)
+	a.Party.PlanAt = s.SimTime
+	if a.Party.Leader != nil {
+		a.Party.Gen = 0 // a follower's own plan, off the leader's
+		s.groupStats.Own++
+	}
+	s.share(a, s.planFrom(a), a.Plan, done)
 	s.setBlocked(a, a.Plan.Blocked)
 	if a.Plan.GoalName == (goap.GoHome{}).Name() {
 		s.setDepartReason(a, s.departReasonFor(a))
@@ -1572,12 +1623,24 @@ func (s *Simulation) planBoarders(now bool) {
 	workers.run(chunks, func(c int) {
 		for i := n * c / chunks; i < n*(c+1)/chunks; i++ {
 			b := s.boarders[i]
+			if b.a.Party.Leader != nil {
+				continue // followers copy the leader's plan, below
+			}
 			s.boardPlans[i] = s.Planner.StoredPlanForLookahead(b.a, b.lift.ID, s.World)
 		}
 	})
+	// Leaders and guests alone first, so followers find the plans
+	// their leaders made on the same chair, or one just ahead.
 	for i, b := range s.boarders {
-		if b.a.OnLiftID == b.lift.ID && !b.a.Removed {
+		if b.a.OnLiftID == b.lift.ID && !b.a.Removed && b.a.Party.Leader == nil {
 			s.applyBoardPlan(b.a, b.lift, s.boardPlans[i])
+		}
+	}
+	for _, b := range s.boarders {
+		if b.a.OnLiftID == b.lift.ID && !b.a.Removed && b.a.Party.Leader != nil && !s.boardFollower(b.a, b.lift) {
+			s.groupStats.Own++
+			s.groupStats.OwnWhy[ownBoard]++
+			s.replanOnBoard(b.a, b.lift)
 		}
 	}
 	s.boarders = s.boarders[:0]
@@ -1592,14 +1655,23 @@ func (s *Simulation) applyBoardPlan(agent *world.Guest, lift *world.Lift, lookah
 	if lookahead.Done() {
 		return
 	}
+	done := boardedDone(&agent.Plan, lift.ID)
 	rideLiftStep := ai.PlanAction{Kind: ai.ActRideLift, LiftID: lift.ID}
 	lookahead.Steps = append([]ai.PlanAction{rideLiftStep}, lookahead.Steps...)
 	agent.Plan = lookahead
+	agent.Party.PlanAt = s.SimTime
+	if agent.Party.Leader != nil {
+		agent.Party.Gen = 0
+	}
+	s.share(agent, world.PlanFrom{LiftTop: lift.ID}, lookahead, done)
 }
 
 // advancePlan moves the cursor to the next step and starts it; if the
 // cursor walks off the end, the plan is done and we re-plan instead.
 func (s *Simulation) advancePlan(a *world.Guest) {
+	if a.Party.Leader != nil && s.followStep(a) {
+		return
+	}
 	a.Plan.Step++
 	if a.Plan.Done() {
 		s.replan(a)
@@ -1865,6 +1937,9 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 			return
 		}
 		a.Visit = world.Visit{}
+		if step.Use == ai.OfferRentals && !a.NeedsGear {
+			return // in the group that's renting, with skis of their own
+		}
 		if !b.HasRoomFor(step.Use) {
 			// Full: line up at the door (serveLines lets them in).
 			a.Visit.Waiting, a.Visit.WaitSince = true, s.SimTime
@@ -2242,6 +2317,7 @@ func (s *Simulation) reapDeparted() {
 	w := s.World
 	for i := len(w.OnMountain) - 1; i >= 0; i-- {
 		if g := w.OnMountain[i]; g.Removed {
+			leaveParty(g)
 			w.RemoveFromOnMountain(g.ID)
 			if g.CarID != 0 {
 				g.State = world.InCar // waits in the car for the rest of the carload
@@ -2542,7 +2618,8 @@ func (s *Simulation) tickLocomote(agent *world.Guest, dt float64) {
 		// A skier's way round the trees, perception, and steering are
 		// worked out for every skier at once, across cores
 		// (decideSkiers); the walk or the run happens after, in order.
-		*s.skiBatch = append(*s.skiBatch, skiJob{a: agent, goal: targetPos, seed: rng.Global().Uint64()})
+		l, why := s.follows(agent)
+		*s.skiBatch = append(*s.skiBatch, skiJob{a: agent, goal: targetPos, seed: rng.Global().Uint64(), leader: l, off: why})
 		return
 	}
 	// Around the trees, where the straight way crosses them: steer at

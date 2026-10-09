@@ -60,6 +60,10 @@ const (
 func (s *Simulation) startRun(a *world.Guest) {
 	a.Run = world.Run{Start: s.SimTime, StartY: a.Pos[1], LiftID: a.Unload.LiftID}
 	a.Underfoot, a.UnderfootFear = [ai.TasteCount]float32{}, 0
+	if leads(a) {
+		s.startCrumbs(a)
+	}
+	a.Party.FollowSeq = 0 // a follower finds their place on the line afresh
 }
 
 // recordRun adds one skiing tick to the guest's run: time on the trail
@@ -88,7 +92,8 @@ func (s *Simulation) recordRun(a *world.Guest, cell *world.Cell, cx, cz int, gro
 	}
 	near := 0
 	s.spatial.forEachNear(a.Pos[0], a.Pos[2], func(o *world.Guest) {
-		if o != a && o.SkisOn && o.OnLiftID == 0 && !o.Queued && o.Speed > 1 {
+		// Their own group isn't a crowd.
+		if o != a && o.SkisOn && o.OnLiftID == 0 && !o.Queued && o.Speed > 1 && (a.GroupID == 0 || o.GroupID != a.GroupID) {
 			near++
 		}
 	})

@@ -4359,6 +4359,9 @@ func (f *followLabel) Draw(r *render.Renderer) {
 		fmt.Sprintf("budget $%d%s", int(f.agent.RemainingBudget), passStr),
 		tasteRow.String(),
 	}
+	if g := groupLine(f.world, f.agent); g != "" {
+		rows = append(rows, g)
+	}
 	resolve := entityName(f.world)
 	rows = append(rows, "review so far: "+ReviewLine(review, resolve))
 	if t := f.agent.CurrentThought(f.simTime); t.Kind != ai.ThoughtNone {
@@ -4380,6 +4383,24 @@ func (f *followLabel) Draw(r *render.Renderer) {
 			plan.GoalName, goap.PlanActionLabel(plan.Head(), f.world)))
 	}
 	drawHUDBox(r, rows, 106, mgl32.Vec4{1, 0.95, 0.1, 1}, true)
+}
+
+// groupLine says who a guest came with and who they're skiing with:
+// "" for a guest who came alone.
+func groupLine(w *world.World, a *world.Guest) string {
+	size := len(w.GroupOf(a))
+	if size <= 1 {
+		return ""
+	}
+	came := fmt.Sprintf("came in a group of %d", size)
+	l := a.Party.Leader
+	switch {
+	case l != nil:
+		return fmt.Sprintf("%s · following %s", came, l.Name)
+	case len(a.Party.Followers) > 0:
+		return fmt.Sprintf("%s · leading %d", came, len(a.Party.Followers))
+	}
+	return came + " · skiing alone now"
 }
 
 // plannerDebugPanel is the F4-toggled deep readout of the L0 GOAP
