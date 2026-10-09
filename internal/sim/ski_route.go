@@ -109,11 +109,11 @@ func (p *routeProfile) offTrail(cx, cz int) bool {
 // routeTarget is where a guest heading for goal steers this tick: goal
 // itself when the way is clear, else the next waypoint of a route around
 // the trees.
-func (s *Simulation) routeTarget(a *world.Guest, goal mgl32.Vec3) mgl32.Vec3 {
+func (s *Simulation) routeTarget(a *world.Guest, goal mgl32.Vec3, sc *routeScratch) mgl32.Vec3 {
 	t := s.World.Terrain
 	g := mgl32.Vec2{goal[0], goal[2]}
 	pos := mgl32.Vec2{a.Pos[0], a.Pos[2]}
-	s.prepareRoute(a, goal, &s.routeScratch)
+	s.prepareRoute(a, goal, sc)
 	r := &a.Route
 	if len(r.Points) == 0 {
 		return goal

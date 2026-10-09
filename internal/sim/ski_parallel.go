@@ -19,14 +19,21 @@ import (
 // packed or moguls grown by skiers earlier in the same step.
 // Other skiers' positions are those at the start of the step for everyone.
 
-// skiJob is one skier waiting on their steering decision this step.
+// skiJob is one skier waiting on their steering decision this step:
+// queued with their goal and random seed (tickLocomote); decideSkiers
+// fills in the rest, the way round the trees to steer at (target), and
+// either walk (terrain and momentum no longer call for skiing), arrived
+// (within ArrivalThreshold of target), or the perception and decision.
 type skiJob struct {
-	a      *world.Guest
-	target mgl32.Vec3
-	dist   float32
-	perc   Perception
-	seed   uint64
-	dec    Decision
+	a       *world.Guest
+	goal    mgl32.Vec3
+	seed    uint64
+	target  mgl32.Vec3
+	walk    bool
+	arrived bool
+	dist    float32
+	perc    Perception
+	dec     Decision
 }
 
 // skiersPerChunk is the fewest skiers a chunk of steering is cut into:
@@ -52,10 +59,26 @@ func (s *Simulation) decideSkiers(jobs []skiJob, dt float64) {
 }
 
 func decideRange(s *Simulation, jobs []skiJob, dt float64, sc *steerScratch) {
+	t := s.World.Terrain
 	for i := range jobs {
 		j := &jobs[i]
+		a := j.a
+		// Around the trees, where the straight way crosses them: steer
+		// at the next waypoint, while the destination stays goal. This
+		// writes only a's route.
+		j.target = s.routeTarget(a, s.trailCarrot(a, j.goal), &sc.route)
+		if !shouldSki(t, a.Pos, j.target) && a.Speed <= skiWalkSpeed {
+			j.walk = true
+			continue
+		}
+		j.dist = j.target.Sub(a.Pos).Len()
+		if j.dist < ArrivalThreshold {
+			j.arrived = true
+			continue
+		}
+		j.perc = perceive(t, a, j.target)
 		r := stepRand(j.seed)
-		j.dec = decide(s.World, s.towersScratch, s.spatial, j.a, j.perc, float32(dt), sc, &r)
+		j.dec = decide(s.World, s.towersScratch, s.spatial, a, j.perc, float32(dt), sc, &r)
 	}
 }
 
@@ -64,6 +87,7 @@ func decideRange(s *Simulation, jobs []skiJob, dt float64, sc *steerScratch) {
 type steerScratch struct {
 	hazards []hazardPoint
 	near    steerNear
+	route   routeScratch
 }
 
 // stepRand is a small random stream (splitmix64) for one decision, so
@@ -90,17 +114,18 @@ type routeJob struct {
 const routesPerChunk = 2
 
 // planRoutes plans, across cores, the routes round the trees that guests
-// about to move will need this step (route planning was a quarter of a
-// skiing guest's cost). It runs before the serial pass, with every
-// guest's position and goal as that pass will see them, so the pass finds
-// the routes ready and does exactly what it would have; a guest whose
-// goal changes in the meantime (their plan moves on) is re-planned there
-// as before.
+// walking with skis off will need this step. It runs before the serial
+// pass, with every guest's position and goal as that pass will see them,
+// so the pass finds the routes ready and does exactly what it would
+// have; a guest whose goal changes in the meantime (their plan moves on)
+// is re-planned there as before. Skiers' routes are prepared in the
+// parallel steering pass (decideRange).
 func (s *Simulation) planRoutes() {
 	w := s.World
 	jobs := s.routeJobs[:0]
 	for _, a := range w.OnMountain {
-		if a.Removed || a.Unload.LiftID != 0 || a.OnPatrollerID != 0 || a.Fallen || a.OnLiftID != 0 ||
+		// Skiers' routes are prepared with their steering (decideRange).
+		if a.SkisOn || a.Removed || a.Unload.LiftID != 0 || a.OnPatrollerID != 0 || a.Fallen || a.OnLiftID != 0 ||
 			a.Queued || a.Visit.Waiting || a.RestTimer > 0 || a.SkiTransitionTimer != 0 ||
 			(len(a.Path) > 0 && a.PathIdx < len(a.Path)) {
 			continue

@@ -111,6 +111,9 @@ type Simulation struct {
 	// post-ride plan, planned together (planBoarders).
 	boarders   []boarder
 	boardPlans []ai.Plan
+	// planQuiet marks, by index in OnMountain, the guests whose plan
+	// step neither finished nor became impossible this step (checkPlans).
+	planQuiet []bool
 	// skiJobs holds this step's skiers waiting on steering; skiBatch
 	// points at it while tickGuests is collecting them (ski_parallel.go).
 	skiJobs   []skiJob
@@ -670,9 +673,10 @@ func (s *Simulation) tickGuests(dt float64) {
 		}
 	}
 	s.planRoutes()
+	s.checkPlans()
 	s.skiJobs = s.skiJobs[:0]
 	s.skiBatch = &s.skiJobs
-	for _, agent := range w.OnMountain {
+	for i, agent := range w.OnMountain {
 		if agent.Removed {
 			continue
 		}
@@ -687,7 +691,9 @@ func (s *Simulation) tickGuests(dt float64) {
 			// Patroller is responsible for this guest's position and departure.
 			continue
 		}
-		s.tickPlanning(agent)
+		if i >= len(s.planQuiet) || !s.planQuiet[i] {
+			s.tickPlanning(agent)
+		}
 		if agent.Removed {
 			continue
 		}
@@ -733,7 +739,14 @@ func (s *Simulation) tickGuests(dt float64) {
 		if j.a.Removed {
 			continue
 		}
-		s.applySkier(j.a, j.target, j.dist, j.perc, j.dec, dt)
+		switch {
+		case j.walk:
+			s.walkStep(j.a, j.goal, j.target, dt)
+		case j.arrived:
+			j.a.Pos = j.target
+		default:
+			s.applySkier(j.a, j.target, j.dist, j.perc, j.dec, dt)
+		}
 		if j.a.SkisOn && noSnowUnderfoot(s.World.Terrain, j.a.Pos[0], j.a.Pos[2]) {
 			j.a.SkisOn = false
 			j.a.SkiTransitionTimer = 0
@@ -1449,6 +1462,32 @@ func (s *Simulation) tickPlanning(a *world.Guest) {
 		return
 	}
 }
+
+// checkPlans marks, across cores, the guests tickPlanning would leave
+// alone this step: a plan step under way that hasn't finished and can
+// still be done. The check reads the world as the step began; the
+// serial pass runs tickPlanning, which checks again, only for the rest.
+// Checking every guest's plan every step was a tenth of a busy step.
+func (s *Simulation) checkPlans() {
+	w := s.World
+	n := len(w.OnMountain)
+	s.planQuiet = append(s.planQuiet[:0], make([]bool, n)...)
+	chunks := max(min(workers.size()*2, n/plansPerChunk), 1)
+	workers.run(chunks, func(c int) {
+		for i := n * c / chunks; i < n*(c+1)/chunks; i++ {
+			a := w.OnMountain[i]
+			if a.Removed || a.Plan.Done() {
+				continue
+			}
+			snap := goap.Extract(a, w)
+			head := a.Plan.Head()
+			s.planQuiet[i] = !planActionComplete(head, a, snap) && planActionPreconditionHolds(head, snap, w)
+		}
+	})
+}
+
+// plansPerChunk is the fewest guests a chunk of plan checks is cut into.
+const plansPerChunk = 32
 
 // fellSince reports whether the guest fell at or after simTime.
 func fellSince(a *world.Guest, simTime float64) bool {
@@ -2506,34 +2545,44 @@ func (s *Simulation) tickLocomote(agent *world.Guest, dt float64) {
 	} else {
 		return
 	}
+	if agent.SkisOn && s.skiBatch != nil {
+		// A skier's way round the trees, perception, and steering are
+		// worked out for every skier at once, across cores
+		// (decideSkiers); the walk or the run happens after, in order.
+		*s.skiBatch = append(*s.skiBatch, skiJob{a: agent, goal: targetPos, seed: rng.Global().Uint64()})
+		return
+	}
 	// Around the trees, where the straight way crosses them: steer at
 	// the next waypoint, while the destination stays targetPos.
-	steer := s.routeTarget(agent, s.trailCarrot(agent, targetPos))
-
-	// Walk (not ski) when skis are off, or when terrain and momentum
-	// no longer call for skiing.
+	steer := s.routeTarget(agent, s.trailCarrot(agent, targetPos), &s.routeScratch)
 	if !agent.SkisOn || (!shouldSki(w.Terrain, agent.Pos, steer) && agent.Speed <= skiWalkSpeed) {
-		// Remove skis when close to lodge or parking — guests shouldn't
-		// shuffle the last few metres in full gear. Only trigger near the
-		// destination so a departing guest still skis down from the lift
-		// top rather than removing skis immediately after unloading.
-		if agent.SkisOn && agent.SkiTransitionTimer == 0 {
-			if d, ok := leavingDistance(agent, targetPos); ok && d < skisOffNearDest {
-				agent.SkiTransitionTimer = 1.0
-				return
-			}
-		}
-		s.recordWalkTick(agent, steer)
-		s.tickWalkToward(agent, steer, dt)
-		if !agent.SkisOn {
-			agent.Patience -= float32(dt * patienceDrainPerSecWalking)
-			if agent.Patience < 0 {
-				agent.Patience = 0
-			}
-		}
+		s.walkStep(agent, targetPos, steer, dt)
 		return
 	}
 	s.tickSkier(agent, steer, dt)
+}
+
+// walkStep walks agent a step toward steer (on the way to targetPos):
+// skis off, or terrain and momentum no longer calling for skiing.
+func (s *Simulation) walkStep(agent *world.Guest, targetPos, steer mgl32.Vec3, dt float64) {
+	// Remove skis when close to lodge or parking — guests shouldn't
+	// shuffle the last few metres in full gear. Only trigger near the
+	// destination so a departing guest still skis down from the lift
+	// top rather than removing skis immediately after unloading.
+	if agent.SkisOn && agent.SkiTransitionTimer == 0 {
+		if d, ok := leavingDistance(agent, targetPos); ok && d < skisOffNearDest {
+			agent.SkiTransitionTimer = 1.0
+			return
+		}
+	}
+	s.recordWalkTick(agent, steer)
+	s.tickWalkToward(agent, steer, dt)
+	if !agent.SkisOn {
+		agent.Patience -= float32(dt * patienceDrainPerSecWalking)
+		if agent.Patience < 0 {
+			agent.Patience = 0
+		}
+	}
 }
 
 // Near a lodge or parking lot guests walk the last stretch: skis come off
