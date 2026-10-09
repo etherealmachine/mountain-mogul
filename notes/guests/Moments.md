@@ -1,22 +1,30 @@
 ---
-title: Satisfaction
+title: Moments
 kind: stat
 status: shipped
 ---
 
-# Satisfaction
+# Moments
 
-The guest's score for the day, from 0 to 1: a ledger that starts at 0.5 and never drifts back. [[GOAP]] does not read it. When the guest's car leaves the map, the score (with how they felt driving away) counts toward the day's average, which becomes the resort rating in [[Demand]] at midnight.
+How a guest's day is judged: a collection of moments, and the star rating they leave from them ([[Scoreless Rating]], [[Star Ratings]]). There's no satisfaction score. [[GOAP]] doesn't read any of it.
 
-Events add to it once and for good, and conditions cost it by the clock hour while they last. A great run adds, by less for each repeat on the same trail and, more gently, off the same lift. Being hungry, thirsty, sick of waiting, without a lodge to rest in, priced out of every place that could feed them, chilled through, without a lounge to warm up in, without skis and nowhere to rent them, or on runs too easy for them costs a little every clock hour, and each that's still on as they drive away costs its hourly amount once more. Events: falls, tree hits, injuries, an [[Avalanche]], how fast [[Ski Patrol]] arrived, long lines at the [[Lifts]], each visit to a service (a meal, a drink, or a rest, worth more the more urgently it was needed, plus the building's quality, value for money, how packed it was, and a long wait at the door; [[Service Improvements]]), and the verdict on each run (great, with corduroy as a reason, too hard, crowded). Each run is judged at the bottom from what the guest actually skied: time on each trail difficulty, steepness, crowding, vertical, and falls. Every amount lives in one table, `ai.Effects`, and every change is reported by a thought.
+A moment is a thought that happened: an event (a fall, a great run, a meal), or a condition (hungry, no lounge, bored) that held past a grace period of a quarter of a clock hour. Each kind has a class in `ai.Effects`:
 
-Each departure records one reason, shown in the "Why guests left" chart. Tired, hungry, thirsty, done, or closing time is an ordinary end to the day.
+- **Dealbreaker** (gave up, injured with no one coming, caught in an avalanche): the day is 1★. So is leaving without a run.
+- **Letdown** (hungry, thirsty, nowhere to rest or warm up, priced out, bored or nothing their kind of skiing, every line too long, a minor injury): at most 2★.
+- **Annoyance** (falls, tree hits, long lines, crowded, too hard or too easy runs, overpriced, shabby, packed, a slow patrol, renting in town): three make a letdown.
+- **Highlight** (a great run, first tracks, a nice place, great après, patrol arriving fast): 3★ needs one. Without, the day was "nothing special", 2★.
+- **Neutral**: counted and shown, no effect.
 
-Older docs and the F4 debug panel call this Fun. In the sim the field is `Satisfaction`.
+The level is 1–3; the quality of the services the guest used (every building visit and lift ride, `Guest.UseService`) adds up to 1.2 stars, capped at 5. When the car leaves the map the review (`world.Review`: stars, the moment that set them, the count) goes to the day's history, and the day's average stars becomes the resort rating at midnight ([[Demand]] takes it on 0–1). The guest popup shows the stars so far and the review line; the day's recap names the moment behind most reviews below 3★.
 
-Built by [[Satisfaction Rework]]; [[Snow Tastes]] adds per-guest snow tastes.
+Each departure also records one reason (`DepartReason`). The Reviews tab in the charts window shows the day's reviews in aggregate: the average stars, the count at each level, what set each review, and the guests who went home because they couldn't rent skis, who leave no review and count as lost business.
 
-Spec: [[Guests Spec]], Satisfaction, Rating, and Thoughts.
+Older docs call this Satisfaction or Fun.
+
+Built by [[Satisfaction Rework]]; [[Snow Tastes]] adds per-guest snow tastes; [[Scoreless Rating]] replaced the ledger with moments.
+
+Spec: [[Guests Spec]], Satisfaction, Rating, and Thoughts (written for the old score).
 
 ## Log
 
@@ -30,3 +38,6 @@ Spec: [[Guests Spec]], Satisfaction, Rating, and Thoughts.
 - 2026-10-07: Boredom ("skied this place to death", "nothing here is my kind of skiing") costs by the clock hour and sends the guest home; crowded runs cost as much as a guest dislikes crowds ([[Snow Tastes]] step 5).
 - 2026-10-07: Service visits score relief by urgency, quality, value for money, crowding, and the wait at the door; "everything here costs too much" is a condition ([[Service Improvements]] step 2).
 - 2026-10-07: Rentals, après (scores more after a good day), and the cold ([[Service Improvements]] step 3).
+- 2026-10-08: Calibrated on the user's Boreal Goals Test save (three days, demand on): rating 0.46–0.50 → 0.50–0.60, mean final score 0.478 → 0.567. Two rule fixes: a run suits a guest when a quarter of its trail time is at their level or harder (`runLevelShare`), not most of it, so a short black that runs out on a long green isn't "too easy" (intermediates −0.134 → −0.010 a guest); and hunger and thirst press from 40% left (`mealFrom`), early enough to reach the food court before the condition starts at 15% (thirst −0.048 → −0.022). Per guest now: great runs +0.156, drinks +0.039, meals +0.020; falls −0.035, too easy −0.033 (all advanced, −0.28 each), thirst −0.022. By tier: beginners 0.62, intermediates 0.57, advanced 0.25. The map has no rental shop or lounge (cold, warming up, and renting in town cost about −0.02 together).
+- 2026-10-09: The ledger replaced by moments and star reviews ([[Scoreless Rating]]): classes in `ai.Effects`, a grace period on conditions, quality stars from services and lift rides, the rating in stars.
+- 2026-10-09: Renamed from Satisfaction.

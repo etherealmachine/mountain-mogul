@@ -24,7 +24,7 @@ When a planned card gets built, keep it short and point at the spec. Detailed be
 
 [[Mountain Mogul]] is the pitch and pillars, and [[Next Steps]] is the plan.
 
-[[Amenities]] are the base-area services. [[GOAP]] is how a guest chooses what to do. The stats it reads are [[Hunger]], [[Thirst]], [[Energy]], [[Patience]], and [[Satisfaction]]. [[Guest Types]] covers skiers, snowboarders, and the types still to come.
+[[Amenities]] are the base-area services. [[GOAP]] is how a guest chooses what to do. The stats it reads are [[Hunger]], [[Thirst]], [[Energy]], [[Patience]], and [[Moments]]. [[Guest Types]] covers skiers, snowboarders, and the types still to come.
 
 The mountain: [[Weather]] drives the [[Snow]] pack, which [[Snowmaking]] and [[Grooming]] maintain and [[Avalanche]] strips away. [[Ski Patrol]] rescues the injured.
 

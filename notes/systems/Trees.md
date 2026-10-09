@@ -22,7 +22,7 @@ Some readers want a per-cell summary rather than trunks. `TreeCover()` is the ce
 
 ## What reads trees
 
-- [[Skiing]] steering scores the larger of the cell's cover and the distance to the nearest trunk within 3 m, so a lone tree is avoided even at the edge of its cell. A skier who comes within 0.6 m of a trunk while heading at it faster than 2 m/s hits it: a fall, the thought "I hit a tree!", and an injury chance that grows with speed up to 60%. Balance drains in cells with any tree, and glade-loving or tree-shy guests react to cover ([[Satisfaction]]).
+- [[Skiing]] steering scores the larger of the cell's cover and the distance to the nearest trunk within 3 m, so a lone tree is avoided even at the edge of its cell. A skier who comes within 0.6 m of a trunk while heading at it faster than 2 m/s hits it: a fall, the thought "I hit a tree!", and an injury chance that grows with speed up to 60%. Balance drains in cells with any tree, and glade-loving or tree-shy guests react to cover ([[Moments]]).
 - [[Pathfinding]]: a cell with two or more trunks can't be walked.
 - [[Avalanche]]: cover anchors a slope against release (cover × 0.4), and a front stops in a cell with two or more trees.
 - [[Rendering]]: the static forest batch and the tree wells in the snow detail texture read the stored trees.

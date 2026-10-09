@@ -10,7 +10,7 @@ How much skiing a guest has left in their legs, from 1 down to 0. [[GOAP]] reads
 
 [[GOAP]] looks for a rest stop when energy (or [[Patience]]) falls below 0.15. A [[Lounge]] or a [[Food Court]] restores it to full. Below 0.05, `GoHome` wins.
 
-Running out of energy is a normal end to the day. It does not dock [[Satisfaction]].
+Running out of energy is a normal end to the day. It does not dock [[Moments]].
 
 Older docs call this fatigue. In the sim it is this stat.
 

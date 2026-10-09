@@ -6,7 +6,7 @@ status: done
 
 # Satisfaction Rework
 
-Rebuild [[Satisfaction]] the way management games do it: stats change every tick and on events, satisfaction is a mood that drifts toward a target, thoughts are read-only reports of what changed a stat, and the resort rating is the day's average satisfaction. Each service becomes a set of stat effects, which gives new services (the [[Rental Shop]], door queues, amenity quality) a single place to plug in. Ranked first in [[Next Steps]]; it absorbs [[Patrol Day]] step 7 and changes how the thirst and exhaustion items are measured.
+Rebuild [[Moments]] the way management games do it: stats change every tick and on events, satisfaction is a mood that drifts toward a target, thoughts are read-only reports of what changed a stat, and the resort rating is the day's average satisfaction. Each service becomes a set of stat effects, which gives new services (the [[Rental Shop]], door queues, amenity quality) a single place to plug in. Ranked first in [[Next Steps]]; it absorbs [[Patrol Day]] step 7 and changes how the thirst and exhaustion items are measured.
 
 ## Why
 
@@ -93,7 +93,7 @@ Later rows (not in this plan): a wait at the door, price against the guest's bud
 6. Done: **Service events.** A finished meal (+0.05), drink (+0.04), or rest (+0.03), and patrol response (`patrolReached`: +0.06 within 120 sim s of the injury, −0.08 past 300, +0.02 between). Added beyond the plan, at the user's request so guests have reasons to want more terrain:
    - **Terrain at or below a guest's level.** Guests ride any lift serving a trail at or below their level, and prefer their own: a lift without one costs 240 s more in the planner. [[Demand]] sends guests at 0.4 of the rate when only easier trails exist; before, intermediates and experts never came to a green-only resort.
    - **Run verdicts.** Guests never ski trail steps (every descent is a free ski to a lift), so the verdict comes from what they actually skied. `Guest.Run` records, tick by tick: seconds on each trail difficulty (`World.TrailAt`, a cell index rebuilt with the trail graph) or off-trail, the main trails, steepness more than 5° past their comfort, nearby skiers, grooming, distance, and vertical. `judgeRun` turns that into "too easy" (a condition, −0.08), "too much for me" (−0.08), "way too crowded" (−0.05), "this corduroy is perfect", and "what a great run!" (+0.04: at their level, no fall, room to ski, at least 40 m of vertical). This is the start of [[Snow Tastes]] step 3.
-7. Done: **Docs.** [[Guests Spec]]'s Satisfaction, Rating, and Thoughts section is rewritten from the code, and [[Satisfaction]], [[Hunger]], [[Thirst]], [[Patience]], [[Demand]], and [[GOAP]] are updated.
+7. Done: **Docs.** [[Guests Spec]]'s Satisfaction, Rating, and Thoughts section is rewritten from the code, and [[Moments]], [[Hunger]], [[Thirst]], [[Patience]], [[Demand]], and [[GOAP]] are updated.
 
 **Checked headless** on the user's Boreal save: one green lift and one green run, a food court and ticket window, a patrol hut, and a garage. Seven days, with a storm dropped whenever the base melted out. That was 443 visits: 284 beginners, 71 intermediates, 21 advanced.
 

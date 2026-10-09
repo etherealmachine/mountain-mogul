@@ -8,7 +8,7 @@ status: shipped
 
 Patrol is a service in any building ([[Building Services]]): each patrol tile bases one patroller. In the morning patrollers fetch snowmobiles from a garage and park them on the snow by the patrol room; an injury sends one out by the fastest way (the snowmobile, a lift and skis, or hiking) to the guest and back to first aid, where the rescue goes into the [[Event Feed]] and the guest heads home to their car. Patrol sweeps until the last guest is off the mountain, then puts the snowmobiles away ([[Patrol Day]]).
 
-Injuries come from falls in [[Skiing]] and from being caught in an [[Avalanche]]. An injured guest waits where they fell, so the distance from a hut to the steep terrain is the response time. The injury has already cost the guest [[Satisfaction]] by the time patrol arrives.
+Injuries come from falls in [[Skiing]] and from being caught in an [[Avalanche]]. An injured guest waits where they fell, so the distance from a hut to the steep terrain is the response time. The injury has already cost the guest [[Moments]] by the time patrol arrives.
 
 The player tracks falls three ways: a pin over every guest who is down (red while they get up, magenta while they wait for patrol), the Falls overlay (a heat map of where guests fell today), and the patrol popup's "Falls today" (the count, how many were off any run or getting off a lift, and the three runs with the most). A fall counts against the run the guest was skiing, even off its edge, else the run underfoot. Code: `internal/scene/fall_overlay.go`, `world.History.FallsToday`.
 

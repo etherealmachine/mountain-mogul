@@ -101,7 +101,7 @@ Made with the user on 2026-10-07:
 5. Done: **Variety, availability, and crowds.** With the ledger, laps already count for less (great runs' per-trail and per-lift decay, and the planner's repeat cost). `checkBoredom` (`sim/runs.go`) runs after each run. It values each lift the guest would ride as its taste match less 0.1 per run they've had off it today. When the best falls below −0.3 they're bored: "I've skied this place to death" after laps, or "nothing here is my kind of skiing" if it never suited them, each −0.05 per clock hour. `GoHome` then weighs 1.02, just above skiing, and they leave "Bored of the terrain". That replaces leaving because every lift has been ridden. Crowds: crowded runs cost as much as the guest dislikes crowds, and a lift's line counts as its crowding in the lift choice.
 
    Checked on the user's Boreal save, 2 days (one lift, one green). The median stay fell from 7.3 to 4.4 clock hours, and 130 of 141 guests left bored (before: 139 of 146 at closing). Cruisers stay 4.9 hours (score 0.53 → 0.48), and the archetypes the green doesn't suit leave early and better off: Bump Skiers 2.5 hours, 0.08 → 0.34; Powder Hounds 1.6 hours, 0.12 → 0.27. Boreal never got busy enough for a crowded run. The check against three lifts waits for a three-lift world.
-6. Done: **Docs.** [[Satisfaction]], [[Skiing]], [[Grooming]], [[GOAP]], [[Guest Types]], [[Trails]], and [[Guests Spec]].
+6. Done: **Docs.** [[Moments]], [[Skiing]], [[Grooming]], [[GOAP]], [[Guest Types]], [[Trails]], and [[Guests Spec]].
 
 Each step builds with `go build` and `go vet` and is judged in a headless Boreal run. No Go tests.
 

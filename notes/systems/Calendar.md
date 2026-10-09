@@ -14,6 +14,8 @@ Opening is the player's choice, made from the popup of any building with [[Ticke
 
 Fast-forward can stop an hour before the next storm. [[Vision]] wants more stop conditions: first freezing night, first snowfall, and a base-depth threshold.
 
+[[Season Calendar]] plans a shorter game calendar (10-day months, open December to April) and speeds set as real time per day.
+
 Code: `internal/sim/calendar.go`, `resort.go`, `sun.go`, `storm.go`.
 
 ## Log
@@ -21,3 +23,5 @@ Code: `internal/sim/calendar.go`, `resort.go`, `sun.go`, `storm.go`.
 - 2026-10-01: Year-round calendar, opening hours, the open/close switch, sun path, and skip-to-storm are in. Other skip conditions are not.
 - 2026-10-06: Spelled out the clock-versus-sim-seconds pitfall after an "hour" was written as 3,600 sim seconds ([[Patrol Day]]).
 - 2026-10-07: A clock hour is 900 sim seconds, not 180; clock-based durations rewritten in clock units, physical ones left in sim seconds.
+- 2026-10-09: [[Season Calendar]] planned.
+- 2026-10-09: The game calendar has 10-day months with holidays on the 5th and 10th, and speeds are real seconds per day ([[Season Calendar]]); the description above still describes the old calendar until it's settled.

@@ -14,7 +14,7 @@ Imported maps carry a climate from the real place ([[Terrain Import]]): for each
 
 Each weather state has its own daily swing: clear days the widest, storms the narrowest. A climate scales them together so the month's average day-to-night range matches the record. The sim plays the season's weather from 1 September up to the start date before the game begins, so the snow on the ground and the weather that follows are the same season.
 
-Weather does not yet affect [[Demand]] or [[Satisfaction]], and wind direction is fixed per scenario rather than changing daily. A wet day is rain or snow over the whole mountain, chosen at the base, so spring days can rain on the summit too.
+Weather does not yet affect [[Demand]] or [[Moments]], and wind direction is fixed per scenario rather than changing daily. A wet day is rain or snow over the whole mountain, chosen at the base, so spring days can rain on the summit too.
 
 Spec: [[Weather Spec]]. Code: `internal/sim/weather.go`, `temperature.go`, `storm.go`.
 

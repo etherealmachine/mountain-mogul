@@ -12,7 +12,7 @@ Each groomed trail is laid out as side-by-side passes 4.5 m apart with a 5 m til
 
 Gameplay stays on 5 m cells: a cell is groomed when the cat's swath covers its centre. What's drawn comes from a 1 m groom texture the cat stamps along the path it actually drove, so lanes, seams, and U-turn marks follow the route instead of the grid. The terrain shader lights corduroy as fine ridges along each lane (exaggerated to about 25 cm so they read from the normal camera), which catch low sun and go flat at noon. Ridges carry across neighbouring passes, with a faint seam where lanes meet. Skier tracks cut through the corduroy. Its strength is the stamp times cell grooming, so skier wear, snowfall, and avalanches fade it; a snowfall heavy enough to bury the corduroy completely clears the whole stamp. The texture is saved with the game, and older saves restamp it from cell grooming.
 
-[[Skiing]] wears grooming off the lines guests use and builds moguls on ungroomed snow. Guests who like groomed runs score corduroy higher, so grooming feeds [[Satisfaction]]. It changes the [[Snow]] surface but not its depth.
+[[Skiing]] wears grooming off the lines guests use and builds moguls on ungroomed snow. Guests who like groomed runs score corduroy higher, so grooming feeds [[Moments]]. It changes the [[Snow]] surface but not its depth.
 
 Cats cost a purchase price and a daily cost that differs between active and standby, which shows up in [[Finance]].
 

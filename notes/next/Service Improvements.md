@@ -6,7 +6,7 @@ status: done
 
 # Service Improvements
 
-Service depth: give each base-area service a job of its own, make price, quality, and capacity matter to guests, and add the next service types. The services work ([[Building Services]], the satisfaction ledger in [[Satisfaction]]); what's missing is a reason to build one over another, or a better one over a cheaper one. Part of [[Amenities]]; breadth, the range of services, is [[Services]]. Ranked first in [[Next Steps]].
+Service depth: give each base-area service a job of its own, make price, quality, and capacity matter to guests, and add the next service types. The services work ([[Building Services]], the satisfaction ledger in [[Moments]]); what's missing is a reason to build one over another, or a better one over a cheaper one. Part of [[Amenities]]; breadth, the range of services, is [[Services]]. Ranked first in [[Next Steps]].
 
 ## Why
 
@@ -114,7 +114,7 @@ Each step builds with `go build` and `go vet` and is judged headless. No Go test
 
 ## Open questions
 
-- **How quality is raised**: rebuilding, upgrading in place (the way lifts upgrade on the same line), or something else. Every building is at `DefaultQuality` (0.5) until this is decided; the scoring and pricing already read it.
+- **How quality is raised**: planned in [[Service Quality]] (2026-10-08): a format's ceiling scaled by staff morale, which pay sets. Every building is at `DefaultQuality` (0.5) until then; the scoring and pricing already read it.
 - **Rolled shares**: set as defaults (rentals 50/15/5% by tier, après 30%, cold 40%); they probably belong to the scenario's guest pool ([[First Week Balance]]).
 - **Balance**: the user is fine with the defaults for now (2026-10-07), including `NoRentalsStayHome` 0.5 (about 30% fewer guests at an all-beginner resort without a rental shop); to tune with the rest of the ledger later.
 

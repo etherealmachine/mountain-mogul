@@ -18,7 +18,7 @@ Where the player may build, where guests may ski, and what's off-limits for good
 
 ## Steps
 
-1. **Ski area boundary.** A boundary line separate from ownership: the area the resort patrols and is responsible for. It starts as the edge of owned land and grows with purchases. Guests outside it are off-piste: no patrol coverage (patrollers from the patrol service, [[Building Services]], don't go there), and injuries there hit the rating hard ([[Ski Patrol]], [[Satisfaction]]). Draw it as boundary rope and signs, smoothed like the parcel fence. Later, gates open backcountry beyond it for experts (already in [[Next Steps]]).
+1. **Ski area boundary.** A boundary line separate from ownership: the area the resort patrols and is responsible for. It starts as the edge of owned land and grows with purchases. Guests outside it are off-piste: no patrol coverage (patrollers from the patrol service, [[Building Services]], don't go there), and injuries there hit the rating hard ([[Ski Patrol]], [[Moments]]). Draw it as boundary rope and signs, smoothed like the parcel fence. Later, gates open backcountry beyond it for experts (already in [[Next Steps]]).
 2. **Land purchase.** Make buying land a real decision:
    - hand-drawn parcels in the editor that follow ridges, creeks, and roads instead of rectangles
    - hovering a parcel shows its name, price, area, vertical, and what's on it (trees, steep terrain, road access), with the cost preview from [[Money Feedback]]

@@ -6,7 +6,7 @@ status: done
 
 # Lift Unloading
 
-Getting off a chair the way real skiers do: stand up at the unload point, ski straight ahead down the ramp onto the apron, peel left or right by seat, and only then turn downhill. Unloading becomes its own guest state, so it can be drawn as an unloading animation and so falls there come from a deliberate roll rather than the balance model. It also fixes the lift-top step behind most falls ([[Next Steps]], the Falls item). Part of [[Lifts]]; touches [[Skiing]] and [[Satisfaction]].
+Getting off a chair the way real skiers do: stand up at the unload point, ski straight ahead down the ramp onto the apron, peel left or right by seat, and only then turn downhill. Unloading becomes its own guest state, so it can be drawn as an unloading animation and so falls there come from a deliberate roll rather than the balance model. It also fixes the lift-top step behind most falls ([[Next Steps]], the Falls item). Part of [[Lifts]]; touches [[Skiing]] and [[Moments]].
 
 ## Why
 

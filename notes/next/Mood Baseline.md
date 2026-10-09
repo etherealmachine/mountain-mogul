@@ -6,7 +6,7 @@ status: done
 
 # Mood Baseline
 
-**Superseded 2026-10-07** by a ledger, at the user's call: satisfaction no longer drifts toward a baseline. Events add once and for good, conditions cost by the clock hour, and the score is recorded when the guest's car leaves the map, with each condition still on costing once more ([[Satisfaction]], [[Guests Spec]]). The per-trail and per-lift repeat decay for great runs carried over. The rest of this note is the history.
+**Superseded 2026-10-07** by a ledger, at the user's call: satisfaction no longer drifts toward a baseline. Events add once and for good, conditions cost by the clock hour, and the score is recorded when the guest's car leaves the map, with each condition still on costing once more ([[Moments]], [[Guests Spec]]). The per-trail and per-lift repeat decay for great runs carried over. The rest of this note is the history.
 
 Let a good day add up. Each guest gets a baseline, the 0.5 that their mood drifts toward today. A good run raises it, and each repeat of the same run raises it by less. A resort with varied, satisfying terrain then sends guests home happier than one with a single run lapped all day. Builds on [[Satisfaction Rework]], and shares its repeat counting with [[Snow Tastes]] step 5.
 
@@ -43,7 +43,7 @@ From the user, 2026-10-07:
    Checked headless on the regraded Boreal save, 4 days. With one trail, the final baseline was 0.540 on average, 0.558 for the median guest, and 0.571 at most, against a limit of about 0.57. Split into three trails off the one lift: 0.540 average and 0.590 at most, under the one-lift limit of 0.66. No world with two lifts exists to check the multi-lift case; that rests on the limits above.
 
    The rating only rose from 0.34–0.41 to 0.38–0.42, because guests leave with satisfaction about 0.39 against a baseline of about 0.55. At departure, 95% have "sick of waiting" and the exhausted condition active, and 81% thirsty (Boreal has no bar). The first two come from `tickResortClosed` zeroing every guest's patience after closing, as the lever for going home. Recorded in [[Next Steps]] as Closing zeroes patience; this baseline work can't show in the rating until that's fixed.
-3. Done: **Docs.** [[Satisfaction]] and [[Guests Spec]].
+3. Done: **Docs.** [[Moments]] and [[Guests Spec]].
 
 Each step builds with `go build` and `go vet` and is judged headless. No Go tests.
 

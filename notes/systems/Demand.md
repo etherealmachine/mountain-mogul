@@ -8,7 +8,7 @@ status: partial
 
 Where guests come from. A fixed catchment of guests, each with a skill and a daily budget, is polled every 30 sim-seconds. Each guest at home rolls to arrive based on the resort rating, how well the terrain suits their skill (full rate with a trail at their level, 0.4 with only easier ones), how crowded the [[Lifts]] are, and whether the day ticket plus parking fits their budget. Arrivals follow each guest's preferred time (`Guest.ArrivalOffset`, hours after opening): a quarter are eager, arriving 1.5 to 2.5 hours early to be in line when the lifts start; half come from an hour before opening to an hour and a half after; a quarter come 1.5 to 4 hours after. Each guest's arrivals spread about 20 minutes around their time. Nobody arrives in the last hour or while the resort is closed, and the mountain opens to arrivals three hours before the lifts. Guests can line up at a lift that's switched on but not yet running, without losing patience.
 
-The resort rating is the average final [[Satisfaction]] of the guests who left the day before, set at midnight. A better rating draws more guests and lets the resort charge more before they balk.
+The resort rating is the average final [[Moments]] of the guests who left the day before, set at midnight. A better rating draws more guests and lets the resort charge more before they balk.
 
 A guest without a pass is turned away if no building sells [[Tickets]]. Each poll's winners from one entry share cars of one to four and drive in (see [[Transit]]); when the car parks, its guests pay their shares of the per-car fee (see [[Parking and Roads]]), and the ticket price is set aside from their budget. That money, and their spending on [[Amenities]], lands in [[Finance]].
 

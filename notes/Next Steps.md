@@ -13,7 +13,7 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 
 In the order to work on them:
 
-1. [[Demo]]: the free Steam demo ([[Release]]: demo, then early access, then guest types as DLC), the Boreal tutorial and Kirkwood, playable for a few hours, as its own stripped build. Steps in order: the magic carpet; terrain expectations (readouts, demand by terrain mix, a challenge preference); balance so the goals are reachable; goals and unlocking; the snow bugs; a Kirkwood map pass; a demo pop-up; UI polish (including a closed-resort sign); graphics polish; visible traffic; menus; the demo build.
+1. [[Demo]]: the free Steam demo ([[Release]]: demo, then early access, then guest types as DLC), the Boreal tutorial and Kirkwood, playable for a few hours, as its own stripped build. Steps in order: the magic carpet; terrain expectations (readouts, demand by terrain mix, a challenge preference); service staffing and quality ([[Service Quality]]); balance so the goals are reachable; goals and unlocking; the snow bugs; a Kirkwood map pass; a demo pop-up; UI polish (including a closed-resort sign); graphics polish; visible traffic; menus; the demo build.
 
 Not ranked yet: everything below.
 
@@ -21,10 +21,12 @@ Not ranked yet: everything below.
 
 Diagnose each first, report the cause, then fix:
 
+- **Fallen skiers walk too far uphill**: the user, 2026-10-08, watching the game. After a fall guests walk much further back uphill than is realistic. Suspects: in a yard sale the skis stay near where the fall began (up to 0.5 + 0.2 × speed metres along the line) while the body slides on, so the guest climbs back up the whole slide for them (`knockDown`, `collectSki` in `sim/falls.go`); or the walk back up toward a route point or carrot uphill after getting up. Diagnose which before changing ([[Skiing]]).
 - **Fresh corduroy turns to crust overnight**: noticed 2026-10-07. Cats finish grooming by about 21:00, and the midnight weather update turns packed powder into crust on a cold clear day (`kindTransition`), so groomed runs open as crust. Decide whether grooming should come after the update, or packed powder shouldn't crust in one night ([[Snow]], [[Grooming]]).
 - **Snow compacts far too fast**: found 2026-10-07 on the re-dressed Boreal. Fresh snow starts at a believable depth (150 mm of water as 83 cm on the opening storm), but within three days 135 mm sits in 23 cm (density about 0.6), and by mid-January 263 mm in 37 cm (about 0.7). Settled early-season snow is about 0.25–0.35, so the slopes look thin over a decent pack. Diagnose the settling in [[Snow]] (`SnowLayer` densification) before changing it. Also blocked moguls, which now gate on snow water instead of visible depth (2026-10-07).
 - **Point-placed services fail silently with no free cell**: found 2026-10-07 fixing tests. `PlaceBuildingType` for a lodge, bar, or ticket office (tests, testbeds, the editor's ticket office) converts to a service building only on free cells (`placePointService`); with none (say, inside a parking lot) it quietly stays an old-style building with no tiles or doors that serves nothing, and guests looking for it go home. It should fail visibly or find room. Belongs with footpaths and pathing work ([[Pathfinding]], [[Lodge Shell]]).
-- **Beginners run wide on a green's steep bends**: 2026-10-08, after route costs ([[Crowd Scale]]). Of ~760 falls a day (250 guests, Boreal), about half are beginners just off the green Sunset Blvd. on the outside of its bends near cells 80–88, 194–208, where it crosses a 17–20° fall line (12–13° along the trail; beginners are comfortable to 10°). Their route goes round the bend; their steering carries them wide. 93 of 250 still give up. Next: speed control ahead of a bend in the steering layer (slow to what the line ahead allows, as `treeSpeedAhead` does for trees), and maybe a trail-rating warning when a green crosses ground that steep.
+- **Lift-station huts stand in the lift lines**: found 2026-10-08 measuring clearance round stations. The operator's hut in `lift_station.scad` sits 3.4 m back and 5 m out on the empty-chair side, which at a base station is inside the lift-line rows (rows stack downhill in 2.5 m bands, places step out in 2 m slots: the hut is row 2, slot 3), so guests are sent to places inside it: about 1,850 one-second samples a day within 1 m of base huts on Boreal (250 guests). Walkers now sidestep station parts, but not one at the place they're walking to. Decide where the hut should go (beside the load point uphill of the rows, or further out) in the model and `world.StationXZs` together ([[Lifts]]).
+- **Novices get bored with one short green**: Boreal Goals Test, 2026-10-08, after the Sunset Blvd. fixes (falls 948 → 136, gave up 108 → 1 on the user's save). Novices (skill under 0.10) now only ride lifts whose terrain is all green, so on Boreal they keep to Lift4's Kiss A Bear, and with one short run they're soon bored: 83 bored departures a day against about 25. Partly gameplay (build them gentle terrain: the magic carpet, [[Demo]] step 1); check the boredom rate for a guest with one lift once there's a bunny area to compare with ([[Skiing]]).
 
 ## Scenarios and campaign ([[Scenarios]], [[Scenario Campaign]])
 
@@ -46,6 +48,8 @@ Diagnose each first, report the cause, then fix:
 
 ## Terrain, trails, and land ([[Terrain]], [[Trails]], [[Trees]], [[Parcels]])
 
+- **Ropes and signs at trail splits**: the user, 2026-10-08. Where a cat track or long easy run meets or crosses a harder one, beginners can end up on it; real resorts rope off the line, fence the edge, or post "slow" and "experts only" signs. A player tool placing ropes, fences, and signs that skiers treat as obstacles or warnings, so the player shapes where guests go ([[Trails]]).
+- **Trail steepness for the player** (held, the user 2026-10-08): a trail's steepest sustained pitch, a rating check ("steeper than a green should be in 2 places") marked on the map, and naming a fall's cause (too steep, too fast, trees). Guests never see the numbers; it's for the player.
 - [[Trail Network]]: trails drawn as lines of nodes snapped to lifts, buildings, and other runs, each node with its own width; glades, bowls, and backcountry outlined as polygon zones. Steps 1–3 done (runs, the run tool, grooming clear of trees); left: areas (glades, bowls, backcountry) and redrawing Boreal's and Kirkwood's trails by hand, which have none until then.
 - [[Terrain Realism]]: make imported mountains look and behave like the real place. Done: mesh subdivision, lidar import, the climate block, [[Terrain Layers]] (Boreal and Kirkwood re-imported with every layer), auto snow and trees from real data, and Kirkwood's cliffs ([[Ground Materials]]). Creeks and lakes are priority 0. Left, in order: editor brushes to smooth and flatten the ground (the road, smoothing, and erosion layers are done), thermal erosion for scree, and snow that doesn't look plastic.
 - [[Creeks and Lakes]] leftovers: tune creek channels and how much is snow-bridged by eye on Kirkwood and Boreal; creeks freezing over in hard cold (from the lake model's frost); guests and pathing treating open creeks and open lakes as obstacles (and deciding whether a frozen lake is walkable); a lighter colour over shallow lake water.
@@ -64,14 +68,16 @@ Diagnose each first, report the cause, then fix:
 
 ## Snow, weather, and avalanches ([[Snow]], [[Weather]], [[Avalanche]], [[Calendar]])
 
+- **Walkers leave tracks too**: the user, 2026-10-08. Guests walking (skis off, or shuffling on skis) should mark and pack powder like skiers do; today only skiing splats tracks (`splatSkierTrack`) and wears snow. Boot-packed holes in powder are a different mark from ski tracks.
 - **Per-scenario weather**: imported scenarios already roll daily weather from their own monthly climate ([[Weather]]). Left: climate for hand-drawn scenarios and places outside the US, and rain or snow chosen by altitude rather than at the base. *For* [[Killington]], [[Asahidake]].
 - **Daily wind**: a wind direction and strength each day instead of one per scenario. Wind holds in [[Lift Operations]] *need* it.
-- **Weather and guests**: weather changes arrivals and guest mood ([[Demand]], [[Satisfaction]]).
+- **Weather and guests**: weather changes arrivals and guest mood ([[Demand]], [[Moments]]).
 - **Drifts on lee slopes**: wind moves snow from windward faces into lee slopes and gullies. *Needs* daily wind.
 - **Glaciers**: year-round snow at the top of high resorts. *For* [[Zermatt]].
 - **More fast-forward targets**: skip to the first freezing night, first snowfall, or a base depth. *For* [[Killington]].
 - **Avalanche control**: explosives, closures, and barriers. *For* [[Alta]].
 - **Avalanche risk overlay**: show where slopes are loaded before anything releases. *For* [[Alta]].
+- [[Season Calendar]]: our own calendar, 10 days a month, open December to April, holidays on the 5th and 10th; a day in 80 s at the fastest speed and 320 s at normal. First measure how much skier movement a game hour can hold. To be ranked by the user.
 
 ## Safety ([[Ski Patrol]])
 
@@ -80,10 +86,10 @@ Diagnose each first, report the cause, then fix:
 - **Medevac**: a helicopter for serious incidents.
 - **Skier-on-skier collisions**: today skiers only avoid each other (a 2.5 m danger zone when picking a line, and a swerve that clears a skier by 1.5 m); when that fails they pass through each other. A contact check like `hitsTrunk` would let two skiers collide: both fall, maybe an injury and a patrol call, more likely when fast, unskilled, or crowded. Makes crowding and mixed-skill runs visibly risky ([[Skiing]]). To be ranked by the user.
 
-## Guests ([[GOAP]], [[Satisfaction]], [[Guest Types]])
+## Guests ([[GOAP]], [[Moments]], [[Guest Types]])
 
 - **Calibrate the satisfaction ledger** (tabled by the user, 2026-10-07): every event amount and condition rate in `ai.Effects` was set for the old drifting model. On Boreal, intermediate and advanced guests carry "too easy" all day and can end at 0, and a storm day on an ungroomed green drops Cruisers from 0.53 to 0.32. Tune with a resort that has blue and black runs.
-- **What each skill wants**: the terrain half is in [[Snow Tastes]]. Beginners want rentals and easy terrain; intermediates want terrain plus food and places to rest; advanced skiers want terrain and no crowds. Feeds [[Demand]] and [[Satisfaction]]. *For* [[Kirkwood]].
+- **What each skill wants**: the terrain half is in [[Snow Tastes]]. Beginners want rentals and easy terrain; intermediates want terrain plus food and places to rest; advanced skiers want terrain and no crowds. Feeds [[Demand]] and [[Moments]]. *For* [[Kirkwood]].
 - **Snowboarders**: guests already roll Snowboard but still ski and look like skiers.
 - **Children and families**: their own guest type, arriving and moving as a group.
 - **Guest goals beyond lapping**: find the shortest line, go to après-ski, stay near the lodge. Powder hunting moved to [[Snow Tastes]].
@@ -92,6 +98,7 @@ Diagnose each first, report the cause, then fix:
 - **Mogul lovers**: an expert bombing a mogul run entertaining the lift above. Guests who seek moguls are the Bump Skier in [[Snow Tastes]], and the moguls they seek are [[Moguls]].
 - **Non-skiing guests**: come for attractions, food, and the village. *Needs* attractions (under Real estate and attractions).
 - **Named complaints**: rating feedback that lists the top complaints (long lines, wrong difficulty, falls, full parking).
+- [[Readable Complaints]]: review lines that name the place and why a need went unmet (full, missing, wrong kind, too far, too dear); today so far in the Reviews tab; occupancy in the building popup.
 - **Guest trip history**: a gameplay version of the follow-guest panel with runs taken, vertical, and time on the mountain.
 
 ## Base area ([[Amenities]], [[Lodge Shell]], [[Pathfinding]])
@@ -99,7 +106,9 @@ Diagnose each first, report the cause, then fix:
 - [[Building Interiors]]: a legend for the cutaway's colors and doors, then procedurally placed furniture.
 - [[Services]]: the range of day services (snack stands, a café and the coffee need, ski school, retail, demo skis, lockers, guest services and a pass office, shuttles, activities), a card each; building anywhere, with cost and upkeep rising with elevation; supply by snowcat and lift later. Overnight services next.
 - [[Rental Shop]] staff and ski racks: the shop is in ([[Service Improvements]]); staffing the morning rush and a rack at the snow are still story.
-- **Amenity quality and views**: better buildings attract more guests ([[GOAP]]) and can charge more. Quality is scored and priced ([[Service Improvements]] step 2); how it's raised, and views, are open.
+- [[Star Ratings]] and [[Scoreless Rating]]: each guest leaves 1–5 stars as levels (didn't ski, skied with a need unmet, every need met; 4★ and 5★ later), with no satisfaction score behind them: needs met set the star, unweighted good and bad moments explain it.
+- [[Service Quality]]: formats at different price points (food court, restaurant, snack stand, shop), staff as a pool per room (headcount for timeliness, wage for quality through morale), hungrier guests with a lunch rush, and shopping.
+- **Views**: better-sited buildings attract more guests ([[GOAP]]) and can charge more.
 - **Lockers and ski school**: more base services; ski school *needs* staff.
 - **Footpaths**: painted paths between buildings, with guests walking skis-off, and pathing that uses them (the user, 2026-10-07: paths and pathing are needed at some point). *For* [[Zermatt]].
 - **Ski racks**: where footpaths meet the snow. *Needs* footpaths.
@@ -112,7 +121,7 @@ Diagnose each first, report the cause, then fix:
 - **Employee commutes**: each entry has a pool of workers as well as guests; a long or snowed-in drive makes staff late or harder to hire, and the morning arrival shares the road with guests. *Needs* employees as people.
 - **Employee goals**: [[GOAP]] for employees (get to work, take breaks, go home). *Needs* employees as people.
 - **Lift attendants**: two per lift, top and bottom, with a third speeding loading on bigger chairs. Each lift already pays for two a day, but none are on the map. *Needs* employees as people.
-- **Staffing amenities**: staff for rental, food court, bar, tickets, patrol, and the snowcat garage, replacing the flat daily cost per tile ([[Building Services]]). *Needs* employees as people.
+- **Staffing amenities**: staff for rental, food court, bar, tickets, patrol, and the snowcat garage, replacing the flat daily cost per tile ([[Building Services]]). Staff pools per room come first in [[Service Quality]]; people fill them later. *Needs* employees as people.
 - **Employee housing**: so a resort can staff up where commuting is hard: staff housing as a building service ([[Building Services]], [[Rotated Buildings]]), with fewer cars on the road. *For* [[Zermatt]].
 
 ## Roads and arrivals ([[Parking and Roads]], [[Demand]])
@@ -268,3 +277,8 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-08: Route costs: a skier's route prices pitch past their comfort along the line and ground off trails at their level (unless they free-roam); trail-to-trail steps aim at the junction; a step from a trail junction needs that trail at the guest's level too; the lap fallback is a searched plan, not a straight free ski. Boreal, 250 guests: falls 8,733 → ~760, skier-hours 104 → 111, no 6 s fall loops.
 - 2026-10-08: Fall tracking, before changing behaviour (Sunset Blvd. may be a gameplay problem as much as a steering one): a pin over every guest who is down (red: getting up; magenta: waiting for patrol); a Falls overlay, a heat map of where guests fell today; and a "Falls today" section in the ski patrol popup (count, off-run and lift-unload counts, the three runs with the most). Falls are kept with the day's history (where, which run or lift), saved, and counted in each daily sample.
 - 2026-10-08: Skier model and falls: falls slide, lie, and get up by direction and skill, with yard sales; guests are a jointed figure posed from the sim, in their own outfits (activity colours on F6).
+- 2026-10-08: [[Service Quality]] planned with the user (formats, staff pools, morale, appetite, shopping); amenity quality folded into it.
+- 2026-10-08: Sunset Blvd.: trail following, trail edges, comfort by skill, novices on all-green lifts; ropes and signs at splits, and trail steepness for the player (held), noted.
+- 2026-10-09: [[Star Ratings]] and [[Scoreless Rating]] planned with the user: stars as levels, the satisfaction ledger removed.
+- 2026-10-09: [[Season Calendar]] planned with the user (unranked).
+- 2026-10-09: [[Readable Complaints]] noted with the user after the Boreal Christmas check.

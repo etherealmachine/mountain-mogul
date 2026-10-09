@@ -10,7 +10,7 @@ South of Lake Tahoe, California. A high, remote valley with a gentle beginner ar
 
 **Premise.** Beginners and experts both show up. Serve each without putting them on the same runs.
 
-**Teaches.** Matching terrain to skill. Beginners need green runs off their own lifts, experts want steep blacks, and mixing them causes falls and bad moods ([[Trails]], [[Skiing]], [[Satisfaction]]). Placing lifts so each group finds its terrain ([[Lifts]]).
+**Teaches.** Matching terrain to skill. Beginners need green runs off their own lifts, experts want steep blacks, and mixing them causes falls and bad moods ([[Trails]], [[Skiing]], [[Moments]]). Placing lifts so each group finds its terrain ([[Lifts]]).
 
 **Goals (draft).** A good rating from beginners and from experts separately; a set number of guests of each skill a day.
 

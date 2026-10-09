@@ -38,7 +38,7 @@ Rejected: keeping density and making the glade brush preview threshold crossings
    - [[Skiing]] scores steering by nearby trunks from the bucket grid, the way it already handles lift towers and other skiers. That makes a collision with one specific tree possible: a fall, a thought, maybe an injury.
    - [[Pathfinding]] blocks a cell when its trunks leave no gap to walk through, instead of the density-0.5 cutoff.
    - [[Avalanche]] counts trunks per cell for slope anchoring and for stopping a front.
-   - Glade-loving and tree-shy guests react to trunks nearby ([[Satisfaction]]).
+   - Glade-loving and tree-shy guests react to trunks nearby ([[Moments]]).
 6. **Rendering and snow.** The static batch and tree wells read the stored trees instead of `ForEachTree`.
 
 Steps 1, 2, and 6 together should look exactly like today, which makes them a safe first change to check the conversion before anything else moves.

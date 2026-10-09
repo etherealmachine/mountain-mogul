@@ -45,6 +45,8 @@ Skiing: [[Lifts]] are the skiing service, and their variety is breadth too: the 
 
 Services should be buildable anywhere, not just in the base area, so a [[Snack Stand]] can go mid-mountain or at a lift top. Building costs more with elevation, and so does upkeep.
 
+**Free water** (built 2026-10-09: a "Free water" toggle on food courts and bars) quenches thirst and does nothing else; guests help themselves without a turn at the counter. It should cost the resort to provide, a daily cost that rises with the building's elevation (water hauled or pumped uphill). Today it's free to run.
+
 Later, simple logistics: snowcats, lifts, and gondolas supply on-mountain services, so a summit stand needs a way to be stocked. Left for later.
 
 ## Overnight
@@ -90,3 +92,4 @@ From the user's review, 2026-10-07, a likely order: snack stands and the food co
 
 - 2026-10-07: Listed with the user: day services by group, each with a card; building anywhere (cost and upkeep rising with elevation); logistics later; overnight services next.
 - 2026-10-07: Overnight (lodging mixed: hotels for ongoing revenue, land sold for houses, condos between; rating stays daily; on-site lodging raises demand, so a huge resort needs a village; long term, after a playable demo), staff services, and logistics sections, with cards.
+- 2026-10-09: Free water added (a toggle on food courts and bars); the user: it should have a running cost that scales with elevation.
