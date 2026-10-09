@@ -45,22 +45,27 @@ About two-thirds is the mind. In a group, only the leader needs one.
 
 - **Terrain**: the leader plans for the weakest member: a family sticks to greens.
 - **Pace**: the group waits for anyone behind at junctions and the bottom of a run, and regroups in the lift line.
-- **Needs**: each member keeps their own hunger, thirst, energy and patience, and their own moments and review. The group plans for whichever need presses most, so lunch is together.
+- **Needs**: each member keeps their own hunger, thirst, energy and patience, and their own moments. The group plans for whichever need presses most, so lunch is together.
+- **Reviews**: each member leaves their own (the user, 2026-10-09). A family's day can be 3★ for the kids and 2★ for the advanced parent who skied greens all day.
 - **Lifts**: the group queues together and rides together: a family of four fills a quad, a pair shares a chair, and singles fill the gaps.
 - **Splitting up**: with a big skill gap, the strong skier can ski alone and meet the others for lunch or at the car (a group of one, then a regroup). That's realistic, and a player choice: resorts with terrain for everyone keep families together.
 - **Moments to discover**: "skied with friends", "waited for the kids at every turn", "lost the group", "the whole family on one chair".
 
 ## Who's in a group
 
-Today a carload is the poll's winners from one entry, one to four to a car (mean 2.4), strangers drawn fresh each visit ([[Transit]]). Groups make that real:
+From the user, 2026-10-09:
 
-- **A group is a carload**, decided when the guests are rolled into the pool: friends, couples, families. Members visit together, so a group's visits are one poll roll, not one per guest.
-- **Families**: children as a guest type (Next Steps, Guests). They're beginners and need childcare or ski school ([[Childcare]], [[Ski School]]) for parents to ski alone. That's later; groups come first.
+- **One to thirteen guests.** Thirteen is about a group ski lesson: an instructor and a class.
+- **Groups are part of [[Demand]]**, formed before they arrive: the catchment holds groups, a group's visit is one roll, and its members drive in together. A group bigger than a car (one to four today, [[Transit]]) comes in several cars that arrive together, or a van or a bus once there are bigger vehicles.
+- **The mix is a scenario setting**: how big groups are, and who's in them.
+  - Boreal can be made easier with lots of beginner groups, who all want the same green terrain.
+  - A challenge can send groups dragging along an advanced skier, who gets bored on greens unless the resort gives them something (terrain nearby, a way to split off and meet up).
 - **Solo skiers stay**: a group of one is a leader with no followers, as today.
+- **Families and children** come later as guest types, with [[Childcare]] and [[Ski School]]; groups come first.
 
 ## The gain
 
-If a follower costs 20–30% of a full skier, a group of 2.4 costs about (1 + 1.4 × 0.25) ÷ 2.4 ≈ 0.55 of today per guest, about 1.8×. With the rest of the step on the cores and the sim on its own thread, that's maybe 5–7× in all: several thousand visitors a day at 80 s. A follower's real cost is the first thing to measure.
+If a follower costs 20–30% of a full skier, a group of 2.4 (today's mean carload) costs about (1 + 1.4 × 0.25) ÷ 2.4 ≈ 0.55 of today per guest, about 1.8×. With the rest of the step on the cores and the sim on its own thread, that's maybe 5–7× in all: several thousand visitors a day at 80 s. A follower's real cost is the first thing to measure.
 
 ## Risks
 
@@ -72,7 +77,7 @@ If a follower costs 20–30% of a full skier, a group of 2.4 costs about (1 + 1.
 ## Steps
 
 1. **Prototype on a testbed**: one group of three on a groomed run, leader as today, two followers on its line. Measure a follower's cost per step against a full skier's; look at the tracks, the motion, and the collisions with a few solo skiers on the run.
-2. **Groups in the pool and the car**: a group is decided when guests are rolled into the pool; demand rolls a group's visit once; the car carries its group.
+2. **Groups in demand**: the catchment holds groups of one to thirteen; demand rolls a group's visit once; a group drives in together (several cars past four); the group mix is a scenario setting (sizes, skill makeup), in the editor's scenario details.
 3. **Skiing together**: leaders and followers on every descent; trees in single file; spacing; waiting and regrouping.
 4. **Lines and lifts**: queuing together, chairs filled by group.
 5. **Planning together**: terrain for the weakest member, needs pooled, meals and going home together; splitting up and meeting again.
@@ -83,11 +88,12 @@ Each step builds with `go build` and `go vet`, and is checked headless and on sc
 
 ## Open questions
 
-- Group sizes: the carload mix today (one to four, mean 2.4), or bigger groups in two cars.
-- Whether followers ever choose their own line within the run (more natural, more cost).
+- Whether followers ever choose their own line within the run (more natural, more cost). The user isn't sure yet.
 - How far the group waits for a slow member, and when they split up.
-- Whether a group's members share a review or each leave their own (each, today's plan).
+- The default group mix, and how a scenario describes it (sizes, skill makeup, lessons).
+- How the gain shifts with group size: a lesson of thirteen is one mind and twelve bodies; a resort of solo skiers gains nothing.
 
 ## Log
 
 - 2026-10-09: Written with the user after the [[Crowd Scale]] passes: one detailed sim for every guest, with followers sharing the leader's thinking; keep tracks, collisions, and terrain-grounded skiing per body.
+- 2026-10-09: The user: groups of one to thirteen (thirteen for a lesson); formed in demand before arrival; the group mix is a scenario setting (easier with beginner groups, a challenge with groups dragging an advanced skier along); each member leaves their own review; followers picking their own line undecided.
