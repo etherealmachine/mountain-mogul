@@ -18,8 +18,7 @@ var (
 )
 
 // onDayRollover opens the profit/loss report for the day just closed,
-// replacing any earlier one still on screen (turbo can cross several
-// midnights between frames; only the latest is shown).
+// replacing any earlier one still on screen (only the latest is shown).
 func (s *Scenario) onDayRollover() {
 	if settings.Get().HideDailyReport || s.world == nil || s.world.History == nil {
 		return

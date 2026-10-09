@@ -510,7 +510,6 @@ type Scenario struct {
 	fpsSmoothed   float32
 	paused        bool
 	pace          int     // index into dayPaces
-	skipping      bool    // skipping ahead to the next storm
 	fixedScale    float64 // a fixed time scale from the command line; 0 uses the pace
 	popup         *ui.Window
 	saveAllowed   bool   // false in testbed mode; gates the Save prompt
@@ -624,9 +623,8 @@ const (
 // normal, fast, and fastest (Season Calendar). The hours from
 // activeFromHour to activeToHour share the pace less quietSeconds; the
 // quiet rest of the day (night, or a day the resort is closed, with
-// nobody on the mountain) passes in quietSeconds. Clicking the fastest
-// button again skips ahead at the quiet pace to the next storm. The sim
-// substeps internally (see Simulation.Tick), so a fast pace only costs
+// nobody on the mountain) passes in quietSeconds. Nothing runs faster
+// than the fastest button. The sim substeps internally (see Simulation.Tick), so a fast pace only costs
 // CPU; when a busy day needs more than the CPU has, the day runs slower
 // than its pace. Pause is its own button, not in this list.
 var dayPaces = []float64{320, 160, 80}
@@ -657,21 +655,21 @@ func (s *Scenario) quietNow() bool {
 	return len(s.world.OnMountain) == 0 && len(s.world.Cars) == 0
 }
 
-// updateTimeScale sets the sim's time scale for this frame from the
-// chosen pace, the storm skip, or a fixed scale from the command line.
-func (s *Scenario) updateTimeScale() {
-	switch {
-	case s.fixedScale > 0:
-		s.sim.TimeScale = s.fixedScale
-	case s.skipping:
-		s.sim.TimeScale = paceScale(0, true)
-	default:
-		s.sim.TimeScale = paceScale(dayPaces[s.pace], s.quietNow())
-	}
+// tickSim runs the sim for a frame of dt real seconds.
+func (s *Scenario) tickSim(dt float64) {
+	s.updateTimeScale()
+	s.sim.Tick(dt)
 }
 
-// stormSearchDays is how far ahead turbo looks for a storm to stop at.
-const stormSearchDays = 90
+// updateTimeScale sets the sim's time scale for this frame from the
+// chosen pace, or a fixed scale from the command line.
+func (s *Scenario) updateTimeScale() {
+	if s.fixedScale > 0 {
+		s.sim.TimeScale = s.fixedScale
+		return
+	}
+	s.sim.TimeScale = paceScale(dayPaces[s.pace], s.quietNow())
+}
 
 // NewScenarioFromFile creates a Scenario that loads its initial world from
 // `path`. Used for both New Game (asset scenarios) and Load Game (named
@@ -773,7 +771,7 @@ func (s *Scenario) SetDayPace(secs float64) float64 {
 			best = i
 		}
 	}
-	s.pace, s.skipping, s.fixedScale, s.paused = best, false, 0, false
+	s.pace, s.fixedScale, s.paused = best, 0, false
 	return dayPaces[best]
 }
 
@@ -1075,19 +1073,7 @@ func (s *Scenario) Init(app *engine.App) error {
 		idx := i
 		onSpeed[idx] = func() {
 			s.fixedScale = 0
-			if idx == len(dayPaces)-1 {
-				switch {
-				case s.paused && s.skipping:
-					s.paused = false // resume the skip we paused in
-					s.syncSpeedButtons()
-					return
-				case !s.paused && s.pace == idx && !s.skipping:
-					s.startSkip()
-					return
-				}
-			}
-			s.pace, s.skipping, s.sim.StopAt = idx, false, 0
-			s.paused = false
+			s.pace, s.paused = idx, false
 			s.syncSpeedButtons()
 		}
 	}
@@ -1569,52 +1555,11 @@ func (s *Scenario) syncSpeedButtons() {
 	if s.topBar == nil {
 		return
 	}
-	last := len(dayPaces) - 1
-	label := ""
-	if s.skipping {
-		label = "skip"
-	}
-	s.topBar.SetSpeedLabel(last, label)
 	if s.paused {
 		s.topBar.SetPauseActive(true)
 		return
 	}
-	active := s.pace
-	if s.skipping {
-		active = last
-	}
-	s.topBar.SetSpeedActive(active)
-}
-
-// startSkip skips ahead at the quiet pace, stopping just before the next
-// storm.
-func (s *Scenario) startSkip() {
-	s.skipping = true
-	s.sim.StopAt = 0
-	stopAt, stormDay, ok := s.sim.NextStormStop(stormSearchDays)
-	if ok {
-		s.sim.StopAt = stopAt
-	}
-	s.syncSpeedButtons()
-	if ok {
-		days := world.GameDayIndex(stormDay) - world.GameDayIndex(s.sim.DateAt(s.sim.SimTime))
-		s.setToast(fmt.Sprintf("Skipping to the storm on %s (%d days)", world.FormatGameDate(stormDay, false), days))
-	} else {
-		s.setToast(fmt.Sprintf("Skipping ahead: no storm in the next %d days", stormSearchDays))
-	}
-}
-
-// checkStormStop pauses at normal speed once the skip reaches its storm
-// stop.
-func (s *Scenario) checkStormStop() {
-	if s.sim.StopAt <= 0 || s.sim.SimTime < s.sim.StopAt-1e-6 {
-		return
-	}
-	s.sim.StopAt = 0
-	s.skipping, s.pace = false, 0
-	s.paused = true
-	s.syncSpeedButtons()
-	s.setToast("Storm arriving tonight: paused. Press play to watch it roll in.")
+	s.topBar.SetSpeedActive(s.pace)
 }
 
 func (s *Scenario) Update(dt float64) {
@@ -2181,9 +2126,7 @@ func (s *Scenario) Update(dt float64) {
 		if s.tickHook != nil {
 			s.tickHook(s.sim)
 		}
-		s.updateTimeScale()
-		s.sim.Tick(dt)
-		s.checkStormStop()
+		s.tickSim(dt)
 	}
 	if s.sim != nil && s.sim.QueryServer != nil {
 		s.sim.QueryServer.Tick(s.world, s.sim)

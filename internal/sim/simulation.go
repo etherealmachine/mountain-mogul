@@ -46,10 +46,6 @@ type Simulation struct {
 	Pathfinder *Pathfinder
 	TimeScale  float64 // simulation speed multiplier (default 4 — ~1 hr per ski season)
 	SimTime    float64 // accumulated sim seconds (post-TimeScale)
-	// StopAt, when > 0, is a sim time Tick never advances past, however
-	// large TimeScale is — the fast-forward-to-storm stop. The caller
-	// notices SimTime reaching it and clears it.
-	StopAt float64
 	// lastSampledDay is the most recent in-game day index whose end has
 	// been written to World.History. Initialised to int(SimTime /
 	// secondsPerSimDay) so a sim loaded mid-day starts recording from
@@ -269,9 +265,6 @@ func (s *Simulation) Tick(dt float64) {
 	s.World.Terrain.RefreshTrunkField()
 
 	remaining := dt * s.TimeScale
-	if s.StopAt > 0 && s.SimTime+remaining > s.StopAt {
-		remaining = s.StopAt - s.SimTime
-	}
 	simulated := remaining
 	for remaining > 0 {
 		sub := remaining

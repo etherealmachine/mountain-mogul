@@ -476,14 +476,19 @@ func runScreenshot(opt screenshotOpts) {
 		t0 := time.Now()
 		sc.Update(dt)
 		t1 := time.Now()
-		if frame >= benchSkip {
+		// Timing the GPU waits for it every frame, so a long benchmark
+		// skips it to time frames as the game runs them.
+		gpuTimed := frame >= benchSkip && opt.benchHours == 0
+		if gpuTimed {
 			gl.BeginQuery(gl.TIME_ELAPSED, gpuQuery)
 		}
 		sc.Render(app.Renderer)
 		if frame >= benchSkip {
-			gl.EndQuery(gl.TIME_ELAPSED)
 			updateMs = append(updateMs, t1.Sub(t0).Seconds()*1000)
 			renderMs = append(renderMs, time.Since(t1).Seconds()*1000)
+		}
+		if gpuTimed {
+			gl.EndQuery(gl.TIME_ELAPSED)
 			var ns uint64
 			gl.GetQueryObjectui64v(gpuQuery, gl.QUERY_RESULT, &ns)
 			gpuMs = append(gpuMs, float64(ns)/1e6)
@@ -523,7 +528,9 @@ func runScreenshot(opt screenshotOpts) {
 		sort.Float64s(updateMs)
 		sort.Float64s(renderMs)
 		fmt.Printf("screenshot: cpu update p10 %.2f p90 %.2f ms\n", updateMs[len(updateMs)/10], updateMs[len(updateMs)*9/10])
-		fmt.Printf("screenshot: gpu render median %.2f ms/frame\n", gpuMs[len(gpuMs)/2])
+		if len(gpuMs) > 0 {
+			fmt.Printf("screenshot: gpu render median %.2f ms/frame\n", gpuMs[len(gpuMs)/2])
+		}
 		fmt.Printf("screenshot: cpu update median %.2f ms, max %.2f; cpu render median %.2f ms, max %.2f\n",
 			updateMs[len(updateMs)/2], updateMs[len(updateMs)-1], renderMs[len(renderMs)/2], renderMs[len(renderMs)-1])
 		drawn, total := app.Renderer.TerrainChunkStats()

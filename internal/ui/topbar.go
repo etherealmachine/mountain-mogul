@@ -163,8 +163,8 @@ func (t *TopBar) SetSpeedActive(i int) {
 	}
 }
 
-// SetSpeedLabel sets a short caption drawn under speed button i's icon
-// (e.g. the turbo multiplier); "" removes it.
+// SetSpeedLabel sets a short caption drawn under speed button i's icon;
+// "" removes it.
 func (t *TopBar) SetSpeedLabel(i int, label string) {
 	if i >= 0 && i < len(t.speedBtns) {
 		t.speedBtns[i].label = label
