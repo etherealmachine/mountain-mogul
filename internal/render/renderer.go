@@ -81,7 +81,10 @@ type Renderer struct {
 	terrainShadow         terrainShadow
 	shadowMap             shadowMap
 	patrollerBatch        *Batch // ski patrol snowmobiles (red snowcat mesh when active)
-	carBatch              *Batch
+	carBatches            [world.CarKindCount]*Batch
+	carRoofBatches        [world.CarRoofCount]*Batch // RoofBare's is nil
+	carInsts              [world.CarKindCount][]DynamicInstance
+	carRoofInsts          [world.CarRoofCount][]DynamicInstance
 	helicopterBodyBatch   *Batch      // rigid fuselage, tail, skids
 	helicopterPartBatches []partBatch // spinning rotor parts (loaded from # part metadata)
 
@@ -467,8 +470,16 @@ func (r *Renderer) initStaticMeshes() {
 
 	// Cars — dynamic batch, drawn from a per-frame instance list since
 	// cars drive and park as guests arrive and leave.
-	carMesh, carTexID := LoadOBJ(modelDir + "car.obj")
-	r.carBatch = NewDynamicBatch(carMesh, carTexID)
+	for k, name := range carMeshNames {
+		m, tex := LoadOBJ(modelDir + name + ".obj")
+		r.carBatches[k] = NewDynamicBatch(m, tex)
+	}
+	for k, name := range carRoofMeshNames {
+		if name != "" {
+			m, tex := LoadOBJ(modelDir + name + ".obj")
+			r.carRoofBatches[k] = NewDynamicBatch(m, tex)
+		}
+	}
 
 	// Helipad — static-batch mesh placed at Base and Top of each HeliLift.
 	helipadMesh, helipadTexID := LoadOBJ(modelDir + "helipad.obj")
@@ -995,13 +1006,69 @@ func BuildingTransform(pos mgl32.Vec2, rotation float32, terrain *world.Terrain)
 	return mgl32.Translate3D(pos[0], y, pos[1]).Mul4(mgl32.HomogRotate3DY(rotation))
 }
 
-// carInstancesFor is one instance per car on the map (sim/traffic.go):
-// on the road, in a lot aisle, or parked in a stall. Cars still queued
-// at their entry aren't drawn.
-func carInstancesFor(w *world.World) []DynamicInstance {
-	instances := make([]DynamicInstance, 0, len(w.Cars))
+// carMeshNames and carRoofMeshNames are each world.CarKind's and
+// world.CarRoof's model (models-src/car_*.scad).
+var (
+	carMeshNames = [world.CarKindCount]string{
+		world.CarSedan:   "car_sedan",
+		world.CarMiniSUV: "car_minisuv",
+		world.CarSUV:     "car_suv",
+		world.CarJeep:    "car_jeep",
+		world.CarVan:     "car_van",
+	}
+	carRoofMeshNames = [world.CarRoofCount]string{
+		world.RoofRack: "car_roof_rack",
+		world.RoofBox:  "car_roof_box",
+	}
+)
+
+// carRoofs is where a rack or box sits on each kind of car: forward of
+// the car's centre (X) and up (Z), the middle of its roof in
+// models-src/car_*.scad (gr and roof, over the SUV's rails).
+var carRoofs = [world.CarKindCount][2]float32{
+	world.CarSedan:   {-0.33, 1.42},
+	world.CarMiniSUV: {-0.78, 1.62},
+	world.CarSUV:     {-0.93, 1.92},
+	world.CarJeep:    {-0.74, 1.86},
+	world.CarVan:     {-0.88, 1.82},
+}
+
+// carPaints are the colours cars come in, about as common as on the
+// road: white, black, greys and silver most, then blue and red, a few
+// green, beige and orange.
+var carPaints = []struct {
+	share float32
+	rgb   [3]float32
+}{
+	{0.22, [3]float32{0.97, 0.97, 0.97}},
+	{0.19, [3]float32{0.13, 0.13, 0.14}},
+	{0.16, [3]float32{0.42, 0.43, 0.45}},
+	{0.12, [3]float32{0.72, 0.73, 0.75}},
+	{0.10, [3]float32{0.16, 0.28, 0.55}},
+	{0.09, [3]float32{0.62, 0.10, 0.10}},
+	{0.04, [3]float32{0.18, 0.32, 0.22}},
+	{0.04, [3]float32{0.66, 0.58, 0.44}},
+	{0.04, [3]float32{0.85, 0.42, 0.10}},
+}
+
+// roofBoxPaints are the colours a roof box comes in.
+var roofBoxPaints = [][3]float32{
+	{0.14, 0.14, 0.15}, {0.14, 0.14, 0.15}, {0.45, 0.46, 0.48}, {0.95, 0.95, 0.95},
+}
+
+// carInstancesFor is one instance per car on the map (sim/traffic.go),
+// in its kind's batch, and one per rack or box on a roof: on the road,
+// in a lot aisle, or parked in a stall. Cars still queued at their entry
+// aren't drawn.
+func carInstancesFor(w *world.World, cars *[world.CarKindCount][]DynamicInstance, roofs *[world.CarRoofCount][]DynamicInstance) {
+	for k := range cars {
+		cars[k] = cars[k][:0]
+	}
+	for k := range roofs {
+		roofs[k] = roofs[k][:0]
+	}
 	for _, c := range w.Cars {
-		if c.State == world.CarQueued {
+		if c.State == world.CarQueued || c.Kind >= world.CarKindCount {
 			continue
 		}
 		var y float32
@@ -1012,19 +1079,38 @@ func carInstancesFor(w *world.World) []DynamicInstance {
 		} else {
 			y = VisualElevationAt(w.Terrain, c.Pos[0], c.Pos[1]) + roadHoverOffset + 0.02
 		}
-		// Subtle deterministic tint per car so traffic and full lots
-		// don't read as one flat colour.
+		// The paint, and the roof box's colour, from the car's ID.
 		hash := uint32(c.ID * 2654435761)
-		r := 0.35 + float32(hash&0x3f)/255.0
-		g := 0.35 + float32((hash>>6)&0x3f)/255.0
-		bl := 0.35 + float32((hash>>12)&0x3f)/255.0
-		instances = append(instances, DynamicInstance{
+		u := float32(hash&0xffff) / 0x10000
+		paint := carPaints[len(carPaints)-1].rgb
+		for _, p := range carPaints {
+			if u < p.share {
+				paint = p.rgb
+				break
+			}
+			u -= p.share
+		}
+		cars[c.Kind] = append(cars[c.Kind], DynamicInstance{
 			Position: [3]float32{c.Pos[0], y, c.Pos[1]},
 			Heading:  c.Heading,
-			Color:    [3]float32{r, g, bl},
+			Color:    paint,
+		})
+		if c.Roof == world.RoofBare || c.Roof >= world.CarRoofCount {
+			continue
+		}
+		// The model's +X runs along (sin h, cos h) (dynamic.vert).
+		at := carRoofs[c.Kind]
+		sin, cos := math.Sincos(float64(c.Heading))
+		tint := [3]float32{1, 1, 1}
+		if c.Roof == world.RoofBox {
+			tint = roofBoxPaints[(hash>>16)%uint32(len(roofBoxPaints))]
+		}
+		roofs[c.Roof] = append(roofs[c.Roof], DynamicInstance{
+			Position: [3]float32{c.Pos[0] + at[0]*float32(sin), y + at[1], c.Pos[1] + at[0]*float32(cos)},
+			Heading:  c.Heading,
+			Color:    tint,
 		})
 	}
-	return instances
 }
 
 // LiftStationTransform builds the world-space transform for a lift station
@@ -1629,11 +1715,17 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 
 	// Cars — on the roads and in the lots. Dynamic: they move every
 	// frame.
-	if r.carBatch != nil {
-		carInstances := carInstancesFor(w)
-		if len(carInstances) > 0 {
-			r.carBatch.SetDynamic(carInstances)
-			r.carBatch.Draw()
+	carInstancesFor(w, &r.carInsts, &r.carRoofInsts)
+	for k, b := range r.carBatches {
+		if b != nil {
+			b.SetDynamic(r.carInsts[k])
+			b.Draw()
+		}
+	}
+	for k, b := range r.carRoofBatches {
+		if b != nil {
+			b.SetDynamic(r.carRoofInsts[k])
+			b.Draw()
 		}
 	}
 

@@ -131,10 +131,12 @@ func (s *shadowMap) render(r *Renderer, lightDir mgl32.Vec3, groundY float32) {
 	}
 	s.dynamicShader.Use()
 	s.dynamicShader.SetMat4("uLightVP", s.lightVP)
-	for _, b := range []*Batch{
-		r.snowcatBatch, r.patrollerBatch, r.carBatch,
+	batches := []*Batch{
+		r.snowcatBatch, r.patrollerBatch,
 		r.chairBatch, r.chairTripleBatch, r.chairQuadBatch, r.chair6PackBatch, r.gondolaBatch, r.helicopterBodyBatch,
-	} {
+	}
+	batches = append(append(batches, r.carBatches[:]...), r.carRoofBatches[:]...)
+	for _, b := range batches {
 		if b != nil {
 			b.Draw()
 		}

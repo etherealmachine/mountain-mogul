@@ -623,6 +623,9 @@ type GuestData struct {
 // CarData is a saved world.Car. Guests are guest IDs; Route is road node
 // IDs. Scenario files carry no cars.
 type CarData struct {
+	// Kind and Roof are world.CarKind and world.CarRoof.
+	Kind    uint8      `json:"kind,omitempty"`
+	Roof    uint8      `json:"roof,omitempty"`
 	ID      uint64     `json:"id"`
 	Guests  []uint64   `json:"guests,omitempty"`
 	Entry   uint64     `json:"entry,omitempty"`

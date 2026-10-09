@@ -131,6 +131,7 @@ Diagnose each first, report the cause, then fix:
 - **Tunnels**: roads and paths through terrain.
 - **Parking choice**: guests pick lots weighted by distance to the lifts. Part of [[Transit]] step 5.
 - [[Lot Surfaces]]: asphalt, gravel, or dirt per lot, with its own cost, capacity, and look. Planned, split out of [[Transit]].
+- [[Large Vehicles]]: buses and RVs, which don't fit one stall: long-stall rows or paired stalls, bus drop-offs, and overnight RVs.
 - **Better traffic**: merging, turning lanes, signals, and more than one entrance per lot, for resorts past a couple of thousand cars a morning. Part of [[Transit]] step 5.
 
 ## Economy ([[Finance]], [[Demand]])
@@ -284,3 +285,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-09: [[Readable Complaints]] noted with the user after the Boreal Christmas check.
 - 2026-10-09: [[Groups]] planned with the user, as the way toward 10,000 visitors a day ([[Crowd Scale]]).
 - 2026-10-09: Turbo and the storm skip removed (the user: they were for the long calendar); "More fast-forward targets" dropped with them.
+- 2026-10-09: Car kinds shipped in [[Transit]]; [[Large Vehicles]] (buses, RVs) noted as an idea.

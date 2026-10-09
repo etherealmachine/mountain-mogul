@@ -59,21 +59,6 @@ const (
 	trafficStep = float32(0.5)
 )
 
-// carloadWeights is the chance of a carload of 1, 2, 3, or 4 guests;
-// the mean is world.MeanCarload.
-var carloadWeights = [4]float32{0.2, 0.4, 0.2, 0.2}
-
-func rollCarload() int {
-	r := rng.Global().Float32()
-	for i, p := range carloadWeights {
-		if r < p {
-			return i + 1
-		}
-		r -= p
-	}
-	return len(carloadWeights)
-}
-
 // lane is a drivable polyline with arc lengths and a speed limit.
 type lane struct {
 	pts   []mgl32.Vec2
@@ -761,6 +746,7 @@ func (s *Simulation) spawnCar(guests []*world.Guest, entry uint64) bool {
 	s.ensureNet()
 	s.indexTraffic()
 	c := &world.Car{ID: w.NextID(), Guests: guests, Entry: entry, Stall: -1}
+	c.Kind, c.Roof = world.RollCar(c.ID, len(guests))
 	if entry != 0 {
 		if lot, r, ok := s.pickLot(entry, 0); ok {
 			c.Lot, c.Route, c.State = lot.ID, r.nodes, world.CarQueued

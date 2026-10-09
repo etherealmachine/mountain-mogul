@@ -21,8 +21,9 @@ import (
 // front of it are left out so it opens onto an aisle.
 
 const (
-	// CarLength and CarWidth mirror models-src/car.scad — keep in sync
-	// when the car mesh changes size. body_len = 4.0, body_w = 1.7.
+	// CarLength and CarWidth size the stalls and road spacing for a
+	// typical car; the models (models-src/car_*.scad) run from 4.1 to
+	// 4.9 m long and 1.8 to 1.95 m wide, all inside a stall.
 	CarLength = float32(4.00)
 	CarWidth  = float32(1.70)
 

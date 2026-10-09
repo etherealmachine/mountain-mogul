@@ -533,7 +533,8 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 	if !forScenario {
 		for _, c := range w.Cars {
 			cd := CarData{
-				ID: c.ID, Entry: c.Entry, Lot: c.Lot, Stall: c.Stall,
+				ID: c.ID, Kind: uint8(c.Kind), Roof: uint8(c.Roof),
+				Entry: c.Entry, Lot: c.Lot, Stall: c.Stall,
 				State: uint8(c.State), Route: c.Route, Leg: c.Leg, D: c.D,
 				Speed: c.Speed, Pos: [2]float32{c.Pos[0], c.Pos[1]},
 				Heading: c.Heading, InLot: c.InLot,
@@ -1691,7 +1692,8 @@ func loadCars(w *world.World, data []CarData) {
 	carIDs := map[uint64]bool{}
 	for _, cd := range data {
 		c := &world.Car{
-			ID: cd.ID, Entry: cd.Entry, Lot: cd.Lot, Stall: cd.Stall,
+			ID: cd.ID, Kind: world.CarKind(cd.Kind), Roof: world.CarRoof(cd.Roof),
+			Entry: cd.Entry, Lot: cd.Lot, Stall: cd.Stall,
 			State: world.CarState(cd.State), Route: cd.Route, Leg: cd.Leg, D: cd.D,
 			Speed: cd.Speed, Pos: mgl32.Vec2{cd.Pos[0], cd.Pos[1]},
 			Heading: cd.Heading, InLot: cd.InLot,

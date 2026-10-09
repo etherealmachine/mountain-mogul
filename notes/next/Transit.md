@@ -23,7 +23,7 @@ Made with the user on 2026-10-06:
 - **Rectangular lots for now**: dragged and rotated, extendable by dragging an edge, for a cost. Polygon lots wait for [[Gridless Drawing]].
 - **Surfaces: asphalt, gravel, dirt.** They differ in cost, look, and capacity. No spring-mud effects. Later, cars drive more slowly on gravel and dirt.
 - **The scenario editor controls the entry and exit points**, which can feed the demand model (where guests come from). The import doesn't suggest them.
-- **Carloads of one to four guests** for now; bigger vehicles (vans, buses) can come later.
+- **Carloads of one to four guests** at first; vans of up to seven came with [[Groups]]. Buses and RVs, which don't fit a stall, are in [[Large Vehicles]].
 - **Speeds:** the one road type, a two-lane road, at 35 mph (about 56 km/h); cars in lots and on driveways at 5–15 mph (about 8–24 km/h), slowest in the aisles.
 
 ## Steps
@@ -45,6 +45,7 @@ Code: `internal/sim/traffic.go`, `internal/world/car.go`.
 - **Lots** (`internal/world/parking.go`): a rectangle (centre, rotation, `LotSize`), with its cells (for grading, plowing and overlap), entrance (`Gate`), stalls and aisles derived from it. Stalls are 2.5 × 5 m in double-loaded rows facing 6 m aisles, with a 6 m cross aisle at each end; the lot is at least 11 m wide (one row and its aisle) and at most 400 m a side. The entrance stays off the 4 m rounded corners. Grading cuts and fills the lot to a plane (at most 5%) and ramps the driveway straight from the lot to the road; embankments leave every cell within a road's half width plus a cell untouched, so a lot never cuts into a road beside it.
 - **In the lot**, a car follows the aisles from the entrance to its stall (in to the nearest aisle or the end aisle, along the end aisle to its own, along that to the stall, and in nose first); cars in a lot don't see each other.
 - **No road, no entries.** A lot no road reaches, and maps without entries (testbeds, older scenarios), still work: the car appears in a free stall and vanishes when it leaves.
+- **Vehicles.** A car is a sedan, mini SUV, SUV, jeep or van (`world.CarKind`), maybe with a ski rack or roof box (`world.CarRoof`), rolled from its ID in `world.RollCar`: a van when the carload is five to seven, otherwise the bigger kinds likelier for three or four. Each kind seats four except the van (seven), so a group comes in as few vehicles as hold it. Every kind fits a 2.5 × 5 m stall (4.1–4.9 m long). Models: `models-src/car_*.scad` on `lib/car_kit.scad`; the renderer draws each kind and roof load from its own batch, with the paint from a palette of common car colours.
 - **Demand.** Guests in arriving cars count toward the resort's occupancy. The per-guest parking share in the price factor is the fee ÷ 2.4, the mean carload.
 - **Cost.** Cars step once per frame, in steps of up to 0.5 s of sim time, not with the guests' 1/30 s substeps. The road network is rebuilt when a node, edge, or lot changes.
 
@@ -66,3 +67,4 @@ Code: `internal/sim/traffic.go`, `internal/world/car.go`.
 - 2026-10-06: R with the Parking tool over an existing lot turns it about its centre (free; refused if it would overlap), rebuilding the driveway and regrading; parked cars are re-seated in their stalls after any turn or resize.
 - 2026-10-06: Per the user: built lots don't turn or move (demolish and rebuild), so turning an existing lot came out again. Drawing or resizing a lot now leaves a ghost (translucent asphalt and stall lines, red when it won't fit) that R turns and edge drags adjust; clicking inside it or Enter builds it, and only then is the ground graded and plowed. Esc throws it away.
 - 2026-10-06: A new lot's ghost follows the mouse after it's drawn (move to place, R turns it, click builds, Esc and drag again for another size); its edges no longer resize it. Resizing a built lot stays a fixed ghost confirmed by a click.
+- 2026-10-09: Car kinds: sedan, mini SUV, SUV, jeep and van, with ski racks and roof boxes, in common car colours; vans seat seven, so groups of five to seven come in one. Buses and RVs noted in [[Large Vehicles]].

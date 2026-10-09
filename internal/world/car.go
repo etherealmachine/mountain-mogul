@@ -27,9 +27,83 @@ const (
 	CarTurnedAway
 )
 
-// Car is one carload of guests (one to four).
+// CarKind is what a car is: its body, and how many it seats.
+type CarKind uint8
+
+const (
+	CarSedan CarKind = iota
+	CarMiniSUV
+	CarSUV
+	CarJeep
+	CarVan
+	CarKindCount
+)
+
+// Seats is how many guests a car of kind k carries: four, or seven in a
+// van.
+func (k CarKind) Seats() int {
+	if k == CarVan {
+		return 7
+	}
+	return 4
+}
+
+// MaxCarSeats is the most any car seats, so a group bigger than this
+// comes in more than one.
+const MaxCarSeats = 7
+
+// CarRoof is what a car carries on its roof.
+type CarRoof uint8
+
+const (
+	RoofBare CarRoof = iota
+	RoofRack         // a rack with skis
+	RoofBox          // a cargo box
+	CarRoofCount
+)
+
+// RollCar picks the car a carload of n comes in, from the car's ID so it
+// takes nothing from the sim's random stream: a van when they need its
+// seats, otherwise a sedan, crossover, SUV, jeep or van, the bigger ones
+// likelier the more there are; and what's on the roof (a jeep never has
+// a box on its soft top).
+func RollCar(id uint64, n int) (CarKind, CarRoof) {
+	h := id * 0x9E3779B97F4A7C15
+	h ^= h >> 31
+	h *= 0xBF58476D1CE4E5B9
+	h ^= h >> 29
+	u := float32(h>>40) / (1 << 24)
+	v := float32((h>>16)&0xffffff) / (1 << 24)
+	k := CarVan
+	if n <= 4 {
+		// Shares of sedan, mini SUV, SUV, jeep; the rest are vans.
+		w := [4]float32{0.34, 0.26, 0.20, 0.12}
+		if n >= 3 {
+			w = [4]float32{0.20, 0.24, 0.30, 0.08}
+		}
+		for i, p := range w {
+			if u < p {
+				k = CarKind(i)
+				break
+			}
+			u -= p
+		}
+	}
+	r := RoofBare
+	switch {
+	case v < 0.28:
+		r = RoofRack
+	case v < 0.44 && k != CarJeep:
+		r = RoofBox
+	}
+	return k, r
+}
+
+// Car is one carload of guests (up to its kind's Seats).
 type Car struct {
 	ID     uint64
+	Kind   CarKind
+	Roof   CarRoof
 	Guests []*Guest
 	// Entry is the home entry's road node ID; 0 when the map has no
 	// entries (the car appears in its stall and vanishes when it leaves).

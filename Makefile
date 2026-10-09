@@ -39,6 +39,9 @@ build/3mf/%.3mf: models-src/%.scad | build/3mf
 # Lodge shell tiles share their dimensions and modules through lib/.
 $(filter build/3mf/lodge_%,$(TMF_FILES)): models-src/lib/lodge_kit.scad
 
+# Cars share their parts through lib/ too.
+$(filter build/3mf/car_%,$(TMF_FILES)): models-src/lib/car_kit.scad
+
 # Chairs share their frame through lib/ too.
 $(filter build/3mf/chair%,$(TMF_FILES)): models-src/lib/chair_kit.scad
 

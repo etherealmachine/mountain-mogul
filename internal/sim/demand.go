@@ -186,8 +186,8 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 	for _, e := range entries {
 		for _, grp := range winners[e] {
 			// A group bigger than a car comes in as few cars as hold it,
-			// filled evenly.
-			cars := (len(grp) + carSeats - 1) / carSeats
+			// filled evenly: a van for five to seven (world.RollCar).
+			cars := (len(grp) + world.MaxCarSeats - 1) / world.MaxCarSeats
 			for i := 0; i < cars; i++ {
 				lo, hi := len(grp)*i/cars, len(grp)*(i+1)/cars
 				s.spawnCar(append([]*world.Guest(nil), grp[lo:hi]...), e)
@@ -195,9 +195,6 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 		}
 	}
 }
-
-// carSeats is how many guests a car holds.
-const carSeats = 4
 
 // match is terrainMatch for g.
 func match(w *world.World, g *world.Guest) float32 { return terrainMatch(w, g.Traits) }
