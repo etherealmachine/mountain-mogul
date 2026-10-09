@@ -9,6 +9,7 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 	"mountain-mogul/internal/engine"
 	"mountain-mogul/internal/render"
+	"mountain-mogul/internal/world"
 )
 
 // ChartKind selects the renderer used for a Chart's data.
@@ -61,6 +62,7 @@ type Chart struct {
 	Series      []ChartSeries
 	GetData     func() []ChartPoint
 	FormatValue func(float64) string // optional; used by ChartStats to format each value
+	GetTitle    func() string        // optional; replaces Title above the plot, read each frame
 }
 
 // ChartWindow hosts one or more Charts with an icon tab strip along the
@@ -91,7 +93,7 @@ type chartTab struct {
 
 const (
 	chartWindowW = float32(720)
-	chartWindowH = float32(460)
+	chartWindowH = float32(500)
 	chartTabSize = float32(40) // square tab cells in the strip
 	chartBodyPad = float32(20)
 )
@@ -123,6 +125,18 @@ func NewChartWindow(title string, x, y float32, charts []Chart) *ChartWindow {
 	}
 	cw.layout()
 	return cw
+}
+
+// Select makes the chart titled title the active tab, reporting whether
+// there is one.
+func (cw *ChartWindow) Select(title string) bool {
+	for i, c := range cw.charts {
+		if c.Title == title {
+			cw.active = i
+			return true
+		}
+	}
+	return false
 }
 
 // Center repositions the window so it sits in the middle of the screen.
@@ -217,16 +231,22 @@ func (cw *ChartWindow) Draw(r *render.Renderer) {
 	}
 	c := cw.charts[cw.active]
 
-	// Chart body rect — between tab strip and window bottom.
+	// Chart body rect — below the tab strip and the subtitle, to the
+	// window bottom.
 	tabBottom := chartTitleH + 6 + chartTabSize + 6
+	subtitleH := float32(render.GlyphH) + 8
 	bodyX := cw.X + chartBodyPad
-	bodyY := cw.Y + tabBottom
+	bodyY := cw.Y + tabBottom + subtitleH
 	bodyW := cw.width - 2*chartBodyPad
-	bodyH := cw.height - tabBottom - chartBodyPad
+	bodyH := cw.height - tabBottom - subtitleH - chartBodyPad
 
-	// Subtitle: chart title above the plotting area.
+	// Subtitle: chart title between the tab strip and the plotting area.
 	if r.Font != nil {
-		r.Font.DrawText(r, c.Title, bodyX, bodyY-float32(render.GlyphH)-4, textColor)
+		title := c.Title
+		if c.GetTitle != nil {
+			title = c.GetTitle()
+		}
+		r.Font.DrawText(r, title, bodyX, bodyY-float32(render.GlyphH)-4, textColor)
 	}
 
 	var points []ChartPoint
@@ -382,7 +402,7 @@ func drawXLabels(r *render.Renderer, px, py, pw, ph float32, points []ChartPoint
 	chrome := defaultChrome
 	y := py + ph + 4
 	stamp := func(i int, anchor float32) {
-		label := points[i].Day.Format("Jan 2")
+		label := world.FormatGameDate(points[i].Day, false)
 		w := r.Font.TextWidth(label)
 		r.Font.DrawText(r, label, anchor-w/2, y, chrome.label)
 	}
@@ -516,7 +536,7 @@ func drawThoughtRankChart(r *render.Renderer, x, y, w, h float32, series []Chart
 
 	// Optional date label top-right.
 	if r.Font != nil && !last.Day.IsZero() {
-		dateStr := "as of " + last.Day.Format("Jan 2")
+		dateStr := "as of " + world.FormatGameDate(last.Day, false)
 		dw := r.Font.TextWidth(dateStr)
 		r.Font.DrawText(r, dateStr, x+w-dw, y, defaultChrome.label)
 	}
@@ -530,14 +550,18 @@ func drawThoughtRankChart(r *render.Renderer, x, y, w, h float32, series []Chart
 		barGap    = float32(14)
 	)
 
-	// Label column width: longest name.
-	maxChars := 0
+	// Label column width: the widest name shown.
+	var labelColW float32
 	for _, e := range entries {
-		if len(e.name) > maxChars {
-			maxChars = len(e.name)
+		if e.count == 0 {
+			continue
 		}
+		lw := float32(len(e.name) * render.GlyphAdvance)
+		if r.Font != nil {
+			lw = r.Font.TextWidth(e.name)
+		}
+		labelColW = max(labelColW, lw+4)
 	}
-	labelColW := float32(maxChars*render.GlyphAdvance) + 4
 
 	barX := x + swatchSz + swatchGap + labelColW + barGap
 	barMaxW := w - (swatchSz + swatchGap + labelColW + barGap + barGap + pctColW)

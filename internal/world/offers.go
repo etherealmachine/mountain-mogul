@@ -15,6 +15,7 @@ var offerInfo = [ai.OfferCount]struct {
 	ai.OfferRentals: {ai.NeedRentals.Mask(), SimSecondsPerHour / 4},                          // a quarter hour to fit boots and skis
 	ai.OfferApres:   {ai.NeedApres.Mask() | ai.NeedThirst.Mask(), SimSecondsPerHour * 3 / 4}, // three-quarters of an hour at the bar
 	ai.OfferWarmUp:  {ai.NeedWarmth.Mask(), SimSecondsPerHour / 4},                           // a quarter hour by the fire
+	ai.OfferWater:   {ai.NeedThirst.Mask(), SimSecondsPerHour / 60},                          // a clock minute at the fountain
 }
 
 // OfferNeeds is the set of needs using o fulfils.
@@ -49,6 +50,8 @@ func (b *Building) OffersUse(o ai.Offer) bool {
 		return b.Offers(ServiceBar)
 	case ai.OfferWarmUp:
 		return b.Offers(ServiceLounge)
+	case ai.OfferWater:
+		return b.FreeWater && b.ServesDrinks()
 	}
 	return false
 }
@@ -123,6 +126,8 @@ func (b *Building) UsePool(o ai.Offer) UsePool {
 		return PoolFoodSeats
 	case ai.OfferDrink:
 		return PoolCounter
+	case ai.OfferWater:
+		return PoolNone // help yourself: no turn at the counter
 	case ai.OfferWarmUp:
 		return PoolLoungeSeats
 	case ai.OfferApres:
@@ -156,7 +161,7 @@ func (b *Building) PoolCapacity(p UsePool) int {
 // HasRoomFor reports whether a guest can use o now, without waiting.
 func (b *Building) HasRoomFor(o ai.Offer) bool {
 	p := b.UsePool(o)
-	return b.InUse[p] < b.PoolCapacity(p)
+	return p == PoolNone || b.InUse[p] < b.PoolCapacity(p)
 }
 
 // LineOpen reports whether a guest arriving for o would join the line at
@@ -164,7 +169,7 @@ func (b *Building) HasRoomFor(o ai.Offer) bool {
 // one visit.
 func (b *Building) LineOpen(o ai.Offer) bool {
 	p := b.UsePool(o)
-	return b.Waiting[p] < b.PoolCapacity(p)
+	return p == PoolNone || b.Waiting[p] < b.PoolCapacity(p)
 }
 
 // ExpectedWait is about how long a guest arriving for o would wait to be
@@ -248,7 +253,7 @@ func (b *Building) UseDoor(o ai.Offer) Service {
 		return ServiceLounge
 	case ai.OfferMeal:
 		return ServiceFood
-	case ai.OfferDrink:
+	case ai.OfferDrink, ai.OfferWater:
 		return b.DrinkService()
 	case ai.OfferRentals:
 		return ServiceRentals

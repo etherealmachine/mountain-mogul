@@ -20,7 +20,26 @@ import (
 const (
 	SkillIntermediateThreshold = float32(0.33)
 	SkillAdvancedThreshold     = float32(0.66)
+	// SkillNoviceThreshold is where beginners stop being novices: below
+	// it, a guest only rides a lift whose terrain is all green: the runs
+	// off its top and those branching off them (World.TerrainForLift).
+	SkillNoviceThreshold = float32(0.10)
 )
+
+// Comfort rises with skill: at skill s a guest is at ease up to
+// comfortSlopeBase + comfortSlopeSkill × s degrees of pitch and
+// comfortSpeedBase + comfortSpeedSkill × s m/s, so a first-timer (8°)
+// and a nearly-intermediate beginner (16°) differ, and each tier's
+// typical guest keeps the comfort the tiers used to share.
+const (
+	comfortSlopeBase  = 8.0
+	comfortSlopeSkill = 24.0
+	comfortSpeedBase  = 4.0
+	comfortSpeedSkill = 14.0
+)
+
+// Novice reports whether a guest at skill is a novice.
+func Novice(skill float32) bool { return skill < SkillNoviceThreshold }
 
 // SkillTierName returns a human-readable tier label for HUD / debug overlays.
 func SkillTierName(skill float32) string {
@@ -54,31 +73,22 @@ type GuestTraits struct {
 // TraitsFor returns sensible defaults for a skill value in [0, 1]. Callers
 // can mutate the returned struct for per-skier variation.
 func TraitsFor(skill float32) GuestTraits {
+	t := GuestTraits{
+		Skill:        skill,
+		ComfortSpeed: comfortSpeedBase + comfortSpeedSkill*skill,
+		ComfortSlope: (comfortSlopeBase + comfortSlopeSkill*skill) * math.Pi / 180,
+	}
 	switch {
 	case skill < SkillIntermediateThreshold:
-		return GuestTraits{
-			Skill:        skill,
-			ComfortSpeed: 5,
-			ComfortSlope: 10 * math.Pi / 180,
-			Aggression:   0.2,
-			Tastes:       Archetypes[ArchetypeCruiser].Centre,
-		}
+		t.Aggression = 0.2
+		t.Tastes = Archetypes[ArchetypeCruiser].Centre
 	case skill < SkillAdvancedThreshold:
-		return GuestTraits{
-			Skill:        skill,
-			ComfortSpeed: 10,
-			ComfortSlope: 20 * math.Pi / 180,
-			Aggression:   0.5,
-			Tastes:       Archetypes[ArchetypeCruiser].Centre,
-		}
+		t.Aggression = 0.5
+		t.Tastes = Archetypes[ArchetypeCruiser].Centre
 	default:
-		return GuestTraits{
-			Skill:        skill,
-			ComfortSpeed: 16,
-			ComfortSlope: 30 * math.Pi / 180,
-			Aggression:   0.8,
-		}
+		t.Aggression = 0.8
 	}
+	return t
 }
 
 // =============================================================================
@@ -283,11 +293,12 @@ const (
 	OfferRentals       // rental skis: rentals
 	OfferApres         // après-ski at the bar: après
 	OfferWarmUp        // a seat by the fire in the lounge: warmth
+	OfferWater         // free water, where the player offers it: thirst, nothing else
 	OfferCount
 )
 
 // OfferLabels name the offers for plan steps on the HUD.
-var OfferLabels = [OfferCount]string{"None", "Rest", "Eat", "Drink", "Rent", "Apres", "WarmUp"}
+var OfferLabels = [OfferCount]string{"None", "Rest", "Eat", "Drink", "Rent", "Apres", "WarmUp", "Water"}
 
 // Done reports whether the plan is exhausted — no steps or the cursor has
 // advanced past the last one. The simulation re-plans when this is true.
@@ -479,6 +490,7 @@ const (
 	ThoughtPatrolCame   // patrol reached them in a reasonable time
 	ThoughtPatrolSlow   // patrol took a long time to reach them
 	ThoughtGaveUp       // fell over and over on one descent; skis off, waiting for patrol
+	ThoughtLiftTooHard  // a novice put off a lift by the runs off its top
 
 	thoughtKindSentinel // must stay last; equals the total count
 )
@@ -490,56 +502,77 @@ const ThoughtKindCount = int(thoughtKindSentinel)
 // ConditionMask has one bit per ThoughtKind.
 const _ = uint(64 - ThoughtKindCount) // fails to compile past 64 kinds
 
-// Effect is what one ThoughtKind reports. A guest's satisfaction is a
-// ledger of their day: an event's Satisfaction is added once by
-// sim.applyEvent and stays. A condition's Satisfaction is a rate per
-// clock hour, added for as long as the condition holds, and once more
-// if it's still on when the guest drives away (the end of their day);
-// its thought is added once when it starts.
+// MomentClass is what a moment does to a guest's star rating
+// (notes/next/Scoreless Rating.md). A moment is a thought that happened:
+// an event, or a condition that held past its grace period.
+type MomentClass uint8
+
+const (
+	// Neutral moments are counted and shown but don't move the star.
+	Neutral MomentClass = iota
+	// Dealbreaker: the day is 1★.
+	Dealbreaker
+	// Letdown: the day is at most 2★.
+	Letdown
+	// Annoyance: AnnoyancesPerLetdown of them make a letdown.
+	Annoyance
+	// Highlight: 3★ needs at least one.
+	Highlight
+)
+
+// AnnoyancesPerLetdown is how many annoyances in a day count as a
+// letdown ("too many little things").
+const AnnoyancesPerLetdown = 3
+
+// Effect is what one ThoughtKind is: an event (Condition false), which
+// is a moment when it happens, or a condition, which holds for a while
+// and is a moment once it has held past sim's grace period; and the
+// moment's class.
 type Effect struct {
-	Condition    bool
-	Satisfaction float32
+	Condition bool
+	Class     MomentClass
 }
 
-// Effects is the single table of what every thought reports. Nothing
-// else holds event deltas or condition pulls.
+// Effects is the single table of what every thought is.
 var Effects = [ThoughtKindCount]Effect{
 	// Events.
-	ThoughtFell:              {Satisfaction: -0.10},
-	ThoughtInjured:           {Satisfaction: -0.25},
-	ThoughtAbandoned:         {Satisfaction: -0.30},
-	ThoughtGaveUp:            {Satisfaction: -0.25},
-	ThoughtHurtGoingHome:     {Satisfaction: -0.15},
-	ThoughtHitTree:           {Satisfaction: -0.15},
-	ThoughtCaughtInAvalanche: {Satisfaction: -0.10},
-	ThoughtLongLine:          {Satisfaction: -0.08},
-	ThoughtLineTooLong:       {Satisfaction: -0.08},
-	ThoughtLovingCorduroy:    {},                    // why a run was great (sim.judgeRun): a report, no effect of its own
-	ThoughtGreatRun:          {Satisfaction: +0.04}, // scaled by taste and down by repeats (sim.judgeRun)
-	ThoughtFirstTracks:       {Satisfaction: +0.04},
-	ThoughtMiserableRun:      {Satisfaction: -0.05},
-	ThoughtTooHard:           {Satisfaction: -0.08},
-	ThoughtCrowdedRun:        {Satisfaction: -0.05},
-	ThoughtFellUnloading:     {Satisfaction: -0.05},
-	ThoughtGoodMeal:          {Satisfaction: +0.05},
-	ThoughtGoodDrink:         {Satisfaction: +0.04},
-	ThoughtRested:            {Satisfaction: +0.03},
-	ThoughtGoodValue:         {Satisfaction: +0.02},
-	ThoughtOverpriced:        {Satisfaction: -0.04},
-	ThoughtServiceLine:       {Satisfaction: -0.04},
-	ThoughtNicePlace:         {Satisfaction: +0.03},
-	ThoughtShabby:            {Satisfaction: -0.03},
-	ThoughtPackedInside:      {Satisfaction: -0.02},
-	ThoughtRentedGear:        {Satisfaction: +0.01},
-	ThoughtRentedInTown:      {Satisfaction: -0.02},
-	ThoughtGreatApres:        {Satisfaction: +0.05},
-	ThoughtWarmedUp:          {Satisfaction: +0.03},
-	ThoughtPatrolFast:        {Satisfaction: +0.06},
-	ThoughtPatrolCame:        {Satisfaction: +0.02},
-	ThoughtPatrolSlow:        {Satisfaction: -0.08},
+	ThoughtFell:              {Class: Annoyance},
+	ThoughtInjured:           {Class: Letdown},
+	ThoughtAbandoned:         {Class: Dealbreaker},
+	ThoughtGaveUp:            {Class: Dealbreaker},
+	ThoughtLiftTooHard:       {Class: Annoyance},
+	ThoughtHurtGoingHome:     {Class: Letdown},
+	ThoughtHitTree:           {Class: Annoyance},
+	ThoughtCaughtInAvalanche: {Class: Dealbreaker},
+	ThoughtLongLine:          {Class: Annoyance},
+	ThoughtLineTooLong:       {Class: Annoyance},
+	ThoughtLovingCorduroy:    {}, // why a run was great (sim.judgeRun): a report
+	ThoughtGreatRun:          {Class: Highlight},
+	ThoughtFirstTracks:       {Class: Highlight},
+	ThoughtMiserableRun:      {Class: Annoyance},
+	ThoughtTooHard:           {Class: Annoyance},
+	ThoughtCrowdedRun:        {Class: Annoyance},
+	ThoughtFellUnloading:     {Class: Annoyance},
+	ThoughtGoodMeal:          {},
+	ThoughtGoodDrink:         {},
+	ThoughtRested:            {},
+	ThoughtGoodValue:         {},
+	ThoughtOverpriced:        {Class: Annoyance},
+	ThoughtServiceLine:       {Class: Annoyance},
+	ThoughtNicePlace:         {Class: Highlight},
+	ThoughtShabby:            {Class: Annoyance},
+	ThoughtPackedInside:      {Class: Annoyance},
+	ThoughtRentedGear:        {},
+	ThoughtRentedInTown:      {Class: Annoyance},
+	ThoughtGreatApres:        {Class: Highlight},
+	ThoughtWarmedUp:          {},
+	ThoughtPatrolFast:        {Class: Highlight},
+	ThoughtPatrolCame:        {},
+	ThoughtPatrolSlow:        {Class: Annoyance},
 
-	// Conditions. Zero-pull conditions report a reason to leave.
-	// Snow underfoot: the pull is the taste term (sim.tickUnderfoot).
+	// Conditions. Snow underfoot (sim.tickUnderfoot) and the guest's own
+	// state (tired, cold) are neutral: failing to serve them is the
+	// letdown.
 	ThoughtLovingGlades:   {Condition: true},
 	ThoughtScaredInTrees:  {Condition: true},
 	ThoughtLovingPowder:   {Condition: true},
@@ -548,28 +581,28 @@ var Effects = [ThoughtKindCount]Effect{
 	ThoughtHatingBumps:    {Condition: true},
 	ThoughtIcy:            {Condition: true},
 	ThoughtTooSteep:       {Condition: true},
-	ThoughtHungry:         {Condition: true, Satisfaction: -0.10},
-	ThoughtThirsty:        {Condition: true, Satisfaction: -0.10},
-	ThoughtImpatient:      {Condition: true, Satisfaction: -0.10},
-	ThoughtNeedsLodge:     {Condition: true, Satisfaction: -0.10},
-	ThoughtTooEasy:        {Condition: true, Satisfaction: -0.08},
-	ThoughtBored:          {Condition: true, Satisfaction: -0.05},
-	ThoughtNotMySkiing:    {Condition: true, Satisfaction: -0.05},
+	ThoughtHungry:         {Condition: true, Class: Letdown},
+	ThoughtThirsty:        {Condition: true, Class: Letdown},
+	ThoughtImpatient:      {Condition: true},
+	ThoughtNeedsLodge:     {Condition: true, Class: Letdown},
+	ThoughtTooEasy:        {Condition: true, Class: Annoyance},
+	ThoughtBored:          {Condition: true, Class: Letdown},
+	ThoughtNotMySkiing:    {Condition: true, Class: Letdown},
 	ThoughtTired:          {Condition: true},
 	ThoughtExhausted:      {Condition: true},
-	ThoughtTooExpensive:   {Condition: true},
-	ThoughtNoTicketWindow: {Condition: true},
-	ThoughtLiftsClosed:    {Condition: true},
-	ThoughtNothingForMe:   {Condition: true},
-	ThoughtLinesFull:      {Condition: true},
-	ThoughtPricesTooHigh:  {Condition: true, Satisfaction: -0.05},
-	ThoughtNoRentals:      {Condition: true, Satisfaction: -0.10},
-	ThoughtCold:           {Condition: true, Satisfaction: -0.08},
-	ThoughtNoLounge:       {Condition: true, Satisfaction: -0.05},
+	ThoughtTooExpensive:   {Condition: true, Class: Letdown},
+	ThoughtNoTicketWindow: {Condition: true, Class: Letdown},
+	ThoughtLiftsClosed:    {Condition: true, Class: Letdown},
+	ThoughtNothingForMe:   {Condition: true, Class: Letdown},
+	ThoughtLinesFull:      {Condition: true, Class: Letdown},
+	ThoughtPricesTooHigh:  {Condition: true, Class: Letdown},
+	ThoughtNoRentals:      {Condition: true, Class: Annoyance},
+	ThoughtCold:           {Condition: true},
+	ThoughtNoLounge:       {Condition: true, Class: Letdown},
 }
 
 // ConditionTag is each condition's short name, for marking which are on
-// next to a guest's score.
+// in a guest's popup.
 var ConditionTag = [ThoughtKindCount]string{
 	ThoughtHungry:         "hungry",
 	ThoughtThirsty:        "thirsty",
@@ -628,6 +661,7 @@ var thoughtText = [ThoughtKindCount]string{
 	ThoughtInjured:           "I'm hurt, I can't move",
 	ThoughtAbandoned:         "no one came to help me",
 	ThoughtGaveUp:            "I keep falling, I can't get down this",
+	ThoughtLiftTooHard:       "the lifts here look too difficult for me",
 	ThoughtLongLine:          "this line is way too long",
 	ThoughtLineTooLong:       "that line will take forever",
 	ThoughtNeedsLodge:        "this place needs a lodge",
@@ -704,6 +738,7 @@ var ThoughtChartColor = [ThoughtKindCount][4]float32{
 	ThoughtInjured:           {0.95, 0.10, 0.10, 1},
 	ThoughtAbandoned:         {0.60, 0.10, 0.80, 1},
 	ThoughtGaveUp:            {0.85, 0.20, 0.20, 1},
+	ThoughtLiftTooHard:       {0.75, 0.55, 0.45, 1},
 	ThoughtLongLine:          {0.80, 0.45, 0.70, 1},
 	ThoughtLineTooLong:       {0.70, 0.30, 0.60, 1},
 	ThoughtNeedsLodge:        {0.60, 0.50, 0.80, 1},
@@ -871,6 +906,10 @@ func (t Thought) Display(resolve func(uint64) string) string {
 	case ThoughtGaveUp:
 		if n := name(0); n != "" {
 			return "I keep falling on " + n + ", I can't get down"
+		}
+	case ThoughtLiftTooHard:
+		if n := name(0); n != "" {
+			return n + " looks too difficult for me"
 		}
 	case ThoughtGreatRun:
 		if n := name(0); n != "" {

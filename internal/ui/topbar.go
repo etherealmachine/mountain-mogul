@@ -18,13 +18,16 @@ type TopBar struct {
 
 	// Stats — pure read-only callbacks. The bar pulls fresh values every
 	// frame so the simulation can mutate the underlying state freely.
-	GetCash      func() int
-	GetGuests    func() int
-	GetHappiness func() float32 // 0..1
+	GetCash   func() int
+	GetGuests func() int
+	GetRating func() float32 // stars, 1–5
 
 	// Date + weather snapshot. Same callback pattern as stats so the bar
 	// doesn't hold any simulation state of its own.
-	GetDate    func() (day int, month string, year int)
+	GetDate func() (day int, month string, year int)
+	// GetHoliday, when set, names today's holiday ("Christmas", or
+	// "Holiday" for an unnamed one); "" on an ordinary day.
+	GetHoliday func() string
 	GetWeather func() []ForecastDay
 	// GetClock returns the hour of day (0..24), the current air temperature
 	// in °C, and whether the lifts are turning.
@@ -333,8 +336,9 @@ func (t *TopBar) drawStats(r *render.Renderer) {
 		r.Font.DrawText(r, text, pad+iconSize+8, textY(1), valCol)
 	}
 
-	// Row 2: Happiness — heart icon + a slim filled bar.
-	if t.GetHappiness != nil {
+	// Row 2: the rating — heart icon, a slim bar filled from 1 to 5 stars,
+	// and the stars.
+	if t.GetRating != nil {
 		IconHeart(r, pad, iconY(2), iconSize, mgl32.Vec4{0.95, 0.40, 0.52, 1})
 		barX := pad + iconSize + 8
 		barY := t.Y + float32(2)*rowH + (rowH-8)/2
@@ -343,13 +347,8 @@ func (t *TopBar) drawStats(r *render.Renderer) {
 		// Track background — darker inset look.
 		r.DrawColorRect(barX, barY, barW, barH, mgl32.Vec4{0.12, 0.14, 0.22, 1})
 		r.DrawColorRectOutline(barX, barY, barW, barH, mgl32.Vec4{0.30, 0.40, 0.62, 0.55})
-		h := t.GetHappiness()
-		if h < 0 {
-			h = 0
-		}
-		if h > 1 {
-			h = 1
-		}
+		stars := t.GetRating()
+		h := min(max((stars-1)/4, 0), 1)
 		fill := mgl32.Vec4{0.28, 0.82, 0.44, 1}
 		if h < 0.5 {
 			fill = mgl32.Vec4{0.96, 0.64, 0.18, 1}
@@ -358,8 +357,8 @@ func (t *TopBar) drawStats(r *render.Renderer) {
 			fill = mgl32.Vec4{0.90, 0.28, 0.28, 1}
 		}
 		r.DrawColorRect(barX, barY, barW*h, barH, fill)
-		// Numeric % to the right of the bar.
-		text := fmt.Sprintf("%d%%", int(h*100))
+		// The stars to the right of the bar.
+		text := fmt.Sprintf("%.1f stars", stars)
 		r.Font.DrawText(r, text, barX+barW+8, textY(2), valCol)
 	}
 }
@@ -450,6 +449,11 @@ func (t *TopBar) drawCenter(r *render.Renderer, screenW float32) {
 func (t *TopBar) drawDateLine(r *render.Renderer, screenW float32, col mgl32.Vec4) {
 	day, month, year := t.GetDate()
 	dateText := fmt.Sprintf("%s %d, Year %d", month, day, year)
+	if t.GetHoliday != nil {
+		if h := t.GetHoliday(); h != "" {
+			dateText += " (" + h + ")"
+		}
+	}
 	clockText := ""
 	clockCol := mgl32.Vec4{0.55, 0.85, 1.00, 1.00}
 	if t.GetClock != nil {

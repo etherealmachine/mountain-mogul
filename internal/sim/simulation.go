@@ -38,15 +38,7 @@ const (
 	// of it exhausts patience. Slower than the queue drain; a brief lodge
 	// crossing is harmless but a long barefoot traverse costs patience.
 	patienceDrainPerSecWalking = 1.0 / world.SimSecondsPerHour
-
-	// queueSlotSec mirrors goap.queueSlotSec: expected wait per person in
-	// line. Used here for the patience-prediction check at JoinQueue time.
-	queueSlotSec = 8.0
 )
-
-// longQueuePersons is the queue depth at which a guest considers the line
-// "long": about a quarter of a clock hour of expected wait.
-var longQueuePersons = int(math.Floor(world.SimSecondsPerHour / 4 / queueSlotSec))
 
 // Simulation drives all agent and building behaviour.
 type Simulation struct {
@@ -215,7 +207,7 @@ func NewSimulationWithSeed(w *world.World, seed int64) *Simulation {
 	sim.closedForDay = sim.ClosedForDay()
 	w.ClosedForDay = sim.closedForDay
 	sim.yesterday = sim.Weather.Advance(sim.DateAt(w.SimTime))
-	sim.tomorrow = sim.Weather.Forecast(sim.DateAt(w.SimTime), 1)[0]
+	sim.tomorrow = sim.GameForecast(1)[0]
 	for _, a := range w.OnMountain {
 		if !a.Plan.Done() {
 			sim.onPlanStepStart(a)
@@ -288,6 +280,8 @@ func (s *Simulation) refillTowersScratch() {
 	s.towersScratch = s.towersScratch[:0]
 	for _, lift := range s.World.Lifts {
 		s.towersScratch = append(s.towersScratch, lift.TowerXZs()...)
+		// Stations' legs and huts: steered round like towers.
+		s.towersScratch = append(s.towersScratch, lift.StationXZs()...)
 	}
 }
 
@@ -382,6 +376,7 @@ func (s *Simulation) tickLifts(dt float64) {
 					// glide off the ramp (tickUnloading) before skiing to it.
 					s.startUnloading(agent, lift, j)
 					s.advancePlan(agent)
+					s.aimUnload(agent)
 				}
 			}
 
@@ -406,6 +401,7 @@ func (s *Simulation) tickLifts(dt float64) {
 						chair.Passengers[j] = agent
 						agent.OnLiftID = lift.ID
 						agent.Queued = false
+						agent.UseService(world.LiftQuality)
 						s.replanOnBoard(agent, lift)
 					}
 				}
@@ -435,6 +431,7 @@ func (s *Simulation) tickHeliLift(lift *world.Lift, dt float64) {
 			h.Passengers = append(h.Passengers, agent)
 			agent.OnLiftID = lift.ID
 			agent.Queued = false
+			agent.UseService(world.LiftQuality)
 			// Heli keeps per-ride pricing; cable lifts are covered by the
 			// day ticket bought at the ticket window.
 			if fare := lift.RideFare(); fare > 0 && !agent.HasSeasonPass {
@@ -611,13 +608,6 @@ func (s *Simulation) beginVisit(a *world.Guest, b *world.Building, o ai.Offer) {
 	a.Speed = 0
 	a.TargetID = 0
 	b.InUse[b.UsePool(o)]++
-	a.Visit.Urgency = 0
-	needs := world.OfferNeeds(o)
-	for k := ai.NeedKind(0); k < ai.NeedCount; k++ {
-		if needs.Has(k) {
-			a.Visit.Urgency = max(a.Visit.Urgency, a.NeedUrgency(k))
-		}
-	}
 	a.Visit.Paid, a.Visit.Ratio = 0, 0
 	if price := b.UsePrice(o); price > 0 {
 		a.Visit.Ratio = b.PriceRatio(o, a.Traits.DailyBudget)
@@ -766,7 +756,6 @@ func (s *Simulation) spawnGuestAt(lot *world.Building, g *world.Guest, pos mgl32
 	g.Energy = 1.0
 	g.Hunger = 0.5 + rng.Global().Float32()*0.5
 	g.Thirst = 0.5 + rng.Global().Float32()*0.5
-	g.Satisfaction = scoreStart
 	g.HasSeasonPass = hasValidPass(g, s.SimTime)
 	g.RollVisitNeeds(rng.Global())
 	rentedInTown := false
@@ -813,23 +802,21 @@ func (s *Simulation) spawnGuestAt(lot *world.Building, g *world.Guest, pos mgl32
 	return true
 }
 
-// applyEvent is the one place an event changes a guest's stats: it
-// applies the event's ai.Effects row and records the thought reporting
-// it, on the guest and in the day's tally.
+// applyEvent is the one place an event happens to a guest: it records
+// the thought reporting it, on the guest and in the day's tally, and
+// counts it as a moment.
 func (s *Simulation) applyEvent(a *world.Guest, kind ai.ThoughtKind, context ...uint64) {
-	s.applyEventScaled(a, kind, 1, context...)
-}
-
-// applyEventScaled is applyEvent with the amount scaled, for an event
-// that counts for less with repeats (a great run on the same trail).
-func (s *Simulation) applyEventScaled(a *world.Guest, kind ai.ThoughtKind, scale float32, context ...uint64) {
-	a.Satisfaction = clamp32(a.Satisfaction+ai.Effects[kind].Satisfaction*scale, 0, 1)
 	s.recordThought(a, kind, context...)
+	var ctx uint64
+	if len(context) > 0 {
+		ctx = context[0]
+	}
+	a.AddMoment(kind, ctx)
 }
 
 // setCondition turns a condition on or off for a guest. Turning on adds
-// its thought once, counted for the day; its pull on the mood target
-// (ai.Effects) lasts until it is turned off.
+// its thought once, counted for the day, and starts its grace period:
+// held past momentGrace, it counts as a moment (tickMood).
 func (s *Simulation) setCondition(a *world.Guest, kind ai.ThoughtKind, on bool, context ...uint64) {
 	if on == a.Conditions.Has(kind) {
 		return
@@ -837,6 +824,14 @@ func (s *Simulation) setCondition(a *world.Guest, kind ai.ThoughtKind, on bool, 
 	a.Conditions.Set(kind, on)
 	if on {
 		s.recordThought(a, kind, context...)
+		a.Held = append(a.Held, world.HeldCondition{Kind: kind, Since: s.SimTime})
+		return
+	}
+	for i := range a.Held {
+		if a.Held[i].Kind == kind {
+			a.Held = append(a.Held[:i], a.Held[i+1:]...)
+			break
+		}
 	}
 }
 
@@ -866,7 +861,32 @@ func (s *Simulation) setBlocked(a *world.Guest, blocked []ai.ThoughtKind) {
 				on = true
 			}
 		}
+		if k == ai.ThoughtNothingForMe && on && !a.Conditions.Has(k) {
+			s.liftTooHard(a)
+		}
 		s.setCondition(a, k, on)
+	}
+}
+
+// liftTooHard is a novice's complaint when nothing they'd ride is
+// running but a lift with a green run off it is: the nearest such lift
+// looks too difficult, since its terrain (World.TerrainForLift) isn't all green.
+func (s *Simulation) liftTooHard(a *world.Guest) {
+	if !ai.Novice(a.Traits.Skill) {
+		return
+	}
+	var near *world.Lift
+	best := float32(math.Inf(1))
+	for _, l := range s.World.Lifts {
+		if !l.Open || l.OnHold || !s.World.ServicesForLift(l.ID).Has(world.DiffGreen) {
+			continue
+		}
+		if d := (mgl32.Vec2{l.Base[0] - a.Pos[0], l.Base[1] - a.Pos[2]}).Len(); d < best {
+			near, best = l, d
+		}
+	}
+	if near != nil {
+		s.applyEvent(a, ai.ThoughtLiftTooHard, near.ID)
 	}
 }
 
@@ -898,7 +918,7 @@ func (s *Simulation) maybeSampleHistory() {
 		w.Cash -= costs.Total()
 		costs[world.CostInterest] = s.applyCredit(dayIdx)
 
-		// The rating is the day's average final satisfaction; a day
+		// The rating is the day's average stars; a day
 		// nobody left keeps the last one.
 		if r, ok := w.History.DayRating(); ok {
 			w.Rating = r
@@ -918,17 +938,21 @@ func (s *Simulation) maybeSampleHistory() {
 			ThoughtCounts:    w.History.ThoughtCountsToday,
 			DepartReasons:    w.History.DepartReasonsToday,
 			Falls:            len(w.History.FallsToday),
+			Reviews:          w.History.ReviewsToday,
 		}
+		why := w.History.TopWhy()
 		w.History.Push(sample)
-		s.logDaySummary(sample)
+		s.logDaySummary(sample, why)
 		s.checkGoals(dayIdx, sample)
 		s.lastSampledDay++
 
-		// Advance weather for the new day and apply terrain effects.
+		// Play the rest of the ended game day's real days, then advance
+		// the weather to the new day and apply its terrain effects.
 		newDay := s.DateAt(float64(s.lastSampledDay) * secondsPerSimDay)
+		s.playOffscreenDays(sample.Day, newDay)
 		s.yesterday = s.Weather.Today()
 		dw := s.Weather.Advance(newDay)
-		s.tomorrow = s.Weather.Forecast(newDay, 1)[0]
+		s.tomorrow = gameForecast(s.Weather, newDay, 1)[0]
 		s.applyDailyWeather(dw)
 		if s.OnDayRollover != nil {
 			s.OnDayRollover(s.World)
@@ -1081,7 +1105,7 @@ func (s *Simulation) TriggerHeatwave() {
 		CloudCover: 0.05,
 	}
 	s.applyDailyWeather(dw)
-	s.applyDayMelt(dw)
+	s.applyDayMelt(dw, s.DateAt(s.SimTime))
 }
 
 // applyDailyWeather runs all terrain snow effects for one day rollover:
@@ -1244,8 +1268,7 @@ func (s *Simulation) tickHourly() {
 
 // applyDayMelt runs a whole day of hourly melt for dw at once, treating it
 // as yesterday, today and tomorrow (the heatwave cheat).
-func (s *Simulation) applyDayMelt(dw DayWeather) {
-	date := s.DateAt(s.SimTime)
+func (s *Simulation) applyDayMelt(dw DayWeather, date time.Time) {
 	for h := 0; h < 24; h++ {
 		hour := float64(h) + 0.5
 		s.meltHour(dw, date, hour, tempCurve(s.Site, date, hour, dw, dw, dw), 1.0/24)
@@ -1532,14 +1555,14 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		// Zero patience first (same as the original pattern) so that when
 		// replan calls onPlanStepStart for the GoHome JoinQueue step the
 		// bail guard (Patience >= 0.05) is false — preventing recursion.
-		qLen := lift.QueueLen()
-		if a.Patience >= 0.05 && qLen > goap.MaxQueuePersons {
+		wait := lift.LineWait()
+		if a.Patience >= 0.05 && wait > world.MaxLineWait {
 			s.applyEvent(a, ai.ThoughtLineTooLong, lift.ID)
 			a.Patience = 0
 			s.replan(a)
 			return
 		}
-		if qLen >= longQueuePersons {
+		if wait >= world.LongLineWait {
 			s.applyEvent(a, ai.ThoughtLongLine, lift.ID)
 		}
 		if len(lift.Lines) > 0 {
@@ -1715,7 +1738,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		now := s.DateAt(s.SimTime)
 		closeYear := SeasonCloseYearFor(now)
 		closeDate := SeasonCloseDate(closeYear)
-		daysToClose := closeDate.Sub(now).Hours() / 24.0
+		daysToClose := float64(world.GameDayIndex(closeDate) - world.GameDayIndex(now) + 1)
 		if daysToClose < 1 {
 			daysToClose = 1
 		}
@@ -1738,7 +1761,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		}
 		s.beginVisit(a, b, step.Use)
 	case ai.ActDepart:
-		// Capture session stats (LastScore, LifetimeVisits, LastVisit,
+		// Capture session stats (LastStars, LifetimeVisits, LastVisit,
 		// VisitsThisSeason) on the persistent Guest record before the
 		// reaper clears sim scratch fields, then flip Removed so
 		// reapDeparted will splice this Guest out of OnMountain and into
@@ -1746,7 +1769,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		// Set the departure aside until the car drives off the map
 		// (finishDeparture); a guest with no car leaves now.
 		s.setDepartReason(a, s.departReasonFor(a))
-		a.Leaving = world.Leaving{Pending: true, Score: a.Satisfaction, Conditions: a.Conditions, Reason: a.DepartReason}
+		a.Leaving = world.Leaving{Pending: true, Review: a.DayReview(), Reason: a.DepartReason}
 		if a.CarID == 0 {
 			s.finishDeparture(a)
 		}
@@ -1764,15 +1787,8 @@ func (s *Simulation) finishDeparture(g *world.Guest) {
 		return
 	}
 	g.Leaving = world.Leaving{}
-	score := l.Score
-	for k := ai.ThoughtKind(1); int(k) < ai.ThoughtKindCount; k++ {
-		if l.Conditions.Has(k) {
-			score += ai.Effects[k].Satisfaction
-		}
-	}
-	score = clamp32(score, 0, 1)
-	s.Demand.recordDeparture(s.World, g, score, s.DateAt(s.SimTime))
-	s.World.History.RecordDeparture(score, l.Reason)
+	s.Demand.recordDeparture(s.World, g, l.Review.Stars, s.DateAt(s.SimTime))
+	s.World.History.RecordDeparture(l.Review, l.Reason)
 }
 
 // setDepartReason records why a guest is going home. The first reason
@@ -1951,48 +1967,49 @@ func (s *Simulation) tickResting(a *world.Guest, dt float64) {
 }
 
 // fulfilOffer is what using o at b does for guest a: the stats behind
-// the needs it meets (world.OfferNeeds) fill, and the visit scores on
-// the ledger (Service Improvements):
+// the needs it meets (world.OfferNeeds) fill, the building's quality
+// counts toward their quality stars, and the visit's moments
+// (Service Improvements, Scoreless Rating):
 //
-//   - relief: the offer's event, scaled by how urgent the need was when
-//     they got in (reliefScale), so a meal when starving counts for more
-//     than a snack
-//   - quality: a nice place adds, a shabby one takes away, and a packed
-//     one takes a little
-//   - value: good value adds, overpriced takes away
-//   - the wait: a long one in the line at the door takes away
+//   - the offer's own moment (a good meal, a drink, a rest)
+//   - quality: a nice place, a shabby one, a packed one
+//   - value: good value, overpriced
+//   - the wait: a long one in the line at the door
 func (s *Simulation) fulfilOffer(a *world.Guest, b *world.Building, o ai.Offer) {
-	relief := reliefScale(a.Visit.Urgency)
+	if o == ai.OfferWater {
+		a.Thirst = 1 // free water: no moments, no quality, nothing paid
+		return
+	}
 	switch o {
 	case ai.OfferSeat:
 		a.Patience = 1
 		a.Energy = 1
-		s.applyEventScaled(a, ai.ThoughtRested, relief)
+		s.applyEvent(a, ai.ThoughtRested)
 	case ai.OfferMeal:
 		a.Hunger = 1
 		a.Thirst = 1 // a meal comes with a drink
-		s.applyEventScaled(a, ai.ThoughtGoodMeal, relief)
+		s.applyEvent(a, ai.ThoughtGoodMeal)
 	case ai.OfferDrink:
 		a.Thirst = 1
-		s.applyEventScaled(a, ai.ThoughtGoodDrink, relief)
+		s.applyEvent(a, ai.ThoughtGoodDrink)
 	case ai.OfferRentals:
 		a.NeedsGear = false
 		s.applyEvent(a, ai.ThoughtRentedGear)
 	case ai.OfferApres:
 		a.WantsApres, a.Apres = false, 0
 		a.Thirst = 1
-		// The better their day, the better the après.
-		s.applyEventScaled(a, ai.ThoughtGreatApres, clamp32(a.Satisfaction/0.5, 0.25, 2))
+		s.applyEvent(a, ai.ThoughtGreatApres)
 	case ai.OfferWarmUp:
 		a.Chill = 0
-		s.applyEventScaled(a, ai.ThoughtWarmedUp, relief)
+		s.applyEvent(a, ai.ThoughtWarmedUp)
 	}
 	if b != nil {
+		a.UseService(b.Quality)
 		switch q := b.Quality; {
 		case q >= 0.6:
-			s.applyEventScaled(a, ai.ThoughtNicePlace, (q-0.5)/0.5, b.ID)
+			s.applyEvent(a, ai.ThoughtNicePlace, b.ID)
 		case q <= 0.4:
-			s.applyEventScaled(a, ai.ThoughtShabby, (0.5-q)/0.5, b.ID)
+			s.applyEvent(a, ai.ThoughtShabby, b.ID)
 		}
 		if b.Occupancy(o) >= 0.9 {
 			s.applyEvent(a, ai.ThoughtPackedInside, b.ID)
@@ -2003,7 +2020,7 @@ func (s *Simulation) fulfilOffer(a *world.Guest, b *world.Building, o ai.Offer) 
 	case r <= world.GoodValueRatio:
 		s.applyEvent(a, ai.ThoughtGoodValue)
 	case r >= world.OverpricedRatio:
-		s.applyEventScaled(a, ai.ThoughtOverpriced, clamp32((r-world.OverpricedRatio)/(world.RefuseRatio-world.OverpricedRatio), 0.25, 1))
+		s.applyEvent(a, ai.ThoughtOverpriced)
 	}
 	if a.Visit.Waited >= serviceLineThoughtSec {
 		s.applyEvent(a, ai.ThoughtServiceLine)
@@ -2048,10 +2065,22 @@ func (s *Simulation) tickVisitNeeds(dt float64) {
 				a.Apres = 1
 			default:
 				ramp := clamp32((hour-apresFrom)/(apresFull-apresFrom), 0, 1)
-				a.Apres = min(ramp*0.8*clamp32(0.5+a.Satisfaction, 0.5, 1.5), 0.99)
+				a.Apres = min(ramp*0.8*apresMood(a), 0.99)
 			}
 		}
 	}
+}
+
+// apresMood is how much a good day adds to the urge for après: 0.5 on a
+// day with no highlight, up to 1.5 with several.
+func apresMood(a *world.Guest) float32 {
+	var n uint16
+	for _, m := range a.Moments {
+		if ai.Effects[m.Kind].Class == ai.Highlight {
+			n += m.N
+		}
+	}
+	return clamp32(0.5+0.25*float32(n), 0.5, 1.5)
 }
 
 // anyRentals reports whether any building rents skis.
@@ -2078,13 +2107,6 @@ func (s *Simulation) homeAtClosing(a *world.Guest) {
 		}
 	}
 	s.directHomePlan(a)
-}
-
-// reliefScale is how much a visit's relief counts for, by how urgent the
-// need was: 1 at the urgency a need starts pressing (0.75), more when
-// nearly empty, less for a top-up.
-func reliefScale(urgency float32) float32 {
-	return clamp32(0.25+urgency, 0.25, 1.25)
 }
 
 // useRevenue is the revenue line using o at b falls under: meals and the
@@ -2214,9 +2236,49 @@ func (s *Simulation) tickPath(agent *world.Guest, dt float64) {
 		return
 	}
 	dirNorm := dir.Normalize()
+	if flat := (mgl32.Vec2{dir[0], dir[2]}); flat.Len() > 1e-4 {
+		ahead := flat.Normalize()
+		if d := s.walkClear(agent.Pos, ahead, flat.Len()); d != ahead {
+			// Round a tower or station part: on the level, then back to
+			// heading for the path point.
+			dirNorm = mgl32.Vec3{d[0], 0, d[1]}
+		}
+	}
 	agent.Pos = agent.Pos.Add(dirNorm.Mul(step))
 	agent.Heading = float32(math.Atan2(float64(dirNorm[0]), float64(dirNorm[2])))
 	agent.Speed = WalkSpeed
+}
+
+// walkClearance is how wide a walker gives a lift tower or a station's
+// legs or hut, in metres.
+const walkClearance = 1.2
+
+// walkClear turns a walker heading dir (unit XZ) toward a point dist
+// away round the first lift tower or station part (s.towersScratch)
+// they'd otherwise walk into: along its tangent, on the side the line
+// already passes. One beyond the point, or right by it (a lift line runs
+// between a station's legs), is left alone.
+func (s *Simulation) walkClear(pos mgl32.Vec3, dir mgl32.Vec2, dist float32) mgl32.Vec2 {
+	at := mgl32.Vec2{pos[0], pos[2]}
+	goal := at.Add(dir.Mul(dist))
+	for _, h := range s.towersScratch {
+		to := h.Sub(at)
+		along := to.Dot(dir)
+		if along <= 0 || along > walkClearance+1 || along >= dist || h.Sub(goal).Len() < walkClearance {
+			continue // behind, not close yet, past the point, or at it
+		}
+		cross := dir[0]*to[1] - dir[1]*to[0]
+		if abs32(cross) >= walkClearance {
+			continue // passes clear
+		}
+		// Step along the tangent on the side the line already passes.
+		t := mgl32.Vec2{to[1], -to[0]}
+		if cross < 0 {
+			t = t.Mul(-1)
+		}
+		return t.Normalize()
+	}
+	return dir
 }
 
 // tickQueued walks the agent toward their assigned queue slot and orients
@@ -2365,7 +2427,7 @@ func (s *Simulation) tickLocomote(agent *world.Guest, dt float64) {
 	}
 	// Around the trees, where the straight way crosses them: steer at
 	// the next waypoint, while the destination stays targetPos.
-	steer := s.routeTarget(agent, targetPos)
+	steer := s.routeTarget(agent, s.trailCarrot(agent, targetPos))
 
 	// Walk (not ski) when skis are off, or when terrain and momentum
 	// no longer call for skiing.
@@ -2458,7 +2520,7 @@ func (s *Simulation) tickWalkToward(agent *world.Guest, target mgl32.Vec3, dt fl
 		agent.Speed = 0
 		return true
 	}
-	dirNorm := mgl32.Vec2{dx / distXZ, dz / distXZ}
+	dirNorm := s.walkClear(agent.Pos, mgl32.Vec2{dx / distXZ, dz / distXZ}, distXZ)
 	step := float32(WalkSpeed * dt)
 	if step > distXZ {
 		step = distXZ

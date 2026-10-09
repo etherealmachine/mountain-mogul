@@ -10,21 +10,21 @@ import (
 // Calendar maps SimTime to a date. Weather samples its month profile,
 // demand and costs follow World.ResortOpen, and credit bills at month ends.
 
-// secondsPerSimDay is one calendar day of sim seconds (world.SecondsPerSimDay):
-// 4320 s, or 18 real minutes at 4× TimeScale.
+// secondsPerSimDay is one game day of sim seconds (world.SecondsPerSimDay).
 const (
 	secondsPerSimDay  = world.SecondsPerSimDay
 	simSecondsPerHour = world.SimSecondsPerHour
 )
 
-// Memorial Day (last Monday of May) marks the end of a season for the
-// demand system's season rollover. Whether the resort is open on any
-// given day is the player's call (World.ResortOpen), not the calendar's.
-const seasonCloseMonth = time.May // last Monday of this month
+// A season closes at the end of April, the last of the open months
+// (world.SeasonMonths, December to April), for the demand system's season
+// rollover and goal deadlines. Whether the resort is open on any given
+// day is the player's call (World.ResortOpen), not the calendar's.
+const seasonCloseMonth = time.April
 
 // SeasonCloseYearFor returns the calendar year in which the season that
-// contains t closes (i.e. the Memorial Day year). Seasons run Nov→May, so
-// dates from November onward belong to the season that closes next year.
+// contains t closes. Seasons run from November to April, so dates from
+// November onward belong to the season that closes next year.
 func SeasonCloseYearFor(t time.Time) int {
 	if t.Month() >= time.November {
 		return t.Year() + 1
@@ -32,17 +32,15 @@ func SeasonCloseYearFor(t time.Time) int {
 	return t.Year()
 }
 
-// SeasonCloseDate returns Memorial Day (last Monday of May) for the given
-// calendar year — the final day of the season that opened the previous Nov.
+// SeasonCloseDate returns the last game day of April in the given year,
+// the final day of the season that opened the previous winter.
 func SeasonCloseDate(year int) time.Time {
-	d := time.Date(year, seasonCloseMonth, 31, 0, 0, 0, 0, time.UTC)
-	back := (int(d.Weekday()) - int(time.Monday) + 7) % 7
-	return d.AddDate(0, 0, -back)
+	return world.GameDayStart(year, seasonCloseMonth, world.DaysPerMonth)
 }
 
 // Date is a calendar position derived from SimTime.
 type Date struct {
-	Day   int    // 1..31
+	Day   int    // game day of the month, 1..world.DaysPerMonth
 	Month string // "Nov", "Dec", "Jan", ...
 	Year  int    // calendar year, e.g. 2026
 }
@@ -52,19 +50,20 @@ type Date struct {
 func CalendarAt(start time.Time, simTime float64) Date {
 	t := DateAt(start, simTime)
 	return Date{
-		Day:   t.Day(),
+		Day:   world.GameDay(t),
 		Month: t.Month().String()[:3],
 		Year:  t.Year(),
 	}
 }
 
-// DateAt returns the calendar date of the day containing simTime: start
-// (World.StartDate, the date SimTime 0 maps to) plus one day per
-// secondsPerSimDay. The calendar runs continuously from start through the
-// off-season as well as the season. Negative simTime (events from before a
-// starter scenario was rebased) counts back from start.
+// DateAt returns the real date of the game day containing simTime:
+// start (World.StartDate, the date SimTime 0 maps to) moved on one game
+// day per secondsPerSimDay, each the first real day of its stretch
+// (world.DaysPerMonth). The calendar runs continuously from start through
+// the off-season as well as the season. Negative simTime (events from
+// before a starter scenario was rebased) counts back from start.
 func DateAt(start time.Time, simTime float64) time.Time {
-	return start.AddDate(0, 0, int(math.Floor(simTime/secondsPerSimDay)))
+	return world.GameDayAt(world.GameDayIndex(start) + int(math.Floor(simTime/secondsPerSimDay)))
 }
 
 // DateAt is DateAt for this simulation's world.
@@ -113,4 +112,36 @@ func (s *Simulation) LiftsRunning() bool {
 	}
 	h := float32(HourOfDay(s.SimTime))
 	return h >= w.OpenHour && h < w.CloseHour
+}
+
+// GameForecast returns the weather of the next n game days, each its
+// first real day's (the one shown and played live), from the same
+// deterministic chain the day rollover advances.
+func (s *Simulation) GameForecast(n int) []DayWeather {
+	return gameForecast(s.Weather, s.DateAt(s.SimTime), n)
+}
+
+func gameForecast(c *Chain, from time.Time, n int) []DayWeather {
+	idx := world.GameDayIndex(from)
+	realDays := func(d time.Time) int { return int(d.Sub(from).Hours()/24 + 0.5) }
+	real := c.Forecast(from, realDays(world.GameDayAt(idx+n)))
+	out := make([]DayWeather, n)
+	for i := range out {
+		out[i] = real[realDays(world.GameDayAt(idx+1+i))-1]
+	}
+	return out
+}
+
+// playOffscreenDays runs the weather of the real days between the game
+// day from and the next one, all but from itself, which played live:
+// each day's snowfall, snow changes, and a whole day of melt, so a month
+// of ten game days gets a month of weather.
+func (s *Simulation) playOffscreenDays(from, next time.Time) {
+	for d := from.AddDate(0, 0, 1); d.Before(next); d = d.AddDate(0, 0, 1) {
+		dw := s.Weather.Advance(d)
+		s.applyDailyWeather(dw)
+		if !dw.IsSnowing() {
+			s.applyDayMelt(dw, d)
+		}
+	}
 }

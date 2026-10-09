@@ -44,17 +44,20 @@ func (w *World) AddSkiArea(points []mgl32.Vec2) {
 	w.skiAreaCells, w.skiAreaMask = -1, nil
 }
 
-// RemoveSkiAreaAt removes the outline around world (x, z), reporting
-// whether there was one.
-func (w *World) RemoveSkiAreaAt(x, z float32) bool {
+// RemoveSkiArea removes outline i.
+func (w *World) RemoveSkiArea(i int) {
+	w.SkiArea = append(w.SkiArea[:i], w.SkiArea[i+1:]...)
+	w.skiAreaCells, w.skiAreaMask = -1, nil
+}
+
+// SkiAreaAt is the index of the outline around world (x, z), or -1.
+func (w *World) SkiAreaAt(x, z float32) int {
 	for i, o := range w.SkiArea {
 		if o.Contains(x, z) {
-			w.SkiArea = append(w.SkiArea[:i], w.SkiArea[i+1:]...)
-			w.skiAreaCells, w.skiAreaMask = -1, nil
-			return true
+			return i
 		}
 	}
-	return false
+	return -1
 }
 
 // SetSkiArea replaces the boundary (save loading).
@@ -107,4 +110,30 @@ func (w *World) SkiAreaCells() int {
 		return 0
 	}
 	return w.skiAreaCells
+}
+
+// MoveSkiAreaPoint moves corner i of outline o to p.
+func (w *World) MoveSkiAreaPoint(o, i int, p mgl32.Vec2) {
+	w.SkiArea[o].Points[i] = p
+	w.skiAreaCells, w.skiAreaMask = -1, nil
+}
+
+// InsertSkiAreaPoint makes p corner i of outline o, before the corner
+// that was i.
+func (w *World) InsertSkiAreaPoint(o, i int, p mgl32.Vec2) {
+	pts := w.SkiArea[o].Points
+	w.SkiArea[o].Points = append(pts[:i:i], append([]mgl32.Vec2{p}, pts[i:]...)...)
+	w.skiAreaCells, w.skiAreaMask = -1, nil
+}
+
+// RemoveSkiAreaPoint removes corner i of outline o, unless that would
+// leave fewer than three; reports whether it did.
+func (w *World) RemoveSkiAreaPoint(o, i int) bool {
+	pts := w.SkiArea[o].Points
+	if len(pts) <= 3 {
+		return false
+	}
+	w.SkiArea[o].Points = append(pts[:i:i], pts[i+1:]...)
+	w.skiAreaCells, w.skiAreaMask = -1, nil
+	return true
 }

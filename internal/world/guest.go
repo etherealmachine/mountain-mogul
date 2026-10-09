@@ -70,7 +70,7 @@ type Guest struct {
 	VisitsThisSeason int
 	LifetimeVisits   int
 	LastVisit        time.Time
-	LastScore        float32 // most recent Guest.Rating() captured at departure
+	LastStars        float32 // the stars they left on their last visit (Review.Stars)
 
 	// =====================================================================
 	// Visit lifecycle.
@@ -169,12 +169,16 @@ type Guest struct {
 	// purchased. Pass holders ride any open lift for free.
 	HasSeasonPass bool
 
-	// Satisfaction is the guest's score for the day, 0..1: a ledger that
-	// starts at 0.5, takes each event's ai.Effects amount once, and loses
-	// each active condition's rate per clock hour. Nothing fades back.
-	// Only sim.applyEvent and the condition update write it. At the car
-	// it's set aside in Leaving and recorded when the car drives off.
-	Satisfaction float32
+	// Moments are the visit's moments by kind: each event, and each
+	// condition that held past its grace period (Held). Their classes set
+	// the star rating the guest leaves (DayReview). At the car the review
+	// is set aside in Leaving and recorded when the car drives off.
+	Moments []Moment
+	Held    []HeldCondition
+	// QualitySum and QualityUses add up the quality of each service the
+	// guest used (UseService), for the quality stars.
+	QualitySum  float32
+	QualityUses int32
 
 	// TrailTally and LiftTally count this visit's runs, and great runs,
 	// by the trail they were mostly on and the lift they started from.
@@ -292,7 +296,7 @@ type Guest struct {
 
 	// Events is the per-session log appended to by the sim (falls, run
 	// completions). Read at depart by the demand system to feed
-	// LastScore. Cleared on transition back to AtHome.
+	// LastStars. Cleared on transition back to AtHome.
 	Events []ai.GuestEvent
 
 	// Display-only snapshot of the last skiing tick's perception/intent.
@@ -369,6 +373,7 @@ type Unloading struct {
 	Gone   float32 // metres travelled since standing up
 	FallAt float32 // metres along the path where they fall; 0 when they won't
 	SeatY  float32 // the seat's height above the snow where they stood up
+	Turn   float32 // how far the peel turns them, rad (+ to a larger heading)
 }
 
 // UnloadRise is how far, in metres along the unload path, a rider takes
@@ -385,13 +390,11 @@ func (u Unloading) UnloadLift() float32 {
 }
 
 // Leaving is a departure waiting for the car to leave the map: the
-// guest's score as they got in, the conditions still on, and why they
-// left. The end of their day adds each condition's hourly rate once more.
+// review the guest left as they got in, and why they left.
 type Leaving struct {
-	Pending    bool
-	Score      float32
-	Conditions ai.ConditionMask
-	Reason     ai.DepartReason
+	Pending bool
+	Review  Review
+	Reason  ai.DepartReason
 }
 
 // RunTally is one trail's or lift's count of runs in a visit.
@@ -401,9 +404,8 @@ type RunTally struct {
 	Great int32
 }
 
-// CountRun adds a run on id to tally, returning how many great runs id
-// had before this one.
-func CountRun(tally []RunTally, id uint64, great bool) ([]RunTally, int32) {
+// CountRun adds a run on id to tally.
+func CountRun(tally []RunTally, id uint64, great bool) []RunTally {
 	i := 0
 	for i < len(tally) && tally[i].ID != id {
 		i++
@@ -411,12 +413,11 @@ func CountRun(tally []RunTally, id uint64, great bool) ([]RunTally, int32) {
 	if i == len(tally) {
 		tally = append(tally, RunTally{ID: id})
 	}
-	before := tally[i].Great
 	tally[i].Runs++
 	if great {
 		tally[i].Great++
 	}
-	return tally, before
+	return tally
 }
 
 // RunTrailSlots is how many distinct trails a Run tracks time on.
@@ -478,13 +479,6 @@ func (r *Run) MainTrail() uint64 {
 // thoughtsCap is the size of the Thoughts ring. Six is enough that a
 // few simultaneous stimuli (in-trees + low-energy + fall) all fit.
 const thoughtsCap = 6
-
-// Rating returns the guest's current 0..1 session satisfaction score.
-// Backed by the Satisfaction float, which drifts toward terrain quality
-// each tick and spikes on events. Captured as LastScore at departure.
-func (g *Guest) Rating() float32 {
-	return g.Satisfaction
-}
 
 // AddThought records a thought on the ring at simTime and counts it.
 // context is an optional list of entity IDs (lift, trail, etc.) used to
@@ -564,7 +558,9 @@ func (g *Guest) ResetForDeparture() {
 	g.Energy = 0
 	g.Hunger = 0
 	g.Thirst = 0
-	g.Satisfaction = 0
+	g.Moments = g.Moments[:0]
+	g.Held = g.Held[:0]
+	g.QualitySum, g.QualityUses = 0, 0
 	g.TrailTally = g.TrailTally[:0]
 	g.LiftTally = g.LiftTally[:0]
 	for i := range g.Thoughts {
@@ -594,7 +590,6 @@ type Visit struct {
 	Waiting   bool    // lined up at the door
 	WaitSince float64 // sim time they joined the line
 	Waited    float64 // sim seconds spent in the line
-	Urgency   float32 // the most urgent need it fulfils, when they got in
 	Paid      int     // what it cost
 	Ratio     float32 // what it cost over what they expected (world.Building.PriceRatio); 0 when free
 }
@@ -603,7 +598,7 @@ type Visit struct {
 // Improvements; the shares may come from the scenario's guest pool
 // later). Rentals by skill tier: beginners mostly haven't bought skis.
 var (
-	RentalShareByTier = [3]float32{0.5, 0.15, 0.05}
+	RentalShareByTier = [3]float32{0.25, 0.05, 0}
 	ApresShare        = float32(0.3)
 	ColdShare         = float32(0.4)
 )

@@ -60,6 +60,8 @@ func main() {
 	figureGallery := flag.Bool("figure-gallery", false, "-screenshot: line up one guest figure in each pose at the camera target")
 	followRider := flag.Bool("follow-rider", false, "-screenshot: follow the first guest to board a chair with the camera (keeps the camera's yaw, pitch, and zoom)")
 	showGoals := flag.Bool("show-goals", false, "-screenshot: open the scenario's goals panel (the result panel if the game is already won or lost)")
+	showBuilding := flag.String("show-building", "", "-screenshot: open the popup of the building with this ID, or of its room of a service with \"ID:food\" (food, bar, lounge, rentals)")
+	showChart := flag.String("show-chart", "", "-screenshot: open the charts window on the tab with this title (e.g. \"Reviews\")")
 	storm := flag.Bool("storm", false, "-screenshot: drop a heavy-snow day on the terrain and make today a heavy-snow day before capture")
 	importPreview := flag.String("import-preview", "", "-screenshot: capture the terrain import map at \"lat,lon,zoom\" (e.g. 38.68,-120.07,14) once the map and the OpenStreetMap overlay have loaded")
 	editorGoals := flag.Bool("editor-goals", false, "with -editor-layers: open the Scenario details dialog on its Goals tab")
@@ -127,6 +129,8 @@ func main() {
 			timeScale:     *timeScale,
 			storm:         *storm,
 			showGoals:     *showGoals,
+			showChart:     *showChart,
+			showBuilding:  *showBuilding,
 			followRider:   *followRider,
 			followGuest:   *followGuest,
 			figureGallery: *figureGallery,
@@ -287,6 +291,8 @@ type screenshotOpts struct {
 	timeScale              float64 // 0 = leave the sim speed alone
 	storm                  bool
 	showGoals              bool
+	showChart              string
+	showBuilding           string
 	followRider            bool
 	followGuest            string
 	figureGallery          bool
@@ -363,6 +369,30 @@ func runScreenshot(opt screenshotOpts) {
 
 	if opt.showGoals {
 		sc.ShowGoals()
+	}
+
+	if opt.showBuilding != "" {
+		var id uint64
+		svc := world.ServiceNone
+		idText, svcText, _ := strings.Cut(opt.showBuilding, ":")
+		fmt.Sscan(idText, &id)
+		switch svcText {
+		case "food":
+			svc = world.ServiceFood
+		case "bar":
+			svc = world.ServiceBar
+		case "lounge":
+			svc = world.ServiceLounge
+		case "rentals":
+			svc = world.ServiceRentals
+		}
+		if !sc.ShowBuilding(id, svc) {
+			fmt.Printf("screenshot: no building %q\n", opt.showBuilding)
+		}
+	}
+
+	if opt.showChart != "" && !sc.ShowChart(opt.showChart) {
+		fmt.Printf("screenshot: no chart titled %q\n", opt.showChart)
 	}
 
 	if opt.storm {

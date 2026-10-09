@@ -106,6 +106,7 @@ func (s *Simulation) planRoutes() {
 			continue
 		}
 		goal, ok := liveTarget(w, a)
+		goal = s.trailCarrot(a, goal)
 		if !ok || !s.routeDue(a, goal) {
 			continue
 		}

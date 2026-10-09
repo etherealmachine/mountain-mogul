@@ -185,14 +185,20 @@ const (
 	fallPatienceDrain = 0.10
 	fallGiveUpCount   = 4
 
-	// Hunger drains at a fixed rate regardless of terrain: full to empty
-	// in five clock hours of skiing, so a guest arriving fed gets hungry
-	// around lunchtime.
+	// Hunger drains at a fixed rate while skiing: full to empty in five
+	// clock hours of it, so a guest arriving fed gets hungry around
+	// lunchtime.
 	hungerDrainPerSec = 1.0 / (5 * world.SimSecondsPerHour)
 
-	// Thirst base rate (five clock hours to empty) scaled by altitude and exertion.
+	// Thirst base rate while skiing (five clock hours to empty), scaled by
+	// altitude and exertion.
 	thirstDrainPerSec      = 1.0 / (5 * world.SimSecondsPerHour)
-	thirstAltitudePerMetre = float32(0.0005) // +50% at 1000 m, ×2 at 2000 m
+	thirstAltitudePerMetre = float32(0.0002) // +20% at 1000 m, +40% at 2000 m
+
+	// idleBodilyDrain is how fast hunger and thirst drain off the snow
+	// (riding a lift, in a line, walking) against skiing: a quarter, with
+	// altitude but no exertion. Nothing drains while being served.
+	idleBodilyDrain = 0.25
 
 	// criticalStatThreshold mirrors goap.restTriggerThreshold: below it
 	// the hungry, thirsty, impatient, and tired conditions start.
@@ -203,9 +209,11 @@ const (
 	// exhaustedThreshold mirrors GoHome's 0.05 cut-off.
 	exhaustedThreshold = float32(0.05)
 
-	// scoreStart is every guest's satisfaction on arrival: the ledger of
-	// their day starts here.
-	scoreStart = float32(0.5)
+	// momentGrace is how long a condition holds before it counts as a
+	// moment. Hunger and thirst don't use it up while the guest is seeing
+	// to them (seeingToIt): a guest thirsty on the way to the bar isn't
+	// marked down.
+	momentGrace = world.SimSecondsPerHour / 4
 )
 
 // =============================================================================
@@ -733,6 +741,17 @@ func decide(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, a *world.Gue
 	if side == 0 {
 		desired = wrapAngle(axisHeading + tactical)
 	}
+	// The edge of their trail ends a turn: they turn back into the run,
+	// or ease toward their aim point, rather than carry off it.
+	if keep := trailKeep(w, a, perc); keep != 0 && leavesTrail(w, a, desired, keep, perc.Speed) {
+		if side != 0 && dwellSatisfied {
+			side = -side
+			desired = wrapAngle(axisHeading + edge(side))
+		}
+		if leavesTrail(w, a, desired, keep, perc.Speed) {
+			desired = towardTrail(w, a, desired, keep, perc)
+		}
+	}
 
 	// Overspeed skids the turns round faster: a speed check.
 	turnRate := carveRate + (pivotRate-carveRate)*clamp32(overspeed/skidTurnOver, 0, 1)
@@ -785,6 +804,54 @@ func decide(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, a *world.Gue
 		ProbeR:         probeR,
 		ProbeL:         probeL,
 	}
+}
+
+// trailEdgeLook is how far ahead, in seconds at speed (at least
+// trailEdgeMin metres), a guest who keeps to their trails checks that
+// their line stays on them.
+const (
+	trailEdgeLook = 1.5
+	trailEdgeMin  = float32(6)
+)
+
+// trailKeep is the trail levels a guest skiing a trail keeps to while
+// they're on one of them, or 0 when they don't (advanced free-roamers,
+// anyone off their trails already, not skiing a trail, or arriving at a
+// lift line or door just off it).
+func trailKeep(w *world.World, a *world.Guest, perc Perception) world.TerrainDifficulty {
+	if perc.InArrival || a.Plan.Head().Kind != ai.ActSkiTrail {
+		return 0
+	}
+	keep := goap.TrailLevels(a.Traits.Skill, a.Traits.Tastes)
+	if keep == 0 || w.TrailDiffsAt(int(a.Pos[0]/CellSize), int(a.Pos[2]/CellSize))&keep == 0 {
+		return 0
+	}
+	return keep
+}
+
+// leavesTrail reports whether heading h takes the guest off the trails
+// they keep to within trailEdgeLook.
+func leavesTrail(w *world.World, a *world.Guest, h float32, keep world.TerrainDifficulty, speed float32) bool {
+	look := max(trailEdgeMin, speed*trailEdgeLook)
+	x := a.Pos[0] + float32(math.Sin(float64(h)))*look
+	z := a.Pos[2] + float32(math.Cos(float64(h)))*look
+	return w.TrailDiffsAt(int(x/CellSize), int(z/CellSize))&keep == 0
+}
+
+// towardTrail turns heading h, in steps, toward the guest's aim point
+// until the line stays on their trails, ending at the aim point's own
+// heading.
+func towardTrail(w *world.World, a *world.Guest, h float32, keep world.TerrainDifficulty, perc Perception) float32 {
+	seek := float32(math.Atan2(float64(perc.AxisDir[0]), float64(perc.AxisDir[1])))
+	d := wrapAngle(seek - h)
+	const steps = 6
+	for i := 1; i <= steps; i++ {
+		c := wrapAngle(h + d*float32(i)/steps)
+		if !leavesTrail(w, a, c, keep, perc.Speed) {
+			return c
+		}
+	}
+	return seek
 }
 
 // composeAxis blends the seek-target direction with the fall-line, attenuated
@@ -1263,7 +1330,7 @@ func (s *Simulation) treeHit(a *world.Guest) {
 // injure hurts a guest who has just fallen. A serious injury leaves them
 // where they lie waiting for patrol (up to injuryWaitTime); a minor one
 // lets them get up after the usual fall and head home on their own.
-// Either costs satisfaction through its ai.Effects row.
+// Either is a moment (ai.Effects): a minor one a letdown.
 func (s *Simulation) injure(a *world.Guest, serious bool) {
 	a.Events = append(a.Events, ai.GuestEvent{Kind: ai.EventInjury, Time: s.SimTime})
 	if !serious {
@@ -1327,10 +1394,10 @@ func (s *Simulation) recordFall(a *world.Guest) {
 	s.World.History.RecordFall(f)
 }
 
-// tickMood updates a guest's conditions and charges the active ones to
-// their score, whatever they're doing: each condition's ai.Effects rate
-// per clock hour, for as long as it holds. Snow-underfoot conditions end
-// when the guest didn't ski since the last update.
+// tickMood updates a guest's conditions, whatever they're doing, and
+// counts each that has held past momentGrace as a moment, once. Snow-
+// underfoot conditions end when the guest didn't ski since the last
+// update.
 func (s *Simulation) tickMood(a *world.Guest, dt float64) {
 	s.tickNeedConditions(a)
 	if !a.SkiedThisTick {
@@ -1338,17 +1405,53 @@ func (s *Simulation) tickMood(a *world.Guest, dt float64) {
 			s.setCondition(a, k, false)
 		}
 	}
-	a.SkiedThisTick = false
-	if a.Conditions == 0 {
-		return
+	if !a.SkiedThisTick && a.RestTimer <= 0 && !a.Visit.Waiting {
+		s.drainIdle(a, dt)
 	}
-	var rate float32
-	for k := ai.ThoughtKind(1); int(k) < ai.ThoughtKindCount; k++ {
-		if a.Conditions.Has(k) {
-			rate += ai.Effects[k].Satisfaction
+	a.SkiedThisTick = false
+	for i := range a.Held {
+		h := &a.Held[i]
+		if !h.Counted && seeingToIt(a, h.Kind) {
+			// On the way to a meal or a drink, in the line, or being
+			// served: the grace clock waits.
+			h.Since += dt
+		}
+		if !h.Counted && s.SimTime-h.Since >= momentGrace {
+			h.Counted = true
+			a.AddMoment(h.Kind, 0)
 		}
 	}
-	a.Satisfaction = clamp32(a.Satisfaction+rate*float32(dt)/world.SimSecondsPerHour, 0, 1)
+}
+
+// drainIdle drains hunger and thirst off the snow: idleBodilyDrain of
+// the skiing rate, with altitude for thirst but no exertion.
+func (s *Simulation) drainIdle(a *world.Guest, dt float64) {
+	a.Hunger = max(a.Hunger-hungerDrainPerSec*idleBodilyDrain*float32(dt), 0)
+	altFactor := 1 + (s.World.BaseAltitude+a.Pos[1])*thirstAltitudePerMetre
+	a.Thirst = max(a.Thirst-thirstDrainPerSec*idleBodilyDrain*altFactor*float32(dt), 0)
+}
+
+// conditionNeed is the need whose lack a condition is: what a guest
+// sees to by using an offer that meets it.
+var conditionNeed = map[ai.ThoughtKind]ai.NeedKind{
+	ai.ThoughtHungry:  ai.NeedHunger,
+	ai.ThoughtThirsty: ai.NeedThirst,
+}
+
+// seeingToIt reports whether guest a's plan, from its current step on,
+// uses something that meets the need behind condition k: they're on
+// their way to it, in its line, or being served.
+func seeingToIt(a *world.Guest, k ai.ThoughtKind) bool {
+	need, ok := conditionNeed[k]
+	if !ok {
+		return false
+	}
+	for i := a.Plan.Step; i < len(a.Plan.Steps); i++ {
+		if st := a.Plan.Steps[i]; st.Kind == ai.ActUseService && world.OfferNeeds(st.Use).Has(need) {
+			return true
+		}
+	}
+	return false
 }
 
 // tickNeedConditions turns the need conditions on and off from the

@@ -87,9 +87,8 @@ type ScenarioData struct {
 	Parking int `json:"parking,omitempty"`
 	// ResortOpen is World.ResortOpen. Absent loads closed.
 	ResortOpen bool `json:"resort_open,omitempty"`
-	// Rating is World.Rating; nil (older saves) loads as
-	// world.InitialRating.
-	Rating *float32 `json:"rating,omitempty"`
+	// Stars is World.Rating, in stars; nil loads as world.InitialRating.
+	Stars *float32 `json:"stars,omitempty"`
 	// Goals and Rules are what the scenario asks (world.Goal, world.Rules);
 	// GoalProgress is how each goal stands, player saves only.
 	Goals        []GoalData         `json:"goals,omitempty"`
@@ -279,11 +278,36 @@ type TrailEndData struct {
 	ID   uint64 `json:"id"`
 }
 
-// LeavingData is a world.Leaving: score, conditions, and reason.
+// LeavingData is a world.Leaving: the review and why they left.
 type LeavingData struct {
-	Score      float32 `json:"score"`
-	Conditions uint64  `json:"conds,omitempty"`
-	Reason     uint8   `json:"reason,omitempty"`
+	Review ReviewData `json:"review"`
+	Reason uint8      `json:"reason,omitempty"`
+}
+
+// ReviewData is a world.Review.
+type ReviewData struct {
+	Level      int8    `json:"level"`
+	Stars      float32 `json:"stars"`
+	Quality    float32 `json:"quality,omitempty"`
+	Kind       uint8   `json:"kind,omitempty"`
+	Count      int     `json:"count,omitempty"`
+	Context    uint64  `json:"ctx,omitempty"`
+	Annoyances int     `json:"annoy,omitempty"`
+	NoRuns     bool    `json:"no_runs,omitempty"`
+}
+
+// MomentData is a world.Moment.
+type MomentData struct {
+	Kind    uint8  `json:"k"`
+	N       uint16 `json:"n"`
+	Context uint64 `json:"c,omitempty"`
+}
+
+// RunTallyData is a world.RunTally.
+type RunTallyData struct {
+	ID    uint64 `json:"id"`
+	Runs  int32  `json:"runs"`
+	Great int32  `json:"great,omitempty"`
 }
 
 // HistoryData is the saved daily ring of resort stats — see
@@ -298,6 +322,20 @@ type HistoryData struct {
 	RevenueToday    int               `json:"r,omitempty"`
 	RevenueByKind   []int             `json:"rk,omitempty"` // world.RevenueKind order
 	Falls           []FallData        `json:"f,omitempty"`  // world.History.FallsToday
+	Reviews         *ReviewTallyData  `json:"rv,omitempty"` // world.History.ReviewsToday
+	DepartReasons   []int             `json:"dr,omitempty"` // world.History.DepartReasonsToday, ai.DepartReason order
+}
+
+// ReviewTallyData is a world.ReviewTally. Why is indexed by
+// ai.ThoughtKind.
+type ReviewTallyData struct {
+	N              int     `json:"n,omitempty"`
+	Stars          float32 `json:"s,omitempty"`
+	Levels         []int   `json:"l,omitempty"`
+	Why            []int   `json:"w,omitempty"`
+	NothingSpecial int     `json:"ns,omitempty"`
+	NoRuns         int     `json:"nr,omitempty"`
+	Good           int     `json:"g,omitempty"`
 }
 
 // FallData mirrors world.FallRecord.
@@ -323,6 +361,9 @@ type DailySampleData struct {
 	Open             bool    `json:"o,omitempty"`
 	Rating           float32 `json:"rt,omitempty"`
 	Falls            int     `json:"f,omitempty"`
+	// Reviews and DepartReasons are the day's (world.DailySample).
+	Reviews       *ReviewTallyData `json:"rv,omitempty"`
+	DepartReasons []int            `json:"dr,omitempty"`
 }
 
 // RoadNodeData is one vertex in the road graph. ID is preserved across
@@ -423,6 +464,7 @@ type BuildingData struct {
 	StyleSeed  uint32   `json:"style,omitempty"`
 	MealPrice  int      `json:"meal,omitempty"`
 	DrinkPrice int      `json:"drink,omitempty"`
+	FreeWater  bool     `json:"water,omitempty"`
 	Rental     int      `json:"rent,omitempty"`
 	Quality    *float32 `json:"q,omitempty"`
 }
@@ -523,7 +565,7 @@ type GuestData struct {
 	VisitsThisSeason int     `json:"vts,omitempty"`
 	LifetimeVisits   int     `json:"lv,omitempty"`
 	LastVisitUnix    int64   `json:"lvu,omitempty"` // 0 = never visited
-	LastScore        float32 `json:"lsc,omitempty"`
+	LastStars        float32 `json:"lst,omitempty"`
 
 	// Season pass. SeasonPassExpiry is the SimTime at which the pass expires;
 	// HasSeasonPass is the precomputed validity flag for guests OnMountain.
@@ -560,9 +602,13 @@ type GuestData struct {
 	Energy   float32    `json:"energy,omitempty"`
 	Hunger   float32    `json:"hunger,omitempty"`
 	Thirst   float32    `json:"thirst,omitempty"`
-	// Satisfaction is the guest's score so far; absent in older saves
-	// (load starts them at the arrival value).
-	Satisfaction *float32 `json:"sat,omitempty"`
+	// Moments, the quality of the services used, and the runs so far,
+	// toward the review they'll leave (world.Guest.DayReview).
+	Moments     []MomentData   `json:"moments,omitempty"`
+	QualitySum  float32        `json:"qsum,omitempty"`
+	QualityUses int32          `json:"quses,omitempty"`
+	TrailTally  []RunTallyData `json:"trail_tally,omitempty"`
+	LiftTally   []RunTallyData `json:"lift_tally,omitempty"`
 	// Plan steps and cursor so agents resume mid-plan after load rather than
 	// replanning from an anchor-zero in-transit snapshot. GoalName and Target
 	// are re-derived by onPlanStepStart; only Steps+Step are stored.

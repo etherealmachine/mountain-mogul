@@ -337,6 +337,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 			Quality:         &b.Quality,
 			Rental:          b.RentalPrice,
 			DrinkPrice:      b.DrinkPrice,
+			FreeWater:       b.FreeWater,
 		}
 		if b.IsShell() {
 			buildings[i].OriginX, buildings[i].OriginZ = b.Origin[0], b.Origin[1]
@@ -473,7 +474,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 			HomeEntry:        g.HomeEntryID,
 			VisitsThisSeason: g.VisitsThisSeason,
 			LifetimeVisits:   g.LifetimeVisits,
-			LastScore:        g.LastScore,
+			LastStars:        g.LastStars,
 			State:            uint8(g.State),
 		}
 		if forScenario {
@@ -503,8 +504,11 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 			gd.Energy = g.Energy
 			gd.Hunger = g.Hunger
 			gd.Thirst = g.Thirst
-			sat := g.Satisfaction
-			gd.Satisfaction = &sat
+			for _, m := range g.Moments {
+				gd.Moments = append(gd.Moments, MomentData{Kind: uint8(m.Kind), N: m.N, Context: m.Context})
+			}
+			gd.QualitySum, gd.QualityUses = g.QualitySum, g.QualityUses
+			gd.TrailTally, gd.LiftTally = tallyToData(g.TrailTally), tallyToData(g.LiftTally)
 			if !g.Plan.Done() {
 				gd.PlanStep = g.Plan.Step
 				gd.PlanSteps = make([]PlanActionData, len(g.Plan.Steps))
@@ -644,7 +648,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		DayTicket:    &w.DayTicketPrice,
 		Parking:      w.ParkingPrice,
 		ResortOpen:   w.ResortOpen,
-		Rating:       &w.Rating,
+		Stars:        &w.Rating,
 		Goals:        goalsToData(w.Goals),
 		Rules:        w.Rules,
 		GoalProgress: progressToData(w.GoalProgress),
@@ -735,7 +739,9 @@ func historyFromData(hd *HistoryData) *world.History {
 			Open:             s.Open,
 			Rating:           s.Rating,
 			Falls:            s.Falls,
+			Reviews:          reviewTallyFromData(s.Reviews),
 		}
+		copy(sample.DepartReasons[:], s.DepartReasons)
 		copy(sample.RevenueByKind[:], s.RevenueByKind)
 		copy(sample.CostsByKind[:], s.CostsByKind)
 		if s.DayUnix != 0 {
@@ -750,6 +756,8 @@ func historyFromData(hd *HistoryData) *world.History {
 	h.DeparturesToday = hd.DeparturesToday
 	h.RevenueToday = hd.RevenueToday
 	copy(h.RevenueByKindToday[:], hd.RevenueByKind)
+	copy(h.DepartReasonsToday[:], hd.DepartReasons)
+	h.ReviewsToday = reviewTallyFromData(hd.Reviews)
 	for _, f := range hd.Falls {
 		h.FallsToday = append(h.FallsToday, world.FallRecord{X: f.X, Z: f.Z, TrailID: f.TrailID, LiftID: f.LiftID})
 	}
@@ -782,6 +790,8 @@ func historyToData(h *world.History) *HistoryData {
 			Open:             s.Open,
 			Rating:           s.Rating,
 			Falls:            s.Falls,
+			Reviews:          reviewTallyToData(s.Reviews),
+			DepartReasons:    intsOrNil(s.DepartReasons[:]),
 		}
 		if !s.Day.IsZero() {
 			samples[i].DayUnix = s.Day.Unix()
@@ -794,7 +804,31 @@ func historyToData(h *world.History) *HistoryData {
 		RevenueToday:    h.RevenueToday,
 		RevenueByKind:   intsOrNil(h.RevenueByKindToday[:]),
 		Falls:           falls,
+		Reviews:         reviewTallyToData(h.ReviewsToday),
+		DepartReasons:   intsOrNil(h.DepartReasonsToday[:]),
 	}
+}
+
+// reviewTallyToData saves a day's reviews, nil when there were none.
+func reviewTallyToData(t world.ReviewTally) *ReviewTallyData {
+	if t.N == 0 {
+		return nil
+	}
+	return &ReviewTallyData{
+		N: t.N, Stars: t.Stars, Levels: intsOrNil(t.Levels[:]), Why: intsOrNil(t.Why[:]),
+		NothingSpecial: t.NothingSpecial, NoRuns: t.NoRuns, Good: t.Good,
+	}
+}
+
+// reviewTallyFromData restores a day's reviews.
+func reviewTallyFromData(d *ReviewTallyData) world.ReviewTally {
+	if d == nil {
+		return world.ReviewTally{}
+	}
+	t := world.ReviewTally{N: d.N, Stars: d.Stars, NothingSpecial: d.NothingSpecial, NoRuns: d.NoRuns, Good: d.Good}
+	copy(t.Levels[:], d.Levels)
+	copy(t.Why[:], d.Why)
+	return t
 }
 
 // intsOrNil copies v, or returns nil when every entry is zero so the
@@ -878,8 +912,8 @@ func dataToWorld(data ScenarioData) *world.World {
 	}
 	w.ParkingPrice = data.Parking
 	w.ResortOpen = data.ResortOpen
-	if data.Rating != nil {
-		w.Rating = *data.Rating
+	if data.Stars != nil {
+		w.Rating = *data.Stars
 	}
 	w.Rules = data.Rules
 	for _, g := range data.Goals {
@@ -1112,7 +1146,7 @@ func dataToWorld(data ScenarioData) *world.World {
 			HomeEntryID:      gd.HomeEntry,
 			VisitsThisSeason: gd.VisitsThisSeason,
 			LifetimeVisits:   gd.LifetimeVisits,
-			LastScore:        gd.LastScore,
+			LastStars:        gd.LastStars,
 			State:            world.GuestState(gd.State),
 			CarID:            gd.CarID,
 			CarLot:           gd.CarLot,
@@ -1155,10 +1189,11 @@ func dataToWorld(data ScenarioData) *world.World {
 				thirst = 1.0
 			}
 			g.Thirst = thirst
-			g.Satisfaction = 0.5 // saved before scores were kept: as if just arrived
-			if gd.Satisfaction != nil {
-				g.Satisfaction = *gd.Satisfaction
+			for _, m := range gd.Moments {
+				g.Moments = append(g.Moments, world.Moment{Kind: ai.ThoughtKind(m.Kind), N: m.N, Context: m.Context})
 			}
+			g.QualitySum, g.QualityUses = gd.QualitySum, gd.QualityUses
+			g.TrailTally, g.LiftTally = tallyFromData(gd.TrailTally), tallyFromData(gd.LiftTally)
 			g.Balance = 1.0
 			if len(gd.PlanSteps) > 0 {
 				steps := make([]ai.PlanAction, len(gd.PlanSteps))
@@ -1406,6 +1441,7 @@ func loadServiceBuilding(w *world.World, bd BuildingData) *world.Building {
 	if bd.MealPrice > 0 {
 		b.MealPrice = bd.MealPrice
 	}
+	b.FreeWater = bd.FreeWater
 	if bd.DrinkPrice > 0 {
 		b.DrinkPrice = bd.DrinkPrice
 	}
@@ -1677,7 +1713,28 @@ func leavingToData(l world.Leaving) *LeavingData {
 	if !l.Pending {
 		return nil
 	}
-	return &LeavingData{Score: l.Score, Conditions: uint64(l.Conditions), Reason: uint8(l.Reason)}
+	r := l.Review
+	return &LeavingData{Review: ReviewData{
+		Level: r.Level, Stars: r.Stars, Quality: r.Quality, Kind: uint8(r.Kind), Count: r.Count,
+		Context: r.Context, Annoyances: r.Annoyances, NoRuns: r.NoRuns,
+	}, Reason: uint8(l.Reason)}
+}
+
+// tallyToData and tallyFromData save and restore a guest's run tally.
+func tallyToData(t []world.RunTally) []RunTallyData {
+	var d []RunTallyData
+	for _, r := range t {
+		d = append(d, RunTallyData{ID: r.ID, Runs: r.Runs, Great: r.Great})
+	}
+	return d
+}
+
+func tallyFromData(d []RunTallyData) []world.RunTally {
+	var t []world.RunTally
+	for _, r := range d {
+		t = append(t, world.RunTally{ID: r.ID, Runs: r.Runs, Great: r.Great})
+	}
+	return t
 }
 
 // leavingFromData restores a pending departure.
@@ -1685,7 +1742,11 @@ func leavingFromData(d *LeavingData) world.Leaving {
 	if d == nil {
 		return world.Leaving{}
 	}
-	return world.Leaving{Pending: true, Score: d.Score, Conditions: ai.ConditionMask(d.Conditions), Reason: ai.DepartReason(d.Reason)}
+	r := d.Review
+	return world.Leaving{Pending: true, Review: world.Review{
+		Level: r.Level, Stars: r.Stars, Quality: r.Quality, Kind: ai.ThoughtKind(r.Kind), Count: r.Count,
+		Context: r.Context, Annoyances: r.Annoyances, NoRuns: r.NoRuns,
+	}, Reason: ai.DepartReason(d.Reason)}
 }
 
 // skiAreaData is the ski-area boundary for saving.

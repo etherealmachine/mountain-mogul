@@ -39,7 +39,11 @@ func (s *Scenario) onDayRollover() {
 // before (nil for the first recorded day); it separates construction and
 // purchases from the operating result.
 func (s *Scenario) openDayReport(d world.DailySample, prev *world.DailySample) {
-	win := ui.NewWindow(d.Day.Format("Monday, Jan 2")+" Report", 0, 0)
+	title := world.FormatGameDate(d.Day, false)
+	if _, name := world.HolidayAt(d.Day); name != "" {
+		title += " (" + name + ")"
+	}
+	win := ui.NewWindow(title+" Report", 0, 0)
 	if !d.Open {
 		win.AddAmount("Resort", "Closed all day", reportDim, false)
 	}

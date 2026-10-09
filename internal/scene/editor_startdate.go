@@ -1,12 +1,14 @@
 package scene
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/go-gl/mathgl/mgl32"
 	"mountain-mogul/internal/engine"
 	"mountain-mogul/internal/render"
 	"mountain-mogul/internal/ui"
+	"mountain-mogul/internal/world"
 )
 
 // startDatePanel is the editor's Start date control: month, day and year
@@ -50,20 +52,14 @@ func newStartDatePanel(top float32, get func() time.Time, set func(time.Time)) *
 	return p
 }
 
-// stepStartDate moves d by the given years, months or days. Month and year
-// steps keep the day of the month, clamped to the target month's length
-// (Jan 31 + 1 month = Feb 28), rather than time.AddDate's overflow.
+// stepStartDate moves d by the given years, months or game days. Month and
+// year steps keep the game day of the month.
 func stepStartDate(d time.Time, years, months, days int) time.Time {
 	if days != 0 {
-		return d.AddDate(0, 0, days)
+		return world.GameDayAt(world.GameDayIndex(d) + days)
 	}
 	first := time.Date(d.Year()+years, d.Month()+time.Month(months), 1, 0, 0, 0, 0, time.UTC)
-	lastDay := first.AddDate(0, 1, -1).Day()
-	day := d.Day()
-	if day > lastDay {
-		day = lastDay
-	}
-	return first.AddDate(0, 0, day-1)
+	return world.GameDayStart(first.Year(), first.Month(), world.GameDay(d))
 }
 
 // layout centres the strip horizontally just below the top bar.
@@ -127,7 +123,7 @@ func (p *startDatePanel) Draw(r *render.Renderer) {
 	textY := p.y + (p.h-float32(render.GlyphH))/2
 	r.Font.DrawText(r, "Start date", p.x+startDatePad, textY, col)
 	d := p.get()
-	for i, s := range []string{d.Format("Jan"), d.Format("2"), d.Format("2006")} {
+	for i, s := range []string{d.Format("Jan"), fmt.Sprint(world.GameDay(d)), d.Format("2006")} {
 		tw := r.Font.TextWidth(s)
 		r.Font.DrawText(r, s, p.labelX[i]+(startDateFieldW()-tw)/2, textY, col)
 	}

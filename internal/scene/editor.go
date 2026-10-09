@@ -78,6 +78,8 @@ type Editor struct {
 	// skiDraft is the ski-area outline in progress (editor_ski_area.go).
 	skiDraft                  []mgl32.Vec2
 	skiRightDown              mgl32.Vec2 // where the right button went down, to tell a click from a pan
+	skiHover, skiDrag         skiHandle  // the outline handle under the cursor, and the one being dragged
+	skiSel                    int        // the selected outline's index, -1 for none
 	entryPopup                *ui.Window // road entry opened by clicking its post
 	lotTool                   lotTool
 	serviceTool               serviceTool                    // the building tool's session
@@ -385,6 +387,8 @@ func (e *Editor) Update(dt float64) {
 			e.lotPopup.Visible = false
 		case e.activeTool == toolSkiArea && len(e.skiDraft) > 0:
 			e.skiDraft = nil // drop the outline in progress, keep the tool
+		case e.activeTool == toolSkiArea && e.skiSel >= 0:
+			e.skiSel = -1 // let go of the selected outline, keep the tool
 		case e.trailPopup != nil && e.trailPopup.Visible:
 			e.trailPopup.Visible = false
 			e.trail.id = 0
@@ -409,6 +413,8 @@ func (e *Editor) Update(dt float64) {
 			deleteSelectedStructure(r, e.world, &e.structureEdit)
 			e.layerCache.fields = nil
 			e.markDirty()
+		case e.activeTool == toolSkiArea:
+			e.deleteSelectedSkiArea()
 		}
 	}
 	// R / Shift+R: turn the building about to be placed, or the selected one.
@@ -704,12 +710,13 @@ func (e *Editor) Update(dt float64) {
 			e.skiRightDown = inp.MousePos
 		}
 		if inp.RightRelease && inp.MousePos.Sub(e.skiRightDown).Len() < 4 && e.hoverValid && !overChrome {
-			e.skiAreaRightClick(mgl32.Vec2{e.hoverWorld[0], e.hoverWorld[2]})
+			e.skiAreaRightClick(r, inp.MousePos, mgl32.Vec2{e.hoverWorld[0], e.hoverWorld[2]})
 		}
 	}
 	if !inp.LeftClick && !inp.LeftHeld {
 		e.suppressBrushUntilRelease = false
 		e.endTerrainStroke(r)
+		e.skiAreaRelease()
 		if e.activeTool == toolParking && e.lotTool.dragging() {
 			e.lotTool.release(mgl32.Vec2{e.hoverWorld[0], e.hoverWorld[2]})
 			if e.lotTool.mode == lotPending {
@@ -732,9 +739,7 @@ func (e *Editor) Update(dt float64) {
 		}
 		if !overSlider {
 			if e.activeTool == toolSkiArea {
-				if inp.LeftClick && e.hoverValid {
-					e.skiAreaClick(mgl32.Vec2{e.hoverWorld[0], e.hoverWorld[2]})
-				}
+				e.skiAreaMouse(r, inp)
 			} else if e.isPlacementTool() {
 				shiftHeld := inp.Held[glfw.KeyLeftShift] || inp.Held[glfw.KeyRightShift]
 				// toolParcelRect can fire off-terrain (first or second click):
@@ -1299,7 +1304,7 @@ func (e *Editor) applyImportedTerrain(imp ImportedTerrain, r *render.Renderer) {
 		}
 		toast += "; climate from " + c.Source
 		if opening {
-			toast += "; opens " + w.StartDate.Format("Jan 2")
+			toast += "; opens " + world.FormatGameDate(w.StartDate, false)
 		}
 	} else {
 		toast += "; no climate: " + res.ClimateNote
@@ -2051,6 +2056,9 @@ func (e *Editor) Render(r *render.Renderer) {
 	e.menuBar.Y = float32(r.ScreenHeight()) - e.menuBar.H
 	e.overlayPanel.Bottom = float32(r.ScreenHeight()) - e.menuBar.H
 	edDrawables := []render.UIDrawable{uiDrawFunc(e.drawOSMLabels), e.topBar, e.startDate, e.menuBar, e.overlayPanel}
+	if e.activeTool == toolSkiArea && len(e.skiDraft) == 0 {
+		edDrawables = append(edDrawables, uiDrawFunc(e.drawSkiHandles))
+	}
 	if e.layers.open {
 		edDrawables = append(edDrawables, uiDrawFunc(func(r *render.Renderer) { e.drawLayersPanel(r, e.startDate.y+e.startDate.h) }))
 	}

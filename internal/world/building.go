@@ -85,16 +85,20 @@ type Building struct {
 	// the sim's live count of guests eating here (not saved).
 	// Kind is what it's built as and Storeys how many storeys it has (a
 	// lodge can have up to three; 0 counts as one, see Floors).
-	Origin      mgl32.Vec2
-	Kind        ShellKind
-	Storeys     int
-	Tiles       map[[2]int]Service
-	Doors       []Door
-	FloorY      float32
-	FloorSet    bool
-	StyleSeed   uint32
-	MealPrice   int
-	DrinkPrice  int
+	Origin     mgl32.Vec2
+	Kind       ShellKind
+	Storeys    int
+	Tiles      map[[2]int]Service
+	Doors      []Door
+	FloorY     float32
+	FloorSet   bool
+	StyleSeed  uint32
+	MealPrice  int
+	DrinkPrice int
+	// FreeWater offers free water where drinks are served (ai.OfferWater):
+	// guests help themselves, with no turn at the counter, and it
+	// quenches thirst and does nothing else.
+	FreeWater   bool
 	RentalPrice int
 	// Quality is how good the building is to visit, 0..1: it raises what
 	// guests will pay and scores each visit (Service Improvements).

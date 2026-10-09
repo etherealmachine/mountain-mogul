@@ -164,8 +164,10 @@ func (w *World) RebuildTrailGraph() {
 	w.rebuildTrailAt()
 }
 
-// rebuildTrailAt refills the cell-to-trail index from the trails' cells.
+// rebuildTrailAt refills the cell-to-trail index from the trails' cells,
+// and the centre-line cache.
 func (w *World) rebuildTrailAt() {
+	w.rebuildTrailLines()
 	if w.Terrain == nil {
 		return
 	}

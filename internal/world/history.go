@@ -104,10 +104,24 @@ type DailySample struct {
 	RevenueByKind    [RevenueKindCount]int     // Revenue split by category
 	CostsByKind      CostBreakdown             // Costs split by category
 	Open             bool                      // the resort was open at some point in the day
-	Rating           float32                   // resort rating at EOD
+	Rating           float32                   // resort rating at EOD, in stars (1–5)
 	ThoughtCounts    [ai.ThoughtKindCount]int  // per-kind thought totals emitted during the day
 	DepartReasons    [ai.DepartReasonCount]int // why each guest who left that day went home
 	Falls            int                       // times a guest went down
+	Reviews          ReviewTally               // the day's reviews
+}
+
+// ReviewTally is a day's reviews in aggregate, for the Reviews chart.
+type ReviewTally struct {
+	N      int     // reviews left
+	Stars  float32 // their stars summed
+	Levels [4]int  // by level (1–3)
+	// Why counts the moment that set each review: below 3★ the
+	// dealbreaker, letdown, or most frequent annoyance; at 3★ Good.
+	Why            [ai.ThoughtKindCount]int
+	NothingSpecial int // 2★: no highlight
+	NoRuns         int // 1★: never got a run in, with nothing to name
+	Good           int // 3★
 }
 
 // FallRecord is one guest going down, for the patrol report and the falls
@@ -135,7 +149,7 @@ type History struct {
 	RevenueByKindToday [RevenueKindCount]int
 	ThoughtCountsToday [ai.ThoughtKindCount]int
 	DepartReasonsToday [ai.DepartReasonCount]int
-	SatisfactionToday  float32 // sum of departing guests' final satisfaction
+	ReviewsToday       ReviewTally
 	FallsToday         []FallRecord
 }
 
@@ -154,25 +168,57 @@ func (h *History) RecordArrival() {
 	h.ArrivalsToday++
 }
 
-// RecordDeparture counts one departing guest: their final satisfaction
-// toward the day's average, and why they left. Safe to call when h is
-// nil — does nothing.
-func (h *History) RecordDeparture(satisfaction float32, why ai.DepartReason) {
+// RecordDeparture counts one departing guest: why they left, and their
+// review toward the day's average stars. A guest who came without skis
+// and couldn't rent any leaves no review: they're lost business, not a
+// rating. Safe to call when h is nil — does nothing.
+func (h *History) RecordDeparture(r Review, why ai.DepartReason) {
 	if h == nil {
 		return
 	}
 	h.DeparturesToday++
-	h.SatisfactionToday += satisfaction
 	h.DepartReasonsToday[why]++
+	if why == ai.DepartNoRentals {
+		return
+	}
+	t := &h.ReviewsToday
+	t.N++
+	t.Stars += r.Stars
+	t.Levels[r.Level]++
+	switch {
+	case r.Level >= 3:
+		t.Good++
+	case r.Kind != ai.ThoughtNone:
+		t.Why[r.Kind]++
+	case r.Level == 2:
+		t.NothingSpecial++
+	default:
+		t.NoRuns++
+	}
 }
 
-// DayRating is the average final satisfaction of the guests who left
-// today, and false when nobody has.
+// DayRating is the average stars of the guests who left a review today,
+// and false when nobody has.
 func (h *History) DayRating() (float32, bool) {
-	if h == nil || h.DeparturesToday == 0 {
+	if h == nil || h.ReviewsToday.N == 0 {
 		return 0, false
 	}
-	return h.SatisfactionToday / float32(h.DeparturesToday), true
+	return h.ReviewsToday.Stars / float32(h.ReviewsToday.N), true
+}
+
+// TopWhy is the moment that set the most of today's reviews below 3★,
+// ThoughtNone when there's none to name.
+func (h *History) TopWhy() ai.ThoughtKind {
+	if h == nil {
+		return ai.ThoughtNone
+	}
+	best, n := ai.ThoughtNone, 0
+	for k := ai.ThoughtKind(1); int(k) < ai.ThoughtKindCount; k++ {
+		if h.ReviewsToday.Why[k] > n {
+			best, n = k, h.ReviewsToday.Why[k]
+		}
+	}
+	return best
 }
 
 // RecordRevenue adds amount to the in-progress revenue counters. Safe to
@@ -266,7 +312,7 @@ func (h *History) Push(sample DailySample) {
 	h.RevenueByKindToday = [RevenueKindCount]int{}
 	h.ThoughtCountsToday = [ai.ThoughtKindCount]int{}
 	h.DepartReasonsToday = [ai.DepartReasonCount]int{}
-	h.SatisfactionToday = 0
+	h.ReviewsToday = ReviewTally{}
 	h.FallsToday = nil
 }
 

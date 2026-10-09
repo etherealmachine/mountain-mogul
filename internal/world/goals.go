@@ -16,8 +16,8 @@ const (
 	GoalLiftsOpen GoalKind = iota
 	// GoalGuestsInDay: Target guests arriving in one day.
 	GoalGuestsInDay
-	// GoalRating: the resort rating at or above Target (0–1) at the end
-	// of Days days in a row.
+	// GoalRating: the resort rating at or above Target stars (1–5) at
+	// the end of Days days in a row.
 	GoalRating
 	// GoalCash: cash on hand at the end of a day at or above Target.
 	GoalCash
@@ -33,7 +33,7 @@ const (
 // Goal is one thing a scenario asks for.
 type Goal struct {
 	Kind   GoalKind
-	Target float64 // lifts, guests, rating (0–1), or dollars; unused by GoalAllRequired
+	Target float64 // lifts, guests, rating (stars), or dollars; unused by GoalAllRequired
 	Days   int     // days in a row for GoalRating and GoalDebtFree; 0 or 1 = once
 	// Season, when set, is a deadline: the goal must be met by the end of
 	// season Season (1 = the first). Missing it fails a bonus goal, and
@@ -87,7 +87,7 @@ func (g Goal) Describe() string {
 	case GoalGuestsInDay:
 		s = fmt.Sprintf("Welcome %s in one day", plural(int(g.Target), "guest"))
 	case GoalRating:
-		s = fmt.Sprintf("Keep the rating at %d%% or better", int(g.Target*100+0.5))
+		s = fmt.Sprintf("Keep the rating at %s stars or better", FormatStars(float32(g.Target)))
 		if g.Days > 1 {
 			s += fmt.Sprintf(" for %d days in a row", g.Days)
 		}
@@ -127,4 +127,12 @@ func CommaInt(n int) string {
 		s = s[:i] + "," + s[i:]
 	}
 	return s
+}
+
+// FormatStars is a star rating as the player reads it: "3" or "3.5".
+func FormatStars(stars float32) string {
+	if s := fmt.Sprintf("%.1f", stars); s[len(s)-2:] != ".0" {
+		return s
+	}
+	return fmt.Sprintf("%.0f", stars)
 }

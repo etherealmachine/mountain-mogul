@@ -26,20 +26,12 @@ type Action interface {
 // Tunables
 // =============================================================================
 
-// MaxQueuePersons is the hard cap on queue depth a guest will tolerate
-// when planning: about half a clock hour of expected wait. Queues longer
-// than this cause JoinQueue's precondition to fail, forcing the planner
-// to seek an alternative lift. The cap is bypassed when Patience < 0.05
-// so that GoHome routing can still ride up and exit a lift base.
-var MaxQueuePersons = int(math.Floor(world.SimSecondsPerHour / 2 / queueSlotSec))
-
 const (
 	// Cost-per-second baseline. Costs are in "seconds-equivalent" so the
 	// planner can compare walking, queuing, riding, and skiing uniformly.
 	walkSpeedMps = 0.67
 	skiSpeedMps  = 10.0 // average descent speed for cost estimation; the
 	// L1 controller ultimately decides actual speed
-	queueSlotSec = 8.0 // average wait per slot in line
 
 	// Lift-novelty bonus. First ride of a lift is "free"; each repeat ride
 	// adds repeatPenaltyPerRide to RideLift's cost, capped so a much-ridden
@@ -90,17 +82,14 @@ func (a *WalkToLift) Precondition(s *WorldSnapshot, w *world.World) bool {
 	if s.Removed || s.OnLift != 0 || s.Queued != 0 || s.AtLiftBase != 0 || s.AtLiftTop != 0 {
 		return false
 	}
-	if findLift(w, a.LiftID) == nil {
+	l := findLift(w, a.LiftID)
+	if l == nil {
 		return false
 	}
 	// Beginners and intermediates won't walk to a lift with no trail at or
-	// below their level. Advanced+ are willing to free-roam from any lift.
-	if diff := skillDiff(s.Skill); diff != 0 {
-		if !w.ServicesForLift(a.LiftID).Has(diff) {
-			return false
-		}
-	}
-	return true
+	// below their level (novices: with any terrain that isn't green).
+	// Advanced+ are willing to free-roam from any lift.
+	return liftAccessible(l, s.Skill, w)
 }
 
 func (a *WalkToLift) Apply(s *WorldSnapshot, w *world.World) {
@@ -138,10 +127,8 @@ func (a *JoinQueue) Precondition(s *WorldSnapshot, w *world.World) bool {
 	if !(!s.Removed && s.AtLiftBase == a.LiftID && l != nil && l.Open && !l.OnHold) {
 		return false
 	}
-	if diff := skillDiff(s.Skill); diff != 0 {
-		if !w.ServicesForLift(a.LiftID).Has(diff) {
-			return false
-		}
+	if !liftAccessible(l, s.Skill, w) {
+		return false
 	}
 	// Reject if the queue is too long, unless patience is already exhausted.
 	// The exhausted exception keeps GoHome routing functional: a guest leaving
@@ -151,7 +138,10 @@ func (a *JoinQueue) Precondition(s *WorldSnapshot, w *world.World) bool {
 	if !hasTicket(s) || s.Need[ai.NeedRentals] > 0 {
 		return false
 	}
-	if s.Patience >= 0.05 && l.QueueLen() > MaxQueuePersons {
+	// A line with a wait over world.MaxLineWait sends the planner to
+	// another lift; the cap is bypassed when Patience < 0.05 so GoHome
+	// routing can still ride up and exit a lift base.
+	if s.Patience >= 0.05 && l.LineWait() > world.MaxLineWait {
 		return false
 	}
 	// Reject if the guest can't afford this lift. Pass holders skip the budget
@@ -173,7 +163,7 @@ func (a *JoinQueue) Cost(s *WorldSnapshot, w *world.World) float32 {
 	if l == nil {
 		return math.MaxFloat32
 	}
-	return float32(l.QueueLen()) * queueSlotSec
+	return l.LineWait()
 }
 
 // RideLift is folded board + ride + unload: the planner doesn't see the
@@ -207,15 +197,16 @@ func (a *RideLift) Cost(s *WorldSnapshot, w *world.World) float32 {
 		return math.MaxFloat32
 	}
 	ride := l.LoopLength() / (2 * l.Speed)
-	// A lift with nothing at the guest's own level is a fallback: they'll
-	// ride it when nothing better runs, and wish for harder terrain.
-	if !w.ServicesForLift(a.LiftID).Has(skillLevel(s.Skill)) {
+	// A lift with nothing at the guest's own level, off its top or
+	// branching off those runs, is a fallback: they'll ride it when
+	// nothing better runs, and wish for harder terrain.
+	if !w.TerrainForLift(a.LiftID).Has(skillLevel(s.Skill)) {
 		ride += belowLevelPenaltySec
 	}
 	// Terrain that suits the guest's tastes makes a lift the better ride.
 	if c, ok := w.LiftConditions(a.LiftID); ok {
 		// The line is how crowded the lift is.
-		c[ai.TasteCrowds] = min(1, float32(l.QueueLen())/float32(MaxQueuePersons))
+		c[ai.TasteCrowds] = min(1, l.LineWait()/world.MaxLineWait)
 		var m float32
 		for k := range c {
 			m += s.Tastes[k] * c[k]
@@ -442,7 +433,7 @@ func (a *WalkToTicketOffice) Precondition(s *WorldSnapshot, w *world.World) bool
 	if s.HasSeasonPass {
 		return false
 	}
-	if s.HasDayTicket && s.RemainingBudget < passCost(s, w) {
+	if s.HasDayTicket && s.RemainingBudget < passCost(s, w)+passReserve {
 		return false
 	}
 	b := findBuilding(w, a.OfficeID, world.BuildingLodge)
@@ -539,8 +530,13 @@ func (a *BuySeasonPass) Name() string {
 
 func (a *BuySeasonPass) Precondition(s *WorldSnapshot, w *world.World) bool {
 	return !s.Removed && s.AtTicketOffice == a.OfficeID && !s.HasSeasonPass &&
-		s.RemainingBudget >= passCost(s, w)
+		s.RemainingBudget >= passCost(s, w)+passReserve
 }
+
+// passReserve is what a guest keeps back for the day's lunch and drinks
+// before buying a season pass, so a pass doesn't leave them unable to
+// buy a drink.
+const passReserve = float32(world.DefaultMealPrice + 2*world.DefaultDrinkPrice)
 
 func (a *BuySeasonPass) Apply(s *WorldSnapshot, w *world.World) {
 	s.RemainingBudget -= passCost(s, w)
@@ -596,11 +592,19 @@ func (a *UseService) Apply(s *WorldSnapshot, w *world.World) {
 
 func (a *UseService) Cost(s *WorldSnapshot, w *world.World) float32 {
 	c := world.OfferDuration(a.Use)
+	if a.Use == ai.OfferWater {
+		c += waterPenalty
+	}
 	if b := findBuilding(w, a.BldgID, world.BuildingLodge); b != nil {
 		c += b.ExpectedWait(a.Use)
 	}
 	return c
 }
+
+// waterPenalty makes free water dearer to plan than a drink (a drink
+// takes ten clock minutes, water one), so a guest who'll buy a drink
+// buys one unless the counter's line is long, and water is for the rest.
+const waterPenalty = world.SimSecondsPerHour / 6
 
 // affordable reports whether the guest will pay for o at b: free, or
 // within what they have left and under world.RefuseRatio of what they

@@ -32,7 +32,7 @@ func goalTargetStep(k world.GoalKind) (step, def float64) {
 	case world.GoalGuestsInDay:
 		return 100, 1000
 	case world.GoalRating:
-		return 0.05, 0.7
+		return 0.1, 3
 	case world.GoalCash:
 		return 10000, 100000
 	}
@@ -49,7 +49,7 @@ func goalHasDays(k world.GoalKind) bool {
 func formatGoalTarget(g world.Goal) string {
 	switch g.Kind {
 	case world.GoalRating:
-		return fmt.Sprintf("%.0f%%", g.Target*100)
+		return world.FormatStars(float32(g.Target)) + " stars"
 	case world.GoalCash:
 		return "$" + world.CommaInt(int(g.Target))
 	}
@@ -140,10 +140,11 @@ func (t *goalsTab) rebuild() {
 			return func() {
 				step, _ := goalTargetStep(g().Kind)
 				v := g().Target + d*step
+				lo := step
 				if g().Kind == world.GoalRating {
-					v = min(v, 1)
+					v, lo = min(v, world.MaxStars), 1
 				}
-				g().Target = max(v, step)
+				g().Target = max(v, lo)
 			}
 		}
 		days := func(d int) func() { return func() { g().Days = clampInt(g().Days+d, 1, maxGoalDays) } }

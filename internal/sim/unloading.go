@@ -12,17 +12,25 @@ import (
 
 // Unloading is a rider getting off a chair at the top station: they stand
 // up where their seat is, glide straight ahead onto the apron (away from
-// the cable), peel off to their seat's side, and only then hand over to
-// normal skiing. The path is scripted, so balance stays full and nothing
+// the cable and past the station's legs and hut), peel off toward the
+// trail they're about to ski (or their seat's side, when it's dead
+// ahead), and only then hand over to normal skiing. The path is scripted, so balance stays full and nothing
 // steers them over the station. Falls getting off are a roll when they
 // stand up (unloadFallChance), not the balance model.
 
 const (
 	unloadSpeed     = float32(2.5)                // m/s down the unload ramp
-	unloadStraight  = float32(4)                  // metres straight ahead before peeling off
-	unloadPeel      = float32(6)                  // metres of arc away from the lift line
+	unloadStraight  = float32(5)                  // metres straight ahead before peeling off: clear of the station
+	unloadPeel      = float32(10)                 // metres of arc away from the lift line
 	unloadPeelOuter = float32(70 * math.Pi / 180) // turn by the end of the arc, outermost seats
 	unloadPeelInner = float32(30 * math.Pi / 180) // turn for seats next to the chair's middle
+	// Aiming for a trail: the peel turns at least unloadAimMin and at most
+	// unloadAimMax toward it; a trail within unloadAimMin of straight ahead
+	// leaves the seat-side peel. The aim is unloadAimAlong metres down the
+	// trail's centre line from its point nearest the top.
+	unloadAimMin   = float32(25 * math.Pi / 180)
+	unloadAimMax   = float32(100 * math.Pi / 180)
+	unloadAimAlong = float32(20)
 )
 
 // startUnloading takes a rider off the chair at the top of lift: placed
@@ -44,10 +52,75 @@ func (s *Simulation) startUnloading(a *world.Guest, lift *world.Lift, slotIdx in
 		Side:   seatSide(slotIdx, len(lift.Chairs[0].Passengers), slots),
 		SeatY:  max(seat[1]-ground, 0),
 	}
+	// By default, toward the seat's side: more for the outer seats.
+	// ChairPos's perpendicular is (-cos h, sin h): turning toward +side
+	// means a smaller heading.
+	side := a.Unload.Side
+	turn := unloadPeelInner + (unloadPeelOuter-unloadPeelInner)*float32(math.Abs(float64(side)))
+	if side > 0 {
+		turn = -turn
+	}
+	a.Unload.Turn = turn
 	if rng.Global().Float32() < unloadFallChance(a.Traits.Skill, lift.Type) {
 		// Somewhere between finding their feet and the middle of the peel.
 		a.Unload.FallAt = 1 + rng.Global().Float32()*(unloadStraight+unloadPeel/2-1)
 	}
+}
+
+// aimUnload turns a rider's peel toward where their plan sends them
+// first, once the plan has moved on from the ride: into the trail they'll
+// ski, else the next step's target.
+func (s *Simulation) aimUnload(a *world.Guest) {
+	aim, ok := s.unloadAim(a)
+	if !ok {
+		return
+	}
+	want := float32(math.Atan2(float64(aim[0]-a.Pos[0]), float64(aim[1]-a.Pos[2])))
+	d := wrapAngle(want - a.Heading)
+	mag := float32(math.Abs(float64(d)))
+	if mag < unloadAimMin {
+		return // dead ahead: the seat decides
+	}
+	mag = min(mag, unloadAimMax)
+	if d < 0 {
+		mag = -mag
+	}
+	a.Unload.Turn = mag
+}
+
+// unloadAim is the point a rider getting off makes for.
+func (s *Simulation) unloadAim(a *world.Guest) (mgl32.Vec2, bool) {
+	pos := mgl32.Vec2{a.Pos[0], a.Pos[2]}
+	if id := plannedTrail(a); id != 0 {
+		if t := s.World.FindTrail(id); t != nil {
+			if line := t.Centerline(); len(line) > 0 {
+				near, best := 0, float32(math.Inf(1))
+				for i, p := range line {
+					if d := p.Pos.Sub(pos).Len(); d < best {
+						near, best = i, d
+					}
+				}
+				// Down the trail: toward whichever end is further from here.
+				step := 1
+				if line[0].Pos.Sub(pos).Len() > line[len(line)-1].Pos.Sub(pos).Len() {
+					step = -1
+				}
+				i, gone := near, float32(0)
+				for gone < unloadAimAlong && i+step >= 0 && i+step < len(line) {
+					gone += line[i+step].Pos.Sub(line[i].Pos).Len()
+					i += step
+				}
+				return line[i].Pos, true
+			}
+			if x, z, ok := t.NearestCellCenter(pos[0], pos[1]); ok {
+				return mgl32.Vec2{x, z}, true
+			}
+		}
+	}
+	if p, ok := planTargetWorldPos(s.World, a); ok {
+		return mgl32.Vec2{p[0], p[2]}, true
+	}
+	return mgl32.Vec2{}, false
 }
 
 // unloadFallChance is the chance a rider falls getting off: beginners
@@ -103,14 +176,7 @@ func (s *Simulation) tickUnloading(a *world.Guest, dt float64) {
 	}
 	step := unloadSpeed * float32(dt)
 	if u.Gone >= unloadStraight || s.fallenAhead(a) {
-		side := u.Side
-		turn := unloadPeelInner + (unloadPeelOuter-unloadPeelInner)*float32(math.Abs(float64(side)))
-		if side < 0 {
-			turn = -turn
-		}
-		// ChairPos's perpendicular is (-cos h, sin h): turning toward +side
-		// means a smaller heading.
-		a.Heading = wrapAngle(a.Heading - turn*step/unloadPeel)
+		a.Heading = wrapAngle(a.Heading + u.Turn*step/unloadPeel)
 	}
 	a.Pos[0] += float32(math.Sin(float64(a.Heading))) * step
 	a.Pos[2] += float32(math.Cos(float64(a.Heading))) * step

@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-gl/mathgl/mgl32"
 
+	"mountain-mogul/internal/ai"
 	"mountain-mogul/internal/ai/goap"
 	"mountain-mogul/internal/world"
 )
@@ -321,4 +322,36 @@ func planSkiRoute(t *world.Terrain, a, b mgl32.Vec2, prof *routeProfile) []mgl32
 		i = j + 1
 	}
 	return out
+}
+
+// trailAhead is how far down the trail a guest skiing one aims, in
+// metres: near enough that the route there follows the run's shape, far
+// enough to pick a line.
+const trailAhead = float32(50)
+
+// trailCarrot is where a guest skiing a trail aims: trailAhead down the
+// trail's centre line from where they are, toward goal (the step's end),
+// rather than at goal itself, which on a winding run can lie across
+// other trails. goal once it's nearer than that, and for anyone not
+// skiing a run with a centre line.
+func (s *Simulation) trailCarrot(a *world.Guest, goal mgl32.Vec3) mgl32.Vec3 {
+	if !a.SkisOn || a.Plan.Head().Kind != ai.ActSkiTrail {
+		return goal
+	}
+	line := s.World.TrailLine(plannedTrail(a))
+	if line == nil {
+		return goal
+	}
+	here := line.Nearest(mgl32.Vec2{a.Pos[0], a.Pos[2]})
+	end := line.Nearest(mgl32.Vec2{goal[0], goal[2]})
+	left := line.Along[end] - line.Along[here]
+	if abs32(left) <= trailAhead {
+		return goal
+	}
+	d := line.Along[here] + trailAhead
+	if left < 0 {
+		d = line.Along[here] - trailAhead
+	}
+	p := line.Samples[line.AtAlong(d)].Pos
+	return mgl32.Vec3{p[0], s.World.Terrain.InterpolatedSurfaceElevationAt(p[0], p[1]), p[1]}
 }

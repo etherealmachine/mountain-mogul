@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/go-gl/mathgl/mgl32"
+	"mountain-mogul/internal/ai"
 	"mountain-mogul/internal/world"
 )
 
@@ -62,11 +63,15 @@ func (s *Simulation) logAvalanches(n int, cell [2]int) {
 	s.World.LogEventAt(world.EventAvalanche, s.SimTime, msg, cellCentre(cell), 0)
 }
 
-// logDaySummary records the end-of-day recap for the sample just pushed.
-func (s *Simulation) logDaySummary(d world.DailySample) {
-	s.World.LogEvent(world.EventDaySummary, s.SimTime, fmt.Sprintf(
-		"%s recap: %d arrivals, $%d in, $%d out",
-		d.Day.Format("Jan 2"), d.ArrivalsToday, d.Revenue, d.Costs))
+// logDaySummary records the end-of-day recap for the sample just pushed,
+// with the moment behind most of the day's reviews below 3★.
+func (s *Simulation) logDaySummary(d world.DailySample, why ai.ThoughtKind) {
+	msg := fmt.Sprintf("%s recap: %d arrivals, %.1f stars, $%d in, $%d out",
+		world.FormatGameDate(d.Day, false), d.ArrivalsToday, d.Rating, d.Revenue, d.Costs)
+	if why != ai.ThoughtNone {
+		msg += "; most heard: " + ai.ThoughtLabel[why]
+	}
+	s.World.LogEvent(world.EventDaySummary, s.SimTime, msg)
 }
 
 // cellCentre converts a terrain cell index to its world XZ in metres.

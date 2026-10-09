@@ -18,7 +18,7 @@ import (
 // sim-seconds the system walks the catchment and rolls a Bernoulli per
 // AtHome guest:
 //
-//	p_per_poll(g) = (g.VisitsPerSeason / seasonDays) * pollFraction
+//	p_per_poll(g) = (g.VisitsPerSeason / world.SeasonDays) * dayTypeDemand * pollFraction
 //	              * clamp(ResortRating) * terrainMatch(g.Skill) * (1 - occupancy)
 //	              * visitPriceFactor(g, rating)
 //	              * (1 − RentalShare × NoRentalsStayHome, with no rental shop and no pass)
@@ -30,8 +30,8 @@ import (
 // return to AtHome (career stats incremented), ready to be rolled again
 // on a future poll.
 //
-// The resort rating is the average final Satisfaction of the guests who
-// left on the previous day (set at rollover from History.DayRating), so
+// The resort rating is the average stars of the guests who left on the
+// previous day (set at rollover from History.DayRating), so
 // it reflects completed sessions — word-of-mouth from guests who
 // finished their day — rather than whoever happens to be mid-run.
 
@@ -45,14 +45,26 @@ const demandPollInterval = 30.0
 // guests have departed — neutral, so demand picks up at 50% of the
 // headline rate until real departures start folding in.
 
-// seasonDaysApprox is the constant divisor for per-day visit rates.
-// Real season length varies year-to-year as Memorial Day moves, but the
-// difference is ~2% — not worth a per-poll recompute.
-const seasonDaysApprox = 186.0
+// A guest's VisitsPerSeason spread over the season's game days
+// (world.SeasonDays) gives their visits a day, scaled by how busy the day
+// is (dayTypeDemand).
+
+// dayTypeDemand scales a day's visits by its kind (world.HolidayAt): a
+// holiday brings two and a half times an ordinary day's crowd, a named
+// one nearly seven times. Over a season (40 ordinary days, six holidays,
+// four named) they average about 1, so a season still brings each guest
+// VisitsPerSeason.
+var dayTypeDemand = [...]float32{
+	world.OrdinaryDay:  0.6,
+	world.Holiday:      1.5,
+	world.NamedHoliday: 4.0,
+}
 
 // Capacity formula constant. avgSessionSec is how long a typical guest
-// occupies a lift seat across one cycle (queue + ride + descent).
-const avgSessionSec = 800.0
+// takes over one lift cycle (line, ride, and descent): about 1,500 s on
+// the Boreal Goals Test, where a guest rides about three times in five
+// and a half clock hours (measured 2026-10-09).
+const avgSessionSec = 1500.0
 
 // guestsPerTrailCell is the terrain-density tuning knob for TerrainCapacity.
 // Each unique 5×5 m trail cell supports this many simultaneous guests —
@@ -126,8 +138,10 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 		return
 	}
 
-	rating := clamp01(s.World.Rating)
+	rating := s.World.RatingShare()
 	occFactor := 1 - occupancy
+	dayType, _ := world.HolidayAt(s.DateAt(s.SimTime))
+	busy := dayTypeDemand[dayType]
 	hasOffice := hasTicketOffice(s.World)
 	hasRentals := anyRentals(s.World)
 	if !hasParking(s.World) {
@@ -147,7 +161,7 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 		if match == 0 {
 			continue
 		}
-		dailyRate := g.VisitsPerSeason / seasonDaysApprox
+		dailyRate := g.VisitsPerSeason / world.SeasonDays * busy
 		p := dailyRate * float32(arrivalShare(s.World, g, h0, h1)) * rating * match * occFactor * priceFactor
 		if !hasRentals && !hasValidPass(g, s.SimTime) {
 			// Some who'd have rented skis stay home from a resort with
@@ -265,11 +279,11 @@ func hasValidPass(g *world.Guest, simTime float64) bool {
 }
 
 // recordDeparture is called once when a guest's car leaves the map
-// (finishDeparture). Captures their final score as LastScore and bumps
+// (finishDeparture). Captures the stars they left as LastStars and bumps
 // career stats. The day's departures set the rating at rollover
 // (History.DayRating).
-func (d *DemandSystem) recordDeparture(w *world.World, g *world.Guest, score float32, today time.Time) {
-	g.LastScore = score
+func (d *DemandSystem) recordDeparture(w *world.World, g *world.Guest, stars float32, today time.Time) {
+	g.LastStars = stars
 	g.LifetimeVisits++
 	g.VisitsThisSeason++
 	g.LastVisit = today
@@ -303,28 +317,12 @@ func resetSeasonCounters(w *world.World) {
 // =============================================================================
 
 // resortCapacity is the "comfortable guests-at-once" estimate used to
-// gate demand. Sum over lifts of (chairs × seats per chair) × session
-// length / loop time — i.e. how many skier-seats turn over within one
-// typical session.
+// gate demand: each lift's riders a second (Lift.RidersPerSecond) times
+// how long a typical guest takes over a cycle (avgSessionSec).
 func resortCapacity(w *world.World) float32 {
 	var total float32
 	for _, l := range w.Lifts {
-		if len(l.Chairs) == 0 {
-			continue
-		}
-		seats := len(l.Chairs[0].Passengers)
-		if seats == 0 {
-			continue
-		}
-		loop := l.LoopLength()
-		if loop <= 0 || l.Speed <= 0 {
-			continue
-		}
-		loopTime := loop / (2 * l.Speed)
-		if loopTime <= 0 {
-			continue
-		}
-		total += float32(len(l.Chairs)*seats) / loopTime * avgSessionSec
+		total += l.RidersPerSecond() * avgSessionSec
 	}
 	return total
 }

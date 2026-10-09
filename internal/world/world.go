@@ -148,6 +148,8 @@ type World struct {
 	// green under a blue still counts for a beginner. Read through
 	// TrailDiffsAt.
 	trailDiffs []TerrainDifficulty
+	// trailLines caches each run's centre line (TrailLine).
+	trailLines map[uint64]*TrailLine
 
 	// Guests is the master catchment — every potential visitor the resort
 	// could ever attract, ~10k entries seeded at world init. Identity +
@@ -261,8 +263,9 @@ type World struct {
 	// OutcomeDay is the day index the scenario was won or lost.
 	OutcomeDay int
 
-	// Rating is the resort rating, 0–1: a running average of departing
-	// guests' satisfaction (sim.DemandSystem), shown as the HUD's heart.
+	// Rating is the resort rating in stars, 1–5: the average stars the
+	// guests who left the last day with departures gave (Review), shown
+	// as the HUD's heart. RatingShare puts it on 0–1 for demand.
 	Rating float32
 
 	// Lakes are the map's lakes and ponds and their ice; their cells are
@@ -327,8 +330,15 @@ func NewWorld(terrain *Terrain) *World {
 	}
 }
 
-// InitialRating is a new resort's rating, before any guest has left.
-const InitialRating = 0.5
+// InitialRating is a new resort's rating in stars, before any guest has
+// left.
+const InitialRating = 3.0
+
+// RatingShare is the rating on 0–1 (1★ is 0, 5★ is 1), for demand and
+// the ticket price.
+func (w *World) RatingShare() float32 {
+	return min(max((w.Rating-1)/(MaxStars-1), 0), 1)
+}
 
 // Available returns what the player can spend right now: cash plus the
 // undrawn part of the credit line. Negative when below the credit floor.

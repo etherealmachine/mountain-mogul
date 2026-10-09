@@ -108,11 +108,21 @@ type needSpec struct {
 // sours their day, and above GoHome's base when nearly empty.
 func bodilyWeight(u float32, _ *WorldSnapshot) float32 { return 1.05 + (u - 0.75) }
 
+// mealFrom is the urgency at which hunger and thirst start to press:
+// with 55% left, enough for a beginner's slow descent of a long green
+// (up to an hour of clock time on the Boreal Goals Test) before the
+// grace period runs out.
+const mealFrom = 0.45
+
+// mealWeight is bodilyWeight from where hunger and thirst start.
+func mealWeight(u float32, _ *WorldSnapshot) float32 { return 1.05 + (u - mealFrom) }
+
 var needSpecs = [ai.NeedCount]needSpec{
-	// Hunger and thirst press below a quarter left, and a meal or a drink
-	// fills them.
-	ai.NeedHunger: {from: 0.75, done: 0.75, weight: bodilyWeight, preempts: true},
-	ai.NeedThirst: {from: 0.75, done: 0.75, weight: bodilyWeight, preempts: true},
+	// Hunger and thirst press below 55% left, early enough to reach a
+	// meal or a drink from up the mountain before they go hungry or
+	// thirsty (at 15%), and a meal or a drink fills them.
+	ai.NeedHunger: {from: mealFrom, done: mealFrom, weight: mealWeight, preempts: true},
+	ai.NeedThirst: {from: mealFrom, done: mealFrom, weight: mealWeight, preempts: true},
 	// Rest presses only when energy or patience is nearly gone (under
 	// 0.15), and a rest runs until both are back over 0.85. Quadratic, so
 	// skiing wins until the guest is genuinely spent; nearly empty it tops
@@ -245,7 +255,29 @@ func liftAccessible(l *world.Lift, skill float32, w *world.World) bool {
 	if diff == 0 {
 		return true // Advanced: no filter
 	}
+	if ai.Novice(skill) {
+		// Only where the lift's terrain, runs off the top and the runs
+		// branching off them, is all green.
+		return w.TerrainForLift(l.ID) == world.DiffGreen
+	}
 	return w.ServicesForLift(l.ID).Has(diff)
+}
+
+// LiftAccessible reports whether a guest at skill would ride l, judging
+// only by the runs off its top.
+func LiftAccessible(l *world.Lift, skill float32, w *world.World) bool {
+	return liftAccessible(l, skill, w)
+}
+
+// runningLiftFor reports whether any open lift not on hold is one a guest
+// at skill would ride.
+func runningLiftFor(skill float32, w *world.World) bool {
+	for _, l := range w.Lifts {
+		if l.Open && !l.OnHold && liftAccessible(l, skill, w) {
+			return true
+		}
+	}
+	return false
 }
 
 // goHomeClosedWeight outranks every other goal's weight (rest tops out

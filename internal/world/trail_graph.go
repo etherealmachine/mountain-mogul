@@ -298,6 +298,34 @@ func (w *World) ServicesForLift(liftID uint64) TerrainDifficulty {
 	return services
 }
 
+// TerrainForLift is the terrain a lift advertises: the difficulties of
+// the runs off its top and of the runs that branch off those, since a
+// lift's top is often an easy run with the harder ones leaving it further
+// down. One level of branching only: the runs near the base interconnect,
+// so going further would have most lifts serving everything.
+// ServicesForLift (runs off the top only) answers whether a guest can get
+// down from the top.
+func (w *World) TerrainForLift(liftID uint64) TerrainDifficulty {
+	if w.TrailGraph == nil {
+		return 0
+	}
+	var terrain TerrainDifficulty
+	for _, e := range w.TrailGraph.Edges {
+		if e.FromID != liftID || e.FromKind != KindLiftTop {
+			continue
+		}
+		if t := w.FindTrail(e.TrailID); t != nil {
+			terrain |= t.Difficulty
+		}
+		if e.ToKind == KindTrail {
+			if t := w.FindTrail(e.ToID); t != nil {
+				terrain |= t.Difficulty
+			}
+		}
+	}
+	return terrain
+}
+
 // trailTouchesDoor reports whether a trail covers door cell d or one of
 // its 4-neighbours (shell cells themselves are never trail cells).
 func trailTouchesDoor(cellSet map[[2]int]bool, d [2]int) bool {

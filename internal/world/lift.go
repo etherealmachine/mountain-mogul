@@ -270,6 +270,8 @@ type Lift struct {
 	// placement, so the slice can be reused across the per-tick L1
 	// hazard sampler instead of rebuilt every call.
 	towerCache []mgl32.Vec2
+	// stationCache memoises StationXZs(), as towerCache does.
+	stationCache []mgl32.Vec2
 }
 
 // LoopLength returns the total length of the chair loop in metres (2× cable length).
@@ -331,6 +333,7 @@ func (l *Lift) TowerXZs() []mgl32.Vec2 {
 // mutating Base or Top so the next TowerXZs() call recomputes.
 func (l *Lift) ResetTowerCache() {
 	l.towerCache = nil
+	l.stationCache = nil
 }
 
 // QueueCell returns the grid cell containing the lift's base — the
@@ -654,8 +657,9 @@ func (l *Lift) backOfLinesWorldPos(t *Terrain) mgl32.Vec3 {
 
 // BoardNextPair pulls up to cap guests from the configured lines using
 // a round-robin over regular pair lanes (one pair per turn) with both
-// single-rider lanes combined as one additional turn. If a pair lane
-// contributes fewer than cap guests, single-rider lines fill the gap.
+// single-rider lanes combined as one additional turn. Turns continue
+// until the chair is full or every lane has had one, so a quad loads a
+// pair from each of two lanes; then single-rider lines fill any gap.
 func (l *Lift) BoardNextPair(cap int) []*Guest {
 	if len(l.Lines) == 0 {
 		return nil
@@ -682,15 +686,12 @@ func (l *Lift) BoardNextPair(cap int) []*Guest {
 	var taken []*Guest
 	usedSingles := false
 
-	for attempts := 0; attempts < totalTurns; attempts++ {
+	for attempts := 0; attempts < totalTurns && len(taken) < cap; attempts++ {
 		turn := l.QueueRound % totalTurns
 		l.QueueRound++
 
 		if turn < len(regularIdxs) {
 			li := &l.Lines[regularIdxs[turn]]
-			if len(li.Guests) == 0 {
-				continue
-			}
 			take := cap - len(taken)
 			if take > 2 {
 				take = 2
@@ -700,7 +701,7 @@ func (l *Lift) BoardNextPair(cap int) []*Guest {
 				li.Guests = li.Guests[1:]
 				take--
 			}
-			break
+			continue
 		}
 		// Single-rider turn: 1 from each side, combined.
 		usedSingles = true
@@ -713,9 +714,6 @@ func (l *Lift) BoardNextPair(cap int) []*Guest {
 				taken = append(taken, li.Guests[0])
 				li.Guests = li.Guests[1:]
 			}
-		}
-		if len(taken) > 0 {
-			break
 		}
 	}
 
@@ -897,4 +895,83 @@ func (t LiftType) RunningCostDay() int {
 		return 3_000 // pilot + fuel
 	}
 	return 0
+}
+
+// Where a station's solid parts stand at ground level, in metres from
+// its bullwheel: back along the line, away from the other end (see
+// models-src/lift_station.scad). The portal frame's legs stand either
+// side of the line; the operator's hut is on the side the empty chairs
+// come back on, and is long enough to take two points.
+const (
+	stationLegBack  = 2.2
+	stationLegSide  = 3.6
+	stationHutBack  = 3.4
+	stationHutSide  = 5.0
+	stationHutReach = 0.6 // either side of the hut's middle, along the line
+)
+
+// StationXZs is where skiers have to steer round the lift's stations,
+// at both ends: the portal frame's legs and the operator's hut. Nil for
+// a helicopter.
+func (l *Lift) StationXZs() []mgl32.Vec2 {
+	if l.stationCache != nil || l.IsHeli() {
+		return l.stationCache
+	}
+	var out []mgl32.Vec2
+	for _, end := range [2][2]mgl32.Vec2{{l.Base, l.Top}, {l.Top, l.Base}} {
+		at, other := end[0], end[1]
+		u := other.Sub(at)
+		if u.Len() < 1e-3 {
+			continue
+		}
+		u = u.Normalize()
+		// The station model's +Y (the hut's side), in world XZ.
+		side := mgl32.Vec2{u[1], -u[0]}
+		place := func(back, across float32) mgl32.Vec2 {
+			return at.Sub(u.Mul(back)).Add(side.Mul(across))
+		}
+		out = append(out,
+			place(stationLegBack, stationLegSide),
+			place(stationLegBack, -stationLegSide),
+			place(stationHutBack-stationHutReach, stationHutSide),
+			place(stationHutBack+stationHutReach, stationHutSide),
+		)
+	}
+	l.stationCache = out
+	return out
+}
+
+// LiftQuality is the quality of a lift ride as a service, toward a
+// guest's quality stars (Guest.UseService): the going rate until lift
+// attendants are staffed (notes/next/Service Quality.md).
+const LiftQuality = 0.5
+
+// Line waits. A guest won't join a line whose wait is over MaxLineWait
+// (they look for another lift, or say "every lift line is way too
+// long"), and calls one over LongLineWait long. Both are clock time.
+const (
+	MaxLineWait  = SimSecondsPerHour / 2
+	LongLineWait = SimSecondsPerHour / 4
+	// fallbackSecPerRider is the wait per person ahead for a lift with no
+	// chairs to count (a heli).
+	fallbackSecPerRider = 8.0
+)
+
+// RidersPerSecond is how many riders the lift loads a second: every
+// chair passes the base once a loop.
+func (l *Lift) RidersPerSecond() float32 {
+	loop := l.LoopLength()
+	if len(l.Chairs) == 0 || l.Speed <= 0 || loop <= 0 {
+		return 0
+	}
+	return float32(len(l.Chairs)*len(l.Chairs[0].Passengers)) * l.Speed / loop
+}
+
+// LineWait is about how long a guest joining the back of the line would
+// wait to board, in sim seconds.
+func (l *Lift) LineWait() float32 {
+	if rps := l.RidersPerSecond(); rps > 0 {
+		return float32(l.QueueLen()) / rps
+	}
+	return float32(l.QueueLen()) * fallbackSecPerRider
 }

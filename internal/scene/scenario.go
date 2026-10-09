@@ -509,6 +509,9 @@ type Scenario struct {
 	// from the first dt so the first frame doesn't read as 0 fps.
 	fpsSmoothed   float32
 	paused        bool
+	pace          int     // index into dayPaces
+	skipping      bool    // skipping ahead to the next storm
+	fixedScale    float64 // a fixed time scale from the command line; 0 uses the pace
 	popup         *ui.Window
 	saveAllowed   bool   // false in testbed mode; gates the Save prompt
 	saveName      string // last name used for Save; pre-fills the prompt next time
@@ -617,22 +620,55 @@ const (
 	trackMaxPoints  = 6000 // hard cap; old points dropped when exceeded
 )
 
-// speedOptions lists the time-scale presets shown in the top bar. A clock
-// day is world.SecondsPerSimDay (21,600 sim s): 6 wall hours at 1×, which
-// shows movement at real speed; 1.5 hours at 4×; 18 minutes at 20×. Turbo
-// (turboOptions) gets through nights and off days: about 45 seconds a day
-// at 500×. The simulation substeps internally (see Simulation.Tick) so the
-// L1 controller still sees a small dt at the upper preset. Pause is its
-// own button — not in this list.
-var speedOptions = []float64{1, 4, 20}
+// dayPaces are the speed buttons: the real seconds a game day takes at
+// normal, fast, and fastest (Season Calendar). The hours from
+// activeFromHour to activeToHour share the pace less quietSeconds; the
+// quiet rest of the day (night, or a day the resort is closed, with
+// nobody on the mountain) passes in quietSeconds. Clicking the fastest
+// button again skips ahead at the quiet pace to the next storm. The sim
+// substeps internally (see Simulation.Tick), so a fast pace only costs
+// CPU; when a busy day needs more than the CPU has, the day runs slower
+// than its pace. Pause is its own button, not in this list.
+var dayPaces = []float64{320, 160, 80}
 
-// turboOptions are the tiers reached by clicking the fastest speed button
-// again while it's already running. Turbo fast-forwards to the next storm
-// and drops to paused 1× just before it (Simulation.NextStormStop).
-// Sim cost grows with the multiplier, so the top tiers only hold their
-// nominal rate on a quiet mountain; maxWallDtSec in Tick keeps a slow
-// frame from stalling.
-var turboOptions = []float64{50, 100, 200, 500}
+const (
+	activeFromHour = 6.0
+	activeToHour   = 17.0
+	quietSeconds   = 2.0
+)
+
+// paceScale is the sim seconds a real second runs at for pace seconds a
+// day: the active hours, or, when quiet, the quiet ones.
+func paceScale(pace float64, quiet bool) float64 {
+	activeHours := activeToHour - activeFromHour
+	if quiet {
+		return (24 - activeHours) * world.SimSecondsPerHour / quietSeconds
+	}
+	return activeHours * world.SimSecondsPerHour / (pace - quietSeconds)
+}
+
+// quietNow reports whether the mountain is quiet: outside the active
+// hours or closed for the day, with no guests or cars about.
+func (s *Scenario) quietNow() bool {
+	h := sim.HourOfDay(s.sim.SimTime)
+	if h >= activeFromHour && h < activeToHour && s.world.ResortOpen {
+		return false
+	}
+	return len(s.world.OnMountain) == 0 && len(s.world.Cars) == 0
+}
+
+// updateTimeScale sets the sim's time scale for this frame from the
+// chosen pace, the storm skip, or a fixed scale from the command line.
+func (s *Scenario) updateTimeScale() {
+	switch {
+	case s.fixedScale > 0:
+		s.sim.TimeScale = s.fixedScale
+	case s.skipping:
+		s.sim.TimeScale = paceScale(0, true)
+	default:
+		s.sim.TimeScale = paceScale(dayPaces[s.pace], s.quietNow())
+	}
+}
 
 // stormSearchDays is how far ahead turbo looks for a storm to stop at.
 const stormSearchDays = 90
@@ -733,7 +769,7 @@ func (s *Scenario) SetTimeScale(mult float64) {
 		return
 	}
 	s.paused = false
-	s.setTimeScale(mult)
+	s.fixedScale = mult
 }
 
 // SurfaceAt is the snow surface's height at world (x, z), or 0 before
@@ -972,7 +1008,7 @@ func (s *Scenario) Init(app *engine.App) error {
 	s.topBar = ui.NewTopBar(topBarH)
 	s.topBar.GetCash = func() int { return s.world.Cash }
 	s.topBar.GetGuests = func() int { return len(s.world.OnMountain) }
-	s.topBar.GetHappiness = func() float32 {
+	s.topBar.GetRating = func() float32 {
 		if s.sim == nil || s.sim.Demand == nil {
 			return 0
 		}
@@ -982,13 +1018,21 @@ func (s *Scenario) Init(app *engine.App) error {
 		d := sim.CalendarAt(s.world.StartDate, s.sim.SimTime)
 		return d.Day, d.Month, d.Year
 	}
+	s.topBar.GetHoliday = func() string {
+		switch kind, name := world.HolidayAt(s.sim.DateAt(s.sim.SimTime)); kind {
+		case world.NamedHoliday:
+			return name
+		case world.Holiday:
+			return "Holiday"
+		}
+		return ""
+	}
 	s.topBar.GetClock = func() (float64, float32, bool) {
 		return sim.HourOfDay(s.sim.SimTime), s.sim.TempNow(), s.sim.LiftsRunning()
 	}
 	s.topBar.GetWeather = func() []ui.ForecastDay {
 		today := s.sim.Weather.Today()
-		from := s.sim.DateAt(s.sim.SimTime)
-		forecast := s.sim.Weather.Forecast(from, 4)
+		forecast := s.sim.GameForecast(4)
 		days := make([]ui.ForecastDay, 1+len(forecast))
 		days[0] = ui.ForecastDay{
 			Weather:  weatherToUI(today.State),
@@ -1013,23 +1057,23 @@ func (s *Scenario) Init(app *engine.App) error {
 	s.lastGladeCell = [2]int{-1, -1}
 	s.lotTool.reset(0)
 
-	onSpeed := make([]func(), len(speedOptions))
-	for i, mult := range speedOptions {
-		mult := mult
+	onSpeed := make([]func(), len(dayPaces))
+	for i := range dayPaces {
 		idx := i
 		onSpeed[idx] = func() {
-			if idx == len(speedOptions)-1 {
+			s.fixedScale = 0
+			if idx == len(dayPaces)-1 {
 				switch {
-				case s.paused && s.sim.TimeScale > mult:
-					s.paused = false // resume the turbo tier we paused in
+				case s.paused && s.skipping:
+					s.paused = false // resume the skip we paused in
 					s.syncSpeedButtons()
 					return
-				case !s.paused && s.sim.TimeScale >= mult:
-					s.stepTurbo()
+				case !s.paused && s.pace == idx && !s.skipping:
+					s.startSkip()
 					return
 				}
 			}
-			s.setTimeScale(mult)
+			s.pace, s.skipping, s.sim.StopAt = idx, false, 0
 			s.paused = false
 			s.syncSpeedButtons()
 		}
@@ -1122,11 +1166,12 @@ func (s *Scenario) Init(app *engine.App) error {
 			GetData: func() []ui.ChartPoint { return thoughtsToDistribution(s.world) },
 		},
 		{
-			Title:   "Why guests left",
-			Icon:    render.IconFlag,
-			Kind:    ui.ChartThoughtRank,
-			Series:  departChartSeries(),
-			GetData: func() []ui.ChartPoint { return departReasonsToDistribution(s.world) },
+			Title:    "Reviews",
+			Icon:     render.IconFlag,
+			Kind:     ui.ChartThoughtRank,
+			Series:   reviewChartSeries(),
+			GetData:  func() []ui.ChartPoint { return reviewsToDistribution(s.world) },
+			GetTitle: func() string { return reviewsTitle(s.world) },
 		},
 		{
 			Title: "Resort overview",
@@ -1285,38 +1330,6 @@ func thoughtsToDistribution(w *world.World) []ui.ChartPoint {
 		return []ui.ChartPoint{{Day: last.Day, Values: thoughtValuesFor(last.ThoughtCounts)}}
 	}
 	return []ui.ChartPoint{{Values: thoughtValuesFor(w.History.ThoughtCountsToday)}}
-}
-
-// departChartSeries is one series per departure reason, in enum order.
-func departChartSeries() []ui.ChartSeries {
-	var out []ui.ChartSeries
-	for r := ai.DepartReason(1); int(r) < ai.DepartReasonCount; r++ {
-		c := ai.DepartReasonColor[r]
-		out = append(out, ui.ChartSeries{
-			Name:  ai.DepartReasonLabel[r],
-			Color: mgl32.Vec4{c[0], c[1], c[2], c[3]},
-		})
-	}
-	return out
-}
-
-// departReasonsToDistribution returns the last completed day's departure
-// reasons, or today's so far if no day has been pushed yet.
-func departReasonsToDistribution(w *world.World) []ui.ChartPoint {
-	if w == nil || w.History == nil {
-		return nil
-	}
-	counts := w.History.DepartReasonsToday
-	var day time.Time
-	if samples := w.History.Ordered(); len(samples) > 0 {
-		last := samples[len(samples)-1]
-		counts, day = last.DepartReasons, last.Day
-	}
-	vals := make([]float64, 0, ai.DepartReasonCount-1)
-	for r := 1; r < ai.DepartReasonCount; r++ {
-		vals = append(vals, float64(counts[r]))
-	}
-	return []ui.ChartPoint{{Day: day, Values: vals}}
 }
 
 // weatherToUI maps sim.WeatherState to the UI icon enum.
@@ -1543,76 +1556,52 @@ func (s *Scenario) syncSpeedButtons() {
 	if s.topBar == nil {
 		return
 	}
-	last := len(speedOptions) - 1
+	last := len(dayPaces) - 1
 	label := ""
-	if s.sim.TimeScale > speedOptions[last] {
-		label = fmt.Sprintf("%gx", s.sim.TimeScale)
+	if s.skipping {
+		label = "skip"
 	}
 	s.topBar.SetSpeedLabel(last, label)
 	if s.paused {
 		s.topBar.SetPauseActive(true)
 		return
 	}
-	active := -1
-	for i, mult := range speedOptions {
-		if s.sim.TimeScale == mult {
-			active = i
-			break
-		}
-	}
-	if s.sim.TimeScale > speedOptions[last] {
+	active := s.pace
+	if s.skipping {
 		active = last
 	}
 	s.topBar.SetSpeedActive(active)
 }
 
-// setTimeScale sets the sim speed; dropping out of turbo disarms the
-// storm stop.
-func (s *Scenario) setTimeScale(mult float64) {
-	s.sim.TimeScale = mult
-	if mult <= speedOptions[len(speedOptions)-1] {
-		s.sim.StopAt = 0
-	}
-}
-
-// stepTurbo moves up one turbo tier (staying on the top one) and, on
-// entering turbo, arms the stop just before the next storm.
-func (s *Scenario) stepTurbo() {
-	next := turboOptions[len(turboOptions)-1]
-	for _, m := range turboOptions {
-		if m > s.sim.TimeScale {
-			next = m
-			break
-		}
-	}
-	entering := s.sim.TimeScale <= speedOptions[len(speedOptions)-1]
-	s.setTimeScale(next)
-	if entering || s.sim.StopAt <= s.sim.SimTime {
-		s.sim.StopAt = 0
-		if stopAt, _, ok := s.sim.NextStormStop(stormSearchDays); ok {
-			s.sim.StopAt = stopAt
-		}
+// startSkip skips ahead at the quiet pace, stopping just before the next
+// storm.
+func (s *Scenario) startSkip() {
+	s.skipping = true
+	s.sim.StopAt = 0
+	stopAt, stormDay, ok := s.sim.NextStormStop(stormSearchDays)
+	if ok {
+		s.sim.StopAt = stopAt
 	}
 	s.syncSpeedButtons()
-	if s.sim.StopAt > 0 {
-		stormDay := s.sim.DateAt(s.sim.StopAt + sim.StormStopLead)
-		days := int(stormDay.Sub(s.sim.DateAt(s.sim.SimTime)).Hours()/24 + 0.5)
-		s.setToast(fmt.Sprintf("%gx — skipping to the storm on %s (%d days)", next, stormDay.Format("Jan 2"), days))
+	if ok {
+		days := world.GameDayIndex(stormDay) - world.GameDayIndex(s.sim.DateAt(s.sim.SimTime))
+		s.setToast(fmt.Sprintf("Skipping to the storm on %s (%d days)", world.FormatGameDate(stormDay, false), days))
 	} else {
-		s.setToast(fmt.Sprintf("%gx — no storm in the next %d days", next, stormSearchDays))
+		s.setToast(fmt.Sprintf("Skipping ahead: no storm in the next %d days", stormSearchDays))
 	}
 }
 
-// checkStormStop pauses at 1× once turbo reaches its storm stop.
+// checkStormStop pauses at normal speed once the skip reaches its storm
+// stop.
 func (s *Scenario) checkStormStop() {
 	if s.sim.StopAt <= 0 || s.sim.SimTime < s.sim.StopAt-1e-6 {
 		return
 	}
 	s.sim.StopAt = 0
-	s.sim.TimeScale = 1
+	s.skipping, s.pace = false, 0
 	s.paused = true
 	s.syncSpeedButtons()
-	s.setToast("Storm arriving tonight — paused at 1x. Press play to watch it roll in.")
+	s.setToast("Storm arriving tonight: paused. Press play to watch it roll in.")
 }
 
 func (s *Scenario) Update(dt float64) {
@@ -2179,6 +2168,7 @@ func (s *Scenario) Update(dt float64) {
 		if s.tickHook != nil {
 			s.tickHook(s.sim)
 		}
+		s.updateTimeScale()
 		s.sim.Tick(dt)
 		s.checkStormStop()
 	}
@@ -3460,8 +3450,8 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 	l := lift
 	w := ui.NewWindow("Ski Lift", 0, 0)
 	w.AddTextInput("Name", l.Name, func(text string) { l.Name = text })
-	w.AddLabel("Services", func() string {
-		svc := s.world.ServicesForLift(l.ID)
+	w.AddLabel("Terrain", func() string {
+		svc := s.world.TerrainForLift(l.ID)
 		switch {
 		case svc.Has(world.DiffGreen) && svc.Has(world.DiffBlue) && svc.Has(world.DiffBlack):
 			return "Green / Blue / Black"
@@ -4390,9 +4380,10 @@ func (f *followLabel) Draw(r *render.Renderer) {
 	for k, v := range tastes {
 		fmt.Fprintf(&tasteRow, "  %s %+.1f", ai.TasteName[k], v)
 	}
-	// The score so far, marked with the conditions on right now (those
-	// with a rate are costing it every clock hour).
-	score := fmt.Sprintf("score %d%%", int(f.agent.Satisfaction*100))
+	// The stars they'd leave now, marked with the conditions on right
+	// now (each counts as a moment once past its grace period).
+	review := f.agent.DayReview()
+	score := fmt.Sprintf("%.1f stars", review.Stars)
 	var tags []string
 	for k := ai.ThoughtKind(1); int(k) < ai.ThoughtKindCount; k++ {
 		if f.agent.Conditions.Has(k) && ai.ConditionTag[k] != "" {
@@ -4413,6 +4404,7 @@ func (f *followLabel) Draw(r *render.Renderer) {
 		tasteRow.String(),
 	}
 	resolve := entityName(f.world)
+	rows = append(rows, "review so far: "+ReviewLine(review, resolve))
 	if t := f.agent.CurrentThought(f.simTime); t.Kind != ai.ThoughtNone {
 		rows = append(rows, fmt.Sprintf("\"%s\"", t.Display(resolve)))
 	} else if t := f.agent.LastThought(); t.Kind != ai.ThoughtNone {

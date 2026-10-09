@@ -4,6 +4,7 @@ import (
 	"math"
 
 	"mountain-mogul/internal/ai"
+	"mountain-mogul/internal/ai/goap"
 	"mountain-mogul/internal/world"
 )
 
@@ -19,6 +20,9 @@ const (
 	// runOnTrailShare is how much of a run must be on painted trails for
 	// its difficulty to count.
 	runOnTrailShare = float32(0.5)
+	// runLevelShare is how much of a run's time on trails must be at or
+	// above the easiest difficulty the guest wants for it to suit them.
+	runLevelShare = float32(0.25)
 	// runSteepShare is the share of a run more than runSteepMargin past
 	// the guest's ComfortSlope that makes it too much for them. The
 	// margin keeps a normal green, which runs a little past a beginner's
@@ -49,12 +53,6 @@ const (
 	firstTracksShare = float32(1.0 / 3)
 	freshPowderMin   = float32(0.5)
 	freshTrafficMax  = float32(0.5)
-	// A great run's bonus to the score shrinks by these factors for
-	// each great run the guest already had today on the same trail and
-	// off the same lift: repeats of one trail wear off fast, and many
-	// trails off one lift slower, so a great day takes several lifts.
-	greatRunTrailRepeat = 0.6
-	greatRunLiftRepeat  = 0.75
 )
 
 // startRun begins a fresh descent record at the guest's position, from
@@ -127,6 +125,14 @@ func (s *Simulation) judgeRun(a *world.Guest) {
 			}
 		}
 	}
+	// At their level: a run that spends some real time on terrain at or
+	// above the easiest they want, since a short black often runs out on
+	// a long green to the lift.
+	var atLevel float32
+	for i := max(lo, 0); i < len(r.ByDiff); i++ {
+		atLevel += r.ByDiff[i]
+	}
+	levelOK := main >= 0 && atLevel >= runLevelShare*onTrail
 	tooHard := r.Steep >= runSteepShare*r.Time || (main >= 0 && main > hi)
 	crowded := r.Crowd/r.Time >= runCrowded
 	fell := fellSince(a, r.Start)
@@ -139,22 +145,21 @@ func (s *Simulation) judgeRun(a *world.Guest) {
 	}
 
 	if main >= 0 {
-		s.setCondition(a, ai.ThoughtTooEasy, main < lo, trail)
+		s.setCondition(a, ai.ThoughtTooEasy, !levelOK, trail)
 	}
 	if tooHard {
 		s.applyEvent(a, ai.ThoughtTooHard, trail)
 	}
 	// Crowding bothers a guest as much as they dislike crowds.
 	if mind := -a.Traits.Tastes[ai.TasteCrowds]; crowded && mind > 0.1 {
-		s.applyEventScaled(a, ai.ThoughtCrowdedRun, min(mind, 1), trail)
+		s.applyEvent(a, ai.ThoughtCrowdedRun, trail)
 	}
-	great := main >= lo && main <= hi && !tooHard && !crowded && !fell && taste > runMiserable && r.StartY-a.Pos[1] >= greatRunMinVertical
-	var trailGreats, liftGreats int32
+	great := levelOK && !tooHard && !crowded && !fell && taste > runMiserable && r.StartY-a.Pos[1] >= greatRunMinVertical
 	if trail != 0 {
-		a.TrailTally, trailGreats = world.CountRun(a.TrailTally, trail, great)
+		a.TrailTally = world.CountRun(a.TrailTally, trail, great)
 	}
 	if r.LiftID != 0 {
-		a.LiftTally, liftGreats = world.CountRun(a.LiftTally, r.LiftID, great)
+		a.LiftTally = world.CountRun(a.LiftTally, r.LiftID, great)
 	}
 	if great {
 		// Why it was great, when it was the corduroy they love: a report
@@ -162,8 +167,7 @@ func (s *Simulation) judgeRun(a *world.Guest) {
 		if a.Traits.Tastes.PrefersGroomed() && r.Groomed >= 0.9*r.Time {
 			s.recordThought(a, ai.ThoughtLovingCorduroy, trail)
 		}
-		scale := math.Pow(greatRunTrailRepeat, float64(trailGreats)) * math.Pow(greatRunLiftRepeat, float64(liftGreats)) * float64(1+taste)
-		s.applyEventScaled(a, ai.ThoughtGreatRun, float32(scale), trail)
+		s.applyEvent(a, ai.ThoughtGreatRun, trail)
 	}
 }
 
@@ -181,7 +185,7 @@ func (s *Simulation) checkBoredom(a *world.Guest) {
 	}
 	best, laps, any := float32(math.Inf(-1)), int32(0), false
 	for _, l := range w.Lifts {
-		if !l.Open || l.OnHold || (rideable != 0 && !w.ServicesForLift(l.ID).Has(rideable)) {
+		if !l.Open || l.OnHold || (rideable != 0 && !w.ServicesForLift(l.ID).Has(rideable)) || !goap.LiftAccessible(l, a.Traits.Skill, w) {
 			continue
 		}
 		c, ok := w.LiftConditions(l.ID)

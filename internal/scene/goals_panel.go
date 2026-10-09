@@ -71,6 +71,40 @@ func (s *Scenario) ShowGoals() {
 	s.topBar.SetGoalsActive(true)
 }
 
+// ShowChart opens the charts window on the tab titled title (for
+// -screenshot -show-chart).
+func (s *Scenario) ShowChart(title string) bool {
+	if s.chartWindow == nil || !s.chartWindow.Select(title) {
+		return false
+	}
+	s.chartWindow.Visible = true
+	s.topBar.SetChartsActive(true)
+	return true
+}
+
+// ShowBuilding opens building id's popup, as a click on it would; with
+// service set, the popup of its room of that service instead (for
+// -screenshot -show-building).
+func (s *Scenario) ShowBuilding(id uint64, service world.Service) bool {
+	b := s.world.BuildingByID(id)
+	if b == nil {
+		return false
+	}
+	r := s.app.Renderer
+	if service != world.ServiceNone {
+		for _, room := range b.Rooms() {
+			if room.Service == service {
+				s.openBuildingPopup(b, r.ScreenWidth(), r.ScreenHeight())
+				s.buildRoomPopup(b, room.Cells[0], false, r.ScreenWidth(), r.ScreenHeight())
+				return true
+			}
+		}
+		return false
+	}
+	s.openBuildingPopup(b, r.ScreenWidth(), r.ScreenHeight())
+	return true
+}
+
 func (s *Scenario) toggleGoals() {
 	p := &s.goals
 	p.open = !p.open

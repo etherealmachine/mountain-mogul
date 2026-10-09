@@ -27,7 +27,7 @@ func foodCourtWorld(t *testing.T) (*Simulation, *world.Building) {
 }
 
 func hungryGuestAtDoor(s *Simulation, b *world.Building) *world.Guest {
-	g := &world.Guest{ID: 99, Patience: 1, Energy: 1, Hunger: 0.1, Thirst: 1, Satisfaction: 0.5, RemainingBudget: 100, HasSeasonPass: true}
+	g := &world.Guest{ID: 99, Patience: 1, Energy: 1, Hunger: 0.1, Thirst: 1, RemainingBudget: 100, HasSeasonPass: true}
 	p, _ := b.NearestEntrance(mgl32.Vec2{})
 	g.Pos = mgl32.Vec3{p[0], 0, p[1]}
 	s.World.OnMountain = append(s.World.OnMountain, g)

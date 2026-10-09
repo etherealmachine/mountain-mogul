@@ -918,8 +918,12 @@ func (s *Scenario) buildRoomPopup(b *world.Building, cell [2]int, confirmRemove 
 			return fmt.Sprintf("%d / %d seats, %d waiting", b.InUse[world.PoolFoodSeats], b.Seats(), b.Waiting[world.PoolFoodSeats])
 		})
 		w.AddIntStepper("Meal price ($)", &b.MealPrice, 1, 0, 100)
+		if !b.Offers(world.ServiceBar) {
+			w.AddBoolToggle("Free water", func() bool { return b.FreeWater }, func(v bool) { b.FreeWater = v })
+		}
 	case world.ServiceBar:
 		w.AddIntStepper("Drink price ($)", &b.DrinkPrice, 1, 0, 50)
+		w.AddBoolToggle("Free water", func() bool { return b.FreeWater }, func(v bool) { b.FreeWater = v })
 	case world.ServiceRentals:
 		w.AddIntStepper("Rental price ($)", &b.RentalPrice, 1, 0, 150)
 	case world.ServicePatrol:
