@@ -485,9 +485,10 @@ func splatSkierTrack(t *world.Terrain, a *world.Guest, prevPos mgl32.Vec3, now u
 	if a.LastTrackPos == (mgl32.Vec3{}) {
 		a.LastTrackPos = prevPos
 	}
-	// Intensity 64 ≈ 25 % R per substep; with continuous skiing the
-	// 3×3 disks overlap into a saturated line within a few ticks.
-	const intensity = uint8(64)
+	// Intensity 128 ≈ 50 % R per splat; splats every second pixel
+	// (world.trackSplatSpacing) overlap into a saturated line within a
+	// few ticks.
+	const intensity = uint8(128)
 	t.Surface.SplatTrackSegment(
 		a.LastTrackPos[0], a.LastTrackPos[2],
 		a.Pos[0], a.Pos[2], intensity, now,

@@ -103,6 +103,14 @@ type Simulation struct {
 	// per core for parallel steering.
 	steerScratch   steerScratch
 	steerScratches []steerScratch
+	// routeScratch is the route search's reusable state for the serial
+	// pass, and routeScratches one per chunk of planRoutes.
+	routeScratch   routeScratch
+	routeScratches []routeScratch
+	// boarders are guests who got on a chair and are waiting for their
+	// post-ride plan, planned together (planBoarders).
+	boarders   []boarder
+	boardPlans []ai.Plan
 	// skiJobs holds this step's skiers waiting on steering; skiBatch
 	// points at it while tickGuests is collecting them (ski_parallel.go).
 	skiJobs   []skiJob
@@ -216,12 +224,15 @@ func NewSimulationWithSeed(w *world.World, seed int64) *Simulation {
 	return sim
 }
 
-// maxSubstepSec caps the sim-time delta passed to any per-tick handler.
-// At 1× the render frame's dt (~16 ms) is already well below this so
-// substepping is a no-op; at 100× we run ~5 substeps per frame, which
-// keeps the L1 controller's arrival check, heading-rate cap, and
-// Euler physics integration on a small enough step to stay accurate.
-const maxSubstepSec = 1.0 / 30.0
+// maxSubstepSec caps the sim-time delta passed to any per-tick handler:
+// small enough for the L1 controller's arrival check, heading-rate cap,
+// and Euler physics integration, large enough that a crowd can run fast.
+// It was 1/30 s until 2026-10-09. A fifth of a second cut the cost of a
+// busy hour by about three (Crowd Scale), and an ordinary day on the
+// Boreal Goals Test came out the same: 3.25★ against 3.23★, 226 falls
+// against 251, 3.3 rides a guest against 3.2. The user accepted some
+// difference in falls and the odd skier clipping a tree.
+const maxSubstepSec = 1.0 / 5.0
 
 // maxWallDtSec caps the wall-clock dt the simulation will catch up on
 // in a single Tick. Without this, a load-screen hitch (scene Init does
@@ -268,7 +279,7 @@ func (s *Simulation) Tick(dt float64) {
 		remaining -= sub
 	}
 	// Cars step once per frame, in steps of up to trafficStep: thousands
-	// of them can't afford the guests' 1/30 s substeps.
+	// of them can't afford the guests' substeps.
 	s.tickTraffic(simulated)
 }
 
@@ -312,6 +323,7 @@ func (s *Simulation) subTick(dt float64) {
 func (s *Simulation) tickLifts(dt float64) {
 	w := s.World
 	running := s.LiftsRunning()
+	defer s.planBoarders(false)
 	for _, lift := range w.Lifts {
 		if lift.IsHeli() {
 			s.tickHeliLift(lift, dt)
@@ -353,6 +365,10 @@ func (s *Simulation) tickLifts(dt float64) {
 
 			// At top (progress crosses 0.5): unload passengers.
 			if prev < 0.5 && chair.Progress >= 0.5 {
+				if len(s.boarders) > 0 && chairOccupied(chair) {
+					// A short lift: riders waiting for their plan get it now.
+					s.planBoarders(true)
+				}
 				for j := range chair.Passengers {
 					agent := chair.Passengers[j]
 					if agent == nil {
@@ -402,7 +418,7 @@ func (s *Simulation) tickLifts(dt float64) {
 						agent.OnLiftID = lift.ID
 						agent.Queued = false
 						agent.UseService(world.LiftQuality)
-						s.replanOnBoard(agent, lift)
+						s.boarders = append(s.boarders, boarder{agent, lift, s.SimTime})
 					}
 				}
 			}
@@ -1415,9 +1431,15 @@ func (s *Simulation) tickPlanning(a *world.Guest) {
 		}
 		// Step boundaries are the safe points to drop a plan for a need
 		// that turned pressing mid-plan — except in a lift line.
-		if head.Kind != ai.ActJoinQueue && a.Plan.GoalName != "GoHome" && goap.NeedPreempts(&snap, s.World, &a.Plan) {
-			s.replan(a)
-			return
+		if head.Kind != ai.ActJoinQueue && a.Plan.GoalName != "GoHome" {
+			// A copy, so only this step boundary pays for the snapshot
+			// escaping into the goals' Weight (an interface call): snap
+			// itself stays on the stack every tick.
+			held := snap
+			if goap.NeedPreempts(&held, s.World, &a.Plan) {
+				s.replan(a)
+				return
+			}
 		}
 		s.advancePlan(a)
 		return
@@ -1474,7 +1496,66 @@ func (s *Simulation) replan(a *world.Guest) {
 // snapshot; we then prepend the in-flight RideLift so advancePlan at
 // unload steps past it and lands on the first post-ride action.
 func (s *Simulation) replanOnBoard(agent *world.Guest, lift *world.Lift) {
-	lookahead := s.Planner.StoredPlanForLookahead(agent, lift.ID, s.World)
+	s.applyBoardPlan(agent, lift, s.Planner.StoredPlanForLookahead(agent, lift.ID, s.World))
+}
+
+// chairOccupied reports whether anyone is on chair.
+func chairOccupied(chair *world.Chair) bool {
+	for _, p := range chair.Passengers {
+		if p != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// boarder is a guest who got on a chair of lift at time at.
+type boarder struct {
+	a    *world.Guest
+	lift *world.Lift
+	at   float64
+}
+
+// Boarders wait for their post-ride plan until boardBatch have boarded
+// or the first has ridden boardWaitSec: about one guest boards a step in
+// a crowd, too few to share out, and a rider needs the plan only at the
+// top, a minute or more away.
+const (
+	boardBatch   = 16
+	boardWaitSec = 5.0
+)
+
+// planBoarders plans the waiting boarders' post-ride plans (as
+// replanOnBoard does) across cores, then applies them in boarding order;
+// with now false, only once enough are waiting (boardBatch,
+// boardWaitSec). The planner only reads the world; a plan made at each
+// boarding cost a busy hour about a second.
+func (s *Simulation) planBoarders(now bool) {
+	n := len(s.boarders)
+	if n == 0 || !now && n < boardBatch && s.SimTime-s.boarders[0].at < boardWaitSec {
+		return
+	}
+	s.boardPlans = append(s.boardPlans[:0], make([]ai.Plan, n)...)
+	chunks := max(min(workers.size()*2, n/boardersPerChunk), 1)
+	workers.run(chunks, func(c int) {
+		for i := n * c / chunks; i < n*(c+1)/chunks; i++ {
+			b := s.boarders[i]
+			s.boardPlans[i] = s.Planner.StoredPlanForLookahead(b.a, b.lift.ID, s.World)
+		}
+	})
+	for i, b := range s.boarders {
+		if b.a.OnLiftID == b.lift.ID && !b.a.Removed {
+			s.applyBoardPlan(b.a, b.lift, s.boardPlans[i])
+		}
+	}
+	s.boarders = s.boarders[:0]
+}
+
+// boardersPerChunk is the fewest boarders a chunk of planning is cut into.
+const boardersPerChunk = 2
+
+// applyBoardPlan gives a guest on a chair of lift their post-ride plan.
+func (s *Simulation) applyBoardPlan(agent *world.Guest, lift *world.Lift, lookahead ai.Plan) {
 	s.setBlocked(agent, lookahead.Blocked)
 	if lookahead.Done() {
 		return

@@ -107,6 +107,8 @@ type Building struct {
 	// InUse and Waiting count guests using each pool (seats, counter)
 	// and lined up at the door for it; recounted every tick by the sim.
 	InUse, Waiting [PoolCount]int
+
+	doorSteps doorStepCache // see cacheDoorSteps
 }
 
 // DoorCell returns the grid cell containing the building's anchor — the

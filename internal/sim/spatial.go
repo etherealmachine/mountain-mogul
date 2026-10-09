@@ -9,8 +9,8 @@ import "mountain-mogul/internal/world"
 const spatialCellSize = 5.0
 
 // spatialGrid is a flat 2D bucket of agents keyed by world cell. Built
-// every sim step from w.OnMountain, so positions are never more than one
-// 1/30 s step old at any game speed; queried by hazardDensityAt for each
+// every sim step from w.OnMountain, so positions are never more than
+// one step old at any game speed; queried by hazardDensityAt for each
 // candidate-arc sample point. Replaces the O(N) full-agent iteration
 // inside the L1 sampler with O(neighbours) — the per-substep work
 // for sampleTactical drops from O(168 × N²) to O(168 × N × k) where k

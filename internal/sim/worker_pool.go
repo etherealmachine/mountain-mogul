@@ -8,7 +8,7 @@ import (
 
 // workers is the sim's persistent worker pool: one goroutine per core
 // beyond the caller's, started on first use and kept for the life of the
-// program. Starting goroutines for every 1/30 s step cost more than the
+// program. Starting goroutines for every sim step cost more than the
 // work they did (on macOS, waking a parked thread takes tens of
 // microseconds), so the workers stay up: between batches they spin for a
 // moment and then sleep, so a paused or 1× game doesn't burn cores. The

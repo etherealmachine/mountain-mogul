@@ -2,7 +2,6 @@ package goap
 
 import (
 	"container/heap"
-	"fmt"
 	"math"
 
 	"mountain-mogul/internal/ai"
@@ -66,7 +65,7 @@ func (p *Planner) Plan(start WorldSnapshot, goal Goal, w *world.World) []Action 
 
 	openList := &nodeHeap{}
 	heap.Init(openList)
-	closed := make(map[string]float32)
+	closed := make(map[planKey]float32)
 
 	startNode := &planNode{snap: start.Clone()}
 	heap.Push(openList, &heapItem{n: startNode, f: 0})
@@ -307,33 +306,34 @@ func (h *nodeHeap) Pop() any {
 	return x
 }
 
-// stateKey serialises a snapshot to a stable string for closed-set
-// membership. Pos isn't included — two different positions that share
-// all anchor IDs and stat values are equivalent for planning purposes
-// (the L1 controller handles the spatial detail), and including Pos
-// would force re-expansion of essentially-the-same state every time
-// Apply slightly nudges Pos. Patience is bucketed to 0.01 to keep
-// the closed set finite.
-func stateKey(s *WorldSnapshot) string {
-	pb := int(s.Patience * 100)
-	eb := int(s.Energy * 100)
-	var nb [ai.NeedCount]int
-	for k, u := range s.Need {
-		nb[k] = int(u * 100)
+// planKey is a snapshot's place in the closed set: every ID that
+// defines the agent's discrete location and status. Pos is omitted (L1
+// handles continuous movement); stats are bucketed to 0.01 to keep the
+// search space finite. A struct, not a formatted string: building the
+// string was most of a plan's cost.
+type planKey struct {
+	patience, energy int32
+	need             [ai.NeedCount]int32
+	liftBase, liftTop, queued, onLift,
+	service, parking, ticketOffice, trailEnd uint64
+	ridden                         int
+	removed, seasonPass, dayTicket bool
+}
+
+// stateKey is s's planKey.
+func stateKey(s *WorldSnapshot) planKey {
+	k := planKey{
+		patience: int32(s.Patience * 100), energy: int32(s.Energy * 100),
+		liftBase: s.AtLiftBase, liftTop: s.AtLiftTop, queued: s.Queued, onLift: s.OnLift,
+		service: s.AtService, parking: s.AtParking, ticketOffice: s.AtTicketOffice,
+		trailEnd: s.AtTrailEnd,
+		removed:  s.Removed, seasonPass: s.HasSeasonPass, dayTicket: s.HasDayTicket,
 	}
-	ridden := 0
+	for i, u := range s.Need {
+		k.need[i] = int32(u * 100)
+	}
 	for _, r := range s.RidenLifts {
-		ridden += r.Count
+		k.ridden += r.Count
 	}
-	// Key includes all IDs that define an agent's discrete location and
-	// status. Pos is omitted (L1 handles continuous movement); stats are
-	// bucketed to 0.01 to keep the search space finite.
-	return fmt.Sprintf("P%dE%dN%vB%dTop%dQ%dL%dSvc%dPrk%dTkt%dR%dX%vJ%dSP%vDT%v",
-		pb, eb, nb,
-		s.AtLiftBase, s.AtLiftTop, s.Queued, s.OnLift,
-		s.AtService, s.AtParking, s.AtTicketOffice,
-		ridden, s.Removed,
-		s.AtTrailEnd,
-		s.HasSeasonPass, s.HasDayTicket,
-	)
+	return k
 }

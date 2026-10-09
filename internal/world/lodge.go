@@ -385,18 +385,29 @@ func (b *Building) NearestServiceEntrance(s Service, p mgl32.Vec2) (mgl32.Vec2, 
 	if !b.IsShell() || len(b.Doors) == 0 {
 		return b.Pos, b.DoorCell()
 	}
-	best, bestCell, found := mgl32.Vec2{}, [2]int{}, false
+	cache := &b.doorSteps
+	cached := len(cache.steps) == len(b.Doors) && cache.origin == b.Origin && cache.rot == b.Rotation
+	best, bestD, bi, found := mgl32.Vec2{}, float32(0), 0, false
 	for pass := 0; pass < 2 && !found; pass++ {
-		for _, d := range b.Doors {
+		for i, d := range b.Doors {
 			if pass == 0 && s != ServiceNone && d.Service != s {
 				continue
 			}
-			if c := b.DoorStep(d); !found || c.Sub(p).Len() < best.Sub(p).Len() {
-				best, bestCell, found = c, cellOf(c), true
+			var c mgl32.Vec2
+			if cached {
+				c = cache.steps[i]
+			} else {
+				c = b.DoorStep(d)
+			}
+			if dd := c.Sub(p).LenSqr(); !found || dd < bestD {
+				best, bestD, bi, found = c, dd, i, true
 			}
 		}
 	}
-	return best, bestCell
+	if cached {
+		return best, cache.cells[bi]
+	}
+	return best, cellOf(best)
 }
 
 func cellCentre(c [2]int) mgl32.Vec2 {
@@ -750,7 +761,30 @@ func (w *World) RefreshDoors(b *Building) {
 			b.Doors = append(b.Doors, best)
 		}
 	}
+	b.cacheDoorSteps()
 	w.refreshLodgeAnchor(b)
+}
+
+// doorStepCache is each door's step (DoorStep) and the map cell it's in,
+// worked out once per door layout, for the building's grid at origin and
+// rot: guests look for the nearest entrance of every building every step.
+type doorStepCache struct {
+	origin mgl32.Vec2
+	rot    float32
+	steps  []mgl32.Vec2
+	cells  [][2]int
+}
+
+// cacheDoorSteps refills the door-step cache. RefreshDoors calls it; a
+// building moved without one falls back to working the steps out.
+func (b *Building) cacheDoorSteps() {
+	c := doorStepCache{origin: b.Origin, rot: b.Rotation}
+	for _, d := range b.Doors {
+		p := b.DoorStep(d)
+		c.steps = append(c.steps, p)
+		c.cells = append(c.cells, cellOf(p))
+	}
+	b.doorSteps = c
 }
 
 // floodService returns the 4-connected run of tiles sharing start's

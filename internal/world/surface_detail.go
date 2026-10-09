@@ -210,15 +210,13 @@ func (s *SurfaceDetail) zeroChannel(channel int) {
 	s.MarkAllDirty()
 }
 
-// SplatTrack writes a 3×3 additive disk into R centred on the pixel
-// under world position (wx, wz), stamped at track clock now. `intensity`
-// is the peak R rise (0..255); we cap per-pixel at 255. Marks Dirty and
-// extends DirtyBox.
+// SplatTrack adds intensity to R over the 2×2 pixels from the one under
+// world position (wx, wz), stamped at track clock now; R caps at 255.
+// Marks Dirty and extends DirtyBox.
 //
-// Skier physics drives this from tickSkier on every substep when the
-// agent is actively skiing. At PxPerCell=20 the disk covers ~0.75 m
-// world-square, roughly skier width; adjacent substep splats overlap
-// into a continuous track.
+// Skier physics drives this (via SplatTrackSegment) on every substep
+// when the agent is actively skiing. At PxPerCell=20 the splat covers
+// 0.5 m square, about a skier's width.
 func (s *SurfaceDetail) SplatTrack(wx, wz float32, intensity uint8, now uint16) {
 	if s == nil || intensity == 0 {
 		return
@@ -229,9 +227,9 @@ func (s *SurfaceDetail) SplatTrack(wx, wz float32, intensity uint8, now uint16) 
 	if cx < -1 || cx > s.PxWidth || cz < -1 || cz > s.PxHeight {
 		return
 	}
-	x0 := cx - 1
+	x0 := cx
 	x1 := cx + 2
-	z0 := cz - 1
+	z0 := cz
 	z1 := cz + 2
 	if x0 < 0 {
 		x0 = 0
@@ -265,10 +263,10 @@ func (s *SurfaceDetail) SplatTrack(wx, wz float32, intensity uint8, now uint16) 
 }
 
 // SplatTrackSegment interpolates SplatTrack along the straight world-space
-// segment (wx0, wz0)→(wx1, wz1), one splat per pixel-step so the 3×3
-// disks overlap into a continuous line at any TimeScale. Cheap for
-// short segments (the per-tick agent step is typically a handful of
-// pixels).
+// segment (wx0, wz0)→(wx1, wz1), one splat every trackSplatSpacing
+// pixels: the 2×2 splats meet into a continuous line at any
+// TimeScale. Cheap for short segments (the per-tick agent step is a
+// handful of pixels).
 func (s *SurfaceDetail) SplatTrackSegment(wx0, wz0, wx1, wz1 float32, intensity uint8, now uint16) {
 	if s == nil {
 		return
@@ -276,7 +274,7 @@ func (s *SurfaceDetail) SplatTrackSegment(wx0, wz0, wx1, wz1 float32, intensity 
 	dx := wx1 - wx0
 	dz := wz1 - wz0
 	distM := float32(math.Sqrt(float64(dx*dx + dz*dz)))
-	steps := int(distM*PxPerMeter()) + 1
+	steps := int(distM*PxPerMeter()/trackSplatSpacing) + 1
 	if steps > 256 {
 		steps = 256 // safety cap for an unexpectedly large segment
 	}
@@ -286,6 +284,14 @@ func (s *SurfaceDetail) SplatTrackSegment(wx0, wz0, wx1, wz1 float32, intensity 
 		s.SplatTrack(wx0+dx*f, wz0+dz*f, intensity, now)
 	}
 }
+
+// trackSplatSpacing is the pixels between splats along a track: every
+// second pixel, so the 2×2 splats just meet. Tracks were 3×3 splats on
+// every pixel until 2026-10-09; in a crowd they cost a sixth of the sim
+// (every pixel touched is a cache miss in a texture of hundreds of
+// megabytes), so they're now a slightly thinner line for under half the
+// pixels.
+const trackSplatSpacing = 2
 
 // AgeTracks restamps every track pixel to clock now, folding in the fade
 // since it was skied and then multiplying by factor (clamped to [0, 1]):

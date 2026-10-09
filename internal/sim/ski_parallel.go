@@ -16,7 +16,7 @@ import (
 // serial pass, keeps seeded runs repeatable.
 //
 // The one change from deciding inline: a skier no longer sees snow
-// packed or moguls grown by skiers earlier in the same 1/30 s step.
+// packed or moguls grown by skiers earlier in the same step.
 // Other skiers' positions are those at the start of the step for everyone.
 
 // skiJob is one skier waiting on their steering decision this step.
@@ -116,9 +116,12 @@ func (s *Simulation) planRoutes() {
 	// Always planned here, in parallel or not, so a run doesn't depend on
 	// how many cores split the work.
 	chunks := max(min(workers.size()*2, len(jobs)/routesPerChunk), 1)
+	for len(s.routeScratches) < chunks {
+		s.routeScratches = append(s.routeScratches, routeScratch{})
+	}
 	workers.run(chunks, func(c int) {
 		for _, j := range jobs[len(jobs)*c/chunks : len(jobs)*(c+1)/chunks] {
-			s.prepareRoute(j.a, j.goal)
+			s.prepareRoute(j.a, j.goal, &s.routeScratches[c])
 		}
 	})
 }
