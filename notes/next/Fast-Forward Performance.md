@@ -49,3 +49,4 @@ The game already fans work out across cores in a few places (`world/horizon.go`,
 - 2026-10-08: Step 3 done: trunk field and per-decision tower and skier lists; the skier grid refills every step. On the 46-guest save, 100× holds 148 fps with a 6 ms worst update. Leftovers moved to [[Next Steps]] (Rendering and engine); skier-on-skier collisions noted under Safety.
 - 2026-10-08: Parallel steering's threshold raised to 64 skiers per core: measured at 360× on the user's latest save, waking threads every step cost more than it saved below that. Crowd sizes and a day in a minute are in [[Crowd Scale]].
 - 2026-10-08: Parallel steering now runs on a persistent worker pool, with route plans round the trees too ([[Crowd Scale]]).
+- 2026-10-09: Turbo is gone ([[Season Calendar]]): the fastest speed is a game day in 80 s.

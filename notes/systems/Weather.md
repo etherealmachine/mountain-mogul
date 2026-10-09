@@ -16,10 +16,11 @@ Each weather state has its own daily swing: clear days the widest, storms the na
 
 Weather does not yet affect [[Demand]] or [[Moments]], and wind direction is fixed per scenario rather than changing daily. A wet day is rain or snow over the whole mountain, chosen at the base, so spring days can rain on the summit too.
 
-Spec: [[Weather Spec]]. Code: `internal/sim/weather.go`, `temperature.go`, `storm.go`.
+Spec: [[Weather Spec]]. Code: `internal/sim/weather.go`, `temperature.go`.
 
 ## Log
 
 - 2026-10-01: Chain, forecast, snow effects, hourly temperature, and skip-to-storm are in. Weather-driven demand and a daily wind field are listed as future work.
 - 2026-10-05: Per-scenario climate from Open-Meteo and SNOTEL, set at import. Kirkwood over 40 simulated years: monthly mean temperatures within 0.3 °C of the record, precipitation within about 15%.
 - 2026-10-07: Clear days no longer run 15–20 °C too warm (Boreal in December: highs p90 8.7 °C, max 14.9 °C over 30 years, was 10.5 and 21.6). The season's weather runs from 1 September to the start date, shared with the starting snow.
+- 2026-10-09: Skip-to-storm removed with turbo ([[Calendar]]).

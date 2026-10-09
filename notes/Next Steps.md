@@ -74,7 +74,6 @@ Diagnose each first, report the cause, then fix:
 - **Weather and guests**: weather changes arrivals and guest mood ([[Demand]], [[Moments]]).
 - **Drifts on lee slopes**: wind moves snow from windward faces into lee slopes and gullies. *Needs* daily wind.
 - **Glaciers**: year-round snow at the top of high resorts. *For* [[Zermatt]].
-- **More fast-forward targets**: skip to the first freezing night, first snowfall, or a base depth. *For* [[Killington]].
 - **Avalanche control**: explosives, closures, and barriers. *For* [[Alta]].
 - **Avalanche risk overlay**: show where slopes are loaded before anything releases. *For* [[Alta]].
 - [[Season Calendar]]: our own calendar, 10 days a month, open December to April, holidays on the 5th and 10th; a day in 80 s at the fastest speed and 320 s at normal. First measure how much skier movement a game hour can hold. To be ranked by the user.
@@ -284,3 +283,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-09: [[Season Calendar]] planned with the user (unranked).
 - 2026-10-09: [[Readable Complaints]] noted with the user after the Boreal Christmas check.
 - 2026-10-09: [[Groups]] planned with the user, as the way toward 10,000 visitors a day ([[Crowd Scale]]).
+- 2026-10-09: Turbo and the storm skip removed (the user: they were for the long calendar); "More fast-forward targets" dropped with them.

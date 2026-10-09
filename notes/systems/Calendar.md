@@ -12,11 +12,11 @@ Sim time maps to a real date: one calendar day is 24 clock hours of 15 sim-minut
 
 Opening is the player's choice, made from the popup of any building with [[Tickets]]: the resort is open or closed, and when open, the lifts run during opening hours (9 to 4 by default). Closing mid-day empties the lift lines and sends everyone home. The day rollover advances [[Weather]], charges the day's costs to [[Finance]], writes the daily stats, and opens the day report.
 
-Fast-forward can stop an hour before the next storm. [[Vision]] wants more stop conditions: first freezing night, first snowfall, and a base-depth threshold.
+The speed buttons are real seconds a game day (320, 160, 80), with quiet nights passing in a couple of seconds; nothing runs faster than the fastest ([[Season Calendar]]).
 
 [[Season Calendar]] plans a shorter game calendar (10-day months, open December to April) and speeds set as real time per day.
 
-Code: `internal/sim/calendar.go`, `resort.go`, `sun.go`, `storm.go`.
+Code: `internal/sim/calendar.go`, `resort.go`, `sun.go`.
 
 ## Log
 
@@ -25,3 +25,4 @@ Code: `internal/sim/calendar.go`, `resort.go`, `sun.go`, `storm.go`.
 - 2026-10-07: A clock hour is 900 sim seconds, not 180; clock-based durations rewritten in clock units, physical ones left in sim seconds.
 - 2026-10-09: [[Season Calendar]] planned.
 - 2026-10-09: The game calendar has 10-day months with holidays on the 5th and 10th, and speeds are real seconds per day ([[Season Calendar]]); the description above still describes the old calendar until it's settled.
+- 2026-10-09: Turbo and the skip to the next storm removed (the user): they were for the long calendar; nothing runs faster than the 80 s day.
