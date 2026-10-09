@@ -1,7 +1,7 @@
 ---
 title: Crowd Scale
 kind: plan
-status: idea
+status: partial
 ---
 
 # Crowd Scale
@@ -68,3 +68,11 @@ Measured with temporary knobs on the user's latest save: 250 guests, 9:30 to 15:
 - 2026-10-08: Worker pool built (`sim/worker_pool.go`): one goroutine per core, started once, spinning briefly between batches and then sleeping; the caller takes chunks too, so a batch never waits on a sleeping worker; each batch has its own counters. Steering runs on it in chunks of 16 skiers, and so do route plans round the trees, now planned for every guest about to move in a pass before the serial one (`planRoutes`; always there, parallel or not, so a seeded run doesn't depend on core count; each route sees the terrain as the step began). Serial and parallel builds end identical; the race detector is quiet. On the user's latest save at 360×: 250 guests (100 skiing) 55× → 69×; 1,000 (lift-bound, about 100 skiing) 33× → 37×; 2,500 18× (10× before this and the previous pass). Spinning longer, to bridge the half millisecond between steps, measured slower (busy workers crowd the main goroutine); so did fewer workers. Most of a step is still serial (planning, lines, the tick of guests who are waiting), so the pool can't give much more until more of the step moves into parallel phases, and option 1 remains the only way to a day in a minute at 10,000 visitors.
 - 2026-10-08: Explored simplifying the one sim (the user rejected coarse off-screen sims): a 1/10 s step is nearly free in fidelity (+44%); a smaller fan isn't; rescoring less often gains little. Falls and replanning look wrong.
 - 2026-10-08: Diagnosed the two oddities (Bugs, [[Next Steps]]): the falls are beginners sent down the fall line by free-ski plan steps, falling every ~6 s; the pathfinding cost is failed searches to a door enclosed by its own building, each flooding the map, not frequent replanning.
+- 2026-10-09: First pass toward 1,000 a day ([[Season Calendar]]; the user's goal is 10,000 a day in 80 s, 1,000 first, accepting some change in falls, the odd skier clipping a tree, and coarser tracks). Measured on the Boreal Goals Test at the Christmas peak (about 850 on the mountain, 11 am), headless: 43 s per game hour → 8.7 s; a whole Christmas day (998 visitors) about 400 s → 83 s, an ordinary day (about 430) 36–42 s. Ordinary days play the same: 3.26★ and 3.21★ against 3.23★ and 3.22★, falls 217 and 342 against 251 and 405, rides 3.3 a guest against 3.2. What did it:
+  - **A 0.2 s step** (was 1/30 s): about 3× on everything that runs per step.
+  - **Route searches**: buffers reused with generation stamps instead of allocated and cleared (tens of KB, ten thousand times a game hour); the open list as plain values; a weighted estimate (2.5×), half the cells expanded; re-planned every 10 s or 50 m of target movement (was 5 s, 25 m); a guest on a run near its centre line follows the line instead of searching.
+  - **The planner's closed set** keyed by a struct, not a formatted string.
+  - **Boarders' post-ride plans** made in batches of 16 across cores (a rider needs one only at the top).
+  - **Trail centre lines** indexed in 25 m buckets (nearest-sample lookups, twice a step a skier); building door steps cached; the planning snapshot kept off the heap.
+  - **Tracks** drawn as 2×2 splats every second pixel (were 3×3 on every pixel); this turned out to be only about 2%.
+  The CPU profiler on macOS misattributed time badly (thread wake-ups, and track drawing at 14% that was really 2%); wall-clock timers per phase of the step were what showed the cost. At the peak the step is now roughly route searching 2, movement 2, steering 1.5 (parallel), planning 1, applying moves 0.8, lifts 0.4, cats and patrol 0.4 seconds per game hour. Rendering isn't included.
