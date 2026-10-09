@@ -764,6 +764,19 @@ func (s *Scenario) GroomNow() {
 	}
 }
 
+// SetDayPace presses the speed button nearest secs real seconds a game
+// day and unpauses (for -screenshot); returns that button's pace.
+func (s *Scenario) SetDayPace(secs float64) float64 {
+	best := 0
+	for i, p := range dayPaces {
+		if math.Abs(p-secs) < math.Abs(dayPaces[best]-secs) {
+			best = i
+		}
+	}
+	s.pace, s.skipping, s.fixedScale, s.paused = best, false, 0, false
+	return dayPaces[best]
+}
+
 func (s *Scenario) SetTimeScale(mult float64) {
 	if s.sim == nil {
 		return

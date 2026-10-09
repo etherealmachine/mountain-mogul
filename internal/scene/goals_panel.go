@@ -82,6 +82,15 @@ func (s *Scenario) ShowChart(title string) bool {
 	return true
 }
 
+// SimTime is the sim clock in sim seconds, 0 before the world loads
+// (for -screenshot's speed report).
+func (s *Scenario) SimTime() float64 {
+	if s.sim == nil {
+		return 0
+	}
+	return s.sim.SimTime
+}
+
 // ShowBuilding opens building id's popup, as a click on it would; with
 // service set, the popup of its room of that service instead (for
 // -screenshot -show-building).

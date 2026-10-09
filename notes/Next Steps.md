@@ -91,7 +91,8 @@ Diagnose each first, report the cause, then fix:
 - **Calibrate the satisfaction ledger** (tabled by the user, 2026-10-07): every event amount and condition rate in `ai.Effects` was set for the old drifting model. On Boreal, intermediate and advanced guests carry "too easy" all day and can end at 0, and a storm day on an ungroomed green drops Cruisers from 0.53 to 0.32. Tune with a resort that has blue and black runs.
 - **What each skill wants**: the terrain half is in [[Snow Tastes]]. Beginners want rentals and easy terrain; intermediates want terrain plus food and places to rest; advanced skiers want terrain and no crowds. Feeds [[Demand]] and [[Moments]]. *For* [[Kirkwood]].
 - **Snowboarders**: guests already roll Snowboard but still ski and look like skiers.
-- **Children and families**: their own guest type, arriving and moving as a group.
+- [[Groups]]: guests who come together ski together, led by one member; followers ski the leader's line with their own physics, tracks and collisions but no planning or steering fan, so a group costs about as much as two skiers ([[Crowd Scale]]). First step: a prototype measuring a follower's cost.
+- **Children and families**: their own guest type, arriving and moving as a group. *Needs* [[Groups]].
 - **Guest goals beyond lapping**: find the shortest line, go to après-ski, stay near the lodge. Powder hunting moved to [[Snow Tastes]].
 - **Regulars**: guests who remember their last visit and come back, or don't. *For* [[Mad River Glen]].
 - **Crowding**: guests notice crowded lodges, not only lift lines; crowded runs are in [[Snow Tastes]]. *For* [[Mad River Glen]].
@@ -282,3 +283,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-09: [[Star Ratings]] and [[Scoreless Rating]] planned with the user: stars as levels, the satisfaction ledger removed.
 - 2026-10-09: [[Season Calendar]] planned with the user (unranked).
 - 2026-10-09: [[Readable Complaints]] noted with the user after the Boreal Christmas check.
+- 2026-10-09: [[Groups]] planned with the user, as the way toward 10,000 visitors a day ([[Crowd Scale]]).

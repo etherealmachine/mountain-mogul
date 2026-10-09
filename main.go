@@ -52,6 +52,8 @@ func main() {
 	camPitch := flag.Float64("camera-pitch", math.NaN(), "initial camera pitch in degrees for -screenshot or -testbed UI mode. Default: 45.")
 	camZoom := flag.Float64("camera-zoom", math.NaN(), "initial camera OrthoScale (world units per half-viewport-height) for -screenshot or -testbed UI mode. Default: auto-fit terrain.")
 	clockHour := flag.Float64("clock-hour", math.NaN(), "-screenshot: jump the clock to this hour of the current day (e.g. 7.5 for 7:30) before capture")
+	dayPace := flag.Float64("day-pace", 0, "-screenshot: run at the speed button nearest this many real seconds a game day (320, 160, 80), quiet nights included, instead of -time-scale")
+	benchHours := flag.Float64("bench-hours", 0, "-screenshot: keep running frames until this many game hours have passed (overrides -warmup)")
 	timeScale := flag.Float64("time-scale", 0, "-screenshot: run the sim at this speed multiplier during warmup (0 = the save's speed)")
 	groomNow := flag.Bool("groom-now", false, "-screenshot: give every snowcat's section a full grooming pass before capture")
 	detailFile := flag.String("detail-file", "", "-screenshot: draw the ground from a detail heights file (from tools/lidar)")
@@ -127,6 +129,8 @@ func main() {
 			overlayMode:   *overlayMode,
 			clockHour:     *clockHour,
 			timeScale:     *timeScale,
+			dayPace:       *dayPace,
+			benchHours:    *benchHours,
 			storm:         *storm,
 			showGoals:     *showGoals,
 			showChart:     *showChart,
@@ -289,6 +293,8 @@ type screenshotOpts struct {
 	overlayMode            int     // render.Overlay* bitmask applied before capture
 	clockHour              float64 // NaN = leave the clock alone; else jump to this hour today
 	timeScale              float64 // 0 = leave the sim speed alone
+	dayPace                float64 // 0 = leave the speed button alone
+	benchHours             float64 // 0 = run warmupFrames frames
 	storm                  bool
 	showGoals              bool
 	showChart              string
@@ -418,6 +424,12 @@ func runScreenshot(opt screenshotOpts) {
 		fmt.Println("screenshot: groomed every section")
 	}
 
+	if opt.dayPace > 0 {
+		fmt.Printf("screenshot: speed button for %gs a day\n", sc.SetDayPace(opt.dayPace))
+	}
+	if opt.benchHours > 0 {
+		opt.warmupFrames = math.MaxInt32
+	}
 	if opt.timeScale > 0 {
 		sc.SetTimeScale(opt.timeScale)
 		fmt.Printf("screenshot: time scale %gx\n", opt.timeScale)
@@ -436,6 +448,7 @@ func runScreenshot(opt screenshotOpts) {
 	const benchSkip = 3
 	prev := time.Now()
 	var benchStart time.Time
+	var benchSim float64
 	var gpuQuery uint32
 	gl.GenQueries(1, &gpuQuery)
 	var gpuMs, updateMs, renderMs []float64
@@ -446,6 +459,7 @@ func runScreenshot(opt screenshotOpts) {
 
 		if frame == benchSkip {
 			benchStart = now
+			benchSim = sc.SimTime()
 		}
 
 		app.Input.BeginFrame()
@@ -475,6 +489,9 @@ func runScreenshot(opt screenshotOpts) {
 			gpuMs = append(gpuMs, float64(ns)/1e6)
 		}
 
+		if opt.benchHours > 0 && frame > benchSkip && sc.SimTime()-benchSim >= opt.benchHours*world.SimSecondsPerHour {
+			opt.warmupFrames = frame + 1
+		}
 		if frame == opt.warmupFrames-1 {
 			if err := app.Renderer.SaveScreenshot(opt.outPath); err != nil {
 				fmt.Fprintln(os.Stderr, "screenshot: write failed:", err)
@@ -491,9 +508,21 @@ func runScreenshot(opt screenshotOpts) {
 		fps := float64(measured) / elapsed
 		fmt.Printf("screenshot: %d frames in %.3fs = %.1f fps (%.2f ms/frame)\n",
 			measured, elapsed, fps, 1000.0/fps)
+		if hours := (sc.SimTime() - benchSim) / world.SimSecondsPerHour; hours > 0 {
+			fmt.Printf("screenshot: %.2f game hours in %.1fs: %.1fs per game hour\n", hours, elapsed, elapsed/hours)
+		}
+		sum := func(v []float64) (t float64) {
+			for _, x := range v {
+				t += x
+			}
+			return t / 1000
+		}
+		fmt.Printf("screenshot: totals: cpu update %.1fs, cpu render %.1fs, gpu %.1fs, of %.1fs\n",
+			sum(updateMs), sum(renderMs), sum(gpuMs), elapsed)
 		sort.Float64s(gpuMs)
 		sort.Float64s(updateMs)
 		sort.Float64s(renderMs)
+		fmt.Printf("screenshot: cpu update p10 %.2f p90 %.2f ms\n", updateMs[len(updateMs)/10], updateMs[len(updateMs)*9/10])
 		fmt.Printf("screenshot: gpu render median %.2f ms/frame\n", gpuMs[len(gpuMs)/2])
 		fmt.Printf("screenshot: cpu update median %.2f ms, max %.2f; cpu render median %.2f ms, max %.2f\n",
 			updateMs[len(updateMs)/2], updateMs[len(updateMs)-1], renderMs[len(renderMs)/2], renderMs[len(renderMs)-1])
