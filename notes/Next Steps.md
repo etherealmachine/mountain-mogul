@@ -110,7 +110,7 @@ Diagnose each first, report the cause, then fix:
 - **Views**: better-sited buildings attract more guests ([[GOAP]]) and can charge more.
 - **Lockers and ski school**: more base services; ski school *needs* staff.
 - **Footpath follow-ups** ([[Pathfinding]]): paths that avoid building footprints. Footpaths, their editing, and their snow clearing shipped 2026-10-10.
-- [[Ski Racks]] leftovers: save where skis are, skis in the snow slowing routes to the door, returning rental gear, and groups waiting at the rack. Racks and the ski change shipped 2026-10-10.
+- [[Ski Racks]] leftovers: skis in the snow slowing routes to the door, returning rental gear, and groups waiting at the rack. Racks and the ski change shipped 2026-10-10.
 - [[Building Tool]] leftovers: presets (a one-tile ticket booth, a patrol shed with a garage), hints in the Services menu for what each service needs, and the open questions in its note (heated empty floor, rooms with no outside wall).
 - **Lodge storeys and styles**: more storeys, a style choice, and a shuffle button.
 
@@ -295,3 +295,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-10: Ski racks shipped ([[Ski Racks]]): the rack, a 15-sim-second ski change, and skis left outside while guests are in. [[Rope Lines]] updated with the user's notes: cheap, avoided but crossable, and the ski area boundary is one.
 - 2026-10-10: Rope lines shipped ([[Rope Lines]]): the Rope tool, skiers and routes avoiding ropes, and the ski area boundary crossable the same way.
 - 2026-10-10: Snowmobile routes shipped ([[Snowmobile Routes]]): round trees, buildings, towers, lakes and steep ground, driven with turning and braking, and dispatch timed by them.
+- 2026-10-10: Saves keep where skis are left, and whether guests have skis on or still need rentals ([[Ski Racks]]).

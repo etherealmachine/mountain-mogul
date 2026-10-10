@@ -36,11 +36,11 @@ Guests stop to take their skis off and put them on, leave them outside in a rack
 - **Leaving skis** (`internal/sim/gear.go`): a guest carrying skis on the way to use something in a building, within 40 m of the door, walks to the rack nearest the door with a free slot, stands in front of it for 3 sim seconds, and leaves the pair leaning on the rail. With no rack in reach, they stick the pair in the snow 12 m short of the door. One who gets to the door still holding skis leaves them on the spot.
 - **Picking them up**: when their plan next takes them anywhere but into a building, they walk back to the pair, stop 3 sim seconds, and carry it on. They never put skis on while their pair is somewhere else.
 - **Drawn** where they stand: in a rack, leaning on the rail, or upright in the snow.
+- **Removing a rack** drops its skis: each pair tips forward off the rail and lies flat on the snow in front of its slot, a little askew, until its owner picks it up; guests on their way to the rack pick somewhere else.
 - On Boreal's busy lunch with one rack by each lodge door, the racks filled (17 pairs) and the rest went in the snow (119); a whole day ran with no stuck guests.
 
 ## Left
 
-- Where skis are isn't saved: after a load everyone is carrying again.
 - Skis in the snow should change routing (a cluttered door is slower to get to), per the user.
 - Returning rental gear, so rental guests stop using racks.
 - Guests walk straight to a rack and back, round towers but not trees or buildings.
@@ -50,3 +50,5 @@ Guests stop to take their skis off and put them on, leave them outside in a rack
 
 - 2026-10-10: Noted with the user: guests should pause to take skis off and put them on, and leave them outside, which needs racks. Folds in the earlier "Ski racks" line and the rack part of the [[Rental Shop]] item.
 - 2026-10-10: Built the rack, the longer ski change, leaving skis in racks or the snow and picking them up (see Built).
+- 2026-10-10: Saves keep where skis are left (rack and slot, or in the snow), and whether a guest has skis on or still needs to rent; before, a load put everyone's skis back in their hands and every guest's skis off.
+- 2026-10-10: Removing a rack drops its skis flat on the snow (the user).

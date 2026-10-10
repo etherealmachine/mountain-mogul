@@ -30,7 +30,7 @@ type Snowmobile struct {
 	Heading  float32
 	Speed    float32 // m/s while driven
 	InGarage bool    // parked inside its garage (not drawn)
-	TakenBy  uint64 // the patroller who has it out today; 0 when free
+	TakenBy  uint64  // the patroller who has it out today; 0 when free
 }
 
 // GarageSpace is b's vehicle space and what's used, in half-tiles.

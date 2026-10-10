@@ -39,6 +39,9 @@ type SkiStash struct {
 	// Pos and Yaw are where the pair stands and which way it faces.
 	Pos mgl32.Vec2
 	Yaw float32
+	// Lying is set when the pair lies flat on the snow, along Yaw from
+	// Pos: dropped when the rack they were in was taken away.
+	Lying bool
 }
 
 // CarriesSkis reports whether g has skis in hand: they brought or rented
@@ -55,4 +58,29 @@ func (b *Building) SkiRackSlot(i int) (mgl32.Vec2, float32) {
 	pos := b.Pos.Add(ax.Mul(along)).Add(az.Mul(skiRackFront))
 	// Facing out from the rail: the pair's front is +az.
 	return pos, float32(math.Atan2(float64(az[0]), float64(az[1])))
+}
+
+// dropRackSkis lets the skis in rack id fall when it's taken away: each
+// pair tips forward off the rail and lies flat on the snow in front of
+// its slot, a little askew. Guests still on their way to the rack pick
+// another place to leave their skis.
+func (w *World) dropRackSkis(id uint64) {
+	for _, g := range w.OnMountain {
+		if g.Stash.RackID != id {
+			continue
+		}
+		if !g.Stash.Out {
+			g.Stash = SkiStash{}
+			continue
+		}
+		front := mgl32.Vec2{float32(math.Sin(float64(g.Stash.Yaw))), float32(math.Cos(float64(g.Stash.Yaw)))}
+		// Askew by up to ±0.4 rad, fixed by the guest.
+		skew := (float32(g.ID*0x9E3779B9%1000)/1000 - 0.5) * 0.8
+		g.Stash = SkiStash{
+			Out:   true,
+			Pos:   g.Stash.Pos.Add(front.Mul(0.8)),
+			Yaw:   g.Stash.Yaw + skew,
+			Lying: true,
+		}
+	}
 }

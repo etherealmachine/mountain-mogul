@@ -567,6 +567,9 @@ func (w *World) ClearBuilt() {
 func (w *World) RemoveBuilding(id uint64) {
 	for i, b := range w.Buildings {
 		if b.ID == id {
+			if b.Type == BuildingSkiRack {
+				w.dropRackSkis(b.ID)
+			}
 			if b.IsShell() {
 				w.RemoveSnowcatsOwnedBy(b.ID)
 				w.RemoveSnowmobilesIn(b.ID)

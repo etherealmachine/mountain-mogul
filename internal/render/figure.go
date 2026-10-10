@@ -396,13 +396,21 @@ func (f *figures) build(r *Renderer, w *world.World) {
 	var bones [figureBones]mgl32.Mat4
 	for _, g := range w.OnMountain {
 		if g.Stash.Out {
-			tip := float32(standingSkiSnowTip)
-			if g.Stash.RackID != 0 {
-				tip = standingSkiRackTip
-			}
-			place, skis := standingSkis(t, g.Stash.Pos, g.Stash.Yaw, tip)
 			o := outfit(g.ID, g.Traits.Skill)
-			f.add(place, &skis, &o, mgl32.Vec4{})
+			if g.Stash.Lying {
+				// Dropped flat, the pair side by side.
+				for side := range 2 {
+					place, ski := lyingSki(t, side, [2]float32{g.Stash.Pos[0], g.Stash.Pos[1]}, g.Stash.Yaw)
+					f.add(place, &ski, &o, mgl32.Vec4{})
+				}
+			} else {
+				tip := float32(standingSkiSnowTip)
+				if g.Stash.RackID != 0 {
+					tip = standingSkiRackTip
+				}
+				place, skis := standingSkis(t, g.Stash.Pos, g.Stash.Yaw, tip)
+				f.add(place, &skis, &o, mgl32.Vec4{})
+			}
 		}
 		if r.HiddenGuestID != 0 && g.ID == r.HiddenGuestID || g.Indoors() {
 			continue

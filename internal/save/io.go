@@ -507,6 +507,10 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 			gd.Energy = g.Energy
 			gd.Hunger = g.Hunger
 			gd.Thirst = g.Thirst
+			gd.SkisOn, gd.NeedsGear = g.SkisOn, g.NeedsGear
+			if g.Stash.Out {
+				gd.Skis = &SkisData{Rack: g.Stash.RackID, Slot: g.Stash.Slot, Pos: [2]float32{g.Stash.Pos[0], g.Stash.Pos[1]}, Yaw: g.Stash.Yaw, Lying: g.Stash.Lying}
+			}
 			for _, m := range g.Moments {
 				gd.Moments = append(gd.Moments, MomentData{Kind: uint8(m.Kind), N: m.N, Context: m.Context})
 			}
@@ -1222,6 +1226,10 @@ func dataToWorld(data ScenarioData) *world.World {
 				thirst = 1.0
 			}
 			g.Thirst = thirst
+			g.SkisOn, g.NeedsGear = gd.SkisOn, gd.NeedsGear
+			if sk := gd.Skis; sk != nil {
+				g.Stash = world.SkiStash{Out: true, RackID: sk.Rack, Slot: sk.Slot, Pos: mgl32.Vec2{sk.Pos[0], sk.Pos[1]}, Yaw: sk.Yaw, Lying: sk.Lying}
+			}
 			for _, m := range gd.Moments {
 				g.Moments = append(g.Moments, world.Moment{Kind: ai.ThoughtKind(m.Kind), N: m.N, Context: m.Context})
 			}

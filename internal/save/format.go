@@ -614,6 +614,12 @@ type GuestData struct {
 	Energy   float32    `json:"energy,omitempty"`
 	Hunger   float32    `json:"hunger,omitempty"`
 	Thirst   float32    `json:"thirst,omitempty"`
+	// Skis: whether they're on, whether the guest still needs to rent
+	// some, and where they're left while the guest is in a building
+	// (world.Guest.Stash; nil while carried or worn).
+	SkisOn    bool      `json:"skis_on,omitempty"`
+	NeedsGear bool      `json:"needs_gear,omitempty"`
+	Skis      *SkisData `json:"skis,omitempty"`
 	// Moments, the quality of the services used, and the runs so far,
 	// toward the review they'll leave (world.Guest.DayReview).
 	Moments     []MomentData   `json:"moments,omitempty"`
@@ -659,4 +665,15 @@ type FootpathData struct {
 type RopeData struct {
 	ID    uint64       `json:"id"`
 	Nodes [][2]float32 `json:"nodes"`
+}
+
+// SkisData is a guest's skis left outside (world.SkiStash): in a rack's
+// slot, or in the snow (Rack 0), standing at Pos facing Yaw.
+type SkisData struct {
+	Rack uint64     `json:"rack,omitempty"`
+	Slot int        `json:"slot,omitempty"`
+	Pos  [2]float32 `json:"pos"`
+	Yaw  float32    `json:"yaw,omitempty"`
+	// Lying is set for a pair dropped flat when its rack was removed.
+	Lying bool `json:"lying,omitempty"`
 }
