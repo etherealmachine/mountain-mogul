@@ -36,25 +36,31 @@ const (
 	roadLaneHoverOffset = float32(0.05) // sits 5 cm above the asphalt — large enough that small bilinear differences between the dash quad (sampled at centreline) and the road quad (sampled at edges) can't flip the depth comparison and make dashes blink.
 )
 
-// generateRoadsMesh builds a single quad-strip mesh covering every road
-// chain in the world. Each chain is sampled as a Catmull-Rom spline
+// generateRoadsMesh builds a single mesh covering every road chain in
+// the world, and a patch at each junction and lot entrance
+// (road_junctions.go). Each chain is sampled as a Catmull-Rom spline
 // through its degree-2 interior nodes, so visually adjacent edges blend
-// into a smooth curve instead of meeting at a hard corner.
+// into a smooth curve instead of meeting at a hard corner, and drawn as
+// a quad strip trimmed back from the junctions at its ends.
 //
 // Returns nil if there are no chains.
 func generateRoadsMesh(w *world.World, t *world.Terrain) *Mesh {
-	chains := w.FindRoadChains()
-	if len(chains) == 0 {
+	lay := layoutRoads(w, t)
+	if len(lay.samples) == 0 {
 		return nil
 	}
 	verts := make([]float32, 0, 512)
 	indices := make([]uint32, 0, 256)
 	var baseIdx uint32
-	for _, chain := range chains {
-		v, idx := buildRoadChainStripVerts(chain, t, baseIdx)
+	for _, samples := range lay.samples {
+		v, idx := buildRoadStripFromSamples(samples, t, baseIdx)
 		verts = append(verts, v...)
 		indices = append(indices, idx...)
 		baseIdx += uint32(len(v) / 8)
+	}
+	for _, j := range lay.junctions {
+		verts, indices = appendJunctionPatch(verts, indices, j, t, baseIdx)
+		baseIdx = uint32(len(verts) / 8)
 	}
 	if len(indices) == 0 {
 		return nil
@@ -79,15 +85,15 @@ func generateRoadEdgeMesh(a, b mgl32.Vec2, t *world.Terrain) *Mesh {
 // chain in the world. Drawn in a second pass with a near-white tint
 // on top of the asphalt quad.
 func generateRoadLanesMesh(w *world.World, t *world.Terrain) *Mesh {
-	chains := w.FindRoadChains()
-	if len(chains) == 0 {
+	lay := layoutRoads(w, t)
+	if len(lay.samples) == 0 {
 		return nil
 	}
 	verts := make([]float32, 0, 512)
 	indices := make([]uint32, 0, 256)
 	var baseIdx uint32
-	for _, chain := range chains {
-		v, idx := buildRoadChainDashes(chain, t, baseIdx)
+	for _, samples := range lay.samples {
+		v, idx := buildRoadDashes(samples, t, baseIdx)
 		verts = append(verts, v...)
 		indices = append(indices, idx...)
 		baseIdx += uint32(len(v) / 8)
@@ -96,15 +102,6 @@ func generateRoadLanesMesh(w *world.World, t *world.Terrain) *Mesh {
 		return nil
 	}
 	return NewMesh(verts, indices, []int{3, 3, 2}, nil)
-}
-
-// buildRoadChainStripVerts emits the asphalt quad strip for one chain.
-// Catmull-Rom samples become the strip's centreline; perpendiculars are
-// taken from the per-sample tangent so the strip width stays
-// perpendicular to the curve even on tight bends.
-func buildRoadChainStripVerts(chain world.RoadChain, t *world.Terrain, baseIdx uint32) ([]float32, []uint32) {
-	samples := world.SampleRoadChain(chain, t, world.RoadChainSamplesPerSegment)
-	return buildRoadStripFromSamples(samples, t, baseIdx)
 }
 
 // buildRoadStripFromSamples produces a quad strip walking through the
@@ -120,6 +117,7 @@ func buildRoadStripFromSamples(samples []mgl32.Vec2, t *world.Terrain, baseIdx u
 	if len(samples) < 2 {
 		return nil, nil
 	}
+	samples = densify(samples, roadStripStep)
 	halfWidth := world.RoadHalfWidth
 
 	verts := make([]float32, 0, len(samples)*2*8)
@@ -175,6 +173,27 @@ func buildRoadStripFromSamples(samples []mgl32.Vec2, t *world.Terrain, baseIdx u
 	return verts, indices
 }
 
+// roadStripStep is the longest a road quad runs between heights read
+// from the ground: under half a terrain cell, so a quad never bridges a
+// dip or bump (a creek's banks) and sinks into the ground beside it.
+const roadStripStep = float32(2.5)
+
+// densify adds points along a polyline so none of its segments is longer
+// than step.
+func densify(samples []mgl32.Vec2, step float32) []mgl32.Vec2 {
+	out := make([]mgl32.Vec2, 0, len(samples))
+	out = append(out, samples[0])
+	for i := 1; i < len(samples); i++ {
+		a, b := samples[i-1], samples[i]
+		n := int(b.Sub(a).Len() / step)
+		for k := 1; k <= n; k++ {
+			out = append(out, a.Add(b.Sub(a).Mul(float32(k)/float32(n+1))))
+		}
+		out = append(out, b)
+	}
+	return out
+}
+
 // sampleTangent returns the (un-normalised) tangent direction at
 // samples[i] using central differences in the interior and one-sided
 // differences at the endpoints. Caller normalises.
@@ -193,13 +212,17 @@ func sampleTangent(samples []mgl32.Vec2, i int) (tx, tz float32) {
 	return
 }
 
-// buildRoadChainDashes emits the dashed centreline quads for one chain.
+// buildRoadDashes emits the dashed centreline quads for one chain's
+// trimmed centreline, keeping roadDashClear back from each end.
 // Dashes are spaced uniformly along the chain's arc length (cumDist),
 // so curve length, not Euclidean distance between nodes, drives the
 // pattern. Each dash quad is small enough that its endpoints can share
 // the closest sample's tangent without visible bending.
-func buildRoadChainDashes(chain world.RoadChain, t *world.Terrain, baseIdx uint32) ([]float32, []uint32) {
-	samples := world.SampleRoadChain(chain, t, world.RoadChainSamplesPerSegment)
+func buildRoadDashes(samples []mgl32.Vec2, t *world.Terrain, baseIdx uint32) ([]float32, []uint32) {
+	if len(samples) < 2 {
+		return nil, nil
+	}
+	samples = trimSamples(samples, roadDashClear, roadDashClear)
 	if len(samples) < 2 {
 		return nil, nil
 	}
@@ -237,12 +260,16 @@ func buildRoadChainDashes(chain world.RoadChain, t *world.Terrain, baseIdx uint3
 		x1L, z1L := p1[0]-perp1X, p1[1]-perp1Z
 		x1R, z1R := p1[0]+perp1X, p1[1]+perp1Z
 
+		// Each end of a dash sits on the asphalt, which runs straight
+		// across between the road's edges, not on the ground under it.
+		y0 := roadSurfaceY(t, p0, tan0) + dashOff
+		y1 := roadSurfaceY(t, p1, tan1) + dashOff
 		quadBase := baseIdx + idx
 		verts = append(verts,
-			x0L, VisualElevationAt(t, x0L, z0L)+dashOff, z0L, 0, 1, 0, 0, 0,
-			x0R, VisualElevationAt(t, x0R, z0R)+dashOff, z0R, 0, 1, 0, 0, 1,
-			x1L, VisualElevationAt(t, x1L, z1L)+dashOff, z1L, 0, 1, 0, 1, 0,
-			x1R, VisualElevationAt(t, x1R, z1R)+dashOff, z1R, 0, 1, 0, 1, 1,
+			x0L, y0, z0L, 0, 1, 0, 0, 0,
+			x0R, y0, z0R, 0, 1, 0, 0, 1,
+			x1L, y1, z1L, 0, 1, 0, 1, 0,
+			x1R, y1, z1R, 0, 1, 0, 1, 1,
 		)
 		indices = append(indices,
 			quadBase, quadBase+1, quadBase+2,
@@ -251,6 +278,15 @@ func buildRoadChainDashes(chain world.RoadChain, t *world.Terrain, baseIdx uint3
 		idx += 4
 	}
 	return verts, indices
+}
+
+// roadSurfaceY is the drawn road's height above its centreline point p,
+// heading tan, before the hover: halfway between its edges' heights.
+func roadSurfaceY(t *world.Terrain, p, tan mgl32.Vec2) float32 {
+	hw := world.RoadHalfWidth
+	lx, lz := p[0]+tan[1]*hw, p[1]-tan[0]*hw
+	rx, rz := p[0]-tan[1]*hw, p[1]+tan[0]*hw
+	return (VisualElevationAt(t, lx, lz) + VisualElevationAt(t, rx, rz)) / 2
 }
 
 // pointAlongChain returns the XZ position at arc length `dist` along
