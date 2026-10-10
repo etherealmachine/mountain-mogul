@@ -17,7 +17,7 @@ func (s *Simulation) applyCredit(dayIdx int) int {
 	today := s.DateAt(float64(dayIdx) * secondsPerSimDay)
 	next := s.DateAt(float64(dayIdx+1) * secondsPerSimDay)
 
-	w.AccruedInterest += float64(w.CreditDrawn()) * world.CreditAnnualRate / 365
+	w.AccruedInterest += float64(w.CreditDrawn()) * float64(w.CreditRate) / 365
 
 	charged := 0
 	if next.Month() != today.Month() || next.Year() != today.Year() {

@@ -17,16 +17,19 @@ import (
 const maxScenarioOrder = 99
 
 // scenarioDetailsPrompt is the editor's modal for World.Scenario and its
-// goals, on two tabs. Details: name, location, and description fields,
+// goals, on four tabs. Details: name, location, and description fields,
 // difficulty and order steppers, and a tutorial toggle. Goals: the goals
 // and rules (editor_goals.go). Guests: how guests come in groups
-// (World.GroupMix), read back from mix. It edits copies; OK hands them back,
-// Cancel or Escape drops them. Tab moves between the text fields.
+// (World.GroupMix), read back from mix. Money: the cash, credit and
+// prices the scenario starts with (editor_money.go), read back from
+// money.m. It edits copies; OK hands them back, Cancel or Escape drops
+// them. Tab moves between the text fields.
 type scenarioDetailsPrompt struct {
 	info   world.ScenarioInfo
 	goals  *goalsTab
-	tab    int // 0 details, 1 goals, 2 guests
-	tabBtn [3]*ui.Button
+	tab    int // 0 details, 1 goals, 2 guests, 3 money
+	tabBtn [4]*ui.Button
+	money  *moneyTab
 	mix    world.GroupMix
 	mixBtn [6]*ui.Button   // size, lessons, mixed: down and up each
 	fields []*ui.TextInput // name, location, description
@@ -50,10 +53,11 @@ const (
 )
 
 func newScenarioDetailsPrompt(info world.ScenarioInfo, goals []world.Goal, rules []string, onOK func(world.ScenarioInfo, []world.Goal, []string), onCancel func()) *scenarioDetailsPrompt {
-	p := &scenarioDetailsPrompt{info: info, goals: newGoalsTab(goals, rules), onOK: onOK, onCancel: onCancel}
+	p := &scenarioDetailsPrompt{info: info, goals: newGoalsTab(goals, rules), money: newMoneyTab(scenarioMoney{}), onOK: onOK, onCancel: onCancel}
 	p.tabBtn[0] = ui.NewButton(0, 0, 110, detailsRowH, "Details", func() { p.tab = 0 })
 	p.tabBtn[1] = ui.NewButton(0, 0, 110, detailsRowH, "Goals", func() { p.tab = 1 })
 	p.tabBtn[2] = ui.NewButton(0, 0, 110, detailsRowH, "Guests", func() { p.tab = 2 })
+	p.tabBtn[3] = ui.NewButton(0, 0, 110, detailsRowH, "Money", func() { p.tab = 3 })
 	stepMix := func(v *float32, d, lo, hi float32) func() {
 		return func() { *v = max(lo, min(hi, float32(math.Round(float64((*v+d)*100)))/100)) }
 	}
@@ -113,12 +117,14 @@ func (p *scenarioDetailsPrompt) result() world.ScenarioInfo {
 }
 
 func (p *scenarioDetailsPrompt) buttons() []*ui.Button {
-	out := []*ui.Button{p.tabBtn[0], p.tabBtn[1], p.okBtn, p.cancelBtn}
+	out := append(p.tabBtn[:], p.okBtn, p.cancelBtn)
 	switch p.tab {
 	case 1:
 		return append(out, p.goals.buttons()...)
 	case 2:
 		return append(out, p.mixBtn[:]...)
+	case 3:
+		return append(out, p.money.buttons()...)
 	}
 	return append(out, p.diffDown, p.diffUp, p.orderDown, p.orderUp, p.tutorialBtn)
 }
@@ -163,6 +169,7 @@ func (p *scenarioDetailsPrompt) layout(sw, sh float32) {
 		tx -= 8
 	}
 	p.goals.layout(p.x+detailsPad, p.y+56, detailsPromptW-2*detailsPad)
+	p.money.layout(p.x+detailsPad, p.y+50)
 	for i := 0; i < 3; i++ {
 		y := p.y + 50 + float32(i)*(detailsRowH+10)
 		p.mixBtn[2*i].X, p.mixBtn[2*i].Y = p.x+detailsPad+mixLabelW, y
@@ -229,6 +236,10 @@ func (p *scenarioDetailsPrompt) Draw(r *render.Renderer) {
 	}
 	if p.tab == 2 {
 		p.drawMix(r)
+		return
+	}
+	if p.tab == 3 {
+		p.money.draw(r, p.x+detailsPad)
 		return
 	}
 	for _, f := range p.fields {

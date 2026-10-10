@@ -30,7 +30,7 @@ const (
 	// Cash below −CreditLimit for BankruptcyGraceDays consecutive day
 	// rollovers is bankruptcy.
 	DefaultCreditLimit  = 1_000_000 // dollars
-	CreditAnnualRate    = 0.12      // fraction per 365 calendar days; simple interest, accrued daily
+	DefaultCreditRate   = 0.12      // a year, on 365 calendar days; simple interest, accrued daily
 	BankruptcyGraceDays = 30        // consecutive day rollovers below the credit floor
 
 	DefaultParcelPrice = 250_000 // dollars; editor default for a newly painted purchasable parcel
@@ -194,6 +194,9 @@ type World struct {
 	// spent down to −CreditLimit (the credit floor); see CanAfford.
 	CreditLimit int
 
+	// CreditRate is the credit line's yearly interest rate (0.12 is 12%).
+	CreditRate float32
+
 	// AccruedInterest is interest in dollars accrued on the drawn balance
 	// since the last monthly charge. Fractional so small daily amounts
 	// don't round away; rounded when charged to Cash.
@@ -327,6 +330,7 @@ func NewWorld(terrain *Terrain) *World {
 		skiAreaCells:    -1,
 		Cash:            StartingCash,
 		CreditLimit:     DefaultCreditLimit,
+		CreditRate:      DefaultCreditRate,
 		StartDate:       DefaultStartDate,
 		History:         NewHistory(),
 		SeasonPassPrice: DefaultSeasonPassPrice,

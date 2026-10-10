@@ -647,8 +647,10 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		RoadEdges:    roadEdges,
 		Parcels:      parcels,
 		SkiArea:      skiAreaData(w),
-		Cash:         w.Cash,
+		Cash:         &w.Cash,
 		DayTicket:    &w.DayTicketPrice,
+		SeasonPass:   &w.SeasonPassPrice,
+		CreditRate:   &w.CreditRate,
 		Parking:      w.ParkingPrice,
 		ResortOpen:   w.ResortOpen,
 		Stars:        &w.Rating,
@@ -907,11 +909,17 @@ func dataToWorld(data ScenarioData) *world.World {
 	for _, l := range data.Lakes {
 		w.Lakes = append(w.Lakes, world.Lake{Name: l.Name, Altitude: l.Altitude, AreaHa: l.AreaHa, MaxDepth: l.MaxDepth, Frost: l.Frost, Thaw: l.Thaw})
 	}
-	if data.Cash != 0 {
-		w.Cash = data.Cash
+	if data.Cash != nil {
+		w.Cash = *data.Cash
 	}
 	if data.DayTicket != nil {
 		w.DayTicketPrice = *data.DayTicket
+	}
+	if data.SeasonPass != nil {
+		w.SeasonPassPrice = *data.SeasonPass
+	}
+	if data.CreditRate != nil {
+		w.CreditRate = *data.CreditRate
 	}
 	w.ParkingPrice = data.Parking
 	w.ResortOpen = data.ResortOpen

@@ -76,16 +76,17 @@ type ScenarioData struct {
 	Cars        []CarData        `json:"cars,omitempty"`
 	Parcels     []ParcelData     `json:"parcels,omitempty"`
 	SkiArea     [][][2]float32   `json:"ski_area,omitempty"` // the ski-area boundary: outlines in world XZ
-	Cash        int              `json:"cash,omitempty"`
-	// Credit line state. CreditLimit is a pointer so a $0 line round-trips;
-	// nil (older saves) loads as DefaultCreditLimit.
-	CreditLimit     *int    `json:"credit_limit,omitempty"`
-	AccruedInterest float64 `json:"accrued_interest,omitempty"`
-	DaysBelowFloor  int     `json:"days_below_floor,omitempty"`
-	Bankrupt        bool    `json:"bankrupt,omitempty"`
-	// DayTicket is World.DayTicketPrice. Pointer so a player-set $0 round-
-	// trips; nil (older saves) loads as DefaultDayTicketPrice.
-	DayTicket *int `json:"day_ticket,omitempty"`
+	// Cash, CreditLimit, CreditRate, DayTicket and SeasonPass are
+	// pointers so a $0 (or 0%) round-trips; nil (older saves) loads as
+	// the world's default.
+	Cash            *int     `json:"cash,omitempty"`
+	CreditLimit     *int     `json:"credit_limit,omitempty"`
+	CreditRate      *float32 `json:"credit_rate,omitempty"`
+	AccruedInterest float64  `json:"accrued_interest,omitempty"`
+	DaysBelowFloor  int      `json:"days_below_floor,omitempty"`
+	Bankrupt        bool     `json:"bankrupt,omitempty"`
+	DayTicket       *int     `json:"day_ticket,omitempty"`
+	SeasonPass      *int     `json:"season_pass,omitempty"`
 	// Parking is World.ParkingPrice, per car. Absent loads free.
 	Parking int `json:"parking,omitempty"`
 	// ResortOpen is World.ResortOpen. Absent loads closed.

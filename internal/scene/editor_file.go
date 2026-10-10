@@ -59,6 +59,10 @@ func (e *Editor) openDetailsPrompt() {
 	e.escapeMenu.Hide()
 	e.detailsPrompt = newScenarioDetailsPrompt(e.world.Scenario, e.world.Goals, e.world.Rules,
 		func(info world.ScenarioInfo, goals []world.Goal, rules []string) {
+			if m := e.detailsPrompt.money.m; m != moneyOf(e.world) {
+				m.apply(e.world)
+				e.markDirty()
+			}
 			if mix := e.detailsPrompt.mix; mix != e.world.Mix() {
 				e.world.GroupMix = mix
 				world.RegroupGuests(e.world, e.world.Seed)
@@ -75,6 +79,7 @@ func (e *Editor) openDetailsPrompt() {
 		func() { e.detailsPrompt = nil },
 	)
 	e.detailsPrompt.mix = e.world.Mix()
+	e.detailsPrompt.money = newMoneyTab(moneyOf(e.world))
 }
 
 // saveCurrent overwrites the open file. A blank scenario has no file yet,
