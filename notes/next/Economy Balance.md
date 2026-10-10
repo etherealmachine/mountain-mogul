@@ -51,7 +51,8 @@ Real ski resorts pace money already:
 
 With a 50-day season, 1–3 days per purchase is 16–50 purchases a season, and running out of content by year 2 is a risk (the user, 2026-10-10). Splitting small purchases from big projects (above) is most of the answer. The rest is how long a scenario is meant to last:
 
-- Decide each scenario's length in real hours, then the calendar follows. At 67 minutes a season at the fastest speed, [[Boreal]] won within season one is a 1–1.5 hour tutorial; later scenarios might run 2–4 seasons.
+- Decide each scenario's length in real hours, then the calendar follows. Later scenarios might run 2–4 seasons.
+- **The tutorial is 30–60 minutes** (the user, 2026-10-10), like other games' first scenarios (RollerCoaster Tycoon's Forest Frontiers, Two Point Hospital's Hogsport at one star; from memory, not checked). A learning player spends much of it at normal speed or paused: at about half and half, a game day takes about 160 s, so 30–60 minutes is about 11–22 game days (22–45 at the fastest speed only). [[Boreal]]'s required goals should be reachable in about 2–3 game weeks, December into early January: Christmas on day 10 is the day for its guest goal, the 7-day rating streak runs through late December, and "within season one" becomes a loose bonus. Getting from the minimum resort to three lifts in about 20 days means a lift every 7–10 days, the quick end of the big-project pace, which a tutorial grant or pre-season pass sales could cover.
 - A scenario should end about when its terrain runs out of good lift lines. Past that, sandbox play needs money sinks rather than content: ageing lifts and their upkeep, staff costs that grow, guests who expect more each season.
 - If scenarios want more seasons than the content holds, the calendar (days a month, months a season) is the lever, as the user suggested.
 
@@ -73,10 +74,11 @@ With a 50-day season, 1–3 days per purchase is 16–50 purchases a season, and
 
 ## Open questions
 
-- How long should each scenario be, in real hours? This decides whether the calendar changes.
+- How long should each scenario after the tutorial be, in real hours? This decides whether the calendar changes.
 - Do upgrades (double to quad to high-speed) and expansions count as the content that fills later seasons, or does the game need more kinds of things to build?
 - Which money sinks for the sandbox: ageing and upkeep, staff wages, rising guest expectations?
 
 ## Log
 
 - 2026-10-10: Planned with the user: pacing targets in real minutes (1–3 days for the next purchase), payback days as the measure, lessons from other games, and the worry that a 50-day season holds more purchases than the game has content for.
+- 2026-10-10: The tutorial is 30–60 minutes (the user): Boreal's required goals in about 2–3 game weeks.
