@@ -32,11 +32,13 @@ Speeds are written as real time per game day, not as multipliers, because what a
 
 | | Fastest | Normal |
 |---|---|---|
-| Day | 80 s | 320 s |
-| Month (10 days) | 13.3 min | 53 min |
-| Season (50 days) | 67 min | 4.4 h |
+| Day | 80 s | 2,560 s (43 min) |
+| Month (10 days) | 13.3 min | 7.1 h |
+| Season (50 days) | 67 min | 35.6 h |
 
-**Inside a day**, assuming the night is skipped and the clock runs evenly from 6:00 to 17:00:
+Fast is 160 s a day: a month in 27 minutes, a season in 2.2 hours.
+
+**Inside a day** (the normal column is from when normal was 320 s; at 2,560 s each is 8 times longer), assuming the night is skipped and the clock runs evenly from 6:00 to 17:00:
 
 | | Fastest | Normal |
 |---|---|---|
@@ -86,6 +88,18 @@ The skier counts are scaled from one measurement (about 110 seconds of movement 
 - **Per-day costs and income stay per day**, so a 50-day season earns and spends about a quarter of a 186-day one. Prices of buildings, lifts and loans have to come down with it, or guests per day go up ([[Demand]]).
 - **Attendance** is bounded by the skiers the fastest speed can carry: at 175–260 at once, a day brings in about 400–600 visits through turnover.
 - **Scenario goals** written against a real year (season revenue, visits) are rescaled.
+
+## Season length and demand
+
+Open, 2026-10-10. The user suspects the 50-day season is part of why the economy is short ([[Boreal Tutorial]]).
+
+- **How it works today**: each guest's daily chance to visit is `VisitsPerSeason / world.SeasonDays`, times the day type (`sim/demand.go`). So the season's length divides every day's crowd: a 30-day season brings about 1.7 times today's crowd each day, a 25-day one twice.
+- **That makes it the same lever as the guest pools.** Shortening the season by a factor is exactly raising every guest's `VisitsPerSeason` by it, as far as daily guests go. What a shorter season changes besides that is the calendar: fewer days to play, fewer holidays (6 in 30 days, against 10), fewer storms, and less time for each purchase to pay back.
+- **So two questions, best decided apart:**
+  1. **How many guests a day**, for the economy. Set by the pools and visits a season, or by a per-day rate that doesn't divide by the season at all, so the calendar can change without moving demand.
+  2. **How long a season plays**, for content and real time. At fast speed a 50-day season is 2.2 hours; 30 days would be 80 minutes. Whether 50 days holds more purchases than the game has content for is the worry in [[Economy Balance]] (Scenario length and content).
+- **Options for the calendar**: keep 50 days (December to April, 10 days a month); 30 days as 6-day months (holidays on the 3rd and 6th); or 30 days as December to February at 10 a month (closing before Presidents' Day and Easter).
+- **Leaning**: decouple demand from `SeasonDays` first, so the season's length is chosen for play time alone; then set daily demand directly against the tutorial's targets (450 a day for one beginner lift).
 
 ## Comparisons
 
@@ -157,6 +171,7 @@ The "Boreal (Goals Test)" save starts closed with its lifts stopped, so headless
 - 2026-10-09: The user's map changes, in a copy of the Goals Test: a second lot (361 stalls), free water, entry pools of 8,000 each, and the food court rebuilt from a 4-tile unheated shed into a heated 6×4 lodge (160 seats, an 80-seat lounge). Also: hunger and thirst press at 0.55 (was 0.4) so a beginner's hour-long descent doesn't overrun the grace period; they drain a quarter as fast off the snow, not at all while being served, and altitude counts for less (the user); the demand cap uses the measured lift cycle (about 1,500 s, three rides a day). Nine days: ordinary days 320–405 visitors at 2.9–3.3★; Christmas 874–884 at 2.86–3.13★ (two runs); MLK Day 898 at 3.09★. With pools of 10,000, Christmas drew 1,007 at 2.99★. Left below 3★: bored novices (fair with one novice lift), falls in holiday crowds, "nothing here is my kind of skiing". A headless Christmas takes about 400 s against the 80 s target.
 - 2026-10-09: The user's map changes applied to the Goals Test (pools 10,000 an entry); committed. A first performance pass ([[Crowd Scale]]): a headless Christmas (998 visitors, 3.06★) takes 83 s against the 80 s target, an ordinary day 36–42 s.
 - 2026-10-09: The user: nothing faster than the 80 s day; turbo and the skip to the next storm removed. Measured a frame cap at the fastest speed (vsync off, the sim given up to 50 ms a frame): no change to a rendered Christmas (100 s either way), so it was dropped. Most drawing happens in light hours, where the pace sets the day's length anyway.
+- 2026-10-10: Season length raised as a demand lever (the user); written up in Season length and demand, undecided. Normal is now 2,560 s a day after three halvings; the speed tables updated.
 - 2026-10-10: The user: normal is too fast, especially the lifts; normal is now 640 s a day (fast 160, fastest 80 unchanged). A season at normal is about 9 hours, so normal is for watching and fast for playing.
 - 2026-10-10: Still too fast: normal is now 1,280 s a day, motion at about 8 times real speed; a season at normal is about 18 hours.
 - 2026-10-10: Still too fast: normal is now 2,560 s a day, motion at about 4 times real speed and a clock hour in about 4 real minutes.
