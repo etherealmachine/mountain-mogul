@@ -56,6 +56,43 @@ With a 50-day season, 1–3 days per purchase is 16–50 purchases a season, and
 - A scenario should end about when its terrain runs out of good lift lines. Past that, sandbox play needs money sinks rather than content: ageing lifts and their upkeep, staff costs that grow, guests who expect more each season.
 - If scenarios want more seasons than the content holds, the calendar (days a month, months a season) is the lever, as the user suggested.
 
+## Measured
+
+2026-10-10, working backwards from the Boreal Goals Test save, a finished three-lift resort that should meet [[Boreal]]'s goals. Untracked tools: `cmd/zzecon` prices a save and runs it headless, printing each day's money; `cmd/zzosm` matches a save's lifts to the OpenStreetMap ones.
+
+**What it costs: $4.49M**, before roads, parcels and glading. The three lifts are real Boreal lifts, all from the base, and the build order is plain:
+
+| Stage | What | Cost |
+|---|---|---|
+| A: open | California Cruiser (fixed quad, 268 m, 38 m vertical, the beginner lift) | $754k |
+| | parking, tickets, cat garage and one cat, patrol shed and one snowmobile, about a third of the lodge | about $650k |
+| B: main lift | Accelerator (high-speed quad, 770 m, 161 m vertical), a second cat | $1.80M |
+| C: finish | 49er (double, 708 m, 143 m vertical) | $506k |
+| | the rest of the lodge (16 food court and 8 lounge tiles in all), a third cat, a second lot, a second snowmobile | about $780k |
+
+Lifts are $2.9M of it. The fixed quad's $700k station fee makes the short beginner lift dearer than the 708 m 49er.
+
+**What it earns**, 14 days headless from Dec 7 with everything open:
+
+| | Visitors | Revenue | Costs | Net |
+|---|---|---|---|---|
+| Ordinary day | 400–540 | $41–55k | $9.2k | $32–46k |
+| Holiday (Christmas, MLK Day) | about 1,000 | $100–105k | $9.2k | $90–96k |
+| Average | | | | $46.6k |
+
+About $100 a visitor: $57 in tickets and passes, $40 in food. Running costs are 17% of revenue, under [[Vision]]'s 30–50%. No interest: cash stayed positive.
+
+**Against the tutorial.** With $1M cash and a $1M credit line, the resort has to earn $2.49M itself: 53 days at the finished resort's average, more like 80–100 with a smaller resort earning less early on, against about 20 (Scenario length and content, above). Stage by stage: stage A on day 0 (about $1.4M); Accelerator by about day 6, so it runs on Christmas (day 10), needs about $1.2M from a beginner-only resort; stage C (about $1.28M) from day 6 to 20 needs about $85k a day net, twice today's full resort. Not measured: what a beginner-only resort earns, and how fast a player builds.
+
+**Levers to close it**, best mixed:
+
+1. **Cheaper lifts**: halving station fees and making short beginner lifts cheap takes the total to about $3.1M.
+2. **Prices**: $60 is low for Boreal; $90 might raise ticket revenue 40–50% after the guests it loses.
+3. **More guests**: lifts run at 12–25% of capacity on an ordinary day; a pool that grows with what's built ([[First Week Balance]] step 2) might bring 800 or more.
+4. **Tutorial money** (the editor's Money tab): $2M cash and a $1M line buys stages A and B on day 0, and Christmas pays toward 49er; stage C then takes about 30 days at today's income, or 15 with lever 1 or 2.
+
+Next, when balancing resumes: run headless days with only stage A built, then A and B, for the early income.
+
 ## Steps
 
 1. **Season economy report.** A headless run of a whole season (from the zzday and zzseason tools) printing revenue and costs by category, per guest and per day, cash over time, and payback days for each thing built.
@@ -82,3 +119,4 @@ With a 50-day season, 1–3 days per purchase is 16–50 purchases a season, and
 
 - 2026-10-10: Planned with the user: pacing targets in real minutes (1–3 days for the next purchase), payback days as the measure, lessons from other games, and the worry that a 50-day season holds more purchases than the game has content for.
 - 2026-10-10: The tutorial is 30–60 minutes (the user): Boreal's required goals in about 2–3 game weeks.
+- 2026-10-10: Measured backwards from the Boreal Goals Test save: $4.49M to build, $46.6k a day net; the tutorial needs about 4× today's income against costs. Balancing paused for feature work (the user).
