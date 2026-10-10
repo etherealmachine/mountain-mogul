@@ -12,7 +12,7 @@ Donner Pass, California. A small, beginner-friendly hill right off the interstat
 
 **Teaches.** A lift ([[Lifts]]), a few runs ([[Trails]]), a lodge with tickets and food ([[Amenities]]), opening the resort ([[Calendar]]), and reading the rating ([[Demand]]).
 
-**Goals.** Required: three lifts open at the end of a day; one day with guests in the thousands (exact number from playtesting); a rating of 70% or better for 7 days in a row. Bonus: all of them within season one. No deadline.
+**Goals.** Required: three lifts open at the end of a day, and one day with 1,000 or more guests that ends with the day's rating at 3.0 stars or better (the user, 2026-10-10; it was a week at 70% before the rating moved to stars and the season to 30 days). Bonus: all of them within season one. No deadline.
 
 **Rules.** None. Everything is simple and forgiving.
 
@@ -31,3 +31,4 @@ Donner Pass, California. A small, beginner-friendly hill right off the interstat
 - 2026-10-07: In the [[Demo]] as the tutorial, with no guidance beyond a pop-up.
 - 2026-10-10: The Goals Test save's lifts matched to the real ones; its costs and income measured for [[Economy Balance]].
 - 2026-10-10: Build order planned with the user, and each stage measured ([[Boreal Tutorial]]).
+- 2026-10-10: Goals revised (the user): three lifts, and one day of 1,000+ guests ending at 3.0 stars or better; the 7-day 70% streak is dropped.

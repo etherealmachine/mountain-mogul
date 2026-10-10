@@ -64,7 +64,7 @@ What this shows:
 - **Accelerator pays.** It more than doubles ordinary days (about 375 → 850) and adds about $45k a day net, so its $1.65M pays back in about five weeks of ordinary days at today's prices, sooner with holidays.
 - **49er adds about 25% on ordinary days**, mostly through lift capacity easing crowds (49er's runs are nearly all served from Accelerator already).
 - **Two lifts may meet the guest goal** (a day in the thousands): stage 5 drew 2,077 at Christmas. Fine by the user (2026-10-10): the targets can move, as long as the rating goal and three lifts stay and the money works.
-- **The rating goal is far off.** 70% is 3.8 stars; ordinary days run 2.5–2.9 and holidays 2.0–2.25 at every stage. Christmas at the full resort: 1,125 of 2,937 went home fed up with lines.
+- **The rating goal** is now one day of 1,000+ guests ending at 3.0 stars or better (the user, 2026-10-10; it was a week at 70%, which is 3.8 stars). Ordinary days run 2.5–2.9 and holidays 2.0–2.25 at every stage. Christmas at the full resort: 1,125 of 2,937 went home fed up with lines.
 - **Holidays overfill** until the tutorial's lots are smaller (Lots, below).
 
 **The stage 4 dip, diagnosed** (2026-10-10). Before the fix stage 4 drew about 200 on ordinary days against stage 1's 270, with the same lifts and runs. Bisecting stages 2–4 put it on the lodge. Cause: demand's occupancy counted every guest on the mountain, the lodge included, against the smaller of lift and terrain capacity, and terrain capacity had become 196 guests once it counted only Cruiser's runs (this plan's step 2). Guests with lunch stay all day (about 150 on the mountain 10:00–14:00, against 60 without food, who go home by 11), so stage 4 ran at about 80% "full" and most arrivals stayed home. Fix (`sim.Occupancy`): the fuller of the lifts (everyone not indoors, against lift capacity) and the runs (only guests out on the snow, against terrain capacity). Stage 4 now draws about 375 against stage 1's 350. What made it hard to see: occupancy wasn't visible anywhere; `tools/stages ... -hourly` now prints it with what guests are doing and why they went home.
@@ -81,7 +81,7 @@ What this shows:
 | 7 + second lot | 710–1,037, none, $65–87k | 2,652 / 2,481, 164 / 426 | 2.6 / 2.15 |
 | 8 + 49er, full lodge | 880–1,175, none, $82–114k | 2,192 / 1,788, 1,535 / 1,642 | 2.9 / 2.35 |
 
-So the build order reads as planned: the lot first fills on holidays with the lodge, then every day once Accelerator runs (about 500 turned away on an ordinary day), and the second lot's $150k pays back in about 6 ordinary days. Two lifts and plenty of parking bring the crowds; 49er and the full lodge bring the stars up (2.6 → 2.9 ordinary) and keep guests longer, so fewer churn through on holidays. The rating goal (3.8 stars) is still well out of reach.
+So the build order reads as planned: the lot first fills on holidays with the lodge, then every day once Accelerator runs (about 500 turned away on an ordinary day), and the second lot's $150k pays back in about 6 ordinary days. Two lifts and plenty of parking bring the crowds; 49er and the full lodge bring the stars up (2.6 → 2.9 ordinary) and keep guests longer, so fewer churn through on holidays. The goal day is close: the full resort's 1,000+ days ended at 2.77–2.89 stars, against 3.0.
 
 The day-by-day target below predates the 6-day months (Christmas is now day 6 from Dec 1, MLK Day day 9) and needs re-dating with step 7.
 
@@ -157,7 +157,7 @@ Normal speed is now a game day in 2,560 s (43 minutes, [[Season Calendar]]), so 
 
 - Does the tutorial let the player build out of order, or guide each step (grants, as in [[Economy Balance]])?
 - Which dates should the tutorial open on: Dec 1, so Christmas is day 6 and MLK Day day 9?
-- Settled (the user, 2026-10-10): no magic carpet in the demo; guest targets can move, but the 70% rating goal and three lifts stay, and it's fine if two lifts would meet the guest goal.
+- Settled (the user, 2026-10-10): no magic carpet in the demo; guest targets can move, but the rating goal (now a 1,000+ day at 3.0 stars) and three lifts stay, and it's fine if two lifts would meet the guest goal.
 
 ## Log
 
@@ -165,3 +165,4 @@ Normal speed is now a game day in 2,560 s (43 minutes, [[Season Calendar]]), so 
 - 2026-10-10: Steps 1–2 (the user): 6-day months; demand decoupled from the season (`dailyVisitShare` 0.1) and drawn by the terrain the running lifts serve, by skill and run count (`terrainDraw`). Re-measured: Accelerator triples ordinary days; stage 4 draws less than stage 1, undiagnosed.
 - 2026-10-10: The stage 4 dip diagnosed and fixed (occupancy counted lodge guests against terrain capacity); full lots counted in the day's stats and report; re-measured. The user: no magic carpet in the demo, guest targets can move, the rating goal and three lifts stay.
 - 2026-10-10: Measured with a 200-stall first lot: it fills on holidays with the lodge and every day with Accelerator; the second lot pays back in about 6 days. `tools/stages` gained `-hourly` and `-stalls`.
+- 2026-10-10: The goal day (the user): 1,000+ guests ending at 3.0 stars or better, replacing a week at 70%.
