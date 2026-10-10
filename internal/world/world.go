@@ -88,6 +88,8 @@ func BuildingCost(t BuildingType) int {
 		return SnowGunCost
 	case BuildingTicketOffice:
 		return TicketOfficeCost
+	case BuildingSkiRack:
+		return SkiRackCost
 	}
 	return LodgeCost
 }
@@ -522,8 +524,8 @@ func (w *World) PlaceBuildingType(typ BuildingType, x, z float32) *Building {
 		w.placePointService(b)
 		return b
 	}
-	// Snow guns are narrow pole-mounted devices — don't block any cell.
-	if typ != BuildingSnowGun {
+	// Snow guns and ski racks are narrow — they don't block any cell.
+	if typ != BuildingSnowGun && typ != BuildingSkiRack {
 		cell := b.DoorCell()
 		if w.Terrain.InBounds(cell[0], cell[1]) {
 			w.Terrain.Cells[cell[0]][cell[1]].Passable = false
@@ -568,7 +570,7 @@ func (w *World) RemoveBuilding(id uint64) {
 						w.Terrain.Cells[c[0]][c[1]].Passable = true
 					}
 				}
-			} else if b.Type != BuildingSnowGun {
+			} else if b.Type != BuildingSnowGun && b.Type != BuildingSkiRack {
 				cell := b.DoorCell()
 				if w.Terrain.InBounds(cell[0], cell[1]) {
 					w.Terrain.Cells[cell[0]][cell[1]].Passable = true

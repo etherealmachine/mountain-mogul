@@ -35,6 +35,7 @@ const (
 	MeshBar          uint32 = 23       // bar/restaurant (half-size lodge mesh)
 	MeshTicketOffice uint32 = 24       // ticket booth with service windows
 	MeshChairTriple  uint32 = 25       // 3-seat fixed grip chair
+	MeshSkiRack      uint32 = 26       // A-frame ski rack
 )
 
 // MeshSlot is an anchor point baked into a mesh by the SCAD pipeline
@@ -93,6 +94,8 @@ func (t BuildingType) MeshID() uint32 {
 		return MeshParkingPad
 	case BuildingSnowGun:
 		return MeshSnowGun
+	case BuildingSkiRack:
+		return MeshSkiRack
 	case BuildingBar:
 		return MeshBar
 	case BuildingTicketOffice:

@@ -110,7 +110,7 @@ Diagnose each first, report the cause, then fix:
 - **Views**: better-sited buildings attract more guests ([[GOAP]]) and can charge more.
 - **Lockers and ski school**: more base services; ski school *needs* staff.
 - **Footpath follow-ups** ([[Pathfinding]]): paths that avoid building footprints. Footpaths, their editing, and their snow clearing shipped 2026-10-10.
-- [[Ski Racks]]: a real pause to take skis off and put them on, skis left outside in racks while guests are inside, and clutter and a complaint without racks.
+- [[Ski Racks]] leftovers: save where skis are, skis in the snow slowing routes to the door, returning rental gear, and groups waiting at the rack. Racks and the ski change shipped 2026-10-10.
 - [[Building Tool]] leftovers: presets (a one-tile ticket booth, a patrol shed with a garage), hints in the Services menu for what each service needs, and the open questions in its note (heated empty floor, rooms with no outside wall).
 - **Lodge storeys and styles**: more storeys, a style choice, and a shuffle button.
 
@@ -292,3 +292,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-10: Lift staff shipped ([[Lifts]]): two operators on every lift and an optional line attendant who fills chairs; sweepers moved to [[Packed Snow]].
 - 2026-10-10: Lines at service doors shipped ([[Amenities]]): single file out from the door, and guests inside hidden instead of stacked on the step.
 - 2026-10-10: Normal speed is a day in 2,560 s (an eighth of before); rebalance later. Planned with the user: [[Snowmobile Routes]], [[Ski Racks]] (with the ski on/off pause), and [[Rope Lines]] (folding in ropes at trail splits). Dropped the shipped partly-filled-chairs and lift-attendant lines.
+- 2026-10-10: Ski racks shipped ([[Ski Racks]]): the rack, a 15-sim-second ski change, and skis left outside while guests are in. [[Rope Lines]] updated with the user's notes: cheap, avoided but crossable, and the ski area boundary is one.

@@ -249,11 +249,17 @@ type Guest struct {
 	// ground). While false the guest walks regardless of slope.
 	SkisOn bool
 
-	// SkiTransitionTimer drives the 1-second equip/unequip pause.
-	// Positive = removing skis (counts down to 0, then SkisOn→false).
-	// Negative = putting skis on (counts up to 0, then SkisOn→true).
-	// Zero = no active transition.
+	// SkiTransitionTimer drives the pause to take skis off or put them
+	// on (sim.skiChangeTime). Positive = removing skis (counts down to 0,
+	// then SkisOn→false). Negative = putting skis on (counts up to 0,
+	// then SkisOn→true). Zero = no active transition.
 	SkiTransitionTimer float32
+
+	// Stash is where their skis are while they're indoors or about to be
+	// (ski_rack.go); GearTimer counts down a stop to put skis in a rack or
+	// the snow, or pick them up.
+	Stash     SkiStash
+	GearTimer float32
 
 	// RestTimer counts down a visit (UseService: a seat, a meal, a
 	// drink). While >0 the guest is inside; on expiry the sim applies
@@ -353,6 +359,12 @@ func Activity(w *World, g *Guest) string {
 	}
 	if g.Indoors() {
 		return "Inside"
+	}
+	if g.GearTimer > 0 {
+		if g.Stash.Out {
+			return "Leaving Skis"
+		}
+		return "Picking Up Skis"
 	}
 	if g.SkiTransitionTimer > 0 {
 		return "Removing Skis"
@@ -590,6 +602,8 @@ func (g *Guest) ResetForDeparture() {
 	g.Unload = Unloading{}
 	g.SkisOn = false
 	g.SkiTransitionTimer = 0
+	g.Stash = SkiStash{}
+	g.GearTimer = 0
 	g.RestTimer = 0
 	g.Removed = false
 	g.Events = g.Events[:0]

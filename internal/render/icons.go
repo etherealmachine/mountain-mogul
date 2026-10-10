@@ -56,9 +56,10 @@ const (
 	IconGarage IconName = "garage" // equipment shed (snowcats, snowmobiles)
 
 	// Infrastructure
-	IconRoad       IconName = "road"       // road placement tool
-	IconFootprints IconName = "footprints" // footpath tool
-	IconFlag       IconName = "flag"       // road-network edge-connection marker (editor only)
+	IconRoad       IconName = "road"              // road placement tool
+	IconFootprints IconName = "footprints"        // footpath tool
+	IconSki        IconName = "person-simple-ski" // ski rack tool
+	IconFlag       IconName = "flag"              // road-network edge-connection marker (editor only)
 )
 
 // allIcons is the full set loaded at startup. Adding an icon requires
@@ -73,7 +74,7 @@ var allIcons = []IconName{
 	IconArrowRight, IconArrowClockwise, IconTrophy, IconCocktail,
 	IconStack, IconChartLine, IconChartBar, IconTriangle, IconWaves, IconBroom, IconGridFour, IconDrop, IconDotsNine,
 	IconGarage,
-	IconRoad, IconFootprints,
+	IconRoad, IconFootprints, IconSki,
 	IconFlag,
 }
 

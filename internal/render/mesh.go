@@ -36,6 +36,7 @@ const (
 	MeshBar          uint32 = 23 // bar/restaurant (half-size lodge)
 	MeshTicketOffice uint32 = 24 // ticket booth with service windows
 	MeshChairTriple  uint32 = 25 // 3-seat fixed grip chair
+	MeshSkiRack      uint32 = 26 // A-frame ski rack
 
 	// MeshLodgeTileBase + world.ShellMeshIndex(kind, tile) is the shell
 	// kits, one per building kind (models-src/{lodge,tent,shed}_*.scad);

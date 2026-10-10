@@ -27,3 +27,4 @@ Guests reach these through [[GOAP]], not by wandering the shell. Planned in [[Ne
 - 2026-10-07: Rental shop added; services meet needs and line guests up at the door ([[Service Improvements]]).
 - 2026-10-07: Day services listed in [[Services]], a card each.
 - 2026-10-10: Lines at the door are single file out from the door, turning back every six guests; guests inside aren't drawn. Before, everyone using or waiting for a service stood stacked on the door's step. Code: `internal/world/door_line.go`, `serveLines` and `tickWaitingForService` in `internal/sim/simulation.go`.
+- 2026-10-10: Ski racks: guests leave skis in a rack near the door (or in the snow) before going in, and pick them up on the way out ([[Ski Racks]]).

@@ -754,7 +754,7 @@ func (s *Simulation) tickGuests(dt float64) {
 		// Check whether the agent needs to swap equipment. Only fires
 		// when no other transition is active and not in a state that
 		// already suspends locomotion.
-		if agent.SkiTransitionTimer == 0 && !agent.Fallen && agent.OnLiftID == 0 && !agent.Queued && agent.RestTimer == 0 {
+		if agent.SkiTransitionTimer == 0 && agent.GearTimer == 0 && !agent.Fallen && agent.OnLiftID == 0 && !agent.Queued && agent.RestTimer == 0 {
 			s.maybeStartSkiTransition(agent)
 		}
 		switch {
@@ -764,6 +764,8 @@ func (s *Simulation) tickGuests(dt float64) {
 			s.tickRiding(agent, dt)
 		case agent.Queued:
 			s.tickQueued(agent, dt)
+		case agent.SkiTransitionTimer == 0 && s.gearErrand(agent, dt):
+			// Leaving skis outside, or going back for them (gear.go).
 		case agent.Visit.Waiting:
 			s.tickWaitingForService(agent, dt)
 		case agent.RestTimer > 0:
@@ -1991,6 +1993,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		if step.Use == ai.OfferRentals && !a.NeedsGear {
 			return // in the group that's renting, with skis of their own
 		}
+		s.stashOnEntry(a)
 		if !b.HasRoomFor(step.Use) {
 			// Full: line up at the door (serveLines lets them in).
 			a.Visit.Waiting, a.Visit.WaitSince = true, s.SimTime
@@ -2710,7 +2713,7 @@ func (s *Simulation) walkStep(agent *world.Guest, targetPos, steer mgl32.Vec3, d
 	// top rather than removing skis immediately after unloading.
 	if agent.SkisOn && agent.SkiTransitionTimer == 0 {
 		if d, ok := leavingDistance(agent, targetPos); ok && d < skisOffNearDest {
-			agent.SkiTransitionTimer = 1.0
+			agent.SkiTransitionTimer = skiChangeTime(agent)
 			return
 		}
 	}

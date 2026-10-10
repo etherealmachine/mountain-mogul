@@ -263,9 +263,20 @@ func (f *figures) guestPose(w *world.World, g *world.Guest, a *figureAnim, dt fl
 		return lerpPose(chairPose(), a.skiPose(t, g.Pos, 0, g.Traits.Skill, 0, dt), easeStep(up))
 	case g.Fallen:
 		return f.fallPose(t, g, a, dt)
+	case g.SkiTransitionTimer != 0:
+		// Bent down to the bindings, skis on the snow at their feet.
+		pitch, roll, _ := slopeAngles(t, g.Pos, a.heading)
+		return stancePose(stanceParams{crouch: 1, lean: 0.7, pitch: pitch, roll: roll})
+	case g.GearTimer > 0:
+		// Putting skis in a rack or the snow, or taking them out.
+		pitch, roll, _ := slopeAngles(t, g.Pos, a.heading)
+		p := stancePose(stanceParams{crouch: 0.5, lean: 0.5, pitch: pitch, roll: roll})
+		p.hide = 1<<boneSkiL | 1<<boneSkiR | 1<<bonePoleL | 1<<bonePoleR
+		return p
 	case !g.SkisOn:
-		// Anyone who came with skis or has rented some carries them.
-		return a.walk(t, g.Pos, g.Speed, dt, !g.NeedsGear)
+		// Anyone who came with skis or has rented some carries them,
+		// until they leave them outside.
+		return a.walk(t, g.Pos, g.Speed, dt, g.CarriesSkis())
 	}
 	return a.skiPose(t, g.Pos, g.Speed, g.Traits.Skill, g.TurnSide, dt)
 }
@@ -339,6 +350,32 @@ func lyingSki(t *world.Terrain, side int, at [2]float32, yaw float32) (mgl32.Mat
 	return place, bones
 }
 
+// Skis left standing (world.SkiStash): sunk this far into the snow, and
+// leaning back this far, rad, against a rack's rail or loose in the snow.
+const (
+	standingSkiSink    = 0.15
+	standingSkiRackTip = 0.24
+	standingSkiSnowTip = 0.1
+)
+
+// standingSkis is a pair of skis stood up at at, facing yaw, leaning back
+// by tip.
+func standingSkis(t *world.Terrain, at mgl32.Vec2, yaw, tip float32) (mgl32.Mat4, [figureBones]mgl32.Mat4) {
+	var bones [figureBones]mgl32.Mat4
+	y := VisualElevationAt(t, at[0], at[1])
+	place := mgl32.Translate3D(at[0], y, at[1]).Mul4(headingBasis(yaw))
+	for side := range 2 {
+		rest := figureRestJoint(boneSkiL + side)
+		// Centre the ski on the origin, stand it on its tail (its
+		// length, model X, up), lean the top back (-X), and set the pair
+		// side by side.
+		bones[boneSkiL+side] = mgl32.Translate3D(0, figSkiLen/2-standingSkiSink, sideSign[side]*0.05).
+			Mul4(mgl32.HomogRotate3DZ(math.Pi/2 - tip)).
+			Mul4(mgl32.Translate3D(-0.03, -0.015, -rest[2]))
+	}
+	return place, bones
+}
+
 // build poses every guest and patroller on the mountain into this
 // frame's instances.
 func (f *figures) build(r *Renderer, w *world.World) {
@@ -358,6 +395,15 @@ func (f *figures) build(r *Renderer, w *world.World) {
 	}
 	var bones [figureBones]mgl32.Mat4
 	for _, g := range w.OnMountain {
+		if g.Stash.Out {
+			tip := float32(standingSkiSnowTip)
+			if g.Stash.RackID != 0 {
+				tip = standingSkiRackTip
+			}
+			place, skis := standingSkis(t, g.Stash.Pos, g.Stash.Yaw, tip)
+			o := outfit(g.ID, g.Traits.Skill)
+			f.add(place, &skis, &o, mgl32.Vec4{})
+		}
 		if r.HiddenGuestID != 0 && g.ID == r.HiddenGuestID || g.Indoors() {
 			continue
 		}

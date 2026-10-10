@@ -458,6 +458,7 @@ const (
 	toolLandBuy      toolMode = iota // click to purchase a land parcel
 	toolService      toolMode = iota // build service-building tiles
 	toolFootpath     toolMode = iota // lay footpaths node by node
+	toolSkiRack      toolMode = iota // place a ski rack
 )
 
 // Scenario is the main gameplay scene.
@@ -991,6 +992,7 @@ func (s *Scenario) Init(app *engine.App) error {
 	s.toolButtons[toolParking] = s.transportSubmenu.AddChild(render.IconUsers, "Parking", func() { s.activateParkingTool(0) })
 	s.toolButtons[toolRoadStart] = s.transportSubmenu.AddChild(render.IconRoad, "Road", func() { s.setTool(toolRoadStart) })
 	s.toolButtons[toolFootpath] = s.transportSubmenu.AddChild(render.IconFootprints, "Path", s.activatePathTool)
+	s.toolButtons[toolSkiRack] = s.transportSubmenu.AddChild(render.IconSki, "Ski Rack", func() { s.setTool(toolSkiRack) })
 
 	// Lifts submenu: all chair/gondola/heli variants
 	s.liftsSubmenu = s.toolBar.AddSubmenu(render.IconCableCar, "Lifts")
@@ -2683,6 +2685,24 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		b := placeBuilding(w, world.BuildingSnowGun, wx, wz, s.placeRotation)
 		s.sim.LogBuildingPlaced(b)
 		r.RebuildStaticBatch(w)
+	case toolSkiRack:
+		if !w.Terrain.IsAccessible(gx, gz) {
+			s.setToast("Can't build on land you don't own")
+			return
+		}
+		if !w.CanAfford(world.SkiRackCost) {
+			s.setToast(fmt.Sprintf("Need $%d for a ski rack — short by $%d",
+				world.SkiRackCost, world.SkiRackCost-w.Available()))
+			return
+		}
+		if w.BuildingOverlap(world.BuildingSkiRack, wx, wz, s.placeRotation) {
+			s.setToast("Can't place a ski rack here — overlaps another building")
+			return
+		}
+		w.Cash -= world.SkiRackCost
+		b := placeBuilding(w, world.BuildingSkiRack, wx, wz, s.placeRotation)
+		s.sim.LogBuildingPlaced(b)
+		r.RebuildStaticBatch(w)
 	case toolGlade:
 		// Each click or drag-into-new-cell event removes the highlighted
 		// trees; stationary holding does nothing further (see
@@ -3375,6 +3395,15 @@ func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 	switch bldg.Type {
 	case world.BuildingParking:
 		s.buildParkingPopup(bldg, false, screenW, screenH)
+		return
+	case world.BuildingSkiRack:
+		w := ui.NewWindow("Ski Rack", 0, 0)
+		w.AddLabel("Skis", func() string {
+			return fmt.Sprintf("%d / %d pairs", s.sim.SkisInRack(bldg.ID), world.SkiRackPairs)
+		})
+		w.Visible = true
+		w.Center(screenW, screenH)
+		s.popup = w
 		return
 	case world.BuildingSnowGun:
 		w := ui.NewWindow("Snow Gun", 0, 0)
@@ -4096,6 +4125,11 @@ func updatePlacementGhost(r *render.Renderer, t *world.Terrain, st placementGhos
 			buildingInstance(st.hoverPos, st.rotation, t, st.tint),
 		})
 
+	case toolSkiRack:
+		r.SetGhosts(render.MeshSkiRack, []render.StaticInstance{
+			buildingInstance(st.hoverPos, st.rotation, t, st.tint),
+		})
+
 	case toolLiftBase:
 		if st.liftType == world.LiftHeli {
 			r.SetGhosts(render.MeshHelipad, []render.StaticInstance{
@@ -4181,6 +4215,9 @@ func (s *Scenario) placementCost() (cost int, affordable, legal, valid bool) {
 	case toolSnowGun:
 		cost = world.SnowGunCost
 		legal = cellOwned && !s.world.BuildingOverlap(world.BuildingSnowGun, pos[0], pos[1], s.placeRotation)
+	case toolSkiRack:
+		cost = world.SkiRackCost
+		legal = cellOwned && !s.world.BuildingOverlap(world.BuildingSkiRack, pos[0], pos[1], s.placeRotation)
 	case toolLiftBase:
 		if s.liftType == world.LiftHeli {
 			cost = world.HelipadCost / 2

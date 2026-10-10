@@ -583,14 +583,16 @@ func mustWalk(w *world.World, x, z float32) bool {
 	return onBuildingFootprint(w, x, z) || noSnowUnderfoot(w.Terrain, x, z)
 }
 
-// maybeStartSkiTransition triggers the 1-second ski equip/unequip pause when
+// maybeStartSkiTransition triggers the pause to take skis off or put them
+// on (skiChangeTime) when
 // the agent crosses into or out of walk-required terrain.  Only called when
 // no transition is already in progress.
 func (s *Simulation) maybeStartSkiTransition(a *world.Guest) {
 	walk := mustWalk(s.World, a.Pos[0], a.Pos[2])
 	if walk && a.SkisOn {
-		a.SkiTransitionTimer = 1.0 // removing skis
-	} else if !walk && !a.SkisOn && !a.OnFoot {
+		a.SkiTransitionTimer = skiChangeTime(a) // removing skis
+	} else if !walk && !a.SkisOn && !a.OnFoot && !a.Stash.Out {
+		// (Skis left in a rack or the snow are fetched first: gear.go.)
 		// Don't put skis back on when close to the destination — the guest
 		// is about to arrive and shouldn't re-equip for the last few metres.
 		// Further away (e.g. at the lift top after a heatwave stripped the
@@ -601,7 +603,7 @@ func (s *Simulation) maybeStartSkiTransition(a *world.Guest) {
 				return
 			}
 		}
-		a.SkiTransitionTimer = -1.0 // putting skis on
+		a.SkiTransitionTimer = -skiChangeTime(a) // putting skis on
 	}
 }
 

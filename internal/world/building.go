@@ -23,6 +23,7 @@ const (
 	BuildingSnowGun      BuildingType = 4
 	BuildingTicketOffice BuildingType = 5
 	BuildingBar          BuildingType = 6 // bar/restaurant — relieve thirst/hunger
+	BuildingSkiRack      BuildingType = 7 // a rack for skis by the doors (ski_rack.go)
 )
 
 // Building represents a structure placed on the terrain. Lodges are
@@ -332,6 +333,8 @@ func (t BuildingType) Label() string {
 		return "Ticket Office"
 	case BuildingBar:
 		return "Bar"
+	case BuildingSkiRack:
+		return "Ski Rack"
 	}
 	return "Lodge"
 }
