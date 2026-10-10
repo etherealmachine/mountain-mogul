@@ -1,0 +1,82 @@
+---
+title: Economy Balance
+kind: plan
+status: planned
+---
+
+# Economy Balance
+
+Pace money so the player is never long without something worth buying, and never has everything. Targets are set in real minutes, because that's what the player waits through; the calendar ([[Season Calendar]]) then decides how many game days that is. Brings together [[Vision]]'s reference economy (section 7), [[First Week Balance]], and the "Full cost rebalance" in [[Next Steps]]; touches [[Finance]], [[Demand]], [[Scenarios]], and [[Scenario Goals and Rules]].
+
+## Why
+
+From the user, 2026-10-10: there's a fine line between making the player waste time fast-forwarding and just giving them all the money they need. RollerCoaster Tycoon's scenarios and Parkitect are well balanced. Waiting 1–3 game days for cash for the next project, or to pay off a loan to make room for the next one, feels right.
+
+## Pacing targets
+
+At 80 s a game day at the fastest speed ([[Season Calendar]]):
+
+- **Something small every 1–3 days** (1.5–4 minutes at the fastest speed): a snow gun or two, another cat, a food or lounge module, glading a run, more parking, a parcel, or paying down the credit line.
+- **A big project every week or two** (a lift, a lodge, a lift upgrade): about 3–5 a season.
+- **Prestige projects across seasons**: a gondola, a second base area. [[Vision]] already has the gondola as a multi-season savings goal.
+- **Never more than about 5 minutes with nothing worth doing.**
+
+The gap between big projects grows as the resort does, because later lifts are longer and higher, upgrades cost more than the lift they replace, and the gondola costs 6–10 times a quad. Small purchases fill the gaps.
+
+## The measure: payback days
+
+For each thing the player can build: its cost ÷ the extra net income a day it brings (more guests, a better rating, more spending).
+
+- Payback of a few days for everything: money snowballs, and the player soon has all they want (Cities: Skylines after the first hour).
+- Payback of 60 days for everything: the player fast-forwards.
+- Aim for about 5–15 days early on, getting longer later, so late spending shifts toward the rating, the goals, and prestige rather than profit.
+
+## What the good examples do
+
+- **RollerCoaster Tycoon**: tight at the start, with growth paid for by a loan with interest; each scenario has a goal and a deadline, so waiting has a cost; money piles up late, but the deadline is the pressure by then.
+- **Parkitect**: scenarios vary the money (a tight budget, a "make $X" goal); running costs grow with the park (staff, upkeep, ageing rides), so a big park isn't a cash fountain; contracts pay bursts for doing particular things.
+- **Prison Architect**: grants pay out for building what the game wants built next, so money and teaching are one thing. A fit for [[Boreal]], the tutorial.
+- **Two Point Hospital**: star goals set the pace; loans and rising costs stop coasting.
+- **Cities: Skylines**: the cautionary tale, tight for an hour and swimming in money after, because income grows faster than costs.
+
+## The season's own pacing
+
+Real ski resorts pace money already:
+
+- Season passes sell before opening: a lump of cash to build with.
+- Christmas and the February holidays are paydays; January's lull and bad-snow weeks drain.
+- The off-season is the natural time to skip forward, and the natural build season.
+
+## Scenario length and content
+
+With a 50-day season, 1–3 days per purchase is 16–50 purchases a season, and running out of content by year 2 is a risk (the user, 2026-10-10). Splitting small purchases from big projects (above) is most of the answer. The rest is how long a scenario is meant to last:
+
+- Decide each scenario's length in real hours, then the calendar follows. At 67 minutes a season at the fastest speed, [[Boreal]] won within season one is a 1–1.5 hour tutorial; later scenarios might run 2–4 seasons.
+- A scenario should end about when its terrain runs out of good lift lines. Past that, sandbox play needs money sinks rather than content: ageing lifts and their upkeep, staff costs that grow, guests who expect more each season.
+- If scenarios want more seasons than the content holds, the calendar (days a month, months a season) is the lever, as the user suggested.
+
+## Steps
+
+1. **Season economy report.** A headless run of a whole season (from the zzday and zzseason tools) printing revenue and costs by category, per guest and per day, cash over time, and payback days for each thing built.
+2. **Measure three reference builds** of Boreal: the minimum resort, the three-lift resort of its goals, and a big one.
+3. **Set scenario lengths** in real hours with the user, and with them the calendar, if it has to change.
+4. **Tune, one lever at a time**, re-running the report each time:
+   1. running costs that grow with size (lift upkeep, staff, grooming hours): the main guard against late-game money piles;
+   2. build costs against daily income;
+   3. starting money and credit (the editor's Money tab, [[Scenario Editor]]);
+   4. prices and how guests respond to them;
+   5. the guest pool, once it scales with what's built ([[First Week Balance]] step 2).
+5. **Goal-tied money**, later: grants in the tutorial, and one-off events (a race sponsorship, a film shoot) that top up the early game without raising everyone's base income.
+6. **Show money coming**: "you can afford this in about 3 days", with the flashes in [[Money Feedback]]. Players fast-forward less when they can see whether waiting will help.
+
+[[First Week Balance]] becomes the opening slice of steps 2 and 4.
+
+## Open questions
+
+- How long should each scenario be, in real hours? This decides whether the calendar changes.
+- Do upgrades (double to quad to high-speed) and expansions count as the content that fills later seasons, or does the game need more kinds of things to build?
+- Which money sinks for the sandbox: ageing and upkeep, staff wages, rising guest expectations?
+
+## Log
+
+- 2026-10-10: Planned with the user: pacing targets in real minutes (1–3 days for the next purchase), payback days as the measure, lessons from other games, and the worry that a 50-day season holds more purchases than the game has content for.

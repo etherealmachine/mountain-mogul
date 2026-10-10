@@ -137,6 +137,7 @@ Diagnose each first, report the cause, then fix:
 ## Economy ([[Finance]], [[Demand]])
 
 - [[Money Feedback]]: a floating "-$600" when you spend, cost previews for every tool that costs money, and income and cost flashes on the cash display.
+- [[Economy Balance]]: pacing in real minutes (something small every 1–3 days, a big project every week or two), payback days as the measure, a season economy report, then tuning running costs, build costs, and starting money. Open: how long a scenario should be, and whether the calendar changes.
 - [[First Week Balance]]: starting cash buys a parking lot, a short lift, and a cat shed; the guest pool scales with the resort; a week of revenue buys about one lift. *Needs* the ticket-window bug fixed.
 - **Full cost rebalance**: build and operating costs across the board. *Needs* [[First Week Balance]].
 - **Loans**: from the old `NEXT.md`; a credit line already exists, so scope what loans add first. *For* the Turnaround idea in [[Scenario Campaign]].
@@ -286,3 +287,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-09: [[Groups]] planned with the user, as the way toward 10,000 visitors a day ([[Crowd Scale]]).
 - 2026-10-09: Turbo and the storm skip removed (the user: they were for the long calendar); "More fast-forward targets" dropped with them.
 - 2026-10-09: Car kinds shipped in [[Transit]]; [[Large Vehicles]] (buses, RVs) noted as an idea.
+- 2026-10-10: [[Economy Balance]] planned with the user.
