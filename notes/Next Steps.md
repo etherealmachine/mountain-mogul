@@ -110,8 +110,8 @@ Diagnose each first, report the cause, then fix:
 - [[Service Quality]]: formats at different price points (food court, restaurant, snack stand, shop), staff as a pool per room (headcount for timeliness, wage for quality through morale), hungrier guests with a lunch rush, and shopping.
 - **Views**: better-sited buildings attract more guests ([[GOAP]]) and can charge more.
 - **Lockers and ski school**: more base services; ski school *needs* staff.
-- **Footpaths**: painted paths between buildings, with guests walking skis-off, and pathing that uses them (the user, 2026-10-07: paths and pathing are needed at some point). *For* [[Zermatt]].
-- **Ski racks**: where footpaths meet the snow. *Needs* footpaths.
+- **Footpath follow-ups** ([[Pathfinding]]): editing a laid path's nodes (drag, insert, delete, like runs), clearing snow under paths, and paths that avoid building footprints. Footpaths themselves shipped 2026-10-10.
+- **Ski racks**: where footpaths meet the snow.
 - [[Building Tool]] leftovers: presets (a one-tile ticket booth, a patrol shed with a garage), hints in the Services menu for what each service needs, and the open questions in its note (heated empty floor, rooms with no outside wall).
 - **Lodge storeys and styles**: more storeys, a style choice, and a shuffle button.
 
@@ -288,3 +288,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-09: Turbo and the storm skip removed (the user: they were for the long calendar); "More fast-forward targets" dropped with them.
 - 2026-10-09: Car kinds shipped in [[Transit]]; [[Large Vehicles]] (buses, RVs) noted as an idea.
 - 2026-10-10: [[Economy Balance]] planned with the user.
+- 2026-10-10: Footpaths shipped ([[Pathfinding]]): the Path tool, twice-as-fast walking, and walking routes that prefer paths.

@@ -196,7 +196,7 @@ func NewSimulationWithSeed(w *world.World, seed int64) *Simulation {
 	sim := &Simulation{
 		World:          w,
 		SimTime:        w.SimTime,
-		Pathfinder:     NewPathfinder(w.Terrain),
+		Pathfinder:     NewPathfinder(w),
 		TimeScale:      4.0,
 		Site:           SiteOf(w),
 		Weather:        NewChainFor(w.Climate, w.BaseAltitude+terrainMinElevation(w.Terrain)),
@@ -2404,13 +2404,21 @@ func (s *Simulation) tickPath(agent *world.Guest, dt float64) {
 	tx := (float32(target[0]) + 0.5) * CellSize
 	tz := (float32(target[1]) + 0.5) * CellSize
 	ty := w.Terrain.SurfaceElevationAt(target[0], target[1])
+	// Through a footpath's cells, walk the path itself.
+	if w.FootpathCell(target[0], target[1]) {
+		if q, ok := w.SnapToFootpath(mgl32.Vec2{tx, tz}); ok {
+			tx, tz = q[0], q[1]
+			ty = w.Terrain.InterpolatedSurfaceElevationAt(tx, tz)
+		}
+	}
 	targetPos := mgl32.Vec3{tx, ty, tz}
 	s.recordWalkTick(agent, targetPos)
 
 	dir := targetPos.Sub(agent.Pos)
 	dist := dir.Len()
 
-	step := float32(WalkSpeed * dt)
+	speed := s.walkSpeed(agent)
+	step := float32(speed * dt)
 	if dist <= step {
 		agent.Pos = targetPos
 		agent.PathIdx++
@@ -2435,7 +2443,16 @@ func (s *Simulation) tickPath(agent *world.Guest, dt float64) {
 	}
 	agent.Pos = agent.Pos.Add(dirNorm.Mul(step))
 	agent.Heading = float32(math.Atan2(float64(dirNorm[0]), float64(dirNorm[2])))
-	agent.Speed = WalkSpeed
+	agent.Speed = float32(speed)
+}
+
+// walkSpeed is how fast agent walks where they are: WalkSpeed, or
+// FootpathSpeedup times it on a footpath.
+func (s *Simulation) walkSpeed(agent *world.Guest) float64 {
+	if s.World.OnFootpath(mgl32.Vec2{agent.Pos[0], agent.Pos[2]}) {
+		return WalkSpeed * world.FootpathSpeedup
+	}
+	return WalkSpeed
 }
 
 // walkClearance is how wide a walker gives a lift tower or a station's
@@ -2721,7 +2738,8 @@ func (s *Simulation) tickWalkToward(agent *world.Guest, target mgl32.Vec3, dt fl
 		return true
 	}
 	dirNorm := s.walkClear(agent.Pos, mgl32.Vec2{dx / distXZ, dz / distXZ}, distXZ)
-	step := float32(WalkSpeed * dt)
+	speed := s.walkSpeed(agent)
+	step := float32(speed * dt)
 	if step > distXZ {
 		step = distXZ
 	}
@@ -2729,7 +2747,7 @@ func (s *Simulation) tickWalkToward(agent *world.Guest, target mgl32.Vec3, dt fl
 	agent.Pos[2] += dirNorm[1] * step
 	agent.Pos[1] = s.World.Terrain.InterpolatedSurfaceElevationAt(agent.Pos[0], agent.Pos[2])
 	agent.Heading = float32(math.Atan2(float64(dirNorm[0]), float64(dirNorm[1])))
-	agent.Speed = WalkSpeed
+	agent.Speed = float32(speed)
 	return false
 }
 

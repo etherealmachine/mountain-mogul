@@ -75,12 +75,14 @@ type routeProfile struct {
 	cover   float32                 // standCoverScale
 	comfort float32                 // tan of the comfort slope; 0 when pitch doesn't matter (on foot)
 	levels  world.TerrainDifficulty // trails they keep to; 0 for anywhere
+	paths   bool                    // on foot with footpaths about: they're quicker on them
 }
 
 // routeProfileFor is a's routeProfile now.
 func (s *Simulation) routeProfileFor(a *world.Guest) routeProfile {
 	p := routeProfile{w: s.World, cover: standCoverScale(a.Traits.Tastes)}
 	if !a.SkisOn {
+		p.paths = s.World.HasFootpaths()
 		return p
 	}
 	if a.Traits.ComfortSlope > 0 {
@@ -179,11 +181,28 @@ func (s *Simulation) prepareRoute(a *world.Guest, goal mgl32.Vec3, sc *routeScra
 		r.Checked, r.NextCheck = true, s.SimTime+routeRecheckSec
 		r.Points, r.Index = nil, 0
 		prof := s.routeProfileFor(a)
-		if !lineClear(t, pos, g, &prof) {
+		// With footpaths about, a walker's straight way may be slower
+		// than one by a path, so they always look.
+		if prof.paths || !lineClear(t, pos, g, &prof) {
 			if pts, ok := s.trailRoute(a, pos, g); ok {
 				r.Points = pts
 			} else {
 				r.Points = planSkiRoute(t, pos, g, &prof, sc)
+			}
+		}
+		if prof.paths {
+			snapToFootpaths(s.World, r.Points)
+		}
+	}
+}
+
+// snapToFootpaths moves route points in a footpath's cells onto the
+// path, so a walker routed by it walks on it.
+func snapToFootpaths(w *world.World, pts []mgl32.Vec2) {
+	for i, p := range pts {
+		if w.FootpathCell(int(p[0]/world.CellSize), int(p[1]/world.CellSize)) {
+			if q, ok := w.SnapToFootpath(p); ok {
+				pts[i] = q
 			}
 		}
 	}
@@ -197,6 +216,12 @@ func lineClear(t *world.Terrain, a, b mgl32.Vec2, prof *routeProfile) bool {
 	d := b.Sub(a)
 	length := d.Len()
 	n := int(length/2.5) + 1
+	// A walker going from one point on a path to another keeps to it,
+	// rather than cutting across where it bends.
+	pathCell := func(p mgl32.Vec2) bool {
+		return prof.w.FootpathCell(int(p[0]/world.CellSize), int(p[1]/world.CellSize))
+	}
+	keepToPath := prof.paths && pathCell(a) && pathCell(b)
 	prev, prevY := a, t.InterpolatedSurfaceElevationAt(a[0], a[1])
 	for i := 1; i <= n; i++ {
 		f := float32(i) / float32(n)
@@ -210,6 +235,9 @@ func lineClear(t *world.Terrain, a, b mgl32.Vec2, prof *routeProfile) bool {
 		}
 		cell := &t.Cells[cx][cz]
 		if i < n && !cell.Walkable() {
+			return false
+		}
+		if keepToPath && !pathCell(p) {
 			return false
 		}
 		y := t.InterpolatedSurfaceElevationAt(p[0], p[1])
@@ -250,13 +278,23 @@ func planSkiRoute(t *world.Terrain, a, b mgl32.Vec2, prof *routeProfile, sc *rou
 		if prof.offTrail(c[0], c[1]) {
 			c2 += routeOffTrailCost
 		}
+		if prof.paths && prof.w.FootpathCell(c[0], c[1]) {
+			c2 /= world.FootpathSpeedup
+		}
 		return c2
 	}
 	centre := func(c [2]int) mgl32.Vec2 {
 		return mgl32.Vec2{(float32(c[0]) + 0.5) * world.CellSize, (float32(c[1]) + 0.5) * world.CellSize}
 	}
+	// The estimate to the goal leans on it to search less, but a walker
+	// near footpaths gets a true lower bound (the whole way on path), so
+	// the search finds the way round by them when it's quicker.
+	weight := routeHeuristicWeight
+	if prof.paths {
+		weight = 1.0 / world.FootpathSpeedup
+	}
 	heur := func(c [2]int) float32 {
-		return routeHeuristicWeight * float32(math.Hypot(float64(c[0]-goal[0]), float64(c[1]-goal[1])))
+		return weight * float32(math.Hypot(float64(c[0]-goal[0]), float64(c[1]-goal[1])))
 	}
 	elev := func(c [2]int) float32 { return t.SurfaceElevationAt(c[0], c[1]) }
 	sc.setG(idx(start), 0, -1)

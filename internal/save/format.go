@@ -67,6 +67,9 @@ type ScenarioData struct {
 	Buildings   []BuildingData   `json:"buildings"`
 	Lifts       []LiftData       `json:"lifts"`
 	Trails      []TrailData      `json:"trails,omitempty"`
+	// Footpaths are world.Footpaths: each path's ID and its nodes as
+	// (x, z, width).
+	Footpaths   []FootpathData   `json:"footpaths,omitempty"`
 	Guests      []GuestData      `json:"guests"`
 	Snowcats    []SnowcatData    `json:"snowcats,omitempty"`
 	Snowmobiles []SnowmobileData `json:"snowmobiles,omitempty"`
@@ -640,4 +643,10 @@ type CarData struct {
 	Pos     [2]float32 `json:"pos"`
 	Heading float32    `json:"heading,omitempty"`
 	InLot   bool       `json:"in_lot,omitempty"`
+}
+
+// FootpathData is a saved world.Footpath.
+type FootpathData struct {
+	ID    uint64       `json:"id"`
+	Nodes [][3]float32 `json:"nodes"`
 }

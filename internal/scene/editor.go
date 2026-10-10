@@ -72,8 +72,9 @@ type Editor struct {
 	// trails up to date (editor_trails.go, run_tool.go).
 	trail         editorTrail
 	runTool       runTool
-	trailEdit     runTool // editing the selected run (editSelectedTrail)
-	trailEditUsed bool    // this frame's click went to editing the selected run
+	pathTool      pathTool // the footpath tool's session (footpath_tool.go)
+	trailEdit     runTool  // editing the selected run (editSelectedTrail)
+	trailEditUsed bool     // this frame's click went to editing the selected run
 	trailDraw     trailDrawing
 	// skiDraft is the ski-area outline in progress (editor_ski_area.go).
 	skiDraft                  []mgl32.Vec2
@@ -194,6 +195,7 @@ func (e *Editor) Init(app *engine.App) error {
 	e.transportSubmenu = e.menuBar.AddSubmenu(render.IconRoad, "Transport")
 	e.toolButtons[toolParking] = e.transportSubmenu.AddChild(render.IconUsers, "Parking", func() { e.setTool(toolParking) })
 	e.toolButtons[toolRoadStart] = e.transportSubmenu.AddChild(render.IconRoad, "Road", func() { e.setTool(toolRoadStart) })
+	e.toolButtons[toolFootpath] = e.transportSubmenu.AddChild(render.IconFootprints, "Path", e.activatePathTool)
 	e.toolButtons[toolEdgeConnect] = e.transportSubmenu.AddChild(render.IconFlag, "Edge", func() { e.setTool(toolEdgeConnect) })
 
 	// Lifts submenu
@@ -378,6 +380,8 @@ func (e *Editor) Update(dt float64) {
 			e.serviceTool.dropRect() // drop the floor, keep the tool
 		case e.activeTool == toolTrailPaint && e.runTool.drawing:
 			e.runTool.drawing, e.runTool.nodes = false, nil // drop the run, keep the tool
+		case e.activeTool == toolFootpath && e.pathTool.drawing():
+			e.pathTool.nodes = nil // drop the path, keep the tool
 		case e.activeTool == toolParcelRect && e.parcelRectActive:
 			// Cancel the in-progress selection but stay in the tool.
 			e.parcelRectActive = false
@@ -686,6 +690,7 @@ func (e *Editor) Update(dt float64) {
 	})
 	e.updateServiceTool(inp, overChrome)
 	e.updateRunTool(r, inp, overChrome)
+	e.updatePathTool(r, inp, overChrome)
 	// Editor mirrors the scenario's node-highlight behaviour while a
 	// road tool is active — same snap rules, same visual cue. While
 	// editing an existing road (toolNone selection), draw the full node
@@ -756,8 +761,8 @@ func (e *Editor) Update(dt float64) {
 				if !e.trailEditUsed {
 					e.handleToolNoneMouse(r, inp.LeftClick, inp.LeftHeld)
 				}
-			} else if e.activeTool == toolService || e.activeTool == toolTrailPaint {
-				// Handled by updateServiceTool and updateRunTool.
+			} else if e.activeTool == toolService || e.activeTool == toolTrailPaint || e.activeTool == toolFootpath {
+				// Handled by updateServiceTool, updateRunTool and updatePathTool.
 			} else if e.activeTool == toolParking {
 				if e.hoverValid {
 					pos := mgl32.Vec2{e.hoverWorld[0], e.hoverWorld[2]}
@@ -970,6 +975,11 @@ func (e *Editor) applyPlacement(r *render.Renderer, shiftHeld bool) {
 		}
 		if lot := w.PaintedBuildingAt(e.hoverCell[0], e.hoverCell[1]); lot != nil {
 			e.deleteLot(r, lot.ID)
+			return
+		}
+		if f := w.FootpathAt(pick, 1); f != nil {
+			w.RemoveFootpath(f.ID)
+			e.markDirty()
 		}
 	case toolParcelRect:
 		gx, gz := e.hoverCell[0], e.hoverCell[1]
@@ -1011,6 +1021,10 @@ func (e *Editor) setTool(t toolMode) {
 		e.endParkingSession(e.app.Renderer)
 		if prev == toolTrailPaint {
 			e.endRunTool()
+		}
+		if prev == toolFootpath {
+			e.pathTool = pathTool{}
+			e.app.Renderer.SetFootpathGhost(e.world, nil, false)
 		}
 	}
 	isActive := e.activeTool == t ||
@@ -2278,4 +2292,34 @@ func maxF(a, b float32) float32 {
 		return a
 	}
 	return b
+}
+
+// activatePathTool starts the footpath tool (footpath_tool.go);
+// re-clicking the Path button ends it.
+func (e *Editor) activatePathTool() {
+	was := e.activeTool == toolFootpath
+	e.setTool(toolFootpath)
+	if !was {
+		e.pathTool = newPathTool()
+		e.setToast("Click to lay a footpath, node by node; click the last node again or press Enter to finish. [ and ] set the width.")
+	}
+}
+
+// updatePathTool runs the footpath tool for a frame.
+func (e *Editor) updatePathTool(r *render.Renderer, inp *engine.Input, covered bool) {
+	if e.activeTool != toolFootpath {
+		return
+	}
+	env := pathEnv{w: e.world, r: r, toast: e.setToast, changed: e.markDirty, free: true}
+	env.input(&e.pathTool, pathInput{
+		toolInput: toolInput{
+			mouse: inp.MousePos, covered: covered,
+			ground: e.hoverWorld, groundValid: e.hoverValid,
+			leftClick: inp.LeftClick && !inp.LeftClickConsumed, leftHeld: inp.LeftHeld,
+			rightClick: inp.RightClick, rightRelease: inp.RightRelease,
+			enter: inp.Pressed[glfw.KeyEnter] || inp.Pressed[glfw.KeyKPEnter],
+		},
+		widen:  inp.Pressed[glfw.KeyRightBracket],
+		narrow: inp.Pressed[glfw.KeyLeftBracket],
+	})
 }

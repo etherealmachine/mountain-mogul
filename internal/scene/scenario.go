@@ -457,6 +457,7 @@ const (
 	toolTrailPaint   toolMode = iota // paint/erase cells on the active trail
 	toolLandBuy      toolMode = iota // click to purchase a land parcel
 	toolService      toolMode = iota // build service-building tiles
+	toolFootpath     toolMode = iota // lay footpaths node by node
 )
 
 // Scenario is the main gameplay scene.
@@ -548,7 +549,10 @@ type Scenario struct {
 	trailDifficulty world.TerrainDifficulty // difficulty for the next new run
 	// runTool is the run tool's session while toolTrailPaint is active;
 	// trailDraw keeps the drawn trails up to date (run_tool.go).
-	runTool   runTool
+	runTool runTool
+	// pathTool is the footpath tool's session while toolFootpath is
+	// active (footpath_tool.go).
+	pathTool  pathTool
 	trailEdit runTool // editing the selected run (editSelectedTrail)
 	trailDraw trailDrawing
 
@@ -984,6 +988,7 @@ func (s *Scenario) Init(app *engine.App) error {
 	s.transportSubmenu = s.toolBar.AddSubmenu(render.IconRoad, "Transport")
 	s.toolButtons[toolParking] = s.transportSubmenu.AddChild(render.IconUsers, "Parking", func() { s.activateParkingTool(0) })
 	s.toolButtons[toolRoadStart] = s.transportSubmenu.AddChild(render.IconRoad, "Road", func() { s.setTool(toolRoadStart) })
+	s.toolButtons[toolFootpath] = s.transportSubmenu.AddChild(render.IconFootprints, "Path", s.activatePathTool)
 
 	// Lifts submenu: all chair/gondola/heli variants
 	s.liftsSubmenu = s.toolBar.AddSubmenu(render.IconCableCar, "Lifts")
@@ -1620,6 +1625,8 @@ func (s *Scenario) Update(dt float64) {
 			s.serviceTool.dropRect() // drop the floor, keep the tool
 		case s.activeTool == toolTrailPaint && s.runTool.drawing:
 			s.runTool.drawing, s.runTool.nodes = false, nil // drop the run, keep the tool
+		case s.activeTool == toolFootpath && s.pathTool.drawing():
+			s.pathTool.nodes = nil // drop the path, keep the tool
 		case s.activeTool != toolNone:
 			s.cancelTool()
 		default:
@@ -2082,6 +2089,21 @@ func (s *Scenario) Update(dt float64) {
 			newRun: inp.Held[glfw.KeyLeftShift] || inp.Held[glfw.KeyRightShift],
 		})
 	}
+	// The footpath tool: lay paths node by node (footpath_tool.go).
+	if s.activeTool == toolFootpath {
+		covered := s.barsContain(inp.MousePos[1]) || s.uiCovers(inp.MousePos[0], inp.MousePos[1], float32(r.ScreenWidth()))
+		s.pathEnv().input(&s.pathTool, pathInput{
+			toolInput: toolInput{
+				mouse: inp.MousePos, covered: covered,
+				ground: s.hoverWorld, groundValid: s.hoverValid,
+				leftClick: inp.LeftClick && !inp.LeftClickConsumed, leftHeld: inp.LeftHeld,
+				rightClick: inp.RightClick, rightRelease: inp.RightRelease,
+				enter: !typing && (inp.Pressed[glfw.KeyEnter] || inp.Pressed[glfw.KeyKPEnter]),
+			},
+			widen:  !typing && inp.Pressed[glfw.KeyRightBracket],
+			narrow: !typing && inp.Pressed[glfw.KeyLeftBracket],
+		})
+	}
 	// The building and service tools: drag out floor, put services in
 	// tiles, right-click to remove (service_tools.go).
 	if s.activeTool == toolService {
@@ -2102,7 +2124,7 @@ func (s *Scenario) Update(dt float64) {
 		gladeDragged := s.activeTool == toolGlade && inp.LeftHeld &&
 			s.lastGladeCell != [2]int{-1, -1} &&
 			s.hoverCell != s.lastGladeCell
-		clickOrDrag := (inp.LeftClick && s.activeTool != toolParking && s.activeTool != toolService && s.activeTool != toolTrailPaint) || gladeDragged
+		clickOrDrag := (inp.LeftClick && s.activeTool != toolParking && s.activeTool != toolService && s.activeTool != toolTrailPaint && s.activeTool != toolFootpath) || gladeDragged
 		if clickOrDrag && !s.uiCovers(inp.MousePos[0], inp.MousePos[1], screenW) && s.hoverValid {
 			overSlider := s.activeTool == toolGlade &&
 				(s.gladeRadiusSlider.Contains(inp.MousePos[0], inp.MousePos[1]) ||
@@ -2785,6 +2807,27 @@ func (s *Scenario) activateTrailTool() {
 	s.setToast("Click near a lift top to start a run, then click to add nodes and click a lift base to finish. Click a run with no tool to select and edit it. Esc to finish.")
 }
 
+// activatePathTool starts the footpath tool (footpath_tool.go);
+// re-clicking the Path button ends it.
+func (s *Scenario) activatePathTool() {
+	if s.activeTool == toolFootpath {
+		s.cancelTool()
+		return
+	}
+	if s.activeTool != toolNone {
+		s.cancelTool()
+	}
+	s.pathTool = newPathTool()
+	s.activeTool = toolFootpath
+	s.syncToolButtons()
+	s.setToast(fmt.Sprintf("Click to lay a footpath, node by node: $%d a square metre. Guests walk twice as fast on paths. Esc to finish.", world.FootpathCostPerM2))
+}
+
+// pathEnv is the game's footpath-tool surroundings.
+func (s *Scenario) pathEnv() pathEnv {
+	return pathEnv{w: s.world, r: s.app.Renderer, toast: s.setToast}
+}
+
 // editSelectedTrail runs a frame of editing the selected run (its popup
 // open, no tool): its handles show, and clicks on them or on the run go
 // to it first, consuming the click.
@@ -2898,6 +2941,10 @@ func (s *Scenario) removeAt(clickPos mgl32.Vec3, r *render.Renderer) {
 	}
 	if b := w.PaintedBuildingAt(int(pick[0]/world.CellSize), int(pick[1]/world.CellSize)); b != nil {
 		s.deletePaintedBuilding(b.ID)
+		return
+	}
+	if f := w.FootpathAt(pick, 1); f != nil {
+		w.RemoveFootpath(f.ID) // no refund, like the other tools
 	}
 }
 
@@ -3693,6 +3740,7 @@ func (s *Scenario) setTool(t toolMode) {
 	r.ClearAllGhosts()
 	r.ClearGhostCable()
 	r.ClearGhostRoad()
+	r.SetFootpathGhost(s.world, nil, false)
 	if isActive {
 		s.activeTool = toolNone
 	} else {
@@ -3745,6 +3793,10 @@ func (s *Scenario) cancelTool() {
 	}
 	if s.activeTool == toolParking {
 		s.lotTool.reset(0)
+	}
+	if s.activeTool == toolFootpath {
+		s.pathTool = pathTool{}
+		s.app.Renderer.SetFootpathGhost(s.world, nil, false)
 	}
 	if s.activeTool == toolService {
 		s.serviceTool = serviceTool{}

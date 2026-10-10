@@ -39,11 +39,12 @@ func (h *nodeHeap) Pop() interface{} {
 // Pathfinder runs A* on the terrain grid.
 type Pathfinder struct {
 	terrain *world.Terrain
+	world   *world.World // for footpaths, which halve a cell's cost
 }
 
-// NewPathfinder creates a new Pathfinder for the given terrain.
-func NewPathfinder(t *world.Terrain) *Pathfinder {
-	return &Pathfinder{terrain: t}
+// NewPathfinder creates a new Pathfinder for w's terrain.
+func NewPathfinder(w *world.World) *Pathfinder {
+	return &Pathfinder{terrain: w.Terrain, world: w}
 }
 
 // FindPath returns a path from `from` to `to` using A*, or nil if no path exists.
@@ -60,9 +61,17 @@ func (p *Pathfinder) FindPath(from, to [2]int) [][2]int {
 
 	h := &nodeHeap{}
 	heap.Init(h)
-	heap.Push(h, &node{pos: from, g: 0, f: heuristic(from, to)})
+	heap.Push(h, &node{pos: from, g: 0, f: 0})
 
 	dirs := [][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}
+	// A cell on a footpath costs 1/FootpathSpeedup, as it's walked that
+	// much faster; the estimate to the goal assumes it's all path, so
+	// the search still finds the quickest way.
+	paths := p.world != nil && p.world.HasFootpaths()
+	hScale := 1.0
+	if paths {
+		hScale = 1.0 / world.FootpathSpeedup
+	}
 
 	for h.Len() > 0 {
 		current := heap.Pop(h).(*node)
@@ -85,11 +94,15 @@ func (p *Pathfinder) FindPath(from, to [2]int) [][2]int {
 			if !p.terrain.Cells[nb[0]][nb[1]].Walkable() && nb != to {
 				continue
 			}
-			tentative := gScore[pos] + 1.0
+			stepCost := 1.0
+			if paths && p.world.FootpathCell(nb[0], nb[1]) {
+				stepCost = 1.0 / world.FootpathSpeedup
+			}
+			tentative := gScore[pos] + stepCost
 			if prev, ok := gScore[nb]; !ok || tentative < prev {
 				gScore[nb] = tentative
 				came[nb] = pos
-				f := tentative + heuristic(nb, to)
+				f := tentative + hScale*heuristic(nb, to)
 				heap.Push(h, &node{pos: nb, g: tentative, f: f})
 			}
 		}

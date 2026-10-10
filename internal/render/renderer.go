@@ -1497,6 +1497,12 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	// top of road quads where they overlap. Shares the cable shader path
 	// (identity instance transform, dark asphalt tint via VertexAttrib).
 	// Lane dashes ride on top of the asphalt with a brighter tint.
+	r.syncFootpaths(w)
+	if r.scene.footpathMesh != nil {
+		gl.BindTexture(gl.TEXTURE_2D, r.whiteTexID)
+		setFootpathAttribs()
+		r.scene.footpathMesh.Draw()
+	}
 	if r.scene.roadMesh != nil {
 		gl.BindTexture(gl.TEXTURE_2D, r.whiteTexID)
 		setRoadTransformAttribs()
@@ -1564,6 +1570,15 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	if r.scene.roadGhostMesh != nil {
 		setRoadTransformAttribs()
 		r.scene.roadGhostMesh.Draw()
+	}
+	if r.scene.footpathGhost != nil {
+		r.StaticShader.SetFloat("uAlpha", 0.6)
+		setFootpathAttribs()
+		if !r.scene.footpathGhostOK {
+			gl.VertexAttrib3f(7, 0.75, 0.15, 0.10) // can't be laid
+		}
+		r.scene.footpathGhost.Draw()
+		r.StaticShader.SetFloat("uAlpha", 0.4)
 	}
 	if r.scene.lotGhost != nil {
 		r.StaticShader.SetFloat("uAlpha", 0.6)

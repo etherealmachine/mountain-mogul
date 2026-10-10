@@ -77,12 +77,22 @@ type TrailSample struct {
 // the width interpolated along it. Nil for an area or a run with fewer
 // than two nodes.
 func (t *Trail) Centerline() []TrailSample {
-	n := len(t.Nodes)
-	if t.Kind.IsArea() || n < 2 {
+	if t.Kind.IsArea() {
 		return nil
 	}
-	at := func(i int) TrailNode { return t.Nodes[min(max(i, 0), n-1)] }
-	out := []TrailSample{{Pos: t.Nodes[0].Pos, Width: t.Nodes[0].Width}}
+	return smoothLine(t.Nodes)
+}
+
+// smoothLine is the Catmull-Rom centre line through nodes, sampled about
+// every trailSampleStep metres, with the width interpolated along it;
+// nil for fewer than two nodes. Runs and footpaths share it.
+func smoothLine(nodes []TrailNode) []TrailSample {
+	n := len(nodes)
+	if n < 2 {
+		return nil
+	}
+	at := func(i int) TrailNode { return nodes[min(max(i, 0), n-1)] }
+	out := []TrailSample{{Pos: nodes[0].Pos, Width: nodes[0].Width}}
 	for i := 0; i < n-1; i++ {
 		p0, p1, p2, p3 := at(i-1).Pos, at(i).Pos, at(i+1).Pos, at(i+2).Pos
 		w1, w2 := at(i).Width, at(i+1).Width

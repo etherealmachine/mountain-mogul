@@ -131,6 +131,11 @@ type World struct {
 	Buildings []*Building
 	Lifts     []*Lift
 	Trails    []*Trail
+	// Footpaths are the walkways (footpath.go); FootpathsRev counts
+	// changes to them, for the renderer, and footpaths is their index.
+	Footpaths    []*Footpath
+	FootpathsRev int
+	footpaths    footpathIndex
 
 	// TrailGraph is the derived connectivity graph built from trail cell data.
 	// Rebuilt by RebuildTrailGraph whenever trails are added, removed, or edited.
