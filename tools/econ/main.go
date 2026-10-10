@@ -37,7 +37,7 @@ func main() {
 		c := world.LiftCost(l.Type, l.Base, l.Top)
 		total += c
 		fmt.Printf("  %-24s %-16s %5.0f m  %4.0f m vert  $%9d  running $%d/day\n", l.Name, l.Type.Label(), length, vert, c,
-			2*world.LiftStaffDailyCost+l.Type.RunningCostDay())
+			l.Headcount()*world.LiftStaffDailyCost+l.Type.RunningCostDay())
 	}
 	fmt.Println("BUILDINGS")
 	for _, b := range w.Buildings {

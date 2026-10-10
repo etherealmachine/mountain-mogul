@@ -91,7 +91,7 @@ About $100 a visitor: $57 in tickets and passes, $40 in food. Running costs are 
 3. **More guests**: lifts run at 12–25% of capacity on an ordinary day; a pool that grows with what's built ([[First Week Balance]] step 2) might bring 800 or more.
 4. **Tutorial money** (the editor's Money tab): $2M cash and a $1M line buys stages A and B on day 0, and Christmas pays toward 49er; stage C then takes about 30 days at today's income, or 15 with lever 1 or 2.
 
-Next, when balancing resumes: run headless days with only stage A built, then A and B, for the early income.
+Next, when balancing resumes: run headless days with only stage A built, then A and B, for the early income. Done 2026-10-10, stage by stage, in [[Boreal Tutorial]]: guests barely follow what's built.
 
 ## Steps
 
@@ -121,3 +121,4 @@ Next, when balancing resumes: run headless days with only stage A built, then A 
 - 2026-10-10: The tutorial is 30–60 minutes (the user): Boreal's required goals in about 2–3 game weeks.
 - 2026-10-10: Measured backwards from the Boreal Goals Test save: $4.49M to build, $46.6k a day net; the tutorial needs about 4× today's income against costs. Balancing paused for feature work (the user).
 - 2026-10-10: The day and economy tools are kept in the repo as `tools/days` and `tools/econ`; the other one-off measuring tools were deleted.
+- 2026-10-10: [[Boreal Tutorial]]: the tutorial's build order and day-by-day money, each stage measured; the season's length is a demand lever (visits a season over `SeasonDays`).

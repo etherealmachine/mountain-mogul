@@ -137,6 +137,7 @@ Diagnose each first, report the cause, then fix:
 ## Economy ([[Finance]], [[Demand]])
 
 - [[Money Feedback]]: a floating "-$600" when you spend, cost previews for every tool that costs money, and income and cost flashes on the cash display.
+- [[Boreal Tutorial]]: the tutorial's build order and day-by-day money; first, guests have to follow what's built, and the season's length decided.
 - [[Economy Balance]]: pacing in real minutes (something small every 1–3 days, a big project every week or two), payback days as the measure, a season economy report, then tuning running costs, build costs, and starting money. Open: how long a scenario should be, and whether the calendar changes.
 - [[First Week Balance]]: starting cash buys a parking lot, a short lift, and a cat shed; the guest pool scales with the resort; a week of revenue buys about one lift. *Needs* the ticket-window bug fixed.
 - **Full cost rebalance**: build and operating costs across the board. *Needs* [[First Week Balance]].
@@ -296,3 +297,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-10: Rope lines shipped ([[Rope Lines]]): the Rope tool, skiers and routes avoiding ropes, and the ski area boundary crossable the same way.
 - 2026-10-10: Snowmobile routes shipped ([[Snowmobile Routes]]): round trees, buildings, towers, lakes and steep ground, driven with turning and braking, and dispatch timed by them.
 - 2026-10-10: Saves keep where skis are left, and whether guests have skis on or still need rentals ([[Ski Racks]]).
+- 2026-10-10: [[Boreal Tutorial]] planned with the user: build order, measured stages, and the economy changes it needs.
