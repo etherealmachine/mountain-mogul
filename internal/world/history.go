@@ -98,6 +98,7 @@ type DailySample struct {
 	GuestsOnMountain int                       // active OnMountain count at EOD
 	ArrivalsToday    int                       // spawns during this day
 	DeparturesToday  int                       // departures during this day
+	TurnedAway       int                       // guests whose car found every lot full
 	Cash             int                       // resort cash balance at EOD
 	Revenue          int                       // all income this day
 	Costs            int                       // all costs this day (operating + interest)
@@ -145,6 +146,7 @@ type History struct {
 	// Day-in-progress counters. Reset by Push.
 	ArrivalsToday      int
 	DeparturesToday    int
+	TurnedAwayToday    int
 	RevenueToday       int
 	RevenueByKindToday [RevenueKindCount]int
 	ThoughtCountsToday [ai.ThoughtKindCount]int
@@ -308,6 +310,7 @@ func (h *History) Push(sample DailySample) {
 	}
 	h.ArrivalsToday = 0
 	h.DeparturesToday = 0
+	h.TurnedAwayToday = 0
 	h.RevenueToday = 0
 	h.RevenueByKindToday = [RevenueKindCount]int{}
 	h.ThoughtCountsToday = [ai.ThoughtKindCount]int{}

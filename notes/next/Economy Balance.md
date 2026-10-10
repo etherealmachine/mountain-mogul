@@ -97,13 +97,13 @@ Next, when balancing resumes: run headless days with only stage A built, then A 
 
 Paused 2026-10-10, with the tutorial's plan written ([[Boreal Tutorial]]). What's known:
 
-- **Income doesn't grow with the resort.** One beginner lift draws 283 a day and nets $15k; the finished $4.49M resort draws 422 and nets $35k. Nothing after the first lift pays back in a season, so no build order can be balanced by prices and costs alone. Demand that follows what's built ([[First Week Balance]] step 2) comes first.
+- **Income now grows with the resort** (2026-10-10): one beginner lift draws about 270 a day and nets $15k; with Accelerator about 700 and $60k; the finished resort about 800 and $75k ([[Boreal Tutorial]], Measured after steps 1–2).
 - **Grooming, patrol and parking capacity don't show in the money or the stars**, so the tutorial steps that teach them have nothing to teach yet.
 - **Running costs are 2–17% of revenue**, under [[Vision]]'s 30–50%, so the books always look healthy and staffing has nothing to balance.
-- **The season's length is a demand lever**, the same one as the guest pools ([[Season Calendar]], Season length and demand): undecided.
+- **The season is 30 days** (6-day months), and demand no longer depends on its length ([[Season Calendar]]).
 - **Real time**: at normal speed a day is 43 minutes, so the tutorial's 20 days are played at fast (about 55 minutes).
 
-Order when it resumes: decide the season's length and whether demand divides by it; demand that follows what's built; lots that fill; grooming and patrol effects; then prices, costs and starting money against the [[Boreal Tutorial]] targets, re-measuring with `tools/stages` after each.
+Order from here: lots that fill; grooming and patrol effects; then prices, costs and starting money against the [[Boreal Tutorial]] targets, re-measuring with `tools/stages` after each.
 
 ## Steps
 
@@ -135,3 +135,4 @@ Order when it resumes: decide the season's length and whether demand divides by 
 - 2026-10-10: The day and economy tools are kept in the repo as `tools/days` and `tools/econ`; the other one-off measuring tools were deleted.
 - 2026-10-10: [[Boreal Tutorial]]: the tutorial's build order and day-by-day money, each stage measured; the season's length is a demand lever (visits a season over `SeasonDays`).
 - 2026-10-10: Paused again (the user); Where it stands written.
+- 2026-10-10: Resumed: 6-day months, demand decoupled from the season and following the terrain served ([[Boreal Tutorial]] steps 1–2).

@@ -24,7 +24,7 @@ Simulation time, the number of agents, real play time, and the economics have to
 
 From the user, 2026-10-09:
 
-- **10 days a month**, open **December through April**: a 50-day season.
+- **6 days a month**, open **December through April**: a 30-day season (10 days a month until 2026-10-10; Season length and demand, below).
 - **80 seconds a day at the fastest speed**, which sets the season at about 67 minutes.
 - **Normal speed is a thirty-second of that**: 2,560 seconds (43 minutes) a day (320 until 2026-10-10).
 
@@ -91,9 +91,9 @@ The skier counts are scaled from one measurement (about 110 seconds of movement 
 
 ## Season length and demand
 
-Open, 2026-10-10. The user suspects the 50-day season is part of why the economy is short ([[Boreal Tutorial]]).
+Decided 2026-10-10 (the user): demand is decoupled from the season's length, and the season is 30 days as 6-day months, holidays on the 3rd and 6th. Each guest's daily chance is now `VisitsPerSeason × dailyVisitShare` (0.1), a tuning constant, times the day type; `SeasonDays` no longer touches it. The reasoning, as written before deciding:
 
-- **How it works today**: each guest's daily chance to visit is `VisitsPerSeason / world.SeasonDays`, times the day type (`sim/demand.go`). So the season's length divides every day's crowd: a 30-day season brings about 1.7 times today's crowd each day, a 25-day one twice.
+- **How it worked**: each guest's daily chance to visit is `VisitsPerSeason / world.SeasonDays`, times the day type (`sim/demand.go`). So the season's length divides every day's crowd: a 30-day season brings about 1.7 times today's crowd each day, a 25-day one twice.
 - **That makes it the same lever as the guest pools.** Shortening the season by a factor is exactly raising every guest's `VisitsPerSeason` by it, as far as daily guests go. What a shorter season changes besides that is the calendar: fewer days to play, fewer holidays (6 in 30 days, against 10), fewer storms, and less time for each purchase to pay back.
 - **So two questions, best decided apart:**
   1. **How many guests a day**, for the economy. Set by the pools and visits a season, or by a per-day rate that doesn't divide by the season at all, so the calendar can change without moving demand.
@@ -175,3 +175,4 @@ The "Boreal (Goals Test)" save starts closed with its lifts stopped, so headless
 - 2026-10-10: The user: normal is too fast, especially the lifts; normal is now 640 s a day (fast 160, fastest 80 unchanged). A season at normal is about 9 hours, so normal is for watching and fast for playing.
 - 2026-10-10: Still too fast: normal is now 1,280 s a day, motion at about 8 times real speed; a season at normal is about 18 hours.
 - 2026-10-10: Still too fast: normal is now 2,560 s a day, motion at about 4 times real speed and a clock hour in about 4 real minutes.
+- 2026-10-10: Decided (the user): 6-day months (a 30-day season, holidays on the 3rd and 6th), and demand decoupled from `SeasonDays` (`dailyVisitShare` in `sim/demand.go`).

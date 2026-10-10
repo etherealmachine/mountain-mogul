@@ -762,6 +762,7 @@ func historyFromData(hd *HistoryData) *world.History {
 			GuestsOnMountain: s.GuestsOnMountain,
 			ArrivalsToday:    s.ArrivalsToday,
 			DeparturesToday:  s.DeparturesToday,
+			TurnedAway:       s.TurnedAway,
 			Cash:             s.Cash,
 			Revenue:          s.Revenue,
 			Costs:            s.Costs,
@@ -783,6 +784,7 @@ func historyFromData(hd *HistoryData) *world.History {
 	}
 	h.ArrivalsToday = hd.ArrivalsToday
 	h.DeparturesToday = hd.DeparturesToday
+	h.TurnedAwayToday = hd.TurnedAway
 	h.RevenueToday = hd.RevenueToday
 	copy(h.RevenueByKindToday[:], hd.RevenueByKind)
 	copy(h.DepartReasonsToday[:], hd.DepartReasons)
@@ -811,6 +813,7 @@ func historyToData(h *world.History) *HistoryData {
 			GuestsOnMountain: s.GuestsOnMountain,
 			ArrivalsToday:    s.ArrivalsToday,
 			DeparturesToday:  s.DeparturesToday,
+			TurnedAway:       s.TurnedAway,
 			Cash:             s.Cash,
 			Revenue:          s.Revenue,
 			Costs:            s.Costs,
@@ -830,6 +833,7 @@ func historyToData(h *world.History) *HistoryData {
 		Samples:         samples,
 		ArrivalsToday:   h.ArrivalsToday,
 		DeparturesToday: h.DeparturesToday,
+		TurnedAway:      h.TurnedAwayToday,
 		RevenueToday:    h.RevenueToday,
 		RevenueByKind:   intsOrNil(h.RevenueByKindToday[:]),
 		Falls:           falls,

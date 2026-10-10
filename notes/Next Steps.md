@@ -13,7 +13,7 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 
 In the order to work on them:
 
-1. [[Demo]]: the free Steam demo ([[Release]]: demo, then early access, then guest types as DLC), the Boreal tutorial and Kirkwood, playable for a few hours, as its own stripped build. Steps in order: the magic carpet; terrain expectations (readouts, demand by terrain mix, a challenge preference); service staffing and quality ([[Service Quality]]); balance so the goals are reachable; goals and unlocking; the snow bugs; a Kirkwood map pass; a demo pop-up; UI polish (including a closed-resort sign); graphics polish; visible traffic; menus; the demo build.
+1. [[Demo]]: the free Steam demo ([[Release]]: demo, then early access, then guest types as DLC), the Boreal tutorial and Kirkwood, playable for a few hours, as its own stripped build. Steps in order: terrain expectations (readouts, demand by terrain mix, a challenge preference); service staffing and quality ([[Service Quality]]); balance so the goals are reachable; goals and unlocking; the snow bugs; a Kirkwood map pass; a demo pop-up; UI polish (including a closed-resort sign); graphics polish; visible traffic; menus; the demo build.
 
 Not ranked yet: everything below.
 
@@ -39,7 +39,7 @@ Diagnose each first, report the cause, then fix:
 ## Lifts ([[Lifts]])
 
 - [[Lift Operations]]: refuse overlapping lifts, then breakdowns and a maintenance contract, wind holds that spare the gondola, and guests riding down. Wind holds *need* wind that varies by day. Breakdowns are *for* the Turnaround idea in [[Scenario Campaign]].
-- **Surface lifts**: magic carpet first (in the [[Demo]]), then T-bar and rope tow, for beginner areas. None are lift types yet (today: double, quad, high-speed quad, 6-pack, gondola, heli). Kirkwood has two magic carpets and a T-bar in OpenStreetMap. *For* [[Kirkwood]], [[Boreal]], and Portillo in [[Scenario Campaign]].
+- **Surface lifts**: magic carpet first (not in the [[Demo]], the user 2026-10-10), then T-bar and rope tow, for beginner areas. None are lift types yet (today: double, quad, high-speed quad, 6-pack, gondola, heli). Kirkwood has two magic carpets and a T-bar in OpenStreetMap. *For* [[Kirkwood]], [[Boreal]], and Portillo in [[Scenario Campaign]].
 - **Long gondola spans**: few, tall towers over terrain a chair can't cross ([[Vision]]). *For* [[Palisades Tahoe]], [[Zermatt]].
 - **Riders on both sides of the line**: arriving riders spawn on both sides of the lift line, not one.
 - **Lines around buildings**: lift lines wrap around buildings instead of through them ([[Pathfinding]]).
@@ -74,7 +74,7 @@ Diagnose each first, report the cause, then fix:
 - **Glaciers**: year-round snow at the top of high resorts. *For* [[Zermatt]].
 - **Avalanche control**: explosives, closures, and barriers. *For* [[Alta]].
 - **Avalanche risk overlay**: show where slopes are loaded before anything releases. *For* [[Alta]].
-- [[Season Calendar]]: our own calendar, 10 days a month, open December to April, holidays on the 5th and 10th; a day in 80 s at the fastest speed and 320 s at normal. First measure how much skier movement a game hour can hold. To be ranked by the user.
+- [[Season Calendar]]: our own calendar, 6 days a month, open December to April (a 30-day season), holidays on the 3rd and 6th; a day in 80 s at the fastest speed and 320 s at normal. First measure how much skier movement a game hour can hold. To be ranked by the user.
 
 ## Safety ([[Ski Patrol]])
 
@@ -168,6 +168,10 @@ Diagnose each first, report the cause, then fix:
 - **Animation approach**: choose between procedural in the shader (as now), glTF skinned meshes, baked keyframes, or blended poses.
 - **Storm lag**: lag was reported after a heavy storm at [[Boreal]]. The GPU half is fixed (fresh snow zoomed out: 10.6 → 7.2 ms), and snow changes no longer re-upload the whole terrain vertex buffer every frame ([[Terrain Realism]] step 1). The sim half is unchecked, because the tutorial save has no guests; play a busy game through a storm with `-cpuprofile` to see if deep powder or avalanche checks slow the sim ([[Debug Tools]]).
 - **5,000 guests**: persistent buffers, culling the guest batch, lower-detail skier meshes. Big maps also lean on the terrain chunks from [[Terrain Realism]] step 1.
+
+## Play modes
+
+- [[SkiFree Mode]]: take a skier and ski the resort yourself, on the same physics as the guests, with a yeti past the boundary. An idea from the user, 2026-10-10, after SimGolf.
 
 ## Easter eggs
 
@@ -298,3 +302,5 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-10: Snowmobile routes shipped ([[Snowmobile Routes]]): round trees, buildings, towers, lakes and steep ground, driven with turning and braking, and dispatch timed by them.
 - 2026-10-10: Saves keep where skis are left, and whether guests have skis on or still need rentals ([[Ski Racks]]).
 - 2026-10-10: [[Boreal Tutorial]] planned with the user: build order, measured stages, and the economy changes it needs.
+- 2026-10-10: Season length decided (the user): 6-day months, a 30-day season; demand no longer divides by it. Demand now follows the terrain the running lifts serve ([[Boreal Tutorial]] steps 1–2).
+- 2026-10-10: Magic carpet out of the [[Demo]] (the user).

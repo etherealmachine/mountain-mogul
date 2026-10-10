@@ -81,6 +81,9 @@ func (s *Scenario) openDayReport(d world.DailySample, prev *world.DailySample) {
 	}
 	win.AddAmount("Cash", formatDollars(d.Cash), cashColor, false)
 	win.AddAmount("Visitors", strconv.Itoa(d.ArrivalsToday), reportText, false)
+	if d.TurnedAway > 0 {
+		win.AddAmount("Turned away: lots full", strconv.Itoa(d.TurnedAway), reportLoss, false)
+	}
 
 	win.AddBoolToggle("Show every night",
 		func() bool { return !settings.Get().HideDailyReport },

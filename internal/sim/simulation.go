@@ -1029,6 +1029,7 @@ func (s *Simulation) maybeSampleHistory() {
 			GuestsOnMountain: len(w.OnMountain),
 			ArrivalsToday:    w.History.ArrivalsToday,
 			DeparturesToday:  w.History.DeparturesToday,
+			TurnedAway:       w.History.TurnedAwayToday,
 			Cash:             w.Cash,
 			Revenue:          w.History.RevenueToday,
 			Costs:            costs.Total(),

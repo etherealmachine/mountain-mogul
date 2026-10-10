@@ -328,6 +328,7 @@ type HistoryData struct {
 	Samples         []DailySampleData `json:"s,omitempty"`
 	ArrivalsToday   int               `json:"a,omitempty"`
 	DeparturesToday int               `json:"d,omitempty"`
+	TurnedAway      int               `json:"ta,omitempty"`
 	RevenueToday    int               `json:"r,omitempty"`
 	RevenueByKind   []int             `json:"rk,omitempty"` // world.RevenueKind order
 	Falls           []FallData        `json:"f,omitempty"`  // world.History.FallsToday
@@ -362,6 +363,7 @@ type DailySampleData struct {
 	GuestsOnMountain int     `json:"g,omitempty"`
 	ArrivalsToday    int     `json:"a,omitempty"`
 	DeparturesToday  int     `json:"x,omitempty"`
+	TurnedAway       int     `json:"ta,omitempty"`
 	Cash             int     `json:"c,omitempty"`
 	Revenue          int     `json:"r,omitempty"`
 	Costs            int     `json:"co,omitempty"`

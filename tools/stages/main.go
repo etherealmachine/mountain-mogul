@@ -4,7 +4,12 @@
 // days with every lift open, printing each day's visitors, stars and
 // money. The building, lift, cat and snowmobile IDs are that save's.
 //
-//	go run ./tools/stages "assets/scenarios/Boreal (Goals Test).save" <stage 1-8> <days>
+//	go run ./tools/stages "assets/scenarios/Boreal (Goals Test).save" <stage 1-8> <days> [-hourly] [-stalls n]
+//
+// -hourly also prints, each clock hour from 7 to 16, how many guests are
+// on the mountain, the occupancy demand sees (sim.Occupancy), and what
+// they're doing. -stalls n cuts the first lot to its n stalls nearest
+// the driveway, standing in for a smaller lot.
 //
 // Stages: 1 the lot, California Cruiser and tickets; 2 a garage and one
 // cat; 3 patrol and a snowmobile; 4 a small lodge (6 food court, 2
@@ -16,7 +21,9 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 
+	"mountain-mogul/internal/ai"
 	"mountain-mogul/internal/save"
 	"mountain-mogul/internal/sim"
 	"mountain-mogul/internal/world"
@@ -41,6 +48,16 @@ func main() {
 	var stage, days int
 	fmt.Sscan(os.Args[2], &stage)
 	fmt.Sscan(os.Args[3], &days)
+	hourly, stalls := false, 0
+	for i := 4; i < len(os.Args); i++ {
+		switch os.Args[i] {
+		case "-hourly":
+			hourly = true
+		case "-stalls":
+			i++
+			fmt.Sscan(os.Args[i], &stalls)
+		}
+	}
 	keepB := map[uint64]bool{lot1: true, tickets: true}
 	keepL := map[uint64]bool{cruiser: true}
 	cats := 0
@@ -114,6 +131,12 @@ func main() {
 			w.RemoveTile(b, c)
 		}
 	}
+	if b := w.BuildingByID(lot1); b != nil && stalls > 0 && stalls < len(b.Stalls) {
+		// A smaller first lot: keep the stalls nearest the driveway
+		// (cars fill them first), as a lot that size would have.
+		b.Stalls = b.Stalls[:stalls]
+		b.MaxCars = stalls
+	}
 	// Price what's built.
 	total := 0
 	for _, l := range w.Lifts {
@@ -131,14 +154,14 @@ func main() {
 		}
 	}
 	total += len(w.Snowcats)*world.CatPurchasePrice + len(w.Snowmobiles)*world.SnowmobilePrice
-	stalls := 0
+	totalStalls := 0
 	for _, b := range w.Buildings {
 		if b.Type == world.BuildingParking {
-			stalls += len(b.Stalls)
+			totalStalls += len(b.Stalls)
 		}
 	}
 	fmt.Printf("stage %d: lifts %d, cats %d, sleds %d, lodge tiles %v, stalls %d; built $%d; open-day costs $%d\n",
-		stage, len(w.Lifts), len(w.Snowcats), len(w.Snowmobiles), lodgeTiles(w), stalls, total, w.DailyOperatingCost())
+		stage, len(w.Lifts), len(w.Snowcats), len(w.Snowmobiles), lodgeTiles(w), totalStalls, total, w.DailyOperatingCost())
 	if days == 0 {
 		return
 	}
@@ -151,16 +174,42 @@ func main() {
 	day := int(s.SimTime / world.SecondsPerSimDay)
 	for d := 0; d < days; d++ {
 		date := s.DateAt(s.SimTime)
+		lastH := -1
+		peakCars := 0
 		for int(s.SimTime/world.SecondsPerSimDay) == day {
 			s.Tick(1.0 / s.TimeScale)
+			parked := 0
+			for _, c := range w.Cars {
+				if c.State == world.CarParked {
+					parked++
+				}
+			}
+			peakCars = max(peakCars, parked)
+			if h := int(sim.HourOfDay(s.SimTime)); hourly && h != lastH && h >= 7 && h <= 16 {
+				lastH = h
+				acts := map[string]int{}
+				for _, g := range w.OnMountain {
+					acts[world.Activity(w, g)]++
+				}
+				fmt.Printf("    %02d:00 on the mountain %4d, occupancy %.2f, %v\n", h, len(w.OnMountain), sim.Occupancy(w), acts)
+			}
 		}
 		day++
 		h := w.History
 		smp := h.Samples[(h.Head+len(h.Samples)-1)%len(h.Samples)]
 		_, name := world.HolidayAt(date)
 		r := smp.Reviews
-		fmt.Printf("  %-7s %-10s visitors %4d  stars %.2f  revenue %6d  costs %5d  net %6d  %v\n",
-			world.FormatGameDate(date, false), name, smp.ArrivalsToday, r.Stars/float32(max(r.N, 1)), smp.Revenue, smp.Costs, smp.Revenue-smp.Costs, smp.RevenueByKind)
+		fmt.Printf("  %-7s %-10s visitors %4d  away %4d  peak cars %3d  stars %.2f  revenue %6d  costs %5d  net %6d  %v\n",
+			world.FormatGameDate(date, false), name, smp.ArrivalsToday, smp.TurnedAway, peakCars, r.Stars/float32(max(r.N, 1)), smp.Revenue, smp.Costs, smp.Revenue-smp.Costs, smp.RevenueByKind)
+		if hourly {
+			var why []string
+			for k, n := range smp.DepartReasons {
+				if n > 0 {
+					why = append(why, fmt.Sprintf("%s %d", ai.DepartReasonLabel[k], n))
+				}
+			}
+			fmt.Printf("    went home: %s\n", strings.Join(why, ", "))
+		}
 	}
 }
 

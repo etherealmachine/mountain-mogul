@@ -253,6 +253,39 @@ func (w *World) RunningLiftFor(diff TerrainDifficulty) bool {
 	return false
 }
 
+// ReachableTrails returns the trails the running lifts (open, not on
+// hold) serve: the runs off each running top and the runs that branch off
+// those, as TerrainForLift counts them. One level of branching only: the
+// runs near the base interconnect, so following them further would have
+// any lift serving the whole mountain.
+func (w *World) ReachableTrails() []*Trail {
+	if w.TrailGraph == nil {
+		return nil
+	}
+	seen := map[uint64]bool{}
+	for _, l := range w.Lifts {
+		if !l.Open || l.OnHold {
+			continue
+		}
+		for _, e := range w.TrailGraph.EdgesFrom(l.ID) {
+			if e.FromKind != KindLiftTop {
+				continue
+			}
+			seen[e.TrailID] = true
+			if e.ToKind == KindTrail {
+				seen[e.ToID] = true
+			}
+		}
+	}
+	var out []*Trail
+	for _, t := range w.Trails {
+		if seen[t.ID] {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
 // LiftConditions is what skiing off liftID's top offers: the average of
 // the Conditions of the trails leaving it. ok is false when none do.
 func (w *World) LiftConditions(liftID uint64) (c [ai.TasteCount]float32, ok bool) {

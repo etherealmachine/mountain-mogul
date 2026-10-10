@@ -32,7 +32,7 @@ system, neither by the lot.
                                └──────┬───────┘
                                       │ for each AtHome guest:
                                       │   skip if can't afford day ticket
-                                      │   p = rating × terrainMatch × (1 − occ) × priceFactor
+                                      │   p = rating × terrainDraw × (1 − occ) × priceFactor
                                       │   if Bernoulli(p):
                                       │     no ticket office and no pass → turned away
                                       │     else → spawnGuest
@@ -99,15 +99,16 @@ resets on Nov 1, before opening day.
 
 ```
 capacity = Σ lifts: chairs × seats × (1 / loopTime) × avgSessionSec
-occupancy = len(World.OnMountain) / capacity
+occupancy = max(guests not indoors (or driving in) / capacity,
+                guests on the snow / TerrainCapacity)   // sim.Occupancy
 
 for each g in World.Guests where g.State == AtHome:
     priceFactor = visitPriceFactor(g, rating)
     if priceFactor == 0: continue   // ticket + parking share above their budget
-    match = terrainMatch(g.Traits.Skill)
-    if match == 0: continue   // no lifts they'd ride
-    dailyRate = g.VisitsPerSeason / seasonDaysApprox
-    p = dailyRate × pollFraction × rating × match × (1 − occupancy) × priceFactor
+    draw = terrainDraw(offer, g.Traits)   // offer: runs the running lifts serve, once a poll
+    if draw == 0: continue   // no lifts they'd ride, or nothing for them
+    dailyRate = g.VisitsPerSeason × dailyVisitShare × dayTypeDemand
+    p = dailyRate × pollFraction × rating × draw × (1 − occupancy) × priceFactor
     if rng.Float32() >= p: continue
     if no BuildingTicketOffice and g has no valid pass:
         log "Guests turned away: no ticket office" (once per sim day)
@@ -122,9 +123,18 @@ estimate. More chairs, faster lifts, and longer lifts all raise it.
 
 **Occupancy** throttles demand without a hard cap — the crowd self-limits.
 
-**`terrainMatch`** is binary: 1 if any lift's `Services` bitfield includes
-the guest's skill difficulty (Beginner→Green, Intermediate→Blue,
-Advanced→Black), else 0.
+**`terrainDraw`** needs a running lift the guest would ride, then
+weighs the runs the running lifts serve (`World.ReachableTrails`: the
+runs off each top and those branching off them) against the guest's
+run range (`runRange`): a level in range counts 1, one easier 0.3, two
+easier 0.1, harder 0. With S the weighted trail cells and n the
+weighted run count, draw = S / (S + 1000) × n / (n + 2). More terrain
+and more runs at a guest's level draw more of them, with diminishing
+returns.
+
+**`dailyVisitShare`** (0.1) turns `VisitsPerSeason` into a daily chance.
+It doesn't divide by the season's length, so the calendar can change
+without moving demand.
 
 **`visitProbability`** is multiplicative — any factor near zero kills demand.
 
@@ -289,8 +299,10 @@ half-bar on a fresh scenario; the bar drifts up or down as guests depart.
 | `demandPollInterval` | 30 s (sim) | How often the per-guest poll pass fires |
 | `ratingEMAAlpha` | 1/70 ≈ 0.014 | EMA blend factor; ~50-departure half-life for ResortRating |
 | `initialResortRating` | 0.5 | Bootstrap value on fresh sim |
-| `avgSessionSec` | 800 | Capacity estimate denominator |
-| `seasonDaysApprox` | 186 | Divisor for per-day visit rates |
+| `avgSessionSec` | 1500 | Capacity estimate denominator |
+| `dailyVisitShare` | 0.1 | VisitsPerSeason → a day's chance, independent of the season's length |
+| `terrainDrawCells` | 1000 | Suitable trail cells (5 m) at which terrain draws half |
+| `terrainDrawTrails` | 2 | Suitable runs at which the choice of runs draws half |
 | `world.DefaultDayTicketPrice` | $60 | Starting day ticket; player-adjustable via `World.DayTicketPrice` |
 | `world.DayTicketReferencePrice` | $60 | No-penalty day-ticket price at rating 0.5 |
 | `world.DayTicketRatingPremium` | 1.0 | How far rating shifts the reference (±50% across rating 0..1) |
@@ -305,8 +317,6 @@ half-bar on a fresh scenario; the bar drifts up or down as guests depart.
   penalty, etc.).
 - **Per-lot draw weighting.** New guests pick a uniform-random lot.
   Occupancy, distance to lifts, or pricing could weight the draw.
-- **Richer `terrainMatch`.** Binary today. A trail-aware fraction of
-  matching lifts lands once trails are first-class entities.
 - **Loyalty / repeat-visit hysteresis.** Guests could remember their
   last `LastScore` and be more or less likely to return based on it.
 - **Rating display beyond the happiness bar.** A dedicated info window

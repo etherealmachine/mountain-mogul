@@ -163,9 +163,15 @@ func TestDemandPollSkipsUnaffordable(t *testing.T) {
 	s, _, _ := dayTicketWorld()
 	w := s.World
 	w.DayTicketPrice = 60
-	// terrainMatch needs a trail at the guests' tier (skill 0.9 → black).
+	// terrainDraw needs a trail at the guests' tier (skill 0.9 → black)
+	// that the running lift serves: one from its top to its base.
 	trail := w.PlaceTrail("", world.DiffBlack)
-	trail.Cells = [][2]int{{20, 30}, {20, 31}}
+	top, base := w.Lifts[0].TopCell(), w.Lifts[0].QueueCell()
+	for z := min(top[1], base[1]); z <= max(top[1], base[1]); z++ {
+		trail.Cells = append(trail.Cells, [2]int{top[0], z})
+	}
+	w.TrailGraph = world.BuildTrailGraph(w)
+	w.Lifts[0].Open = true
 	poor := dayTicketGuest(w, 59)
 	rich := dayTicketGuest(w, 61)
 	poor.VisitsPerSeason, rich.VisitsPerSeason = 5000, 5000 // p ≈ 1 per poll

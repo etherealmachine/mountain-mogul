@@ -14,7 +14,7 @@ Opening is the player's choice, made from the popup of any building with [[Ticke
 
 The speed buttons are real seconds a game day (2560, 160, 80), with quiet nights passing in a couple of seconds; nothing runs faster than the fastest ([[Season Calendar]]).
 
-[[Season Calendar]] plans a shorter game calendar (10-day months, open December to April) and speeds set as real time per day.
+The game calendar has 6-day months, open December to April (a 30-day season), with holidays on the 3rd and 6th ([[Season Calendar]]) and speeds set as real time per day.
 
 Code: `internal/sim/calendar.go`, `resort.go`, `sun.go`.
 
@@ -29,3 +29,4 @@ Code: `internal/sim/calendar.go`, `resort.go`, `sun.go`.
 - 2026-10-10: Normal speed halved to 640 s a day (the user: too fast, especially the lifts); motion runs at about 16 times real speed there, 31 before. Fast and fastest are unchanged.
 - 2026-10-10: Still too fast (the user): normal halved again to 1,280 s a day, motion at about 8 times real speed.
 - 2026-10-10: Still too fast (the user): normal halved again to 2,560 s a day, motion at about 4 times real speed.
+- 2026-10-10: 6-day months, holidays on the 3rd and 6th (the user): Christmas Dec 6, MLK Day Jan 3, Presidents' Day Feb 3, Easter Mar 6, Apr 3 or Apr 6. A game day stands for about five real days.

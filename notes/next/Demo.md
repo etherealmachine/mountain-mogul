@@ -15,7 +15,7 @@ From the user, 2026-10-07:
 - **Two scenarios.** [[Boreal]] as the tutorial (about an hour: a lift, then three; a lodge with tickets, food, and rentals; opening; reading the rating), then [[Kirkwood]] (a couple of hours or more: beginners and experts on a big real-terrain map, parcels, grooming against moguls and powder, a season of weather).
 - **Nothing is locked.** Every lift type and building the game has is available in both; expensive things are gated by their price. Land use (zoning) can later rule out things like hotels on a scenario's land, but the demo doesn't need it.
 - **No snowmaking** in the demo.
-- **One new lift type: the magic carpet**, to show lift variety in the beginner areas. No T-bars or rope tows yet.
+- **No new lift types** (the user, 2026-10-10: the magic carpet is out of the demo for now).
 - **No new services.** The demo has the services already built: [[Tickets]], [[Lounge]], [[Food Court]], [[Bar]], [[Rental Shop]], [[Ski Patrol]], and grooming ([[Grooming]]). Everything else in [[Services]] comes after.
 - **No tutorial guidance.** A demo pop-up on start, then guests' thoughts tell the player what to fix.
 
@@ -23,10 +23,10 @@ From the user, 2026-10-07:
 
 In order. Each step builds with `go build` and `go vet`, and gameplay is checked headless or by screenshot.
 
-1. **Magic carpet.** A surface lift type for beginner areas: a short conveyor guests stand on, cheap, slow, low capacity, no chairs.
+1. Dropped 2026-10-10 (the user): ~~**Magic carpet.**~~ Out of the demo for now; it stays under Surface lifts in [[Next Steps]].
 2. **Terrain expectations** (from the user's first playtest of a three-lift Boreal, 2026-10-07: ratings were poor, mostly guests unhappy that the terrain was too easy, though Boreal really is almost all easy intermediate). Guests should come expecting the terrain the resort has: readouts of skiable acres (needs a ski-area boundary; the import already has OpenStreetMap's), groomed acres, and marked runs by difficulty; demand weighing a resort's terrain mix, so an easy hill draws few experts; and a per-guest challenge preference (beginners and intermediates looking for a step up, experts happy cruising), so the experts who do come to Boreal are content there. Decided with the user: only marked runs count (the player controls them), the steep taste is the challenge preference (it also lets some experts at Boreal enjoy the powder beginners leave alone), and the ski-area boundary should be something the player draws over the OpenStreetMap layer like other features.
    - Done: a guest's run range (`runRange`, `sim/demand.go`): their skill level and the level they want, which is one easier with a steep taste of −0.3 or less (happy cruising) and one harder at 0.5 or more (after a challenge). A run's verdict uses the range: too easy below it, too hard above it, great anywhere in it.
-   - Done: demand by terrain mix (`terrainMatch`): each marked-run cell counts fully in the guest's range, 0.3 one level easier, 0.1 two easier, not at all harder; half the marked terrain suiting a guest draws them fully.
+   - Done: demand by terrain mix (`terrainMatch`): each marked-run cell counts fully in the guest's range, 0.3 one level easier, 0.1 two easier, not at all harder; half the marked terrain suiting a guest draws them fully. Replaced 2026-10-10 by `terrainDraw`, the amount and number of suitable runs the running lifts serve ([[Boreal Tutorial]]).
    - Done: groomed terrain in the Resort overview, beside the marked terrain by difficulty that was already there.
    - Done: the ski-area boundary, drawn in the scenario editor over the OpenStreetMap layer (or copied from OpenStreetMap's where the import has one; Boreal's import has none), a rope line in the game (orange poles every 8 m along the outline with a drooping yellow rope, as resorts mark their boundary; gaps at buildings, lots, and roads; riding the snow; dimming at night), and its area in the Resort overview as "Ski area", beside marked, groomed, and by-difficulty runs ([[Scenario Editor]]).
 
@@ -63,3 +63,4 @@ In order. Each step builds with `go build` and `go vet`, and gameplay is checked
 - 2026-10-08: Balance (step 4): the Goals Test settles around a 0.60 rating after fixing "too easy" judging and meal timing ([[Moments]]); 0.70 needs either more on the ledger or a lower target. The scenario files carry no goals yet.
 - 2026-10-09: Balance (step 4) may move to [[Star Ratings]] and [[Scoreless Rating]]: Boreal's goal at 3★ (every need met), no score to calibrate. Measured on the Goals Test: 31–42% of guests at 3★; rentals, bored novices, and thirst hold the rest.
 - 2026-10-09: The rating is now stars from moments ([[Scoreless Rating]]); the Goals Test reaches 3.02★ after one day and 3.12★ after two, against a 3★ goal. What holds guests below: thirst, bored novices, no lounge.
+- 2026-10-10: The magic carpet is out of the demo for now (the user).

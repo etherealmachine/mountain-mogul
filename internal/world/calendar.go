@@ -6,13 +6,13 @@ import (
 )
 
 // The game calendar has DaysPerMonth days a month. Each game day stands
-// for a stretch of real days (about three), and is shown and simulated as
+// for a stretch of real days (about five), and is shown and simulated as
 // the first of them: the sun, the climate, and the weather run on real
 // dates, and the day rollover plays the rest of the stretch's weather
 // (sim.maybeSampleHistory). A time.Time in the sim is the real date of a
 // game day's first real day; GameDay and FormatGameDate turn it into the
 // game's own date ("Dec 10").
-const DaysPerMonth = 10
+const DaysPerMonth = 6
 
 // SeasonMonths are the months a resort is open for: December to April.
 // SeasonDays is the season's length in game days.
@@ -82,16 +82,16 @@ func FormatGameDate(t time.Time, withYear bool) string {
 	return s
 }
 
-// Holidays fall on the 5th and 10th of every month: the busy days, each
+// Holidays fall on the 3rd and 6th of every month: the busy days, each
 // a one-day rush.
-var holidayDays = [...]int{5, 10}
+var holidayDays = [...]int{3, 6}
 
 // DayType is how busy a game day is.
 type DayType uint8
 
 const (
 	OrdinaryDay  DayType = iota
-	Holiday              // the 5th or 10th of a month
+	Holiday              // the 3rd or 6th of a month
 	NamedHoliday         // Christmas, MLK Day, Presidents' Day, Easter
 )
 
@@ -107,11 +107,11 @@ func HolidayAt(t time.Time) (DayType, string) {
 		return OrdinaryDay, ""
 	}
 	switch {
-	case t.Month() == time.December && day == 10:
+	case t.Month() == time.December && day == 6:
 		return NamedHoliday, "Christmas"
-	case t.Month() == time.January && day == 5:
+	case t.Month() == time.January && day == 3:
 		return NamedHoliday, "MLK Day"
-	case t.Month() == time.February && day == 5:
+	case t.Month() == time.February && day == 3:
 		return NamedHoliday, "Presidents' Day"
 	case GameDayIndex(t) == easterIndex(t.Year()):
 		return NamedHoliday, "Easter"
@@ -120,13 +120,13 @@ func HolidayAt(t time.Time) (DayType, string) {
 }
 
 // easterIndex is the GameDayIndex of the holiday Easter Sunday falls on
-// in year: March 10th when Easter is in March, April 5th when it's on or
-// before April 20th, and April 10th for the latest.
+// in year: March 6th when Easter is in March, April 3rd when it's on or
+// before April 20th, and April 6th for the latest.
 func easterIndex(year int) int {
 	e := easterSunday(year)
-	day := 10
+	day := 6
 	if e.Month() == time.April && e.Day() <= 20 {
-		day = 5
+		day = 3
 	}
 	return GameDayIndex(GameDayStart(year, e.Month(), day))
 }

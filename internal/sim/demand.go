@@ -18,8 +18,8 @@ import (
 // sim-seconds the system walks the catchment and rolls a Bernoulli per
 // AtHome guest:
 //
-//	p_per_poll(g) = (g.VisitsPerSeason / world.SeasonDays) * dayTypeDemand * pollFraction
-//	              * clamp(ResortRating) * terrainMatch(g.Skill) * (1 - occupancy)
+//	p_per_poll(g) = g.VisitsPerSeason * dailyVisitShare * dayTypeDemand * pollFraction
+//	              * clamp(ResortRating) * terrainDraw(g) * (1 - occupancy)
 //	              * visitPriceFactor(g, rating)
 //	              * (1 − RentalShare × NoRentalsStayHome, with no rental shop and no pass)
 //
@@ -46,15 +46,17 @@ const demandPollInterval = 30.0
 // guests have departed — neutral, so demand picks up at 50% of the
 // headline rate until real departures start folding in.
 
-// A guest's VisitsPerSeason spread over the season's game days
-// (world.SeasonDays) gives their visits a day, scaled by how busy the day
-// is (dayTypeDemand).
+// dailyVisitShare turns a guest's VisitsPerSeason into their chance of
+// coming on a day, before how busy the day is (dayTypeDemand) and the
+// resort's draw. It's a tuning constant, deliberately not 1 /
+// world.SeasonDays: the season's length is chosen for play time, and
+// changing it shouldn't move every day's crowd. VisitsPerSeason ranks
+// guests from casual to regular rather than counting visits exactly.
+const dailyVisitShare = 0.1
 
 // dayTypeDemand scales a day's visits by its kind (world.HolidayAt): a
 // holiday brings two and a half times an ordinary day's crowd, a named
-// one nearly seven times. Over a season (40 ordinary days, six holidays,
-// four named) they average about 1, so a season still brings each guest
-// VisitsPerSeason.
+// one nearly seven times.
 var dayTypeDemand = [...]float32{
 	world.OrdinaryDay:  0.6,
 	world.Holiday:      1.5,
@@ -111,18 +113,10 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 		return // closed: nobody comes, pass holders included
 	}
 
-	liftCap := resortCapacity(s.World)
-	if liftCap <= 0 {
+	if resortCapacity(s.World) <= 0 {
 		return // no lifts → no guests want to come
 	}
-	cap := liftCap
-	if tc := TerrainCapacity(s.World); tc > 0 && tc < liftCap {
-		cap = tc
-	}
-	occupancy := float32(len(s.World.OnMountain)+arrivingGuests(s.World)) / cap
-	if occupancy > 1 {
-		occupancy = 1
-	}
+	occupancy := Occupancy(s.World)
 
 	// The share of the day's arrivals that fall in this poll window:
 	// guests come from just before opening, mostly in the morning, and
@@ -140,6 +134,7 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 	}
 
 	rating := s.World.RatingShare()
+	offer := terrainOn(s.World)
 	occFactor := 1 - occupancy
 	dayType, _ := world.HolidayAt(s.DateAt(s.SimTime))
 	busy := dayTypeDemand[dayType]
@@ -161,7 +156,7 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 				home = false
 				break
 			}
-			p += visitChance(s, g, rating, busy, match(s.World, g), h0, h1, occFactor, hasRentals)
+			p += visitChance(s, g, rating, busy, terrainDraw(s.World, offer, g.Traits), h0, h1, occFactor, hasRentals)
 			anyTicket = anyTicket || !hasValidPass(g, s.SimTime)
 		}
 		if !home || p <= 0 {
@@ -196,12 +191,9 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 	}
 }
 
-// match is terrainMatch for g.
-func match(w *world.World, g *world.Guest) float32 { return terrainMatch(w, g.Traits) }
-
 // visitChance is the chance guest g would come in this poll window
-// (h0 to h1, clock hours), alone: their visits a season spread over its
-// days, how busy the day is, when they like to arrive, the rating, the
+// (h0 to h1, clock hours), alone: their visits a season as a daily
+// chance, how busy the day is, when they like to arrive, the rating, the
 // terrain, how full the resort is, and the price.
 func visitChance(s *Simulation, g *world.Guest, rating, busy, match float32, h0, h1 float64, occFactor float32, hasRentals bool) float32 {
 	if match == 0 {
@@ -211,7 +203,7 @@ func visitChance(s *Simulation, g *world.Guest, rating, busy, match float32, h0,
 	if priceFactor == 0 {
 		return 0
 	}
-	dailyRate := g.VisitsPerSeason / world.SeasonDays * busy
+	dailyRate := g.VisitsPerSeason * dailyVisitShare * busy
 	p := dailyRate * float32(arrivalShare(s.World, g, h0, h1)) * rating * match * occFactor * priceFactor
 	if !hasRentals && !hasValidPass(g, s.SimTime) {
 		// Some who'd have rented skis stay home from a resort with
@@ -355,12 +347,52 @@ func resortCapacity(w *world.World) float32 {
 	return total
 }
 
-// TerrainCapacity returns the maximum simultaneous guests the resort's painted
-// trail area can support. Deduplicates cells shared across overlapping trails.
-// Returns 0 when the world has no trails — callers treat 0 as "no constraint".
+// Occupancy is how full the resort feels to guests deciding whether to
+// come, 0..1: the fuller of the lifts and the runs. The lifts count
+// everyone on the mountain or driving in except those indoors (a lunch
+// in the lodge doesn't crowd the lifts) against resortCapacity; the runs
+// count only the guests out on the snow against TerrainCapacity, since
+// that's a measure of skiers per acre. Counting the lodge against the
+// runs held a one-lift resort with a lodge to about two thirds of the
+// arrivals of one without, because guests with lunch stay all day
+// (Boreal Tutorial, 2026-10-10).
+func Occupancy(w *world.World) float32 {
+	liftCap := resortCapacity(w)
+	if liftCap <= 0 {
+		return 1
+	}
+	cycling := float32(arrivingGuests(w))
+	var onSnow float32
+	for _, g := range w.OnMountain {
+		if g.Indoors() {
+			continue
+		}
+		cycling++
+		if onTheSnow(g) {
+			onSnow++
+		}
+	}
+	occ := cycling / liftCap
+	if tc := TerrainCapacity(w); tc > 0 {
+		occ = max(occ, onSnow/tc)
+	}
+	return min(occ, 1)
+}
+
+// onTheSnow reports whether g is out on the runs: not on a lift, in a
+// line, fallen and waiting for patrol, or walking a path at the base.
+func onTheSnow(g *world.Guest) bool {
+	return g.OnLiftID == 0 && g.Unload.LiftID == 0 && !g.Queued && !g.Visit.Waiting &&
+		g.OnPatrollerID == 0 && !(len(g.Path) > 0 && g.PathIdx < len(g.Path))
+}
+
+// TerrainCapacity returns the maximum simultaneous guests the trails the
+// running lifts serve (World.ReachableTrails) can support. Deduplicates
+// cells shared across overlapping trails. Returns 0 when no trails are
+// served — callers treat 0 as "no constraint".
 func TerrainCapacity(w *world.World) float32 {
 	seen := make(map[[2]int]struct{})
-	for _, t := range w.Trails {
+	for _, t := range w.ReachableTrails() {
 		for _, c := range t.Cells {
 			seen[c] = struct{}{}
 		}
@@ -368,19 +400,41 @@ func TerrainCapacity(w *world.World) float32 {
 	return float32(len(seen)) * guestsPerTrailCell
 }
 
-// terrainMatch is how well the resort's marked runs suit a guest, 0..1.
-// Each run cell counts by how its difficulty sits against the guest's
-// range (runRange: from the level they're comfortable at to the level
-// they want): fully in range, 0.3 one level easier, 0.1 two easier, not
-// at all harder. The share of suitable terrain over terrainMatchFull
-// counts in full, so a resort needn't be all one level to draw a guest,
-// but an easy hill with a few black runs draws few experts looking for a
-// challenge, and mostly those happy cruising. Only runs the player has
-// marked count. It needs a running lift they'd ride (one serving their
-// level or easier, or any for advanced guests, as the planner allows):
-// guests don't come to stand at a stopped lift or one with nothing for
-// them.
-func terrainMatch(w *world.World, traits ai.GuestTraits) float32 {
+// terrainOffer is the terrain the running lifts serve
+// (World.ReachableTrails), by run level (0 green, 1 blue, 2 black): its
+// trail cells and how many trails. Worked out once a poll.
+type terrainOffer struct {
+	cells, trails [3]float32
+}
+
+// terrainOn sums the terrain w's running lifts serve.
+func terrainOn(w *world.World) terrainOffer {
+	var o terrainOffer
+	for _, t := range w.ReachableTrails() {
+		d := diffIndex(t.Difficulty)
+		if d < 0 || len(t.Cells) == 0 {
+			continue
+		}
+		o.cells[d] += float32(len(t.Cells))
+		o.trails[d]++
+	}
+	return o
+}
+
+// terrainDraw is how strongly the terrain on offer pulls a guest, 0..1:
+// how much of it suits them, and how many runs. Each level counts by how
+// it sits against the guest's range (runRange: from the level they're
+// comfortable at to the level they want): fully in range, 0.3 one level
+// easier, 0.1 two easier, not at all harder. The amount saturates
+// (terrainDrawCells of suitable cells draws half as well as unlimited
+// terrain), and so does the choice of runs (terrainDrawTrails suitable
+// runs, half). So a beginner hill draws beginners and few experts, and
+// each lift that adds terrain or runs at a level draws more of that
+// level, less so the more there already is. It needs a running lift
+// they'd ride (one serving their level or easier, or any for advanced
+// guests, as the planner allows): guests don't come to stand at a
+// stopped lift or one with nothing for them.
+func terrainDraw(w *world.World, o terrainOffer, traits ai.GuestTraits) float32 {
 	want := skillToDifficulty(traits.Skill)
 	ride := want | (want - 1) // their level and everything easier
 	if traits.Skill >= ai.SkillAdvancedThreshold {
@@ -390,33 +444,33 @@ func terrainMatch(w *world.World, traits ai.GuestTraits) float32 {
 		return 0
 	}
 	lo, hi := runRange(traits)
-	var suits, total float32
-	for _, t := range w.Trails {
-		d := diffIndex(t.Difficulty)
-		if d < 0 || len(t.Cells) == 0 {
-			continue
-		}
-		n := float32(len(t.Cells))
-		total += n
+	var cells, trails float32
+	for d := range 3 {
+		var k float32
 		switch {
 		case d > hi:
 		case d >= lo:
-			suits += n
+			k = 1
 		case d == lo-1:
-			suits += n * 0.3
+			k = 0.3
 		default:
-			suits += n * 0.1
+			k = 0.1
 		}
+		cells += k * o.cells[d]
+		trails += k * o.trails[d]
 	}
-	if total == 0 {
+	if cells == 0 {
 		return 0
 	}
-	return min(suits/total/terrainMatchFull, 1)
+	return cells / (cells + terrainDrawCells) * trails / (trails + terrainDrawTrails)
 }
 
-// terrainMatchFull is the share of suitable marked terrain at which a
-// resort's terrain draws a guest as fully as it can.
-const terrainMatchFull = float32(0.5)
+// The amount of suitable terrain (5 m trail cells) and number of
+// suitable runs at which each draws half as well as it could.
+const (
+	terrainDrawCells  = float32(1000)
+	terrainDrawTrails = float32(2)
+)
 
 // Steep tastes past these shift the run level a guest wants: one easier
 // for those who'd rather cruise, one harder for those after a challenge.

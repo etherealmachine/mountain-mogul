@@ -2,6 +2,7 @@ package sim
 
 import (
 	"testing"
+	"time"
 
 	"mountain-mogul/internal/world"
 )
@@ -11,14 +12,15 @@ func TestSeasonRolloverResetsVisitsThisSeason(t *testing.T) {
 	s := &Simulation{World: &world.World{Guests: guests, StartDate: world.DefaultStartDate}, Demand: NewDemandSystem()}
 
 	// First poll mid-season only seeds the tracked season.
-	s.SimTime = 100 * secondsPerSimDay
+	s.SimTime = 20 * secondsPerSimDay
 	s.Demand.maybePoll(s)
 	if guests[0].VisitsThisSeason != 7 || guests[1].VisitsThisSeason != 3 {
 		t.Fatalf("counters reset without a boundary: %d, %d", guests[0].VisitsThisSeason, guests[1].VisitsThisSeason)
 	}
 
-	// Step through the summer into the 2027-28 season (day 400 = Dec 30, 2027).
-	for day := 101.0; day <= 400; day++ {
+	// Step through the summer into the 2027-28 season (Dec 6, 2027).
+	last := world.GameDayIndex(world.GameDayStart(2027, time.December, 6)) - world.GameDayIndex(world.DefaultStartDate)
+	for day := 21.0; day <= float64(last); day++ {
 		s.SimTime = day * secondsPerSimDay
 		s.Demand.maybePoll(s)
 	}

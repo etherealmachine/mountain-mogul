@@ -764,7 +764,7 @@ func (s *Simulation) spawnCar(guests []*world.Guest, entry uint64) bool {
 			}
 		}
 		if len(spare) == 0 {
-			s.logLotsFull()
+			s.lotsFull(len(guests))
 			return false
 		}
 		lot := spare[rng.Global().Intn(len(spare))]
@@ -861,7 +861,7 @@ func (s *Simulation) turnAway(c *world.Car) {
 		c.Route = append(c.Route, r.nodes[1:]...)
 		return
 	}
-	s.logLotsFull()
+	s.lotsFull(len(c.Guests))
 	r := s.traffic.net.route(drive, c.Entry)
 	if !r.ok || len(r.nodes) < 2 {
 		s.removeCar(c)
@@ -869,6 +869,15 @@ func (s *Simulation) turnAway(c *world.Car) {
 	}
 	c.State = world.CarTurnedAway
 	c.Route = append(c.Route, r.nodes[1:]...)
+}
+
+// lotsFull counts n guests turned away by full lots toward the day's
+// stats, and logs it once a day.
+func (s *Simulation) lotsFull(n int) {
+	if h := s.World.History; h != nil {
+		h.TurnedAwayToday += n
+	}
+	s.logLotsFull()
 }
 
 func (s *Simulation) logLotsFull() {
