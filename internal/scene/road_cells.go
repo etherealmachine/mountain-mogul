@@ -49,6 +49,73 @@ func applyRoadCellState(w *world.World) {
 		}
 		applyChainCellState(t, samples)
 	}
+	applyFootpathCellState(w)
+}
+
+// Footpath clearance, beyond a path's half width: cells whose centre is
+// within pathSnowInner of the path's edge are shovelled bare, with the
+// snow coming back over the next pathSnowFalloff; trees within
+// pathTreeClear of the edge are cut.
+const (
+	pathSnowInner   = float32(0)
+	pathSnowFalloff = float32(3.0)
+	pathTreeClear   = float32(1.0)
+)
+
+// applyFootpathCellState shovels the snow off every footpath and cuts
+// the trees on it, as roads are plowed: after paths change, on load, and
+// at each day rollover, so a storm's snow is cleared overnight. Like the
+// roads, one-way: a removed path's cells stay as they were.
+func applyFootpathCellState(w *world.World) {
+	t := w.Terrain
+	for _, f := range w.Footpaths {
+		line := f.Centerline()
+		if len(line) < 2 {
+			continue
+		}
+		var reach float32
+		for _, s := range line {
+			reach = max(reach, s.Width/2)
+		}
+		reach += pathSnowInner + pathSnowFalloff + world.CellSize
+		minX, maxX, minZ, maxZ := line[0].Pos[0], line[0].Pos[0], line[0].Pos[1], line[0].Pos[1]
+		for _, s := range line {
+			minX, maxX = min(minX, s.Pos[0]), max(maxX, s.Pos[0])
+			minZ, maxZ = min(minZ, s.Pos[1]), max(maxZ, s.Pos[1])
+		}
+		// edgeDist is how far p is outside the path's edge (negative
+		// inside it).
+		edgeDist := func(p mgl32.Vec2) float32 {
+			best := float32(math.MaxFloat32)
+			for i := 1; i < len(line); i++ {
+				cp := world.ClosestPointOnRoadSegment(p, line[i-1].Pos, line[i].Pos)
+				hw := (line[i-1].Width + line[i].Width) / 4
+				best = min(best, p.Sub(cp).Len()-hw)
+			}
+			return best
+		}
+		for x := max(int((minX-reach)/world.CellSize), 0); x <= min(int((maxX+reach)/world.CellSize), t.Width-1); x++ {
+			for z := max(int((minZ-reach)/world.CellSize), 0); z <= min(int((maxZ+reach)/world.CellSize), t.Height-1); z++ {
+				c := &t.Cells[x][z]
+				centre := mgl32.Vec2{(float32(x) + 0.5) * world.CellSize, (float32(z) + 0.5) * world.CellSize}
+				d := edgeDist(centre)
+				if c.TreeCount > 0 && d <= pathTreeClear+world.CellSize {
+					t.RemoveTreesIn(x, z, x, z, func(tr world.Tree) bool {
+						return edgeDist(mgl32.Vec2{tr.X, tr.Z}) <= pathTreeClear
+					})
+				}
+				switch {
+				case d <= pathSnowInner:
+					c.Base = 0
+					c.Top = world.SnowLayer{}
+				case d <= pathSnowInner+pathSnowFalloff:
+					blend := (d - pathSnowInner) / pathSnowFalloff
+					c.Base *= blend
+					c.Top.Accumulation *= blend
+				}
+			}
+		}
+	}
 }
 
 // applyChainCellState clears snow + trees on cells near one chain's

@@ -110,7 +110,7 @@ Diagnose each first, report the cause, then fix:
 - [[Service Quality]]: formats at different price points (food court, restaurant, snack stand, shop), staff as a pool per room (headcount for timeliness, wage for quality through morale), hungrier guests with a lunch rush, and shopping.
 - **Views**: better-sited buildings attract more guests ([[GOAP]]) and can charge more.
 - **Lockers and ski school**: more base services; ski school *needs* staff.
-- **Footpath follow-ups** ([[Pathfinding]]): editing a laid path's nodes (drag, insert, delete, like runs), clearing snow under paths, and paths that avoid building footprints. Footpaths themselves shipped 2026-10-10.
+- **Footpath follow-ups** ([[Pathfinding]]): paths that avoid building footprints. Footpaths, their editing, and their snow clearing shipped 2026-10-10.
 - **Ski racks**: where footpaths meet the snow.
 - [[Building Tool]] leftovers: presets (a one-tile ticket booth, a patrol shed with a garage), hints in the Services menu for what each service needs, and the open questions in its note (heated empty floor, rooms with no outside wall).
 - **Lodge storeys and styles**: more storeys, a style choice, and a shuffle button.

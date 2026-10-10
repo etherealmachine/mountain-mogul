@@ -697,6 +697,9 @@ func (e *Editor) Update(dt float64) {
 	// handle layer instead so the player can see what they're moving.
 	// Structure edit (building / lift handles) gets a single marker on
 	// the selected anchor.
+	if e.activeTool == toolFootpath {
+		emitPathMarkers(r, e.world, &e.pathTool)
+	}
 	if e.activeTool == toolRoadStart || e.activeTool == toolRoadEnd {
 		emitRoadNodeMarkers(r, e.world, mgl32.Vec2{e.hoverWorld[0], e.hoverWorld[2]}, e.hoverValid)
 	} else if e.activeTool == toolNone && e.roadEdit.active() {
@@ -2310,7 +2313,10 @@ func (e *Editor) updatePathTool(r *render.Renderer, inp *engine.Input, covered b
 	if e.activeTool != toolFootpath {
 		return
 	}
-	env := pathEnv{w: e.world, r: r, toast: e.setToast, changed: e.markDirty, free: true}
+	env := pathEnv{w: e.world, r: r, toast: e.setToast, free: true, changed: func() {
+		clearForPaths(r, e.world)
+		e.markDirty()
+	}}
 	env.input(&e.pathTool, pathInput{
 		toolInput: toolInput{
 			mouse: inp.MousePos, covered: covered,
@@ -2321,5 +2327,6 @@ func (e *Editor) updatePathTool(r *render.Renderer, inp *engine.Input, covered b
 		},
 		widen:  inp.Pressed[glfw.KeyRightBracket],
 		narrow: inp.Pressed[glfw.KeyLeftBracket],
+		insert: inp.Held[glfw.KeyLeftShift] || inp.Held[glfw.KeyRightShift],
 	})
 }

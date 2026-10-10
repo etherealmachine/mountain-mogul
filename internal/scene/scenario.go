@@ -1931,6 +1931,9 @@ func (s *Scenario) Update(dt float64) {
 	// editing an existing road / structure (toolNone selection), draw
 	// the full handle layer instead so the player can see the move
 	// target.
+	if s.activeTool == toolFootpath {
+		emitPathMarkers(r, s.world, &s.pathTool)
+	}
 	if s.activeTool == toolRoadStart || s.activeTool == toolRoadEnd {
 		emitRoadNodeMarkers(r, s.world, mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]}, s.hoverValid)
 	} else if s.activeTool == toolNone && s.roadEdit.active() {
@@ -2102,6 +2105,7 @@ func (s *Scenario) Update(dt float64) {
 			},
 			widen:  !typing && inp.Pressed[glfw.KeyRightBracket],
 			narrow: !typing && inp.Pressed[glfw.KeyLeftBracket],
+			insert: inp.Held[glfw.KeyLeftShift] || inp.Held[glfw.KeyRightShift],
 		})
 	}
 	// The building and service tools: drag out floor, put services in
@@ -2825,7 +2829,8 @@ func (s *Scenario) activatePathTool() {
 
 // pathEnv is the game's footpath-tool surroundings.
 func (s *Scenario) pathEnv() pathEnv {
-	return pathEnv{w: s.world, r: s.app.Renderer, toast: s.setToast}
+	r := s.app.Renderer
+	return pathEnv{w: s.world, r: r, toast: s.setToast, changed: func() { clearForPaths(r, s.world) }}
 }
 
 // editSelectedTrail runs a frame of editing the selected run (its popup
