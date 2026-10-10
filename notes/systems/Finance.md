@@ -8,7 +8,7 @@ status: partial
 
 Building is instant and costs cash. Revenue comes from day tickets and season passes ([[Tickets]]), heli fares ([[Lifts]]), parking ([[Parking and Roads]]), and food and drink ([[Food Court]], [[Bar]]). Each day charges operating costs if the resort opened at all and lower standby costs if it did not, broken down by category.
 
-A credit line covers going negative: $1M by default at 12% a year, accrued daily and billed at month end. Thirty straight days below the credit floor is bankruptcy. Interest charges and the floor warnings go to the [[Event Feed]].
+A new game starts with $700k cash. A credit line covers going negative: $1.5M by default at 12% a year, accrued daily and billed at month end. Thirty straight days below the credit floor is bankruptcy. Interest charges and the floor warnings go to the [[Event Feed]].
 
 [[Vision]] still lists a full cost rebalance and staffing as a cost the player controls (see [[Rental Shop]]).
 
@@ -17,3 +17,4 @@ Code: `internal/sim/credit.go`. Revenue and cost categories: `internal/world/his
 ## Log
 
 - 2026-10-01: Revenue by category, open and standby costs, the credit line, interest, and bankruptcy are in. Staffing and the cost rebalance are not.
+- 2026-10-10: Cost rebalance for the tutorial: cheaper lift stations, cats and lodge tiles, running costs tripled, $700k cash and a $1.5M credit line by default ([[Boreal Tutorial]]).

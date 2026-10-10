@@ -85,7 +85,62 @@ So the build order reads as planned: the lot first fills on holidays with the lo
 
 The day-by-day target below predates the 6-day months (Christmas is now day 6 from Dec 1, MLK Day day 9) and needs re-dating with step 7.
 
-## The target
+## The economics, pinned
+
+Set with the user, 2026-10-10. Costs and running costs are game-wide constants; the starting money is the default for new games and goes into `boreal.save` when it's rebuilt (step 7).
+
+**Starting money**: $700k cash and a $1.5M credit line at 12% a year, accrued per game day (about $500 a day with the line fully drawn), billed at month end. Prices unchanged: day ticket $60, season pass $150, parking free, a meal $18, a drink $8.
+
+**The build order and what each step costs:**
+
+| Step | What | Cost |
+|---|---|---|
+| 0 | the starting lot (about 200 stalls) | given |
+| 1 | California Cruiser (fixed quad, 268 m) and a ticket shed | $626k |
+| 2 | cat garage and one cat | $135k (garage $55k for 12 tiles; a 4-tile one is about $20k) |
+| 3 | patrol tile and a snowmobile | $39k |
+| 4 | small lodge: 6 food court, 2 lounge tiles | $150k |
+| 5 | Accelerator (high-speed quad, 770 m) | $1.30M |
+| 6 | second cat and a bigger garage | about $100k |
+| 7 | second lot | $150k |
+| 8 | 49er (double, 708 m) | $506k |
+| 9 | the rest of the lodge (10 food court, 6 lounge tiles) | $232k |
+| 10 | third cat, second snowmobile | $95k |
+| | **Total** | **$3.47M** |
+
+**Build costs** behind it: lift station fees double $400k, fixed triple $475k, fixed quad $550k, high-speed quad $1.15M, 6-pack $1.7M, gondola $4M, plus $150–250 a metre (gondola $2,400); a cat $80k; a snowmobile $15k; a lot $150k; a lodge's first tile brings $30k of foundations, then food court, bar and rental tiles $16k, lounge $12k, tickets $25k, patrol $40k, garage $15k (sheds a quarter of that, tents 0.4).
+
+**Running costs** (per open day; all tripled 2026-10-10, toward [[Vision]]'s 30–50% of revenue): each lift worker $750 (two operators a lift, plus any line attendant); a lift's own running cost $900 (double) to $2,400 (high-speed quad), gondola $7,500, heli $9,000; a cat grooming $3,600 a night, $450 parked; a lodge $600 a day plus per tile: food court and bar $270, rentals $360, tickets $450, patrol $750 (the patroller), lounge $120, garage $90 (sheds half the per-tile rate and $180 base, tents 0.8 and $360); a snow gun $1,200. Closed days: $300 a lift, $120 a building, $450 a cat.
+
+**What each stage earns** (measured, 200-stall first lot, six days from Dec 4):
+
+| After step | Built so far | Open-day costs | Ordinary day: visitors, net | Christmas / MLK: net | Costs as share of ordinary revenue |
+|---|---|---|---|---|---|
+| 1 | $776k | $3.3k | 221–482, about $16k | $43k / $23k | 15% |
+| 2 | $911k | $7.7k | 182–458, about $11k | $39k / $29k | 34% |
+| 3 | $950k | $8.3k | 212–460, about $12k | $42k / $26k | 34% |
+| 4 | $1.10M | $10.7k | 285–432, about $23k | $58k / $47k | 31% |
+| 5 | $2.40M | $14.6k | 493–691 (lot full), about $44k | $50k / $38k | 25% |
+| 6 | $2.48M | $18.2k | 499–626 (lot full), about $36k | $42k / $31k | 33% |
+| 7 | $2.63M | $18.2k | 710–1,037, about $64k | $143k / $123k | 22% |
+| 8+ | $3.47M | $27.6k | 880–1,175, about $83k | $143k / $115k | 25% |
+
+Steps 2, 3 and 6 lower the day's net: grooming and patrol don't pay off yet (change 4).
+
+**Day by day**, a player buying each step as soon as cash and credit allow (from the measured nets; plain holidays estimated between ordinary and named):
+
+| Day | Date | Builds | Cash after |
+|---|---|---|---|
+| 1 | Dec 1 | Cruiser, tickets, garage and cat, patrol, small lodge | −$250k |
+| 4 | Dec 4 | Accelerator | −$1.47M |
+| 6 | Dec 6 (Christmas) | second cat | −$1.49M |
+| 10 | Jan 4 | second lot | −$1.49M |
+| 17 | Feb 5 | 49er: three lifts open | −$1.46M |
+| 20–21 | Mar 2–3 | the rest of the lodge, third cat, second snowmobile | −$1.47M |
+
+So three lifts open on about day 17, and everything's built by day 21, a little past the 20-day target. The goal day (1,000+ guests at 3.0 stars) comes with the three lifts: the full resort's ordinary days drew 880–1,175 at 2.77–2.96 stars. A cautious player who keeps $100k of credit spare gets three lifts on day 20 and finishes on day 24. Waits between purchases: 3 days, 2, 4, then 7 before 49er, the big project. The credit line is nearly all drawn at the end, which the season after pays off.
+
+## The target (before pinning)
 
 About 20 game days, Dec 1 to about Jan 10, with Christmas (day 10) and MLK Day (Jan 5, day 15) as paydays. Each step affordable within 1–3 days of the last, by revenue or a loan, as [[Economy Balance]] asks.
 
@@ -124,15 +179,15 @@ Holidays bring about twice an ordinary day's crowd, up to what the lots hold.
 2. Decided 2026-10-10 (the user): demand no longer divides by the season's length, and the season is 30 days as 6-day months. **The season's length was a demand lever** (the user's hunch, and it held): a guest's visits a season are spread over `world.SeasonDays`, so the 50-day season sets how many come each day. A 30-day season gives every day about 1.7 times today's crowd, which by itself closes most of the gap for the first lift. It can't make the crowd grow with what's built (change 1), and it shortens every scenario's calendar too. Decide this with the user before tuning anything else.
 3. Done 2026-10-10, but for the lot size: **Lots fill.** A lot should take about one car a group for the day, so the starting lot (about 200 stalls) holds about 500 guests. Arrivals past that are turned away with "Lots full", which already logs; the day report should say how many. That's what makes the second lot worth building, and what Christmas teaches.
 4. **Grooming and patrol pay off.** Without grooming, runs go to moguls and ice in 2–3 days, and the rating drops below 70% (the goal can't be met). Without patrol, an injured guest waits long enough to leave a 1★ review and an event. Then both earn their place, and step 2's "watch a night's grooming" is the lesson that day 3 got better.
-5. **Prices**: day ticket $75 (from $60); food spend about $35 a visitor, about today's.
-6. **Costs**, toward the target table:
+5. **Prices**: day ticket $75 (from $60); food spend about $35 a visitor, about today's. Not done: prices stay at $60 for now (The economics, pinned).
+6. Done 2026-10-10 (The economics, pinned): **Costs**, toward the target table:
    - Cruiser about $600k (today $754k; the fixed quad's $700k station fee is most of it)
    - a 4-tile garage and a cat about $100k (cat $80k, today $150k)
    - small lodge about $150k (today $270k for 6 food and 2 lounge tiles)
    - Accelerator about $1.3M (today $1.65M)
    - patrol ($40k), the second lot ($150k) and 49er ($506k) are about right
-7. **Step 5 needs something to check.** Today the only staffing choice is a lift's line attendant, and running costs are a few percent of revenue. Either the lodge's staffing comes first ([[Service Quality]]: staff pools per room), or step 5 is prices and attendants only, with running costs nearer [[Vision]]'s 30–50%.
-8. **Starting money**: $700k cash and a $1.5M credit line at 12% (the editor's Money tab, [[Scenario Editor]]). Interest on $1.5M is about $500 a day: small, but the loan should show on the books.
+7. Partly done 2026-10-10: running costs tripled, to 15–34% of revenue by stage. **Step 5 needs something to check.** Today the only staffing choice is a lift's line attendant, and running costs are a few percent of revenue. Either the lodge's staffing comes first ([[Service Quality]]: staff pools per room), or step 5 is prices and attendants only, with running costs nearer [[Vision]]'s 30–50%.
+8. Done 2026-10-10 as the defaults: **Starting money**: $700k cash and a $1.5M credit line at 12% (the editor's Money tab, [[Scenario Editor]]). Interest on $1.5M is about $500 a day: small, but the loan should show on the books.
 
 ## Real time
 
@@ -144,7 +199,7 @@ Normal speed is now a game day in 2,560 s (43 minutes, [[Season Calendar]]), so 
 2. Done: demand grows with what's built (change 1): terrain served by skill and run count, with the rating (Measured after steps 1–2). Left: why stage 4 draws less than stage 1.
 3. Done: turned-away guests counted and shown (change 3); the starting lot's size is set in step 7. Also done: the stage 4 dip (occupancy counted the lodge against terrain capacity).
 4. Grooming and patrol effects (change 4).
-5. Prices, costs and starting money (changes 5, 6 and 8).
+5. Done: costs, running costs and starting money (changes 6, 7 in part, 8); prices left at $60.
 6. Step 5's content (change 7).
 7. Rebuild `boreal.save` as the start: one lot, $700k, the credit line, the goals.
 8. Play it through at fast speed, and re-measure the stages against the target table.
@@ -166,3 +221,4 @@ Normal speed is now a game day in 2,560 s (43 minutes, [[Season Calendar]]), so 
 - 2026-10-10: The stage 4 dip diagnosed and fixed (occupancy counted lodge guests against terrain capacity); full lots counted in the day's stats and report; re-measured. The user: no magic carpet in the demo, guest targets can move, the rating goal and three lifts stay.
 - 2026-10-10: Measured with a 200-stall first lot: it fills on holidays with the lodge and every day with Accelerator; the second lot pays back in about 6 days. `tools/stages` gained `-hourly` and `-stalls`.
 - 2026-10-10: The goal day (the user): 1,000+ guests ending at 3.0 stars or better, replacing a week at 70%.
+- 2026-10-10: Economics pinned (the user): build costs cut (fixed quad and high-speed quad station fees, cats $80k, lodge tiles), running costs tripled, $700k cash and a $1.5M credit line by default; re-measured all eight stages; three lifts by about day 17, everything by day 21.

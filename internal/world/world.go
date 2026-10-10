@@ -22,14 +22,14 @@ import (
 const (
 	LodgeCost    = 150_000 // single fixed cost per lodge (VISION: shell $100k + per cell; flat until shells land)
 	ParkingCost  = 150_000 // base parking lot
-	StartingCash = 1_000_000
+	StartingCash = 700_000
 
 	// Credit line (VISION §7). Cash may go negative down to −CreditLimit;
 	// the negative balance is the drawn amount. Interest accrues daily on
 	// the drawn amount and is charged to Cash when the calendar month turns.
 	// Cash below −CreditLimit for BankruptcyGraceDays consecutive day
 	// rollovers is bankruptcy.
-	DefaultCreditLimit  = 1_000_000 // dollars
+	DefaultCreditLimit  = 1_500_000 // dollars
 	DefaultCreditRate   = 0.12      // a year, on 365 calendar days; simple interest, accrued daily
 	BankruptcyGraceDays = 30        // consecutive day rollovers below the credit floor
 
@@ -58,7 +58,7 @@ const (
 	DefaultSeasonPassPrice = 150                          // one-time fee per guest per season; guests with sufficient budget buy it on arrival
 	HelipadCost            = 2_000_000                    // flat cost for a heli-ski operation (two pads + helicopter); the post-gondola unlock
 	SnowGunCost            = 40_000                       // snowmaking cannon; operating cost below
-	SnowGunActiveCostDay   = 400                          // dollars per game-day while enabled (water + power)
+	SnowGunActiveCostDay   = 1_200                          // dollars per game-day while enabled (water + power)
 	SnowGunRangeCells      = 3                            // spray radius in terrain cells
 	SnowGunRangeM          = SnowGunRangeCells * CellSize // = 15 metres
 	SnowGunMinTempC        = float32(-2.0)                // air must be at or below this to make snow
@@ -66,15 +66,15 @@ const (
 	// Daily operational costs, dollars per in-game day, charged at rollover
 	// (see DailyOperatingCost). Lift running costs are per LiftType
 	// (LiftType.RunningCostDay) on top of the staff (Lift.Headcount).
-	LiftStaffDailyCost = 250 // per lift worker: the two operators, and any line attendant
+	LiftStaffDailyCost = 750 // per lift worker: the two operators, and any line attendant
 
 	// Standby (closed-resort) costs, dollars per in-game day. What the
 	// resort pays while nothing is open: lifts idle with no attendants,
 	// cats parked (CatStandbyCostDay), buildings heated but unstaffed.
 	// See DailyStandbyCost. Charged at rollover on days the resort was
 	// closed all day (World.ResortOpen).
-	LiftStandbyCostDay     = 100 // per lift: inspections, idle power
-	BuildingStandbyCostDay = 40  // per service building
+	LiftStandbyCostDay     = 300 // per lift: inspections, idle power
+	BuildingStandbyCostDay = 120 // per service building
 	// Snowcat daily costs live in world/snowcat.go (CatActiveCostDay, CatStandbyCostDay).
 )
 

@@ -849,13 +849,13 @@ func (t LiftType) StationCost() int {
 	case LiftDouble:
 		return 400_000
 	case LiftFixedTriple:
-		return 550_000
+		return 475_000
 	case LiftFixedQuad:
-		return 700_000
+		return 550_000
 	case LiftHSQuad:
-		return 1_500_000
+		return 1_150_000
 	case LiftHS6Pack:
-		return 2_200_000
+		return 1_700_000
 	case LiftGondola:
 		return 4_000_000
 	}
@@ -889,19 +889,19 @@ func (t LiftType) PerMeterCost() int {
 func (t LiftType) RunningCostDay() int {
 	switch t {
 	case LiftDouble:
-		return 300
+		return 900
 	case LiftFixedTriple:
-		return 350
+		return 1_050
 	case LiftFixedQuad:
-		return 400
+		return 1_200
 	case LiftHSQuad:
-		return 800
+		return 2_400
 	case LiftHS6Pack:
-		return 1_000
+		return 3_000
 	case LiftGondola:
-		return 2_500
+		return 7_500
 	case LiftHeli:
-		return 3_000 // pilot + fuel
+		return 9_000 // pilot + fuel
 	}
 	return 0
 }

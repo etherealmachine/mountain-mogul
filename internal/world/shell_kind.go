@@ -86,9 +86,9 @@ func (k ShellKind) tileCostScale() float32 {
 func (k ShellKind) DailyBaseCost() int {
 	switch k {
 	case ShellTent:
-		return 120 // heating a tent isn't cheap
+		return 360 // heating a tent isn't cheap
 	case ShellShed:
-		return 60
+		return 180
 	}
 	return ServiceBuildingDailyBaseCost
 }

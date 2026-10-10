@@ -24,13 +24,13 @@ const (
 
 	// CatPurchasePrice is the one-time cost to add a cat to the global fleet.
 	// The first cat is bundled into ShedCost; every additional cat costs this.
-	CatPurchasePrice = 150_000
+	CatPurchasePrice = 80_000
 
 	// CatActiveCostDay is the daily operating cost for a cat actively grooming.
-	CatActiveCostDay = 1_200 // operator + fuel
+	CatActiveCostDay = 3_600 // operator + fuel
 
 	// CatStandbyCostDay is the daily cost to keep a cat parked in standby.
-	CatStandbyCostDay = 150
+	CatStandbyCostDay = 450
 
 	// CellSize is one terrain cell in metres. Mirrored from a few places
 	// so snowcat helpers don't pull it from a constants package.

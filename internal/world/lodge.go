@@ -52,19 +52,19 @@ const (
 var serviceInfo = [ServiceCount]ServiceInfo{
 	ServiceNone: {Label: "None", Accent: mgl32.Vec3{1, 1, 1}},
 	ServiceLounge: {Label: "Lounge", Accent: mgl32.Vec3{1, 1, 1}, Overlay: [3]uint8{150, 120, 90},
-		TileCost: 20_000, TileDailyCost: 40, ForGuests: true}, // heating and cleaning
+		TileCost: 12_000, TileDailyCost: 120, ForGuests: true}, // heating and cleaning
 	ServiceFood: {Label: "Food court", Accent: mgl32.Vec3{1.00, 0.80, 0.55}, Overlay: [3]uint8{235, 150, 50},
-		TileCost: 30_000, TileDailyCost: 90, ForGuests: true}, // kitchen and counter staff
+		TileCost: 16_000, TileDailyCost: 270, ForGuests: true}, // kitchen and counter staff
 	ServiceBar: {Label: "Bar", Accent: mgl32.Vec3{0.85, 0.60, 0.68}, Overlay: [3]uint8{190, 80, 120},
-		TileCost: 30_000, TileDailyCost: 90, ForGuests: true},
+		TileCost: 16_000, TileDailyCost: 270, ForGuests: true},
 	ServiceTickets: {Label: "Tickets", Accent: mgl32.Vec3{0.68, 0.80, 1.00}, Overlay: [3]uint8{80, 140, 230},
-		TileCost: 25_000, TileDailyCost: 150, ForGuests: true}, // a ticket window's clerk
+		TileCost: 25_000, TileDailyCost: 450, ForGuests: true}, // a ticket window's clerk
 	ServicePatrol: {Label: "Ski patrol", Accent: mgl32.Vec3{1.00, 0.62, 0.58}, Overlay: [3]uint8{220, 60, 50},
-		TileCost: 40_000, TileDailyCost: 250}, // a patroller and their snowmobile
+		TileCost: 40_000, TileDailyCost: 750}, // a patroller and their snowmobile
 	ServiceGarage: {Label: "Snowcat garage", Accent: mgl32.Vec3{0.82, 0.84, 0.86}, Overlay: [3]uint8{120, 130, 140},
-		TileCost: 15_000, TileDailyCost: 30}, // the floor and doors; vehicles are bought into it
+		TileCost: 15_000, TileDailyCost: 90}, // the floor and doors; vehicles are bought into it
 	ServiceRentals: {Label: "Rental shop", Accent: mgl32.Vec3{0.75, 0.90, 0.70}, Overlay: [3]uint8{90, 170, 80},
-		TileCost: 30_000, TileDailyCost: 120, ForGuests: true}, // fleet upkeep and a tech at the bench
+		TileCost: 16_000, TileDailyCost: 360, ForGuests: true}, // fleet upkeep and a tech at the bench
 }
 
 // Info is the service's entry in the registry.
@@ -90,8 +90,8 @@ func (s Service) TileCost() int { return s.Info().TileCost }
 func (s Service) TileDailyCost() int { return s.Info().TileDailyCost }
 
 const (
-	ServiceBuildingBaseCost      = 50_000 // foundations and utilities, charged with the first tile
-	ServiceBuildingDailyBaseCost = 200    // manager and utilities per building
+	ServiceBuildingBaseCost      = 30_000 // foundations and utilities, charged with the first tile
+	ServiceBuildingDailyBaseCost = 600    // manager and utilities per building
 
 	// FoodCourtSeatsPerCell is seating per 5 × 5 m cell (~2 m² a seat
 	// once counters and aisles are taken out).

@@ -136,3 +136,4 @@ Order from here: lots that fill; grooming and patrol effects; then prices, costs
 - 2026-10-10: [[Boreal Tutorial]]: the tutorial's build order and day-by-day money, each stage measured; the season's length is a demand lever (visits a season over `SeasonDays`).
 - 2026-10-10: Paused again (the user); Where it stands written.
 - 2026-10-10: Resumed: 6-day months, demand decoupled from the season and following the terrain served ([[Boreal Tutorial]] steps 1–2).
+- 2026-10-10: Pinned for the tutorial ([[Boreal Tutorial]], The economics, pinned): build costs cut, running costs tripled (15–34% of revenue by stage), $700k cash and $1.5M credit by default.
