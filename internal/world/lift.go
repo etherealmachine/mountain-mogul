@@ -255,6 +255,13 @@ type Lift struct {
 	// Cleared automatically when snow returns to the base. Not persisted.
 	OnHold bool
 
+	// Staff is who works the lift beyond its two operators.
+	Staff LiftStaff
+	// Fill is how full chairs leave the base while people are still in
+	// line, a running average (0 until a chair has loaded with a line
+	// behind it); see LineWait. Not persisted.
+	Fill float32
+
 	Queue       []*Guest
 	QueueConfig LiftQueueConfig
 	Lines       []LiftLine // nil/empty → use Queue (all non-Double lifts and Doubles without lanes)
@@ -660,7 +667,11 @@ func (l *Lift) backOfLinesWorldPos(t *Terrain) mgl32.Vec3 {
 // single-rider lanes combined as one additional turn. Turns continue
 // until the chair is full or every lane has had one, so a quad loads a
 // pair from each of two lanes; then single-rider lines fill any gap.
-func (l *Lift) BoardNextPair(cap int) []*Guest {
+// sit is asked before each guest gets on (taken is who's on so far, line
+// the guest's lane, guest first, single whether it's a single-rider
+// lane); the first no ends the loading, and the chair leaves with who's
+// on.
+func (l *Lift) BoardNextPair(cap int, sit func(taken, line []*Guest, single bool) bool) []*Guest {
 	if len(l.Lines) == 0 {
 		return nil
 	}
@@ -685,21 +696,27 @@ func (l *Lift) BoardNextPair(cap int) []*Guest {
 
 	var taken []*Guest
 	usedSingles := false
+	refused := false
+	take := func(li *LiftLine) bool {
+		if len(li.Guests) == 0 || refused {
+			return false
+		}
+		if !sit(taken, li.Guests, li.IsSingle) {
+			refused = true
+			return false
+		}
+		taken = append(taken, li.Guests[0])
+		li.Guests = li.Guests[1:]
+		return true
+	}
 
-	for attempts := 0; attempts < totalTurns && len(taken) < cap; attempts++ {
+	for attempts := 0; attempts < totalTurns && len(taken) < cap && !refused; attempts++ {
 		turn := l.QueueRound % totalTurns
 		l.QueueRound++
 
 		if turn < len(regularIdxs) {
 			li := &l.Lines[regularIdxs[turn]]
-			take := cap - len(taken)
-			if take > 2 {
-				take = 2
-			}
-			for take > 0 && len(li.Guests) > 0 {
-				taken = append(taken, li.Guests[0])
-				li.Guests = li.Guests[1:]
-				take--
+			for n := min(cap-len(taken), 2); n > 0 && take(li); n-- {
 			}
 			continue
 		}
@@ -709,11 +726,7 @@ func (l *Lift) BoardNextPair(cap int) []*Guest {
 			if len(taken) >= cap {
 				break
 			}
-			li := &l.Lines[si]
-			if len(li.Guests) > 0 {
-				taken = append(taken, li.Guests[0])
-				li.Guests = li.Guests[1:]
-			}
+			take(&l.Lines[si])
 		}
 	}
 
@@ -724,11 +737,7 @@ func (l *Lift) BoardNextPair(cap int) []*Guest {
 			if len(taken) >= cap {
 				break
 			}
-			li := &l.Lines[si]
-			if len(li.Guests) > 0 {
-				taken = append(taken, li.Guests[0])
-				li.Guests = li.Guests[1:]
-			}
+			take(&l.Lines[si])
 		}
 	}
 
@@ -875,8 +884,8 @@ func (t LiftType) PerMeterCost() int {
 }
 
 // RunningCostDay returns the daily running cost in dollars (power,
-// maintenance) for an open lift of this type, on top of its two
-// attendants (LiftAttendantDailyCost).
+// maintenance) for an open lift of this type, on top of its staff
+// (LiftStaff.Headcount at LiftStaffDailyCost each).
 func (t LiftType) RunningCostDay() int {
 	switch t {
 	case LiftDouble:
@@ -942,8 +951,8 @@ func (l *Lift) StationXZs() []mgl32.Vec2 {
 }
 
 // LiftQuality is the quality of a lift ride as a service, toward a
-// guest's quality stars (Guest.UseService): the going rate until lift
-// attendants are staffed (notes/next/Service Quality.md).
+// guest's quality stars (Guest.UseService): the going rate for now
+// (notes/next/Service Quality.md).
 const LiftQuality = 0.5
 
 // Line waits. A guest won't join a line whose wait is over MaxLineWait
@@ -968,10 +977,92 @@ func (l *Lift) RidersPerSecond() float32 {
 }
 
 // LineWait is about how long a guest joining the back of the line would
-// wait to board, in sim seconds.
+// wait to board, in sim seconds: chairs leave only Fill full.
 func (l *Lift) LineWait() float32 {
 	if rps := l.RidersPerSecond(); rps > 0 {
+		if l.Fill > 0 {
+			rps *= l.Fill
+		}
 		return float32(l.QueueLen()) / rps
 	}
 	return float32(l.QueueLen()) * fallbackSecPerRider
+}
+
+// LiftStaff is who works a lift. Every cable lift has an operator at the
+// bottom and one at the top (in the huts); those aren't optional. A line
+// attendant at the loading point fills the chairs: without one, strangers
+// rarely share a chair, so chairs leave the base partly empty while people
+// wait (sim: boarding). A heli has a pilot instead (RunningCostDay).
+type LiftStaff struct {
+	LineAttendant bool
+}
+
+// LiftOperators is the operators every cable lift has, top and bottom.
+const LiftOperators = 2
+
+// Headcount is how many people work lift l, for wages.
+func (l *Lift) Headcount() int {
+	if l.IsHeli() {
+		return LiftOperators // ground crew; the pilot is in RunningCostDay
+	}
+	n := LiftOperators
+	if l.Staff.LineAttendant {
+		n++
+	}
+	return n
+}
+
+// LiftStaffRole is a job at a lift.
+type LiftStaffRole uint8
+
+const (
+	StaffBottomOperator LiftStaffRole = iota
+	StaffTopOperator
+	StaffLineAttendant
+)
+
+// LiftStaffPost is where one of a lift's staff stands, facing Heading
+// (radians, atan2(x, z) like a guest's), on duty.
+type LiftStaffPost struct {
+	Role    LiftStaffRole
+	Pos     mgl32.Vec2
+	Heading float32
+}
+
+// Where staff stand, metres from the bullwheel in the station's frame
+// (back along the line, and across it toward the hut; see StationXZs).
+const (
+	operatorBack  = stationHutBack + 0.2 // at the hut's window on the line side
+	operatorSide  = stationHutSide - 1.5 // clear of the hut and the leg
+	attendantBack = 0.8                  // beside the loading point
+	attendantSide = -2.6                 // across the line from the hut
+)
+
+// StaffPosts is where l's staff stand: an operator by each station's hut,
+// facing the loading or unloading point, and the line attendant (if any)
+// across the line from the bottom hut, facing the riders. Nil for a heli.
+func (l *Lift) StaffPosts() []LiftStaffPost {
+	if l.IsHeli() {
+		return nil
+	}
+	var out []LiftStaffPost
+	post := func(role LiftStaffRole, at, other mgl32.Vec2, back, across float32) {
+		u := other.Sub(at)
+		if u.Len() < 1e-3 {
+			return
+		}
+		u = u.Normalize()
+		side := mgl32.Vec2{u[1], -u[0]}
+		p := at.Sub(u.Mul(back)).Add(side.Mul(across))
+		// Face the line just behind the bullwheel, where riders get on
+		// or off.
+		look := at.Sub(u.Mul(back)).Sub(p)
+		out = append(out, LiftStaffPost{Role: role, Pos: p, Heading: float32(math.Atan2(float64(look[0]), float64(look[1])))})
+	}
+	post(StaffBottomOperator, l.Base, l.Top, operatorBack, operatorSide)
+	post(StaffTopOperator, l.Top, l.Base, operatorBack, operatorSide)
+	if l.Staff.LineAttendant {
+		post(StaffLineAttendant, l.Base, l.Top, attendantBack, attendantSide)
+	}
+	return out
 }

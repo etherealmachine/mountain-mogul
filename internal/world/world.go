@@ -65,8 +65,8 @@ const (
 
 	// Daily operational costs, dollars per in-game day, charged at rollover
 	// (see DailyOperatingCost). Lift running costs are per LiftType
-	// (LiftType.RunningCostDay) on top of the two attendants.
-	LiftAttendantDailyCost = 250 // per attendant; each lift requires one top + one bottom
+	// (LiftType.RunningCostDay) on top of the staff (Lift.Headcount).
+	LiftStaffDailyCost = 250 // per lift worker: the two operators, and any line attendant
 
 	// Standby (closed-resort) costs, dollars per in-game day. What the
 	// resort pays while nothing is open: lifts idle with no attendants,
@@ -390,12 +390,12 @@ func LiftCost(typ LiftType, base, top mgl32.Vec2) int {
 func (w *World) DailyOperatingCost() int { return w.OperatingCosts().Total() }
 
 // OperatingCosts is one open day's operating cost by category: lift
-// attendants and running costs, cats by status, staffed buildings, and
+// staff and running costs, cats by status, staffed buildings, and
 // enabled snow guns.
 func (w *World) OperatingCosts() CostBreakdown {
 	var c CostBreakdown
 	for _, l := range w.Lifts {
-		c[CostLifts] += 2*LiftAttendantDailyCost + l.Type.RunningCostDay()
+		c[CostLifts] += l.Headcount()*LiftStaffDailyCost + l.Type.RunningCostDay()
 	}
 	for _, cat := range w.Snowcats {
 		if cat.Status == CatActive {

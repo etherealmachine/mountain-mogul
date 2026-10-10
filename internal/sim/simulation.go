@@ -407,15 +407,7 @@ func (s *Simulation) tickLifts(dt float64) {
 			if chair.Progress >= 1.0 {
 				chair.Progress -= 1.0
 				if !lift.OnHold && running {
-					var boarders []*world.Guest
-					if len(lift.Lines) > 0 {
-						boarders = lift.BoardNextPair(len(chair.Passengers))
-					} else {
-						for len(lift.Queue) > 0 && len(boarders) < len(chair.Passengers) {
-							boarders = append(boarders, lift.Queue[0])
-							lift.Queue = lift.Queue[1:]
-						}
-					}
+					boarders := loadChair(lift, len(chair.Passengers))
 					for j, agent := range boarders {
 						if j >= len(chair.Passengers) {
 							break

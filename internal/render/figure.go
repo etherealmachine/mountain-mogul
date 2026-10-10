@@ -114,6 +114,12 @@ var patrolOutfit = [figureOutfitSlots]mgl32.Vec3{
 	{0.80, 0.08, 0.06}, {0.08, 0.08, 0.09}, {0.80, 0.08, 0.06}, {0.10, 0.10, 0.12}, {0.90, 0.72, 0.58},
 }
 
+// liftStaffOutfit is lift staff: the resort's navy jacket with a hi-vis
+// yellow, dark pants, and a black toque.
+var liftStaffOutfit = [figureOutfitSlots]mgl32.Vec3{
+	{0.95, 0.80, 0.10}, {0.10, 0.11, 0.16}, {0.08, 0.08, 0.09}, {0.10, 0.10, 0.12}, {0.90, 0.72, 0.58},
+}
+
 // headingBasis turns model space (+X forward) to face heading, the same
 // way dynamic.vert does.
 func headingBasis(h float32) mgl32.Mat4 {
@@ -449,6 +455,23 @@ func (f *figures) build(r *Renderer, w *world.World) {
 		pose.solve(&bones)
 		place := mgl32.Translate3D(p.Pos[0], y, p.Pos[2]).Mul4(headingBasis(a.heading))
 		f.add(place, &bones, &patrolOutfit, mgl32.Vec4{})
+	}
+	// Lift staff stand at their posts while the resort and the lift are
+	// open.
+	if w.ResortOpen {
+		for _, l := range w.Lifts {
+			if !l.Open {
+				continue
+			}
+			for _, post := range l.StaffPosts() {
+				pos := mgl32.Vec3{post.Pos[0], 0, post.Pos[1]}
+				pitch, roll, _ := slopeAngles(t, pos, post.Heading)
+				pose := walkPose(0, 0, pitch, roll, false)
+				pose.solve(&bones)
+				place := mgl32.Translate3D(pos[0], VisualElevationAt(t, pos[0], pos[2]), pos[2]).Mul4(headingBasis(post.Heading))
+				f.add(place, &bones, &liftStaffOutfit, mgl32.Vec4{})
+			}
+		}
 	}
 	if r.FigureGallery {
 		f.gallery(r, w)

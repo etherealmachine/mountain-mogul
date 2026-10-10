@@ -532,6 +532,8 @@ type LiftData struct {
 	RightLines   int        `json:"right_lines,omitempty"`
 	SingleRider  bool       `json:"single_rider,omitempty"`
 	LineQueueIDs [][]uint64 `json:"line_queues,omitempty"` // per-lane ordered guest IDs
+	// LineAttendant is Lift.Staff.LineAttendant.
+	LineAttendant bool `json:"line_attendant,omitempty"`
 }
 
 // PlanActionData is one serialised step in a guest's L0 plan. Fields map

@@ -436,6 +436,8 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 			LeftLines:   l.QueueConfig.LeftLines,
 			RightLines:  l.QueueConfig.RightLines,
 			SingleRider: l.QueueConfig.SingleRider,
+
+			LineAttendant: l.Staff.LineAttendant,
 		}
 		if len(l.Lines) > 0 && !forScenario {
 			ld.LineQueueIDs = make([][]uint64, len(l.Lines))
@@ -1116,6 +1118,7 @@ func dataToWorld(data ScenarioData) *world.World {
 			lift.HeliState.Phase = world.HeliPhase(ld.HeliPhase)
 			lift.HeliState.Progress = ld.HeliProgress
 		}
+		lift.Staff.LineAttendant = ld.LineAttendant
 		// Restore queue lane config for LiftDouble lifts.
 		lift.QueueConfig = world.LiftQueueConfig{
 			LeftLines:   ld.LeftLines,

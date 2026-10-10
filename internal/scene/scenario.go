@@ -3491,6 +3491,25 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 	w.AddLabel("Chairs", func() string {
 		return fmt.Sprintf("%d × %d-seat", len(l.Chairs), l.Type.Capacity())
 	})
+	if !l.IsHeli() {
+		w.AddLabel("Staff", func() string {
+			who := "2 operators"
+			if l.Staff.LineAttendant {
+				who += " + attendant"
+			}
+			return fmt.Sprintf("%s ($%d/day)", who, l.Headcount()*world.LiftStaffDailyCost)
+		})
+		w.AddBoolToggle("Line attendant",
+			func() bool { return l.Staff.LineAttendant },
+			func(v bool) { l.Staff.LineAttendant = v; l.Fill = 0 },
+		)
+		w.AddLabel("Chairs leave", func() string {
+			if l.Fill == 0 {
+				return "—"
+			}
+			return fmt.Sprintf("%.0f%% full", l.Fill*100)
+		})
+	}
 	if l.Type == world.LiftDouble {
 		rebuild := func() {
 			evicted := l.RebuildLines()

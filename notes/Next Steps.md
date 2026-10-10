@@ -120,7 +120,8 @@ Diagnose each first, report the cause, then fix:
 - **Employees as people**: they drive in from the map's road entries as carloads, like guests ([[Transit]]), park in an employee lot (a lot set aside for staff), and walk to their stations.
 - **Employee commutes**: each entry has a pool of workers as well as guests; a long or snowed-in drive makes staff late or harder to hire, and the morning arrival shares the road with guests. *Needs* employees as people.
 - **Employee goals**: [[GOAP]] for employees (get to work, take breaks, go home). *Needs* employees as people.
-- **Lift attendants**: two per lift, top and bottom, with a third speeding loading on bigger chairs. Each lift already pays for two a day, but none are on the map. *Needs* employees as people.
+- **Lift staff as people**: the operators and line attendants stand at their posts ([[Lifts]]), but don't arrive or leave. *Needs* employees as people.
+- [[Packed Snow]]: walkers slowed by deep or rough snow, feet packing it down, and lift sweepers keeping station areas clear.
 - **Staffing amenities**: staff for rental, food court, bar, tickets, patrol, and the snowcat garage, replacing the flat daily cost per tile ([[Building Services]]). Staff pools per room come first in [[Service Quality]]; people fill them later. *Needs* employees as people.
 - **Employee housing**: so a resort can staff up where commuting is hard: staff housing as a building service ([[Building Services]], [[Rotated Buildings]]), with fewer cars on the road. *For* [[Zermatt]].
 
@@ -289,3 +290,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-09: Car kinds shipped in [[Transit]]; [[Large Vehicles]] (buses, RVs) noted as an idea.
 - 2026-10-10: [[Economy Balance]] planned with the user.
 - 2026-10-10: Footpaths shipped ([[Pathfinding]]): the Path tool, twice-as-fast walking, and walking routes that prefer paths.
+- 2026-10-10: Lift staff shipped ([[Lifts]]): two operators on every lift and an optional line attendant who fills chairs; sweepers moved to [[Packed Snow]].

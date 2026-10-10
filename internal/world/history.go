@@ -53,7 +53,7 @@ func (k RevenueKind) Label() string {
 type CostKind int
 
 const (
-	CostLifts CostKind = iota // attendants and running costs
+	CostLifts CostKind = iota // staff and running costs
 	CostSnowcats
 	CostBuildings
 	CostSnowGuns
