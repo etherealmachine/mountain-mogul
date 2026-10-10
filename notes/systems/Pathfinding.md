@@ -6,7 +6,7 @@ status: partial
 
 # Pathfinding
 
-How guests get around on foot. An A* search over the terrain grid routes walkers between parking, building doors, and lift bases. Building cells, lift ends, and cells with two or more tree trunks block the way, and a walking guest draws with skis off. [[GOAP]] steps like walking to a lift or a ticket window start a route; when no route exists, the guest gives up on that step, or for a new arrival, is never spawned.
+How guests get around on foot. An A* search over the terrain grid routes walkers between parking, building doors, and lift bases, in eight directions (a diagonal costs √2 and never cuts a blocked cell's corner), and the route is cut down to its corners: from each kept cell, the furthest one a straight walk to stays on open cells (checked a metre either side, for the walker's shoulders) and on a footpath when both ends are on one. Walkers go straight from corner to corner. Building cells, lift ends, cells with two or more tree trunks, and land the resort can't use block the way; the destination may be blocked (a lift base, a door in a wall). A walking guest draws with skis off. Patrollers on foot use the same search. It keeps its working arrays between searches (the sim calls it serially). [[GOAP]] steps like walking to a lift or a ticket window start a route; when no route exists, the guest gives up on that step, or for a new arrival, is never spawned.
 
 [[Skiing]] does not use this. Runs are steered, not routed.
 
@@ -24,3 +24,4 @@ Code: `internal/sim/pathfinder.go`.
 - 2026-10-02: Trees block a cell when it holds two or more trunks, replacing the old density cutoff ([[Trees]]).
 - 2026-10-10: Footpaths: laid with the Path tool, twice as fast to walk, preferred by both walking searches. On Boreal with two test paths from the lots toward the main lift, a morning's walkers spent 13.8% of their walking on paths and averaged 0.78 m/s against 0.68 without.
 - 2026-10-10: Footpath editing (drag nodes and widths, insert, delete) and snow clearing (with the roads, overnight).
+- 2026-10-10: Walking routes in eight directions, cut to their corners, on arrays instead of maps. On Boreal over a morning, routes went from 26% longer than the straight line with 5.2 turns per 100 m (a staircase along cell centres) to 2% longer with 0.8. No search failed before or after. Visitors on the Goals Test differ day to day (373/452/402 against 421/541/434) from the random stream diverging once lifts open: identical until 9:00, cars 158 against 170, ratings alike.
