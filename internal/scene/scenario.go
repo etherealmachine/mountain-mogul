@@ -459,6 +459,7 @@ const (
 	toolService      toolMode = iota // build service-building tiles
 	toolFootpath     toolMode = iota // lay footpaths node by node
 	toolSkiRack      toolMode = iota // place a ski rack
+	toolRope         toolMode = iota // string rope lines pole by pole
 )
 
 // Scenario is the main gameplay scene.
@@ -554,6 +555,8 @@ type Scenario struct {
 	// pathTool is the footpath tool's session while toolFootpath is
 	// active (footpath_tool.go).
 	pathTool  pathTool
+	// ropeTool is the rope tool's session while toolRope is active.
+	ropeTool ropeTool
 	trailEdit runTool // editing the selected run (editSelectedTrail)
 	trailDraw trailDrawing
 
@@ -993,6 +996,7 @@ func (s *Scenario) Init(app *engine.App) error {
 	s.toolButtons[toolRoadStart] = s.transportSubmenu.AddChild(render.IconRoad, "Road", func() { s.setTool(toolRoadStart) })
 	s.toolButtons[toolFootpath] = s.transportSubmenu.AddChild(render.IconFootprints, "Path", s.activatePathTool)
 	s.toolButtons[toolSkiRack] = s.transportSubmenu.AddChild(render.IconSki, "Ski Rack", func() { s.setTool(toolSkiRack) })
+	s.toolButtons[toolRope] = s.transportSubmenu.AddChild(render.IconRope, "Rope", s.activateRopeTool)
 
 	// Lifts submenu: all chair/gondola/heli variants
 	s.liftsSubmenu = s.toolBar.AddSubmenu(render.IconCableCar, "Lifts")
@@ -1631,6 +1635,8 @@ func (s *Scenario) Update(dt float64) {
 			s.runTool.drawing, s.runTool.nodes = false, nil // drop the run, keep the tool
 		case s.activeTool == toolFootpath && s.pathTool.drawing():
 			s.pathTool.nodes = nil // drop the path, keep the tool
+		case s.activeTool == toolRope && s.ropeTool.drawing():
+			s.ropeTool.nodes = nil // drop the rope, keep the tool
 		case s.activeTool != toolNone:
 			s.cancelTool()
 		default:
@@ -1938,6 +1944,9 @@ func (s *Scenario) Update(dt float64) {
 	if s.activeTool == toolFootpath {
 		emitPathMarkers(r, s.world, &s.pathTool)
 	}
+	if s.activeTool == toolRope {
+		emitRopeMarkers(r, s.world, &s.ropeTool)
+	}
 	if s.activeTool == toolRoadStart || s.activeTool == toolRoadEnd {
 		emitRoadNodeMarkers(r, s.world, mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]}, s.hoverValid)
 	} else if s.activeTool == toolNone && s.roadEdit.active() {
@@ -2109,6 +2118,20 @@ func (s *Scenario) Update(dt float64) {
 			},
 			widen:  !typing && inp.Pressed[glfw.KeyRightBracket],
 			narrow: !typing && inp.Pressed[glfw.KeyLeftBracket],
+			insert: inp.Held[glfw.KeyLeftShift] || inp.Held[glfw.KeyRightShift],
+		})
+	}
+	// The rope tool: string rope lines pole by pole (rope_tool.go).
+	if s.activeTool == toolRope {
+		covered := s.barsContain(inp.MousePos[1]) || s.uiCovers(inp.MousePos[0], inp.MousePos[1], float32(r.ScreenWidth()))
+		s.ropeEnv().input(&s.ropeTool, ropeInput{
+			toolInput: toolInput{
+				mouse: inp.MousePos, covered: covered,
+				ground: s.hoverWorld, groundValid: s.hoverValid,
+				leftClick: inp.LeftClick && !inp.LeftClickConsumed, leftHeld: inp.LeftHeld,
+				rightClick: inp.RightClick, rightRelease: inp.RightRelease,
+				enter: !typing && (inp.Pressed[glfw.KeyEnter] || inp.Pressed[glfw.KeyKPEnter]),
+			},
 			insert: inp.Held[glfw.KeyLeftShift] || inp.Held[glfw.KeyRightShift],
 		})
 	}
@@ -2849,6 +2872,27 @@ func (s *Scenario) activatePathTool() {
 	s.setToast(fmt.Sprintf("Click to lay a footpath, node by node: $%d a square metre. Guests walk twice as fast on paths. Esc to finish.", world.FootpathCostPerM2))
 }
 
+// activateRopeTool starts the rope tool (rope_tool.go); re-clicking the
+// Rope button ends it.
+func (s *Scenario) activateRopeTool() {
+	if s.activeTool == toolRope {
+		s.cancelTool()
+		return
+	}
+	if s.activeTool != toolNone {
+		s.cancelTool()
+	}
+	s.ropeTool = newRopeTool()
+	s.activeTool = toolRope
+	s.syncToolButtons()
+	s.setToast(fmt.Sprintf("Click to string a rope, pole by pole: $%d a metre. Guests try not to cross ropes, but can. Esc to finish.", world.RopeCostPerM))
+}
+
+// ropeEnv is the game's rope-tool surroundings.
+func (s *Scenario) ropeEnv() ropeEnv {
+	return ropeEnv{w: s.world, r: s.app.Renderer, toast: s.setToast}
+}
+
 // pathEnv is the game's footpath-tool surroundings.
 func (s *Scenario) pathEnv() pathEnv {
 	r := s.app.Renderer
@@ -2968,6 +3012,10 @@ func (s *Scenario) removeAt(clickPos mgl32.Vec3, r *render.Renderer) {
 	}
 	if b := w.PaintedBuildingAt(int(pick[0]/world.CellSize), int(pick[1]/world.CellSize)); b != nil {
 		s.deletePaintedBuilding(b.ID)
+		return
+	}
+	if rp := w.RopeAt(pick, 1); rp != nil {
+		w.RemoveRope(rp.ID) // no refund, like the other tools
 		return
 	}
 	if f := w.FootpathAt(pick, 1); f != nil {
@@ -3796,6 +3844,7 @@ func (s *Scenario) setTool(t toolMode) {
 	r.ClearGhostCable()
 	r.ClearGhostRoad()
 	r.SetFootpathGhost(s.world, nil, false)
+	r.SetRopeGhost(s.world, nil, false)
 	if isActive {
 		s.activeTool = toolNone
 	} else {
@@ -3852,6 +3901,10 @@ func (s *Scenario) cancelTool() {
 	if s.activeTool == toolFootpath {
 		s.pathTool = pathTool{}
 		s.app.Renderer.SetFootpathGhost(s.world, nil, false)
+	}
+	if s.activeTool == toolRope {
+		s.ropeTool = ropeTool{}
+		s.app.Renderer.SetRopeGhost(s.world, nil, false)
 	}
 	if s.activeTool == toolService {
 		s.serviceTool = serviceTool{}

@@ -14,14 +14,16 @@ import (
 // so walkers go straight between them rather than cell by cell.
 //
 // The search is A* in eight directions (a diagonal costs √2 and never
-// cuts the corner of a blocked cell), over cells that are walkable and
-// on land the resort can use; the destination may be blocked (a lift
-// base, a door in a wall). A cell on a footpath costs 1/FootpathSpeedup,
+// cuts the corner of a blocked cell), over walkable cells; the
+// destination may be blocked (a lift base, a door in a wall). Crossing a
+// rope or the ski area boundary costs extra (ropeStepCost), so routes go
+// round or stay inside when they can, but aren't stopped. A cell on a footpath costs 1/FootpathSpeedup,
 // as it's walked that much faster, and the estimate to the goal assumes
 // it's all path when there are paths, so the search finds the quickest
 // way. The cell route is then cut down to its corners: from each kept
 // cell, the furthest one the straight walk to which stays on walkable
-// cells, and on a footpath when both ends are on one.
+// cells, on a footpath when both ends are on one, and on the same side
+// of every rope and the boundary.
 //
 // It keeps its working arrays between searches, so it isn't safe to use
 // from more than one goroutine at once (the sim calls it serially).
@@ -54,7 +56,7 @@ func (p *Pathfinder) FindPath(from, to [2]int) [][2]int {
 		if !t.InBounds(c[0], c[1]) {
 			return false
 		}
-		return c == to || (t.IsAccessible(c[0], c[1]) && t.Cells[c[0]][c[1]].Walkable())
+		return c == to || t.Cells[c[0]][c[1]].Walkable()
 	}
 	cost := func(c [2]int) float32 {
 		if paths && p.world.FootpathCell(c[0], c[1]) {
@@ -101,6 +103,7 @@ func (p *Pathfinder) FindPath(from, to [2]int) [][2]int {
 				}
 				step *= math.Sqrt2
 			}
+			step += ropeStepCost(p.world, pos, nb)
 			if ng, k := cur.g+step, idx(nb); ng < sc.gAt(k) {
 				sc.setG(k, ng, cur.k)
 				sc.open.push(skiOpenNode{k: k, g: ng, f: ng + heur(nb)})
@@ -158,6 +161,14 @@ func (p *Pathfinder) walkClearLine(a, b [2]int, open func([2]int) bool, paths bo
 		return true
 	}
 	side := mgl32.Vec2{-d[1], d[0]}.Mul(pathLineSpread / length)
+	// Nor across a rope, or out of (or into) the ski area, that the
+	// cells went round.
+	t := p.terrain
+	if p.world != nil && p.world.RopeCrosses(pa, pb) {
+		return false
+	}
+	inside := t.IsAccessible(a[0], a[1])
+	keepSide := inside == t.IsAccessible(b[0], b[1])
 	keepToPath := paths && p.world.FootpathCell(a[0], a[1]) && p.world.FootpathCell(b[0], b[1])
 	n := int(length) + 1
 	for i := 0; i <= n; i++ {
@@ -165,7 +176,7 @@ func (p *Pathfinder) walkClearLine(a, b [2]int, open func([2]int) bool, paths bo
 		for _, o := range [3]mgl32.Vec2{{}, side, side.Mul(-1)} {
 			r := q.Add(o)
 			c := [2]int{int(r[0] / world.CellSize), int(r[1] / world.CellSize)}
-			if !open(c) {
+			if !open(c) || keepSide && t.InBounds(c[0], c[1]) && t.IsAccessible(c[0], c[1]) != inside {
 				return false
 			}
 		}

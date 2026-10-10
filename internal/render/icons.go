@@ -59,6 +59,7 @@ const (
 	IconRoad       IconName = "road"              // road placement tool
 	IconFootprints IconName = "footprints"        // footpath tool
 	IconSki        IconName = "person-simple-ski" // ski rack tool
+	IconRope       IconName = "line-segments"     // rope line tool
 	IconFlag       IconName = "flag"              // road-network edge-connection marker (editor only)
 )
 
@@ -74,7 +75,7 @@ var allIcons = []IconName{
 	IconArrowRight, IconArrowClockwise, IconTrophy, IconCocktail,
 	IconStack, IconChartLine, IconChartBar, IconTriangle, IconWaves, IconBroom, IconGridFour, IconDrop, IconDotsNine,
 	IconGarage,
-	IconRoad, IconFootprints, IconSki,
+	IconRoad, IconFootprints, IconSki, IconRope,
 	IconFlag,
 }
 

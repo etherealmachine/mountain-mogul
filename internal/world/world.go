@@ -139,6 +139,12 @@ type World struct {
 	FootpathsRev int
 	footpaths    footpathIndex
 
+	// Ropes are rope lines guests try not to cross (rope.go); RopesRev
+	// moves on every change, for the renderer.
+	Ropes    []*Rope
+	RopesRev int
+	ropes    ropeIndex
+
 	// TrailGraph is the derived connectivity graph built from trail cell data.
 	// Rebuilt by RebuildTrailGraph whenever trails are added, removed, or edited.
 	// Nil until the first trail is placed.

@@ -576,6 +576,14 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		}
 		footpaths = append(footpaths, fd)
 	}
+	var ropes []RopeData
+	for _, r := range w.Ropes {
+		rd := RopeData{ID: r.ID}
+		for _, n := range r.Nodes {
+			rd.Nodes = append(rd.Nodes, [2]float32{n[0], n[1]})
+		}
+		ropes = append(ropes, rd)
+	}
 	trails := make([]TrailData, len(w.Trails))
 	for i, tr := range w.Trails {
 		trails[i] = TrailData{
@@ -649,6 +657,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		Lifts:        lifts,
 		Trails:       trails,
 		Footpaths:    footpaths,
+		Ropes:        ropes,
 		Guests:       guests,
 		Snowcats:     snowcats,
 		Snowmobiles:  snowmobiles,
@@ -1349,6 +1358,17 @@ func dataToWorld(data ScenarioData) *world.World {
 		}
 	}
 	w.RebuildFootpaths()
+	for _, rd := range data.Ropes {
+		r := &world.Rope{ID: rd.ID}
+		for _, n := range rd.Nodes {
+			r.Nodes = append(r.Nodes, mgl32.Vec2{n[0], n[1]})
+		}
+		if len(r.Nodes) >= 2 {
+			w.SetMinNextID(r.ID)
+			w.Ropes = append(w.Ropes, r)
+		}
+	}
+	w.RebuildRopes()
 
 	// Validate parking driveways now that road nodes are in place.
 	// EnsureParkingDriveway is idempotent — a parking lot whose

@@ -41,6 +41,9 @@ const (
 	// routeWaypointReach is how near a waypoint counts as reached, in
 	// metres: well outside ArrivalRadius, so waypoints don't slow anyone.
 	routeWaypointReach = float32(12)
+	// routeWaypointAtRope is how near a waypoint a guest must get before
+	// heading on across where a rope would be in the way (ropeClear).
+	routeWaypointAtRope = float32(3)
 	// routeRecheckSec is how often a guest off their route plans again.
 	routeRecheckSec = 10.0
 	// routeGoalMoved is how far the goal must move, in metres, before
@@ -128,13 +131,16 @@ func (s *Simulation) routeTarget(a *world.Guest, goal mgl32.Vec3, sc *routeScrat
 	}
 	prof := s.routeProfileFor(a)
 	for r.Index < len(r.Points) {
-		if r.Points[r.Index].Sub(pos).Len() < routeWaypointReach {
-			r.Index++
-			continue
-		}
 		next := g
 		if r.Index+1 < len(r.Points) {
 			next = r.Points[r.Index+1]
+		}
+		// A waypoint by a rope's end is reached once the way on is clear
+		// of the rope (or they're right at it), so they don't cut round.
+		if d := r.Points[r.Index].Sub(pos).Len(); d < routeWaypointReach &&
+			(d < routeWaypointAtRope || ropeClear(s.World, pos, next)) {
+			r.Index++
+			continue
 		}
 		if look && lineClear(t, pos, next, &prof) {
 			r.Index++
@@ -222,6 +228,13 @@ func lineClear(t *world.Terrain, a, b mgl32.Vec2, prof *routeProfile) bool {
 		return prof.w.FootpathCell(int(p[0]/world.CellSize), int(p[1]/world.CellSize))
 	}
 	keepToPath := prof.paths && pathCell(a) && pathCell(b)
+	// Nor does it cross a rope, or the ski area boundary, that the route
+	// it shortens went round.
+	if !ropeClear(prof.w, a, b) {
+		return false
+	}
+	inside := t.IsAccessibleWorld(a[0], a[1])
+	keepSide := inside == t.IsAccessibleWorld(b[0], b[1])
 	prev, prevY := a, t.InterpolatedSurfaceElevationAt(a[0], a[1])
 	for i := 1; i <= n; i++ {
 		f := float32(i) / float32(n)
@@ -235,6 +248,9 @@ func lineClear(t *world.Terrain, a, b mgl32.Vec2, prof *routeProfile) bool {
 		}
 		cell := &t.Cells[cx][cz]
 		if i < n && !cell.Walkable() {
+			return false
+		}
+		if keepSide && t.IsAccessible(cx, cz) != inside {
 			return false
 		}
 		if keepToPath && !pathCell(p) {
@@ -271,7 +287,7 @@ func planSkiRoute(t *world.Terrain, a, b mgl32.Vec2, prof *routeProfile, sc *rou
 	sc.begin(w * h)
 	cost := func(c [2]int) float32 {
 		cell := &t.Cells[c[0]][c[1]]
-		if c != goal && (!cell.Walkable() || !t.IsAccessible(c[0], c[1])) {
+		if c != goal && !cell.Walkable() {
 			return float32(math.Inf(1))
 		}
 		c2 := 1 + routeTreeCost*cell.TreeCover()*prof.cover
@@ -324,6 +340,7 @@ func planSkiRoute(t *world.Terrain, a, b mgl32.Vec2, prof *routeProfile, sc *rou
 			if d[0] != 0 && d[1] != 0 {
 				step *= math.Sqrt2
 			}
+			step += ropeStepCost(prof.w, pos, nb)
 			nbElev := elev(nb)
 			step += routeClimbCost * max(nbElev-curElev, 0) / world.CellSize
 			if prof.comfort > 0 {
@@ -439,7 +456,18 @@ func (s *Simulation) trailRoute(a *world.Guest, pos, goal mgl32.Vec2) ([]mgl32.V
 			last = line.Along[i]
 		}
 	}
-	return append(pts, goal), true
+	pts = append(pts, goal)
+	// A run with a rope across it: find the way round instead.
+	if s.World.HasRopes() {
+		from := pos
+		for _, p := range pts {
+			if s.World.RopeCrosses(from, p) {
+				return nil, false
+			}
+			from = p
+		}
+	}
+	return pts, true
 }
 
 // routeScratch is one goroutine's reusable state for planSkiRoute: the
@@ -530,4 +558,49 @@ func (h *skiOpenList) pop() skiOpenNode {
 	}
 	*h = s
 	return top
+}
+
+// routeRopeCost is what crossing a rope or the ski area boundary adds to
+// a route, in cells of plain going: enough that routes go round by a
+// gap or keep inside, not so much that a route with no other way fails
+// (world/rope.go).
+const routeRopeCost = 12.0
+
+// ropeStepCost is what the step from cell a to its neighbour b adds for
+// crossing a rope or the ski area boundary.
+func ropeStepCost(w *world.World, a, b [2]int) float32 {
+	t := w.Terrain
+	var c float32
+	if t.IsAccessible(a[0], a[1]) != t.IsAccessible(b[0], b[1]) {
+		c += routeRopeCost
+	}
+	if w.RopeCell(a[0], a[1]) || w.RopeCell(b[0], b[1]) {
+		centre := func(p [2]int) mgl32.Vec2 {
+			return mgl32.Vec2{(float32(p[0]) + 0.5) * world.CellSize, (float32(p[1]) + 0.5) * world.CellSize}
+		}
+		if w.RopeCrosses(centre(a), centre(b)) {
+			c += routeRopeCost
+		}
+	}
+	return c
+}
+
+// ropeSpread is how wide of a rope a straight line has to pass to count
+// as clear of it, either side, metres: skiers swing, so a line that
+// grazes a rope's end would cross it.
+const ropeSpread = 2.0
+
+// ropeClear reports whether the straight way from a to b keeps clear of
+// every rope: neither it nor the lines ropeSpread either side cross one.
+func ropeClear(w *world.World, a, b mgl32.Vec2) bool {
+	if !w.HasRopes() {
+		return true
+	}
+	d := b.Sub(a)
+	l := d.Len()
+	if l < 1e-3 {
+		return true
+	}
+	side := mgl32.Vec2{-d[1], d[0]}.Mul(ropeSpread / l)
+	return !w.RopeCrosses(a, b) && !w.RopeCrosses(a.Add(side), b.Add(side)) && !w.RopeCrosses(a.Sub(side), b.Sub(side))
 }

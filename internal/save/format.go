@@ -69,7 +69,9 @@ type ScenarioData struct {
 	Trails      []TrailData      `json:"trails,omitempty"`
 	// Footpaths are world.Footpaths: each path's ID and its nodes as
 	// (x, z, width).
-	Footpaths   []FootpathData   `json:"footpaths,omitempty"`
+	Footpaths []FootpathData `json:"footpaths,omitempty"`
+	// Ropes are world.Ropes: each rope's ID and its nodes as (x, z).
+	Ropes       []RopeData       `json:"ropes,omitempty"`
 	Guests      []GuestData      `json:"guests"`
 	Snowcats    []SnowcatData    `json:"snowcats,omitempty"`
 	Snowmobiles []SnowmobileData `json:"snowmobiles,omitempty"`
@@ -651,4 +653,10 @@ type CarData struct {
 type FootpathData struct {
 	ID    uint64       `json:"id"`
 	Nodes [][3]float32 `json:"nodes"`
+}
+
+// RopeData is one world.Rope.
+type RopeData struct {
+	ID    uint64       `json:"id"`
+	Nodes [][2]float32 `json:"nodes"`
 }

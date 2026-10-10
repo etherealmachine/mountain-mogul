@@ -46,7 +46,7 @@ Diagnose each first, report the cause, then fix:
 
 ## Terrain, trails, and land ([[Terrain]], [[Trails]], [[Trees]], [[Parcels]])
 
-- [[Rope Lines]]: a Rope tool for lines skiers and walkers can't cross: funnel runs into lift lines, rope off cliffs and closed runs, keep beginners off harder runs at splits (the user's 2026-10-08 item), and hand-built mazes at lifts and doors; signs and slow zones later.
+- [[Rope Lines]] leftovers: ropes in the editor, hand-built mazes at lifts and doors, signs, slow zones and gates. The Rope tool and avoidance shipped 2026-10-10.
 - **Trail steepness for the player** (held, the user 2026-10-08): a trail's steepest sustained pitch, a rating check ("steeper than a green should be in 2 places") marked on the map, and naming a fall's cause (too steep, too fast, trees). Guests never see the numbers; it's for the player.
 - [[Trail Network]]: trails drawn as lines of nodes snapped to lifts, buildings, and other runs, each node with its own width; glades, bowls, and backcountry outlined as polygon zones. Steps 1–3 done (runs, the run tool, grooming clear of trees); left: areas (glades, bowls, backcountry) and redrawing Boreal's and Kirkwood's trails by hand, which have none until then.
 - [[Terrain Realism]]: make imported mountains look and behave like the real place. Done: mesh subdivision, lidar import, the climate block, [[Terrain Layers]] (Boreal and Kirkwood re-imported with every layer), auto snow and trees from real data, and Kirkwood's cliffs ([[Ground Materials]]). Creeks and lakes are priority 0. Left, in order: editor brushes to smooth and flatten the ground (the road, smoothing, and erosion layers are done), thermal erosion for scree, and snow that doesn't look plastic.
@@ -293,3 +293,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-10: Lines at service doors shipped ([[Amenities]]): single file out from the door, and guests inside hidden instead of stacked on the step.
 - 2026-10-10: Normal speed is a day in 2,560 s (an eighth of before); rebalance later. Planned with the user: [[Snowmobile Routes]], [[Ski Racks]] (with the ski on/off pause), and [[Rope Lines]] (folding in ropes at trail splits). Dropped the shipped partly-filled-chairs and lift-attendant lines.
 - 2026-10-10: Ski racks shipped ([[Ski Racks]]): the rack, a 15-sim-second ski change, and skis left outside while guests are in. [[Rope Lines]] updated with the user's notes: cheap, avoided but crossable, and the ski area boundary is one.
+- 2026-10-10: Rope lines shipped ([[Rope Lines]]): the Rope tool, skiers and routes avoiding ropes, and the ski area boundary crossable the same way.

@@ -67,8 +67,12 @@ const (
 	sampleCount      = 7
 	treePenalty      = 4.0
 	boundaryPenalty  = 8.0
-	progressBonus    = 0.3 // weight on cos(offset) — small so wider clearances aren't outvoted by "stay on axis"
-	sideCommitBonus  = 0.4 // weight on sign(prevTactical)·sign(offset) — biases toward the side already chosen so symmetric obstacles don't flip-flop
+	// ropePenalty is per sample beyond where a candidate line crosses a
+	// rope (world/rope.go): skiers keep off a line that crosses one when
+	// there's a way that doesn't, but a rope isn't a wall.
+	ropePenalty     = 2.0
+	progressBonus   = 0.3 // weight on cos(offset) — small so wider clearances aren't outvoted by "stay on axis"
+	sideCommitBonus = 0.4 // weight on sign(prevTactical)·sign(offset) — biases toward the side already chosen so symmetric obstacles don't flip-flop
 	// tasteSteerWeight weighs Σ taste × feature (cellFeatures) along a
 	// candidate path: guests drift toward the snow they like (corduroy,
 	// powder, bumps, glades) and away from what they don't, outvoted by
@@ -1076,6 +1080,7 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 		totalDensity       float32
 		totalTaste         float32
 		boundaryHits       int
+		ropeHits           int
 		groomEdgeCrossings int // groomed→ungroomed transitions (PrefersGroomed only)
 	}
 	samples := make([]sampleData, sampleCount)
@@ -1090,12 +1095,24 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 		rx, rz := hz, -hx
 
 		var totalDensity, totalTaste float32
-		var boundaryHits, groomEdgeCrossings int
+		var boundaryHits, ropeHits, groomEdgeCrossings int
+		// Where along the candidate it first crosses a rope, as a
+		// fraction of the horizon; past 1 when it doesn't.
+		ropeAt := float32(2)
+		if w.HasRopes() {
+			end := mgl32.Vec2{perc.Pos[0] + hx*horizon, perc.Pos[2] + hz*horizon}
+			if u, ok := w.RopeCrossing(mgl32.Vec2{perc.Pos[0], perc.Pos[2]}, end); ok {
+				ropeAt = u
+			}
+		}
 		prevGrooming := startGrooming
 		for sIdx := 1; sIdx <= sampleSegments; sIdx++ {
 			d := horizon * float32(sIdx) / float32(sampleSegments)
 			x := perc.Pos[0] + hx*d
 			z := perc.Pos[2] + hz*d
+			if float32(sIdx)/float32(sampleSegments) > ropeAt {
+				ropeHits++
+			}
 			if !t.IsAccessibleWorld(x, z) {
 				boundaryHits++
 				continue
@@ -1125,7 +1142,7 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 				totalTaste += tasteMatch(tastes, f)
 			}
 		}
-		samples[i] = sampleData{ang, totalDensity, totalTaste, boundaryHits, groomEdgeCrossings}
+		samples[i] = sampleData{ang, totalDensity, totalTaste, boundaryHits, ropeHits, groomEdgeCrossings}
 		if totalDensity > maxDensity {
 			maxDensity = totalDensity
 		}
@@ -1159,6 +1176,7 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 		score := float32(progressBonus) * float32(math.Cos(float64(sd.ang)))
 		score -= float32(treePenalty) * sd.totalDensity
 		score -= float32(boundaryPenalty) * float32(sd.boundaryHits)
+		score -= float32(ropePenalty) * float32(sd.ropeHits)
 		score += float32(tasteSteerWeight) * sd.totalTaste
 		score -= float32(treePenalty) * float32(groomEdgePenalty) * float32(sd.groomEdgeCrossings)
 		if prevSign != 0 && sd.ang != 0 {

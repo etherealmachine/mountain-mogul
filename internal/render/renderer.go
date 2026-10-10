@@ -1252,96 +1252,15 @@ func generateQueueMesh(lift *world.Lift, t *world.Terrain) *Mesh {
 		return nil
 	}
 
-	const (
-		polePitch  = float32(3.0)  // metres between consecutive poles along a rope
-		poleRadius = float32(0.05) // pole cross-section radius
-		poleHeight = float32(1.10) // pole height above snow surface
-		ropeHeight = float32(0.95) // rope centre height above snow surface
-		ropeHW     = float32(0.02) // rope half-width / half-thickness
-		poleFaces  = 6
-	)
+	const polePitch = float32(3.0) // metres between consecutive poles along a rope
 
 	lateralDepth := lift.QueueConfig.EffectiveRopeDepth() // how far left/right ropes extend
 	qx, qz := lift.QueueDirXZ()
 	rx, rz := lift.LateralRightXZ()
 
-	var verts []float32
-	var idxs []uint32
-
-	appendCylinder := func(cx, cy, cz float32) {
-		base := uint32(len(verts) / 8)
-		twoPi := float32(2 * math.Pi)
-		for i := 0; i < poleFaces; i++ {
-			a0 := twoPi * float32(i) / float32(poleFaces)
-			a1 := twoPi * float32(i+1) / float32(poleFaces)
-			for _, a := range [2]float32{a0, a1} {
-				nx := float32(math.Cos(float64(a)))
-				nz := float32(math.Sin(float64(a)))
-				u := float32(i) / float32(poleFaces)
-				verts = append(verts,
-					cx+poleRadius*nx, cy, cz+poleRadius*nz, nx, 0, nz, u, 0,
-					cx+poleRadius*nx, cy+poleHeight, cz+poleRadius*nz, nx, 0, nz, u, 1,
-				)
-			}
-			vi := base + uint32(i)*4
-			idxs = append(idxs, vi, vi+2, vi+1, vi+1, vi+2, vi+3)
-		}
-		topCtr := uint32(len(verts) / 8)
-		verts = append(verts, cx, cy+poleHeight, cz, 0, 1, 0, 0.5, 0.5)
-		twoPi2 := float32(2 * math.Pi)
-		for i := 0; i < poleFaces; i++ {
-			a := twoPi2 * float32(i) / float32(poleFaces)
-			nx := float32(math.Cos(float64(a)))
-			nz := float32(math.Sin(float64(a)))
-			verts = append(verts, cx+poleRadius*nx, cy+poleHeight, cz+poleRadius*nz, 0, 1, 0, 0.5+0.5*nx, 0.5+0.5*nz)
-		}
-		for i := 0; i < poleFaces; i++ {
-			idxs = append(idxs, topCtr, topCtr+1+uint32(i), topCtr+1+uint32((i+1)%poleFaces))
-		}
-	}
-
-	appendRope := func(p0x, p0z, p1x, p1z float32) {
-		y0 := VisualElevationAt(t, p0x, p0z) + ropeHeight
-		y1 := VisualElevationAt(t, p1x, p1z) + ropeHeight
-		mx := (p0x + p1x) / 2
-		my := (y0 + y1) / 2
-		mz := (p0z + p1z) / 2
-		fdx, fdz := p1x-p0x, p1z-p0z
-		flen := float32(math.Sqrt(float64(fdx*fdx + fdz*fdz)))
-		if flen < 1e-4 {
-			return
-		}
-		fx, fz := fdx/flen, fdz/flen
-		lx, lz := -fz, fx
-		hlen := flen / 2
-		corners := [8][3]float32{
-			{mx - fx*hlen - lx*ropeHW, my - ropeHW, mz - fz*hlen - lz*ropeHW},
-			{mx + fx*hlen - lx*ropeHW, my - ropeHW, mz + fz*hlen - lz*ropeHW},
-			{mx + fx*hlen + lx*ropeHW, my - ropeHW, mz + fz*hlen + lz*ropeHW},
-			{mx - fx*hlen + lx*ropeHW, my - ropeHW, mz - fz*hlen + lz*ropeHW},
-			{mx - fx*hlen - lx*ropeHW, my + ropeHW, mz - fz*hlen - lz*ropeHW},
-			{mx + fx*hlen - lx*ropeHW, my + ropeHW, mz + fz*hlen - lz*ropeHW},
-			{mx + fx*hlen + lx*ropeHW, my + ropeHW, mz + fz*hlen + lz*ropeHW},
-			{mx - fx*hlen + lx*ropeHW, my + ropeHW, mz - fz*hlen + lz*ropeHW},
-		}
-		faces := [6][4]int{{3, 2, 1, 0}, {4, 5, 6, 7}, {0, 1, 5, 4}, {2, 3, 7, 6}, {3, 0, 4, 7}, {1, 2, 6, 5}}
-		normals := [6][3]float32{
-			{0, -1, 0}, {0, 1, 0},
-			{fx, 0, fz}, {-fx, 0, -fz},
-			{-lx, 0, -lz}, {lx, 0, lz},
-		}
-		for fi, face := range faces {
-			base := uint32(len(verts) / 8)
-			nx, ny, nz := normals[fi][0], normals[fi][1], normals[fi][2]
-			for vi, ci := range face {
-				c := corners[ci]
-				u := float32(vi & 1)
-				v := float32(vi >> 1)
-				verts = append(verts, c[0], c[1], c[2], nx, ny, nz, u, v)
-			}
-			idxs = append(idxs, base, base+1, base+2, base, base+2, base+3)
-		}
-	}
+	var m ropeMesher
+	appendCylinder := func(cx, cy, cz float32) { m.pole(cx, cy, cz) }
+	appendRope := func(p0x, p0z, p1x, p1z float32) { m.rope(t, p0x, p0z, p1x, p1z) }
 
 	// Each rope runs laterally from -lateralDepth to +lateralDepth at a
 	// specific downhill offset from the base. Poles at every polePitch metres.
@@ -1371,10 +1290,7 @@ func generateQueueMesh(lift *world.Lift, t *world.Terrain) *Mesh {
 		}
 	}
 
-	if len(verts) == 0 {
-		return nil
-	}
-	return NewMesh(verts, idxs, []int{3, 3, 2}, nil)
+	return m.mesh()
 }
 
 // DrawWorld renders the full 3D world.
@@ -1553,6 +1469,10 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	for _, m := range r.scene.liftQueueMeshes {
 		m.Draw()
 	}
+	r.syncRopes(w)
+	if r.scene.ropeMesh != nil {
+		r.scene.ropeMesh.Draw()
+	}
 
 	// Ghost pass — translucent preview of in-progress placements.
 	gl.Enable(gl.BLEND)
@@ -1581,6 +1501,15 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 			gl.VertexAttrib3f(7, 0.75, 0.15, 0.10) // can't be laid
 		}
 		r.scene.footpathGhost.Draw()
+		r.StaticShader.SetFloat("uAlpha", 0.4)
+	}
+	if r.scene.ropeGhost != nil {
+		r.StaticShader.SetFloat("uAlpha", 0.6)
+		setQueueTransformAttribs()
+		if !r.scene.ropeGhostOK {
+			gl.VertexAttrib3f(7, 0.75, 0.15, 0.10) // can't be strung
+		}
+		r.scene.ropeGhost.Draw()
 		r.StaticShader.SetFloat("uAlpha", 0.4)
 	}
 	if r.scene.lotGhost != nil {
