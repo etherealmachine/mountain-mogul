@@ -42,13 +42,11 @@ Diagnose each first, report the cause, then fix:
 - **Surface lifts**: magic carpet first (in the [[Demo]]), then T-bar and rope tow, for beginner areas. None are lift types yet (today: double, quad, high-speed quad, 6-pack, gondola, heli). Kirkwood has two magic carpets and a T-bar in OpenStreetMap. *For* [[Kirkwood]], [[Boreal]], and Portillo in [[Scenario Campaign]].
 - **Long gondola spans**: few, tall towers over terrain a chair can't cross ([[Vision]]). *For* [[Palisades Tahoe]], [[Zermatt]].
 - **Riders on both sides of the line**: arriving riders spawn on both sides of the lift line, not one.
-- **Partly filled chairs**: chairs that don't always fill, more often with beginners in line.
 - **Lines around buildings**: lift lines wrap around buildings instead of through them ([[Pathfinding]]).
-- **Lift attendants**: see Staff.
 
 ## Terrain, trails, and land ([[Terrain]], [[Trails]], [[Trees]], [[Parcels]])
 
-- **Ropes and signs at trail splits**: the user, 2026-10-08. Where a cat track or long easy run meets or crosses a harder one, beginners can end up on it; real resorts rope off the line, fence the edge, or post "slow" and "experts only" signs. A player tool placing ropes, fences, and signs that skiers treat as obstacles or warnings, so the player shapes where guests go ([[Trails]]).
+- [[Rope Lines]]: a Rope tool for lines skiers and walkers can't cross: funnel runs into lift lines, rope off cliffs and closed runs, keep beginners off harder runs at splits (the user's 2026-10-08 item), and hand-built mazes at lifts and doors; signs and slow zones later.
 - **Trail steepness for the player** (held, the user 2026-10-08): a trail's steepest sustained pitch, a rating check ("steeper than a green should be in 2 places") marked on the map, and naming a fall's cause (too steep, too fast, trees). Guests never see the numbers; it's for the player.
 - [[Trail Network]]: trails drawn as lines of nodes snapped to lifts, buildings, and other runs, each node with its own width; glades, bowls, and backcountry outlined as polygon zones. Steps 1–3 done (runs, the run tool, grooming clear of trees); left: areas (glades, bowls, backcountry) and redrawing Boreal's and Kirkwood's trails by hand, which have none until then.
 - [[Terrain Realism]]: make imported mountains look and behave like the real place. Done: mesh subdivision, lidar import, the climate block, [[Terrain Layers]] (Boreal and Kirkwood re-imported with every layer), auto snow and trees from real data, and Kirkwood's cliffs ([[Ground Materials]]). Creeks and lakes are priority 0. Left, in order: editor brushes to smooth and flatten the ground (the road, smoothing, and erosion layers are done), thermal erosion for scree, and snow that doesn't look plastic.
@@ -83,6 +81,7 @@ Diagnose each first, report the cause, then fix:
 - **Patrol enforces slow zones**: patrollers stand at slow zones and slow fast skiers. *Needs* slow zones.
 - **Clinic**: treats injuries on site instead of sending guests home.
 - **Medevac**: a helicopter for serious incidents.
+- [[Snowmobile Routes]]: snowmobiles drive straight through trees, buildings and lift towers today; give them a route round obstacles and steep ground, drive it, and dispatch on it.
 - **Skier-on-skier collisions**: today skiers only avoid each other (a 2.5 m danger zone when picking a line, and a swerve that clears a skier by 1.5 m); when that fails they pass through each other. A contact check like `hitsTrunk` would let two skiers collide: both fall, maybe an injury and a patrol call, more likely when fast, unskilled, or crowded. Makes crowding and mixed-skill runs visibly risky ([[Skiing]]). To be ranked by the user.
 
 ## Guests ([[GOAP]], [[Moments]], [[Guest Types]])
@@ -105,13 +104,13 @@ Diagnose each first, report the cause, then fix:
 
 - [[Building Interiors]]: a legend for the cutaway's colors and doors, then procedurally placed furniture.
 - [[Services]]: the range of day services (snack stands, a café and the coffee need, ski school, retail, demo skis, lockers, guest services and a pass office, shuttles, activities), a card each; building anywhere, with cost and upkeep rising with elevation; supply by snowcat and lift later. Overnight services next.
-- [[Rental Shop]] staff and ski racks: the shop is in ([[Service Improvements]]); staffing the morning rush and a rack at the snow are still story.
+- [[Rental Shop]] staff: the shop is in ([[Service Improvements]]); staffing the morning rush is still story. Racks are in [[Ski Racks]].
 - [[Star Ratings]] and [[Scoreless Rating]]: each guest leaves 1–5 stars as levels (didn't ski, skied with a need unmet, every need met; 4★ and 5★ later), with no satisfaction score behind them: needs met set the star, unweighted good and bad moments explain it.
 - [[Service Quality]]: formats at different price points (food court, restaurant, snack stand, shop), staff as a pool per room (headcount for timeliness, wage for quality through morale), hungrier guests with a lunch rush, and shopping.
 - **Views**: better-sited buildings attract more guests ([[GOAP]]) and can charge more.
 - **Lockers and ski school**: more base services; ski school *needs* staff.
 - **Footpath follow-ups** ([[Pathfinding]]): paths that avoid building footprints. Footpaths, their editing, and their snow clearing shipped 2026-10-10.
-- **Ski racks**: where footpaths meet the snow.
+- [[Ski Racks]]: a real pause to take skis off and put them on, skis left outside in racks while guests are inside, and clutter and a complaint without racks.
 - [[Building Tool]] leftovers: presets (a one-tile ticket booth, a patrol shed with a garage), hints in the Services menu for what each service needs, and the open questions in its note (heated empty floor, rooms with no outside wall).
 - **Lodge storeys and styles**: more storeys, a style choice, and a shuffle button.
 
@@ -292,3 +291,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-10: Footpaths shipped ([[Pathfinding]]): the Path tool, twice-as-fast walking, and walking routes that prefer paths.
 - 2026-10-10: Lift staff shipped ([[Lifts]]): two operators on every lift and an optional line attendant who fills chairs; sweepers moved to [[Packed Snow]].
 - 2026-10-10: Lines at service doors shipped ([[Amenities]]): single file out from the door, and guests inside hidden instead of stacked on the step.
+- 2026-10-10: Normal speed is a day in 2,560 s (an eighth of before); rebalance later. Planned with the user: [[Snowmobile Routes]], [[Ski Racks]] (with the ski on/off pause), and [[Rope Lines]] (folding in ropes at trail splits). Dropped the shipped partly-filled-chairs and lift-attendant lines.
