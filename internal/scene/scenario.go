@@ -4292,6 +4292,9 @@ func (s *Scenario) pickGuest(cam *render.Camera, mousePos mgl32.Vec2) *world.Gue
 	var best *world.Guest
 	bestT := float32(math.Inf(1))
 	for _, a := range s.world.OnMountain {
+		if a.Indoors() {
+			continue // not drawn
+		}
 		oc := a.Pos.Sub(origin)
 		t := oc.Dot(dir)
 		if t < 0 {

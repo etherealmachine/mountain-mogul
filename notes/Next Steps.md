@@ -291,3 +291,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-10: [[Economy Balance]] planned with the user.
 - 2026-10-10: Footpaths shipped ([[Pathfinding]]): the Path tool, twice-as-fast walking, and walking routes that prefer paths.
 - 2026-10-10: Lift staff shipped ([[Lifts]]): two operators on every lift and an optional line attendant who fills chairs; sweepers moved to [[Packed Snow]].
+- 2026-10-10: Lines at service doors shipped ([[Amenities]]): single file out from the door, and guests inside hidden instead of stacked on the step.

@@ -597,6 +597,11 @@ func (s *Simulation) serveLines() {
 		return
 	}
 	sort.SliceStable(waiting, func(i, j int) bool { return waiting[i].Visit.WaitSince < waiting[j].Visit.WaitSince })
+	type doorKey struct {
+		b    uint64
+		door int
+	}
+	places := map[doorKey]int{}
 	for _, a := range waiting {
 		head := a.Plan.Head()
 		b := findBuildingByID(w, head.BldgID)
@@ -609,8 +614,28 @@ func (s *Simulation) serveLines() {
 			a.Visit.Waited = s.SimTime - a.Visit.WaitSince
 			b.Waiting[b.UsePool(head.Use)]--
 			s.beginVisit(a, b, head.Use)
+			continue
+		}
+		// Still waiting: next place in their door's line.
+		k := doorKey{b.ID, a.Visit.Door}
+		a.Visit.Slot = places[k]
+		places[k]++
+	}
+}
+
+// doorAt is Visit.Door for a guest at pos lining up at b for service
+// svc: 1 + the index of the nearest door onto it, 0 when b has none.
+func doorAt(b *world.Building, svc world.Service, pos mgl32.Vec3) int {
+	if !b.IsShell() || len(b.Doors) == 0 {
+		return 0
+	}
+	step, _ := b.NearestServiceEntrance(svc, mgl32.Vec2{pos[0], pos[2]})
+	for i, d := range b.Doors {
+		if b.DoorStep(d) == step {
+			return i + 1
 		}
 	}
+	return 0
 }
 
 // beginVisit starts guest a using o at b: they take a seat or a turn at
@@ -621,6 +646,11 @@ func (s *Simulation) beginVisit(a *world.Guest, b *world.Building, o ai.Offer) {
 	a.RestTimer = world.OfferDuration(o)
 	a.Speed = 0
 	a.TargetID = 0
+	// In through the door: they come back out on its step.
+	if d := a.Visit.Door; d > 0 && d <= len(b.Doors) {
+		step := b.DoorStep(b.Doors[d-1])
+		a.Pos = mgl32.Vec3{step[0], w.Terrain.InterpolatedSurfaceElevationAt(step[0], step[1]), step[1]}
+	}
 	b.InUse[b.UsePool(o)]++
 	a.Visit.Paid, a.Visit.Ratio = 0, 0
 	if price := b.UsePrice(o); price > 0 {
@@ -632,12 +662,41 @@ func (s *Simulation) beginVisit(a *world.Guest, b *world.Building, o ai.Offer) {
 	}
 }
 
-// tickWaitingForService holds a guest in the line at a building's door,
-// facing it, while their patience drains; serveLines lets them in.
+// tickWaitingForService holds a guest in the line at a building's door
+// while their patience drains: they shuffle up to their place in it
+// (Building.DoorLineSlot) and face the guest ahead. serveLines lets them
+// in.
 func (s *Simulation) tickWaitingForService(a *world.Guest, dt float64) {
 	a.Speed = 0
 	a.Patience = max(a.Patience-float32(dt*patienceDrainPerSecServiceLine), 0)
+	b := findBuildingByID(s.World, a.Plan.Head().BldgID)
+	if b == nil || a.Visit.Door <= 0 || a.Visit.Door > len(b.Doors) {
+		return
+	}
+	door := a.Visit.Door - 1
+	slot, face := b.DoorLineSlot(door, a.Visit.Slot, b.DoorLineSide(s.World.Terrain, door))
+	to := slot.Sub(mgl32.Vec2{a.Pos[0], a.Pos[2]})
+	if d := to.Len(); d > doorLineArrive {
+		step := min(float32(doorLineShuffle*dt), d)
+		to = to.Mul(1 / d)
+		a.Pos[0] += to[0] * step
+		a.Pos[2] += to[1] * step
+		a.Pos[1] = s.World.Terrain.InterpolatedSurfaceElevationAt(a.Pos[0], a.Pos[2])
+		a.Heading = float32(math.Atan2(float64(to[0]), float64(to[1])))
+		a.Speed = float32(doorLineShuffle)
+		return
+	}
+	if face != (mgl32.Vec2{}) {
+		a.Heading = float32(math.Atan2(float64(face[0]), float64(face[1])))
+	}
 }
+
+// Moving up in a line at a door: guests walk to their place at
+// doorLineShuffle m/s, and stop within doorLineArrive of it.
+const (
+	doorLineShuffle = 1.0
+	doorLineArrive  = 0.1
+)
 
 // liftBaseWorldPos returns the lift base anchor as a world-space Vec3.
 func liftBaseWorldPos(w *world.World, l *world.Lift) mgl32.Vec3 {
@@ -1935,6 +1994,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		if !b.HasRoomFor(step.Use) {
 			// Full: line up at the door (serveLines lets them in).
 			a.Visit.Waiting, a.Visit.WaitSince = true, s.SimTime
+			a.Visit.Door = doorAt(b, b.UseDoor(step.Use), a.Pos)
 			a.Speed, a.TargetID = 0, 0
 			b.Waiting[b.UsePool(step.Use)]++
 			return

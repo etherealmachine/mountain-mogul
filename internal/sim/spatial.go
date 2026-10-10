@@ -62,11 +62,14 @@ func (g *spatialGrid) insert(a *world.Guest) {
 	g.buckets[idx] = append(g.buckets[idx], a)
 }
 
-// rebuild clears and refills the grid from agents. Convenience wrapper.
+// rebuild clears and refills the grid from agents, leaving out anyone
+// indoors.
 func (g *spatialGrid) rebuild(agents []*world.Guest) {
 	g.reset()
 	for _, a := range agents {
-		g.insert(a)
+		if !a.Indoors() {
+			g.insert(a)
+		}
 	}
 }
 

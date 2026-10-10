@@ -348,6 +348,12 @@ func Activity(w *World, g *Guest) string {
 	if g.Queued {
 		return "Queuing"
 	}
+	if g.Visit.Waiting {
+		return "In Line"
+	}
+	if g.Indoors() {
+		return "Inside"
+	}
 	if g.SkiTransitionTimer > 0 {
 		return "Removing Skis"
 	}
@@ -597,9 +603,13 @@ func (g *Guest) ResetForDeparture() {
 type Visit struct {
 	Waiting   bool    // lined up at the door
 	WaitSince float64 // sim time they joined the line
-	Waited    float64 // sim seconds spent in the line
-	Paid      int     // what it cost
-	Ratio     float32 // what it cost over what they expected (world.Building.PriceRatio); 0 when free
+	// Door is 1 + the index of the door whose line they're in (0 for a
+	// building without doors), and Slot their place in it, 0 at the
+	// front (Building.DoorLineSlot).
+	Door, Slot int
+	Waited     float64 // sim seconds spent in the line
+	Paid       int     // what it cost
+	Ratio      float32 // what it cost over what they expected (world.Building.PriceRatio); 0 when free
 }
 
 // Shares of guests who arrive with each rolled need (Service

@@ -15,7 +15,7 @@ Opening a building's popup draws it as a cutaway: no roof, walls squashed to abo
 - Nothing on screen says what the colors mean.
 - The floor colors don't match the wall tints the same services get on the facade, so a food court is orange on the floor and a different shade on its walls.
 - A door marker sits outside the building, which reads as a patch of ground, not a door.
-- The interior is empty. A [[Food Court]]'s seats are only a number in the popup, and guests finish their meal, drink, or rest standing at the door.
+- The interior is empty. A [[Food Court]]'s seats are only a number in the popup, and guests finish their meal, drink, or rest out of sight (they used to stand stacked on the door step).
 
 Code: floor colors and door markers in `appendServiceOverlay` (`internal/scene/service_tools.go`); cutaway in `addLodgeShell` (`internal/render/renderer.go`); wall tints in `Service.Accent` (`internal/world/lodge.go`).
 
@@ -47,3 +47,4 @@ Steps 1–3 are small and could ship together. Step 4 is the big one; step 5 dep
 ## Log
 
 - 2026-10-01: Documented the cutaway and overlay as they are, and planned a legend first, procedural furniture later. Nothing implemented yet.
+- 2026-10-10: Guests inside are hidden, and lines at the door stand single file ([[Amenities]]); step 5 would draw them at their seats in the cutaway.

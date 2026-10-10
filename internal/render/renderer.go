@@ -1883,7 +1883,7 @@ func guestColor(w *world.World, a *world.Guest) [3]float32 {
 	switch world.Activity(w, a) {
 	case "Walking":
 		return [3]float32{0.2, 0.6, 0.9}
-	case "Queuing":
+	case "Queuing", "In Line":
 		return [3]float32{0.9, 0.7, 0.2}
 	case "On Lift":
 		return [3]float32{0.9, 0.4, 0.1}

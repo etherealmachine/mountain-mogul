@@ -358,7 +358,7 @@ func (f *figures) build(r *Renderer, w *world.World) {
 	}
 	var bones [figureBones]mgl32.Mat4
 	for _, g := range w.OnMountain {
-		if r.HiddenGuestID != 0 && g.ID == r.HiddenGuestID {
+		if r.HiddenGuestID != 0 && g.ID == r.HiddenGuestID || g.Indoors() {
 			continue
 		}
 		// A patient lies where they fell while patrol loads them, rides
