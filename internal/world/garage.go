@@ -28,7 +28,8 @@ type Snowmobile struct {
 	GarageID uint64
 	Pos      mgl32.Vec3
 	Heading  float32
-	InGarage bool   // parked inside its garage (not drawn)
+	Speed    float32 // m/s while driven
+	InGarage bool    // parked inside its garage (not drawn)
 	TakenBy  uint64 // the patroller who has it out today; 0 when free
 }
 

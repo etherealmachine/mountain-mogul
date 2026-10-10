@@ -103,6 +103,8 @@ type Simulation struct {
 	// pass, and routeScratches one per chunk of planRoutes.
 	routeScratch   routeScratch
 	routeScratches []routeScratch
+	// sledScratch is the snowmobile route search's (sled_route.go).
+	sledScratch routeScratch
 	// boarders are guests who got on a chair and are waiting for their
 	// post-ride plan, planned together (planBoarders).
 	boarders   []boarder

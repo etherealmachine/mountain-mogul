@@ -26,7 +26,9 @@ import (
 // and hiking here are a straight glide at a steady speed, not the
 // guests' skiing.
 //
-// Snowmobiles run at snowmobileSpeed on snow and crawl at
+// Snowmobiles drive a route round trees, buildings, lift towers, open
+// lakes and too-steep slopes (sled_route.go), and the call is timed by
+// it. They run at snowmobileSpeed on groomed snow and crawl at
 // snowmobileBareSpeed over bare ground: the garage apron and the patrol
 // room's pad are plowed, so a snowmobile that refused bare ground (as it
 // once did) never got out.
@@ -238,21 +240,14 @@ func (s *Simulation) injuredByDistance(from mgl32.Vec3) []*world.Guest {
 	return out
 }
 
-// sledTime estimates a snowmobile drive in a straight line from a to b:
-// full speed over snow, a crawl over bare ground (sampled along the way).
+// sledTime is how long a snowmobile takes to drive from a to b by its
+// route (planSledRoute), seconds; MaxFloat32 when it can't get there.
 func (s *Simulation) sledTime(a, b mgl32.Vec3) float32 {
-	d := mgl32.Vec2{b[0] - a[0], b[2] - a[2]}
-	dist := d.Len()
-	const samples = 10
-	bare := 0
-	for i := 0; i <= samples; i++ {
-		t := float32(i) / samples
-		if noSnowUnderfoot(s.World.Terrain, a[0]+d[0]*t, a[2]+d[1]*t) {
-			bare++
-		}
+	_, secs, ok := s.planSledRoute(mgl32.Vec2{a[0], a[2]}, mgl32.Vec2{b[0], b[2]})
+	if !ok {
+		return math.MaxFloat32
 	}
-	f := float32(bare) / (samples + 1)
-	return dist * (f/snowmobileBareSpeed + (1-f)/snowmobileSpeed)
+	return secs
 }
 
 // bestSkiRoute is the running lift that gets a patroller at from to an
@@ -532,31 +527,117 @@ func (s *Simulation) patrollerStowSled(p *world.Patroller, base *world.Building)
 	p.State = world.PatrollerWalkingBack
 }
 
-// patrollerDrive moves the patroller's snowmobile toward TargetPos, fast
-// on snow and slowly over bare ground; the patroller rides it. Reports
-// arrival. Without a snowmobile the patroller simply arrives.
+// patrollerDrive drives the patroller's snowmobile along its route to
+// TargetPos (sled_route.go), planning it when the target is new; the
+// patroller rides it. It turns at sledTurnRate, slows for corners, steep
+// ground, and guests close ahead, and crawls over bare ground. With no
+// route it heads straight there, as it always used to. Reports arrival.
+// Without a snowmobile the patroller simply arrives.
 func (s *Simulation) patrollerDrive(p *world.Patroller, dt float64) bool {
 	m := s.World.SnowmobileByID(p.SnowmobileID)
 	if m == nil {
 		return true
 	}
-	d := mgl32.Vec2{p.TargetPos[0] - m.Pos[0], p.TargetPos[2] - m.Pos[2]}
-	dist := d.Len()
-	if dist < snowmobileArrive {
+	t := s.World.Terrain
+	at := mgl32.Vec2{m.Pos[0], m.Pos[2]}
+	goal := mgl32.Vec2{p.TargetPos[0], p.TargetPos[2]}
+	if p.SledRoute == nil || p.SledGoal.Sub(goal).Len() > snowmobileArrive {
+		pts, _, ok := s.planSledRoute(at, goal)
+		if !ok {
+			pts = []mgl32.Vec2{goal}
+		}
+		p.SledRoute, p.SledIdx, p.SledGoal = pts, 0, goal
+	}
+	if at.Sub(goal).Len() < snowmobileArrive {
+		m.Speed = 0
 		p.Pos = m.Pos
+		p.SledRoute = nil
 		return true
 	}
-	speed := snowmobileSpeed
-	if noSnowUnderfoot(s.World.Terrain, m.Pos[0], m.Pos[2]) {
-		speed = snowmobileBareSpeed
+	for p.SledIdx < len(p.SledRoute)-1 && p.SledRoute[p.SledIdx].Sub(at).Len() < sledWaypointReach {
+		p.SledIdx++
 	}
-	step := min(speed*float32(dt), dist)
-	m.Pos[0] += d[0] / dist * step
-	m.Pos[2] += d[1] / dist * step
-	m.Pos[1] = s.World.Terrain.InterpolatedSurfaceElevationAt(m.Pos[0], m.Pos[2])
-	m.Heading = float32(math.Atan2(float64(d[0]), float64(d[1])))
+	next := p.SledRoute[p.SledIdx]
+	to := next.Sub(at)
+	dist := to.Len()
+	want := float32(math.Atan2(float64(to[0]), float64(to[1])))
+	turn := wrapAngle(want - m.Heading)
+	maxTurn := sledTurnRate * float32(dt)
+	m.Heading = wrapAngle(m.Heading + max(-maxTurn, min(maxTurn, turn)))
+
+	// How fast to go: the ground's speed, slower climbing, while turning,
+	// coming up on a sharp corner, and near guests ahead.
+	speed := snowmobileSpeed
+	cx, cz := int(m.Pos[0]/CellSize), int(m.Pos[2]/CellSize)
+	if t.InBounds(cx, cz) {
+		cell := &t.Cells[cx][cz]
+		if cell.TopLayer() == nil {
+			speed = snowmobileBareSpeed
+		} else {
+			speed *= sledUngroomed + (1-sledUngroomed)*cell.Grooming
+		}
+	}
+	fwd := mgl32.Vec2{float32(math.Sin(float64(m.Heading))), float32(math.Cos(float64(m.Heading)))}
+	ahead := at.Add(fwd.Mul(2))
+	if grade := (t.InterpolatedSurfaceElevationAt(ahead[0], ahead[1]) - m.Pos[1]) / 2; grade > 0 {
+		speed /= 1 + sledClimbSlow*grade
+	}
+	if a := float32(math.Abs(float64(turn))); a > 0.3 {
+		speed = min(speed, max(sledCornerSpeed, speed*(1-a/math.Pi)))
+	}
+	if p.SledIdx < len(p.SledRoute)-1 && dist < 15 {
+		// The bend at the next waypoint.
+		out := p.SledRoute[p.SledIdx+1].Sub(next)
+		if out.Len() > 1e-3 && to.Len() > 1e-3 {
+			bend := float32(math.Acos(float64(clamp32(out.Normalize().Dot(to.Normalize()), -1, 1))))
+			speed = min(speed, max(sledCornerSpeed, snowmobileSpeed*(1-bend/math.Pi)))
+		}
+	}
+	if s.guestAhead(at, fwd) {
+		speed = min(speed, sledYieldSpeed)
+	}
+	if final := p.SledIdx == len(p.SledRoute)-1; final {
+		speed = min(speed, max(sledCornerSpeed, dist)) // pull up at the end
+	}
+	// Speed up and brake at sledAccel.
+	if m.Speed < speed {
+		m.Speed = min(speed, m.Speed+sledAccel*float32(dt))
+	} else {
+		m.Speed = max(speed, m.Speed-2*sledAccel*float32(dt))
+	}
+	step := m.Speed * float32(dt)
+	m.Pos[0] += fwd[0] * step
+	m.Pos[2] += fwd[1] * step
+	m.Pos[1] = t.InterpolatedSurfaceElevationAt(m.Pos[0], m.Pos[2])
 	p.Pos, p.Heading = m.Pos, m.Heading
 	return false
+}
+
+// Driving a snowmobile: how fast it turns (rad/s), speeds up (m/s², and
+// brakes twice that), takes corners, and passes guests within
+// sledYieldReach ahead.
+const (
+	sledTurnRate    = float32(1.6)
+	sledAccel       = float32(3.0)
+	sledCornerSpeed = float32(3.0)
+	sledYieldSpeed  = float32(2.5)
+	sledYieldReach  = float32(10.0)
+)
+
+// guestAhead reports whether a guest on the snow is within sledYieldReach
+// in front of a snowmobile at pos heading fwd.
+func (s *Simulation) guestAhead(pos, fwd mgl32.Vec2) bool {
+	found := false
+	s.spatial.forEachWithin(pos[0], pos[1], sledYieldReach, func(g *world.Guest) {
+		if found || g.OnLiftID != 0 || g.OnPatrollerID != 0 {
+			return
+		}
+		d := mgl32.Vec2{g.Pos[0], g.Pos[2]}.Sub(pos)
+		if l := d.Len(); l > 0.5 && d.Dot(fwd) > 0.7*l {
+			found = true
+		}
+	})
+	return found
 }
 
 // patrollerWalkTo sets a walking route to dest: the pathfinder's, or a

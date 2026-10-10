@@ -117,6 +117,11 @@ type Patroller struct {
 	LiftProgress  float32    // 0–1 up that lift
 	Path          [][2]int   // walking route (cells), not saved
 	PathIdx       int
+	// SledRoute is the snowmobile's route to SledGoal (sim/sled_route.go):
+	// its corners, then the goal; SledIdx the next. Not saved.
+	SledRoute []mgl32.Vec2
+	SledIdx   int
+	SledGoal  mgl32.Vec2
 }
 
 // SpawnPatroller creates a new patroller parked at hut's patrol door

@@ -81,7 +81,7 @@ Diagnose each first, report the cause, then fix:
 - **Patrol enforces slow zones**: patrollers stand at slow zones and slow fast skiers. *Needs* slow zones.
 - **Clinic**: treats injuries on site instead of sending guests home.
 - **Medevac**: a helicopter for serious incidents.
-- [[Snowmobile Routes]]: snowmobiles drive straight through trees, buildings and lift towers today; give them a route round obstacles and steep ground, drive it, and dispatch on it.
+- [[Snowmobile Routes]] leftovers: creeks, snowcats' transits on the same search, and guests stepping aside. Routes, driving and dispatch shipped 2026-10-10.
 - **Skier-on-skier collisions**: today skiers only avoid each other (a 2.5 m danger zone when picking a line, and a swerve that clears a skier by 1.5 m); when that fails they pass through each other. A contact check like `hitsTrunk` would let two skiers collide: both fall, maybe an injury and a patrol call, more likely when fast, unskilled, or crowded. Makes crowding and mixed-skill runs visibly risky ([[Skiing]]). To be ranked by the user.
 
 ## Guests ([[GOAP]], [[Moments]], [[Guest Types]])
@@ -294,3 +294,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-10: Normal speed is a day in 2,560 s (an eighth of before); rebalance later. Planned with the user: [[Snowmobile Routes]], [[Ski Racks]] (with the ski on/off pause), and [[Rope Lines]] (folding in ropes at trail splits). Dropped the shipped partly-filled-chairs and lift-attendant lines.
 - 2026-10-10: Ski racks shipped ([[Ski Racks]]): the rack, a 15-sim-second ski change, and skis left outside while guests are in. [[Rope Lines]] updated with the user's notes: cheap, avoided but crossable, and the ski area boundary is one.
 - 2026-10-10: Rope lines shipped ([[Rope Lines]]): the Rope tool, skiers and routes avoiding ropes, and the ski area boundary crossable the same way.
+- 2026-10-10: Snowmobile routes shipped ([[Snowmobile Routes]]): round trees, buildings, towers, lakes and steep ground, driven with turning and braking, and dispatch timed by them.

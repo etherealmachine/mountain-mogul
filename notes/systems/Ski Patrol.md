@@ -26,3 +26,4 @@ Code: `internal/sim/patrol.go`, `internal/world/patroller.go`.
 - 2026-10-06: Patrollers hike to any injured guest when nothing is faster, so every injury gets a responder; a guest with help on the way waits for it ([[Patrol Day]] step 6).
 - 2026-10-06: The patient is drawn while being loaded and towed by toboggan, and walks to their car after first aid instead of vanishing ([[Patrol Day]] step 6).
 - 2026-10-08: Fall tracking: down-guest pins, the Falls heat-map overlay, and "Falls today" in the patrol popup.
+- 2026-10-10: Snowmobiles drive a route round obstacles and steep ground, and dispatch times them by it ([[Snowmobile Routes]]).
