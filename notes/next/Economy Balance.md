@@ -58,7 +58,7 @@ With a 50-day season, 1–3 days per purchase is 16–50 purchases a season, and
 
 ## Measured
 
-2026-10-10, working backwards from the Boreal Goals Test save, a finished three-lift resort that should meet [[Boreal]]'s goals. Untracked tools: `cmd/zzecon` prices a save and runs it headless, printing each day's money; `cmd/zzosm` matches a save's lifts to the OpenStreetMap ones.
+2026-10-10, working backwards from the Boreal Goals Test save, a finished three-lift resort that should meet [[Boreal]]'s goals. Tools: `go run ./tools/econ <save> [days]` prices a save and runs it headless, printing each day's money; `go run ./tools/days <save> [days]` reports each day's visitors, stars, falls and rides. (A one-off that matched a save's lifts to the OpenStreetMap ones is gone.)
 
 **What it costs: $4.49M**, before roads, parcels and glading. The three lifts are real Boreal lifts, all from the base, and the build order is plain:
 
@@ -95,7 +95,7 @@ Next, when balancing resumes: run headless days with only stage A built, then A 
 
 ## Steps
 
-1. **Season economy report.** A headless run of a whole season (from the zzday and zzseason tools) printing revenue and costs by category, per guest and per day, cash over time, and payback days for each thing built.
+1. **Season economy report.** A headless run of a whole season (building on `tools/days` and `tools/econ`) printing revenue and costs by category, per guest and per day, cash over time, and payback days for each thing built.
 2. **Measure three reference builds** of Boreal: the minimum resort, the three-lift resort of its goals, and a big one.
 3. **Set scenario lengths** in real hours with the user, and with them the calendar, if it has to change.
 4. **Tune, one lever at a time**, re-running the report each time:
@@ -120,3 +120,4 @@ Next, when balancing resumes: run headless days with only stage A built, then A 
 - 2026-10-10: Planned with the user: pacing targets in real minutes (1–3 days for the next purchase), payback days as the measure, lessons from other games, and the worry that a 50-day season holds more purchases than the game has content for.
 - 2026-10-10: The tutorial is 30–60 minutes (the user): Boreal's required goals in about 2–3 game weeks.
 - 2026-10-10: Measured backwards from the Boreal Goals Test save: $4.49M to build, $46.6k a day net; the tutorial needs about 4× today's income against costs. Balancing paused for feature work (the user).
+- 2026-10-10: The day and economy tools are kept in the repo as `tools/days` and `tools/econ`; the other one-off measuring tools were deleted.
