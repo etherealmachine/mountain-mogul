@@ -6,7 +6,7 @@ status: partial
 
 # Season Calendar
 
-A game calendar of our own, shorter than the real one, so a season fits the time other management games give a year: 10 days a month, open December to April, a day in 80 seconds at the fastest speed and in 320 seconds at normal. Changes [[Calendar]]; bounded by [[Crowd Scale]] and [[Fast-Forward Performance]]; reshapes [[Demand]] and [[Finance]].
+A game calendar of our own, shorter than the real one, so a season fits the time other management games give a year: 10 days a month, open December to April, a day in 80 seconds at the fastest speed and in 2,560 seconds at normal. Changes [[Calendar]]; bounded by [[Crowd Scale]] and [[Fast-Forward Performance]]; reshapes [[Demand]] and [[Finance]].
 
 ## Why
 
@@ -26,7 +26,7 @@ From the user, 2026-10-09:
 
 - **10 days a month**, open **December through April**: a 50-day season.
 - **80 seconds a day at the fastest speed**, which sets the season at about 67 minutes.
-- **Normal speed is a quarter of that**: 320 seconds (5.3 minutes) a day.
+- **Normal speed is a thirty-second of that**: 2,560 seconds (43 minutes) a day (320 until 2026-10-10).
 
 Speeds are written as real time per game day, not as multipliers, because what a multiplier would multiply isn't decided yet (How much a game hour holds, below).
 
@@ -157,3 +157,6 @@ The "Boreal (Goals Test)" save starts closed with its lifts stopped, so headless
 - 2026-10-09: The user's map changes, in a copy of the Goals Test: a second lot (361 stalls), free water, entry pools of 8,000 each, and the food court rebuilt from a 4-tile unheated shed into a heated 6×4 lodge (160 seats, an 80-seat lounge). Also: hunger and thirst press at 0.55 (was 0.4) so a beginner's hour-long descent doesn't overrun the grace period; they drain a quarter as fast off the snow, not at all while being served, and altitude counts for less (the user); the demand cap uses the measured lift cycle (about 1,500 s, three rides a day). Nine days: ordinary days 320–405 visitors at 2.9–3.3★; Christmas 874–884 at 2.86–3.13★ (two runs); MLK Day 898 at 3.09★. With pools of 10,000, Christmas drew 1,007 at 2.99★. Left below 3★: bored novices (fair with one novice lift), falls in holiday crowds, "nothing here is my kind of skiing". A headless Christmas takes about 400 s against the 80 s target.
 - 2026-10-09: The user's map changes applied to the Goals Test (pools 10,000 an entry); committed. A first performance pass ([[Crowd Scale]]): a headless Christmas (998 visitors, 3.06★) takes 83 s against the 80 s target, an ordinary day 36–42 s.
 - 2026-10-09: The user: nothing faster than the 80 s day; turbo and the skip to the next storm removed. Measured a frame cap at the fastest speed (vsync off, the sim given up to 50 ms a frame): no change to a rendered Christmas (100 s either way), so it was dropped. Most drawing happens in light hours, where the pace sets the day's length anyway.
+- 2026-10-10: The user: normal is too fast, especially the lifts; normal is now 640 s a day (fast 160, fastest 80 unchanged). A season at normal is about 9 hours, so normal is for watching and fast for playing.
+- 2026-10-10: Still too fast: normal is now 1,280 s a day, motion at about 8 times real speed; a season at normal is about 18 hours.
+- 2026-10-10: Still too fast: normal is now 2,560 s a day, motion at about 4 times real speed and a clock hour in about 4 real minutes.

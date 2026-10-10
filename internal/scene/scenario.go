@@ -630,8 +630,10 @@ const (
 // nobody on the mountain) passes in quietSeconds. Nothing runs faster
 // than the fastest button. The sim substeps internally (see Simulation.Tick), so a fast pace only costs
 // CPU; when a busy day needs more than the CPU has, the day runs slower
-// than its pace. Pause is its own button, not in this list.
-var dayPaces = []float64{320, 160, 80}
+// than its pace. Pause is its own button, not in this list. Normal is
+// a game day in about 43 minutes: motion at about 4 times real speed, so
+// chairs and skiers can be followed by eye.
+var dayPaces = []float64{2560, 160, 80}
 
 const (
 	activeFromHour = 6.0
