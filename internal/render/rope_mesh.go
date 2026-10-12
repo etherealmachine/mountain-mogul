@@ -8,9 +8,8 @@ import (
 	"mountain-mogul/internal/world"
 )
 
-// Ropes on poles: the lift-line maze dividers (generateQueueMesh) and the
-// player's rope lines (world/rope.go), drawn in the same world-space pass
-// with the queue tint.
+// Ropes on poles: the player's rope lines (world/rope.go), drawn in the
+// world-space pass with the queue tint.
 
 const (
 	ropePoleRadius = float32(0.05) // pole cross-section radius

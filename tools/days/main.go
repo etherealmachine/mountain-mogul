@@ -4,6 +4,8 @@
 //
 //	go run ./tools/days <save> [days]
 //
+// SEED=n runs with another random seed (1 by default).
+//
 // STOP_HOUR=h SAVE_TO=path instead runs to hour h of the first day and
 // saves there, for a starting point to look at in the game.
 package main
@@ -28,7 +30,11 @@ func main() {
 	}
 	days := 1
 	fmt.Sscan(os.Args[2], &days)
-	s := sim.NewSimulationWithSeed(w, 1)
+	var seed int64 = 1
+	if v := os.Getenv("SEED"); v != "" {
+		fmt.Sscan(v, &seed)
+	}
+	s := sim.NewSimulationWithSeed(w, seed)
 	s.SetResortOpen(true)
 	for _, l := range w.Lifts {
 		l.Open, l.OnHold = true, false

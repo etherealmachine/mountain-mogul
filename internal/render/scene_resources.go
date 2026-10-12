@@ -68,9 +68,8 @@ type SceneResources struct {
 	materialSrc          *world.TerrainMaterial
 	materialVer          int
 
-	liftUpCables    map[uint64]*Mesh
-	liftDownCables  map[uint64]*Mesh
-	liftQueueMeshes map[uint64]*Mesh
+	liftUpCables   map[uint64]*Mesh
+	liftDownCables map[uint64]*Mesh
 
 	// roadMesh is a single quad strip covering every road edge in the
 	// world; roadLanesMesh is a parallel mesh of dashed centre-line
@@ -115,10 +114,9 @@ type SceneResources struct {
 
 func newSceneResources() *SceneResources {
 	return &SceneResources{
-		liftUpCables:    make(map[uint64]*Mesh),
-		liftDownCables:  make(map[uint64]*Mesh),
-		liftQueueMeshes: make(map[uint64]*Mesh),
-		ghostBatches:    make(map[uint32]*Batch),
+		liftUpCables:   make(map[uint64]*Mesh),
+		liftDownCables: make(map[uint64]*Mesh),
+		ghostBatches:   make(map[uint32]*Batch),
 	}
 }
 
@@ -162,10 +160,6 @@ func (s *SceneResources) Delete() {
 	for id, m := range s.liftDownCables {
 		m.Delete()
 		delete(s.liftDownCables, id)
-	}
-	for id, m := range s.liftQueueMeshes {
-		m.Delete()
-		delete(s.liftQueueMeshes, id)
 	}
 	for id, b := range s.ghostBatches {
 		b.Delete()

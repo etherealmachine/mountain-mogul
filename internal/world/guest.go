@@ -114,9 +114,15 @@ type Guest struct {
 	LineWayAt   float64
 
 	// Implicit-state markers.
-	OnLiftID        uint64 // nonzero ⇒ riding the named lift's chair (locomotion is suspended)
-	Queued          bool   // in some lift.Queue, waiting to board
-	Fallen          bool   // down after a fall, through getting up and collecting skis (Tumble)
+	OnLiftID uint64 // nonzero ⇒ riding the named lift's chair (locomotion is suspended)
+	Queued   bool   // in some lift.Queue, waiting to board
+	// LineJoined is when they joined the line they're in; CrowdPlace is
+	// 1 + their place in its crowd (Lift.Crowd), 0 for none; LinePassed
+	// how many times someone has slipped in ahead of them in it. Not saved.
+	LineJoined      float64
+	CrowdPlace      int
+	LinePassed      int
+	Fallen          bool // down after a fall, through getting up and collecting skis (Tumble)
 	Tumble          Tumble
 	Injured         bool    // injured after a severe fall; cannot self-recover
 	HurtGoHome      bool    // a minor injury: heads home once back on their feet

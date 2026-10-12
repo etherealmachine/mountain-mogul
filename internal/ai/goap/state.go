@@ -160,15 +160,20 @@ func Extract(a *world.Guest, w *world.World) WorldSnapshot {
 	// when a SkiToLift guest reaches the back of a long queue whose end is
 	// beyond the 8 m base proximity radius.
 	const qArrR2 = float32(2.0 * 2.0)
+	// shortLine is how few in line count as a short one: in single file
+	// its back is within proximityRadius of the base.
+	const shortLine = int(proximityRadius / world.QueueSpacing)
 	for _, l := range w.Lifts {
 		if !l.Open || l.OnHold {
 			continue
 		}
 		// Near the base counts only while the line is short: with a
 		// long one they join at its back, not its front (Boreal
-		// Playtest: arrivals walked back through the whole line).
-		qback := l.BackOfQueueWorldPos(w.Terrain)
-		if sqDistXZ(a.Pos, l.Base[0], l.Base[1]) < r2 && sqDistXZ(qback, l.Base[0], l.Base[1]) < r2 {
+		// Playtest: arrivals walked back through the whole line). A
+		// crowd is compact, so short is by count, not by where its
+		// edge is.
+		qback := l.BackOfQueueWorldPos(mgl32.Vec2{a.Pos[0], a.Pos[2]}, w.Terrain)
+		if sqDistXZ(a.Pos, l.Base[0], l.Base[1]) < r2 && len(l.Queue) < shortLine {
 			snap.AtLiftBase = l.ID
 			return snap
 		}

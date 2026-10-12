@@ -6,12 +6,13 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 )
 
-// A single-file lift line runs out from the base along queueDir. Left
+// A lift with a line attendant has a single-file line running out from
+// the base along queueDir (without one it's a crowd: lift_crowd.go). Left
 // alone a long line runs straight on into whatever is downhill (a parking
 // lot, a lodge), so it folds into switchback lanes QueueFoldLaneGap apart
 // before it gets there. Arrivals come to the back of the line from
 // outside it (QueueApproachXZ) instead of walking through it. A stopgap
-// until line attendants lay out mazes (Boreal Playtest).
+// until the attendant lays out a maze (Lift Lines step 3).
 
 const (
 	// QueueFoldLaneGap is the distance between switchback lanes, metres.
@@ -88,12 +89,11 @@ func (l *Lift) toQueueFrame(p mgl32.Vec2) (along, lat float32) {
 
 // QueueApproachXZ is where an arrival at from should head for the back of
 // the single-file line: straight there from outside the line, or round
-// the line first when it's in the way. Lane-mode lifts use the back of
-// their lines.
+// the line first when it's in the way.
 func (l *Lift) QueueApproachXZ(from mgl32.Vec2) mgl32.Vec2 {
 	bx, bz := l.QueueSlotXZ(len(l.Queue))
 	back := mgl32.Vec2{bx, bz}
-	if len(l.Lines) > 0 || from.Sub(back).Len() < queueApproachReach {
+	if from.Sub(back).Len() < queueApproachReach {
 		return back
 	}
 	al, lat := l.toQueueFrame(from)
@@ -160,7 +160,7 @@ func (w *World) UpdateQueueFolds() {
 		return true
 	}
 	for _, l := range w.Lifts {
-		if len(l.Lines) > 0 || l.IsHeli() {
+		if l.IsHeli() {
 			l.QueueFold = 0
 			continue
 		}

@@ -317,3 +317,11 @@ func (c *Crumbs) At(i int) Crumb { return c.Pts[i%CrumbRing] }
 
 // Oldest is the oldest crumb still held.
 func (c *Crumbs) Oldest() int { return max(0, c.N-CrumbRing) }
+
+// PartyHead is who leads g's group: their leader, or g themselves.
+func (g *Guest) PartyHead() *Guest {
+	if g.Party.Leader != nil {
+		return g.Party.Leader
+	}
+	return g
+}

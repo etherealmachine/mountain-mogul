@@ -222,7 +222,7 @@ func NewSimulationWithSeed(w *world.World, seed int64) *Simulation {
 	// (SeasonSnowpack) and an October start opens on October weather.
 	sim.Weather.RunUpTo(sim.DateAt(w.SimTime))
 	sim.refreshTrailConditions()
-	w.UpdateQueueFolds()
+	w.UpdateLineLayouts()
 	sim.closedForDay = sim.ClosedForDay()
 	w.ClosedForDay = sim.closedForDay
 	sim.yesterday = sim.Weather.Advance(sim.DateAt(w.SimTime))
@@ -414,6 +414,7 @@ func (s *Simulation) tickLifts(dt float64) {
 				chair.Progress -= 1.0
 				if !lift.OnHold && running {
 					boarders := loadChair(lift, len(chair.Passengers))
+					s.shuffleLine(lift)
 					for j, agent := range boarders {
 						if j >= len(chair.Passengers) {
 							break
@@ -448,7 +449,7 @@ func (s *Simulation) tickHeliLift(lift *world.Lift, dt float64) {
 		// Fill empty seats from the queue.
 		for len(h.Passengers) < world.HeliCapacity && len(lift.Queue) > 0 {
 			agent := lift.Queue[0]
-			lift.Queue = lift.Queue[1:]
+			lift.LeaveLine(agent)
 			h.Passengers = append(h.Passengers, agent)
 			agent.OnLiftID = lift.ID
 			agent.Queued = false
@@ -1389,7 +1390,7 @@ func (s *Simulation) tickHourly() {
 	idx := int(s.SimTime / simSecondsPerHour)
 	if s.lastHour < idx {
 		// Lift lines fold before lots and buildings built since.
-		s.World.UpdateQueueFolds()
+		s.World.UpdateLineLayouts()
 		defer s.refreshTrailConditions()
 		defer s.logGuestsSay()
 	}
@@ -1842,12 +1843,12 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		a.TargetID = lift.ID
 		a.Plan.Goal = ai.GoalLift
 		a.Plan.GoalID = lift.ID
-		a.Plan.Target = lift.BackOfQueueWorldPos(w.Terrain)
+		a.Plan.Target = lift.BackOfQueueWorldPos(mgl32.Vec2{a.Pos[0], a.Pos[2]}, w.Terrain)
 		startCell := [2]int{
 			int(math.Floor(float64(a.Pos[0] / CellSize))),
 			int(math.Floor(float64(a.Pos[2] / CellSize))),
 		}
-		if path := s.Pathfinder.FindPath(startCell, lift.BackOfQueueCell()); path != nil {
+		if path := s.Pathfinder.FindPath(startCell, lift.BackOfQueueCell(mgl32.Vec2{a.Pos[0], a.Pos[2]})); path != nil {
 			a.Path = path
 			a.PathIdx = 0
 		} else {
@@ -1896,12 +1897,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		if wait >= world.LongLineWait {
 			s.applyEvent(a, ai.ThoughtLongLine, lift.ID)
 		}
-		if len(lift.Lines) > 0 {
-			lineIdx := lift.ShortestLineIdx()
-			lift.Lines[lineIdx].Guests = append(lift.Lines[lineIdx].Guests, a)
-		} else {
-			lift.Queue = append(lift.Queue, a)
-		}
+		lift.JoinLine(a, s.SimTime)
 		a.Queued = true
 		a.TargetID = 0
 	case ai.ActRideLift:
@@ -1915,7 +1911,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		a.TargetID = lift.ID
 		a.Plan.Goal = ai.GoalLift
 		a.Plan.GoalID = lift.ID
-		a.Plan.Target = lift.BackOfQueueWorldPos(w.Terrain)
+		a.Plan.Target = lift.BackOfQueueWorldPos(mgl32.Vec2{a.Pos[0], a.Pos[2]}, w.Terrain)
 	case ai.ActSkiToService:
 		s.startRun(a)
 		b := findBuildingByID(w, step.BldgID)
@@ -1962,7 +1958,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 			a.TargetID = lift.ID
 			a.Plan.Goal = ai.GoalLift
 			a.Plan.GoalID = lift.ID
-			a.Plan.Target = lift.BackOfQueueWorldPos(w.Terrain)
+			a.Plan.Target = lift.BackOfQueueWorldPos(mgl32.Vec2{a.Pos[0], a.Pos[2]}, w.Terrain)
 		case step.BldgID != 0:
 			b := findBuildingByID(w, step.BldgID)
 			if b == nil {
@@ -2560,6 +2556,17 @@ func (s *Simulation) tickPath(agent *world.Guest, dt float64) {
 		}
 	}
 	targetPos := mgl32.Vec3{tx, ty, tz}
+	// The last stretch to a lift line heads for the line itself, not on
+	// through the cells under it (a crowd, or the station in the last).
+	toLine := false
+	if st := agent.Plan.Head(); st.Kind == ai.ActWalkToLift {
+		if l := findLiftByID(w, st.LiftID); l != nil {
+			p := liftApproachWorldPos(w, l, agent)
+			if agent.PathIdx == len(agent.Path)-1 || (mgl32.Vec2{p[0] - agent.Pos[0], p[2] - agent.Pos[2]}).Len() < walkToLineNear {
+				targetPos, toLine = p, true
+			}
+		}
+	}
 	s.recordWalkTick(agent, targetPos)
 
 	dir := targetPos.Sub(agent.Pos)
@@ -2570,6 +2577,9 @@ func (s *Simulation) tickPath(agent *world.Guest, dt float64) {
 	if dist <= step {
 		agent.Pos = targetPos
 		agent.PathIdx++
+		if toLine {
+			agent.PathIdx = len(agent.Path)
+		}
 		if agent.PathIdx >= len(agent.Path) {
 			agent.Path = nil
 			agent.PathIdx = 0
@@ -2653,10 +2663,8 @@ func (s *Simulation) walkClear(pos mgl32.Vec3, dir mgl32.Vec2, dist float32) mgl
 // way must stay, metres.
 const walkStationMargin = float32(0.5)
 
-// tickQueued walks the agent toward their assigned queue slot and orients
-// them to face the boarding spot. For line-mode lifts, the slot position
-// accounts for lane, depth, and pair position. For legacy flat-queue lifts
-// the single-file behaviour is unchanged.
+// tickQueued walks the agent toward their place in line (in a crowd, or
+// in a single file) and turns them to face the boarding spot.
 func (s *Simulation) tickQueued(agent *world.Guest, dt float64) {
 	w := s.World
 	drain := float32(dt * patienceDrainPerSecQueuing)
@@ -2664,23 +2672,6 @@ func (s *Simulation) tickQueued(agent *world.Guest, dt float64) {
 		drain = 0 // waiting for the lifts to open doesn't try anyone's patience
 	}
 	for _, lift := range w.Lifts {
-		// Line mode: locate the agent in one of the configured lanes.
-		if len(lift.Lines) > 0 {
-			if pos, ok := lift.GuestSlotWorldPos(agent, w.Terrain); ok {
-				agent.Patience -= drain
-				if agent.Patience < 0 {
-					agent.Patience = 0
-				}
-				s.tickWalkToward(agent, pos, dt)
-				faceX := lift.Base[0] - agent.Pos[0]
-				faceZ := lift.Base[1] - agent.Pos[2]
-				if faceX*faceX+faceZ*faceZ > 0.01 {
-					agent.Heading = float32(math.Atan2(float64(faceX), float64(faceZ)))
-				}
-				return
-			}
-		}
-		// Legacy flat-queue mode.
 		idx := -1
 		for i, q := range lift.Queue {
 			if q == agent {
@@ -2695,7 +2686,8 @@ func (s *Simulation) tickQueued(agent *world.Guest, dt float64) {
 		if agent.Patience < 0 {
 			agent.Patience = 0
 		}
-		slot := lift.QueueSlotWorldPos(idx, w.Terrain)
+		x, z := lift.LinePlaceXZ(agent, idx)
+		slot := mgl32.Vec3{x, w.Terrain.InterpolatedSurfaceElevationAt(x, z), z}
 		s.tickWalkToward(agent, slot, dt)
 		// Always face the lift base — tickWalkToward sets heading to the
 		// walk direction, but skiers who've reached their slot need to
@@ -2949,6 +2941,10 @@ func clipInToRide(a *world.Guest) {
 	}
 }
 
+// walkToLineNear is how close to their place in a lift line a walker
+// leaves their route for it, metres.
+const walkToLineNear = float32(10)
+
 // lineWayReach is how close to a point on the way round a lift line a
 // guest must come before choosing the next, metres; lineWayKeep is how
 // long one is kept at most, sim seconds.
@@ -2958,7 +2954,7 @@ const (
 )
 
 // leaderInLine reports whether a's group leader is waiting in lift l's
-// single-file line.
+// line.
 func leaderInLine(a *world.Guest, l *world.Lift) bool {
 	ld := a.Party.Leader
 	if ld == nil || !ld.Queued {
@@ -2972,16 +2968,18 @@ func leaderInLine(a *world.Guest, l *world.Lift) bool {
 	return false
 }
 
-// liftApproachWorldPos is where a heads for lift l's line: the back of
-// it, by way of round the line when it's in the way (QueueApproachXZ).
+// liftApproachWorldPos is where a heads for lift l's line: the edge of a
+// crowd nearest them, or the back of a single file by way of round it
+// when it's in the way (QueueApproachXZ).
 // A point on the way round is kept until reached (Guest.LineWay).
 func liftApproachWorldPos(w *world.World, l *world.Lift, a *world.Guest) mgl32.Vec3 {
-	if len(l.Lines) > 0 {
-		return l.BackOfQueueWorldPos(w.Terrain)
-	}
 	pos := mgl32.Vec2{a.Pos[0], a.Pos[2]}
 	at := func(p mgl32.Vec2) mgl32.Vec3 {
 		return mgl32.Vec3{p[0], w.Terrain.InterpolatedSurfaceElevationAt(p[0], p[1]), p[1]}
+	}
+	if l.IsCrowd() {
+		// The edge of the crowd nearest them: no way round it.
+		return at(l.CrowdArrivalXZ(pos))
 	}
 	if a.LineWayLift == l.ID && w.SimTime-a.LineWayAt < lineWayKeep && a.LineWay.Sub(pos).Len() > lineWayReach {
 		return at(a.LineWay)
@@ -2995,7 +2993,7 @@ func liftApproachWorldPos(w *world.World, l *world.Lift, a *world.Guest) mgl32.V
 	// A way round through trees or a building: straight to the back.
 	if cx, cz := int(p[0]/CellSize), int(p[1]/CellSize); !w.Terrain.InBounds(cx, cz) ||
 		!w.Terrain.Cells[cx][cz].Walkable() || onBuildingFootprint(w, p[0], p[1]) {
-		return l.BackOfQueueWorldPos(w.Terrain)
+		return l.BackOfQueueWorldPos(pos, w.Terrain)
 	}
 	a.LineWay, a.LineWayLift, a.LineWayAt = p, l.ID, w.SimTime
 	return at(p)

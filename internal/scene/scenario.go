@@ -3595,7 +3595,7 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 		})
 		w.AddBoolToggle("Line attendant",
 			func() bool { return l.Staff.LineAttendant },
-			func(v bool) { l.Staff.LineAttendant = v; l.Fill = 0 },
+			func(v bool) { l.Staff.LineAttendant = v; l.Fill = 0; s.world.UpdateLineLayout(l) },
 		)
 		w.AddLabel("Chairs leave", func() string {
 			if l.Fill == 0 {
@@ -3603,71 +3603,6 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 			}
 			return fmt.Sprintf("%.0f%% full", l.Fill*100)
 		})
-	}
-	if l.Type == world.LiftDouble {
-		rebuild := func() {
-			evicted := l.RebuildLines()
-			for _, g := range evicted {
-				g.Queued = false
-				g.Plan.Steps = nil
-			}
-			s.app.Renderer.AddLiftMeshes(l, s.world.Terrain)
-			s.openLiftPopup(l, screenW, screenH)
-		}
-		w.AddIntStepperFn("Right lanes",
-			func() string { return fmt.Sprintf("%d", l.QueueConfig.RightLines) },
-			func() {
-				if l.QueueConfig.RightLines > 0 {
-					l.QueueConfig.RightLines--
-					rebuild()
-				}
-			},
-			func() {
-				if l.QueueConfig.RightLines < 5 {
-					l.QueueConfig.RightLines++
-					rebuild()
-				}
-			},
-		)
-		w.AddIntStepperFn("Left lanes",
-			func() string { return fmt.Sprintf("%d", l.QueueConfig.LeftLines) },
-			func() {
-				if l.QueueConfig.LeftLines > 0 {
-					l.QueueConfig.LeftLines--
-					rebuild()
-				}
-			},
-			func() {
-				if l.QueueConfig.LeftLines < 5 {
-					l.QueueConfig.LeftLines++
-					rebuild()
-				}
-			},
-		)
-		w.AddBoolToggle("Single rider",
-			func() bool { return l.QueueConfig.SingleRider },
-			func(v bool) {
-				l.QueueConfig.SingleRider = v
-				rebuild()
-			},
-		)
-		w.AddIntStepperFn("Rope width (m)",
-			func() string {
-				return fmt.Sprintf("%.0f", l.QueueConfig.EffectiveRopeDepth())
-			},
-			func() {
-				if l.QueueConfig.EffectiveRopeDepth() > 3 {
-					l.QueueConfig.RopeDepth = l.QueueConfig.EffectiveRopeDepth() - 3
-					s.app.Renderer.AddLiftMeshes(l, s.world.Terrain)
-				}
-			},
-			func() {
-				if l.QueueConfig.EffectiveRopeDepth() < 30 {
-					l.QueueConfig.RopeDepth = l.QueueConfig.EffectiveRopeDepth() + 3
-					s.app.Renderer.AddLiftMeshes(l, s.world.Terrain)
-				}
-			},
-		)
 	}
 	w.AddStepper("Speed (m/s)", &l.Speed, 0.5, 0.5, 8.0)
 	if l.Type == world.LiftHeli {
@@ -3679,16 +3614,9 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 	}
 	if l.Open {
 		w.AddActionButton("Close Lift", func() {
-			for _, g := range l.Queue {
+			for _, g := range l.ClearLine() {
 				g.Queued = false
 				g.Plan.Steps = nil
-			}
-			l.Queue = l.Queue[:0]
-			if len(l.Lines) > 0 {
-				for _, g := range l.EjectLinesGuests() {
-					g.Queued = false
-					g.Plan.Steps = nil
-				}
 			}
 			l.Open = false
 			s.sim.LogLiftOpenChanged(l)

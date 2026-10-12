@@ -111,15 +111,10 @@ func arrivalShare(w *world.World, g *world.Guest, h0, h1 float64) float64 {
 	return (cdf(h1) - cdf(h0)) / total
 }
 
-// ejectQueue empties a lift's queue (and lines, for lifts with loading
-// lines) and clears each ejected guest's plan so they replan next tick.
+// ejectQueue empties a lift's queue and clears each ejected guest's plan so they replan next tick.
 // Returns the ejected guests.
 func ejectQueue(l *world.Lift) []*world.Guest {
-	ejected := append([]*world.Guest(nil), l.Queue...)
-	l.Queue = l.Queue[:0]
-	if len(l.Lines) > 0 {
-		ejected = append(ejected, l.EjectLinesGuests()...)
-	}
+	ejected := l.ClearLine()
 	for _, g := range ejected {
 		g.Queued = false
 		g.Plan.Steps = nil

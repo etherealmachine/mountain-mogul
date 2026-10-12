@@ -1239,60 +1239,6 @@ func generateCableMesh(lift *world.Lift, t *world.Terrain, perpOff float32) *Mes
 	return NewMesh(verts, indices, []int{3, 3, 2}, nil)
 }
 
-// generateQueueMesh builds a world-space mesh (poles + ropes) for the
-// queue-line dividers at a lift's base station. Returns nil when the lift
-// has no lane configuration.
-//
-// Ropes run LATERALLY (perpendicular to the cable) at each downhill boundary
-// returned by QueueRopeBoundaries. They extend RopeDepth metres to the left
-// and right of the cable axis, with poles spaced every polePitch metres.
-func generateQueueMesh(lift *world.Lift, t *world.Terrain) *Mesh {
-	downhillOffsets := lift.QueueRopeBoundaries()
-	if len(downhillOffsets) == 0 {
-		return nil
-	}
-
-	const polePitch = float32(3.0) // metres between consecutive poles along a rope
-
-	lateralDepth := lift.QueueConfig.EffectiveRopeDepth() // how far left/right ropes extend
-	qx, qz := lift.QueueDirXZ()
-	rx, rz := lift.LateralRightXZ()
-
-	var m ropeMesher
-	appendCylinder := func(cx, cy, cz float32) { m.pole(cx, cy, cz) }
-	appendRope := func(p0x, p0z, p1x, p1z float32) { m.rope(t, p0x, p0z, p1x, p1z) }
-
-	// Each rope runs laterally from -lateralDepth to +lateralDepth at a
-	// specific downhill offset from the base. Poles at every polePitch metres.
-	nPoles := int(lateralDepth/polePitch)*2 + 1 // one per pitch each side plus centre
-	for _, downhill := range downhillOffsets {
-		// Base point of this rope (on the cable axis, at this downhill offset).
-		baseX := lift.Base[0] + downhill*qx
-		baseZ := lift.Base[1] + downhill*qz
-
-		// Pole lateral offsets from −lateralDepth to +lateralDepth.
-		poleWX := make([]float32, nPoles)
-		poleWZ := make([]float32, nPoles)
-		for i := 0; i < nPoles; i++ {
-			lat := -lateralDepth + float32(i)*polePitch
-			if lat > lateralDepth {
-				lat = lateralDepth
-			}
-			poleWX[i] = baseX + lat*rx
-			poleWZ[i] = baseZ + lat*rz
-		}
-		for i, px := range poleWX {
-			pz := poleWZ[i]
-			appendCylinder(px, VisualElevationAt(t, px, pz), pz)
-		}
-		for i := 0; i < nPoles-1; i++ {
-			appendRope(poleWX[i], poleWZ[i], poleWX[i+1], poleWZ[i+1])
-		}
-	}
-
-	return m.mesh()
-}
-
 // DrawWorld renders the full 3D world.
 func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	light := r.Lighting
@@ -1466,9 +1412,6 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	}
 	// Queue poles and ropes — same world-space pass, lighter tint.
 	setQueueTransformAttribs()
-	for _, m := range r.scene.liftQueueMeshes {
-		m.Draw()
-	}
 	r.syncRopes(w)
 	if r.scene.ropeMesh != nil {
 		r.scene.ropeMesh.Draw()
@@ -2199,12 +2142,9 @@ func (r *Renderer) AddLiftMeshes(lift *world.Lift, t *world.Terrain) {
 	}
 	r.scene.liftUpCables[lift.ID] = generateCableMesh(lift, t, world.CableGap)
 	r.scene.liftDownCables[lift.ID] = generateCableMesh(lift, t, -world.CableGap)
-	if m := generateQueueMesh(lift, t); m != nil {
-		r.scene.liftQueueMeshes[lift.ID] = m
-	}
 }
 
-// RemoveLiftMeshes removes the cable and queue meshes for a lift.
+// RemoveLiftMeshes removes the cable meshes for a lift.
 func (r *Renderer) RemoveLiftMeshes(liftID uint64) {
 	if m, ok := r.scene.liftUpCables[liftID]; ok {
 		m.Delete()
@@ -2213,10 +2153,6 @@ func (r *Renderer) RemoveLiftMeshes(liftID uint64) {
 	if m, ok := r.scene.liftDownCables[liftID]; ok {
 		m.Delete()
 		delete(r.scene.liftDownCables, liftID)
-	}
-	if m, ok := r.scene.liftQueueMeshes[liftID]; ok {
-		m.Delete()
-		delete(r.scene.liftQueueMeshes, liftID)
 	}
 }
 

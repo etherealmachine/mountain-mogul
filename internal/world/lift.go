@@ -262,11 +262,12 @@ type Lift struct {
 	// behind it); see LineWait. Not persisted.
 	Fill float32
 
-	Queue       []*Guest
-	QueueConfig LiftQueueConfig
-	Lines       []LiftLine // nil/empty → use Queue (all non-Double lifts and Doubles without lanes)
-	QueueRound  int        // round-robin boarding index into Lines
-	Chairs      []Chair
+	// Queue is who's in line, in boarding order. Crowd is where they
+	// stand when the line is a crowd (no line attendant), cheapest place
+	// first; nil for a single file. Set by UpdateLineLayouts; not saved.
+	Queue  []*Guest
+	Crowd  []CrowdPlace
+	Chairs []Chair
 
 	// HeliState is non-nil only for LiftHeli type lifts. Cable lifts leave
 	// this nil; callers should use IsHeli() to branch rather than testing
@@ -362,46 +363,6 @@ func (l *Lift) QueueCell() [2]int {
 // breathing gap; tight enough that a 20-deep queue is only ~40 m long.
 const QueueSpacing = 2.0
 
-// Line-queue geometry constants. Only used when a LiftDouble has Lines configured.
-const (
-	LineWidth       = 2.0 // lateral metres per pair slot within a row
-	LineGap         = 0.5 // downhill gap between adjacent rows (aisle width)
-	PairHalfWidth   = 0.5 // each person stands this far from their slot centre laterally
-	SingleLineWidth = 1.0 // lateral metres per slot in a single-rider row
-)
-
-// LiftQueueConfig controls how the boarding queue at a lift base is laid out.
-// Applicable only to LiftDouble; other lift types use the flat Queue.
-type LiftQueueConfig struct {
-	LeftLines   int     // pair-wide lanes on the left side of the boarding area (0–5)
-	RightLines  int     // pair-wide lanes on the right side (0–5)
-	SingleRider bool    // add a single-rider lane on each side to fill partial pairs
-	RopeDepth   float32 // metres ropes extend from base; 0 → DefaultRopeDepth
-}
-
-// DefaultRopeDepth is the lateral rope extent (metres from cable axis to
-// each tip) when RopeDepth is not set.
-const DefaultRopeDepth = float32(10.0)
-
-// EffectiveRopeDepth returns the configured rope depth, falling back to DefaultRopeDepth.
-func (cfg LiftQueueConfig) EffectiveRopeDepth() float32 {
-	if cfg.RopeDepth > 0 {
-		return cfg.RopeDepth
-	}
-	return DefaultRopeDepth
-}
-
-// LiftLine is one queue lane at a lift base. Regular lanes hold pairs
-// (two skiers side-by-side per depth slot). Single-rider lanes hold one
-// skier per depth slot and exist on both sides so they can pair up at
-// boarding or fill a gap when a pair lane has an odd skier at the front.
-type LiftLine struct {
-	Guests   []*Guest
-	IsSingle bool // true → single-rider (1-wide); false → pair (2-wide)
-	IsRight  bool // true → right of cable axis; false → left
-	Idx      int  // 0 = innermost lane, 1 = next outward, etc.
-}
-
 // queueDir returns the unit vector pointing from the lift base away
 // from the cable axis — the direction the single-file queue extends.
 // For a lift going up the hill, the queue trails downhill of the base.
@@ -424,28 +385,6 @@ func (l *Lift) QueueDirXZ() (float32, float32) { return l.queueDir() }
 // LateralRightXZ is the exported version of lateralRight for use by the renderer.
 func (l *Lift) LateralRightXZ() (float32, float32) { return l.lateralRight() }
 
-// QueueRopeBoundaries returns the sorted downhill offsets (metres from the
-// lift base along queueDir) at which lateral rope dividers should be drawn.
-// N rows need only N+1 ropes: one shared rope divides every adjacent pair,
-// so ropes sit at i*(LineWidth+LineGap) for i = 0..maxRows.
-func (l *Lift) QueueRopeBoundaries() []float32 {
-	maxRows := l.QueueConfig.LeftLines
-	if l.QueueConfig.RightLines > maxRows {
-		maxRows = l.QueueConfig.RightLines
-	}
-	if l.QueueConfig.SingleRider && maxRows > 0 {
-		maxRows++
-	}
-	if maxRows == 0 {
-		return nil
-	}
-	out := make([]float32, maxRows+1)
-	for i := range out {
-		out[i] = float32(i) * (LineWidth + LineGap)
-	}
-	return out
-}
-
 // QueueSlotXZ returns the world-XZ position of the index-th queue slot.
 // Slot 0 is the boarding spot at the base; slot N+1 sits QueueSpacing
 // further along queueDir. Cell-only callers (pathfinder) don't need Y.
@@ -454,102 +393,26 @@ func (l *Lift) QueueSlotXZ(index int) (x, z float32) {
 	return l.fromQueueFrame(along, lat)
 }
 
-// QueueSlotWorldPos returns the world-space position of the index-th
-// slot in this lift's queue. Y comes from the snow surface so queued
-// skiers stand on snow rather than floating.
-func (l *Lift) QueueSlotWorldPos(index int, t *Terrain) mgl32.Vec3 {
-	x, z := l.QueueSlotXZ(index)
-	y := t.InterpolatedSurfaceElevationAt(x, z)
-	return mgl32.Vec3{x, y, z}
+// BackOfQueueWorldPos returns where an arrival at from should head: the
+// back of a single file, or the edge of a crowd nearest them
+// (LineEndXZ). Pulled each tick by resolveTarget so the target shifts
+// as the line grows or boards.
+func (l *Lift) BackOfQueueWorldPos(from mgl32.Vec2, t *Terrain) mgl32.Vec3 {
+	p := l.LineEndXZ(from)
+	return mgl32.Vec3{p[0], t.InterpolatedSurfaceElevationAt(p[0], p[1]), p[1]}
 }
 
-// BackOfQueueWorldPos returns where the next arrival should head. Skiers
-// in transit (skiing down or walking from a lodge) target this spot so
-// they line up behind any existing queue instead of all converging on
-// the base anchor. Pulled each tick by resolveTarget so the target
-// shifts as the queue grows or boards.
-func (l *Lift) BackOfQueueWorldPos(t *Terrain) mgl32.Vec3 {
-	if len(l.Lines) > 0 {
-		return l.backOfLinesWorldPos(t)
-	}
-	return l.QueueSlotWorldPos(len(l.Queue), t)
-}
-
-// BackOfQueueCell returns the grid cell of the back-of-queue slot — the
+// BackOfQueueCell returns the grid cell of BackOfQueueWorldPos — the
 // pathfinder destination for skiers walking to queue. A snapshot at
 // path-plan time; tickQueued handles any residual drift once they
 // arrive and join the actual queue.
-func (l *Lift) BackOfQueueCell() [2]int {
-	x, z := l.QueueSlotXZ(len(l.Queue))
-	return cellOf(mgl32.Vec2{x, z})
+func (l *Lift) BackOfQueueCell(from mgl32.Vec2) [2]int {
+	return cellOf(l.LineEndXZ(from))
 }
 
-// QueueLen returns the total number of skiers waiting across all lines,
-// or the length of the flat Queue for lifts not using lane mode.
+// QueueLen returns how many guests are in line.
 func (l *Lift) QueueLen() int {
-	if len(l.Lines) > 0 {
-		n := 0
-		for i := range l.Lines {
-			n += len(l.Lines[i].Guests)
-		}
-		return n
-	}
 	return len(l.Queue)
-}
-
-// ShortestLineIdx returns the index into Lines of the lane with the
-// fewest guests. Returns 0 when Lines is empty.
-func (l *Lift) ShortestLineIdx() int {
-	if len(l.Lines) == 0 {
-		return 0
-	}
-	best, bestLen := 0, len(l.Lines[0].Guests)
-	for i := 1; i < len(l.Lines); i++ {
-		if n := len(l.Lines[i].Guests); n < bestLen {
-			best, bestLen = i, n
-		}
-	}
-	return best
-}
-
-// RebuildLines reconstructs Lines from QueueConfig, evicting any
-// currently queued guests (returned as a slice) so the caller can
-// clear their plans. If the resulting config has no lanes, Lines is
-// set to nil and the lift falls back to flat-Queue mode.
-func (l *Lift) RebuildLines() []*Guest {
-	var evicted []*Guest
-	for i := range l.Lines {
-		evicted = append(evicted, l.Lines[i].Guests...)
-	}
-	l.Lines = l.Lines[:0]
-	l.QueueRound = 0
-
-	cfg := l.QueueConfig
-	for i := 0; i < cfg.RightLines; i++ {
-		l.Lines = append(l.Lines, LiftLine{IsRight: true, Idx: i})
-	}
-	for i := 0; i < cfg.LeftLines; i++ {
-		l.Lines = append(l.Lines, LiftLine{IsRight: false, Idx: i})
-	}
-	if cfg.SingleRider {
-		l.Lines = append(l.Lines, LiftLine{IsRight: true, IsSingle: true})
-		l.Lines = append(l.Lines, LiftLine{IsRight: false, IsSingle: true})
-	}
-	if len(l.Lines) == 0 {
-		l.Lines = nil
-	}
-	return evicted
-}
-
-// EjectLinesGuests removes all guests from all Lines and returns them
-// so the caller can clear their plan and queued state.
-func (l *Lift) EjectLinesGuests() []*Guest {
-	var evicted []*Guest
-	for i := range l.Lines {
-		evicted = append(evicted, l.Lines[i].Guests...)
-		l.Lines[i].Guests = nil
-	}
-	return evicted
 }
 
 // lateralRight returns the unit vector pointing to the right of the
@@ -564,190 +427,6 @@ func (l *Lift) lateralRight() (rx, rz float32) {
 	cx, cz := dx/length, dz/length
 	// Rotate cable direction -90° in XZ → right side when looking uphill.
 	return cz, -cx
-}
-
-// lineGuestWorldPos returns the world-space position for a guest at
-// slotIdx (0 = closest to cable axis) and pairPos (0 = inner, 1 = outer;
-// ignored for single-rider rows) in the given row.
-//
-// New layout: each LiftLine is a ROW that extends LATERALLY (perpendicular
-// to the cable) from the cable axis. Multiple rows are stacked DOWNHILL
-// from the base station. slotIdx steps the guest outward along the row;
-// pairPos places the two members of a pair within their slot.
-//
-// Row downhill position: Idx * (LineWidth + LineGap) from base.
-// Slot lateral position: (slotIdx + 0.5) * slotWidth from cable axis,
-// signed by IsRight.
-func (l *Lift) lineGuestWorldPos(lineIdx, slotIdx, pairPos int, t *Terrain) mgl32.Vec3 {
-	rx, rz := l.lateralRight()
-	qx, qz := l.queueDir()
-	li := &l.Lines[lineIdx]
-
-	sign := float32(1)
-	if !li.IsRight {
-		sign = -1
-	}
-
-	// Downhill distance to the centre of this row's band (midway between its
-	// two bounding ropes at i*(LineWidth+LineGap) and (i+1)*(LineWidth+LineGap)).
-	rowDepth := (float32(li.Idx) + 0.5) * (LineWidth + LineGap)
-
-	// Lateral distance outward from the cable axis.
-	var latOff float32
-	if li.IsSingle {
-		latOff = sign * (float32(slotIdx) + 0.5) * SingleLineWidth
-	} else {
-		// pairPos 0 → inner half of slot (−PairHalfWidth from slot centre)
-		// pairPos 1 → outer half of slot (+PairHalfWidth from slot centre)
-		pairOff := float32(pairPos)*PairHalfWidth*2 - PairHalfWidth
-		latOff = sign * ((float32(slotIdx)+0.5)*LineWidth + pairOff)
-	}
-
-	x := l.Base[0] + latOff*rx + qx*rowDepth
-	z := l.Base[1] + latOff*rz + qz*rowDepth
-	y := t.InterpolatedSurfaceElevationAt(x, z)
-	return mgl32.Vec3{x, y, z}
-}
-
-// GuestSlotWorldPos finds guest g in Lines and returns their assigned
-// world-space queue position. ok=false when g is not in any line.
-func (l *Lift) GuestSlotWorldPos(g *Guest, t *Terrain) (mgl32.Vec3, bool) {
-	for lineIdx := range l.Lines {
-		li := &l.Lines[lineIdx]
-		for gIdx, candidate := range li.Guests {
-			if candidate != g {
-				continue
-			}
-			var slotIdx, pairPos int
-			if li.IsSingle {
-				slotIdx = gIdx
-			} else {
-				slotIdx = gIdx / 2
-				pairPos = gIdx % 2
-			}
-			return l.lineGuestWorldPos(lineIdx, slotIdx, pairPos, t), true
-		}
-	}
-	return mgl32.Vec3{}, false
-}
-
-// backOfLinesWorldPos returns the centre of the next open slot in the
-// shortest row — the walk target for incoming skiers before they formally
-// join a row.
-func (l *Lift) backOfLinesWorldPos(t *Terrain) mgl32.Vec3 {
-	lineIdx := l.ShortestLineIdx()
-	li := &l.Lines[lineIdx]
-
-	sign := float32(1)
-	if !li.IsRight {
-		sign = -1
-	}
-
-	var nextSlot int
-	if li.IsSingle {
-		nextSlot = len(li.Guests)
-	} else {
-		nextSlot = len(li.Guests) / 2
-	}
-
-	rx, rz := l.lateralRight()
-	qx, qz := l.queueDir()
-
-	rowDepth := (float32(li.Idx) + 0.5) * (LineWidth + LineGap)
-	var slotWidth float32
-	if li.IsSingle {
-		slotWidth = SingleLineWidth
-	} else {
-		slotWidth = LineWidth
-	}
-	latOff := sign * (float32(nextSlot) + 0.5) * slotWidth
-
-	x := l.Base[0] + latOff*rx + qx*rowDepth
-	z := l.Base[1] + latOff*rz + qz*rowDepth
-	y := t.InterpolatedSurfaceElevationAt(x, z)
-	return mgl32.Vec3{x, y, z}
-}
-
-// BoardNextPair pulls up to cap guests from the configured lines using
-// a round-robin over regular pair lanes (one pair per turn) with both
-// single-rider lanes combined as one additional turn. Turns continue
-// until the chair is full or every lane has had one, so a quad loads a
-// pair from each of two lanes; then single-rider lines fill any gap.
-// sit is asked before each guest gets on (taken is who's on so far, line
-// the guest's lane, guest first, single whether it's a single-rider
-// lane); the first no ends the loading, and the chair leaves with who's
-// on.
-func (l *Lift) BoardNextPair(cap int, sit func(taken, line []*Guest, single bool) bool) []*Guest {
-	if len(l.Lines) == 0 {
-		return nil
-	}
-
-	var regularIdxs, singleIdxs []int
-	for i := range l.Lines {
-		if l.Lines[i].IsSingle {
-			singleIdxs = append(singleIdxs, i)
-		} else {
-			regularIdxs = append(regularIdxs, i)
-		}
-	}
-
-	hasSingle := len(singleIdxs) > 0
-	totalTurns := len(regularIdxs)
-	if hasSingle {
-		totalTurns++
-	}
-	if totalTurns == 0 {
-		return nil
-	}
-
-	var taken []*Guest
-	usedSingles := false
-	refused := false
-	take := func(li *LiftLine) bool {
-		if len(li.Guests) == 0 || refused {
-			return false
-		}
-		if !sit(taken, li.Guests, li.IsSingle) {
-			refused = true
-			return false
-		}
-		taken = append(taken, li.Guests[0])
-		li.Guests = li.Guests[1:]
-		return true
-	}
-
-	for attempts := 0; attempts < totalTurns && len(taken) < cap && !refused; attempts++ {
-		turn := l.QueueRound % totalTurns
-		l.QueueRound++
-
-		if turn < len(regularIdxs) {
-			li := &l.Lines[regularIdxs[turn]]
-			for n := min(cap-len(taken), 2); n > 0 && take(li); n-- {
-			}
-			continue
-		}
-		// Single-rider turn: 1 from each side, combined.
-		usedSingles = true
-		for _, si := range singleIdxs {
-			if len(taken) >= cap {
-				break
-			}
-			take(&l.Lines[si])
-		}
-	}
-
-	// Gap fill: if a regular pair lane had only 1 person (or all regular
-	// lanes were empty), pull from single-rider lanes to reach capacity.
-	if !usedSingles && len(taken) < cap {
-		for _, si := range singleIdxs {
-			if len(taken) >= cap {
-				break
-			}
-			take(&l.Lines[si])
-		}
-	}
-
-	return taken
 }
 
 // TopCell returns the grid cell containing the lift's top station —
