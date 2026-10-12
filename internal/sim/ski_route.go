@@ -142,7 +142,10 @@ func (s *Simulation) routeTarget(a *world.Guest, goal mgl32.Vec3, sc *routeScrat
 			r.Index++
 			continue
 		}
-		if look && lineClear(t, pos, next, &prof) {
+		// On foot by footpaths, only if going straight on is no slower
+		// than by the waypoint, so a walker headed for a path keeps to it.
+		if look && lineClear(t, pos, next, &prof) && (!prof.paths ||
+			footShortcutOK(s.World, pos, next, footWalkCost(s.World, pos, r.Points[r.Index])+footWalkCost(s.World, r.Points[r.Index], next))) {
 			r.Index++
 			continue
 		}
@@ -370,16 +373,29 @@ func planSkiRoute(t *world.Terrain, a, b mgl32.Vec2, prof *routeProfile, sc *rou
 		cells[i], cells[j] = cells[j], cells[i]
 	}
 	// Keep only the corners: from each kept point, the furthest one the
-	// line to which stays clear.
+	// line to which stays clear and, on foot by footpaths, is no slower
+	// than the cells it cuts out.
+	var cum []float32
+	if prof.paths {
+		cum = make([]float32, len(cells))
+		cum[0] = footWalkCost(prof.w, a, cells[0])
+		for k := 1; k < len(cells); k++ {
+			cum[k] = cum[k-1] + footWalkCost(prof.w, cells[k-1], cells[k])
+		}
+	}
 	var out []mgl32.Vec2
-	from := a
+	from, fromCost := a, float32(0)
 	for i := 0; i < len(cells); {
 		j := i
-		for j+1 < len(cells) && lineClear(t, from, cells[j+1], prof) {
+		for j+1 < len(cells) && lineClear(t, from, cells[j+1], prof) &&
+			(!prof.paths || footShortcutOK(prof.w, from, cells[j+1], cum[j+1]-fromCost)) {
 			j++
 		}
 		out = append(out, cells[j])
 		from = cells[j]
+		if prof.paths {
+			fromCost = cum[j]
+		}
 		i = j + 1
 	}
 	return out

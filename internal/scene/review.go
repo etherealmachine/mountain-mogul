@@ -81,10 +81,13 @@ func reviewChartSeries() []ui.ChartSeries {
 	)
 }
 
-// lastReviews is the last completed day's reviews and departures, or
-// today's so far before the first day is done.
+// lastReviews is today's reviews and departures so far once anyone has
+// left today, or else the last completed day's.
 func lastReviews(w *world.World) (world.ReviewTally, int, time.Time) {
 	h := w.History
+	if h.ReviewsToday.N > 0 {
+		return h.ReviewsToday, h.DepartReasonsToday[ai.DepartNoRentals], time.Time{}
+	}
 	if samples := h.Ordered(); len(samples) > 0 {
 		last := samples[len(samples)-1]
 		return last.Reviews, last.DepartReasons[ai.DepartNoRentals], last.Day
@@ -117,6 +120,10 @@ func reviewsTitle(w *world.World) string {
 	if t.N == 0 {
 		return "Reviews"
 	}
-	return fmt.Sprintf("Reviews: %.1f stars from %d guests (3 stars: %d, 2: %d, 1: %d)",
+	when := ""
+	if w.History.ReviewsToday.N > 0 {
+		when = " today so far"
+	}
+	return fmt.Sprintf("Reviews"+when+": %.1f stars from %d guests (3 stars: %d, 2: %d, 1: %d)",
 		t.Stars/float32(t.N), t.N, t.Levels[3], t.Levels[2], t.Levels[1])
 }

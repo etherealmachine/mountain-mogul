@@ -74,6 +74,24 @@ func (s *Simulation) logDaySummary(d world.DailySample, why ai.ThoughtKind) {
 	s.World.LogEvent(world.EventDaySummary, s.SimTime, msg)
 }
 
+// guestsSayMin is how many of today's reviews a complaint must have set
+// before the feed reports it.
+const guestsSayMin = 5
+
+// logGuestsSay reports, once a clock hour, the complaint behind most of
+// today's reviews below 3★ when it differs from the last one reported,
+// so the player hears what guests are unhappy about while it's happening.
+func (s *Simulation) logGuestsSay() {
+	h := s.World.History
+	why := h.TopWhy()
+	if why == ai.ThoughtNone || why == s.lastSaid || h.ReviewsToday.Why[why] < guestsSayMin {
+		return
+	}
+	s.lastSaid = why
+	s.World.LogEvent(world.EventGuestsSay, s.SimTime, fmt.Sprintf("Guests are saying %s (%d of %d today)",
+		ai.ThoughtLabel[why], h.ReviewsToday.Why[why], h.ReviewsToday.N))
+}
+
 // cellCentre converts a terrain cell index to its world XZ in metres.
 func cellCentre(cell [2]int) mgl32.Vec2 {
 	return mgl32.Vec2{float32(cell[0]) * world.CellSize, float32(cell[1]) * world.CellSize}

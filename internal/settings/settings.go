@@ -21,6 +21,8 @@ type Settings struct {
 	Units Units `json:"units"`
 	// HideDailyReport stops the profit/loss recap opening each midnight.
 	HideDailyReport bool `json:"hide_daily_report,omitempty"`
+	// NoNightPause stops the game pausing at each midnight.
+	NoNightPause bool `json:"no_night_pause,omitempty"`
 	// NoAntiAliasing turns off multisampled edges, for slower GPUs.
 	NoAntiAliasing bool `json:"no_anti_aliasing,omitempty"`
 }

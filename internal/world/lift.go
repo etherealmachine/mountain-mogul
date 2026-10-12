@@ -279,6 +279,13 @@ type Lift struct {
 	towerCache []mgl32.Vec2
 	// stationCache memoises StationXZs(), as towerCache does.
 	stationCache []mgl32.Vec2
+
+	// QueueFold is how many places of the single-file line run out
+	// from the base before it doubles back, 0 for a straight line;
+	// QueueFoldSide (+1 or -1 along lateralRight) is the side the lanes
+	// step out to. Set by UpdateQueueFolds; not saved.
+	QueueFold     int
+	QueueFoldSide float32
 }
 
 // LoopLength returns the total length of the chair loop in metres (2× cable length).
@@ -443,9 +450,8 @@ func (l *Lift) QueueRopeBoundaries() []float32 {
 // Slot 0 is the boarding spot at the base; slot N+1 sits QueueSpacing
 // further along queueDir. Cell-only callers (pathfinder) don't need Y.
 func (l *Lift) QueueSlotXZ(index int) (x, z float32) {
-	dirX, dirZ := l.queueDir()
-	return l.Base[0] + dirX*float32(index)*QueueSpacing,
-		l.Base[1] + dirZ*float32(index)*QueueSpacing
+	along, lat := l.queueSlotFrame(index)
+	return l.fromQueueFrame(along, lat)
 }
 
 // QueueSlotWorldPos returns the world-space position of the index-th

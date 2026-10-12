@@ -39,6 +39,10 @@ const (
 	// was miserable for the guest (their dislikes all the way down), and
 	// can't be great.
 	runMiserable = float32(-0.3)
+	// runGroomedWanted: a beginner who loves corduroy wants at least this
+	// share of a run groomed; less is a complaint and can't be a great
+	// run (Boreal Playtest).
+	runGroomedWanted = float32(0.4)
 	// First tracks: a powder lover (powder taste ≥ firstTracksLover) who
 	// skied fresh powder for at least firstTracksShare of the run. Fresh
 	// means a powder feature of freshPowderMin on a cell with less than
@@ -145,6 +149,13 @@ func (s *Simulation) judgeRun(a *world.Guest) {
 	if taste <= runMiserable {
 		s.applyEvent(a, ai.ThoughtMiserableRun, trail)
 	}
+	// Beginners who love corduroy need it: an ungroomed run is a
+	// complaint, not a great run.
+	wantedGroomed := a.Traits.Skill < ai.SkillIntermediateThreshold && a.Traits.Tastes.PrefersGroomed() &&
+		main >= 0 && r.Groomed < runGroomedWanted*r.Time
+	if wantedGroomed {
+		s.applyEvent(a, ai.ThoughtNotGroomed, trail)
+	}
 	if a.Traits.Tastes[ai.TastePowder] >= firstTracksLover && r.Fresh >= firstTracksShare*r.Time {
 		s.applyEvent(a, ai.ThoughtFirstTracks, trail)
 	}
@@ -159,7 +170,7 @@ func (s *Simulation) judgeRun(a *world.Guest) {
 	if mind := -a.Traits.Tastes[ai.TasteCrowds]; crowded && mind > 0.1 {
 		s.applyEvent(a, ai.ThoughtCrowdedRun, trail)
 	}
-	great := levelOK && !tooHard && !crowded && !fell && taste > runMiserable && r.StartY-a.Pos[1] >= greatRunMinVertical
+	great := levelOK && !tooHard && !crowded && !fell && !wantedGroomed && taste > runMiserable && r.StartY-a.Pos[1] >= greatRunMinVertical
 	if trail != 0 {
 		a.TrailTally = world.CountRun(a.TrailTally, trail, great)
 	}

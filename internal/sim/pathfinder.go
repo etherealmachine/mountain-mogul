@@ -126,14 +126,62 @@ func (p *Pathfinder) FindPath(from, to [2]int) [][2]int {
 	return p.corners(cells, open, paths)
 }
 
+// cellCentreXZ is cell c's centre in world XZ metres.
+func cellCentreXZ(c [2]int) mgl32.Vec2 {
+	return mgl32.Vec2{(float32(c[0]) + 0.5) * world.CellSize, (float32(c[1]) + 0.5) * world.CellSize}
+}
+
+// footWalkCost is the time to walk straight from a to b, in metres of
+// snow: footpath stretches count 1/FootpathSpeedup of their length.
+func footWalkCost(w *world.World, a, b mgl32.Vec2) float32 {
+	d := b.Sub(a)
+	length := d.Len()
+	n := int(length) + 1
+	step := length / float32(n)
+	var c float32
+	for i := 0; i < n; i++ {
+		q := a.Add(d.Mul((float32(i) + 0.5) / float32(n)))
+		// On the path itself, as walking speed reads it (not just in a
+		// path's cell), so a line along a path's edge isn't priced as on it.
+		if w.OnFootpath(q) {
+			c += step / world.FootpathSpeedup
+		} else {
+			c += step
+		}
+	}
+	return c
+}
+
+// footShortcutSlack is how much slower than the route a straight walk
+// may be and still replace it, metres of snow: room for rounding, not
+// enough to leave a path for the snow beside it.
+const footShortcutSlack = 0.5
+
+// footShortcutOK reports whether walking straight from a to b is no
+// slower than the route between them, which takes route (time) to walk.
+// With footpaths about, this keeps corner cutting from straightening a
+// route off the path the search chose (Boreal Playtest).
+func footShortcutOK(w *world.World, a, b mgl32.Vec2, route float32) bool {
+	return footWalkCost(w, a, b) <= route+footShortcutSlack
+}
+
 // corners cuts a cell route down to its start, its corners and its end:
 // from each kept cell, the furthest one the straight walk to which is
-// clear (walkClearLine).
+// clear (walkClearLine) and, with footpaths about, no slower than the
+// route it replaces.
 func (p *Pathfinder) corners(cells [][2]int, open func([2]int) bool, paths bool) [][2]int {
+	var cum []float32
+	if paths {
+		cum = make([]float32, len(cells))
+		for k := 1; k < len(cells); k++ {
+			cum[k] = cum[k-1] + footWalkCost(p.world, cellCentreXZ(cells[k-1]), cellCentreXZ(cells[k]))
+		}
+	}
 	out := [][2]int{cells[0]}
 	for i := 0; i < len(cells)-1; {
 		j := i + 1
-		for j+1 < len(cells) && p.walkClearLine(cells[i], cells[j+1], open, paths) {
+		for j+1 < len(cells) && p.walkClearLine(cells[i], cells[j+1], open) &&
+			(!paths || footShortcutOK(p.world, cellCentreXZ(cells[i]), cellCentreXZ(cells[j+1]), cum[j+1]-cum[i])) {
 			j++
 		}
 		out = append(out, cells[j])
@@ -148,13 +196,9 @@ func (p *Pathfinder) corners(cells [][2]int, open func([2]int) bool, paths bool)
 const pathLineSpread = 1.0
 
 // walkClearLine reports whether the straight walk from cell a's centre to
-// cell b's crosses only open cells, and, when both are on a footpath,
-// stays on footpath cells.
-func (p *Pathfinder) walkClearLine(a, b [2]int, open func([2]int) bool, paths bool) bool {
-	centre := func(c [2]int) mgl32.Vec2 {
-		return mgl32.Vec2{(float32(c[0]) + 0.5) * world.CellSize, (float32(c[1]) + 0.5) * world.CellSize}
-	}
-	pa, pb := centre(a), centre(b)
+// cell b's crosses only open cells.
+func (p *Pathfinder) walkClearLine(a, b [2]int, open func([2]int) bool) bool {
+	pa, pb := cellCentreXZ(a), cellCentreXZ(b)
 	d := pb.Sub(pa)
 	length := d.Len()
 	if length < 1e-3 {
@@ -169,7 +213,6 @@ func (p *Pathfinder) walkClearLine(a, b [2]int, open func([2]int) bool, paths bo
 	}
 	inside := t.IsAccessible(a[0], a[1])
 	keepSide := inside == t.IsAccessible(b[0], b[1])
-	keepToPath := paths && p.world.FootpathCell(a[0], a[1]) && p.world.FootpathCell(b[0], b[1])
 	n := int(length) + 1
 	for i := 0; i <= n; i++ {
 		q := pa.Add(d.Mul(float32(i) / float32(n)))
@@ -177,12 +220,6 @@ func (p *Pathfinder) walkClearLine(a, b [2]int, open func([2]int) bool, paths bo
 			r := q.Add(o)
 			c := [2]int{int(r[0] / world.CellSize), int(r[1] / world.CellSize)}
 			if !open(c) || keepSide && t.InBounds(c[0], c[1]) && t.IsAccessible(c[0], c[1]) != inside {
-				return false
-			}
-		}
-		if keepToPath {
-			c := [2]int{int(q[0] / world.CellSize), int(q[1] / world.CellSize)}
-			if !p.world.FootpathCell(c[0], c[1]) {
 				return false
 			}
 		}

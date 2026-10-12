@@ -164,11 +164,14 @@ func Extract(a *world.Guest, w *world.World) WorldSnapshot {
 		if !l.Open || l.OnHold {
 			continue
 		}
-		if sqDistXZ(a.Pos, l.Base[0], l.Base[1]) < r2 {
+		// Near the base counts only while the line is short: with a
+		// long one they join at its back, not its front (Boreal
+		// Playtest: arrivals walked back through the whole line).
+		qback := l.BackOfQueueWorldPos(w.Terrain)
+		if sqDistXZ(a.Pos, l.Base[0], l.Base[1]) < r2 && sqDistXZ(qback, l.Base[0], l.Base[1]) < r2 {
 			snap.AtLiftBase = l.ID
 			return snap
 		}
-		qback := l.BackOfQueueWorldPos(w.Terrain)
 		if sqDistXZ(a.Pos, qback[0], qback[2]) < qArrR2 {
 			snap.AtLiftBase = l.ID
 			return snap

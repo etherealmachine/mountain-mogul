@@ -512,6 +512,7 @@ type Scenario struct {
 	// from the first dt so the first frame doesn't read as 0 fps.
 	fpsSmoothed   float32
 	paused        bool
+	nightPause    bool    // pause at each midnight, behind the day report (games, not testbeds)
 	pace          int     // index into dayPaces
 	fixedScale    float64 // a fixed time scale from the command line; 0 uses the pace
 	popup         *ui.Window
@@ -630,8 +631,9 @@ const (
 // dayPaces are the speed buttons: the real seconds a game day takes at
 // normal, fast, and fastest (Season Calendar). The hours from
 // activeFromHour to activeToHour share the pace less quietSeconds; the
-// quiet rest of the day (night, or a day the resort is closed, with
-// nobody on the mountain) passes in quietSeconds. Nothing runs faster
+// quiet rest of the day (night, with nobody on the mountain) passes in
+// quietSeconds. A closed resort's day runs at the pace too, so the
+// buttons work before opening (Boreal Playtest). Nothing runs faster
 // than the fastest button. The sim substeps internally (see Simulation.Tick), so a fast pace only costs
 // CPU; when a busy day needs more than the CPU has, the day runs slower
 // than its pace. Pause is its own button, not in this list. Normal is
@@ -656,10 +658,10 @@ func paceScale(pace float64, quiet bool) float64 {
 }
 
 // quietNow reports whether the mountain is quiet: outside the active
-// hours or closed for the day, with no guests or cars about.
+// hours, with no guests or cars about.
 func (s *Scenario) quietNow() bool {
 	h := sim.HourOfDay(s.sim.SimTime)
-	if h >= activeFromHour && h < activeToHour && s.world.ResortOpen {
+	if h >= activeFromHour && h < activeToHour {
 		return false
 	}
 	return len(s.world.OnMountain) == 0 && len(s.world.Cars) == 0
@@ -690,6 +692,10 @@ func NewScenarioFromFile(path string) *Scenario {
 	s := &Scenario{
 		scenarioPath: path,
 		saveAllowed:  true,
+		// A game opens paused, so the player can look around and build
+		// before the clock runs.
+		paused:     true,
+		nightPause: true,
 	}
 	// If the file came from the user's saves directory, seed saveName with
 	// its basename so Save defaults to overwriting the same slot.
@@ -783,6 +789,12 @@ func (s *Scenario) SetDayPace(secs float64) float64 {
 	}
 	s.pace, s.fixedScale, s.paused = best, 0, false
 	return dayPaces[best]
+}
+
+// KeepRunning unpauses and turns off the nightly pause, for -screenshot
+// runs that warm up across days.
+func (s *Scenario) KeepRunning() {
+	s.paused, s.nightPause = false, false
 }
 
 func (s *Scenario) SetTimeScale(mult float64) {
@@ -1037,6 +1049,9 @@ func (s *Scenario) Init(app *engine.App) error {
 			return 0
 		}
 		return s.world.Rating
+	}
+	s.topBar.GetRatingToday = func() (float32, bool) {
+		return s.world.History.DayRating()
 	}
 	s.topBar.GetDate = func() (int, string, int) {
 		d := sim.CalendarAt(s.world.StartDate, s.sim.SimTime)

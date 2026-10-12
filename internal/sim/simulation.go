@@ -69,6 +69,9 @@ type Simulation struct {
 	// lastHour is the index (SimTime / simSecondsPerHour) of the most
 	// recent clock hour whose hourly effects (melt) have run.
 	lastHour int
+	// lastSaid is the complaint the event feed last reported as the
+	// day's most common (logGuestsSay); cleared at rollover.
+	lastSaid ai.ThoughtKind
 
 	// Demand owns the global skier pool and resort rating. The
 	// per-30-sim-seconds poll fires from Tick.
@@ -219,6 +222,7 @@ func NewSimulationWithSeed(w *world.World, seed int64) *Simulation {
 	// (SeasonSnowpack) and an October start opens on October weather.
 	sim.Weather.RunUpTo(sim.DateAt(w.SimTime))
 	sim.refreshTrailConditions()
+	w.UpdateQueueFolds()
 	sim.closedForDay = sim.ClosedForDay()
 	w.ClosedForDay = sim.closedForDay
 	sim.yesterday = sim.Weather.Advance(sim.DateAt(w.SimTime))
@@ -848,7 +852,7 @@ func (s *Simulation) spawnGuestAt(lot *world.Building, g *world.Guest, pos mgl32
 	g.Heading = 0
 	g.Speed = 0
 	g.Balance = 1.0
-	g.SkisOn = true
+	g.SkisOn = false // carried from the car; on at the snow
 	g.Patience = 1.0
 	g.Energy = 1.0
 	g.Hunger = 0.5 + rng.Global().Float32()*0.5
@@ -1047,6 +1051,7 @@ func (s *Simulation) maybeSampleHistory() {
 		s.logDaySummary(sample, why)
 		s.checkGoals(dayIdx, sample)
 		s.lastSampledDay++
+		s.lastSaid = ai.ThoughtNone
 
 		// Play the rest of the ended game day's real days, then advance
 		// the weather to the new day and apply its terrain effects.
@@ -1355,7 +1360,10 @@ func (s *Simulation) applyKindTransition(evt weatherEvent) {
 func (s *Simulation) tickHourly() {
 	idx := int(s.SimTime / simSecondsPerHour)
 	if s.lastHour < idx {
+		// Lift lines fold before lots and buildings built since.
+		s.World.UpdateQueueFolds()
 		defer s.refreshTrailConditions()
+		defer s.logGuestsSay()
 	}
 	for s.lastHour < idx {
 		mid := (float64(s.lastHour) + 0.5) * simSecondsPerHour
@@ -1758,7 +1766,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 			int(math.Floor(float64(a.Pos[0] / CellSize))),
 			int(math.Floor(float64(a.Pos[2] / CellSize))),
 		}
-		if path := s.Pathfinder.FindPath(startCell, lift.QueueCell()); path != nil {
+		if path := s.Pathfinder.FindPath(startCell, lift.BackOfQueueCell()); path != nil {
 			a.Path = path
 			a.PathIdx = 0
 		} else {
@@ -2393,7 +2401,7 @@ func planTargetWorldPos(w *world.World, a *world.Guest) (mgl32.Vec3, bool) {
 	switch step.Kind {
 	case ai.ActWalkToLift, ai.ActSkiToLift:
 		if l := findLiftByID(w, step.LiftID); l != nil {
-			return l.BackOfQueueWorldPos(w.Terrain), true
+			return liftApproachWorldPos(w, l, a), true
 		}
 	case ai.ActSkiToService, ai.ActSkiToParking, ai.ActWalkToParking, ai.ActWalkToTicketOffice, ai.ActWalkToService:
 		if b := findBuildingByID(w, step.BldgID); b != nil {
@@ -2820,8 +2828,9 @@ func resolveTarget(w *world.World, id uint64, a *world.Guest) (mgl32.Vec3, bool)
 			// Aim for the back of the queue, not the base anchor —
 			// pulled each locomotion tick so the target shifts as the
 			// queue grows (more skiers behind us) or shrinks (boarders
-			// peel off the front).
-			return l.BackOfQueueWorldPos(w.Terrain), true
+			// peel off the front) — by way of round the line when
+			// it's in the way.
+			return liftApproachWorldPos(w, l, a), true
 		}
 	}
 	for _, b := range w.Buildings {
@@ -2830,6 +2839,16 @@ func resolveTarget(w *world.World, id uint64, a *world.Guest) (mgl32.Vec3, bool)
 		}
 	}
 	return mgl32.Vec3{}, false
+}
+
+// liftApproachWorldPos is where a heads for lift l's line: the back of
+// it, by way of round the line when it's in the way (QueueApproachXZ).
+func liftApproachWorldPos(w *world.World, l *world.Lift, a *world.Guest) mgl32.Vec3 {
+	if len(l.Lines) > 0 {
+		return l.BackOfQueueWorldPos(w.Terrain)
+	}
+	p := l.QueueApproachXZ(mgl32.Vec2{a.Pos[0], a.Pos[2]})
+	return mgl32.Vec3{p[0], w.Terrain.InterpolatedSurfaceElevationAt(p[0], p[1]), p[1]}
 }
 
 // findBuilding returns the building with the given ID, or nil.

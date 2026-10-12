@@ -23,6 +23,7 @@ const (
 	EventResortClosed     EventKind = 9  // player closed the resort at a ticket office
 	EventGoal             EventKind = 10 // a scenario goal met or missed
 	EventScenario         EventKind = 11 // the scenario won or lost
+	EventGuestsSay        EventKind = 12 // the day's most common complaint so far, when it changes
 )
 
 // Event is one entry in the World-level event feed: something the player

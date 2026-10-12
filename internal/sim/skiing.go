@@ -593,9 +593,13 @@ func mustWalk(w *world.World, x, z float32) bool {
 // no transition is already in progress.
 func (s *Simulation) maybeStartSkiTransition(a *world.Guest) {
 	walk := mustWalk(s.World, a.Pos[0], a.Pos[2])
-	if walk && a.SkisOn {
+	// On a walk to a building or car, skis come off (even on snow) and
+	// stay off; renters have none to put on (Boreal Playtest: walkers
+	// clipped in on every patch of snow on the way to the door).
+	walking := onWalkErrand(a)
+	if (walk || walking) && a.SkisOn {
 		a.SkiTransitionTimer = skiChangeTime(a) // removing skis
-	} else if !walk && !a.SkisOn && !a.OnFoot && !a.Stash.Out {
+	} else if !walk && !walking && !a.SkisOn && !a.OnFoot && !a.Stash.Out && !a.NeedsGear {
 		// (Skis left in a rack or the snow are fetched first: gear.go.)
 		// Don't put skis back on when close to the destination — the guest
 		// is about to arrive and shouldn't re-equip for the last few metres.
@@ -609,6 +613,17 @@ func (s *Simulation) maybeStartSkiTransition(a *world.Guest) {
 		}
 		a.SkiTransitionTimer = -skiChangeTime(a) // putting skis on
 	}
+}
+
+// onWalkErrand reports whether a's plan step is a walk to a building or a
+// car, made with skis off. A walk to a lift isn't: they put their skis
+// on at the snow and shuffle to the line.
+func onWalkErrand(a *world.Guest) bool {
+	switch a.Plan.Head().Kind {
+	case ai.ActWalkToService, ai.ActWalkToTicketOffice, ai.ActWalkToParking:
+		return true
+	}
+	return false
 }
 
 // tickSkiTransition counts down the equip/unequip timer and flips SkisOn

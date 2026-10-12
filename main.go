@@ -349,6 +349,7 @@ func runScreenshot(opt screenshotOpts) {
 		sc = scene.NewScenarioFromFile(path)
 	}
 	app.PushScene(sc)
+	sc.KeepRunning()
 
 	if opt.regenForest {
 		seed := opt.forestSeed

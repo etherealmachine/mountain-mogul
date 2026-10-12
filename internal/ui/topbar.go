@@ -21,6 +21,10 @@ type TopBar struct {
 	GetCash   func() int
 	GetGuests func() int
 	GetRating func() float32 // stars, 1–5
+	// GetRatingToday, when set, is the average stars of the guests who
+	// have left so far today, and false before anyone has; the bar
+	// shows it live, with a tick at GetRating (the last full day).
+	GetRatingToday func() (float32, bool)
 
 	// Date + weather snapshot. Same callback pattern as stats so the bar
 	// doesn't hold any simulation state of its own.
@@ -347,7 +351,13 @@ func (t *TopBar) drawStats(r *render.Renderer) {
 		// Track background — darker inset look.
 		r.DrawColorRect(barX, barY, barW, barH, mgl32.Vec4{0.12, 0.14, 0.22, 1})
 		r.DrawColorRectOutline(barX, barY, barW, barH, mgl32.Vec4{0.30, 0.40, 0.62, 0.55})
-		stars := t.GetRating()
+		last := t.GetRating()
+		stars, today := last, false
+		if t.GetRatingToday != nil {
+			if s, ok := t.GetRatingToday(); ok {
+				stars, today = s, true
+			}
+		}
 		h := min(max((stars-1)/4, 0), 1)
 		fill := mgl32.Vec4{0.28, 0.82, 0.44, 1}
 		if h < 0.5 {
@@ -357,8 +367,13 @@ func (t *TopBar) drawStats(r *render.Renderer) {
 			fill = mgl32.Vec4{0.90, 0.28, 0.28, 1}
 		}
 		r.DrawColorRect(barX, barY, barW*h, barH, fill)
-		// The stars to the right of the bar.
 		text := fmt.Sprintf("%.1f stars", stars)
+		if today {
+			// A tick at the last full day's rating, to compare against.
+			lh := min(max((last-1)/4, 0), 1)
+			r.DrawColorRect(barX+barW*lh-1, barY-3, 2, barH+6, mgl32.Vec4{0.92, 0.95, 1.0, 0.9})
+			text = fmt.Sprintf("%.1f today", stars)
+		}
 		r.Font.DrawText(r, text, barX+barW+8, textY(2), valCol)
 	}
 }

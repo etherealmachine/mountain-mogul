@@ -17,9 +17,17 @@ var (
 	reportLoss   = mgl32.Vec4{1.0, 0.45, 0.4, 1}
 )
 
-// onDayRollover opens the profit/loss report for the day just closed,
-// replacing any earlier one still on screen (only the latest is shown).
+// onDayRollover pauses for the night (unless the player turned it off)
+// and opens the profit/loss report for the day just closed, replacing
+// any earlier one still on screen (only the latest is shown).
 func (s *Scenario) onDayRollover() {
+	if s.nightPause && !settings.Get().NoNightPause && !s.paused {
+		s.paused = true
+		s.syncSpeedButtons()
+		if settings.Get().HideDailyReport {
+			s.setToast("Paused for the night: press play to start the next day")
+		}
+	}
 	if settings.Get().HideDailyReport || s.world == nil || s.world.History == nil {
 		return
 	}
@@ -91,6 +99,19 @@ func (s *Scenario) openDayReport(d world.DailySample, prev *world.DailySample) {
 			settings.Get().HideDailyReport = !on
 			_ = settings.Save()
 		})
+	win.AddBoolToggle("Pause every night",
+		func() bool { return !settings.Get().NoNightPause },
+		func(on bool) {
+			settings.Get().NoNightPause = !on
+			_ = settings.Save()
+		})
+	if s.paused {
+		win.AddActionButton("Start the next day", func() {
+			win.Visible = false
+			s.paused = false
+			s.syncSpeedButtons()
+		})
+	}
 	win.AddActionButton("Open charts", func() {
 		win.Visible = false
 		s.chartWindow.Visible = true

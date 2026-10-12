@@ -491,6 +491,7 @@ const (
 	ThoughtPatrolSlow   // patrol took a long time to reach them
 	ThoughtGaveUp       // fell over and over on one descent; skis off, waiting for patrol
 	ThoughtLiftTooHard  // a novice put off a lift by the runs off its top
+	ThoughtNotGroomed   // a beginner who loves corduroy skied a mostly ungroomed run
 
 	thoughtKindSentinel // must stay last; equals the total count
 )
@@ -541,6 +542,7 @@ var Effects = [ThoughtKindCount]Effect{
 	ThoughtAbandoned:         {Class: Dealbreaker},
 	ThoughtGaveUp:            {Class: Dealbreaker},
 	ThoughtLiftTooHard:       {Class: Annoyance},
+	ThoughtNotGroomed:        {Class: Annoyance},
 	ThoughtHurtGoingHome:     {Class: Letdown},
 	ThoughtHitTree:           {Class: Annoyance},
 	ThoughtCaughtInAvalanche: {Class: Dealbreaker},
@@ -662,6 +664,7 @@ var thoughtText = [ThoughtKindCount]string{
 	ThoughtAbandoned:         "no one came to help me",
 	ThoughtGaveUp:            "I keep falling, I can't get down this",
 	ThoughtLiftTooHard:       "the lifts here look too difficult for me",
+	ThoughtNotGroomed:        "I wish they'd groom the runs",
 	ThoughtLongLine:          "this line is way too long",
 	ThoughtLineTooLong:       "that line will take forever",
 	ThoughtNeedsLodge:        "this place needs a lodge",
@@ -739,6 +742,7 @@ var ThoughtChartColor = [ThoughtKindCount][4]float32{
 	ThoughtAbandoned:         {0.60, 0.10, 0.80, 1},
 	ThoughtGaveUp:            {0.85, 0.20, 0.20, 1},
 	ThoughtLiftTooHard:       {0.75, 0.55, 0.45, 1},
+	ThoughtNotGroomed:        {0.75, 0.55, 0.45, 1},
 	ThoughtLongLine:          {0.80, 0.45, 0.70, 1},
 	ThoughtLineTooLong:       {0.70, 0.30, 0.60, 1},
 	ThoughtNeedsLodge:        {0.60, 0.50, 0.80, 1},
@@ -906,6 +910,10 @@ func (t Thought) Display(resolve func(uint64) string) string {
 	case ThoughtGaveUp:
 		if n := name(0); n != "" {
 			return "I keep falling on " + n + ", I can't get down"
+		}
+	case ThoughtNotGroomed:
+		if n := name(0); n != "" {
+			return "I wish they'd groom " + n
 		}
 	case ThoughtLiftTooHard:
 		if n := name(0); n != "" {
