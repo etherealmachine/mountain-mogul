@@ -27,6 +27,8 @@ import (
 //     search and no fan of hazard samples. Their physics, tracks, snow,
 //     falls, and swerving round whoever's close are their own.
 //   - The leader waits at the top of a lift for followers still riding it.
+//     Whoever waits there moves off the unload to a spot of their own
+//     (holdAt), the group side by side.
 //
 // A follower who loses the group (a fall, a different lift) skis and
 // plans as a guest alone until a copy fits again.
@@ -61,6 +63,7 @@ const (
 	offLost            // too far from the line
 	offHead            // at its head, level with or ahead of the leader
 	offLong            // on the same descent for followRunSec
+	offLeaderOff       // the leader's off the snow: indoors, or skis off
 	offReasons
 )
 
@@ -279,6 +282,7 @@ func (s *Simulation) takePlan(a *world.Guest, p ai.Plan, gen uint32, step int) {
 	a.Plan = p
 	a.Plan.Step = step
 	a.Party.Gen, a.Party.PlanAt, a.Party.WaitSince = gen, s.SimTime, 0
+	s.endWait(a)
 	s.groupStats.Copied++
 	if p.GoalName == (goap.GoHome{}).Name() {
 		why := s.departReasonFor(a)
@@ -434,6 +438,7 @@ func (s *Simulation) followPlan(a *world.Guest) bool {
 		s.groupStats.OwnWhy[ownBroke]++
 	}
 	a.Party.WaitSince = 0
+	s.endWait(a)
 	return false
 }
 
@@ -469,9 +474,11 @@ func (s *Simulation) joinLeader(a *world.Guest) bool {
 const followWaitSec = 600.0
 
 // waiting has the follower a stand and wait, and reports whether they
-// still will: false once they've waited followWaitSec.
+// still will: false once they've waited followWaitSec. At the top of a
+// lift they stand at a spot of their own (holdAt).
 func (s *Simulation) waiting(a *world.Guest) bool {
-	if a.Party.WaitSince == 0 {
+	first := a.Party.WaitSince == 0
+	if first {
 		a.Party.WaitSince = s.SimTime
 	}
 	if s.SimTime-a.Party.WaitSince > followWaitSec {
@@ -480,7 +487,26 @@ func (s *Simulation) waiting(a *world.Guest) bool {
 	a.TargetID, a.Path, a.PathIdx, a.Speed = 0, nil, 0, 0
 	a.Plan.Target = mgl32.Vec3{}
 	s.groupStats.Waits++
+	lift := a.Party.TopLift
+	if lift == 0 {
+		lift = a.Party.HoldLift
+	}
+	if lift == 0 && first {
+		lift = s.planFrom(a).LiftTop
+	}
+	if lift != 0 {
+		s.holdAt(a, lift)
+	}
 	return true
+}
+
+// endWait gives up the follower a's spot when they're done waiting for
+// the leader, unless they're still holding at the top for them
+// (holdForGroup).
+func (s *Simulation) endWait(a *world.Guest) {
+	if a.Party.TopLift == 0 {
+		a.Party.HoldLift = 0
+	}
 }
 
 // leaderOnLift reports whether the leader l is in lift's line, on it, or
@@ -539,15 +565,33 @@ func (s *Simulation) boardFollower(a *world.Guest, lift *world.Lift) bool {
 const leaderWaitSec = 60.0
 
 // holdForGroup reports whether a should stand at the top of the lift
+// they've just ridden (waitsForGroup), and moves them to their spot
+// there (holdAt) when they should.
+func (s *Simulation) holdForGroup(a *world.Guest) bool {
+	if !s.waitsForGroup(a) {
+		if a.Party.WaitSince == 0 {
+			a.Party.HoldLift = 0
+		}
+		return false
+	}
+	lift := a.Party.TopLift
+	if a.Party.Leader == nil {
+		lift = a.Run.LiftID
+	}
+	s.holdAt(a, lift)
+	return true
+}
+
+// waitsForGroup reports whether a should stand at the top of the lift
 // they've just ridden: a follower whose leader is still in its line or on
 // it, or a leader with followers still on it.
-func (s *Simulation) holdForGroup(a *world.Guest) bool {
+func (s *Simulation) waitsForGroup(a *world.Guest) bool {
 	if l := a.Party.Leader; l != nil {
 		if a.Party.TopLift == 0 {
 			return false
 		}
 		if s.SimTime-a.Party.TopSince < followWaitSec && !l.Removed &&
-			(s.leaderOnLift(l, a.Party.TopLift) || l.Run.LiftID == a.Party.TopLift && s.holdForGroup(l)) {
+			(s.leaderOnLift(l, a.Party.TopLift) || l.Run.LiftID == a.Party.TopLift && s.waitsForGroup(l)) {
 			return true
 		}
 		a.Party.TopLift = 0
@@ -562,6 +606,133 @@ func (s *Simulation) holdForGroup(a *world.Guest) bool {
 		}
 	}
 	return false
+}
+
+// Waiting at the top of a lift, a guest moves off where the unload left
+// them (in everyone's way, on top of the rest) to a spot of their own:
+// holdOut metres further out, away from the lift line; a member of a
+// group with someone there already holdFan metres across the slope from
+// them; anyone else holdStep metres further out at a time until no one
+// else waiting there is within holdClear. Only within holdNear metres of
+// the top. A spot not stood at for holdStale seconds is free.
+const (
+	holdOut   = float32(4)
+	holdFan   = float32(1.5)
+	holdStep  = float32(3)
+	holdClear = float32(2.5)
+	holdNear  = float32(40)
+	holdTries = 8
+	holdStale = 2.0
+	// holdShuffle is how fast, in m/s, they shuffle the last metres
+	// (tickWalkToward stops within ArrivalThreshold).
+	holdShuffle = float32(0.5)
+)
+
+// holdAt has a, waiting for their group at the top of lift, walk to
+// their spot there, picked the first time, and stand on it facing down
+// the hill.
+func (s *Simulation) holdAt(a *world.Guest, lift uint64) {
+	p := &a.Party
+	if p.HoldLift != lift || s.SimTime-p.HoldAt > holdStale {
+		l := findLiftByID(s.World, lift)
+		if l == nil || (mgl32.Vec2{a.Pos[0], a.Pos[2]}).Sub(l.Top).Len() > holdNear {
+			p.HoldLift = 0
+			a.Speed = 0 // waiting where they are
+			return
+		}
+		p.HoldSpot, p.HoldLift, p.HoldAt = s.holdSpot(a, l), lift, s.SimTime
+	}
+	dt := s.SimTime - p.HoldAt // 0 when already moved this step
+	p.HoldAt = s.SimTime
+	t := s.World.Terrain
+	to := p.HoldSpot.Sub(mgl32.Vec2{a.Pos[0], a.Pos[2]})
+	if d := to.Len(); d > ArrivalThreshold {
+		s.tickWalkToward(a, mgl32.Vec3{p.HoldSpot[0], t.InterpolatedSurfaceElevationAt(p.HoldSpot[0], p.HoldSpot[1]), p.HoldSpot[1]}, dt)
+		return
+	} else if d > 0.05 {
+		step := min(holdShuffle*float32(dt), d)
+		a.Pos[0] += to[0] / d * step
+		a.Pos[2] += to[1] / d * step
+		a.Pos[1] = t.InterpolatedSurfaceElevationAt(a.Pos[0], a.Pos[2])
+	}
+	a.Speed = 0
+	if fx, fz := fallLine(t, a.Pos); fx != 0 || fz != 0 {
+		a.Heading = float32(math.Atan2(float64(fx), float64(fz)))
+	}
+}
+
+// holdSpot picks where a waits at the top of lift l (see holdOut).
+func (s *Simulation) holdSpot(a *world.Guest, l *world.Lift) mgl32.Vec2 {
+	w := s.World
+	var mine, others []mgl32.Vec2
+	for _, o := range w.OnMountain {
+		if o == a || o.Removed || o.Party.HoldLift != l.ID || s.SimTime-o.Party.HoldAt > holdStale {
+			continue
+		}
+		if a.GroupID != 0 && o.GroupID == a.GroupID {
+			mine = append(mine, o.Party.HoldSpot)
+		} else {
+			others = append(others, o.Party.HoldSpot)
+		}
+	}
+	free := func(c mgl32.Vec2, near []mgl32.Vec2, clear float32) bool {
+		if mustWalk(w, c[0], c[1]) || w.Terrain.TreeCoverAt(c[0], c[1]) > inTreesThreshold || l.InStationFootprint(c, 1) {
+			return false
+		}
+		for _, o := range near {
+			if o.Sub(c).Len() < clear {
+				return false
+			}
+		}
+		return true
+	}
+	if len(mine) > 0 {
+		// Beside the group: across the slope from the first of them,
+		// one side then the other, a little further out each pair.
+		at := mine[0]
+		fx, fz := fallLine(w.Terrain, mgl32.Vec3{at[0], 0, at[1]})
+		across := mgl32.Vec2{-fz, fx}
+		if fx == 0 && fz == 0 {
+			across = l.Top.Sub(l.Base).Normalize()
+		}
+		for k := 1; k <= 2*holdTries; k++ {
+			off := holdFan * float32((k+1)/2)
+			if k%2 == 0 {
+				off = -off
+			}
+			if c := at.Add(across.Mul(off)); free(c, mine, holdFan*0.9) {
+				return c
+			}
+		}
+	}
+	// Out from where they stopped: the way the unload turned them, and
+	// away from the lift line, on whichever side of it they are.
+	pos := mgl32.Vec2{a.Pos[0], a.Pos[2]}
+	head := mgl32.Vec2{float32(math.Sin(float64(a.Heading))), float32(math.Cos(float64(a.Heading)))}
+	up := l.Top.Sub(l.Base)
+	if n := up.Len(); n > 1e-3 {
+		up = up.Mul(1 / n)
+	}
+	side := mgl32.Vec2{up[1], -up[0]}
+	off := pos.Sub(l.Top).Dot(side)
+	if math.Abs(float64(off)) < 0.5 {
+		off = head.Dot(side)
+	}
+	if off < 0 {
+		side = side.Mul(-1)
+	}
+	out := head.Add(side)
+	if n := out.Len(); n > 1e-3 {
+		out = out.Mul(1 / n)
+	} else {
+		out = side
+	}
+	for i := 0; i < holdTries; i++ {
+		if c := pos.Add(out.Mul(holdOut + holdStep*float32(i))); free(c, others, holdClear) {
+			return c
+		}
+	}
+	return pos.Add(out.Mul(holdOut))
 }
 
 // crumbSpacing is how far apart, in metres, a leader drops crumbs, and
@@ -651,6 +822,11 @@ func (s *Simulation) follows(a *world.Guest) (*world.Guest, int8) {
 		return nil, offNotDown
 	case descentEnd(&a.Plan) != c.End && descentEnd(&a.Plan) != c.PrevEnd:
 		return nil, offOtherEnd
+	case !l.SkisOn || l.RestTimer > 0 || l.Visit.Waiting || l.Plan.Head().Kind == ai.ActUseService:
+		// Following them in would step onto bare ground, lose their
+		// skis, walk back to the snow and put them on again, over and
+		// over (Boreal Playtest).
+		return nil, offLeaderOff
 	}
 	return l, onLine
 }

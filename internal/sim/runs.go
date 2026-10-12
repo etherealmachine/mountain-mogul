@@ -40,9 +40,12 @@ const (
 	// can't be great.
 	runMiserable = float32(-0.3)
 	// runGroomedWanted: a beginner who loves corduroy wants at least this
-	// share of a run groomed; less is a complaint and can't be a great
+	// share of a run on groomed snow (runGroomedTell); less is a complaint and can't be a great
 	// run (Boreal Playtest).
 	runGroomedWanted = float32(0.4)
+	// runGroomedTell is the grooming from which a cell still skis as
+	// groomed: corduroy worn by the day's skiers still counts.
+	runGroomedTell = float32(0.25)
 	// First tracks: a powder lover (powder taste ≥ firstTracksLover) who
 	// skied fresh powder for at least firstTracksShare of the run. Fresh
 	// means a powder feature of freshPowderMin on a cell with less than
@@ -79,6 +82,9 @@ func (s *Simulation) recordRun(a *world.Guest, cell *world.Cell, cx, cz int, gro
 	r.Time += dt
 	r.Distance += a.Speed * dt
 	r.Groomed += grooming * dt
+	if grooming >= runGroomedTell {
+		r.OnGroom += dt
+	}
 	r.Taste += match * dt
 	if cell != nil && powder >= freshPowderMin && cell.SkierTraffic < freshTrafficMax {
 		r.Fresh += dt
@@ -152,7 +158,7 @@ func (s *Simulation) judgeRun(a *world.Guest) {
 	// Beginners who love corduroy need it: an ungroomed run is a
 	// complaint, not a great run.
 	wantedGroomed := a.Traits.Skill < ai.SkillIntermediateThreshold && a.Traits.Tastes.PrefersGroomed() &&
-		main >= 0 && r.Groomed < runGroomedWanted*r.Time
+		main >= 0 && r.OnGroom < runGroomedWanted*r.Time
 	if wantedGroomed {
 		s.applyEvent(a, ai.ThoughtNotGroomed, trail)
 	}

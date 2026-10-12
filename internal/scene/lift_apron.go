@@ -15,10 +15,13 @@ import (
 // package-level so they're easy to find.
 
 // Lift station ground. Nothing is built up: each station gets a flat
-// apron in front of the lift post, the side skiers face: where they
-// queue and load at the base, and ski off after unloading at the top.
-// That's the bullwheel side, away from the cable (lift_station.scad's
-// beam reaches 6.5 m that way). Around the apron the earthwork moves only
+// apron from its bullwheel back away from the cable, under the terminal,
+// its portal frame and hut (lift_station.scad; world.Lift.StationBoxes)
+// and either side of them: where guests queue between the legs and load
+// at the base, and at the top where riders, having stood up under the
+// hood's front and peeled off sideways in front of the frame, come round
+// beside the hut (sim: tickUnloading) to the runs that start there
+// (world.Lift.TopRunEnd). Around the apron the earthwork moves only
 // the ground it must: anything steeper than liftApronMaxGrade from the
 // apron's edge is cut down or filled up to that grade, and ground already
 // within it is left alone, so the banks end where they meet the hill.
@@ -27,7 +30,7 @@ import (
 // lidar detail where there is one, so the apron is really level.
 const (
 	liftCorridorHalfWidth = float32(12.0) // → 24 m wide maintenance lane
-	liftApronDepth        = float32(8.0)  // flat metres in front of the post, away from the cable
+	liftApronDepth        = float32(8.0)  // flat metres back from the bullwheel, away from the cable
 	liftApronHalfWidth    = float32(6.0)  // flat metres either side of the cable axis
 	liftApronMaxBank      = float32(24.0) // furthest the grade is held from the apron's edge
 	liftApronToe          = float32(8.0)  // metres past that over which the bank fades back to the hill

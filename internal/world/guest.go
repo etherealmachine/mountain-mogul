@@ -105,6 +105,13 @@ type Guest struct {
 	// same ID space is used for buildings and lifts so this disambiguates
 	// itself at lookup time.
 	TargetID uint64
+	// LineWay is the point on the way round a lift line (LineWayLift's)
+	// they're walking to, chosen at LineWayAt and kept until reached, so
+	// a guest near the line doesn't flip between two ways (sim's
+	// liftApproachWorldPos). Not saved.
+	LineWay     mgl32.Vec2
+	LineWayLift uint64
+	LineWayAt   float64
 
 	// Implicit-state markers.
 	OnLiftID        uint64 // nonzero ⇒ riding the named lift's chair (locomotion is suspended)
@@ -462,6 +469,7 @@ type Run struct {
 	Steep    float32    // seconds well past the guest's ComfortSlope (sim.runSteepMargin)
 	Crowd    float32    // skiers nearby × seconds
 	Groomed  float32    // grooming × seconds
+	OnGroom  float32    // seconds on snow still groomed enough to tell (sim.runGroomedTell)
 	Taste    float32    // how well the snow suited the guest (Σ taste × feature) × seconds
 	Fresh    float32    // seconds on fresh powder nobody had skied since it fell
 	Falls    int        // times down on this descent (sim.fallGiveUpCount)

@@ -126,10 +126,12 @@ func (t *Trail) Length() float32 {
 }
 
 // endTarget is where an attached end sits and the cell it must cover:
-// a lift's top or base station; for a building or trail, the node's own
-// spot (placed there when it was attached). ok is false when the thing
-// it's attached to is gone.
-func (w *World) endTarget(e TrailEnd, at mgl32.Vec2) (pos mgl32.Vec2, cell [2]int, ok bool) {
+// beside a lift's top station, clear of it on the side toward next (the
+// run's neighbouring node; Lift.TopRunEnd), still covering the top's
+// cell so the run connects; a lift's base station; for a building or
+// trail, the node's own spot (placed there when it was attached). ok is
+// false when the thing it's attached to is gone.
+func (w *World) endTarget(e TrailEnd, at, next mgl32.Vec2) (pos mgl32.Vec2, cell [2]int, ok bool) {
 	switch e.Kind {
 	case KindLiftTop, KindLiftBase:
 		for _, l := range w.Lifts {
@@ -137,7 +139,7 @@ func (w *World) endTarget(e TrailEnd, at mgl32.Vec2) (pos mgl32.Vec2, cell [2]in
 				continue
 			}
 			if e.Kind == KindLiftTop {
-				return l.Top, l.TopCell(), true
+				return l.TopRunEnd(next), l.TopCell(), true
 			}
 			return l.Base, l.QueueCell(), true
 		}
@@ -166,11 +168,11 @@ func (w *World) ShapeTrail(t *Trail) {
 			if !e.Set || len(t.Nodes) == 0 {
 				continue
 			}
-			ni := 0
+			ni, nn := 0, min(1, len(t.Nodes)-1)
 			if i == 1 {
-				ni = len(t.Nodes) - 1
+				ni, nn = len(t.Nodes)-1, max(len(t.Nodes)-2, 0)
 			}
-			pos, cell, ok := w.endTarget(*e, t.Nodes[ni].Pos)
+			pos, cell, ok := w.endTarget(*e, t.Nodes[ni].Pos, t.Nodes[nn].Pos)
 			if !ok {
 				*e = TrailEnd{}
 				continue

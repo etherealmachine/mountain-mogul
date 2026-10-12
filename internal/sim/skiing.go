@@ -110,9 +110,10 @@ const (
 	// like it does for trees. The radii are how far from a hazard a
 	// sample point starts seeing penalty — picked so the corridor sweep
 	// catches them well before the skier brushes through.
-	towerHazardRadius = 5.0                     // lift towers are 0.6–0.9 m poles; the radius gives ~4 m of carving room
-	skierHazardRadius = 2.5                     // ski-width is ~0.6 m; the radius is "don't ski into someone's blind spot"
-	trunkHazardRadius = world.TrunkHazardRadius // 3 m; a trunk is ~0.4 m across; the radius steers a skier around one specific tree
+	towerHazardRadius   = 5.0                     // lift towers are 0.6–0.9 m poles; the radius gives ~4 m of carving room
+	skierHazardRadius   = 2.5                     // ski-width is ~0.6 m; the radius is "don't ski into someone's blind spot"
+	stationHazardRadius = 3.0                     // from the edge of a station's footprint (stationHazards): skiers keep out from under it
+	trunkHazardRadius   = world.TrunkHazardRadius // 3 m; a trunk is ~0.4 m across; the radius steers a skier around one specific tree
 
 	// Tree collisions: a skier whose position comes within trunkHitRadius
 	// of a trunk while moving toward it faster than trunkHitMinSpeed hits
@@ -599,7 +600,9 @@ func (s *Simulation) maybeStartSkiTransition(a *world.Guest) {
 	walking := onWalkErrand(a)
 	if (walk || walking) && a.SkisOn {
 		a.SkiTransitionTimer = skiChangeTime(a) // removing skis
-	} else if !walk && !walking && !a.SkisOn && !a.OnFoot && !a.Stash.Out && !a.NeedsGear {
+	} else if !walk && !walking && a.Plan.Head().Kind != ai.ActWalkToLift && !a.SkisOn && !a.OnFoot && !a.Stash.Out && !a.NeedsGear {
+		// (A walk to a lift carries them: they go on in the line, so a
+		// walk over patchy snow doesn't stop to put them on and lose them.)
 		// (Skis left in a rack or the snow are fetched first: gear.go.)
 		// Don't put skis back on when close to the destination — the guest
 		// is about to arrive and shouldn't re-equip for the last few metres.
@@ -610,9 +613,49 @@ func (s *Simulation) maybeStartSkiTransition(a *world.Guest) {
 			if d, leaving := leavingDistance(a, target); leaving && d <= skisOnNearDest {
 				return
 			}
+			// Nor for a patch of snow: only when the way on is snow for
+			// a while (Boreal Playtest: guests crossing patchy ground
+			// put skis on for every patch and lost them on the next).
+			if bareAhead(s.World, a.Pos, nextWaypoint(a, target)) {
+				return
+			}
 		}
 		a.SkiTransitionTimer = -skiChangeTime(a) // putting skis on
 	}
+}
+
+// skisOnClearAhead is how far toward their target the snow must run
+// before a guest puts skis on, metres, checked every skisOnAheadStep.
+const (
+	skisOnClearAhead = float32(15)
+	skisOnAheadStep  = float32(2.5)
+)
+
+// nextWaypoint is where a is heading next on the way to target: their
+// route's next point, or target itself.
+func nextWaypoint(a *world.Guest, target mgl32.Vec3) mgl32.Vec3 {
+	if r := &a.Route; r.Index < len(r.Points) {
+		p := r.Points[r.Index]
+		return mgl32.Vec3{p[0], target[1], p[1]}
+	}
+	return target
+}
+
+// bareAhead reports whether ground they'd have to walk lies within
+// skisOnClearAhead of pos on the way to target (short of the target).
+func bareAhead(w *world.World, pos, target mgl32.Vec3) bool {
+	d := mgl32.Vec2{target[0] - pos[0], target[2] - pos[2]}
+	dist := d.Len()
+	if dist < 1e-3 {
+		return false
+	}
+	d = d.Mul(1 / dist)
+	for s := skisOnAheadStep; s <= min(skisOnClearAhead, dist); s += skisOnAheadStep {
+		if mustWalk(w, pos[0]+d[0]*s, pos[2]+d[1]*s) {
+			return true
+		}
+	}
+	return false
 }
 
 // onWalkErrand reports whether a's plan step is a walk to a building or a
@@ -949,8 +992,35 @@ func collectTowerXZs(w *world.World) []mgl32.Vec2 {
 	var out []mgl32.Vec2
 	for _, lift := range w.Lifts {
 		out = append(out, lift.TowerXZs()...)
+		out = append(out, lift.StationXZs()...)
 	}
 	return out
+}
+
+// stationHazards appends to buf the parts of station footprints
+// (world.Lift.StationBoxes) within reach of (x, z) that skiers keep out
+// from under: the terminal at the top, where riders get off in front of
+// it, and the huts at both ends. The terminal at the base is left out:
+// its loading lane runs between the legs, and skiers come to its line.
+func stationHazards(w *world.World, x, z, reach float32, buf []world.StationBox) []world.StationBox {
+	p := mgl32.Vec2{x, z}
+	r := reach + world.StationExtent
+	for _, l := range w.Lifts {
+		if l.IsHeli() || l.Top.Sub(p).Len() > r && l.Base.Sub(p).Len() > r {
+			continue
+		}
+		n := len(buf)
+		buf = l.AppendStationBoxes(buf)
+		k := n
+		for _, b := range buf[n:] {
+			if (b.Top || b.Hut) && b.Dist(p) <= reach {
+				buf[k] = b
+				k++
+			}
+		}
+		buf = buf[:k]
+	}
+	return buf
 }
 
 // hazardDensityAt returns a [0, 1]-ish penalty at world (x, z), combining:
@@ -992,17 +1062,36 @@ func hazardDensityAt(t *world.Terrain, near *steerNear, x, z, coverScale float32
 	return d
 }
 
-// steerNear is what a skier's fan of sample points could run into this
-// step: the lift towers and other skiers within reach of their position.
-type steerNear struct {
-	towers []mgl32.Vec2
-	skiers []mgl32.Vec2
+// stationDensityAt is the penalty at world (x, z) from the station
+// footprints in near (stationHazards): full inside one, falling off to 0
+// stationHazardRadius out. sampleTactical reads it on the line itself,
+// not across the corridor either side: a corridor 10 m wide would mark
+// every line leaving a lift top, which starts beside its station.
+func stationDensityAt(near *steerNear, x, z float32) float32 {
+	var d float32
+	for _, b := range near.stations {
+		if dist := b.Dist(mgl32.Vec2{x, z}); dist < stationHazardRadius {
+			d = max(d, min(1-dist/stationHazardRadius, 1))
+		}
+	}
+	return d
 }
 
-// gather fills n with the towers and skiers (other than selfID) within
-// reach of (x, z), plus each kind's hazard radius.
-func (n *steerNear) gather(towers []mgl32.Vec2, grid *spatialGrid, selfID uint64, x, z, reach float32) {
+// steerNear is what a skier's fan of sample points could run into this
+// step: the lift towers, station footprints and other skiers within
+// reach of their position.
+type steerNear struct {
+	towers   []mgl32.Vec2
+	stations []world.StationBox
+	skiers   []mgl32.Vec2
+}
+
+// gather fills n with the towers, station footprints (stationHazards)
+// and skiers (other than selfID) within reach of (x, z), plus each
+// kind's hazard radius.
+func (n *steerNear) gather(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, selfID uint64, x, z, reach float32) {
 	n.towers, n.skiers = n.towers[:0], n.skiers[:0]
+	n.stations = stationHazards(w, x, z, reach+stationHazardRadius, n.stations[:0])
 	tr := reach + towerHazardRadius
 	for _, p := range towers {
 		if dx, dz := p[0]-x, p[1]-z; dx*dx+dz*dz <= tr*tr {
@@ -1065,7 +1154,7 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 	if self != nil {
 		selfID = self.ID
 	}
-	near.gather(towers, grid, selfID, perc.Pos[0], perc.Pos[2], horizon+float32(corridorHalfWidth))
+	near.gather(w, towers, grid, selfID, perc.Pos[0], perc.Pos[2], horizon+float32(corridorHalfWidth))
 
 	// The guest's tastes steer the line (tasteSteerWeight), and their
 	// love of trees eases how hard they avoid stands.
@@ -1143,6 +1232,7 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 			if dr := hazardDensityAt(t, near, x+rx*float32(corridorHalfWidth), z+rz*float32(corridorHalfWidth), coverScale); dr > density {
 				density = dr
 			}
+			density = max(density, stationDensityAt(near, x, z))
 			totalDensity += density
 			_, grooming, _, _ := t.SnowAt(x, z)
 			if prefersGroomed && prevGrooming > 0.5 && grooming < 0.5 {
@@ -1783,14 +1873,15 @@ func ComputeSteeringDebug(w *world.World, a *world.Guest, target mgl32.Vec3) Ste
 	hz := float32(math.Cos(float64(a.Heading)))
 	rx, rz := hz, -hx
 	var near steerNear
-	near.gather(towers, grid, a.ID, a.Pos[0], a.Pos[2], horizon)
+	near.gather(w, towers, grid, a.ID, a.Pos[0], a.Pos[2], horizon)
 	angles := [3]float64{0, float64(sampleAngleMax), -float64(sampleAngleMax)}
 	for i, ang := range angles {
 		c := float32(math.Cos(ang))
 		s := float32(math.Sin(ang))
 		d := mgl32.Vec2{c*hx + s*rx, c*hz + s*rz}
 		out.Probes[i].Dir = d
-		out.Probes[i].Density = hazardDensityAt(t, &near, a.Pos[0]+d[0]*horizon, a.Pos[2]+d[1]*horizon, standCoverScale(a.Traits.Tastes))
+		px, pz := a.Pos[0]+d[0]*horizon, a.Pos[2]+d[1]*horizon
+		out.Probes[i].Density = max(hazardDensityAt(t, &near, px, pz, standCoverScale(a.Traits.Tastes)), stationDensityAt(&near, px, pz))
 	}
 	return out
 }

@@ -1,6 +1,10 @@
 package world
 
-import "github.com/go-gl/mathgl/mgl32"
+import (
+	"math"
+
+	"github.com/go-gl/mathgl/mgl32"
+)
 
 // A single-file lift line runs out from the base along queueDir. Left
 // alone a long line runs straight on into whatever is downhill (a parking
@@ -15,10 +19,18 @@ const (
 	// queueFoldMax is the most places in one lane: 40 m.
 	queueFoldMax = 20
 	// queueFoldMin is the fewest, however close the obstacle.
-	queueFoldMin = 4
-	// queueApproachOut is how far outside the line an arrival walks
-	// round it, metres.
-	queueApproachOut = float32(2.5)
+	queueFoldMin = 6
+	// queueFoldClear is how far from the base the lanes after the first
+	// start, metres: clear of the station's legs and hut, which stand
+	// beside the first few places.
+	queueFoldClear = float32(6)
+	// queueFoldLanes is how many lanes the fold keeps clear of lots and
+	// blocked cells: room for a line of about 60.
+	queueFoldLanes = 4
+	// queueApproachOut is how far outside the back of the line an arrival
+	// walks round it, metres: within queueApproachReach, so from beside
+	// the back they step straight in.
+	queueApproachOut = float32(2.0)
 	// queueApproachReach is how close to the back of the line an arrival
 	// heads straight for it.
 	queueApproachReach = float32(2.5)
@@ -26,16 +38,29 @@ const (
 
 // queueSlotFrame is place index's position in the line's frame: metres
 // along queueDir from the base, and metres out to the fold side.
+//
+// The first lane runs QueueFold places out from the base; the lanes after
+// it double back and forth beside it, from queueFoldClear out to the same
+// far end, so none stands beside the station.
 func (l *Lift) queueSlotFrame(index int) (along, lat float32) {
 	n := l.QueueFold
-	if n <= 0 {
+	if n <= 0 || index < n {
 		return float32(index) * QueueSpacing, 0
 	}
-	lane, j := index/n, index%n
+	skip := l.queueFoldSkip()
+	m := n - skip // places in each lane after the first
+	k := index - n
+	lane, j := 1+k/m, k%m
 	if lane%2 == 1 {
-		j = n - 1 - j
+		j = m - 1 - j
 	}
-	return float32(j) * QueueSpacing, float32(lane) * QueueFoldLaneGap
+	return float32(skip+j) * QueueSpacing, float32(lane) * QueueFoldLaneGap
+}
+
+// queueFoldSkip is how many places from the base the lanes after the
+// first leave out.
+func (l *Lift) queueFoldSkip() int {
+	return int(math.Ceil(float64(queueFoldClear / QueueSpacing)))
 }
 
 // fromQueueFrame converts a position in the line's frame to world XZ.
@@ -72,7 +97,7 @@ func (l *Lift) QueueApproachXZ(from mgl32.Vec2) mgl32.Vec2 {
 		return back
 	}
 	al, lat := l.toQueueFrame(from)
-	_, backLat := l.queueSlotFrame(len(l.Queue))
+	backAl, backLat := l.queueSlotFrame(len(l.Queue))
 	// The line's body: along 0 to its far end, lat 0 to the outer lane.
 	far := float32(len(l.Queue)) * QueueSpacing
 	if l.QueueFold > 0 && len(l.Queue) >= l.QueueFold {
@@ -85,8 +110,9 @@ func (l *Lift) QueueApproachXZ(from mgl32.Vec2) mgl32.Vec2 {
 	}
 	switch {
 	case lat >= backLat+QueueFoldLaneGap:
-		// Outside the outer lane: the back of the line is in reach.
-		return back
+		// Outside the outer lane: along it to beside the back, then in
+		// (a straight line to the back would cut back into the lanes).
+		return at(backAl, outer)
 	case al > far+1:
 		// Beyond the line's far end: step out past the outer lane.
 		return at(al, outer)
@@ -106,8 +132,9 @@ func (l *Lift) QueueApproachXZ(from mgl32.Vec2) mgl32.Vec2 {
 }
 
 // UpdateQueueFolds sets every single-file lift's fold: its lanes run out
-// from the base until the first parking lot or blocked cell (at most
-// queueFoldMax places), on whichever side has the longer clear run.
+// from the base until the first parking lot or blocked cell past the
+// station (at most queueFoldMax places), on the side away from the
+// station's hut unless the other has the longer clear run.
 func (w *World) UpdateQueueFolds() {
 	t := w.Terrain
 	if t == nil {
@@ -122,15 +149,39 @@ func (w *World) UpdateQueueFolds() {
 		}
 		return w.ParkingLotAt(cx, cz) == nil
 	}
+	// The first queueFoldLanes lanes, which hold a long line, are all
+	// clear at along.
+	lanesClear := func(l *Lift, along, side float32) bool {
+		for k := 0; k < queueFoldLanes; k++ {
+			if !clear(l, along, float32(k)*QueueFoldLaneGap, side) {
+				return false
+			}
+		}
+		return true
+	}
 	for _, l := range w.Lifts {
 		if len(l.Lines) > 0 || l.IsHeli() {
 			l.QueueFold = 0
 			continue
 		}
-		best, bestSide := -1, float32(1)
-		for _, side := range [2]float32{1, -1} {
-			n := 1
-			for n < queueFoldMax && clear(l, float32(n)*QueueSpacing, 0, side) && clear(l, float32(n)*QueueSpacing, QueueFoldLaneGap, side) {
+		// The hut's side, from the base station's parts.
+		var hutLat float32
+		for _, p := range l.StationXZs() {
+			if p.Sub(l.Base).Len() < 8 {
+				l.QueueFoldSide = 1
+				_, lat := l.toQueueFrame(p)
+				hutLat += lat
+			}
+		}
+		away := float32(1)
+		if hutLat > 0 {
+			away = -1
+		}
+		best, bestSide := -1, away
+		for _, side := range [2]float32{away, -away} {
+			// The station's own cells are blocked: start past it.
+			n := l.queueFoldSkip()
+			for n < queueFoldMax && lanesClear(l, float32(n)*QueueSpacing, side) {
 				n++
 			}
 			if n > best {

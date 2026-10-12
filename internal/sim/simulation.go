@@ -421,6 +421,7 @@ func (s *Simulation) tickLifts(dt float64) {
 						chair.Passengers[j] = agent
 						agent.OnLiftID = lift.ID
 						agent.Queued = false
+						clipInToRide(agent)
 						agent.UseService(world.LiftQuality)
 						s.boarders = append(s.boarders, boarder{agent, lift, s.SimTime})
 					}
@@ -451,6 +452,7 @@ func (s *Simulation) tickHeliLift(lift *world.Lift, dt float64) {
 			h.Passengers = append(h.Passengers, agent)
 			agent.OnLiftID = lift.ID
 			agent.Queued = false
+			clipInToRide(agent)
 			agent.UseService(world.LiftQuality)
 			// Heli keeps per-ride pricing; cable lifts are covered by the
 			// day ticket bought at the ticket window.
@@ -727,7 +729,7 @@ func (s *Simulation) tickGuests(dt float64) {
 	// by heatwave or other external snow mutations applied outside the
 	// substep loop).
 	for _, agent := range w.OnMountain {
-		if agent.SkisOn && noSnowUnderfoot(w.Terrain, agent.Pos[0], agent.Pos[2]) {
+		if agent.SkisOn && !agent.Queued && agent.OnLiftID == 0 && noSnowUnderfoot(w.Terrain, agent.Pos[0], agent.Pos[2]) {
 			agent.SkisOn = false
 			agent.SkiTransitionTimer = 0
 		}
@@ -763,11 +765,19 @@ func (s *Simulation) tickGuests(dt float64) {
 		if agent.SkiTransitionTimer == 0 && agent.GearTimer == 0 && !agent.Fallen && agent.OnLiftID == 0 && !agent.Queued && agent.RestTimer == 0 {
 			s.maybeStartSkiTransition(agent)
 		}
+		// In a lift line without skis (it started on bare ground or by a
+		// door): put them on where they stand (Boreal Playtest: about 300
+		// guests a day rode up with skis off).
+		if agent.Queued && !agent.SkisOn && !agent.NeedsGear && agent.SkiTransitionTimer == 0 {
+			agent.SkiTransitionTimer = -skiChangeTime(agent)
+		}
 		switch {
 		case agent.Fallen:
 			s.tickFallen(agent, dt)
 		case agent.OnLiftID != 0:
 			s.tickRiding(agent, dt)
+		case agent.Queued && agent.SkiTransitionTimer != 0:
+			s.tickSkiTransition(agent, dt)
 		case agent.Queued:
 			s.tickQueued(agent, dt)
 		case agent.SkiTransitionTimer == 0 && s.gearErrand(agent, dt):
@@ -781,7 +791,8 @@ func (s *Simulation) tickGuests(dt float64) {
 		case len(agent.Path) > 0 && agent.PathIdx < len(agent.Path):
 			s.tickPath(agent, dt)
 		case s.holdForGroup(agent):
-			agent.Speed = 0 // waiting at the top for the group
+			// Waiting at the top for the group, at their hold spot
+			// (holdAt sets their speed: walking there, then 0).
 		default:
 			s.tickLocomote(agent, dt)
 		}
@@ -789,7 +800,8 @@ func (s *Simulation) tickGuests(dt float64) {
 		// Use an instant correction (no transition timer) because with high
 		// TimeScale the 1-second transition completes within the same
 		// wall-clock tick and the cycle can recur before the tick ends.
-		if agent.SkisOn && noSnowUnderfoot(s.World.Terrain, agent.Pos[0], agent.Pos[2]) {
+		// Not in a lift line or on a chair: they keep their skis on there.
+		if agent.SkisOn && !agent.Queued && agent.OnLiftID == 0 && noSnowUnderfoot(s.World.Terrain, agent.Pos[0], agent.Pos[2]) {
 			agent.SkisOn = false
 			agent.SkiTransitionTimer = 0
 		}
@@ -1288,7 +1300,8 @@ func (s *Simulation) applyDailyWeather(dw DayWeather) {
 
 // pushSnowLayer adds a new storm layer on top of every terrain cell. If the
 // new kind matches Top, Top grows in place. Otherwise the current Top merges
-// into Base and a new Top begins. Grooming is diluted by snowfall depth.
+// into Base and a new Top begins. Grooming is diluted by snowfall depth,
+// and gone (stamps and all) once it's buried.
 func (s *Simulation) pushSnowLayer(dw DayWeather) {
 	t := s.World.Terrain
 	kind := snowKindForTemp(dw.TempC)
@@ -1311,7 +1324,7 @@ func (s *Simulation) pushSnowLayer(dw DayWeather) {
 				c.Top = world.SnowLayer{Kind: kind, Accumulation: accumSWE}
 			}
 
-			c.Grooming *= 1 - burialFactor
+			t.Ungroom(x, z, 1-burialFactor)
 			// Fresh snow buries the old tracks: untracked again.
 			c.SkierTraffic *= 1 - burialFactor
 		}
@@ -1321,9 +1334,6 @@ func (s *Simulation) pushSnowLayer(dw DayWeather) {
 
 	// Bury skier tracks. 2 cm SWE fully covers any track.
 	t.Surface.AgeTracks(world.TrackClock(s.SimTime), 1-burialFactor)
-	if burialFactor >= 1 {
-		t.Groom.Clear()
-	}
 	t.ScaleMoguls(1 - clamp01(accumSWE/mogulFillSWE))
 }
 
@@ -1341,18 +1351,36 @@ const (
 )
 
 // applyKindTransition modifies the top layer's Kind on every terrain cell
-// according to the given non-precipitation weather event.
+// according to the given non-precipitation weather event. A surface that
+// changes kind is no longer the corduroy the cat left: a hard freeze
+// keeps a trace of it in the crust (crustGroomKeep), anything else
+// (wind slab, wet snow) wipes it.
 func (s *Simulation) applyKindTransition(evt weatherEvent) {
 	t := s.World.Terrain
 	for x := range t.Cells {
 		for z := range t.Cells[x] {
 			c := &t.Cells[x][z]
-			if top := c.TopLayer(); top != nil {
-				top.Kind = kindTransition(top.Kind, evt)
+			top := c.TopLayer()
+			if top == nil {
+				continue
 			}
+			next := kindTransition(top.Kind, evt)
+			if next == top.Kind {
+				continue
+			}
+			top.Kind = next
+			keep := float32(0)
+			if next == world.KindCrust {
+				keep = crustGroomKeep
+			}
+			t.Ungroom(x, z, keep)
 		}
 	}
 }
+
+// crustGroomKeep is the grooming left when fresh corduroy freezes to
+// crust overnight: frozen ridges, mostly gone as corduroy.
+const crustGroomKeep = float32(0.25)
 
 // tickHourly runs the effects that step once per clock hour: snowmelt
 // from that hour's air temperature and sun (snow days don't melt), then
@@ -1444,14 +1472,15 @@ func terrainMinElevation(t *world.Terrain) float32 {
 }
 
 // meltCell removes melt metres of SWE from c. Melts Top first; when Top is
-// exhausted Base is promoted to Top (clearing grooming and moguls), then
-// the promoted layer melts if budget remains.
+// exhausted Base is promoted to Top (clearing moguls), then the promoted
+// layer melts if budget remains. Grooming survives on the promoted base:
+// the cat packed through the thin top into it. It goes with the last of
+// the snow.
 func meltCell(c *world.Cell, melt float32) {
 	if c.Top.Accumulation > 0 {
 		if melt >= c.Top.Accumulation {
 			melt -= c.Top.Accumulation
 			c.Top = world.SnowLayer{}
-			c.Grooming = 0
 			c.MogulSize = 0
 			// Promote Base to a KindBase Top so the invariant holds.
 			if c.Base > 0 {
@@ -1470,6 +1499,9 @@ func meltCell(c *world.Cell, melt float32) {
 		} else {
 			c.Top.Accumulation -= melt
 		}
+	}
+	if c.Top.Accumulation == 0 {
+		c.Grooming = 0
 	}
 }
 
@@ -1546,12 +1578,51 @@ func (s *Simulation) tickPlanning(a *world.Guest) {
 		s.replan(a)
 		return
 	}
-	if a.Party.Leader != nil && isDescentKind(head.Kind) && s.SimTime-a.Run.Start > followStuckSec {
-		// A follower whose descent has gone on far too long: the
-		// leader's plan didn't fit where they were. Their own.
-		a.AtTrailEnd = 0
-		s.planAlone(a)
+	if s.dueHome(a) {
+		s.homeAtClosing(a)
+		return
 	}
+	// Waiting for the group short of a lift line: check on the leader
+	// (followPlan), so the wait's limit applies.
+	if a.Party.WaitSince != 0 && head.Kind == ai.ActJoinQueue && !a.Queued {
+		s.replan(a)
+		return
+	}
+	if descentStuck(a, head, s.SimTime) {
+		// A descent that has gone on far too long: for a follower, the
+		// leader's plan didn't fit where they were; alone, they're lost.
+		// Their own, afresh.
+		a.AtTrailEnd = 0
+		if a.Party.Leader != nil {
+			s.planAlone(a)
+		} else {
+			a.Run.Start = s.SimTime
+			s.replan(a)
+		}
+	}
+}
+
+// descentStuck reports whether a's descent step has gone on longer than
+// any run should (followStuckSec).
+func descentStuck(a *world.Guest, head ai.PlanAction, now float64) bool {
+	return isDescentKind(head.Kind) && now-a.Run.Start > followStuckSec
+}
+
+// dueHome reports whether a should give up their step and go home now:
+// the lifts have closed, their plan doesn't end in going home, and
+// they're not in a line, indoors, resting, down, or off for après. A
+// guest skiing a run finishes it and goes home by the trails from its
+// end (a run gone on too long is descentStuck's).
+func (s *Simulation) dueHome(a *world.Guest) bool {
+	if !s.World.ClosedForDay || endsInDeparture(a.Plan) || a.Plan.Done() {
+		return false
+	}
+	switch k := a.Plan.Head().Kind; {
+	case k == ai.ActJoinQueue, k == ai.ActUseService, isDescentKind(k):
+		return false
+	}
+	return !a.Queued && a.OnLiftID == 0 && !a.Fallen && a.OnPatrollerID == 0 &&
+		a.RestTimer == 0 && !a.Visit.Waiting && a.Apres == 0
 }
 
 // checkPlans marks, across cores, the guests tickPlanning would leave
@@ -1572,8 +1643,12 @@ func (s *Simulation) checkPlans() {
 			}
 			snap := goap.Extract(a, w)
 			head := a.Plan.Head()
+			// Never quiet: a guest waiting for their group (the wait
+			// has a limit), on a descent gone on too long, or due home
+			// at closing (Boreal Playtest: guests stuck mid-step held
+			// their cars in the lot overnight).
 			s.planQuiet[i] = !planActionComplete(head, a, snap) && planActionPreconditionHolds(head, snap, w) &&
-				!(a.Party.Leader != nil && isDescentKind(head.Kind) && s.SimTime-a.Run.Start > followStuckSec)
+				a.Party.WaitSince == 0 && !descentStuck(a, head, s.SimTime) && !s.dueHome(a)
 		}
 	})
 }
@@ -1622,19 +1697,25 @@ func (s *Simulation) planAlone(a *world.Guest) {
 		a.Party.Gen = 0 // a follower's own plan, off the leader's
 		s.groupStats.Own++
 	}
-	s.share(a, s.planFrom(a), a.Plan, done)
+	from := s.planFrom(a)
 	s.setBlocked(a, a.Plan.Blocked)
 	if a.Plan.GoalName == (goap.GoHome{}).Name() {
 		s.setDepartReason(a, s.departReasonFor(a))
 	}
 	if !a.Plan.Done() {
+		s.share(a, from, a.Plan, done)
 		s.onPlanStepStart(a)
 		return
 	}
 	// Planner returned nothing — guest is stranded (e.g. all lifts held,
-	// not at a lift top). Send them home rather than leaving them frozen.
+	// not at a lift top). Send them home rather than leaving them frozen,
+	// and their group with them: never share the empty plan, which a
+	// follower would take up and wait on (Boreal Playtest).
 	if !a.Removed {
 		s.directHomePlan(a)
+		if !a.Plan.Done() {
+			s.share(a, from, a.Plan, done)
+		}
 	}
 }
 
@@ -1805,7 +1886,8 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		// replan calls onPlanStepStart for the GoHome JoinQueue step the
 		// bail guard (Patience >= 0.05) is false — preventing recursion.
 		wait := lift.LineWait()
-		if a.Patience >= 0.05 && wait > world.MaxLineWait {
+		// A follower whose leader is already in this line joins them.
+		if a.Patience >= 0.05 && wait > world.MaxLineWait && !leaderInLine(a, lift) {
 			s.applyEvent(a, ai.ThoughtLineTooLong, lift.ID)
 			a.Patience = 0
 			s.replan(a)
@@ -2550,8 +2632,26 @@ func (s *Simulation) walkClear(pos mgl32.Vec3, dir mgl32.Vec2, dist float32) mgl
 		}
 		return t.Normalize()
 	}
+	// Nor under a top station or into a hut (stationHazards): if the way
+	// ahead goes in, step aside along whichever side stays out. Once
+	// inside, they walk on out.
+	ahead := at.Add(dir.Mul(min(dist, walkClearance+1)))
+	for _, b := range stationHazards(s.World, at[0], at[1], walkClearance+2, nil) {
+		if !b.Contains(ahead, walkStationMargin) || b.Contains(at, 0) {
+			continue
+		}
+		left, right := mgl32.Vec2{-dir[1], dir[0]}, mgl32.Vec2{dir[1], -dir[0]}
+		if b.Dist(at.Add(left)) >= b.Dist(at.Add(right)) {
+			return left
+		}
+		return right
+	}
 	return dir
 }
+
+// walkStationMargin is how far outside a station's footprint a walker's
+// way must stay, metres.
+const walkStationMargin = float32(0.5)
 
 // tickQueued walks the agent toward their assigned queue slot and orients
 // them to face the boarding spot. For line-mode lifts, the slot position
@@ -2841,14 +2941,64 @@ func resolveTarget(w *world.World, id uint64, a *world.Guest) (mgl32.Vec3, bool)
 	return mgl32.Vec3{}, false
 }
 
+// clipInToRide puts a boarding guest's skis on if they're not on yet,
+// finishing a put-on still under way: nobody rides up carrying them.
+func clipInToRide(a *world.Guest) {
+	if !a.NeedsGear && (!a.SkisOn || a.SkiTransitionTimer < 0) {
+		a.SkisOn, a.SkiTransitionTimer = true, 0
+	}
+}
+
+// lineWayReach is how close to a point on the way round a lift line a
+// guest must come before choosing the next, metres; lineWayKeep is how
+// long one is kept at most, sim seconds.
+const (
+	lineWayReach = float32(1.2)
+	lineWayKeep  = 60.0
+)
+
+// leaderInLine reports whether a's group leader is waiting in lift l's
+// single-file line.
+func leaderInLine(a *world.Guest, l *world.Lift) bool {
+	ld := a.Party.Leader
+	if ld == nil || !ld.Queued {
+		return false
+	}
+	for _, q := range l.Queue {
+		if q == ld {
+			return true
+		}
+	}
+	return false
+}
+
 // liftApproachWorldPos is where a heads for lift l's line: the back of
 // it, by way of round the line when it's in the way (QueueApproachXZ).
+// A point on the way round is kept until reached (Guest.LineWay).
 func liftApproachWorldPos(w *world.World, l *world.Lift, a *world.Guest) mgl32.Vec3 {
 	if len(l.Lines) > 0 {
 		return l.BackOfQueueWorldPos(w.Terrain)
 	}
-	p := l.QueueApproachXZ(mgl32.Vec2{a.Pos[0], a.Pos[2]})
-	return mgl32.Vec3{p[0], w.Terrain.InterpolatedSurfaceElevationAt(p[0], p[1]), p[1]}
+	pos := mgl32.Vec2{a.Pos[0], a.Pos[2]}
+	at := func(p mgl32.Vec2) mgl32.Vec3 {
+		return mgl32.Vec3{p[0], w.Terrain.InterpolatedSurfaceElevationAt(p[0], p[1]), p[1]}
+	}
+	if a.LineWayLift == l.ID && w.SimTime-a.LineWayAt < lineWayKeep && a.LineWay.Sub(pos).Len() > lineWayReach {
+		return at(a.LineWay)
+	}
+	a.LineWayLift = 0
+	p := l.QueueApproachXZ(pos)
+	bx, bz := l.QueueSlotXZ(len(l.Queue))
+	if p == (mgl32.Vec2{bx, bz}) {
+		return at(p)
+	}
+	// A way round through trees or a building: straight to the back.
+	if cx, cz := int(p[0]/CellSize), int(p[1]/CellSize); !w.Terrain.InBounds(cx, cz) ||
+		!w.Terrain.Cells[cx][cz].Walkable() || onBuildingFootprint(w, p[0], p[1]) {
+		return l.BackOfQueueWorldPos(w.Terrain)
+	}
+	a.LineWay, a.LineWayLift, a.LineWayAt = p, l.ID, w.SimTime
+	return at(p)
 }
 
 // findBuilding returns the building with the given ID, or nil.

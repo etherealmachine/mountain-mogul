@@ -166,6 +166,28 @@ func (g *GroomMap) Clear() {
 	g.markDirty(image.Rect(0, 0, g.W, g.H))
 }
 
+// ClearCell erases the stamps over cell (cx, cz).
+func (g *GroomMap) ClearCell(cx, cz int) {
+	if g == nil {
+		return
+	}
+	box := image.Rect(cx*GroomPxPerCell, cz*GroomPxPerCell, (cx+1)*GroomPxPerCell, (cz+1)*GroomPxPerCell).
+		Intersect(image.Rect(0, 0, g.W, g.H))
+	stamped := false
+	for pz := box.Min.Y; pz < box.Max.Y; pz++ {
+		row := g.Pixels[(pz*g.W+box.Min.X)*4 : (pz*g.W+box.Max.X)*4]
+		for i := 0; i < len(row); i += 4 {
+			if row[i] != 0 {
+				stamped = true
+			}
+		}
+		clear(row)
+	}
+	if stamped {
+		g.markDirty(box)
+	}
+}
+
 // Bytes is the map as little-endian bytes, for saving.
 func (g *GroomMap) Bytes() []byte {
 	out := make([]byte, len(g.Pixels)*2)
@@ -220,6 +242,26 @@ func (t *Terrain) RestampGroomFromCells() {
 			}
 		}
 	}
+}
+
+// groomGoneBelow is the grooming under which no corduroy is left to draw
+// (the shader fades it out from 0.6 down to 0.1).
+const groomGoneBelow = 0.1
+
+// Ungroom scales cell (x, z)'s grooming by keep, the one way weather
+// takes corduroy away: new snow on top, a change of snow kind, a melt
+// through the groomed surface. Once nothing is left, the cell's cat
+// stamps go too, so the groom map never outlives the grooming.
+func (t *Terrain) Ungroom(x, z int, keep float32) {
+	c := &t.Cells[x][z]
+	if c.Grooming > 0 {
+		c.Grooming *= min(max(keep, 0), 1)
+		if c.Grooming >= groomGoneBelow {
+			return
+		}
+		c.Grooming = 0
+	}
+	t.Groom.ClearCell(x, z)
 }
 
 // GroomCell sets a cell fully groomed without a cat and stamps it.

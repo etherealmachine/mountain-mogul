@@ -437,3 +437,16 @@ func passCells(t *world.Terrain, passes []world.GroomPass, keep func(c [2]int) b
 	})
 	return out
 }
+
+// GroomReach returns the cells of trail a night's passes groom: its
+// snow-covered cells less those under trees, where passes keep clear of
+// the trunks. For the trail popup; plans the trail's passes afresh.
+func GroomReach(t *world.Terrain, trail *world.Trail) [][2]int {
+	in := make(map[[2]int]bool, len(trail.Cells))
+	for _, c := range trail.Cells {
+		in[c] = true
+	}
+	return passCells(t, planTrailPasses(t, trail), func(c [2]int) bool {
+		return in[c] && t.Cells[c[0]][c[1]].TopLayer() != nil
+	})
+}

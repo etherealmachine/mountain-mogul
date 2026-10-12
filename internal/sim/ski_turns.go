@@ -72,6 +72,13 @@ const (
 	trunkClearance  = 1.0
 	towerClearance  = 1.6
 	skierClearance  = 1.5
+	// A station's footprint is ringed with points stationEdgeSpacing
+	// apart, stationEdgeOut outside its edge, each passed at
+	// stationClearance: closer than half the spacing, so no line slips
+	// between two.
+	stationEdgeSpacing = 1.0
+	stationEdgeOut     = 0.3
+	stationClearance   = 0.8
 )
 
 // turnRates returns how fast the guest can carve at their speed and how
@@ -119,9 +126,10 @@ type hazardPoint struct {
 	x, z, clear float32
 }
 
-// nearHazards gathers the trunks, towers and other skiers within reach
-// of the guest's next swerveLookSec ahead (any direction they might
-// swerve to) into buf.
+// nearHazards gathers the trunks, towers, station footprints and other
+// skiers within reach of the guest's next swerveLookSec ahead (any
+// direction they might swerve to) into buf. A footprint's edge counts
+// beside and behind too: a sharp turn swings round into what's beside.
 func nearHazards(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, a *world.Guest, reach float32, buf []hazardPoint) []hazardPoint {
 	buf = buf[:0]
 	px, pz := a.Pos[0], a.Pos[2]
@@ -143,6 +151,15 @@ func nearHazards(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, a *worl
 		dx, dz := p[0]-px, p[1]-pz
 		if dx*dx+dz*dz <= r2 && !behind(p[0], p[1]) {
 			buf = append(buf, hazardPoint{p[0], p[1], towerClearance})
+		}
+	}
+	var boxes [12]world.StationBox
+	var edge [64]mgl32.Vec2
+	for _, b := range stationHazards(w, px, pz, reach, boxes[:0]) {
+		for _, p := range b.Edge(stationEdgeSpacing, stationEdgeOut, edge[:0]) {
+			if dx, dz := p[0]-px, p[1]-pz; dx*dx+dz*dz <= r2 {
+				buf = append(buf, hazardPoint{p[0], p[1], stationClearance})
+			}
 		}
 	}
 	if grid != nil {

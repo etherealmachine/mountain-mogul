@@ -11,25 +11,47 @@ import (
 )
 
 // Unloading is a rider getting off a chair at the top station: they stand
-// up where their seat is, glide straight ahead onto the apron (away from
-// the cable and past the station's legs and hut), peel off toward the
-// trail they're about to ski (or their seat's side, when it's dead
-// ahead), and only then hand over to normal skiing. The path is scripted, so balance stays full and nothing
-// steers them over the station. Falls getting off are a roll when they
-// stand up (unloadFallChance), not the balance model.
+// up where their seat is, under the front of the terminal's hood, find
+// their feet for a moment, then peel off sideways (toward the trail
+// they're about to ski, or their seat's side) in front of the portal
+// frame, out past its legs and the hut, and round onto the level apron
+// beside and behind the station (scene: carveStationApron), where they
+// turn toward their run and hand over to normal skiing. Ground below the
+// front of a top station is often a steep face; leaving from the apron
+// gives a skier the run of the top before they pick a way down. The path
+// is scripted and never reaches under the frame, drive or hut
+// (world.Lift.StationBoxes), so balance stays full and nothing steers
+// them through the station. Falls getting off are a roll when they stand
+// up (unloadFallChance), not the balance model.
 
 const (
-	unloadSpeed     = float32(2.5)                // m/s down the unload ramp
-	unloadStraight  = float32(5)                  // metres straight ahead before peeling off: clear of the station
-	unloadPeel      = float32(10)                 // metres of arc away from the lift line
-	unloadPeelOuter = float32(70 * math.Pi / 180) // turn by the end of the arc, outermost seats
-	unloadPeelInner = float32(30 * math.Pi / 180) // turn for seats next to the chair's middle
-	// Aiming for a trail: the peel turns at least unloadAimMin and at most
-	// unloadAimMax toward it; a trail within unloadAimMin of straight ahead
-	// leaves the seat-side peel. The aim is unloadAimAlong metres down the
-	// trail's centre line from its point nearest the top.
-	unloadAimMin   = float32(25 * math.Pi / 180)
-	unloadAimMax   = float32(100 * math.Pi / 180)
+	unloadSpeed    = float32(2.5) // m/s down the unload ramp
+	unloadStraight = float32(0.2) // metres straight ahead, finding their feet
+	// The peel turns unloadPeelRate rad a metre: 1 m radius, so a
+	// quarter turn sideways ends 1.2 m back from the bullwheel, in front
+	// of the frame's legs and the hut (2.2 m back).
+	unloadPeelRate = float32(1)
+	unloadClear    = float32(7) // metres across the line from the bullwheel: past the legs and the hut
+	// Crossing out they angle unloadCrossDown down the line from
+	// sideways, so a rider from the seat furthest back, or one crossing
+	// the whole width to the far side, keeps in front of the frame.
+	unloadCrossDown = float32(15 * math.Pi / 180)
+	// Out beside the hut they head back along the line, unloadApronTurn
+	// off it and away from the station, until unloadApronBack metres
+	// back from the bullwheel: on the apron, level with the hut's far end.
+	unloadApronTurn = float32(20 * math.Pi / 180)
+	unloadApronBack = float32(6)
+	unloadMaxGone   = float32(40)                 // the path ends by here whatever: a rider never stays scripted
+	unloadSubstep   = float32(0.2)                // most metres moved at once along the path
+	unloadFallSpan  = float32(3)                  // falls come within this many metres past the first
+	unloadTurnSeat  = float32(90 * math.Pi / 180) // heading at the end with no trail to aim for: across the slope
+	// Aiming for a trail: the heading at the end is the trail's direction
+	// from where they stand, between unloadAimMin and unloadAimMax off
+	// the line (the way back past the station, so 0 is straight on and
+	// π straight down the line). The aim is unloadAimAlong metres down
+	// the trail's centre line from its point nearest the top.
+	unloadAimMin   = float32(30 * math.Pi / 180)
+	unloadAimMax   = float32(150 * math.Pi / 180)
 	unloadAimAlong = float32(20)
 )
 
@@ -52,24 +74,26 @@ func (s *Simulation) startUnloading(a *world.Guest, lift *world.Lift, slotIdx in
 		Side:   seatSide(slotIdx, len(lift.Chairs[0].Passengers), slots),
 		SeatY:  max(seat[1]-ground, 0),
 	}
-	// By default, toward the seat's side: more for the outer seats.
-	// ChairPos's perpendicular is (-cos h, sin h): turning toward +side
-	// means a smaller heading.
+	// By default, toward the seat's side. ChairPos's perpendicular is
+	// (-cos h, sin h): turning toward +side means a smaller heading. Turn
+	// is the heading at the end against the one they stood up with.
 	side := a.Unload.Side
-	turn := unloadPeelInner + (unloadPeelOuter-unloadPeelInner)*float32(math.Abs(float64(side)))
-	if side > 0 {
+	turn := unloadTurnSeat
+	if side > 0 || side == 0 && slotIdx%2 == 0 {
 		turn = -turn
 	}
 	a.Unload.Turn = turn
 	if rng.Global().Float32() < unloadFallChance(a.Traits.Skill, lift.Type) {
-		// Somewhere between finding their feet and the middle of the peel.
-		a.Unload.FallAt = 1 + rng.Global().Float32()*(unloadStraight+unloadPeel/2-1)
+		// Somewhere between finding their feet and getting clear.
+		a.Unload.FallAt = 1 + rng.Global().Float32()*unloadFallSpan
 	}
 }
 
 // aimUnload turns a rider's peel toward where their plan sends them
 // first, once the plan has moved on from the ride: into the trail they'll
-// ski, else the next step's target.
+// ski, else the next step's target. The side is the aim's side of where
+// they stand; how far they turn, the aim's direction, kept between
+// unloadAimMin and unloadAimMax.
 func (s *Simulation) aimUnload(a *world.Guest) {
 	aim, ok := s.unloadAim(a)
 	if !ok {
@@ -77,11 +101,7 @@ func (s *Simulation) aimUnload(a *world.Guest) {
 	}
 	want := float32(math.Atan2(float64(aim[0]-a.Pos[0]), float64(aim[1]-a.Pos[2])))
 	d := wrapAngle(want - a.Heading)
-	mag := float32(math.Abs(float64(d)))
-	if mag < unloadAimMin {
-		return // dead ahead: the seat decides
-	}
-	mag = min(mag, unloadAimMax)
+	mag := clamp32(float32(math.Abs(float64(d))), unloadAimMin, unloadAimMax)
 	if d < 0 {
 		mag = -mag
 	}
@@ -166,26 +186,62 @@ func seatSide(slotIdx, seats int, slots []world.MeshSlot) float32 {
 }
 
 // tickUnloading moves an unloading rider one step along their path:
-// straight ahead, then an arc that turns them toward their side, ending
-// in normal skiing at the arc's heading and speed.
+// straight ahead to find their feet, then peeling toward their side at
+// unloadPeelRate to sideways (a little down the line, unloadCrossDown)
+// until they're unloadClear across the line, back beside the station
+// until unloadApronBack behind the bullwheel, then round to their final
+// heading (Turn), ending in normal skiing at that heading and speed. The step is walked in pieces of at most
+// unloadSubstep, so a long tick still follows the path.
 func (s *Simulation) tickUnloading(a *world.Guest, dt float64) {
 	u := &a.Unload
-	if u.FallAt > 0 && u.Gone >= u.FallAt {
-		s.fallUnloading(a)
+	lift := findLiftByID(s.World, u.LiftID)
+	if lift == nil {
+		a.Unload = world.Unloading{}
 		return
 	}
-	step := unloadSpeed * float32(dt)
-	if u.Gone >= unloadStraight || s.fallenAhead(a) {
-		a.Heading = wrapAngle(a.Heading + u.Turn*step/unloadPeel)
+	at, back, side, ok := lift.StationFrame(true)
+	if !ok {
+		a.Unload = world.Unloading{}
+		return
 	}
-	a.Pos[0] += float32(math.Sin(float64(a.Heading))) * step
-	a.Pos[2] += float32(math.Cos(float64(a.Heading))) * step
-	a.Pos[1] = s.World.Terrain.InterpolatedSurfaceElevationAt(a.Pos[0], a.Pos[2])
+	backHeading := float32(math.Atan2(float64(back[0]), float64(back[1])))
+	t := s.World.Terrain
+	defer func() { a.Pos[1] = t.InterpolatedSurfaceElevationAt(a.Pos[0], a.Pos[2]) }()
 	a.Speed = unloadSpeed
 	a.Balance = 1
-	u.Gone += step
-	if u.Gone >= unloadStraight+unloadPeel {
-		a.Unload = world.Unloading{}
+	sign := float32(1)
+	if u.Turn < 0 {
+		sign = -1
+	}
+	for left := unloadSpeed * float32(dt); left > 0; {
+		if u.FallAt > 0 && u.Gone >= u.FallAt {
+			s.fallUnloading(a)
+			return
+		}
+		step := min(left, unloadSubstep)
+		left -= step
+		d := mgl32.Vec2{a.Pos[0], a.Pos[2]}.Sub(at)
+		clear := abs32(d.Dot(side)) >= unloadClear
+		onApron := clear && d.Dot(back) >= unloadApronBack
+		turned := wrapAngle(a.Heading - backHeading)
+		if onApron && abs32(u.Turn-turned) < 0.05 || u.Gone >= unloadMaxGone {
+			a.Unload = world.Unloading{}
+			return
+		}
+		if u.Gone >= unloadStraight || s.fallenAhead(a) {
+			want := u.Turn
+			switch {
+			case !clear:
+				want = sign * (math.Pi/2 + unloadCrossDown) // out sideways first
+			case !onApron:
+				want = sign * unloadApronTurn
+			}
+			turn := unloadPeelRate * step
+			a.Heading = wrapAngle(a.Heading + clamp32(want-turned, -turn, turn))
+		}
+		a.Pos[0] += float32(math.Sin(float64(a.Heading))) * step
+		a.Pos[2] += float32(math.Cos(float64(a.Heading))) * step
+		u.Gone += step
 	}
 }
 

@@ -235,6 +235,13 @@ type Party struct {
 	// for a leader still on it (since TopSince); 0 when not waiting.
 	TopLift  uint64
 	TopSince float64
+	// HoldLift is the lift at whose top the guest is standing to wait
+	// for their group, at HoldSpot (XZ), off the unload; HoldAt is when
+	// they last stood there (a spot not stood at lately is free). 0
+	// when not holding.
+	HoldLift uint64
+	HoldSpot mgl32.Vec2
+	HoldAt   float64
 	// Crumbs is the leader's line, while they lead anyone.
 	Crumbs *Crumbs
 	// A follower's place on the line: the crumb they're at (of Seq),

@@ -3,6 +3,7 @@ package scene
 import (
 	"fmt"
 
+	"mountain-mogul/internal/sim"
 	"mountain-mogul/internal/ui"
 	"mountain-mogul/internal/world"
 )
@@ -58,15 +59,24 @@ func newTrailWindow(w *world.World, t *world.Trail, confirmClear bool, h trailHo
 			win.AddLabel("Note", func() string { return "a loose end connects only where the run overlaps something" })
 		}
 	}
+	reach := newGroomReach(w, t)
 	win.AddLabel("Groom", func() string {
-		if len(t.Cells) == 0 {
+		cells := reach.cells()
+		if len(cells) == 0 {
 			return "—"
 		}
 		var sum float32
-		for _, c := range t.Cells {
+		for _, c := range cells {
 			sum += w.Terrain.Cells[c[0]][c[1]].Grooming
 		}
-		return fmt.Sprintf("%.0f%%", sum/float32(len(t.Cells))*100)
+		return fmt.Sprintf("%.0f%%", sum/float32(len(cells))*100)
+	})
+	win.AddLabel("Trees", func() string {
+		reach.cells()
+		if reach.missed == 0 {
+			return "none in the way"
+		}
+		return fmt.Sprintf("%.0f%% under trees: cats won't groom", float32(reach.missed)/float32(len(t.Cells))*100)
 	})
 	if confirmClear {
 		win.AddLabel("Confirm", func() string { return "Delete this trail?" })
@@ -88,4 +98,40 @@ func newTrailWindow(w *world.World, t *world.Trail, confirmClear bool, h trailHo
 		})
 	}
 	return win
+}
+
+// groomReach caches the cells of a trail its cats can groom
+// (sim.GroomReach), replanned when the trail's cells, trees, or snow
+// cover change. The popup's Groom share counts only these: cells under
+// trees stay natural snow and would hold it below 100% for good.
+type groomReach struct {
+	w      *world.World
+	t      *world.Trail
+	key    [3]int
+	reach  [][2]int
+	missed int // snow-covered cells out of reach
+}
+
+func newGroomReach(w *world.World, t *world.Trail) *groomReach {
+	return &groomReach{w: w, t: t, key: [3]int{-1}}
+}
+
+func (g *groomReach) cells() [][2]int {
+	key := [3]int{len(g.t.Cells)}
+	snow := 0
+	for i, c := range g.t.Cells {
+		cell := &g.w.Terrain.Cells[c[0]][c[1]]
+		key[1] += int(cell.TreeCount)
+		key[2] += (c[0]*31 + c[1]) * (i + 1)
+		if cell.TopLayer() != nil {
+			snow++
+		}
+	}
+	key[1] = key[1]<<20 | snow
+	if key != g.key {
+		g.key = key
+		g.reach = sim.GroomReach(g.w.Terrain, g.t)
+		g.missed = max(snow-len(g.reach), 0)
+	}
+	return g.reach
 }

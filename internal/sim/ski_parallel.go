@@ -75,6 +75,10 @@ func decideRange(s *Simulation, jobs []skiJob, dt float64, sc *steerScratch) {
 			var why int
 			j.target, pace, why = followTarget(t, a, j.leader, j.goal)
 			follow, j.off = why == onLine, int8(why)
+			// Never follow onto ground they'd have to walk.
+			if follow && mustWalk(s.World, j.target[0], j.target[2]) {
+				follow, j.off = false, offLeaderOff
+			}
 		} else if l := a.Party.Leader; l != nil && aheadOf(a, l) {
 			pace = followPace{1, l.Speed * followAheadPace} // let the leader lead
 		}

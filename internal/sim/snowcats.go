@@ -24,10 +24,31 @@ func nightIndex(w *world.World, simTime float64) int {
 	return dayIndex(simTime - float64(w.OpenHour)*simSecondsPerHour)
 }
 
+// groomShiftEndsBeforeOpen is how long before the lifts open, in clock
+// hours, the cats are off the runs. Guests already queuing at the base
+// don't ski until opening.
+const groomShiftEndsBeforeOpen = 0.5
+
+// catsOnShift reports whether the cats may groom now: from the midnight
+// rollover, after the night's weather has landed, until shortly before
+// opening, so the runs open on fresh corduroy instead of whatever the
+// weather made of an evening pass. Around the clock while the resort is
+// closed for the season.
+func (s *Simulation) catsOnShift() bool {
+	w := s.World
+	if !w.ResortOpen {
+		return true
+	}
+	return float32(HourOfDay(s.SimTime)) < w.OpenHour-groomShiftEndsBeforeOpen
+}
+
 // tickSnowcats advances the grooming fleet one step. Standby cats park at
-// their shed, as does the whole fleet while the mountain is open. After
-// hours, each active cat makes one pass of its section per night if the
-// section's grooming has dropped below sectionGroomThreshold.
+// their shed, as does the whole fleet off shift (catsOnShift). On shift,
+// each active cat makes one pass of its section per night if the
+// section's grooming has dropped below sectionGroomThreshold. A pass the
+// shift ends before is held and resumed the next night, so a cat with
+// more section than a night's work reaches its far runs every other
+// night instead of never.
 func (s *Simulation) tickSnowcats(dt float64) {
 	w := s.World
 
@@ -36,9 +57,7 @@ func (s *Simulation) tickSnowcats(dt float64) {
 		s.sectionsStale = false
 	}
 
-	// Cats groom only while the mountain is closed for the day, and head
-	// back to the shed before the morning's first guests arrive.
-	offShift := !s.ClosedForDay()
+	onShift := s.catsOnShift()
 	night := nightIndex(w, s.SimTime)
 	w.Terrain.Groom.Night = uint16(night + 1)
 	if s.catPassNight == nil {
@@ -51,8 +70,13 @@ func (s *Simulation) tickSnowcats(dt float64) {
 			continue
 		}
 
-		if cat.Status == world.CatStandby || offShift {
+		if cat.Status == world.CatStandby {
 			cat.Route = nil
+			driveToDoor(w, cat, shed, dt)
+			continue
+		}
+		if !onShift {
+			s.holdRoute(cat)
 			driveToDoor(w, cat, shed, dt)
 			continue
 		}
@@ -78,6 +102,21 @@ func (s *Simulation) tickSnowcats(dt float64) {
 		} else {
 			driveToDoor(w, cat, shed, dt)
 		}
+	}
+}
+
+// holdRoute keeps the rest of a pass the shift ended in, for the next
+// night: a transit back to the last waypoint reached, then the steps not
+// yet driven. Cells groomed tonight are forgotten, so tomorrow's leg
+// grooms whatever it crosses again.
+func (s *Simulation) holdRoute(cat *world.Snowcat) {
+	if cat.RouteIdx == 0 || cat.RouteIdx >= len(cat.Route) {
+		return
+	}
+	rest := append([]world.RouteStep{{P: cat.Route[cat.RouteIdx-1].P}}, cat.Route[cat.RouteIdx:]...)
+	cat.Route, cat.RouteIdx = rest, 0
+	if s.catGroomed != nil {
+		s.catGroomed[cat.ID] = map[[2]int]bool{}
 	}
 }
 
