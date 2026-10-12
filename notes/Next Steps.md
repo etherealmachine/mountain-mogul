@@ -13,8 +13,9 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 
 In the order to work on them:
 
-1. [[Boreal Playtest]]: the user's notes from playing the tutorial (2026-10-11), ranked in the note. Left: the attendant-managed lift line (to plan), the rest of guests' thoughts (to plan), and the loading animation (what looked wrong?).
-2. [[Demo]]: the free Steam demo ([[Release]]: demo, then early access, then guest types as DLC), the Boreal tutorial and Kirkwood, playable for a few hours, as its own stripped build. Steps in order: terrain expectations (readouts, demand by terrain mix, a challenge preference); service staffing and quality ([[Service Quality]]); balance so the goals are reachable; goals and unlocking; the snow bugs; a Kirkwood map pass; a demo pop-up; UI polish (including a closed-resort sign); graphics polish; visible traffic; menus; the demo build.
+1. [[Boreal Playtest]]: the user's notes from playing the tutorial (2026-10-11), ranked in the note. Left: the rest of guests' thoughts (to plan) and the loading animation (what looked wrong?); the lift lines are planned as [[Lift Lines]].
+2. [[Lift Lines]] step 1: one line model for every lift, then a loose crowd with no attendant and an automatic rope maze (groups, singles and patrol lanes) with one.
+3. [[Demo]]: the free Steam demo ([[Release]]: demo, then early access, then guest types as DLC), the Boreal tutorial and Kirkwood, playable for a few hours, as its own stripped build. Steps in order: terrain expectations (readouts, demand by terrain mix, a challenge preference); service staffing and quality ([[Service Quality]]); balance so the goals are reachable; goals and unlocking; the snow bugs; a Kirkwood map pass; a demo pop-up; UI polish (including a closed-resort sign); graphics polish; visible traffic; menus; the demo build.
 
 Not ranked yet: everything below.
 
@@ -310,3 +311,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-11: [[Boreal Playtest]]: a live star rating, beginners wanting grooming, "Guests are saying" in the feed, closed days at the chosen speed, walkers on footpaths, skis off on walks, and lift lines joined at the back and folded before lots.
 - 2026-10-11: Noted build123d as a possible replacement for OpenSCAD (the user).
 - 2026-10-11: [[Boreal Playtest]]: overnight cars, the ski on/off loop, grooming after the weather and under trees, groups spread at lift tops, and skiers kept out of top stations, each diagnosed first; Fresh corduroy turns to crust overnight closed.
+- 2026-10-12: Planned [[Lift Lines]] with the user (playtest item 9), ranked second.
