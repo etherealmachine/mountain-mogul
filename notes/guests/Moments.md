@@ -42,3 +42,4 @@ Spec: [[Guests Spec]], Satisfaction, Rating, and Thoughts (written for the old s
 - 2026-10-09: The ledger replaced by moments and star reviews ([[Scoreless Rating]]): classes in `ai.Effects`, a grace period on conditions, quality stars from services and lift rides, the rating in stars.
 - 2026-10-09: Renamed from Satisfaction.
 - 2026-10-11: Beginners who love corduroy complain after a mostly ungroomed run ("I wish they'd groom …", an annoyance), and it can't be a great run; the feed reports today's most common complaint as it changes ("Guests are saying …") ([[Boreal Playtest]]).
+- 2026-10-12: "People keep cutting in" (`ThoughtCutIn`, an annoyance): passed twice in one wait in a lift's crowd ([[Lift Lines]]).
