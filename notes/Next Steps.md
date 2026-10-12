@@ -13,7 +13,8 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 
 In the order to work on them:
 
-1. [[Demo]]: the free Steam demo ([[Release]]: demo, then early access, then guest types as DLC), the Boreal tutorial and Kirkwood, playable for a few hours, as its own stripped build. Steps in order: terrain expectations (readouts, demand by terrain mix, a challenge preference); service staffing and quality ([[Service Quality]]); balance so the goals are reachable; goals and unlocking; the snow bugs; a Kirkwood map pass; a demo pop-up; UI polish (including a closed-resort sign); graphics polish; visible traffic; menus; the demo build.
+1. [[Boreal Playtest]]: the user's notes from playing the tutorial (2026-10-11), ranked in the note. Left: the overnight-cars, ski-swap, and grooming bugs, spreading guests at lift tops, skiers under stations, the rest of guests' thoughts, and the loading animation.
+2. [[Demo]]: the free Steam demo ([[Release]]: demo, then early access, then guest types as DLC), the Boreal tutorial and Kirkwood, playable for a few hours, as its own stripped build. Steps in order: terrain expectations (readouts, demand by terrain mix, a challenge preference); service staffing and quality ([[Service Quality]]); balance so the goals are reachable; goals and unlocking; the snow bugs; a Kirkwood map pass; a demo pop-up; UI polish (including a closed-resort sign); graphics polish; visible traffic; menus; the demo build.
 
 Not ranked yet: everything below.
 
@@ -304,3 +305,6 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-10: [[Boreal Tutorial]] planned with the user: build order, measured stages, and the economy changes it needs.
 - 2026-10-10: Season length decided (the user): 6-day months, a 30-day season; demand no longer divides by it. Demand now follows the terrain the running lifts serve ([[Boreal Tutorial]] steps 1–2).
 - 2026-10-10: Magic carpet out of the [[Demo]] (the user).
+- 2026-10-11: The user's Boreal tutorial playtest filed as [[Boreal Playtest]] and ranked first, ahead of [[Demo]].
+- 2026-10-11: [[Boreal Playtest]] items 1–2 shipped: games open paused and pause each midnight.
+- 2026-10-11: [[Boreal Playtest]]: a live star rating, beginners wanting grooming, "Guests are saying" in the feed, closed days at the chosen speed, walkers on footpaths, skis off on walks, and lift lines joined at the back and folded before lots.

@@ -1,0 +1,46 @@
+---
+title: Boreal Playtest
+kind: plan
+status: planned
+---
+
+# Boreal Playtest
+
+The user's notes from playing the rebuilt [[Boreal Tutorial]] start, 2026-10-11, ranked. Each item keeps the user's words in quotes, then says what it likely means and where it belongs. Bugs get diagnosed before they're fixed. Listed in [[Next Steps]]; feeds [[Demo]].
+
+## Ranked
+
+The order puts first what blocks playing the tutorial or reading its results, then what makes the skiing look wrong, then polish.
+
+1. Done: **Start paused.** "start paused". A new game or a loaded save opens paused; testbeds and `-screenshot` runs still start running.
+2. Done: **Pause between days.** "pause between days". The game pauses at midnight behind the day report, which gains "Start the next day" and a "Pause every night" toggle (a setting, on by default); with the report turned off, a toast says it's paused for the night.
+3. Done: **The star rating moves during the day.** "star rating only moves after midnight". Once anyone has left today, the top bar shows today's average so far ("2.7 today"), with a tick on the bar at the last full day's rating; before then it shows the last full day's "stars" as before. The rating the goals check is still set at rollover.
+4. **Cars left in the lot overnight** (bug). "cars in the parking lot overnight". Cars still parked after every guest should have gone home. Diagnose whose cars they are (guests stranded or never despawned, staff, or cars that lost their driver) and whether they hold stalls the next morning, which would shrink a lot that the tutorial now relies on filling ([[Parking and Roads]], [[Transit]]).
+5. **Skier stuck taking skis on and off** (bug). "stuck skier following another, putting on then taking off skis". A guest following another loops between putting skis on and taking them off. Probably near a rack or door, like the swap-loop fixed 2026-10-07 (one live door, skis on only past 40 m). Diagnose it: what "following" means here (a planned leader, or two guests on the same route), and which checks fight ([[Ski Racks]]).
+6. **Snow over fresh grooming** (bug). "groomed but snow fell overnight to wipe it out (wind slab, but grooming texture still shows?)". The cats groom, then the midnight weather lays snow (here a wind slab) on top, so the run opens ungroomed while the corduroy texture still shows. Two parts: the order of grooming against the overnight snow (the same question as Fresh corduroy turns to crust overnight, in [[Next Steps]] Bugs), and the shader drawing corduroy under new snow. Fix them together ([[Grooming]], [[Snow]]).
+7. **Patchy grooming.** "kind of a crap grooming job - 88%, plenty of time, missing spots". One cat finished at 88% with hours to spare and left gaps. Diagnose the cat's coverage: why it stops with time left, and where the misses fall (edges, around towers, steep bits) ([[Real Grooming]], [[Grooming]]).
+8. Done (first part): **Beginners care about grooming.** "beginners could probably want more grooming and complain a bit more about it missing". A beginner who loves corduroy (groomed taste 0.3 or more, most Cruisers) after a run that's less than 40% groomed thinks "I wish they'd groom <run>" (an annoyance, `ThoughtNotGroomed`), and that run can't be a great run (`runGroomedWanted`, `sim/runs.go`). Patrol's half of [[Boreal Tutorial]] change 4 is still open.
+9. **Lift lines.** Three notes about the same thing:
+   - "skiers need to path to the back of the line": arriving guests walk through or cut in instead of going round to the end of the line.
+   - "line out the parking lot looks bad - attendant can auto-manage line, need merging lines with multiple lanes and groups + single rider and ski patrol": a long line runs straight out into the parking lot. The line attendant should lay it out (switchbacks, like the hand-built mazes in [[Rope Lines]]), with lanes that merge at the load: groups, a singles lane, and a patrol lane.
+   - "spread waiting groups out at the top of the lift": guests unloaded at the top stand in a clump; spread them out where they gather.
+
+   The first is a bug and comes first; the attendant-managed line is a design to plan with the user ([[Lifts]], [[Lift Operations]], [[Rope Lines]]).
+
+   Diagnosed (none of Boreal's lifts use lanes, so this is the single-file line): guests joined a line on reaching the lift base (within 8 m), which is its front, were given the last place, and walked straight back through everyone to it (on the Goals Test, 823 of 1,124 joins at Lift4 passed about 40 queuers); and the line ran straight downhill with no limit (Lift4's reached 166 m, into the lot). Built (the back-of-line fix, and a stopgap for the lot): near the base counts only while the line is short, so guests join at its back; arrivals head round the line to its back from outside it (`QueueApproachXZ`), and walkers route to the back; the line folds into switchback lanes 1.5 m apart, at most 20 places (40 m) a lane and before the first lot or blocked cell, on the side with more room (`UpdateQueueFolds`, hourly; `internal/world/lift_queue_fold.go`). Waiting at the top: every member of a group stopped where the scripted unload ends (median 4–5 others within 0.5 m); spreading them out is in progress.
+10. Started: **Guests' thoughts.** "need better events - skier thoughts, etc". First step built: the event feed says "Guests are saying \"…\" (n of m today)" when a new complaint becomes the most common reason for today's reviews below 3★ (checked each clock hour, at least 5 reviews; `logGuestsSay`), and the Reviews tab shows today so far once anyone has left today. The rest, and what "etc" covers, to plan with the user ([[Readable Complaints]], [[Event Feed]], [[Moments]]).
+11. Done (the cause): **Slower speeds.** "slow down every speed - seems to only affect when resort is closed". Diagnosed: a closed resort with nobody about counted as quiet all day, not just at night, so the whole day passed in the 2 s quiet skip at every speed button; the tutorial starts closed, so every button looked the same and far too fast. Fixed: only nights are quiet (`quietNow`); a closed day runs at the chosen pace. The presets themselves (2,560, 160, 80 s a day) are unchanged: ask the user whether they still want them slower now ([[Season Calendar]]).
+12. **Skiers pass under lift stations** (bug). "don't ski under the station footprint". Skiers ski through a station's footprint. Stations should be obstacles to skiing as they are to walkers ([[Skiing]], [[Lifts]]).
+13. Done: **Walking with skis on** (bug). "walking skier still has skis on". Diagnosed: the drawing was right; the guests had skis on. Skis went on whenever a guest stood on snow, even on a walk to a building or car, so walkers clipped in on every patch of snow on the way to the door (15 s each time), and came off instantly on bare ground: on the Goals Test about 2 million guest-ticks a day of walking to buildings and cars on skis. Guests also arrived with skis on, from before ski racks. Fixed: on a walk to a building, ticket office or car, skis come off (even on snow) and stay off (`onWalkErrand`, `maybeStartSkiTransition`); renters never put on skis they don't have; guests arrive carrying skis and put them on at the snow. A walk to a lift still puts them on at the snow and shuffles to the line.
+14. Done: **Follow the path.** "skiers should try to follow the path", read as walkers keeping to footpaths. Diagnosed: the walking search did route along paths, but cutting the route down to its corners replaced it with a straight line whenever either end (a car or a door) was off the path, which is nearly every walk; it only kept to a path when both ends of a cut were on it. A probe on Boreal's terrain found 0% of an L-shaped path walked with both ends 15 m off it. Fixed: a corner cut is kept only if walking it is no slower than the route it replaces, with path cells at twice the speed (`footShortcutOK`, in `FindPath`'s corners and in `planSkiRoute` and `routeTarget`'s skip-ahead). What made it hard to see: the route was right; the smoothing after it threw it away. Paths still lose to a much shorter walk over snow, by design. If "the path" meant trails, ask the user.
+15. **Loading animation.** "getting on lift animation needs work". The boarding motion onto the chair. Graphics polish for [[Demo]] step 10; ask the user what looked wrong.
+
+## Unclear
+
+16. "$30k per day! $239939 left, build shed, tickets, and 1 beginner lift". After building a shed, a ticket office, and one beginner lift, $239,939 was left of the $700k start, and something was $30k a day. Unclear whether $30k is the day's income (the measured stage 1 net was about $16k), the running costs, or the spend, and whether the "!" means too much or too little. The $460k spent is also less than the pinned $626k for Cruiser and tickets, so the lift may not be Cruiser. Ask the user; it belongs with [[Boreal Tutorial]] step 8 (play it through and re-measure).
+
+## Log
+
+- 2026-10-11: The user's notes from playing the Boreal tutorial, filed and ranked.
+- 2026-10-11: Items 1–2 done: games open paused and pause each midnight.
+- 2026-10-11: Items 3, 8 (grooming half), 10 (first step), 11, 13 and 14 built; item 9's back-of-line fix and a fold before lots built; the rest diagnosed or in progress.
