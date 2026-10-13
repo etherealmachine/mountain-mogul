@@ -13,9 +13,8 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 
 In the order to work on them:
 
-1. [[Lift Lines]]: the crowd and the attendant's corral (two straight lanes into one run) are built and look good (the user, 2026-10-12). Next: the attendant picks a layout to suit (one line a chair wide, or two lanes into one), and a line too long for the room it has (today it runs on unroped, into a lot). A patrol and ski school lane, and singles, later.
-2. [[Boreal Playtest]]: the user's notes from playing the tutorial (2026-10-11), ranked in the note. Left: the rest of guests' thoughts (to plan) and the loading animation (what looked wrong?).
-3. [[Demo]]: the free Steam demo ([[Release]]: demo, then early access, then guest types as DLC), the Boreal tutorial and Kirkwood, playable for a few hours, as its own stripped build. Steps in order: terrain expectations (readouts, demand by terrain mix, a challenge preference); service staffing and quality ([[Service Quality]]); balance so the goals are reachable; goals and unlocking; the snow bugs; a Kirkwood map pass; a demo pop-up; UI polish (including a closed-resort sign); graphics polish; visible traffic; menus; the demo build.
+1. [[Boreal Playtest]]: the user's notes from playing the tutorial (2026-10-11), ranked in the note. Left: the rest of guests' thoughts (to plan) and the loading animation (what looked wrong?).
+2. [[Demo]]: the free Steam demo ([[Release]]: demo, then early access, then guest types as DLC), the Boreal tutorial and Kirkwood, playable for a few hours, as its own stripped build. Steps in order: terrain expectations (readouts, demand by terrain mix, a challenge preference); service staffing and quality ([[Service Quality]]); balance so the goals are reachable; goals and unlocking; the snow bugs; a Kirkwood map pass; a demo pop-up; UI polish (including a closed-resort sign); graphics polish; visible traffic; menus; the demo build.
 
 Not ranked yet: everything below.
 
@@ -44,7 +43,12 @@ Diagnose each first, report the cause, then fix:
 - **Surface lifts**: magic carpet first (not in the [[Demo]], the user 2026-10-10), then T-bar and rope tow, for beginner areas. None are lift types yet (today: double, quad, high-speed quad, 6-pack, gondola, heli). Kirkwood has two magic carpets and a T-bar in OpenStreetMap. *For* [[Kirkwood]], [[Boreal]], and Portillo in [[Scenario Campaign]].
 - **Long gondola spans**: few, tall towers over terrain a chair can't cross ([[Vision]]). *For* [[Palisades Tahoe]], [[Zermatt]].
 - **Riders on both sides of the line**: arriving riders spawn on both sides of the lift line, not one.
-- **Lines around buildings**: lift lines wrap around buildings instead of through them ([[Pathfinding]]).
+- [[Lift Lines]] extensions: good enough for now (the user, 2026-10-12): a crowd with no attendant, and with one a corral of two straight lanes merging into a short run to the load. Possible next steps, none planned yet:
+  - **The attendant picks the line**: from the lift's capacity and its attendance (how long the line has run at this hour, on days like today), choose one line a chair wide, two lanes into one, or more lanes merging.
+  - **Too long for the room**: a line longer than the corral's room runs on straight behind it, unroped, into whatever is there (a lot, a building): cap it, bend it round, or pick a layout that fits.
+  - **Singles lane**: solo guests, and groups willing to split and meet at the top ([[Groups]]), fill the seats a group leaves empty.
+  - **Patrol and ski school lane**: a short centre lane to the load; patrollers ride a real chair (their ride is hidden today), and lessons go through once there's a ski school.
+  - **Readouts**: lane counts and waits in the lift popup and the line tooltip.
 
 ## Terrain, trails, and land ([[Terrain]], [[Trails]], [[Trees]], [[Parcels]])
 
@@ -316,3 +320,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-12: [[Lift Lines]] steps 1–2: one line for every lift (the doubles' lanes gone), and a crowd at lifts with no attendant.
 - 2026-10-12: [[Lift Lines]] step 3: the attendant's rope maze. Guests no longer stand shaking beside lift stations for hours (walkers flipped sides of a hut every tick); guests in line walk to their place instead of hopping.
 - 2026-10-12: Speeds: fast and fastest doubled (80 s and 40 s a day), the whole day at one rate. [[Lift Lines]]: the attendant's maze replaced by a corral of straight lanes. The playtest list (`notes.txt`) removed; every item is in [[Boreal Playtest]].
+- 2026-10-12: [[Lift Lines]] out of Priority, good enough for now; its extensions listed under Lifts.

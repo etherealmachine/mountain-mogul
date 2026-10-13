@@ -1,7 +1,7 @@
 ---
 title: Lift Lines
 kind: plan
-status: started
+status: paused
 ---
 
 # Lift Lines
@@ -72,3 +72,4 @@ How guests wait for a lift. With no line attendant, a line is a loose crowd. Wit
 - 2026-10-12: Step 2 built: the crowd, with edge joining, shuffling up, slips and the cut-in annoyance. Rating on the Goals Test 2.80 → 2.73★ over six seeds (longer waits fill its lodge); to judge in the running game.
 - 2026-10-12: Step 3 built: the attendant's rope maze. Along the way: guests stuck an hour shaking beside lift stations (the user saw them) fixed; guests in line walk to their place rather than hopping; walkers go round ropes.
 - 2026-10-12: The maze replaced by the corral (the user): no switchbacks; a short run a chair wide to the load fed by two straight lanes a chair wide, taking turns a chair's worth at a time. `-screenshot -line-attendants` opens the resort and every lift with an attendant on each, for looking at it.
+- 2026-10-12: Paused, good enough for now (the user). Steps 4–7 and the overflow wait as extensions under Lifts in [[Next Steps]], with the attendant choosing a layout from the lift's capacity and attendance.
