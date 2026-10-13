@@ -22,7 +22,7 @@ import (
 
 const (
 	// CarLength and CarWidth size the stalls and road spacing for a
-	// typical car; the models (models-src/car_*.scad) run from 4.1 to
+	// typical car; the models (models-src/car_*.py) run from 4.1 to
 	// 4.9 m long and 1.8 to 1.95 m wide, all inside a stall.
 	CarLength = float32(4.00)
 	CarWidth  = float32(1.70)

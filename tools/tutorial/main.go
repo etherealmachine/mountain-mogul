@@ -1,3 +1,5 @@
+//go:build !demo
+
 // tutorial plays the Boreal tutorial headless (notes/next/Boreal
 // Tutorial.md): the tutorial's start (its money, credit and goals, from
 // boreal.save) on the Boreal Goals Test's layout, building four stages in

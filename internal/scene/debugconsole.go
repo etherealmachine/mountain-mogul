@@ -1,9 +1,10 @@
+//go:build !demo
+
 package scene
 
 import (
 	"strings"
 
-	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/mathgl/mgl32"
 	"mountain-mogul/internal/engine"
 	"mountain-mogul/internal/render"
@@ -116,10 +117,6 @@ func (c *DebugConsole) exec(cmd string) {
 func (c *DebugConsole) Draw(r *render.Renderer) {
 	sw := float32(r.ScreenWidth())
 	sh := float32(r.ScreenHeight())
-
-	gl.Enable(gl.BLEND)
-	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-	defer gl.Disable(gl.BLEND)
 
 	const w, h float32 = 400, 36
 	x := (sw - w) / 2

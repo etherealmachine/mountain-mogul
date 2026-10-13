@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"mountain-mogul/internal/edition"
 	"strings"
 
 	"github.com/go-gl/mathgl/mgl32"
@@ -24,19 +25,32 @@ import (
 // automatic (world.RefreshDoors), one per room. The data model lives in
 // world/lodge.go; the tile kit in world/lodge_shell.go.
 
-// serviceMenu is the Services menu, in the game and the editor.
-var serviceMenu = []struct {
+// serviceMenuEntry is one button in the Services menu.
+type serviceMenuEntry struct {
 	svc  world.Service
 	icon render.IconName
-}{
-	{world.ServiceLounge, render.IconHouse},
-	{world.ServiceFood, render.IconUsers},
-	{world.ServiceBar, render.IconCocktail},
-	{world.ServiceTickets, render.IconCoin},
-	{world.ServicePatrol, render.IconHeart},
-	{world.ServiceGarage, render.IconGarage},
-	{world.ServiceRentals, render.IconStack},
 }
+
+// serviceMenu is the Services menu, in the game and the editor. The demo
+// leaves out the bar and the rental shop.
+var serviceMenu = func() []serviceMenuEntry {
+	m := []serviceMenuEntry{
+		{world.ServiceLounge, render.IconHouse},
+		{world.ServiceFood, render.IconUsers},
+	}
+	if !edition.Demo {
+		m = append(m, serviceMenuEntry{world.ServiceBar, render.IconCocktail})
+	}
+	m = append(m,
+		serviceMenuEntry{world.ServiceTickets, render.IconCoin},
+		serviceMenuEntry{world.ServicePatrol, render.IconHeart},
+		serviceMenuEntry{world.ServiceGarage, render.IconGarage},
+	)
+	if !edition.Demo {
+		m = append(m, serviceMenuEntry{world.ServiceRentals, render.IconStack})
+	}
+	return m
+}()
 
 // maxShellSpan is the most cells a building rectangle spans each way.
 const maxShellSpan = 12
@@ -394,11 +408,10 @@ func (s *Scenario) startServiceTool(st serviceTool) {
 type serviceEnv struct {
 	w       *world.World
 	r       *render.Renderer
-	free    bool                  // the editor: no cost, any land
-	toast   func(string)          // tell the player something
-	placed  func(*world.Building) // a new building went up (game: the event feed)
-	changed func()                // after any change (snowcat sections, dirty flags)
-	delete  func(id uint64)       // tear a building down
+	free    bool            // the editor: no cost, any land
+	toast   func(string)    // tell the player something
+	changed func()          // after any change (snowcat sections, dirty flags)
+	delete  func(id uint64) // tear a building down
 }
 
 // toolInput is one frame's mouse and keys for the build tool.
@@ -525,9 +538,6 @@ func (env serviceEnv) buildRect(st *serviceTool) {
 		b := w.PlaceServiceBuilding(st.rect.origin, st.rect.rot, tiles, st.seed)
 		b.Kind = st.kind
 		st.seed = rand.Uint32() // style only; the editor has no sim RNG
-		if env.placed != nil {
-			env.placed(b)
-		}
 		env.finish(b, true)
 		env.toast(fmt.Sprintf("Built a %s. Put services in it from the Services menu.", strings.ToLower(b.Kind.Label())))
 	}
@@ -647,7 +657,6 @@ func (env serviceEnv) ghost(st *serviceTool) {
 func (s *Scenario) serviceEnv() serviceEnv {
 	return serviceEnv{
 		w: s.world, r: s.app.Renderer, toast: s.setToast,
-		placed:  func(b *world.Building) { s.sim.LogBuildingPlaced(b) },
 		changed: func() { s.sim.InvalidateSections() }, // garage tiles may have changed the fleet
 		delete:  s.deletePaintedBuilding,
 	}
@@ -922,10 +931,14 @@ func (s *Scenario) buildRoomPopup(b *world.Building, cell [2]int, confirmRemove 
 			w.AddBoolToggle("Free water", func() bool { return b.FreeWater }, func(v bool) { b.FreeWater = v })
 		}
 	case world.ServiceBar:
-		w.AddIntStepper("Drink price ($)", &b.DrinkPrice, 1, 0, 50)
-		w.AddBoolToggle("Free water", func() bool { return b.FreeWater }, func(v bool) { b.FreeWater = v })
+		if !edition.Demo {
+			w.AddIntStepper("Drink price ($)", &b.DrinkPrice, 1, 0, 50)
+			w.AddBoolToggle("Free water", func() bool { return b.FreeWater }, func(v bool) { b.FreeWater = v })
+		}
 	case world.ServiceRentals:
-		w.AddIntStepper("Rental price ($)", &b.RentalPrice, 1, 0, 150)
+		if !edition.Demo {
+			w.AddIntStepper("Rental price ($)", &b.RentalPrice, 1, 0, 150)
+		}
 	case world.ServicePatrol:
 		w.AddLabel("Patrollers", func() string {
 			n, out, sleds := 0, 0, 0

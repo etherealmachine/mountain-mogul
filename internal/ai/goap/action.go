@@ -196,7 +196,10 @@ func (a *RideLift) Cost(s *WorldSnapshot, w *world.World) float32 {
 	if l == nil {
 		return math.MaxFloat32
 	}
-	ride := l.LoopLength() / (2 * l.Speed)
+	ride := l.RideTime()
+	if ride <= 0 {
+		return math.MaxFloat32 // stopped
+	}
 	// A lift with nothing at the guest's own level, off its top or
 	// branching off those runs, is a fallback: they'll ride it when
 	// nothing better runs, and wish for harder terrain.

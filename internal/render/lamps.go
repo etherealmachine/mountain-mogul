@@ -37,7 +37,7 @@ func applyLamps(s *Shader, lamps []Lamp, night float32) {
 }
 
 // Snowcat lamp layout in the model frame (+X forward, +Y up, Z lateral),
-// matching snowcat.scad: roof at 3.4 m, cab front at x = 1.2, hull
+// matching snowcat.py: roof at 3.4 m, cab front at x = 1.2, hull
 // front at x = 2.5.
 var (
 	catHeadlightColor = mgl32.Vec3{1.00, 0.93, 0.80}

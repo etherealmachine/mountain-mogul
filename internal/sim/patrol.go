@@ -1,7 +1,6 @@
 package sim
 
 import (
-	"fmt"
 	"math"
 	"mountain-mogul/internal/ai"
 	"sort"
@@ -262,7 +261,7 @@ func (s *Simulation) bestSkiRoute(from, to mgl32.Vec3) (*world.Lift, float32) {
 	var best *world.Lift
 	bestT := float32(math.MaxFloat32)
 	for _, l := range w.Lifts {
-		if l.IsHeli() || !l.Open || l.OnHold || l.Speed <= 0 {
+		if l.Cableless() || !l.Open || l.OnHold || l.Speed <= 0 {
 			continue
 		}
 		top, base := s.liftEnd(l.Top), s.liftEnd(l.Base)
@@ -495,9 +494,8 @@ func (s *Simulation) patrollerDropPatient(p *world.Patroller, base *world.Buildi
 		g.Speed, g.TurnSide, g.Patience = 0, 0, 0
 		g.Balance = float32(fallStartBalance)
 		g.Pos = mgl32.Vec3{p.Pos[0], w.Terrain.InterpolatedSurfaceElevationAt(p.Pos[0], p.Pos[2]), p.Pos[2]}
-		w.LogEventAt(world.EventRescue, s.SimTime,
-			fmt.Sprintf("Patrol brought %s down to first aid", g.Name),
-			mgl32.Vec2{p.Pos[0], p.Pos[2]}, g.ID)
+		s.rescues.n++
+		s.rescues.last = mgl32.Vec2{p.Pos[0], p.Pos[2]}
 		// Patched up, they walk to their car; the departure counts when
 		// they drive off, as for any guest.
 		if g.Stranded {

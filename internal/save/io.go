@@ -16,6 +16,7 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 	"github.com/vmihailenco/msgpack/v5"
 	"mountain-mogul/internal/ai"
+	"mountain-mogul/internal/edition"
 	"mountain-mogul/internal/world"
 )
 
@@ -44,6 +45,11 @@ func SavesDir() string {
 		return dir
 	}
 	dir := filepath.Join(home, ".mountain-mogul", "saves")
+	if edition.Demo {
+		// The demo's saves stay apart, so a full game's save (with
+		// things the demo leaves out) never loads into it.
+		dir = filepath.Join(home, ".mountain-mogul", "demo-saves")
+	}
 	_ = os.MkdirAll(dir, 0o755)
 	return dir
 }
@@ -331,7 +337,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 			DrivewayNodeIDs: b.DrivewayNodeIDs,
 			DriveEdge:       b.DriveEdge,
 			LotSize:         [2]float32{b.LotSize[0], b.LotSize[1]},
-			SnowGunEnabled:  b.SnowGunEnabled,
+			On:              b.On,
 			StyleSeed:       b.StyleSeed,
 			MealPrice:       b.MealPrice,
 			Quality:         &b.Quality,
@@ -436,9 +442,8 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 
 			LineAttendant: l.Staff.LineAttendant,
 		}
-		if l.IsHeli() && l.HeliState != nil && !forScenario {
-			ld.HeliPhase = uint8(l.HeliState.Phase)
-			ld.HeliProgress = l.HeliState.Progress
+		if l.Cableless() && !forScenario {
+			saveHeli(l, &ld)
 		}
 		lifts[i] = ld
 	}
@@ -1016,7 +1021,7 @@ func dataToWorld(data ScenarioData) *world.World {
 			b.DriveEdge = bd.DriveEdge
 			w.SetLotRect(b, world.FootprintRect{Center: mgl32.Vec2{bd.X, bd.Z}, HalfX: bd.LotSize[0] / 2, HalfZ: bd.LotSize[1] / 2, Rotation: bd.Rotation})
 		}
-		b.SnowGunEnabled = bd.SnowGunEnabled
+		b.On = bd.On
 	}
 
 	// Restore snowcats, snowmobiles, and patrollers. Service buildings
@@ -1116,9 +1121,8 @@ func dataToWorld(data ScenarioData) *world.World {
 			}
 		}
 		// Restore helicopter phase and flight progress for HeliLift saves.
-		if lift.IsHeli() && lift.HeliState != nil {
-			lift.HeliState.Phase = world.HeliPhase(ld.HeliPhase)
-			lift.HeliState.Progress = ld.HeliProgress
+		if lift.Cableless() {
+			loadHeli(lift, ld)
 		}
 		lift.Staff.LineAttendant = ld.LineAttendant
 	}

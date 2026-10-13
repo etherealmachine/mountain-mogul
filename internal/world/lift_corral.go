@@ -17,16 +17,19 @@ import (
 // ropes are ropes like the player's (rope.go): skiers and walkers go
 // round them.
 //
-// In the line's frame (toQueueFrame), along runs back from the base and
-// lat across it; the run is centred on the lift, the first lane on the
+// In the line's frame (toQueueFrame), along runs back from the load point and
+// lat across it; the run is centred on the riders' cable, the first lane on the
 // negative side and the second on the positive.
 
 const (
-	// corralAcross is the space each guest has across a row, metres.
-	corralAcross = float32(1.0)
+	// corralAcross is the space each guest has across a row, metres: a
+	// seat's width, so a row is as wide as the chair it boards and stands
+	// between the station's posts.
+	corralAcross = float32(0.6)
 	// corralRunRows is how many rows the run to the load holds: long
-	// enough that the wider lanes start clear of the station's legs and
-	// hut (the hut reaches 4.6 m back).
+	// enough that a fixed-grip station's wider lanes start clear of its
+	// legs and hut (8 m behind the bullwheel), and a detachable's behind
+	// its front posts.
 	corralRunRows = 5
 	// corralFunnel is how far back the run's ropes widen out to the lanes'
 	// outer sides, metres.
@@ -50,7 +53,7 @@ func (l *Lift) corralWidth() int { return max(l.Type.Capacity(), 1) }
 func (l *Lift) corralRunLen() int { return corralRunRows * l.corralWidth() }
 
 // corralRunEnd is where the run's rows end and its ropes start widening,
-// metres back from the base.
+// metres back from the load point.
 func (l *Lift) corralRunEnd() float32 {
 	return (float32(corralRunRows) - 0.5) * QueueSpacing
 }
@@ -58,12 +61,12 @@ func (l *Lift) corralRunEnd() float32 {
 // corralLaneStart is where the lanes' ropes start, past the funnel.
 func (l *Lift) corralLaneStart() float32 { return l.corralRunEnd() + corralFunnel }
 
-// corralRowAlong is how far back from the base a lane's row stands.
+// corralRowAlong is how far back from the load point a lane's row stands.
 func (l *Lift) corralRowAlong(row int) float32 {
 	return l.corralLaneStart() + (float32(row)+0.5)*QueueSpacing
 }
 
-// corralLaneBack is where lane rows' ropes end, metres back from the base.
+// corralLaneBack is where lane rows' ropes end, metres back from the load point.
 func (l *Lift) corralLaneBack() float32 {
 	return l.corralLaneStart() + float32(l.CorralRows)*QueueSpacing
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 )
 
 // Units controls the display unit system throughout the game.
@@ -23,11 +24,14 @@ type Settings struct {
 	HideDailyReport bool `json:"hide_daily_report,omitempty"`
 	// NoNightPause stops the game pausing at each midnight.
 	NoNightPause bool `json:"no_night_pause,omitempty"`
-	// NoAntiAliasing turns off multisampled edges, for slower GPUs.
-	NoAntiAliasing bool `json:"no_anti_aliasing,omitempty"`
+	// AntiAliasing is the multisample count for the 3D scene: 0 (off),
+	// 2 or 4.
+	AntiAliasing int `json:"anti_aliasing"`
+	// Fullscreen fills the primary monitor instead of a window.
+	Fullscreen bool `json:"fullscreen,omitempty"`
 }
 
-var global = &Settings{Units: Imperial}
+var global = &Settings{Units: Imperial, AntiAliasing: 4}
 
 // Get returns the live settings. Callers should not cache the pointer.
 func Get() *Settings { return global }
@@ -135,4 +139,22 @@ func FormatArea(cells int) string {
 		return fmt.Sprintf("%.1f acres", sqm/4046.856)
 	}
 	return fmt.Sprintf("%.2f sq km", sqm/1_000_000)
+}
+
+// FormatDollars renders n as "$12,345" or "-$12,345".
+func FormatDollars(n int) string {
+	sign := ""
+	if n < 0 {
+		sign = "-"
+		n = -n
+	}
+	digits := strconv.Itoa(n)
+	out := make([]byte, 0, len(digits)+len(digits)/3)
+	for i := range digits {
+		if i > 0 && (len(digits)-i)%3 == 0 {
+			out = append(out, ',')
+		}
+		out = append(out, digits[i])
+	}
+	return sign + "$" + string(out)
 }

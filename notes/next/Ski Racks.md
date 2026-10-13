@@ -31,7 +31,7 @@ Guests stop to take their skis off and put them on, leave them outside in a rack
 
 ## Built (2026-10-10)
 
-- **Ski Rack** in the Transport menu: $1,500, an A-frame for 10 pairs (`models-src/ski_rack.scad`), rotatable, removed with Remove. Its popup shows how many pairs it holds.
+- **Ski Rack** in the Transport menu: $1,500, an A-frame for 10 pairs (`models-src/ski_rack.py`), rotatable, removed with Remove. Its popup shows how many pairs it holds.
 - **Changing skis** takes `skiChangeTime`: 15 sim seconds (about 4 real seconds at normal), 1.3× for a beginner down to 0.7× for an expert, bent down to the bindings with the skis at their feet.
 - **Leaving skis** (`internal/sim/gear.go`): a guest carrying skis on the way to use something in a building, within 40 m of the door, walks to the rack nearest the door with a free slot, stands in front of it for 3 sim seconds, and leaves the pair leaning on the rail. With no rack in reach, they stick the pair in the snow 12 m short of the door. One who gets to the door still holding skis leaves them on the spot.
 - **Picking them up**: when their plan next takes them anywhere but into a building, they walk back to the pair, stop 3 sim seconds, and carry it on. They never put skis on while their pair is somewhere else.

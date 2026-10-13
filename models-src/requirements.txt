@@ -1,0 +1,5 @@
+# The model build's Python packages (make models-venv installs them into
+# .venv-models).
+build123d==0.13.0
+numpy==2.5.4
+scipy==1.18.1

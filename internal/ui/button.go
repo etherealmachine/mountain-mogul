@@ -9,9 +9,14 @@ import (
 // non-empty the icon is drawn above the label; otherwise the label sits
 // vertically centred and left-padded as before.
 type Button struct {
-	X, Y, W, H  float32
-	Label       string
-	Icon        render.IconName // optional; empty means text-only
+	X, Y, W, H float32
+	Label      string
+	Icon       render.IconName // optional; empty means text-only
+	// Image is a picture texture (a model thumbnail) drawn in place of
+	// Icon when set; with no Label it fills the tile.
+	Image uint32
+	// Tooltip is shown on hover by containers that draw tooltips.
+	Tooltip     string
 	Color       mgl32.Vec4
 	HoverColor  mgl32.Vec4
 	ActiveColor mgl32.Vec4
@@ -64,21 +69,25 @@ func (b *Button) Draw(r *render.Renderer) {
 	default:
 		color = b.Color
 	}
-	r.DrawColorRect(b.X, b.Y, b.W, b.H, color)
-	// Subtle 1px outline: brighter on active/hover, dim at rest.
-	var borderAlpha float32 = 0.35
+	r.DrawRoundRect(b.X, b.Y, b.W, b.H, ButtonRadius, color)
+	// Subtle edge: brighter on active/hover, dim at rest.
+	var borderAlpha float32 = 0.30
 	if b.hovered {
-		borderAlpha = 0.55
+		borderAlpha = 0.60
 	}
 	if b.active {
-		borderAlpha = 0.70
+		borderAlpha = 0.80
 	}
-	r.DrawColorRectOutline(b.X, b.Y, b.W, b.H, mgl32.Vec4{0.55, 0.70, 1.00, borderAlpha})
+	r.DrawRoundRectOutline(b.X, b.Y, b.W, b.H, ButtonRadius, 1, mgl32.Vec4{0.60, 0.75, 1.00, borderAlpha})
 
 	white := mgl32.Vec4{1, 1, 1, 1}
+	if b.Image != 0 {
+		b.drawImage(r)
+		return
+	}
 	if b.Icon != "" && b.Label == "" {
 		// Icon only — centred in the button.
-		size := min(b.W, b.H) - 8
+		size := min(b.W, b.H) * 0.55
 		r.DrawIcon(b.Icon, b.X+(b.W-size)/2, b.Y+(b.H-size)/2, size, white)
 		return
 	}
@@ -87,6 +96,10 @@ func (b *Button) Draw(r *render.Renderer) {
 		// Sized so we get a comfortable 24-px icon with a 4-px gap to the
 		// text below in the typical 60-px tall menu bar.
 		iconSize := float32(24)
+		if b.H >= 80 {
+			// A big tile (a dock's submenu tray): a big icon.
+			iconSize = min(b.W, b.H-float32(render.GlyphH)-8) * 0.6
+		}
 		if b.H < iconSize+float32(render.GlyphH)+8 {
 			iconSize = b.H - float32(render.GlyphH) - 8
 			if iconSize < 12 {
@@ -95,6 +108,9 @@ func (b *Button) Draw(r *render.Renderer) {
 		}
 		iconX := b.X + (b.W-iconSize)/2
 		iconY := b.Y + 4
+		if b.H >= 80 {
+			iconY = b.Y + (b.H-float32(render.GlyphH)-4-iconSize)/2
+		}
 		r.DrawIcon(b.Icon, iconX, iconY, iconSize, white)
 		if r.Font != nil && b.Label != "" {
 			labelW := r.Font.TextWidth(b.Label)
@@ -106,8 +122,28 @@ func (b *Button) Draw(r *render.Renderer) {
 	}
 
 	if r.Font != nil {
-		textX := b.X + 6
+		textX := b.X + (b.W-r.Font.TextWidth(b.Label))/2
+		if textX < b.X+6 {
+			textX = b.X + 6
+		}
 		textY := b.Y + (b.H-float32(render.GlyphH))/2
 		r.Font.DrawText(r, b.Label, textX, textY, white)
+	}
+}
+
+// drawImage draws the picture tile: the image filling the button, or above
+// a caption when there is a label.
+func (b *Button) drawImage(r *render.Renderer) {
+	const pad = float32(3)
+	size := min(b.W, b.H) - pad*2
+	labelH := float32(0)
+	if b.Label != "" && r.Font != nil {
+		labelH = float32(render.GlyphH) + 2
+		size = min(b.W-pad*2, b.H-labelH-pad*2)
+	}
+	r.DrawTexturedRect(b.X+(b.W-size)/2, b.Y+pad, size, size, b.Image, mgl32.Vec4{1, 1, 1, 1})
+	if labelH > 0 {
+		lw := r.Font.TextWidth(b.Label)
+		r.Font.DrawText(r, b.Label, b.X+(b.W-lw)/2, b.Y+b.H-labelH-2, mgl32.Vec4{1, 1, 1, 1})
 	}
 }

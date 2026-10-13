@@ -121,12 +121,13 @@ func crowdJitterAt(id uint64, r, k int) (float32, float32) {
 }
 
 // fromLineFrame converts a position in the line's frame (metres along
-// queueDir from the base, and out to the right looking uphill) to world
-// XZ.
+// queueDir from the load point, and out to the right looking uphill) to
+// world XZ.
 func (l *Lift) fromLineFrame(along, lat float32) (x, z float32) {
 	dx, dz := l.queueDir()
 	rx, rz := l.lateralRight()
-	return l.Base[0] + dx*along + rx*lat, l.Base[1] + dz*along + rz*lat
+	o := l.LoadXZ()
+	return o[0] + dx*along + rx*lat, o[1] + dz*along + rz*lat
 }
 
 // onFootprint reports whether p is on a building's footprint.
@@ -420,7 +421,7 @@ func (w *World) UpdateLineLayout(l *Lift) {
 
 func (w *World) layLine(l *Lift) {
 	switch {
-	case l.IsHeli():
+	case l.Cableless():
 		l.setCrowd(nil)
 		l.stopCorral()
 	case l.Staff.LineAttendant:

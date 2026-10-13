@@ -2,9 +2,11 @@ package render
 
 import (
 	"math"
+	"mountain-mogul/internal/edition"
 	"unsafe"
 
 	"github.com/go-gl/gl/v4.1-core/gl"
+	"github.com/go-gl/mathgl/mgl32"
 	"mountain-mogul/internal/world"
 )
 
@@ -37,9 +39,11 @@ const (
 	MeshTicketOffice uint32 = 24 // ticket booth with service windows
 	MeshChairTriple  uint32 = 25 // 3-seat fixed grip chair
 	MeshSkiRack      uint32 = 26 // A-frame ski rack
+	MeshLiftTerminal uint32 = 27 // detachable lift's long terminal (lift_terminal.py)
+	MeshLiftTermWide uint32 = 28 // the 6-pack's wider terminal (lift_terminal_wide.py)
 
 	// MeshLodgeTileBase + world.ShellMeshIndex(kind, tile) is the shell
-	// kits, one per building kind (models-src/{lodge,tent,shed}_*.scad);
+	// kits, one per building kind (models-src/{lodge,tent,shed}_*.py);
 	// see lodgeTileNames and shellKitPrefix.
 	MeshLodgeTileBase uint32 = 40
 )
@@ -64,12 +68,16 @@ var lodgeTileNames = [world.ShellTileKindCount]string{
 	world.TileChimney:       "chimney",
 }
 
-// shellKitPrefix is each building kind's kit file prefix.
-var shellKitPrefix = [world.ShellKindCount]string{
-	world.ShellLodge: "lodge_",
-	world.ShellTent:  "tent_",
-	world.ShellShed:  "shed_",
-}
+// shellKitPrefix is each building kind's kit file prefix; "" for a kind
+// the edition doesn't have (the demo has no tent).
+var shellKitPrefix = func() (p [world.ShellKindCount]string) {
+	p[world.ShellLodge] = "lodge_"
+	p[world.ShellShed] = "shed_"
+	if !edition.Demo {
+		p[world.ShellTent] = "tent_"
+	}
+	return p
+}()
 
 // shellTileMesh is the mesh ID of one kit tile.
 func shellTileMesh(t world.ShellTile) uint32 {
@@ -85,9 +93,10 @@ func shellTileMesh(t world.ShellTile) uint32 {
 type Mesh struct {
 	VAO, VBO, EBO uint32
 	IndexCount    int32
-	Layout        []int    // per-vertex attribute sizes in floats
-	Locations     []uint32 // optional GL location overrides per layout entry; nil → 0..N-1
-	MaxY          float32  // top of the model in model units (OBJ meshes only)
+	Layout        []int         // per-vertex attribute sizes in floats
+	Locations     []uint32      // optional GL location overrides per layout entry; nil → 0..N-1
+	MaxY          float32       // top of the model in model units (OBJ meshes only)
+	Bounds        [2]mgl32.Vec3 // min and max corners in model units (OBJ meshes only)
 }
 
 // VertexColorLoc is the GL attribute location reserved for per-vertex base

@@ -3,6 +3,8 @@ package world
 import (
 	"math"
 
+	"mountain-mogul/internal/edition"
+
 	"github.com/go-gl/mathgl/mgl32"
 )
 
@@ -10,7 +12,7 @@ const (
 	TowerHeight     = 18.0 // height of lift tower poles — top of crossbar aligns with cable (metres)
 	CrossbarHalf    = 2.5  // half-length of tower T crossbar (metres)
 	CableGap        = 1.5  // lateral half-gap between up and down cables (metres)
-	BullwheelHeight = 3.65 // cable height at the station bullwheel — derived from lift_station.scad; chairs hang their footrests this far below the cable (lib/chair_kit.scad)
+	BullwheelHeight = 3.65 // cable height at the station bullwheel — derived from lift_station.py; chairs hang their footrests this far below the cable (lib/chair_kit.py)
 	StationOffset   = 25.0 // distance from each station to the first/last tower; cable transitions over this span
 	ChairSpacingM   = 30.0 // one chair per N metres of loop (approx)
 )
@@ -31,29 +33,11 @@ const (
 	LiftFixedTriple                 // 3-seat fixed grip
 )
 
-// HeliPhase is the state of a heli-ski helicopter in its flight cycle.
-type HeliPhase uint8
-
-const (
-	HeliAtBase HeliPhase = iota // parked at helipad, loading passengers
-	HeliToTop                   // flying to the drop zone
-	HeliAtTop                   // at drop zone, unloading
-	HeliToBase                  // flying back empty
-)
-
 const (
 	HeliCapacity   = 6    // seats per helicopter (typical light-heli capacity)
 	HeliAirspeedMs = 20.0 // m/s cruise speed (~72 km/h, conservative for a Bell 407)
 	HeliFlightAlt  = 30.0 // metres AGL during transit
 )
-
-// HeliData holds the dynamic state of a heli-ski helicopter. Non-nil only
-// on Lift records with Type == LiftHeli; all other lift types leave this nil.
-type HeliData struct {
-	Phase      HeliPhase
-	Progress   float32  // 0→1 within the current HeliToTop or HeliToBase leg
-	Passengers []*Guest // up to HeliCapacity; nil slots are empty seats
-}
 
 // Capacity returns the number of riders a single chair of this lift
 // type carries.
@@ -116,12 +100,16 @@ func (t LiftType) Label() string {
 		return "Fixed Quad"
 	case LiftHSQuad:
 		return "High-Speed Quad"
-	case LiftHS6Pack:
-		return "High-Speed 6-Pack"
-	case LiftGondola:
-		return "Gondola"
-	case LiftHeli:
-		return "Helicopter"
+	}
+	if !edition.Demo {
+		switch t {
+		case LiftHS6Pack:
+			return "High-Speed 6-Pack"
+		case LiftGondola:
+			return "Gondola"
+		case LiftHeli:
+			return "Helicopter"
+		}
 	}
 	return "Double"
 }
@@ -149,80 +137,16 @@ func (d TerrainDifficulty) Toggle(flag TerrainDifficulty) TerrainDifficulty {
 	return d ^ flag
 }
 
-// CableHeightAt returns the cable's height above terrain at a fractional
-// position 0→1 along the cable line from base to top. Profile: rises
-// linearly from BullwheelHeight at each station to TowerHeight over the
-// StationOffset transition span, then stays flat at TowerHeight across
-// the inner span.
-//
-// For lifts shorter than 2× StationOffset there's no inner span; the
-// cable stays flat at BullwheelHeight from end to end so chairs stay at
-// boarding height the whole way.
-func CableHeightAt(frac, length float32) float32 {
-	if length <= 2*StationOffset {
-		return BullwheelHeight
-	}
-	transition := float32(StationOffset) / length
-	rise := float32(TowerHeight - BullwheelHeight)
-	switch {
-	case frac <= transition:
-		return BullwheelHeight + (frac/transition)*rise
-	case frac >= 1.0-transition:
-		return BullwheelHeight + ((1.0-frac)/transition)*rise
-	default:
-		return TowerHeight
-	}
-}
-
 // Chair holds one chair on the lift loop.
-// Progress 0→1 is a full loop: 0=at base going up, 0.5=at top going down, 1.0=back at base.
+// Progress 0→1 is a full loop by distance (Lift.loopAt): 0 is the base's
+// load point, UnloadProgress the top's unload point, and it wraps back to
+// the load point at 1.
 //
 // Passengers is sized to the parent Lift's Type.Capacity() at construction
 // time; iterate it directly rather than assuming a fixed length.
 type Chair struct {
 	Progress   float32
 	Passengers []*Guest
-}
-
-// ChairPos returns the world-space position and heading for a chair at the given
-// progress value on the given lift. Used by both simulation and renderer.
-//
-// Base/Top are continuous world XZ positions; this is plain Vec2 math
-// with no cell-center fudge.
-func (l *Lift) ChairPos(progress float32, t *Terrain) (mgl32.Vec3, float32) {
-	bx, bz := l.Base[0], l.Base[1]
-	tx, tz := l.Top[0], l.Top[1]
-	dx := tx - bx
-	dz := tz - bz
-	length := float32(math.Sqrt(float64(dx*dx + dz*dz)))
-	if length < 1 {
-		length = 1
-	}
-	dirX := dx / length
-	dirZ := dz / length
-	perpX := -dirZ
-	perpZ := dirX
-
-	var frac float32
-	var perpSign float32
-	var heading float32
-	if progress < 0.5 {
-		// Going up: base → top
-		frac = progress * 2
-		perpSign = 1
-		heading = float32(math.Atan2(float64(dx), float64(dz)))
-	} else {
-		// Going down: top → base
-		frac = (1.0 - progress) * 2
-		perpSign = -1
-		heading = float32(math.Atan2(float64(-dx), float64(-dz)))
-	}
-
-	cx := bx + dx*frac + perpX*CableGap*perpSign
-	cz := bz + dz*frac + perpZ*CableGap*perpSign
-	cy := t.InterpolatedSurfaceElevationAt(cx, cz) + CableHeightAt(frac, length)
-
-	return mgl32.Vec3{cx, cy, cz}, heading
 }
 
 // Lift represents a ski lift connecting a base to a top station.
@@ -269,10 +193,9 @@ type Lift struct {
 	Crowd  []CrowdPlace
 	Chairs []Chair
 
-	// HeliState is non-nil only for LiftHeli type lifts. Cable lifts leave
-	// this nil; callers should use IsHeli() to branch rather than testing
-	// the pointer directly.
-	HeliState *HeliData
+	// liftExtras is state only the full game's lifts have: a heli lift's
+	// flight (heli.go). Empty in the demo, which has no heli.
+	liftExtras
 
 	// towerCache memoises TowerXZs() — towers are immutable after
 	// placement, so the slice can be reused across the per-tick L1
@@ -280,6 +203,10 @@ type Lift struct {
 	towerCache []mgl32.Vec2
 	// stationCache memoises StationXZs(), as towerCache does.
 	stationCache []mgl32.Vec2
+	// loopTime and rideTime cache loopTimes for the speed and ends in
+	// timesKey.
+	timesKey           [5]float32
+	loopTime, rideTime float32
 
 	// QueueFold is how many places of the single-file line run out
 	// from the base before it doubles back, 0 for a straight line;
@@ -296,24 +223,17 @@ type Lift struct {
 	mergeTurn, mergeTaken int
 }
 
-// LoopLength returns the total length of the chair loop in metres (2× cable length).
-func (l *Lift) LoopLength() float32 {
-	dx := l.Top[0] - l.Base[0]
-	dz := l.Top[1] - l.Base[1]
-	return 2 * float32(math.Sqrt(float64(dx*dx+dz*dz)))
-}
-
 // TowerSpacing is the target distance between adjacent towers along a
 // lift cable. Real chairlifts run with 40–60 m spacing; 50 m sits in
 // the middle. Kept package-level so render and sim agree on tower XZ
 // positions without re-deriving spacing.
 const TowerSpacing = 50.0
 
-// TowerXZs returns the XZ positions of every tower along the lift,
-// matching the spacing the renderer draws. Returns nil for lifts too
-// short to fit any towers (length ≤ 2 × StationOffset). The first and
-// last entries sit StationOffset inboard from the base and top stations
-// respectively; intermediate entries are evenly spaced.
+// TowerXZs returns the XZ positions of every tower along the lift, as
+// the renderer draws them. Returns nil for lifts too short to fit any.
+// The first and last sit StationOffset past each terminal's flat run
+// (StationGeom.Flat), where the cable reaches TowerHeight; the rest are
+// evenly spaced.
 //
 // The result is cached on the Lift after the first call — towers are
 // purely a function of Base / Top / StationOffset / TowerSpacing, all
@@ -330,7 +250,9 @@ func (l *Lift) TowerXZs() []mgl32.Vec2 {
 	dx := tx - bx
 	dz := tz - bz
 	length := float32(math.Sqrt(float64(dx*dx + dz*dz)))
-	stationOffset := float32(StationOffset)
+	// The first tower is where the cable reaches tower height, past the
+	// terminal's flat run.
+	stationOffset := float32(StationOffset) + l.Station().Flat
 	if length <= 2*stationOffset {
 		return nil
 	}
@@ -358,9 +280,8 @@ func (l *Lift) ResetTowerCache() {
 	l.stationCache = nil
 }
 
-// QueueCell returns the grid cell containing the lift's base — the
-// pathfinder destination for skiers walking to queue. Same convention as
-// Building.DoorCell.
+// QueueCell returns the grid cell containing the lift's base bullwheel.
+// Same convention as Building.DoorCell.
 func (l *Lift) QueueCell() [2]int {
 	return cellOf(l.Base)
 }
@@ -450,64 +371,24 @@ func cellOf(p mgl32.Vec2) [2]int {
 	}
 }
 
-// IsHeli reports whether this lift is a heli-ski helicopter rather than a
-// cable lift. Helicopter lifts use HeliState for their simulation and have
-// no Chairs, cables, or towers.
-func (l *Lift) IsHeli() bool {
-	return l.Type == LiftHeli
+// Cableless reports whether this lift is a heli-ski helicopter rather
+// than a cable lift. Helicopter lifts fly (heli.go) and have no Chairs,
+// cables, or towers. Always false in the demo, which has no heli, so
+// heli branches compile away there.
+func (l *Lift) Cableless() bool {
+	return l.Type.Cableless()
 }
 
-// HeliWorldPos returns the current world-space position of the helicopter
-// for a LiftHeli lift. During transit legs, the helicopter follows the
-// straight line between Base and Top at HeliFlightAlt above the terrain,
-// rising and falling on a sine arc. At base/top the helicopter sits on
-// the helipad surface.
-func (l *Lift) HeliWorldPos(t *Terrain) mgl32.Vec3 {
-	if l.HeliState == nil {
-		y := t.InterpolatedSurfaceElevationAt(l.Base[0], l.Base[1])
-		return mgl32.Vec3{l.Base[0], y, l.Base[1]}
-	}
-	h := l.HeliState
-	var wx, wz, frac float32
-	switch h.Phase {
-	case HeliAtBase:
-		wx, wz = l.Base[0], l.Base[1]
-		y := t.InterpolatedSurfaceElevationAt(wx, wz)
-		return mgl32.Vec3{wx, y, wz}
-	case HeliAtTop:
-		wx, wz = l.Top[0], l.Top[1]
-		y := t.InterpolatedSurfaceElevationAt(wx, wz)
-		return mgl32.Vec3{wx, y, wz}
-	case HeliToTop:
-		frac = h.Progress
-		wx = l.Base[0] + (l.Top[0]-l.Base[0])*frac
-		wz = l.Base[1] + (l.Top[1]-l.Base[1])*frac
-	case HeliToBase:
-		frac = h.Progress
-		wx = l.Top[0] + (l.Base[0]-l.Top[0])*frac
-		wz = l.Top[1] + (l.Base[1]-l.Top[1])*frac
-	}
-	groundY := t.InterpolatedSurfaceElevationAt(wx, wz)
-	alt := float32(math.Sin(float64(frac)*math.Pi)) * HeliFlightAlt
-	return mgl32.Vec3{wx, groundY + alt, wz}
+// Cableless reports whether lifts of this type fly rather than run on a
+// cable: the heli. Always false in the demo, which has no heli.
+func (t LiftType) Cableless() bool {
+	return !edition.Demo && t == LiftHeli
 }
 
-// HeliHeading returns the Y-axis heading (radians) for the helicopter mesh
-// so it always faces its current destination.
-func (l *Lift) HeliHeading() float32 {
-	if l.HeliState == nil {
-		return 0
-	}
-	var dx, dz float32
-	switch l.HeliState.Phase {
-	case HeliAtBase, HeliToTop:
-		dx = l.Top[0] - l.Base[0]
-		dz = l.Top[1] - l.Base[1]
-	case HeliAtTop, HeliToBase:
-		dx = l.Base[0] - l.Top[0]
-		dz = l.Base[1] - l.Top[1]
-	}
-	return float32(math.Atan2(float64(dx), float64(dz)))
+// Available reports whether this edition has the lift type: the demo
+// leaves out the 6-pack, the gondola, and the heli.
+func (t LiftType) Available() bool {
+	return !edition.Demo || t == LiftDouble || t == LiftFixedTriple || t == LiftFixedQuad || t == LiftHSQuad
 }
 
 // PassengerCount returns the total number of skiers currently on chairs.
@@ -598,50 +479,6 @@ func (t LiftType) RunningCostDay() int {
 	return 0
 }
 
-// Where a station's solid parts stand at ground level, in metres from
-// its bullwheel: back along the line, away from the other end (see
-// models-src/lift_station.scad). The portal frame's legs stand either
-// side of the line; the operator's hut is on the side the empty chairs
-// come back on, and is long enough to take two points.
-const (
-	stationLegBack  = 2.2
-	stationLegSide  = 3.6
-	stationHutBack  = 3.4
-	stationHutSide  = 5.0
-	stationHutReach = 0.6 // either side of the hut's middle, along the line
-)
-
-// StationXZs is where skiers have to steer round the lift's stations,
-// at both ends: the portal frame's legs and the operator's hut. Nil for
-// a helicopter.
-func (l *Lift) StationXZs() []mgl32.Vec2 {
-	if l.stationCache != nil || l.IsHeli() {
-		return l.stationCache
-	}
-	var out []mgl32.Vec2
-	for _, end := range [2][2]mgl32.Vec2{{l.Base, l.Top}, {l.Top, l.Base}} {
-		at, other := end[0], end[1]
-		u := other.Sub(at)
-		if u.Len() < 1e-3 {
-			continue
-		}
-		u = u.Normalize()
-		// The station model's +Y (the hut's side), in world XZ.
-		side := mgl32.Vec2{u[1], -u[0]}
-		place := func(back, across float32) mgl32.Vec2 {
-			return at.Sub(u.Mul(back)).Add(side.Mul(across))
-		}
-		out = append(out,
-			place(stationLegBack, stationLegSide),
-			place(stationLegBack, -stationLegSide),
-			place(stationHutBack-stationHutReach, stationHutSide),
-			place(stationHutBack+stationHutReach, stationHutSide),
-		)
-	}
-	l.stationCache = out
-	return out
-}
-
 // LiftQuality is the quality of a lift ride as a service, toward a
 // guest's quality stars (Guest.UseService): the going rate for now
 // (notes/next/Service Quality.md).
@@ -674,13 +511,13 @@ func MaxLineWaitFor(ridden bool) float32 {
 }
 
 // RidersPerSecond is how many riders the lift loads a second: every
-// chair passes the base once a loop.
+// chair passes the load point once a loop.
 func (l *Lift) RidersPerSecond() float32 {
-	loop := l.LoopLength()
-	if len(l.Chairs) == 0 || l.Speed <= 0 || loop <= 0 {
+	loop := l.LoopTime()
+	if len(l.Chairs) == 0 || loop <= 0 {
 		return 0
 	}
-	return float32(len(l.Chairs)*len(l.Chairs[0].Passengers)) * l.Speed / loop
+	return float32(len(l.Chairs)*len(l.Chairs[0].Passengers)) / loop
 }
 
 // LineWait is about how long a guest joining the back of the line would
@@ -709,7 +546,7 @@ const LiftOperators = 2
 
 // Headcount is how many people work lift l, for wages.
 func (l *Lift) Headcount() int {
-	if l.IsHeli() {
+	if l.Cableless() {
 		return LiftOperators // ground crew; the pilot is in RunningCostDay
 	}
 	n := LiftOperators
@@ -736,40 +573,43 @@ type LiftStaffPost struct {
 	Heading float32
 }
 
-// Where staff stand, metres from the bullwheel in the station's frame
-// (back along the line, and across it toward the hut; see StationXZs).
-const (
-	operatorBack  = stationHutBack + 0.2 // at the hut's window on the line side
-	operatorSide  = stationHutSide - 1.5 // clear of the hut and the leg
-	attendantBack = 0.8                  // beside the loading point
-	attendantSide = -2.6                 // across the line from the hut
-)
-
-// StaffPosts is where l's staff stand: an operator by each station's hut,
-// facing the loading or unloading point, and the line attendant (if any)
-// across the line from the bottom hut, facing the riders. Nil for a heli.
+// StaffPosts is where l's staff stand: an operator at each station's
+// hut window, facing the load or unload point, and the line attendant
+// (if any) beside the load point on the far side of the chairs from the
+// hut, facing the riders. Nil for a heli.
 func (l *Lift) StaffPosts() []LiftStaffPost {
-	if l.IsHeli() {
+	if l.Cableless() {
 		return nil
 	}
-	var out []LiftStaffPost
-	post := func(role LiftStaffRole, at, other mgl32.Vec2, back, across float32) {
-		u := other.Sub(at)
-		if u.Len() < 1e-3 {
-			return
+	var hut stationRect
+	for _, r := range l.Station().rects {
+		if r.hut {
+			hut = r
 		}
-		u = u.Normalize()
-		side := mgl32.Vec2{u[1], -u[0]}
-		p := at.Sub(u.Mul(back)).Add(side.Mul(across))
-		// Face the line just behind the bullwheel, where riders get on
-		// or off.
-		look := at.Sub(u.Mul(back)).Sub(p)
-		out = append(out, LiftStaffPost{Role: role, Pos: p, Heading: float32(math.Atan2(float64(look[0]), float64(look[1])))})
 	}
-	post(StaffBottomOperator, l.Base, l.Top, operatorBack, operatorSide)
-	post(StaffTopOperator, l.Top, l.Base, operatorBack, operatorSide)
+	var out []LiftStaffPost
+	post := func(role LiftStaffRole, pos, look mgl32.Vec2) {
+		d := look.Sub(pos)
+		out = append(out, LiftStaffPost{Role: role, Pos: pos, Heading: float32(math.Atan2(float64(d[0]), float64(d[1])))})
+	}
+	for _, top := range [2]bool{false, true} {
+		at, back, side, ok := l.StationFrame(top)
+		if !ok {
+			return nil
+		}
+		// At the window on the line side of the hut, half a metre out.
+		p := at.Add(back.Mul((hut.front + hut.rear) / 2)).Add(side.Mul(hut.in - 0.6))
+		role, look := StaffBottomOperator, l.LoadXZ()
+		if top {
+			role, look = StaffTopOperator, l.UnloadXZ()
+		}
+		post(role, p, look)
+	}
 	if l.Staff.LineAttendant {
-		post(StaffLineAttendant, l.Base, l.Top, attendantBack, attendantSide)
+		dir, perp := l.lineAxes()
+		load := l.LoadXZ()
+		reach := float32(l.Type.Capacity())*0.3 + 0.7 // past the chair's end (0.6 m a seat), by the posts
+		post(StaffLineAttendant, load.Sub(dir.Mul(0.8)).Add(perp.Mul(reach)), load)
 	}
 	return out
 }

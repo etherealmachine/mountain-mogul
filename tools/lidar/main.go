@@ -1,3 +1,5 @@
+//go:build !demo
+
 // lidar fetches USGS 3DEP 1 m lidar for a map imported from a real place
 // and writes it as ground heights on the map's 1.25 m detail lattice:
 //

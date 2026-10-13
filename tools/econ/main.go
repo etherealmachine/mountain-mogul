@@ -1,3 +1,5 @@
+//go:build !demo
+
 // econ prices what a save has built (lifts, buildings, cats and
 // snowmobiles, roads) with its daily open and standby costs, then runs it
 // headless for some days with the resort open and prints each day's

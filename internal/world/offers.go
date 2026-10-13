@@ -45,9 +45,9 @@ func (b *Building) OffersUse(o ai.Offer) bool {
 	case ai.OfferDrink:
 		return b.ServesDrinks()
 	case ai.OfferRentals:
-		return b.Offers(ServiceRentals)
+		return ServiceRentals.Available() && b.Offers(ServiceRentals)
 	case ai.OfferApres:
-		return b.Offers(ServiceBar)
+		return ServiceBar.Available() && b.Offers(ServiceBar)
 	case ai.OfferWarmUp:
 		return b.Offers(ServiceLounge)
 	case ai.OfferWater:

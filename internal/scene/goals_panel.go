@@ -38,8 +38,6 @@ const (
 )
 
 var (
-	goalsBg      = mgl32.Vec4{0.07, 0.09, 0.14, 0.97}
-	goalsTitleBg = mgl32.Vec4{0.15, 0.20, 0.35, 1}
 	goalsText    = mgl32.Vec4{0.92, 0.95, 1, 1}
 	goalsDim     = mgl32.Vec4{0.62, 0.67, 0.78, 1}
 	goalsDone    = mgl32.Vec4{0.40, 0.85, 0.50, 1}
@@ -259,9 +257,8 @@ func (s *Scenario) drawGoalsPanel(r *render.Renderer) {
 	p.w, p.h = goalsPanelW, h
 	p.x, p.y = (sw-p.w)/2, max((sh-p.h)/2, 70)
 
-	r.DrawColorRect(p.x, p.y, p.w, p.h, goalsBg)
-	r.DrawColorRect(p.x, p.y, p.w, lineH+10, goalsTitleBg)
-	f.DrawText(r, title, p.x+goalsPad, p.y+5, goalsText)
+	ui.DrawPanel(r, p.x, p.y, p.w, p.h)
+	ui.DrawPanelHeader(r, p.x, p.y, p.w, lineH+10, title)
 	y := p.y + lineH + 10 + goalsPad/2
 	if headline != "" {
 		f.DrawText(r, headline, p.x+goalsPad, y, headCol)

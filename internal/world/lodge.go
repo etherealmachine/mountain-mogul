@@ -2,6 +2,7 @@ package world
 
 import (
 	"math"
+	"mountain-mogul/internal/edition"
 	"sort"
 
 	"github.com/go-gl/mathgl/mgl32"
@@ -49,22 +50,36 @@ const (
 	PatrollersPerTile = 1
 )
 
-var serviceInfo = [ServiceCount]ServiceInfo{
-	ServiceNone: {Label: "None", Accent: mgl32.Vec3{1, 1, 1}},
-	ServiceLounge: {Label: "Lounge", Accent: mgl32.Vec3{1, 1, 1}, Overlay: [3]uint8{150, 120, 90},
-		TileCost: 12_000, TileDailyCost: 120, ForGuests: true}, // heating and cleaning
-	ServiceFood: {Label: "Food court", Accent: mgl32.Vec3{1.00, 0.80, 0.55}, Overlay: [3]uint8{235, 150, 50},
-		TileCost: 16_000, TileDailyCost: 270, ForGuests: true}, // kitchen and counter staff
-	ServiceBar: {Label: "Bar", Accent: mgl32.Vec3{0.85, 0.60, 0.68}, Overlay: [3]uint8{190, 80, 120},
-		TileCost: 16_000, TileDailyCost: 270, ForGuests: true},
-	ServiceTickets: {Label: "Tickets", Accent: mgl32.Vec3{0.68, 0.80, 1.00}, Overlay: [3]uint8{80, 140, 230},
-		TileCost: 25_000, TileDailyCost: 450, ForGuests: true}, // a ticket window's clerk
-	ServicePatrol: {Label: "Ski patrol", Accent: mgl32.Vec3{1.00, 0.62, 0.58}, Overlay: [3]uint8{220, 60, 50},
-		TileCost: 40_000, TileDailyCost: 750}, // a patroller and their snowmobile
-	ServiceGarage: {Label: "Snowcat garage", Accent: mgl32.Vec3{0.82, 0.84, 0.86}, Overlay: [3]uint8{120, 130, 140},
-		TileCost: 15_000, TileDailyCost: 90}, // the floor and doors; vehicles are bought into it
-	ServiceRentals: {Label: "Rental shop", Accent: mgl32.Vec3{0.75, 0.90, 0.70}, Overlay: [3]uint8{90, 170, 80},
-		TileCost: 16_000, TileDailyCost: 360, ForGuests: true}, // fleet upkeep and a tech at the bench
+// serviceInfo is the registry. The demo leaves out the bar and the
+// rental shop: their entries stay empty there.
+var serviceInfo = func() [ServiceCount]ServiceInfo {
+	info := [ServiceCount]ServiceInfo{
+		ServiceNone: {Label: "None", Accent: mgl32.Vec3{1, 1, 1}},
+		ServiceLounge: {Label: "Lounge", Accent: mgl32.Vec3{1, 1, 1}, Overlay: [3]uint8{150, 120, 90},
+			TileCost: 12_000, TileDailyCost: 120, ForGuests: true}, // heating and cleaning
+		ServiceFood: {Label: "Food court", Accent: mgl32.Vec3{1.00, 0.80, 0.55}, Overlay: [3]uint8{235, 150, 50},
+			TileCost: 16_000, TileDailyCost: 270, ForGuests: true}, // kitchen and counter staff
+		ServiceTickets: {Label: "Tickets", Accent: mgl32.Vec3{0.68, 0.80, 1.00}, Overlay: [3]uint8{80, 140, 230},
+			TileCost: 25_000, TileDailyCost: 450, ForGuests: true}, // a ticket window's clerk
+		ServicePatrol: {Label: "Ski patrol", Accent: mgl32.Vec3{1.00, 0.62, 0.58}, Overlay: [3]uint8{220, 60, 50},
+			TileCost: 40_000, TileDailyCost: 750}, // a patroller and their snowmobile
+		ServiceGarage: {Label: "Snowcat garage", Accent: mgl32.Vec3{0.82, 0.84, 0.86}, Overlay: [3]uint8{120, 130, 140},
+			TileCost: 15_000, TileDailyCost: 90}, // the floor and doors; vehicles are bought into it
+	}
+	if !edition.Demo {
+		info[ServiceBar] = ServiceInfo{Label: "Bar", Accent: mgl32.Vec3{0.85, 0.60, 0.68}, Overlay: [3]uint8{190, 80, 120},
+			TileCost: 16_000, TileDailyCost: 270, ForGuests: true}
+		info[ServiceRentals] = ServiceInfo{Label: "Rental shop", Accent: mgl32.Vec3{0.75, 0.90, 0.70}, Overlay: [3]uint8{90, 170, 80},
+			TileCost: 16_000, TileDailyCost: 360, ForGuests: true} // fleet upkeep and a tech at the bench
+	}
+	return info
+}()
+
+// Available reports whether this edition has the service: the demo
+// leaves out the bar and the rental shop, so a building never offers
+// them there, even from a save that has their tiles.
+func (s Service) Available() bool {
+	return !edition.Demo || (s != ServiceBar && s != ServiceRentals)
 }
 
 // Info is the service's entry in the registry.
@@ -259,7 +274,7 @@ func (b *Building) TileCount(s Service) int {
 
 // Offers reports whether guests can get s here: a tile of it and a way in.
 func (b *Building) Offers(s Service) bool {
-	return b.IsShell() && b.Usable() && b.TileCount(s) > 0
+	return s.Available() && b.IsShell() && b.Usable() && b.TileCount(s) > 0
 }
 
 // ServesGuests reports whether guests have a reason to come here: a
@@ -627,7 +642,7 @@ func (w *World) AddShellCells(b *Building, cells [][2]int) {
 
 // SetTileService puts service s in tile c of b (ServiceNone empties it).
 func (w *World) SetTileService(b *Building, c [2]int, s Service) {
-	if !b.HasCell(c) {
+	if !b.HasCell(c) || !s.Available() {
 		return
 	}
 	tiles := b.TileMap()

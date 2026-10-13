@@ -8,7 +8,7 @@ import (
 
 // A lift with neither a crowd (lift_crowd.go) nor a corral
 // (lift_corral.go), a helicopter, has a single-file line running out from
-// the base along queueDir. Left
+// the load point along queueDir. Left
 // alone a long line runs straight on into whatever is downhill (a parking
 // lot, a lodge), so it folds into switchback lanes QueueFoldLaneGap apart
 // before it gets there. Arrivals come to the back of the line from
@@ -21,10 +21,10 @@ const (
 	queueFoldMax = 20
 	// queueFoldMin is the fewest, however close the obstacle.
 	queueFoldMin = 6
-	// queueFoldClear is how far from the base the lanes after the first
-	// start, metres: clear of the station's legs and hut, which stand
-	// beside the first few places (the hut reaches about 4.6 m out).
-	queueFoldClear = float32(10)
+	// queueFoldClear is how far past the back of the station (its
+	// furthest part behind the bullwheel) the lanes after the first start,
+	// metres (queueFoldClearAt).
+	queueFoldClear = float32(2.4)
 	// queueFoldLanes is how many lanes the fold keeps clear of lots and
 	// blocked cells: room for a line of about 60.
 	queueFoldLanes = 4
@@ -38,10 +38,10 @@ const (
 )
 
 // queueSlotFrame is place index's position in the line's frame: metres
-// along queueDir from the base, and metres out to the fold side.
+// along queueDir from the load point, and metres out to the fold side.
 //
-// The first lane runs QueueFold places out from the base; the lanes after
-// it double back and forth beside it, from queueFoldClear out to the same
+// The first lane runs QueueFold places out from the load point; the lanes after
+// it double back and forth beside it, from queueFoldClearAt out to the same
 // far end, so none stands beside the station.
 func (l *Lift) queueSlotFrame(index int) (along, lat float32) {
 	n := l.QueueFold
@@ -58,10 +58,21 @@ func (l *Lift) queueSlotFrame(index int) (along, lat float32) {
 	return float32(skip+j) * QueueSpacing, float32(lane) * QueueFoldLaneGap
 }
 
-// queueFoldSkip is how many places from the base the lanes after the
+// queueFoldClearAt is how far from the load point the lanes after the
+// first start, metres: clear of the station's legs, posts and hut, which
+// stand beside the first places.
+func (l *Lift) queueFoldClearAt() float32 {
+	rear := float32(0)
+	for _, r := range l.Station().rects {
+		rear = max(rear, r.rear)
+	}
+	return l.loadAhead() + rear + queueFoldClear
+}
+
+// queueFoldSkip is how many places from the load point the lanes after the
 // first leave out.
 func (l *Lift) queueFoldSkip() int {
-	return int(math.Ceil(float64(queueFoldClear / QueueSpacing)))
+	return int(math.Ceil(float64(l.queueFoldClearAt() / QueueSpacing)))
 }
 
 // fromQueueFrame converts a position in the line's frame to world XZ.
@@ -72,7 +83,8 @@ func (l *Lift) fromQueueFrame(along, lat float32) (x, z float32) {
 	if s == 0 {
 		s = 1
 	}
-	return l.Base[0] + dx*along + rx*s*lat, l.Base[1] + dz*along + rz*s*lat
+	o := l.LoadXZ()
+	return o[0] + dx*along + rx*s*lat, o[1] + dz*along + rz*s*lat
 }
 
 // toQueueFrame converts world XZ p to the line's frame.
@@ -83,7 +95,8 @@ func (l *Lift) toQueueFrame(p mgl32.Vec2) (along, lat float32) {
 	if s == 0 {
 		s = 1
 	}
-	ox, oz := p[0]-l.Base[0], p[1]-l.Base[1]
+	o := l.LoadXZ()
+	ox, oz := p[0]-o[0], p[1]-o[1]
 	return ox*dx + oz*dz, s * (ox*rx + oz*rz)
 }
 
@@ -132,7 +145,7 @@ func (l *Lift) QueueApproachXZ(from mgl32.Vec2) mgl32.Vec2 {
 }
 
 // UpdateQueueFolds sets every single-file lift's fold: its lanes run out
-// from the base until the first parking lot or blocked cell past the
+// from the load point until the first parking lot or blocked cell past the
 // station (at most queueFoldMax places), on the side away from the
 // station's hut unless the other has the longer clear run.
 func (w *World) UpdateQueueFolds() {
@@ -160,14 +173,14 @@ func (w *World) UpdateQueueFolds() {
 		return true
 	}
 	for _, l := range w.Lifts {
-		if l.IsHeli() {
+		if l.Cableless() {
 			l.QueueFold = 0
 			continue
 		}
 		// The hut's side, from the base station's parts.
 		var hutLat float32
 		for _, p := range l.StationXZs() {
-			if p.Sub(l.Base).Len() < 8 {
+			if p.Sub(l.Base).Len() < StationExtent {
 				l.QueueFoldSide = 1
 				_, lat := l.toQueueFrame(p)
 				hutLat += lat

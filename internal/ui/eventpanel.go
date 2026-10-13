@@ -41,10 +41,10 @@ type EventPanel struct {
 	bgColor mgl32.Vec4
 }
 
-const (
-	eventPanelHeaderH = float32(22)
-	eventPanelRowH    = float32(52) // two text lines: timestamp + message
-)
+// eventPanelHeaderH covers the gap above the panel and its title strip.
+var eventPanelHeaderH = sidePanelInset + float32(render.GlyphH+10)
+
+const eventPanelRowH = float32(52) // two text lines: timestamp + message
 
 // NewEventPanel returns a hidden panel; the top-bar button toggles it.
 func NewEventPanel() *EventPanel {
@@ -119,22 +119,18 @@ func (p *EventPanel) Draw(r *render.Renderer) {
 		return
 	}
 	p.refresh()
-	r.DrawColorRect(0, p.Top, p.Width, p.Bottom-p.Top, p.bgColor)
-	r.DrawColorRect(0, p.Top, p.Width, eventPanelHeaderH, mgl32.Vec4{0.12, 0.17, 0.30, 1})
-	r.DrawColorRectOutline(0, p.Top, p.Width, p.Bottom-p.Top, mgl32.Vec4{0.30, 0.44, 0.72, 0.45})
+	DrawPanel(r, sidePanelInset, p.Top+sidePanelInset, p.Width-sidePanelInset, p.Bottom-p.Top-sidePanelInset*2)
+	DrawPanelHeader(r, sidePanelInset, p.Top+sidePanelInset, p.Width-sidePanelInset, eventPanelHeaderH-sidePanelInset, "Events")
 	if r.Font == nil {
 		return
 	}
-	label := "Events"
-	r.Font.DrawText(r, label, (p.Width-r.Font.TextWidth(label))/2,
-		p.Top+(eventPanelHeaderH-float32(render.GlyphH))/2, mgl32.Vec4{0.92, 0.94, 1.0, 1})
 
 	if len(p.rows) == 0 {
-		r.Font.DrawText(r, "Nothing yet", 12, p.Top+eventPanelHeaderH+8, mgl32.Vec4{0.55, 0.60, 0.70, 1})
+		r.Font.DrawText(r, "Nothing yet", 20, p.Top+eventPanelHeaderH+8, mgl32.Vec4{0.55, 0.60, 0.70, 1})
 		return
 	}
 
-	const pad = float32(12)
+	const pad = float32(18)
 	const markerW = float32(4)
 	textX := pad + markerW + 8
 	textMaxW := p.Width - textX - pad
@@ -142,9 +138,9 @@ func (p *EventPanel) Draw(r *render.Renderer) {
 		row := p.rows[i]
 		y := p.Top + eventPanelHeaderH + float32(i)*eventPanelRowH
 		if i == p.hovered && row.Jumpable {
-			r.DrawColorRect(0, y, p.Width, eventPanelRowH, mgl32.Vec4{0.14, 0.20, 0.34, 1})
+			r.DrawRoundRect(sidePanelInset+4, y+1, p.Width-sidePanelInset-8, eventPanelRowH-2, ButtonRadius, mgl32.Vec4{0.22, 0.30, 0.50, 0.8})
 		}
-		r.DrawColorRect(pad, y+6, markerW, eventPanelRowH-12, row.Tint)
+		r.DrawRoundRect(pad, y+6, markerW, eventPanelRowH-12, markerW/2, row.Tint)
 		lineH := eventPanelRowH / 2
 		r.Font.DrawText(r, row.When, textX, y+2, mgl32.Vec4{0.55, 0.60, 0.70, 1})
 		r.Font.DrawText(r, fitText(r.Font, row.Text, textMaxW), textX, y+lineH-2,

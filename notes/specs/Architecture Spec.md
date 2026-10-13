@@ -142,8 +142,8 @@ objects.
 | `Shader` | GPU program wrapper (compile, bind, uniforms). |
 | `Font` | Glyph-based text via a packed texture atlas. |
 
-Lodge shells draw from a 15-piece tile kit (`models-src/lodge_*.scad`,
-shared parameters in `models-src/lib/lodge_kit.scad`) loaded into static
+Lodge shells draw from a 15-piece tile kit (`models-src/lodge_*.py`,
+shared parameters in `models-src/lib/lodge_kit.py`) loaded into static
 batches at `MeshLodgeTileBase + ShellTileKind`; `RebuildStaticBatch`
 adds each shell's tiles with a per-lodge wall and roof tint picked by
 `StyleSeed`.

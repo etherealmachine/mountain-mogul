@@ -16,7 +16,7 @@ import (
 
 // Lift station ground. Nothing is built up: each station gets a flat
 // apron from its bullwheel back away from the cable, under the terminal,
-// its portal frame and hut (lift_station.scad; world.Lift.StationBoxes)
+// its portal frame and hut (lift_station.py; world.Lift.StationBoxes)
 // and either side of them: where guests queue between the legs and load
 // at the base, and at the top where riders, having stood up under the
 // hood's front and peeled off sideways in front of the frame, come round
@@ -31,11 +31,25 @@ import (
 const (
 	liftCorridorHalfWidth = float32(12.0) // → 24 m wide maintenance lane
 	liftApronDepth        = float32(8.0)  // flat metres back from the bullwheel, away from the cable
-	liftApronHalfWidth    = float32(6.0)  // flat metres either side of the cable axis
+	liftApronHalfWidth    = float32(6.0)  // flat metres either side of the cable axis (a detachable's: its roof and hut, apronShape)
 	liftApronMaxBank      = float32(24.0) // furthest the grade is held from the apron's edge
 	liftApronToe          = float32(8.0)  // metres past that over which the bank fades back to the hill
 	liftApronMaxShift     = float32(4.0)  // most the apron may sit above or below the natural ground at its middle
 )
+
+// apronShape is a station's flat apron in its frame: from front metres
+// in front of the bullwheel (under the terminal, round the load point) to
+// depth behind it, and half either side of the cable axis.
+type apronShape struct{ front, depth, half float32 }
+
+// liftApron is lift l's stations' apron: under the whole terminal.
+func liftApron(l *world.Lift) apronShape {
+	a := apronShape{front: l.Station().ApronFront, depth: liftApronDepth, half: liftApronHalfWidth}
+	if l.Type.Detachable() {
+		a.half = 6.5 // the roof, its posts and the hut
+	}
+	return a
+}
 
 // liftApronMaxGrade is the steepest the earthwork may make the ground:
 // the most a beginner holds their balance on, 1.5× their 10° comfort
@@ -68,11 +82,12 @@ func applyLiftPlacementEffects(w *world.World, lift *world.Lift) {
 	// is levelled to the natural ground at its middle, read before either
 	// is carved.
 	claimed := claimedGround(w, nil, lift)
-	mid := axis.Mul(liftApronDepth / 2)
+	a := liftApron(lift)
+	mid := axis.Mul((a.depth - a.front) / 2)
 	topTarget := stationGroundElev(t, lift.Top.Add(mid))
 	baseTarget := stationGroundElev(t, lift.Base.Sub(mid))
-	carveStationApron(t, lift.Top, axis, +1, topTarget, claimed, true)
-	carveStationApron(t, lift.Base, axis, -1, baseTarget, claimed, true)
+	carveStationApron(t, lift.Top, axis, +1, a, topTarget, claimed, true)
+	carveStationApron(t, lift.Base, axis, -1, a, baseTarget, claimed, true)
 	// Stamp queue + top cells impassable so the structure-stamp path
 	// matches PlaceLift's blocking.
 	queue := lift.QueueCell()
@@ -91,38 +106,38 @@ func applyLiftPlacementEffects(w *world.World, lift *world.Lift) {
 }
 
 // apronDist is how far the point d metres from a station (d in world
-// XZ) is outside the station's flat apron: 0 on it, from the post to
-// liftApronDepth beyond it and liftApronHalfWidth either side. side is
+// XZ) is outside the station's flat apron a: 0 on it, from a.front in
+// front of the bullwheel to a.depth behind it and a.half either side. side is
 // the direction the station faces along axis: -1 for the base, +1 for
 // the top.
-func apronDist(d, axis mgl32.Vec2, side float32) float32 {
-	dist, _ := apronEdge(d, axis, side)
+func apronDist(d, axis mgl32.Vec2, side float32, a apronShape) float32 {
+	dist, _ := apronEdge(d, axis, side, a)
 	return dist
 }
 
 // apronEdge is apronDist and the unit direction from the nearest point of
 // the apron out to d (zero on the apron).
-func apronEdge(d, axis mgl32.Vec2, side float32) (float32, mgl32.Vec2) {
+func apronEdge(d, axis mgl32.Vec2, side float32, a apronShape) (float32, mgl32.Vec2) {
 	along := (d[0]*axis[0] + d[1]*axis[1]) * side
 	perpSigned := d[0]*axis[1] - d[1]*axis[0]
 	perp := float32(math.Abs(float64(perpSigned)))
-	outA := max(0, along-liftApronDepth, -along)
-	outP := max(0, perp-liftApronHalfWidth)
+	outA := max(0, along-a.depth, -along-a.front)
+	outP := max(0, perp-a.half)
 	dist := float32(math.Hypot(float64(outA), float64(outP)))
 	if dist == 0 {
 		return 0, mgl32.Vec2{}
 	}
 	// Back to world XZ: along runs side·axis, perp the axis turned a
 	// quarter (positive where perpSigned is).
-	a := outA
+	oa := outA
 	if along < 0 {
-		a = -outA
+		oa = -outA
 	}
 	pp := outP
 	if perpSigned < 0 {
 		pp = -outP
 	}
-	dir := axis.Mul(a * side).Add(mgl32.Vec2{axis[1], -axis[0]}.Mul(pp))
+	dir := axis.Mul(oa * side).Add(mgl32.Vec2{axis[1], -axis[0]}.Mul(pp))
 	return dist, dir.Mul(1 / dist)
 }
 
@@ -164,9 +179,9 @@ func apronFill(height, farNatural float32) float32 {
 // liftApronMaxShift of target, in half-metre steps, that moves the least
 // earth (nearest target on a tie); without, it's target. Claimed cells
 // (other buildings' pads) keep their ground.
-func carveStationApron(t *world.Terrain, station, axis mgl32.Vec2, side, target float32, claimed map[[2]int]bool, search bool) {
+func carveStationApron(t *world.Terrain, station, axis mgl32.Vec2, side float32, a apronShape, target float32, claimed map[[2]int]bool, search bool) {
 	const cellSize = float32(5.0)
-	bound := float32(math.Hypot(float64(liftApronDepth), float64(liftApronHalfWidth))) + liftApronMaxBank + liftApronToe + cellSize
+	bound := float32(math.Hypot(float64(max(a.depth, a.front)), float64(a.half))) + liftApronMaxBank + liftApronToe + cellSize
 	x0, x1 := int((station[0]-bound)/cellSize), int((station[0]+bound)/cellSize)
 	z0, z1 := int((station[1]-bound)/cellSize), int((station[1]+bound)/cellSize)
 	p := t.GroundPatch(x0, z0, x1, z1, 0)
@@ -186,7 +201,7 @@ func carveStationApron(t *world.Terrain, station, axis mgl32.Vec2, side, target 
 				dist[k] = -1
 				continue
 			}
-			d, dir := apronEdge(mgl32.Vec2{wx, wz}.Sub(station), axis, side)
+			d, dir := apronEdge(mgl32.Vec2{wx, wz}.Sub(station), axis, side, a)
 			dist[k] = d
 			if d > 0 {
 				edge := mgl32.Vec2{wx, wz}.Sub(dir.Mul(d))
@@ -243,7 +258,7 @@ func carveStationApron(t *world.Terrain, station, axis mgl32.Vec2, side, target 
 			cell.MogulSize = 0
 		}
 		centre := mgl32.Vec2{(float32(c[0]) + 0.5) * cellSize, (float32(c[1]) + 0.5) * cellSize}
-		if apronDist(centre.Sub(station), axis, side) <= 0 {
+		if apronDist(centre.Sub(station), axis, side, a) <= 0 {
 			if top := cell.TopLayer(); top != nil {
 				top.Kind = world.KindPackedPowder
 			}
@@ -260,7 +275,7 @@ func carveStationApron(t *world.Terrain, station, axis mgl32.Vec2, side, target 
 		for j := j0; j <= j1; j++ {
 			for i := i0; i <= i1; i++ {
 				q := mgl32.Vec2{float32(i) * per, float32(j) * per}
-				if m.M[j*m.W+i].Bare() && apronDist(q.Sub(station), axis, side) <= 0 {
+				if m.M[j*m.W+i].Bare() && apronDist(q.Sub(station), axis, side, a) <= 0 {
 					m.M[j*m.W+i] = world.MatMeadow
 					changed = true
 				}
@@ -371,4 +386,63 @@ func clearLiftCorridor(t *world.Terrain, base, top mgl32.Vec2, halfWidth float32
 	t.RemoveTreesIn(x0, z0, x1, z1, func(tr world.Tree) bool {
 		return pointSegmentDistSq(mgl32.Vec2{tr.X, tr.Z}, base, top) <= hw2
 	})
+}
+
+// apronLevelSlack is how far, metres, the ground under a station's apron
+// may stray from level before levelStationAprons regrades it.
+const apronLevelSlack = float32(0.15)
+
+// levelStationAprons regrades the ground under any lift station whose
+// apron isn't level, at its bullwheel's height: saves made before the
+// terminals reached in front of the wheel levelled only behind it, so the
+// longer terminals stood over a slope. A level apron is left alone.
+func levelStationAprons(w *world.World) {
+	t := w.Terrain
+	changed := false
+	for _, l := range w.Lifts {
+		if l.Cableless() {
+			continue
+		}
+		axis := l.Top.Sub(l.Base)
+		if n := axis.Len(); n > 0 {
+			axis = axis.Mul(1 / n)
+		}
+		a := liftApron(l)
+		for _, end := range []struct {
+			at   mgl32.Vec2
+			side float32
+		}{{l.Base, -1}, {l.Top, +1}} {
+			claimed := claimedGround(w, nil, l)
+			if apronIsLevel(t, end.at, axis, end.side, a, claimed) {
+				continue
+			}
+			carveStationApron(t, end.at, axis, end.side, a, t.GroundHeightAt(end.at[0], end.at[1]), claimed, false)
+			changed = true
+		}
+	}
+	if changed {
+		t.RestampTreeWells()
+		t.RecomputeSlopes()
+	}
+}
+
+// apronIsLevel reports whether the ground over apron a of the station at
+// station is within apronLevelSlack of the ground at the bullwheel,
+// sampled every metre; claimed ground (other buildings' pads), which the
+// carve leaves alone, doesn't count.
+func apronIsLevel(t *world.Terrain, station, axis mgl32.Vec2, side float32, a apronShape, claimed map[[2]int]bool) bool {
+	h := t.GroundHeightAt(station[0], station[1])
+	across := mgl32.Vec2{axis[1], -axis[0]}
+	for along := -a.front; along <= a.depth; along++ {
+		for off := -a.half; off <= a.half; off++ {
+			p := station.Add(axis.Mul(along * side)).Add(across.Mul(off))
+			if claimed[[2]int{int(p[0] / world.CellSize), int(p[1] / world.CellSize)}] {
+				continue
+			}
+			if d := t.GroundHeightAt(p[0], p[1]) - h; d > apronLevelSlack || d < -apronLevelSlack {
+				return false
+			}
+		}
+	}
+	return true
 }

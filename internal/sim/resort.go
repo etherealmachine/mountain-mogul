@@ -7,8 +7,7 @@ import (
 	"mountain-mogul/internal/world"
 )
 
-// SetResortOpen flips the resort-wide open/closed switch (World.ResortOpen)
-// and logs it to the event feed. Opening takes effect on the next demand
+// SetResortOpen flips the resort-wide open/closed switch (World.ResortOpen). Opening takes effect on the next demand
 // poll and bills the day at operating cost. Closing stops arrivals at once;
 // guests already on the mountain finish what they are doing and go home
 // (see tickResortClosed). No-op when the state is unchanged.
@@ -20,10 +19,8 @@ func (s *Simulation) SetResortOpen(open bool) {
 	w.ResortOpen = open
 	if open {
 		s.openToday = true
-		w.LogEvent(world.EventResortOpened, s.SimTime, "Resort opened")
 		return
 	}
-	w.LogEvent(world.EventResortClosed, s.SimTime, "Resort closed")
 	s.sendQueuesHome()
 }
 

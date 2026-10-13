@@ -1,5 +1,7 @@
 package world
 
+import "mountain-mogul/internal/edition"
+
 // ShellKind is what a service building is built as. They differ in cost,
 // upkeep, look, and height; a lodge alone can rise to three storeys.
 // What heating means for guests, and how much nicer a lodge is than a
@@ -17,7 +19,9 @@ const (
 func (k ShellKind) Label() string {
 	switch k {
 	case ShellTent:
-		return "Tent"
+		if !edition.Demo {
+			return "Tent"
+		}
 	case ShellShed:
 		return "Shed"
 	}
@@ -36,7 +40,7 @@ func (k ShellKind) MaxStoreys() int {
 }
 
 // WallHeight is one storey's wall height. Keep in sync with
-// models-src/lib/lodge_kit.scad.
+// models-src/lib/lodge_kit.py.
 func (k ShellKind) WallHeight() float32 {
 	switch k {
 	case ShellTent:
@@ -48,7 +52,7 @@ func (k ShellKind) WallHeight() float32 {
 }
 
 // RoofRise is the roof's rise per tile of run. Keep in sync with
-// models-src/lib/lodge_kit.scad.
+// models-src/lib/lodge_kit.py.
 func (k ShellKind) RoofRise() float32 {
 	switch k {
 	case ShellTent:

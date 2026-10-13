@@ -1,3 +1,5 @@
+//go:build !demo
+
 // stages builds one stage of the Boreal tutorial's build order
 // (notes/next/Boreal Tutorial.md) from the Boreal Goals Test save, by
 // removing what comes later, prices it, and runs it headless for some

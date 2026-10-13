@@ -64,10 +64,6 @@ func NewOverlayPanel() *OverlayPanel {
 			tint: mgl32.Vec4{0.95, 0.40, 0.10, 1}},
 		{bit: render.OverlayMoguls, label: "Moguls", icon: render.IconDotsNine,
 			tint: mgl32.Vec4{0.95, 0.30, 0.75, 1}},
-		{bit: render.OverlayTrails, label: "Trails", icon: render.IconFlag,
-			tint: mgl32.Vec4{0.40, 0.85, 0.45, 1}},
-		{bit: render.OverlayGround, label: "Ground", icon: render.IconGridFour,
-			tint: mgl32.Vec4{0.75, 0.55, 0.40, 1}},
 	}
 	return p
 }
@@ -93,7 +89,7 @@ func (p *OverlayPanel) ContainsXY(mx, my float32, screenW float32) bool {
 		return false
 	}
 	x := p.x(screenW)
-	return mx >= x && mx <= x+p.Width && my >= p.Top && my <= p.Bottom
+	return mx >= x && mx <= x+p.Width && my >= p.Top && my <= p.panelBottom()
 }
 
 // Mask returns the current overlay bitmask. Callers wire this into
@@ -155,19 +151,9 @@ func (p *OverlayPanel) Draw(r *render.Renderer) {
 	p.layout(screenW)
 
 	x := p.x(screenW)
-	r.DrawColorRect(x, p.Top, p.Width, p.Bottom-p.Top, p.bgColor)
-
-	// Header strip — labels what this panel does. Subtle, just a tinted
-	// band across the top.
-	headerH := float32(22)
-	r.DrawColorRect(x, p.Top, p.Width, headerH, mgl32.Vec4{0.12, 0.17, 0.30, 1})
-	r.DrawColorRectOutline(x, p.Top, p.Width, p.Bottom-p.Top, mgl32.Vec4{0.30, 0.44, 0.72, 0.45})
-	if r.Font != nil {
-		label := "Overlays"
-		labelW := r.Font.TextWidth(label)
-		r.Font.DrawText(r, label, x+(p.Width-labelW)/2, p.Top+(headerH-float32(render.GlyphH))/2,
-			mgl32.Vec4{0.92, 0.94, 1.0, 1})
-	}
+	w := p.Width - sidePanelInset
+	DrawPanel(r, x, p.Top+sidePanelInset, w, p.panelBottom()-p.Top-sidePanelInset)
+	DrawPanelHeader(r, x, p.Top+sidePanelInset, w, overlayHeaderH, "Map views")
 
 	for _, row := range p.rows {
 		active := (p.mask & row.bit) != 0
@@ -182,14 +168,14 @@ func (p *OverlayPanel) drawRow(r *render.Renderer, row *overlayRow, active bool)
 	var bg mgl32.Vec4
 	switch {
 	case active:
-		bg = mgl32.Vec4{0.14, 0.36, 0.24, 1}
+		bg = mgl32.Vec4{0.16, 0.42, 0.28, 0.9}
 	case row.hovered:
-		bg = mgl32.Vec4{0.14, 0.20, 0.34, 1}
+		bg = mgl32.Vec4{0.22, 0.30, 0.50, 0.8}
 	default:
 		bg = mgl32.Vec4{0, 0, 0, 0} // transparent — panel bg shows through
 	}
 	if bg[3] > 0 {
-		r.DrawColorRect(row.x, row.y, row.w, row.h, bg)
+		r.DrawRoundRect(row.x+4, row.y+2, row.w-sidePanelInset-8, row.h-4, ButtonRadius, bg)
 	}
 
 	const iconSize = float32(20)
@@ -214,19 +200,27 @@ func (p *OverlayPanel) drawRow(r *render.Renderer, row *overlayRow, active bool)
 	}
 }
 
+// overlayHeaderH is the height of the panel's title strip.
+var overlayHeaderH = float32(render.GlyphH + 10)
+
+// panelBottom is the foot of the panel: just below its last row, so it
+// hugs its toggles instead of running down the screen.
+func (p *OverlayPanel) panelBottom() float32 {
+	if len(p.rows) == 0 {
+		return p.Bottom
+	}
+	last := p.rows[len(p.rows)-1]
+	return min(p.Bottom, last.y+last.h+6)
+}
+
 func (p *OverlayPanel) x(screenW float32) float32 {
 	return screenW - p.Width
 }
 
 func (p *OverlayPanel) layout(screenW float32) {
-	const headerH = float32(22)
 	x := p.x(screenW)
-	rowsTop := p.Top + headerH
-	available := p.Bottom - rowsTop
-	rowH := available / float32(len(p.rows))
-	if rowH < 28 {
-		rowH = 28
-	}
+	rowsTop := p.Top + sidePanelInset + overlayHeaderH + 4
+	rowH := float32(40)
 	for i, row := range p.rows {
 		row.x = x
 		row.y = rowsTop + float32(i)*rowH

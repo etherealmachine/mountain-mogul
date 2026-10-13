@@ -9,7 +9,7 @@ const snowGunSWEPerCellPerHour = 0.003
 
 // tickSnowGuns applies artificial snow (KindBase) to terrain cells within each
 // enabled snow gun's range whenever the air is cold enough.
-func (s *Simulation) tickSnowGuns(dt float64) {
+func tickSnowGuns(s *Simulation, dt float64) {
 	if s.TempNow() > world.SnowGunMinTempC {
 		return
 	}
@@ -17,7 +17,7 @@ func (s *Simulation) tickSnowGuns(dt float64) {
 	t := s.World.Terrain
 	swePerCell := float32(snowGunSWEPerCellPerSec * dt)
 	for _, b := range s.World.Buildings {
-		if b.Type != world.BuildingSnowGun || !b.SnowGunEnabled {
+		if b.Type != world.BuildingSnowGun || !b.On {
 			continue
 		}
 		cx := int(b.Pos[0] / world.CellSize)

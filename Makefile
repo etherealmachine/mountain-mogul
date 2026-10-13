@@ -1,52 +1,46 @@
 # Mountain Mogul — model build pipeline.
 #
-# OpenSCAD source files in models-src/ compile to OBJ files in
-# assets/models/, with an intermediate 3MF parked under build/3mf/. The Go
-# converter under tools/scad2obj/ handles the SCAD-Z-up → game-Y-up
-# coordinate swap and translates 3MF basematerials into per-vertex OBJ
-# colours (the Wavefront `v x y z r g b` extension our loader reads).
-#
-# Requires the OpenSCAD development snapshot (>= 2026.04 or so) — the
-# 2021.01 stable release drops color() information on export.
+# Each model is a Python script in models-src/ that builds its parts with
+# build123d and writes its OBJ to assets/models/ (models-src/lib/mogul.py:
+# the helpers, colours, metadata and the OBJ writer). The scripts run in a
+# project virtualenv, .venv-models, made by `make models-venv`.
 #
 # Targets:
-#   make models       — rebuild every OBJ that's stale w.r.t. its .scad
-#   make clean-models — remove the intermediate 3MF cache (does NOT delete
-#                       .obj files in assets/models, since some are
-#                       hand-authored)
+#   make models-venv  — create .venv-models with models-src/requirements.txt
+#   make models       — rebuild every OBJ that's stale w.r.t. its script or lib/
+#   make models -j8   — the same, in parallel
 
-OPENSCAD  ?= openscad
+PYTHON    ?= .venv-models/bin/python
 
-SCAD_FILES := $(wildcard models-src/*.scad)
-TMF_FILES  := $(SCAD_FILES:models-src/%.scad=build/3mf/%.3mf)
-OBJ_FILES  := $(SCAD_FILES:models-src/%.scad=assets/models/%.obj)
+MODEL_SRCS := $(wildcard models-src/*.py)
+OBJ_FILES  := $(MODEL_SRCS:models-src/%.py=assets/models/%.obj)
+MODEL_LIB  := $(wildcard models-src/lib/*.py)
 
-.PHONY: models clean-models
+.PHONY: models models-venv
 
 models: $(OBJ_FILES)
 
-build/3mf:
-	mkdir -p $@
+models-venv:
+	python3 -m venv .venv-models
+	.venv-models/bin/pip install -r models-src/requirements.txt
 
-# OpenSCAD writes ECHO() output to stderr; we tee it into a sidecar .echo
-# file so scad2obj can pick up `MOGUL_META …` lines and bake them into the
-# OBJ as slot metadata. The redirection still keeps build-time errors and
-# warnings visible because make prints stderr from the spawned shell on
-# failure.
-build/3mf/%.3mf: models-src/%.scad | build/3mf
-	$(OPENSCAD) -o $@ $< 2> $(@:.3mf=.echo)
+assets/models/%.obj: models-src/%.py $(MODEL_LIB)
+	$(PYTHON) $< $@
 
-# Lodge shell tiles share their dimensions and modules through lib/.
-$(filter build/3mf/lodge_%,$(TMF_FILES)): models-src/lib/lodge_kit.scad
+DEMO_DIR    := build/demo
+DEMO_BIN    := $(DEMO_DIR)/mountain-mogul-demo
+# Models of things the demo leaves out.
+DEMO_NO_MODELS := bar.obj chair_6pack.obj lift_terminal_wide.obj gondola_cabin.obj helicopter_% helipad.obj snow_gun.obj tent_%
 
-# Cars share their parts through lib/ too.
-$(filter build/3mf/car_%,$(TMF_FILES)): models-src/lib/car_kit.scad
+.PHONY: demo demo-audit
 
-# Chairs share their frame through lib/ too.
-$(filter build/3mf/chair%,$(TMF_FILES)): models-src/lib/chair_kit.scad
+demo:
+	rm -rf $(DEMO_DIR)
+	mkdir -p $(DEMO_DIR)/assets/scenarios $(DEMO_DIR)/assets/models
+	go build -tags demo -trimpath -ldflags "-s -w" -o $(DEMO_BIN) .
+	cp -R assets/fonts assets/icons assets/shaders assets/logo.png $(DEMO_DIR)/assets/
+	cp assets/scenarios/boreal.save $(DEMO_DIR)/assets/scenarios/
+	cp $(filter-out $(addprefix assets/models/,$(DEMO_NO_MODELS)),$(wildcard assets/models/*.obj)) $(DEMO_DIR)/assets/models/
 
-assets/models/%.obj: build/3mf/%.3mf tools/scad2obj/main.go
-	go run ./tools/scad2obj $< $(<:.3mf=.echo) $@
-
-clean-models:
-	rm -rf build/3mf
+demo-audit: demo
+	tools/demo-audit.sh $(DEMO_BIN)

@@ -34,6 +34,10 @@ type App struct {
 
 	scenes   []Scene
 	AssetDir string
+
+	// windowed is the window's place and size before going full screen,
+	// to return to.
+	windowed [4]int
 }
 
 // NewApp creates the window, initialises OpenGL and the renderer.
@@ -59,7 +63,7 @@ func NewApp(title string, width, height int, assetDir string) *App {
 	// passed to NewRenderer, so we must query it explicitly.
 	fbW, fbH := win.GetFramebufferSize()
 	r.SetViewport(fbW, fbH)
-	render.SetAntiAliasing(!settings.Get().NoAntiAliasing)
+	r.SetAntiAliasing(settings.Get().AntiAliasing)
 
 	// Framebuffer-size callback: only updates gl.Viewport (physical pixels).
 	win.SetFramebufferSizeCallback(func(_ *glfw.Window, w, h int) {
@@ -72,7 +76,41 @@ func NewApp(title string, width, height int, assetDir string) *App {
 		r.SetLogicalSize(w, h)
 	})
 
+	if settings.Get().Fullscreen {
+		app.SetFullscreen(true)
+	}
+
 	return app
+}
+
+// Fullscreen reports whether the window fills the primary monitor.
+func (app *App) Fullscreen() bool { return app.Window.GetMonitor() != nil }
+
+// SetFullscreen moves the window onto the whole primary monitor, or back
+// to where it was.
+func (app *App) SetFullscreen(on bool) {
+	if on == app.Fullscreen() {
+		return
+	}
+	w := app.Window
+	if on {
+		x, y := w.GetPos()
+		ww, wh := w.GetSize()
+		app.windowed = [4]int{x, y, ww, wh}
+		m := glfw.GetPrimaryMonitor()
+		if m == nil {
+			return
+		}
+		mode := m.GetVideoMode()
+		w.SetMonitor(m, 0, 0, mode.Width, mode.Height, mode.RefreshRate)
+	} else {
+		p := app.windowed
+		if p[2] == 0 {
+			p = [4]int{80, 80, 1280, 720}
+		}
+		w.SetMonitor(nil, p[0], p[1], p[2], p[3], 0)
+	}
+	glfw.SwapInterval(1) // vsync again on the new swap chain
 }
 
 // Destroy cleans up GLFW.
@@ -154,6 +192,7 @@ func (app *App) Run() {
 		app.LastUpdateMs = float32(updateDur.Seconds() * 1000)
 		app.LastRenderMs = float32(renderDur.Seconds() * 1000)
 
+		app.Renderer.EndFrame()
 		app.Window.SwapBuffers()
 
 		if app.LogSlowFrames {

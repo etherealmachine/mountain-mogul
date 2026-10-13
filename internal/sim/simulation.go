@@ -8,6 +8,7 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 	"mountain-mogul/internal/ai"
 	"mountain-mogul/internal/ai/goap"
+	"mountain-mogul/internal/edition"
 	"mountain-mogul/internal/rng"
 	"mountain-mogul/internal/world"
 )
@@ -72,6 +73,14 @@ type Simulation struct {
 	// lastSaid is the complaint the event feed last reported as the
 	// day's most common (logGuestsSay); cleared at rollover.
 	lastSaid ai.ThoughtKind
+	// longLinesSaid is the lifts whose long line the feed reported today.
+	longLinesSaid map[uint64]bool
+	// rescues counts patrol rescues since the feed last reported them,
+	// and where the latest ended.
+	rescues struct {
+		n    int
+		last mgl32.Vec2
+	}
 
 	// Demand owns the global skier pool and resort rating. The
 	// per-30-sim-seconds poll fires from Tick.
@@ -156,10 +165,6 @@ type Simulation struct {
 	// groomed, so each gets one pass a night.
 	groomable  map[[2]int]bool
 	catGroomed map[uint64]map[[2]int]bool
-
-	// QueryServer, if non-nil, services live SQL queries from the HTTP
-	// endpoint. Tick() drains pending requests on the game thread.
-	QueryServer *QueryServer
 
 	// openToday records whether World.ResortOpen was true at any point in
 	// the current sim day; the rollover bills operating costs if so and
@@ -325,7 +330,9 @@ func (s *Simulation) subTick(dt float64) {
 	s.tickGuests(dt)
 	s.tickSnowcats(dt)
 	s.tickPatrollers(dt)
-	s.tickSnowGuns(dt)
+	if !edition.Demo { // no snowmaking in the demo
+		tickSnowGuns(s, dt)
+	}
 	s.tickAvalanche(dt)
 }
 
@@ -334,15 +341,15 @@ func (s *Simulation) tickLifts(dt float64) {
 	running := s.LiftsRunning()
 	defer s.planBoarders(false)
 	for _, lift := range w.Lifts {
-		if lift.IsHeli() {
-			s.tickHeliLift(lift, dt)
+		if lift.Cableless() {
+			tickHeliLift(s, lift, dt)
 			continue
 		}
 		loopLen := lift.LoopLength()
 		if loopLen < 1 {
 			continue
 		}
-		fracPerSec := float64(lift.Speed) / float64(loopLen)
+		unloadAt := lift.UnloadProgress()
 
 		// Hold: lift base has no snow — drain chairs, don't board, then stop.
 		baseCell := lift.QueueCell()
@@ -369,11 +376,12 @@ func (s *Simulation) tickLifts(dt float64) {
 			chair := &lift.Chairs[i]
 			prev := chair.Progress
 			if moving {
-				chair.Progress += float32(fracPerSec * dt)
+				// Detachables' chairs slow in the stations (SpeedAt).
+				chair.Progress += lift.SpeedAt(chair.Progress) / loopLen * float32(dt)
 			}
 
-			// At top (progress crosses 0.5): unload passengers.
-			if prev < 0.5 && chair.Progress >= 0.5 {
+			// At the top's unload point: unload passengers.
+			if prev < unloadAt && chair.Progress >= unloadAt {
 				if len(s.boarders) > 0 && chairOccupied(chair) {
 					// A short lift: riders waiting for their plan get it now.
 					s.planBoarders(true)
@@ -408,8 +416,8 @@ func (s *Simulation) tickLifts(dt float64) {
 				}
 			}
 
-			// At base (progress wraps past 1.0): fill the chair from the
-			// queue up to its capacity. Skip when on hold.
+			// At the base's load point (progress wraps past 1.0): fill the
+			// chair from the queue up to its capacity. Skip when on hold.
 			if chair.Progress >= 1.0 {
 				chair.Progress -= 1.0
 				if !lift.OnHold && running {
@@ -428,99 +436,6 @@ func (s *Simulation) tickLifts(dt float64) {
 					}
 				}
 			}
-		}
-	}
-}
-
-// tickHeliLift drives the state machine for a heli-ski helicopter lift.
-// Called by tickLifts for every LiftHeli entry; cable-lift logic is
-// handled by the regular tickLifts path.
-func (s *Simulation) tickHeliLift(lift *world.Lift, dt float64) {
-	w := s.World
-	h := lift.HeliState
-	if h == nil {
-		return
-	}
-	switch h.Phase {
-	case world.HeliAtBase:
-		if !lift.Open || !s.LiftsRunning() {
-			return
-		}
-		// Fill empty seats from the queue.
-		for len(h.Passengers) < world.HeliCapacity && len(lift.Queue) > 0 {
-			agent := lift.Queue[0]
-			lift.LeaveLine(agent)
-			h.Passengers = append(h.Passengers, agent)
-			agent.OnLiftID = lift.ID
-			agent.Queued = false
-			clipInToRide(agent)
-			agent.UseService(world.LiftQuality)
-			// Heli keeps per-ride pricing; cable lifts are covered by the
-			// day ticket bought at the ticket window.
-			if fare := lift.RideFare(); fare > 0 && !agent.HasSeasonPass {
-				w.Cash += fare
-				w.History.RecordRevenue(world.RevenueHeli, fare)
-				agent.RemainingBudget -= float32(fare)
-			}
-			s.replanOnBoard(agent, lift)
-		}
-		// Depart when full, or when at least one passenger is aboard and
-		// the queue is drained (don't idle forever waiting for a full load).
-		if len(h.Passengers) >= world.HeliCapacity ||
-			(len(h.Passengers) > 0 && len(lift.Queue) == 0) {
-			h.Phase = world.HeliToTop
-			h.Progress = 0
-		}
-
-	case world.HeliToTop:
-		dx := lift.Top[0] - lift.Base[0]
-		dz := lift.Top[1] - lift.Base[1]
-		dist := float32(math.Sqrt(float64(dx*dx + dz*dz)))
-		if dist < 1 {
-			dist = 1
-		}
-		h.Progress += float32(float64(world.HeliAirspeedMs) / float64(dist) * dt)
-		if h.Progress >= 1.0 {
-			h.Progress = 1.0
-			h.Phase = world.HeliAtTop
-		}
-
-	case world.HeliAtTop:
-		// Unload all passengers at the drop zone — same pattern as
-		// regular lift unload at progress 0.5.
-		topCell := lift.TopCell()
-		ty := w.Terrain.SurfaceElevationAt(topCell[0], topCell[1])
-		for _, agent := range h.Passengers {
-			agent.OnLiftID = 0
-			agent.Speed = 0
-			agent.TurnSide = 0
-			if agent.Balance < 0.5 {
-				agent.Balance = 1.0
-			}
-			agent.RidenLifts = ai.AddRide(agent.RidenLifts, lift.ID)
-			agent.Pos = mgl32.Vec3{lift.Top[0], ty, lift.Top[1]}
-			s.advancePlan(agent)
-			if pos, ok := planTargetWorldPos(w, agent); ok {
-				dx2 := pos[0] - agent.Pos[0]
-				dz2 := pos[2] - agent.Pos[2]
-				agent.Heading = float32(math.Atan2(float64(dx2), float64(dz2)))
-			}
-		}
-		h.Passengers = h.Passengers[:0]
-		h.Phase = world.HeliToBase
-		h.Progress = 0
-
-	case world.HeliToBase:
-		dx := lift.Base[0] - lift.Top[0]
-		dz := lift.Base[1] - lift.Top[1]
-		dist := float32(math.Sqrt(float64(dx*dx + dz*dz)))
-		if dist < 1 {
-			dist = 1
-		}
-		h.Progress += float32(float64(world.HeliAirspeedMs) / float64(dist) * dt)
-		if h.Progress >= 1.0 {
-			h.Phase = world.HeliAtBase
-			h.Progress = 0
 		}
 	}
 }
@@ -1062,9 +977,11 @@ func (s *Simulation) maybeSampleHistory() {
 		why := w.History.TopWhy()
 		w.History.Push(sample)
 		s.logDaySummary(sample, why)
+		s.logRecordDay(sample)
 		s.checkGoals(dayIdx, sample)
 		s.lastSampledDay++
 		s.lastSaid = ai.ThoughtNone
+		clear(s.longLinesSaid)
 
 		// Play the rest of the ended game day's real days, then advance
 		// the weather to the new day and apply its terrain effects.
@@ -1074,6 +991,7 @@ func (s *Simulation) maybeSampleHistory() {
 		dw := s.Weather.Advance(newDay)
 		s.tomorrow = gameForecast(s.Weather, newDay, 1)[0]
 		s.applyDailyWeather(dw)
+		s.logFreshSnow(dw)
 		if s.OnDayRollover != nil {
 			s.OnDayRollover(s.World)
 		}
@@ -1393,6 +1311,8 @@ func (s *Simulation) tickHourly() {
 		s.World.UpdateLineLayouts()
 		defer s.refreshTrailConditions()
 		defer s.logGuestsSay()
+		defer s.logLongLines()
+		defer s.logRescues()
 	}
 	for s.lastHour < idx {
 		mid := (float64(s.lastHour) + 0.5) * simSecondsPerHour
@@ -2425,6 +2345,9 @@ func apresMood(a *world.Guest) float32 {
 
 // anyRentals reports whether any building rents skis.
 func anyRentals(w *world.World) bool {
+	if !world.ServiceRentals.Available() {
+		return false
+	}
 	for _, b := range w.Buildings {
 		if b.Type == world.BuildingLodge && b.OffersUse(ai.OfferRentals) {
 			return true
@@ -2744,12 +2667,13 @@ func (s *Simulation) tickQueued(agent *world.Guest, dt float64) {
 		x, z := lift.LinePlaceXZ(agent, idx)
 		slot := mgl32.Vec3{x, w.Terrain.InterpolatedSurfaceElevationAt(x, z), z}
 		s.shuffleToward(agent, slot, dt)
-		// Always face the lift base — tickWalkToward sets heading to the
-		// walk direction, but skiers who've reached their slot need to
-		// keep looking forward instead of holding whatever heading they
-		// last walked in with.
-		faceX := lift.Base[0] - agent.Pos[0]
-		faceZ := lift.Base[1] - agent.Pos[2]
+		// Always face up the line, toward the load point and past it —
+		// tickWalkToward sets heading to the walk direction, but skiers
+		// who've reached their slot need to keep looking forward instead
+		// of holding whatever heading they last walked in with.
+		ahead := lift.LoadXZ().Add(lift.Top.Sub(lift.Base).Normalize().Mul(4))
+		faceX := ahead[0] - agent.Pos[0]
+		faceZ := ahead[1] - agent.Pos[2]
 		if faceX*faceX+faceZ*faceZ > 0.01 {
 			agent.Heading = float32(math.Atan2(float64(faceX), float64(faceZ)))
 		}
@@ -2781,8 +2705,8 @@ func (s *Simulation) shuffleToward(agent *world.Guest, target mgl32.Vec3, dt flo
 
 // tickRiding glues the agent to its current chair's position. Seat
 // anchors come from the lift type's chair mesh slot metadata, which
-// scad2obj baked into chair.obj / chair_quad.obj from echo()
-// declarations in the .scad source. The slot Pos is in the chair-local
+// the model writer baked into chair.obj / chair_quad.obj from the
+// slots the chair scripts declare. The slot Pos is in the chair-local
 // game frame; we rotate by heading and offset from the chair's cable
 // anchor. Patience recovers while riding — a pleasant lift ride offsets
 // earlier queue frustration.
@@ -2796,11 +2720,11 @@ func (s *Simulation) tickRiding(agent *world.Guest, dt float64) {
 		if lift.ID != agent.OnLiftID {
 			continue
 		}
-		if lift.IsHeli() {
+		if lift.Cableless() {
 			// Heli passenger: glue position to the helicopter body.
-			pos := lift.HeliWorldPos(w.Terrain)
+			pos := world.HeliWorldPos(lift, w.Terrain)
 			agent.Pos = pos
-			agent.Heading = lift.HeliHeading()
+			agent.Heading = world.HeliHeading(lift)
 			return
 		}
 		slots := world.SlotsFor(lift.Type.MeshID())

@@ -18,10 +18,38 @@ import (
 )
 
 const (
-	fontFirst    = 32  // space
-	fontLast     = 126 // ~
-	fontNumChars = fontLast - fontFirst + 1
+	fontFirst = 32  // space
+	fontLast  = 126 // ~
+	fontASCII = fontLast - fontFirst + 1
 )
+
+// fontExtra is the non-ASCII characters the UI's text uses, baked after
+// printable ASCII.
+var fontExtra = []rune("—–→←°×·²…©≈★’é")
+
+// fontNumChars is how many glyphs the atlas holds.
+var fontNumChars = fontASCII + len(fontExtra)
+
+// fontRune is the character at atlas index i.
+func fontRune(i int) rune {
+	if i < fontASCII {
+		return rune(fontFirst + i)
+	}
+	return fontExtra[i-fontASCII]
+}
+
+// glyphIndex is ch's atlas index, or -1 if the atlas lacks it.
+func glyphIndex(ch rune) int {
+	if ch >= fontFirst && ch <= fontLast {
+		return int(ch) - fontFirst
+	}
+	for i, e := range fontExtra {
+		if e == ch {
+			return fontASCII + i
+		}
+	}
+	return -1
+}
 
 // GlyphW, GlyphH, GlyphAdvance are updated when a font is loaded.
 // GlyphH is the full line-box height (ascent + descent).
@@ -46,7 +74,7 @@ type glyphInfo struct {
 // All printable ASCII glyphs are pre-baked into a GL texture atlas.
 type Font struct {
 	atlasID uint32
-	glyphs  [fontNumChars]glyphInfo
+	glyphs  []glyphInfo
 	ascent  float32 // distance from line-top to baseline in pixels
 }
 
@@ -55,8 +83,7 @@ type Font struct {
 func (f *Font) TextWidth(s string) float32 {
 	var w float32
 	for _, ch := range s {
-		i := int(ch) - fontFirst
-		if i >= 0 && i < fontNumChars {
+		if i := glyphIndex(ch); i >= 0 {
 			w += f.glyphs[i].advance
 		} else {
 			w += float32(GlyphAdvance)
@@ -78,8 +105,8 @@ func (f *Font) DrawText(r *Renderer, text string, x, y float32, col mgl32.Vec4) 
 	r.useUITexture(f.atlasID)
 	penX := x
 	for _, ch := range text {
-		i := int(ch) - fontFirst
-		if i < 0 || i >= fontNumChars {
+		i := glyphIndex(ch)
+		if i < 0 {
 			penX += float32(GlyphAdvance)
 			continue
 		}
@@ -110,7 +137,7 @@ func NewFont() *Font {
 	}
 	for i := 0; i < fontNumChars; i++ {
 		d.Dot = fixed.P(i*charW, face.Ascent)
-		d.DrawString(string(rune(fontFirst + i)))
+		d.DrawString(string(fontRune(i)))
 	}
 
 	const scale = 2
@@ -121,7 +148,7 @@ func NewFont() *Font {
 	fh := charH * scale
 	fw2 := atlasW * scale
 
-	f := &Font{ascent: float32(face.Ascent * scale)}
+	f := &Font{ascent: float32(face.Ascent * scale), glyphs: make([]glyphInfo, fontNumChars)}
 	f.atlasID = uploadAtlasRGBA(scaled.Pix, int32(fw2), int32(fh))
 	atlasWF := float32(fw2)
 	advPx := float32(fw + 2) // charW + 1 px letter spacing, matches old GlyphAdvance
@@ -178,7 +205,7 @@ func LoadTTFFont(path string, pointSize float64) (*Font, error) {
 	cellW := make([]int, fontNumChars)
 	var totalW int
 	for i := 0; i < fontNumChars; i++ {
-		adv, ok := face.GlyphAdvance(rune(fontFirst + i))
+		adv, ok := face.GlyphAdvance(fontRune(i))
 		if ok {
 			cellW[i] = adv.Ceil() + glyphGap
 		} else {
@@ -194,13 +221,13 @@ func LoadTTFFont(path string, pointSize float64) (*Font, error) {
 	atlasImg := image.NewRGBA(image.Rect(0, 0, totalW, atlasH))
 	draw.Draw(atlasImg, atlasImg.Bounds(), image.Transparent, image.Point{}, draw.Src)
 
-	f := &Font{ascent: float32(atlasBaseline)}
+	f := &Font{ascent: float32(atlasBaseline), glyphs: make([]glyphInfo, fontNumChars)}
 	atlasWF := float32(totalW)
 	atlasHF := float32(atlasH)
 
 	penX := 0
 	for i := 0; i < fontNumChars; i++ {
-		ch := rune(fontFirst + i)
+		ch := fontRune(i)
 		dot := fixed.P(penX, atlasBaseline)
 		dr, mask, maskp, adv, ok := face.Glyph(dot, ch)
 		if ok && dr.Dx() > 0 && dr.Dy() > 0 {

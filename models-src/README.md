@@ -1,28 +1,38 @@
-# models-src — OpenSCAD model sources
+# models-src — build123d model sources
 
-Parametric 3D models for the game, authored as OpenSCAD code. The build
-pipeline (`make models`) compiles each `.scad` here into an OBJ under
-`assets/models/` via an intermediate 3MF, preserving `color()` blocks as
-per-vertex colour in the OBJ.
+Each model is a Python script that builds its 3D parts with
+[build123d](https://build123d.readthedocs.io) and writes an OBJ under
+`assets/models/`, with each part's colour as per-vertex colour:
 
 ```
-models-src/foo.scad  →  build/3mf/foo.3mf  →  assets/models/foo.obj
+models-src/foo.py  →  assets/models/foo.obj
 ```
 
-The conversion happens in `tools/scad2obj/main.go`, which also bridges
-the coordinate-system mismatch between OpenSCAD and the game (see below).
+Every script uses the kit in `lib/mogul.py`: OpenSCAD-style helpers over
+build123d (`cube`, `cylinder(..., fn=)`, `hull`, `rotate`, …), named colours,
+model metadata, and the OBJ writer. Shared parts live in `lib/` as Python
+modules (`lodge_kit.py`, `car_kit.py`, `chair_kit.py`).
 
-> **Requires the OpenSCAD development snapshot** (>= 2026.04 or so) —
-> the 2021.01 stable release drops `color()` information at every mesh
-> export format. `brew install --cask openscad@snapshot`.
+```python
+from lib.mogul import *
+
+m = Model()
+m.add(cylinder(h=1.3, r=0.18, fn=6), "SaddleBrown")
+m.add(translate([0, 0, 1.3], cylinder(h=4.5, r1=1.6, r2=0, fn=6)), [0.32, 0.50, 0.28])
+m.main()  # writes the OBJ named on the command line
+```
+
+## Setup
+
+`make models-venv` creates `.venv-models` (Python 3.12 or newer) with the
+packages in `requirements.txt`: build123d (OpenCascade), numpy and scipy.
 
 ## Conventions
 
-### Units: 1 SCAD unit = 1 metre
+### Units: 1 unit = 1 metre
 
-The renderer treats world coordinates as metres (`cellSize = 10.0` m per
-terrain cell). Author models in metres so they drop into the world at
-the right scale without per-mesh tweaking.
+The renderer treats world coordinates as metres. Author models in metres
+so they drop into the world at the right scale without per-mesh tweaking.
 
 A quick imperial → metric reference for ski infrastructure:
 
@@ -34,27 +44,24 @@ A quick imperial → metric reference for ski infrastructure:
 | 15 ft | 4.57 m |
 | 20 ft | 6.10 m |
 
-### Axes: SCAD authors in Z-up, the game runs in Y-up
+### Axes: author in Z-up, the game runs in Y-up
 
-OpenSCAD's preview shows +Z as up. Our renderer uses +Y as up. The
-converter applies a -90° rotation around the X axis at export time:
+Models are authored Z-up, as build123d (and OpenSCAD before it) expects.
+The writer applies a -90° rotation around the X axis:
 
 ```
-(x, y, z)_scad  →  (x, z, -y)_game
+(x, y, z)_model  →  (x, z, -y)_game
 ```
 
 This preserves right-handedness, so face winding and lighting stay
-correct. Author models naturally — Z is up while you're editing, the
-game gets Y-up at build time.
+correct.
 
-By convention within SCAD source:
+By convention:
 
 * **+X** is the model's "primary" horizontal direction. For a lift
   station that's the cable axis (back of the station → front of the
   station). For a tower, +X runs along the cable.
-* **+Y** is the lateral / perpendicular horizontal direction. Same
-  convention as the cable cross-section in the existing procedural
-  tower mesh.
+* **+Y** is the lateral / perpendicular horizontal direction.
 * **+Z** is up.
 
 ### Origin: ground plane, centred on the footprint
@@ -64,68 +71,67 @@ on the Z=0 plane. The renderer translates the model to the cell's
 elevation; anything below Z=0 in the local frame would clip into the
 terrain.
 
-### Poly counts: keep `$fn` low
+### Curves and triangle counts
 
-Set `$fn = 8` to `$fn = 16` globally so cylinders and spheres stay
-game-suitable. The renderer can handle dense meshes but agents are
-spawned by the hundreds — every triangle counts in the static batch.
+build123d builds true curves; the writer tessellates them to the Model's
+tolerance (1 cm by default; `Model(tolerance=…)`, or `tolerance=` on one
+part). Things the game draws by the hundred or thousand — trees, chairs,
+cars, lodge tiles — must stay cheap: give their cylinders and spheres a
+facet count with `fn=` (as OpenSCAD's `$fn`), and check the count the
+build prints. Everything is flat-shaded, one normal per triangle.
 
-### Materials: `color()` flows through
+### Colours
 
-`color()` blocks are preserved through the build pipeline as per-vertex
-RGB in the generated OBJ. OpenSCAD's 3MF export groups triangles by the
-`color()` in scope, scad2obj maps each group's `displaycolor` to a float
-RGB triple, and the renderer multiplies it into the per-instance
-`ColorTint` so the SCAD-authored colours are the base and the
-ColorTint becomes a tint on top.
-
-Geometry that has no `color()` wrapper renders as white (the OpenSCAD
-"Default" basematerial is remapped to (1, 1, 1) by the converter so
-nothing accidentally ships in OpenSCAD preview yellow).
+`m.add(shape, color)` takes a CSS colour name (`"SaddleBrown"`), `"#rrggbb"`,
+or an `[r, g, b]` list in 0..1. The renderer multiplies it by the
+per-instance tint, so the model's colours are the base and the tint sits
+on top. Parts added without a colour are white.
 
 ## Model metadata
 
-The .scad source can publish a handful of named anchors and attributes via
-openscad's `echo()` function. The build pipeline captures these from
-openscad's stderr, applies the SCAD → game rotation, and bakes them into
-the head of the generated OBJ as `#`-prefixed comment lines. The renderer
-parses them at load time and registers them against the mesh ID so
-simulation and scene code can query without depending on the render package.
-
-All metadata lines share the same `MOGUL_META` prefix so unrelated
-debugging `echo()` output doesn't accidentally collide.
+A script can publish anchors and attributes on its Model. The writer
+turns them to game axes and writes them at the head of the OBJ as
+`#`-prefixed comment lines; the renderer parses them at load time and
+registers them against the mesh ID so simulation and scene code can query
+them without depending on the render package.
 
 ### Passenger slots — `slot`
 
-For ridden meshes (currently just the chairlift chair). Declares an
-anchor point where a rider's feet should land. Multiple slots are
-allowed; index 0, 1, 2 … must be unique.
+For ridden meshes (chairs). An anchor where a rider's feet land; indices
+0, 1, 2 … must be unique.
 
-```scad
-echo("MOGUL_META", "slot", <index>, <x>, <y>, <z>);
+```python
+m.slot(index, x, y, z)
 ```
 
-OBJ output: `# slot <index> <x> <y> <z>` (coordinates rotated to game frame).
+OBJ output: `# slot <index> <x> <y> <z>` (game axes).
 Loader: `render.LoadOBJSlots` → `world.RegisterMeshSlots`.
 
 ### Building footprint — `footprint`
 
-For placed buildings (lodge, shed, parking lot, future hotels, etc.).
-Declares the building's ground-plane half-extents — the placement-effects
-pass adds a fixed clearance margin around these values to size the apron
-pad and clear trees from the surrounding cells.
+For placed buildings (lodge, shed, parking lot, …): the ground-plane
+half-extents, which the placement-effects pass pads with a clearance
+margin to size the apron and clear trees. Include any visible overhang
+(eaves, annexes) so the apron covers the whole silhouette.
 
-```scad
-echo("MOGUL_META", "footprint", <halfX>, <halfY>);
+```python
+m.footprint(half_x, half_y)
 ```
 
-`halfX` and `halfY` are in SCAD coords (Z-up). The converter applies the
-Z-up → Y-up rotation so the OBJ stores `halfX` and `halfZ` in game
-coords. Include any visible overhang (eaves, annexes) so the apron covers
-the full silhouette, not just the wall plane.
-
-OBJ output: `# footprint <halfX> <halfZ>`.
+OBJ output: `# footprint <halfX> <halfY>`.
 Loader: `render.LoadOBJFootprint` → `world.RegisterMeshFootprint`.
+
+### Animated parts — `part`
+
+A sub-mesh loaded from its own OBJ and spun each frame (the helicopter's
+rotors): its name, axis (`spin_y` or `spin_z`, game axes) and pivot.
+
+```python
+m.part("helicopter_main_rotor", "spin_y", x, y, z)
+```
+
+OBJ output: `# part <name> <axis> <x> <y> <z>`.
+Loader: `render.LoadOBJParts`.
 
 ## Real-world reference dimensions
 
@@ -189,9 +195,14 @@ near-white on walls and roofs so the per-lodge tint shows through.
 
 ## Workflow
 
-1. Edit `<name>.scad`. Preview live in OpenSCAD with F5.
-2. Run `make models` from the repo root. Only stale OBJs rebuild.
-3. Run the game; the OBJ loader picks up the new mesh.
+1. Edit `<name>.py`. To look at a part while working, build123d's
+   `show()` in an OCP viewer (ocp_vscode) or export a STEP/STL.
+2. Run `make models` (or `make models -j8`) from the repo root. Only
+   stale OBJs rebuild; a change to `lib/` rebuilds them all.
+3. Compare against the previous build with
+   `python3 tools/modelcheck/check.py <old-objs-dir> assets/models/*.obj`
+   (bounds, metadata, colours, triangle counts).
+4. Run the game; the OBJ loader picks up the new mesh.
 
-To author a new model, copy an existing `.scad` as a template and rename
-it to match the renderer's mesh ID (e.g. `building.obj` → `building.scad`).
+To author a new model, copy an existing script as a template and name it
+after the renderer's mesh (e.g. `building.obj` → `building.py`).

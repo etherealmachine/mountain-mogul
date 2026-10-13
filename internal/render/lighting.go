@@ -3,7 +3,6 @@ package render
 import (
 	"math"
 
-	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/mathgl/mgl32"
 )
 
@@ -164,16 +163,6 @@ func SunLighting(sunDir mgl32.Vec3, weather int) Lighting {
 	l.Night = 1 - smoothstep(-4*deg, 8*deg, elev)
 	l.Shadows = true
 	return l
-}
-
-// SetAntiAliasing turns multisampled rasterisation on or off. The window
-// always has a multisampled framebuffer; off skips the per-sample work.
-func SetAntiAliasing(on bool) {
-	if on {
-		gl.Enable(gl.MULTISAMPLE)
-	} else {
-		gl.Disable(gl.MULTISAMPLE)
-	}
 }
 
 func smoothstep(e0, e1, x float32) float32 {

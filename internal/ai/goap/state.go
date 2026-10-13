@@ -173,7 +173,7 @@ func Extract(a *world.Guest, w *world.World) WorldSnapshot {
 		// crowd is compact, so short is by count, not by where its
 		// edge is.
 		qback := l.BackOfQueueWorldPos(mgl32.Vec2{a.Pos[0], a.Pos[2]}, w.Terrain)
-		if sqDistXZ(a.Pos, l.Base[0], l.Base[1]) < r2 && len(l.Queue) < shortLine {
+		if load := l.LoadXZ(); sqDistXZ(a.Pos, load[0], load[1]) < r2 && len(l.Queue) < shortLine {
 			snap.AtLiftBase = l.ID
 			return snap
 		}

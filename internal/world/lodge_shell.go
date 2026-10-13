@@ -7,7 +7,7 @@ import (
 )
 
 // Lodge shell resolution (VISION §8, "Shell resolution"): the exterior is
-// a kit of tiles authored in OpenSCAD (models-src/lodge_*.scad), chosen
+// a kit of tiles authored in build123d (models-src/lodge_*.py), chosen
 // from the painted footprint at half-cell resolution.
 //
 //   - Walls: one tile per half-cell edge between shell and outside.
@@ -24,7 +24,7 @@ import (
 // Tiles are in a canonical frame — outward (or downhill) is +Z — turned
 // by Rot about +Y with the renderer's HomogRotate3DY convention.
 
-// Shell kit dimensions. Keep in sync with models-src/lib/lodge_kit.scad;
+// Shell kit dimensions. Keep in sync with models-src/lib/lodge_kit.py;
 // wall height and roof rise depend on the building's kind (ShellKind).
 const (
 	ShellTileSize     = CellSize / 2 // 2.5 m: one half-cell

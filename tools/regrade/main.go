@@ -1,3 +1,5 @@
+//go:build !demo
+
 // regrade re-carves every lift station's apron and every painted pad's
 // embankment in a save, the same as the debug console's "regrade", so
 // worlds saved before a grading change pick it up:

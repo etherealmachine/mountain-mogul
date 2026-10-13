@@ -114,15 +114,16 @@ func claimedGround(w *world.World, skipBuilding *world.Building, skipLift *world
 		}
 	}
 	for _, l := range w.Lifts {
-		if l == skipLift || l.IsHeli() {
+		if l == skipLift || l.Cableless() {
 			continue
 		}
 		axis := l.Top.Sub(l.Base)
 		if n := axis.Len(); n > 0 {
 			axis = axis.Mul(1 / n)
 		}
-		markApron(w.Terrain, out, l.Top, axis, +1, liftApronHalfWidth, liftApronDepth)
-		markApron(w.Terrain, out, l.Base, axis, -1, liftApronHalfWidth, liftApronDepth)
+		a := liftApron(l)
+		markApron(w.Terrain, out, l.Top, axis, +1, a)
+		markApron(w.Terrain, out, l.Base, axis, -1, a)
 	}
 	markRoadCells(w, out)
 	return out
@@ -151,9 +152,10 @@ func markRoadCells(w *world.World, out map[[2]int]bool) {
 
 // markApron adds the cells of one station apron rectangle (same geometry
 // as buildStationApron) to out.
-func markApron(t *world.Terrain, out map[[2]int]bool, station, axis mgl32.Vec2, side, halfWidth, depth float32) {
+func markApron(t *world.Terrain, out map[[2]int]bool, station, axis mgl32.Vec2, side float32, a apronShape) {
 	const cellSize = float32(5.0)
-	bound := float32(math.Hypot(float64(halfWidth), float64(depth)))
+	halfWidth := a.half
+	bound := float32(math.Hypot(float64(halfWidth), float64(max(a.depth, a.front))))
 	for x := int((station[0] - bound) / cellSize); x <= int((station[0]+bound)/cellSize)+1; x++ {
 		for z := int((station[1] - bound) / cellSize); z <= int((station[1]+bound)/cellSize)+1; z++ {
 			if !t.InBounds(x, z) {
@@ -162,7 +164,7 @@ func markApron(t *world.Terrain, out map[[2]int]bool, station, axis mgl32.Vec2, 
 			dx := (float32(x)+0.5)*cellSize - station[0]
 			dz := (float32(z)+0.5)*cellSize - station[1]
 			along := dx*axis[0] + dz*axis[1]
-			if s := along * side; s < 0 || s > depth {
+			if s := along * side; s < -a.front || s > a.depth {
 				continue
 			}
 			px, pz := dx-along*axis[0], dz-along*axis[1]
@@ -180,7 +182,7 @@ func markApron(t *world.Terrain, out map[[2]int]bool, station, axis mgl32.Vec2, 
 func RegradeEmbankments(w *world.World) {
 	t := w.Terrain
 	for _, l := range w.Lifts {
-		if l.IsHeli() {
+		if l.Cableless() {
 			continue
 		}
 		axis := l.Top.Sub(l.Base)
@@ -188,8 +190,9 @@ func RegradeEmbankments(w *world.World) {
 			axis = axis.Mul(1 / n)
 		}
 		claimed := claimedGround(w, nil, l)
-		carveStationApron(t, l.Top, axis, +1, stationGroundElev(t, l.Top), claimed, false)
-		carveStationApron(t, l.Base, axis, -1, stationGroundElev(t, l.Base), claimed, false)
+		a := liftApron(l)
+		carveStationApron(t, l.Top, axis, +1, a, stationGroundElev(t, l.Top), claimed, false)
+		carveStationApron(t, l.Base, axis, -1, a, stationGroundElev(t, l.Base), claimed, false)
 	}
 	for _, b := range w.Buildings {
 		switch {

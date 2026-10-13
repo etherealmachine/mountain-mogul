@@ -21,15 +21,28 @@ type MenuBar struct {
 	// reads as a single palette regardless of screen width.
 	Centered bool
 
+	// Dock draws the bar as a floating, centred panel of square picture
+	// tiles (implies Centered): buttons show their icon or image without
+	// a caption, their label becomes a hover tooltip, and submenus open
+	// as a row of picture tiles above their button.
+	Dock bool
+
 	bgColor mgl32.Vec4
 }
+
+// dockTop and dockBottom are the gaps above and below a dock's panel
+// within the bar's height.
+const (
+	dockTop    = float32(2)
+	dockBottom = float32(10)
+)
 
 // NewMenuBar creates a menu bar at the given Y position and height.
 func NewMenuBar(y, h float32) *MenuBar {
 	return &MenuBar{
 		Y:       y,
 		H:       h,
-		bgColor: mgl32.Vec4{0.07, 0.09, 0.15, 0.97},
+		bgColor: PanelFill,
 	}
 }
 
@@ -88,9 +101,19 @@ func (m *MenuBar) layout(screenW float32) {
 	const padding = float32(6)
 	innerY := m.Y + padding
 	innerH := m.H - padding*2
+	if m.Dock {
+		// The dock floats clear of the screen's bottom edge.
+		innerY, innerH = m.Y+dockTop+padding, m.H-dockTop-dockBottom-padding*2
+	}
+
+	if m.Dock {
+		for _, b := range m.Buttons {
+			b.W = innerH
+		}
+	}
 
 	// Left/centre cluster.
-	if m.Centered && len(m.Buttons) > 0 {
+	if (m.Centered || m.Dock) && len(m.Buttons) > 0 {
 		// Pack the buttons next to each other with a fixed 8 px gap, then
 		// centre the whole cluster horizontally.
 		const gap = float32(8)
@@ -145,7 +168,8 @@ func (m *MenuBar) HandleInput(input *engine.Input, screenW, screenH float32) {
 	// Submenu popups are drawn above the toolbar — handle their input first so
 	// a click on a child doesn't fall through to the world.
 	for _, sub := range m.Submenus {
-		if sub.HandlePopupInput(input) {
+		sub.tray = m.Dock
+		if sub.HandlePopupInput(input, screenW) {
 			return
 		}
 	}
@@ -179,17 +203,13 @@ func (m *MenuBar) HandleInput(input *engine.Input, screenW, screenH float32) {
 func (m *MenuBar) Draw(r *render.Renderer) {
 	screenW := float32(r.ScreenWidth())
 	m.layout(screenW)
+	if m.Dock {
+		m.drawDock(r, screenW)
+		return
+	}
 	r.DrawColorRect(0, m.Y, screenW, m.H, m.bgColor)
 	// 1px powder-blue highlight at the top edge — separates bar from world.
 	r.DrawColorRect(0, m.Y, screenW, 1, mgl32.Vec4{0.35, 0.50, 0.80, 0.60})
-	// Vertical separators between adjacent buttons.
-	sepColor := mgl32.Vec4{0.35, 0.50, 0.80, 0.55}
-	for i, btn := range m.Buttons {
-		if i > 0 {
-			sepX := btn.X - 4
-			r.DrawColorRect(sepX, m.Y+4, 2, m.H-8, sepColor)
-		}
-	}
 	for _, btn := range m.Buttons {
 		btn.Draw(r)
 	}
@@ -198,7 +218,39 @@ func (m *MenuBar) Draw(r *render.Renderer) {
 	}
 	// Submenu popups render on top of the bar background and regular buttons.
 	for _, sub := range m.Submenus {
-		sub.DrawPopup(r)
+		sub.DrawPopup(r, screenW)
+	}
+}
+
+// drawDock draws the floating dock: a rounded panel hugging the tiles,
+// the tiles without captions, an open submenu's tray, and the hovered
+// tile's name.
+func (m *MenuBar) drawDock(r *render.Renderer, screenW float32) {
+	if len(m.Buttons) > 0 {
+		const pad = float32(6)
+		first, last := m.Buttons[0], m.Buttons[len(m.Buttons)-1]
+		DrawPanel(r, first.X-pad, m.Y+dockTop, last.X+last.W-first.X+pad*2, m.H-dockTop-dockBottom)
+	}
+	var tip *Button
+	for _, btn := range m.Buttons {
+		label := btn.Label
+		btn.Label = ""
+		btn.Draw(r)
+		btn.Label = label
+		if btn.hovered {
+			tip = btn
+		}
+	}
+	for _, btn := range m.RightButtons {
+		btn.Draw(r)
+	}
+	open := false
+	for _, sub := range m.Submenus {
+		open = open || sub.Open
+		sub.DrawPopup(r, screenW)
+	}
+	if tip != nil && !open {
+		DrawTooltip(r, tip.Label, tip.X+tip.W/2, tip.Y-4, false)
 	}
 }
 

@@ -2,6 +2,7 @@ package world
 
 import (
 	"math"
+	"mountain-mogul/internal/edition"
 
 	"github.com/go-gl/mathgl/mgl32"
 )
@@ -9,7 +10,7 @@ import (
 // BuildingType selects what a Building represents and which mesh
 // renders it. New types added here also need:
 //   - a mesh ID in world/objects.go (mirrored in render/mesh.go)
-//   - a .scad source in models-src/
+//   - a model script in models-src/
 //   - a cost constant + BuildingCost case in world.go
 //   - a toolbar button in scene/scenario.go
 //   - a case in openBuildingPopup in scene/scenario.go (panics if missed)
@@ -72,9 +73,10 @@ type Building struct {
 	tileCounts   [ServiceCount]int
 	tileCountsOK bool
 
-	// SnowGun-only state. Enabled defaults to true on placement; the player
-	// can toggle it off from the popup to stop snow production and operating costs.
-	SnowGunEnabled bool
+	// On is whether the player has it switched on (snow guns: on at
+	// placement, switched off from the popup to stop snow production and
+	// operating costs).
+	On bool
 
 	// Service-building state (see lodge.go). A service building has its
 	// own 5 m grid: Origin is the world XZ of its cell (0, 0)'s corner and
@@ -328,11 +330,15 @@ func (t BuildingType) Label() string {
 	case BuildingParking:
 		return "Parking Lot"
 	case BuildingSnowGun:
-		return "Snow Gun"
+		if !edition.Demo {
+			return "Snow Gun"
+		}
 	case BuildingTicketOffice:
 		return "Ticket Office"
 	case BuildingBar:
-		return "Bar"
+		if !edition.Demo {
+			return "Bar"
+		}
 	case BuildingSkiRack:
 		return "Ski Rack"
 	}

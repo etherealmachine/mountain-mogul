@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/mathgl/mgl32"
+	"mountain-mogul/internal/edition"
 	"mountain-mogul/internal/world"
 )
 
@@ -60,6 +61,7 @@ type Renderer struct {
 	WeatherShader *Shader
 	Camera        *Camera
 	Font          *Font // may be nil; gracefully skip text
+	TitleFont     *Font // large face for menu titles; may be nil
 
 	// scene owns all GPU state coupled to the current World. Replaced wholesale
 	// by ResetSceneState on every scene transition.
@@ -68,29 +70,31 @@ type Renderer struct {
 	staticBatches map[uint32]*Batch
 	// cutawayLodgeID is the lodge drawn roofless with low walls so its
 	// floor plan shows while it's being edited; 0 for none.
-	cutawayLodgeID        uint64
-	figures               figures // guests and patrollers (figure.go)
-	chairBatch            *Batch
-	chairTripleBatch      *Batch
-	chairQuadBatch        *Batch
-	chair6PackBatch       *Batch
-	gondolaBatch          *Batch
-	snowcatBatch          *Batch
-	catLensBatch          *Batch // emissive headlight / work-light lenses
-	catBeaconBatch        *Batch // emissive amber roof beacon
-	terrainShadow         terrainShadow
-	shadowMap             shadowMap
-	patrollerBatch        *Batch // ski patrol snowmobiles (red snowcat mesh when active)
-	carBatches            [world.CarKindCount]*Batch
-	carRoofBatches        [world.CarRoofCount]*Batch // RoofBare's is nil
-	carInsts              [world.CarKindCount][]DynamicInstance
-	carRoofInsts          [world.CarRoofCount][]DynamicInstance
-	helicopterBodyBatch   *Batch      // rigid fuselage, tail, skids
-	helicopterPartBatches []partBatch // spinning rotor parts (loaded from # part metadata)
+	cutawayLodgeID   uint64
+	figures          figures // guests and patrollers (figure.go)
+	chairBatch       *Batch
+	chairTripleBatch *Batch
+	chairQuadBatch   *Batch
+	snowcatBatch     *Batch
+	catLensBatch     *Batch // emissive headlight / work-light lenses
+	catBeaconBatch   *Batch // emissive amber roof beacon
+	terrainShadow    terrainShadow
+	shadowMap        shadowMap
+	patrollerBatch   *Batch // ski patrol snowmobiles (red snowcat mesh when active)
+	carBatches       [world.CarKindCount]*Batch
+	carRoofBatches   [world.CarRoofCount]*Batch // RoofBare's is nil
+	carInsts         [world.CarKindCount][]DynamicInstance
+	carRoofInsts     [world.CarRoofCount][]DynamicInstance
+	// bigLifts holds the 6-pack, gondola and heli models (big_lifts.go);
+	// empty in the demo, which has none.
+	bigLifts
 
 	uiVAO, uiVBO     uint32
-	whiteTexID       uint32 // 1×1 white texture; always bound to unit 0 during UI pass
-	transparentTexID uint32 // 1×1 all-zero RGBA; fallback for uCellOverlay when no overlay is set
+	whiteTexID       uint32             // 1×1 white texture; always bound to unit 0 during UI pass
+	thumbs           map[ThumbID]uint32 // menu thumbnails (thumbnails.go)
+	aaSamples        int                // anti-aliasing samples, 0 when off (msaa.go)
+	sceneTarget      sceneTarget        // the multisampled scene framebuffer
+	transparentTexID uint32             // 1×1 all-zero RGBA; fallback for uCellOverlay when no overlay is set
 
 	// uiVerts is the per-frame UI quad accumulator. Every UI primitive
 	// (text glyphs, coloured rects, textured rects, discs) appends 6 verts
@@ -273,6 +277,12 @@ func NewRenderer(w, h int, assetDir string) (*Renderer, error) {
 	} else {
 		r.Font = NewFont()
 	}
+	// A big face for menu titles, leaving the UI's glyph metrics alone.
+	gh, ga, gw := GlyphH, GlyphAdvance, GlyphW
+	if f, err := LoadTTFFont(assetDir+"/fonts/BarlowCondensed-Medium.ttf", 64); err == nil {
+		r.TitleFont = f
+	}
+	GlyphH, GlyphAdvance, GlyphW = gh, ga, gw
 
 	// Setup UI quad VAO. Vertex layout: pos.xy (8 B) + uv.xy (8 B) +
 	// color.rgba (16 B) = 32 B per vertex. The initial buffer size is a
@@ -357,6 +367,7 @@ func NewRenderer(w, h int, assetDir string) (*Renderer, error) {
 	// Load UI icons from assets/icons/ — best-effort, missing files fall
 	// back to a 1×1 white texture so the UI still renders.
 	r.LoadIcons()
+	r.renderThumbnails()
 
 	gl.Enable(gl.DEPTH_TEST)
 	gl.ClearColor(0.635, 0.682, 0.918, 1.0)
@@ -372,10 +383,11 @@ func NewRenderer(w, h int, assetDir string) (*Renderer, error) {
 
 func (r *Renderer) initStaticMeshes() {
 	modelDir := r.assetDir + "/models/"
-	meshDefs := []struct {
+	type meshDef struct {
 		id   uint32
 		name string
-	}{
+	}
+	meshDefs := []meshDef{
 		{MeshTree, "tree"},
 		{MeshTree2, "tree2"},
 		{MeshTree3, "tree3"},
@@ -383,14 +395,20 @@ func (r *Renderer) initStaticMeshes() {
 		{MeshStump, "stump"},
 		{MeshBuilding, "building"},
 		{MeshLiftStation, "lift_station"},
+		{MeshLiftTerminal, "lift_terminal"},
 		{MeshTower, "tower"},
 		{MeshShed, "shed"},
-		{MeshParkingPad, "parking"}, // built by models-src/parking.scad
+		{MeshParkingPad, "parking"}, // built by models-src/parking.py
 		{MeshRoadConnect, "road_connect"},
-		{MeshSnowGun, "snow_gun"}, // built by models-src/snow_gun.scad
-		{MeshBar, "bar"},
 		{MeshTicketOffice, "ticket_office"},
 		{MeshSkiRack, "ski_rack"},
+	}
+	if !edition.Demo { // the demo leaves out snowmaking and the bar
+		meshDefs = append(meshDefs,
+			meshDef{MeshSnowGun, "snow_gun"}, // built by models-src/snow_gun.py
+			meshDef{MeshBar, "bar"},
+			meshDef{MeshLiftTermWide, "lift_terminal_wide"},
+		)
 	}
 
 	for _, def := range meshDefs {
@@ -414,6 +432,9 @@ func (r *Renderer) initStaticMeshes() {
 	}
 
 	for shell, prefix := range shellKitPrefix {
+		if prefix == "" {
+			continue
+		}
 		for kind, name := range lodgeTileNames {
 			mesh, texID := LoadOBJ(modelDir + prefix + name + ".obj")
 			id := MeshLodgeTileBase + world.ShellMeshIndex(world.ShellKind(shell), world.ShellTileKind(kind))
@@ -445,15 +466,7 @@ func (r *Renderer) initStaticMeshes() {
 	r.chairQuadBatch = NewDynamicBatch(chairQuadMesh, chairQuadTexID)
 	world.RegisterMeshSlots(world.MeshChairQuad, LoadOBJSlots(chairQuadPath))
 
-	chair6PackPath := modelDir + "chair_6pack.obj"
-	chair6PackMesh, chair6PackTexID := LoadOBJ(chair6PackPath)
-	r.chair6PackBatch = NewDynamicBatch(chair6PackMesh, chair6PackTexID)
-	world.RegisterMeshSlots(world.MeshChair6Pack, LoadOBJSlots(chair6PackPath))
-
-	gondolaCabinPath := modelDir + "gondola_cabin.obj"
-	gondolaCabinMesh, gondolaCabinTexID := LoadOBJ(gondolaCabinPath)
-	r.gondolaBatch = NewDynamicBatch(gondolaCabinMesh, gondolaCabinTexID)
-	world.RegisterMeshSlots(world.MeshGondolaCabin, LoadOBJSlots(gondolaCabinPath))
+	loadBigLifts(r, modelDir)
 
 	// Snowcat — dynamic batch. Snowcats drive over the terrain every
 	// tick so they share the agent-style instance path rather than
@@ -482,30 +495,6 @@ func (r *Renderer) initStaticMeshes() {
 		}
 	}
 
-	// Helipad — static-batch mesh placed at Base and Top of each HeliLift.
-	helipadMesh, helipadTexID := LoadOBJ(modelDir + "helipad.obj")
-	r.staticBatches[MeshHelipad] = NewStaticBatch(helipadMesh, helipadTexID)
-	if fp, ok := LoadOBJFootprint(modelDir + "helipad.obj"); ok {
-		world.RegisterMeshFootprint(MeshHelipad, fp)
-	}
-
-	// Helicopter body (rigid fuselage, tail, skids, mast) and animated
-	// rotor parts declared via # part metadata in the body OBJ.
-	heliBodyPath := modelDir + "helicopter_body.obj"
-	heliBodyMesh, heliBodyTexID := LoadOBJ(heliBodyPath)
-	r.helicopterBodyBatch = NewDynamicBatch(heliBodyMesh, heliBodyTexID)
-	for _, pd := range LoadOBJParts(heliBodyPath) {
-		partMesh, partTexID := LoadOBJ(modelDir + pd.Name + ".obj")
-		rate := float32(25.0) // rad/s default (main rotor ≈ 240 RPM)
-		if pd.Axis == "spin_z" {
-			rate = 90.0 // tail rotor ≈ 860 RPM
-		}
-		r.helicopterPartBatches = append(r.helicopterPartBatches, partBatch{
-			batch:    NewDynamicBatch(partMesh, partTexID),
-			decl:     pd,
-			spinRate: rate,
-		})
-	}
 }
 
 // SetViewport updates the OpenGL framebuffer viewport. Call this from the
@@ -853,11 +842,11 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 
 	// Lift stations — both ends of each cable lift. Skipped for
 	// helicopter lifts, which use the helipad mesh instead.
-	if stationBatch, ok := r.staticBatches[MeshLiftStation]; ok {
-		for _, lift := range w.Lifts {
-			if lift.IsHeli() {
-				continue
-			}
+	for _, lift := range w.Lifts {
+		if lift.Cableless() {
+			continue
+		}
+		if stationBatch, ok := r.staticBatches[StationMesh(lift.Type)]; ok {
 			stationBatch.AddStatic(LiftStationTransform(lift.Base, lift.Top, w.Terrain), mgl32.Vec3{1, 1, 1})
 			stationBatch.AddStatic(LiftStationTransform(lift.Top, lift.Base, w.Terrain), mgl32.Vec3{1, 1, 1})
 		}
@@ -866,26 +855,16 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 	// Towers — cable lifts only.
 	if towerBatch, ok := r.staticBatches[MeshTower]; ok {
 		for _, lift := range w.Lifts {
-			if lift.IsHeli() {
+			if lift.Cableless() {
 				continue
 			}
-			for _, m := range TowerInstancesForLift(lift.Base, lift.Top, w.Terrain) {
+			for _, m := range TowerInstancesForLift(lift, w.Terrain) {
 				towerBatch.AddStatic(m, mgl32.Vec3{1, 1, 1})
 			}
 		}
 	}
 
-	// Helipads — one at Base, one at Top for every HeliLift.
-	// Oriented so the pad's +X axis points toward the other end.
-	if helipadBatch, ok := r.staticBatches[MeshHelipad]; ok {
-		for _, lift := range w.Lifts {
-			if !lift.IsHeli() {
-				continue
-			}
-			helipadBatch.AddStatic(HelipadTransform(lift.Base, lift.Top, w.Terrain), mgl32.Vec3{1, 1, 1})
-			helipadBatch.AddStatic(HelipadTransform(lift.Top, lift.Base, w.Terrain), mgl32.Vec3{1, 1, 1})
-		}
-	}
+	addHelipads(r, w)
 
 	// Road edge-connection markers — one yellow-flag post per node with
 	// kind RoadNodeEdgeConnection. Editor-placed scenario metadata, but
@@ -1010,7 +989,7 @@ func BuildingTransform(pos mgl32.Vec2, rotation float32, terrain *world.Terrain)
 }
 
 // carMeshNames and carRoofMeshNames are each world.CarKind's and
-// world.CarRoof's model (models-src/car_*.scad).
+// world.CarRoof's model (models-src/car_*.py).
 var (
 	carMeshNames = [world.CarKindCount]string{
 		world.CarSedan:   "car_sedan",
@@ -1027,7 +1006,7 @@ var (
 
 // carRoofs is where a rack or box sits on each kind of car: forward of
 // the car's centre (X) and up (Z), the middle of its roof in
-// models-src/car_*.scad (gr and roof, over the SUV's rails).
+// models-src/car_*.py (gr and roof, over the SUV's rails).
 var carRoofs = [world.CarKindCount][2]float32{
 	world.CarSedan:   {-0.33, 1.42},
 	world.CarMiniSUV: {-0.78, 1.62},
@@ -1122,7 +1101,7 @@ func carInstancesFor(w *world.World, cars *[world.CarKindCount][]DynamicInstance
 // not yet known (e.g. the place-base ghost preview); the station then
 // renders with no rotation applied.
 //
-// The convention matches the SCAD model in models-src/lift_station.scad:
+// The convention matches the model in models-src/lift_station.py:
 // +X = cable-exit side, -X = bullwheel side. So at the base station +X
 // points up the lift line, and at the top station +X points back down.
 func LiftStationTransform(pos, otherEnd mgl32.Vec2, terrain *world.Terrain) mgl32.Mat4 {
@@ -1141,50 +1120,33 @@ func LiftStationTransform(pos, otherEnd mgl32.Vec2, terrain *world.Terrain) mgl3
 	return mgl32.Translate3D(pos[0], y, pos[1]).Mul4(mgl32.HomogRotate3DY(rot))
 }
 
-// TowerInstancesForLift returns world transforms for the lift's tower
-// instances. Endpoints (where the stations sit) are skipped — towers
-// start world.StationOffset metres inboard from each station, then
-// space at roughly towerSpacing along the cable. Returns nil when the
-// lift is shorter than 2× StationOffset (no room for towers between
-// stations); the cable then stays at BullwheelHeight throughout.
-//
-// Each transform rotates the tower so its model-space +X (the cable
-// axis convention from models-src/tower.scad) aligns with the cable
-// direction in world space.
-func TowerInstancesForLift(base, top mgl32.Vec2, t *world.Terrain) []mgl32.Mat4 {
-	const towerSpacing = float32(50.0)
-	stationOffset := float32(world.StationOffset)
+// StationMesh is the station model for a lift of type t: a detachable's
+// long terminal, else the fixed-grip station.
+func StationMesh(t world.LiftType) uint32 {
+	switch {
+	case t == world.LiftHS6Pack:
+		return MeshLiftTermWide
+	case t.Detachable():
+		return MeshLiftTerminal
+	}
+	return MeshLiftStation
+}
 
-	bx, bz := base[0], base[1]
-	tx, tz := top[0], top[1]
-	dx := tx - bx
-	dz := tz - bz
-	length := float32(math.Sqrt(float64(dx*dx + dz*dz)))
-	if length <= 2*stationOffset {
+// TowerInstancesForLift returns world transforms for the lift's towers,
+// at world.Lift.TowerXZs, each turned so its model-space +X (the cable
+// axis convention from models-src/tower.py) runs along the cable.
+func TowerInstancesForLift(lift *world.Lift, t *world.Terrain) []mgl32.Mat4 {
+	towers := lift.TowerXZs()
+	if len(towers) == 0 {
 		return nil
 	}
-
-	innerLen := length - 2*stationOffset
-	intervals := int(innerLen / towerSpacing)
-	if intervals < 1 {
-		intervals = 1
-	}
-	spacing := innerLen / float32(intervals)
-
-	dirX := dx / length
-	dirZ := dz / length
+	d := lift.Top.Sub(lift.Base)
 	// HomogRotate3DY(θ) takes (1,0,0) → (cos θ, 0, -sin θ); we want that
-	// to equal the cable direction (dirX, 0, dirZ), so θ = atan2(-dz, dx).
-	rot := float32(math.Atan2(-float64(dirZ), float64(dirX)))
-
-	out := make([]mgl32.Mat4, 0, intervals+1)
-	for i := 0; i <= intervals; i++ {
-		d := stationOffset + float32(i)*spacing
-		wx := bx + dirX*d
-		wz := bz + dirZ*d
-		wy := VisualElevationAt(t, wx, wz)
-
-		m := mgl32.Translate3D(wx, wy, wz).Mul4(mgl32.HomogRotate3DY(rot))
+	// to equal the cable direction (dx, 0, dz), so θ = atan2(-dz, dx).
+	rot := float32(math.Atan2(-float64(d[1]), float64(d[0])))
+	out := make([]mgl32.Mat4, 0, len(towers))
+	for _, p := range towers {
+		m := mgl32.Translate3D(p[0], VisualElevationAt(t, p[0], p[1]), p[1]).Mul4(mgl32.HomogRotate3DY(rot))
 		out = append(out, m)
 	}
 	return out
@@ -1194,10 +1156,6 @@ func TowerInstancesForLift(base, top mgl32.Vec2, t *world.Terrain) []mgl32.Mat4 
 // perpOff > 0 = up cable side, perpOff < 0 = down cable side.
 func generateCableMesh(lift *world.Lift, t *world.Terrain, perpOff float32) *Mesh {
 	const cableWidth = float32(0.15)
-	// Step count scales with length (one segment per ~5 m) so the ramps
-	// at each station get enough vertices to read as a smooth slope on
-	// long lifts. Floor of 30 keeps short lifts from looking polygonal.
-	const minSteps = 30
 
 	bx, bz := lift.Base[0], lift.Base[1]
 	tx, tz := lift.Top[0], lift.Top[1]
@@ -1207,21 +1165,31 @@ func generateCableMesh(lift *world.Lift, t *world.Terrain, perpOff float32) *Mes
 	if length < 1 {
 		length = 1
 	}
-	steps := int(length / 5)
-	if steps < minSteps {
-		steps = minSteps
-	}
 	perpX := -dz / length
 	perpZ := dx / length
 
-	verts := make([]float32, 0, (steps+1)*2*8)
-	indices := make([]uint32, 0, steps*6)
+	// Sample a metre apart through the terminals and their ramps, where
+	// the cable's height changes, and every 5 m between.
+	ramp := lift.Station().Flat + world.StationOffset
+	var dists []float32
+	for d := float32(0); d < length; {
+		dists = append(dists, d)
+		if d < ramp || d > length-ramp {
+			d++
+		} else {
+			d += 5
+		}
+	}
+	dists = append(dists, length)
 
-	for i := 0; i <= steps; i++ {
-		frac := float32(i) / float32(steps)
+	verts := make([]float32, 0, len(dists)*2*8)
+	indices := make([]uint32, 0, len(dists)*6)
+
+	for i, d := range dists {
+		frac := d / length
 		cx := bx + dx*frac + perpX*perpOff
 		cz := bz + dz*frac + perpZ*perpOff
-		cy := t.InterpolatedSurfaceElevationAt(cx, cz) + world.CableHeightAt(frac, length)
+		cy := t.InterpolatedSurfaceElevationAt(cx, cz) + lift.CableHeightAt(d)
 
 		for side := -1; side <= 1; side += 2 {
 			s := float32(side) * cableWidth * 0.5
@@ -1231,7 +1199,7 @@ func generateCableMesh(lift *world.Lift, t *world.Terrain, perpOff float32) *Mes
 				frac, float32((side+1)/2),
 			)
 		}
-		if i < steps {
+		if i < len(dists)-1 {
 			base := uint32(i * 2)
 			indices = append(indices, base, base+1, base+2, base+1, base+3, base+2)
 		}
@@ -1241,6 +1209,7 @@ func generateCableMesh(lift *world.Lift, t *world.Terrain, perpOff float32) *Mes
 
 // DrawWorld renders the full 3D world.
 func (r *Renderer) DrawWorld(w *world.World, time float32) {
+	r.beginScene()
 	light := r.Lighting
 	if light == (Lighting{}) {
 		light = DefaultLighting
@@ -1557,51 +1526,8 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		r.patrollerBatch.SetDynamic(pInst)
 		r.patrollerBatch.Draw()
 	}
-	// Helicopters — body + animated rotor parts, one set per HeliLift.
-	if r.helicopterBodyBatch != nil {
-		var bodyInst []DynamicInstance
-		partInsts := make([][]DynamicInstance, len(r.helicopterPartBatches))
-		for _, lift := range w.Lifts {
-			if !lift.IsHeli() {
-				continue
-			}
-			pos := lift.HeliWorldPos(w.Terrain)
-			heading := lift.HeliHeading()
-			s := float32(math.Sin(float64(heading)))
-			c := float32(math.Cos(float64(heading)))
-			bodyInst = append(bodyInst, DynamicInstance{
-				Position: [3]float32{pos[0], pos[1], pos[2]},
-				Heading:  heading,
-				Color:    [3]float32{1, 1, 1},
-			})
-			// Each part: world pivot = body_pos + rotY(heading) * partOffset.
-			// rotY in dynamic.vert: result.x = s*x - c*z, result.z = c*x + s*z
-			for pi, pb := range r.helicopterPartBatches {
-				off := pb.decl.Offset
-				partInsts[pi] = append(partInsts[pi], DynamicInstance{
-					Position: [3]float32{
-						pos[0] + s*off[0] - c*off[2],
-						pos[1] + off[1],
-						pos[2] + c*off[0] + s*off[2],
-					},
-					Heading:  heading,
-					Color:    [3]float32{1, 1, 1},
-					SpinMode: spinModeFor(pb.decl.Axis),
-				})
-			}
-		}
-		r.helicopterBodyBatch.SetDynamic(bodyInst)
-		r.helicopterBodyBatch.Draw()
-		for pi, pb := range r.helicopterPartBatches {
-			if len(partInsts[pi]) == 0 {
-				continue
-			}
-			r.DynamicShader.SetFloat("uSpinRate", pb.spinRate)
-			pb.batch.SetDynamic(partInsts[pi])
-			pb.batch.Draw()
-		}
-		r.DynamicShader.SetFloat("uSpinRate", 0) // reset after rotor draws
-	}
+
+	drawHelicopters(r, w)
 
 	// Cars — on the roads and in the lots. Dynamic: they move every
 	// frame.
@@ -1657,7 +1583,7 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	// instances by type so each batch draws its own chairs in a single
 	// call, regardless of how many lifts of each type the resort has.
 	// Re-bind the dynamic shader: the debug pass above may have switched it.
-	if r.chairBatch != nil || r.chairQuadBatch != nil || r.chair6PackBatch != nil || r.gondolaBatch != nil {
+	if r.chairBatch != nil || r.chairTripleBatch != nil || r.chairQuadBatch != nil {
 		r.DynamicShader.Use()
 		var doubles, triples, quads, sixPacks, gondolas []DynamicInstance
 		for _, lift := range w.Lifts {
@@ -1707,14 +1633,7 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 			r.chairQuadBatch.SetDynamic(quads)
 			r.chairQuadBatch.Draw()
 		}
-		if r.chair6PackBatch != nil {
-			r.chair6PackBatch.SetDynamic(sixPacks)
-			r.chair6PackBatch.Draw()
-		}
-		if r.gondolaBatch != nil {
-			r.gondolaBatch.SetDynamic(gondolas)
-			r.gondolaBatch.Draw()
-		}
+		drawBigLiftChairs(r, sixPacks, gondolas)
 	}
 
 	r.drawWeatherOverlay(time, light)
@@ -1779,6 +1698,7 @@ func guestColor(w *world.World, a *world.Guest) [3]float32 {
 // flushUI at the end emits one (or a few, on texture-switches) DrawArrays
 // for the whole frame's UI instead of one per glyph.
 func (r *Renderer) DrawUI(elements []UIDrawable) {
+	r.resolveScene()
 	gl.Disable(gl.DEPTH_TEST)
 	defer gl.Enable(gl.DEPTH_TEST)
 
@@ -2085,18 +2005,18 @@ func (r *Renderer) ClearAllGhosts() {
 // SetGhostCable regenerates the ghost cable meshes and tower-instance
 // previews from base to top. The tower ghosts go through the standard
 // ghost-batch path so they share geometry with the live towers.
-func (r *Renderer) SetGhostCable(base, top mgl32.Vec2, t *world.Terrain) {
+func (r *Renderer) SetGhostCable(typ world.LiftType, base, top mgl32.Vec2, t *world.Terrain) {
 	if r.scene.ghostUpCable != nil {
 		r.scene.ghostUpCable.Delete()
 	}
 	if r.scene.ghostDownCable != nil {
 		r.scene.ghostDownCable.Delete()
 	}
-	tempLift := &world.Lift{Base: base, Top: top}
+	tempLift := &world.Lift{Type: typ, Base: base, Top: top}
 	r.scene.ghostUpCable = generateCableMesh(tempLift, t, world.CableGap)
 	r.scene.ghostDownCable = generateCableMesh(tempLift, t, -world.CableGap)
 
-	mats := TowerInstancesForLift(base, top, t)
+	mats := TowerInstancesForLift(tempLift, t)
 	ghosts := make([]StaticInstance, len(mats))
 	for i, m := range mats {
 		ghosts[i].ColorTint = [3]float32{1, 1, 1}
@@ -2118,26 +2038,11 @@ func (r *Renderer) ClearGhostCable() {
 	r.SetGhosts(MeshTower, nil)
 }
 
-// HelipadTransform builds the world-space transform for a helipad placed at
-// `pos`, oriented so the model's +X axis (the approach axis with the H
-// pointing toward it) faces `otherEnd`. Pass `otherEnd == pos` to get no
-// rotation (e.g. when the second point isn't known yet).
-func HelipadTransform(pos, otherEnd mgl32.Vec2, terrain *world.Terrain) mgl32.Mat4 {
-	y := VisualElevationAt(terrain, pos[0], pos[1])
-	var rot float32
-	if otherEnd != pos {
-		dx := otherEnd[0] - pos[0]
-		dz := otherEnd[1] - pos[1]
-		rot = float32(math.Atan2(-float64(dz), float64(dx)))
-	}
-	return mgl32.Translate3D(pos[0], y, pos[1]).Mul4(mgl32.HomogRotate3DY(rot))
-}
-
 // AddLiftMeshes generates and stores cable and queue meshes for a lift.
 // Towers are added to the static batch by RebuildStaticBatch. No-op for
 // helicopter lifts, which have no cable infrastructure.
 func (r *Renderer) AddLiftMeshes(lift *world.Lift, t *world.Terrain) {
-	if lift.IsHeli() {
+	if lift.Cableless() {
 		return
 	}
 	r.scene.liftUpCables[lift.ID] = generateCableMesh(lift, t, world.CableGap)
@@ -2267,6 +2172,7 @@ func (r *Renderer) WorldToScreen(pos mgl32.Vec3) (sx, sy float32, visible bool) 
 // after rendering and before SwapBuffers. Returns nil if the framebuffer size
 // is invalid.
 func (r *Renderer) ReadFrame() *image.NRGBA {
+	r.resolveScene()
 	w, h := r.frameW, r.frameH
 	if w <= 0 || h <= 0 {
 		return nil
@@ -2290,6 +2196,7 @@ func (r *Renderer) ReadFrame() *image.NRGBA {
 // the back buffer still holds the freshly drawn frame). Creates parent dirs as
 // needed.
 func (r *Renderer) SaveScreenshot(path string) error {
+	r.resolveScene()
 	img := r.ReadFrame()
 	if img == nil {
 		return fmt.Errorf("screenshot: invalid framebuffer size %dx%d", r.frameW, r.frameH)
@@ -2379,10 +2286,10 @@ func isTreeMesh(id uint32) bool {
 }
 
 // treeTintForVariant returns the per-instance ColorTint for a tree variant.
-// Foliage colour now lives in the .scad source per variant (medium pine /
+// Foliage colour now lives in the model source per variant (medium pine /
 // dark spruce / blue-green fir) and flows through as per-vertex base
 // colour, so the tint is white — reserved for future per-instance effects
-// (selection highlight, seasonal mood) on top of the SCAD-authored palette.
+// (selection highlight, seasonal mood) on top of the model-authored palette.
 func treeTintForVariant(variant uint32) mgl32.Vec3 {
 	return mgl32.Vec3{1, 1, 1}
 }

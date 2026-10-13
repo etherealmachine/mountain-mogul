@@ -1,3 +1,5 @@
+//go:build !demo
+
 // redress reruns a save's world layers (materials, trees, snow) the way
 // an import does, recomputing the opening day from the snowpack, so a
 // scenario picks up changes to the weather or snow model:

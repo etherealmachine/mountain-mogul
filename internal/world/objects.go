@@ -38,9 +38,9 @@ const (
 	MeshSkiRack      uint32 = 26       // A-frame ski rack
 )
 
-// MeshSlot is an anchor point baked into a mesh by the SCAD pipeline
+// MeshSlot is an anchor point baked into a mesh by the model pipeline
 // — e.g. a chairlift seat position. The coordinate is in the mesh's
-// local frame (game-space, post the scad2obj Z-up→Y-up rotation,
+// local frame (game-space, post the model writer's Z-up→Y-up rotation,
 // before any per-instance heading rotation the renderer applies).
 type MeshSlot struct {
 	Index int
@@ -57,13 +57,13 @@ func RegisterMeshSlots(meshID uint32, slots []MeshSlot) {
 }
 
 // SlotsFor returns the slots registered for meshID, or nil if the mesh
-// did not declare any in its .scad source.
+// did not declare any in its model source.
 func SlotsFor(meshID uint32) []MeshSlot {
 	return meshSlots[meshID]
 }
 
 // MeshFootprint is the building's ground-plane half-extents (in metres,
-// game coords), baked into the OBJ from the .scad source. The placement-
+// game coords), baked into the OBJ from the model source. The placement-
 // effects pass uses this to size the apron and the tree-clearance zone so
 // per-type dimensions don't have to be duplicated in Go.
 type MeshFootprint struct {
@@ -79,7 +79,7 @@ func RegisterMeshFootprint(meshID uint32, fp MeshFootprint) {
 }
 
 // FootprintFor returns the footprint registered for meshID, or
-// (zero, false) if the mesh did not declare one in its .scad source.
+// (zero, false) if the mesh did not declare one in its model source.
 func FootprintFor(meshID uint32) (MeshFootprint, bool) {
 	fp, ok := meshFootprints[meshID]
 	return fp, ok

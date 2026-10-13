@@ -417,7 +417,7 @@ func (w *World) OperatingCosts() CostBreakdown {
 		case BuildingLodge:
 			c[CostBuildings] += LodgeUpkeep(b)
 		case BuildingSnowGun:
-			if b.SnowGunEnabled {
+			if b.On {
 				c[CostSnowGuns] += SnowGunActiveCostDay
 			}
 		}
@@ -442,7 +442,7 @@ func (w *World) StandbyCosts() CostBreakdown {
 		case BuildingLodge:
 			c[CostBuildings] += BuildingStandbyCostDay
 		case BuildingSnowGun:
-			if b.SnowGunEnabled {
+			if b.On {
 				c[CostSnowGuns] += SnowGunActiveCostDay
 			}
 		}
@@ -521,7 +521,7 @@ func (w *World) PlaceBuildingType(typ BuildingType, x, z float32) *Building {
 		b.RentalPrice = DefaultRentalPrice
 		b.Quality = DefaultQuality
 	case BuildingSnowGun:
-		b.SnowGunEnabled = true
+		b.On = true
 	}
 	w.Buildings = append(w.Buildings, b)
 	if typ == BuildingLodge || typ == BuildingBar || typ == BuildingTicketOffice {
@@ -620,21 +620,14 @@ func (w *World) PlaceLift(typ LiftType, bx, bz, tx, tz float32) *Lift {
 		Open:        false,
 	}
 
-	if typ == LiftHeli {
+	if lift.Cableless() {
 		// Helicopters use a state-machine rather than a chair loop. No
-		// chairs are created; HeliState drives the simulation.
-		lift.HeliState = &HeliData{
-			Phase:      HeliAtBase,
-			Passengers: make([]*Guest, 0, HeliCapacity),
-		}
+		// chairs are created; the flight state drives the simulation.
+		initHeli(lift)
 	} else {
 		// Initialise chairs evenly spaced around the loop, each pre-sized
 		// to the lift type's per-chair capacity.
-		dx := float64(tx - bx)
-		dz := float64(tz - bz)
-		cableLen := math.Sqrt(dx*dx + dz*dz)
-		loopLen := cableLen * 2
-		numChairs := int(loopLen / ChairSpacingM)
+		numChairs := int(lift.LoopLength() / ChairSpacingM)
 		if numChairs < 2 {
 			numChairs = 2
 		}
@@ -666,6 +659,9 @@ func (w *World) PlaceLift(typ LiftType, bx, bz, tx, tz float32) *Lift {
 // Towers and cable stay in place, so it's cheaper than building fresh.
 // Returns 0 if from → to isn't a supported upgrade.
 func LiftUpgradeCost(from, to LiftType) int {
+	if !to.Available() {
+		return 0
+	}
 	switch {
 	case from == LiftDouble && to == LiftFixedTriple,
 		from == LiftDouble && to == LiftFixedQuad,

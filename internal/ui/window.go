@@ -78,6 +78,7 @@ const (
 	toggleDisc    toggleShape = iota // filled circle
 	toggleSquare                     // filled square
 	toggleDiamond                    // filled 45°-rotated square
+	toggleCheck                      // a check box
 )
 
 // toggleEntry is one shape-toggle button in a rowToggles. The active
@@ -99,7 +100,7 @@ type Window struct {
 	Visible bool
 
 	rows     []*windowRow
-	closeBtn *Button
+	closeBtn *CloseButton
 	width    float32 // auto-computed from label widths
 	height   float32 // auto-computed from row count
 	labelW   float32 // label column right edge, relative to X
@@ -108,7 +109,7 @@ type Window struct {
 // NewWindow creates a window at the given screen position.
 func NewWindow(title string, x, y float32) *Window {
 	w := &Window{Title: title, X: x, Y: y}
-	w.closeBtn = NewButton(0, 0, winBtnW, float32(render.GlyphH+4), "x", func() { w.Visible = false })
+	w.closeBtn = NewCloseButton(func() { w.Visible = false })
 	w.rebuildLayout()
 	return w
 }
@@ -249,8 +250,7 @@ func (w *Window) AddDifficultyToggles(label string, has func(bit uint8) bool, to
 func (w *Window) AddBoolToggle(label string, get func() bool, set func(bool)) {
 	row := &windowRow{kind: rowToggles, label: label}
 	row.toggles = append(row.toggles, &toggleEntry{
-		shape:   toggleSquare,
-		color:   [3]float32{0.18, 0.78, 0.30},
+		shape:   toggleCheck,
 		active:  get,
 		onClick: func() { set(!get()) },
 	})
@@ -349,9 +349,7 @@ func (w *Window) rebuildLayout() {
 	h += winPadding / 2
 	w.height = h
 
-	// Close button flush with top-right corner.
-	w.closeBtn.X = w.X + w.width - winBtnW - 4
-	w.closeBtn.Y = w.Y + (winTitleH-float32(render.GlyphH+4))/2
+	w.closeBtn.PlaceInHeader(w.X+w.width, w.Y, winTitleH)
 }
 
 // Reposition moves the window and rebuilds button positions.
@@ -480,17 +478,11 @@ func (w *Window) Draw(r *render.Renderer) {
 		return
 	}
 
-	bgColor := mgl32.Vec4{0.08, 0.10, 0.14, 0.95}
-	titleBg := mgl32.Vec4{0.15, 0.20, 0.35, 1.0}
 	textColor := mgl32.Vec4{0.9, 0.95, 1.0, 1.0}
 	labelColor := mgl32.Vec4{0.6, 0.7, 0.85, 1.0}
 
-	r.DrawColorRect(w.X, w.Y, w.width, w.height, bgColor)
-	r.DrawColorRect(w.X, w.Y, w.width, winTitleH, titleBg)
-	if r.Font != nil {
-		titleY := w.Y + (winTitleH-float32(render.GlyphH))/2
-		r.Font.DrawText(r, w.Title, w.X+winPadding, titleY, textColor)
-	}
+	DrawPanel(r, w.X, w.Y, w.width, w.height)
+	DrawPanelHeader(r, w.X, w.Y, w.width, winTitleH, w.Title)
 	w.closeBtn.Draw(r)
 
 	y := w.Y + winTitleH + winPadding/2
@@ -572,6 +564,10 @@ func (w *Window) Draw(r *render.Renderer) {
 // drawn dimmed against a subtle slot background; the hovered/active
 // outline pops the entry so the player can read its state at a glance.
 func drawToggleEntry(r *render.Renderer, t *toggleEntry) {
+	if t.shape == toggleCheck {
+		DrawCheckbox(r, t.x, t.y, t.w, t.active != nil && t.active(), t.hovered)
+		return
+	}
 	slotBg := mgl32.Vec4{0.12, 0.15, 0.22, 1.0}
 	outline := mgl32.Vec4{0.55, 0.65, 0.85, 1.0}
 	r.DrawColorRect(t.x, t.y, t.w, t.w, slotBg)

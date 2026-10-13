@@ -13,17 +13,20 @@ type EventKind uint8
 const (
 	EventAvalanche        EventKind = 0  // natural or triggered slab release
 	EventRescue           EventKind = 1  // patrol delivered an injured guest to the base
-	EventLiftOpened       EventKind = 2  // player opened a lift, or a hold cleared
-	EventLiftClosed       EventKind = 3  // player closed a lift, or it went on hold
-	EventBuildPlaced      EventKind = 4  // player placed a building or lift
+	EventLiftOpened       EventKind = 2  // a lift's hold cleared
+	EventLiftClosed       EventKind = 3  // a lift went on hold
+	EventBuildPlaced      EventKind = 4  // player placed a building or lift (no longer logged)
 	EventDaySummary       EventKind = 5  // end-of-day recap written at rollover
 	EventFinance          EventKind = 6  // interest charged, credit floor crossed, bankruptcy
 	EventGuestsTurnedAway EventKind = 7  // guests would have come but couldn't ski: no ticket office, or every lift stopped
-	EventResortOpened     EventKind = 8  // player opened the resort at a ticket office
-	EventResortClosed     EventKind = 9  // player closed the resort at a ticket office
+	EventResortOpened     EventKind = 8  // player opened the resort (no longer logged)
+	EventResortClosed     EventKind = 9  // player closed the resort (no longer logged)
 	EventGoal             EventKind = 10 // a scenario goal met or missed
 	EventScenario         EventKind = 11 // the scenario won or lost
 	EventGuestsSay        EventKind = 12 // the day's most common complaint so far, when it changes
+	EventLongLine         EventKind = 13 // a lift's line passed a long wait, once a lift a day
+	EventSnowfall         EventKind = 14 // fresh snow overnight
+	EventRecord           EventKind = 15 // a record day of visitors
 )
 
 // Event is one entry in the World-level event feed: something the player

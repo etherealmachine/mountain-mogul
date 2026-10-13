@@ -1006,7 +1006,7 @@ func stationHazards(w *world.World, x, z, reach float32, buf []world.StationBox)
 	p := mgl32.Vec2{x, z}
 	r := reach + world.StationExtent
 	for _, l := range w.Lifts {
-		if l.IsHeli() || l.Top.Sub(p).Len() > r && l.Base.Sub(p).Len() > r {
+		if l.Cableless() || l.Top.Sub(p).Len() > r && l.Base.Sub(p).Len() > r {
 			continue
 		}
 		n := len(buf)

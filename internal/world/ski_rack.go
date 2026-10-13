@@ -22,7 +22,7 @@ const (
 	SkiRackReach = 40.0
 	// skiRackPitch is the spacing between pairs along the rack, and
 	// skiRackFront how far in front of its rail they stand, metres
-	// (models-src/ski_rack.scad).
+	// (models-src/ski_rack.py).
 	skiRackPitch = 0.3
 	skiRackFront = 0.3
 )

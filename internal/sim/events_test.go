@@ -120,29 +120,3 @@ func TestLiftHoldEmitsEvents(t *testing.T) {
 		t.Fatalf("got %d lift-opened events, want 1", n)
 	}
 }
-
-func TestPlayerActionEvents(t *testing.T) {
-	s := newEventTestSim(t)
-	w := s.World
-	s.SimTime = 500
-
-	b := w.PlaceBuildingType(world.BuildingBar, 30, 40)
-	s.LogBuildingPlaced(b)
-	lift := w.PlaceLift(world.LiftDouble, 20, 20, 120, 120)
-	lift.Open = true
-	s.LogLiftOpenChanged(lift)
-
-	if w.Events.Len() != 2 {
-		t.Fatalf("Len = %d, want 2", w.Events.Len())
-	}
-	built := w.Events.At(0)
-	// A point-placed bar is a one-service lodge, named for its service.
-	if built.Kind != world.EventBuildPlaced || built.Message != "Built "+b.Label() ||
-		built.Pos != b.Pos || built.EntityID != b.ID || built.SimTime != 500 {
-		t.Fatalf("build event = %+v", built)
-	}
-	if opened := w.Events.At(1); opened.Kind != world.EventLiftOpened ||
-		opened.Message != lift.Name+" opened" {
-		t.Fatalf("open event = %+v", opened)
-	}
-}

@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/go-gl/mathgl/mgl32"
+
 	"mountain-mogul/internal/world"
 )
 
@@ -28,8 +30,9 @@ func LoadOBJ(path string) (*Mesh, uint32) {
 }
 
 // LoadOBJSlots reads `# slot N x y z` comment lines from an OBJ produced
-// by tools/scad2obj. Coordinates are mesh-local game-space (the converter
-// has already applied the SCAD Z-up → game Y-up rotation). Returns nil
+// by the model writer (models-src/lib/mogul.py). Coordinates are mesh-local
+// game-space (the writer has already applied the model Z-up → game Y-up
+// rotation). Returns nil
 // if the file is missing or has no slot lines — callers handle the
 // no-slots case via a plain fallback.
 func LoadOBJSlots(path string) []world.MeshSlot {
@@ -73,7 +76,7 @@ func LoadOBJSlots(path string) []world.MeshSlot {
 // PartDecl describes an animated sub-part attached to a mesh. The renderer
 // loads <Name>.obj as a separate DynamicBatch and places one instance per
 // parent instance, spinning it around the declared axis. Offset is the
-// pivot position in mesh-local game space (post SCAD→game rotation).
+// pivot position in mesh-local game space (post model→game rotation).
 type PartDecl struct {
 	Name   string
 	Axis   string     // "spin_y" or "spin_z"
@@ -81,7 +84,7 @@ type PartDecl struct {
 }
 
 // LoadOBJParts reads `# part <name> <axis> <x> <y> <z>` comment lines from
-// an OBJ produced by tools/scad2obj. Returns nil when the file is missing or
+// an OBJ written by models-src/lib/mogul.py. Returns nil when the file is missing or
 // has no part lines.
 func LoadOBJParts(path string) []PartDecl {
 	f, err := os.Open(path)
@@ -122,8 +125,8 @@ func LoadOBJParts(path string) []PartDecl {
 }
 
 // LoadOBJFootprint reads a `# footprint halfX halfZ` comment line from an
-// OBJ produced by tools/scad2obj. Both values are in metres in mesh-local
-// game coords (the converter has already applied the SCAD Z-up → game
+// OBJ written by models-src/lib/mogul.py. Both values are in metres in mesh-local
+// game coords (the writer has already applied the model Z-up → game
 // Y-up rotation). Returns ok=false when the file is missing or has no
 // footprint line — callers fall back to a box-bbox default.
 func LoadOBJFootprint(path string) (world.MeshFootprint, bool) {
@@ -158,7 +161,7 @@ func LoadOBJFootprint(path string) (world.MeshFootprint, bool) {
 }
 
 // fallbackMesh returns a 2 m marker cube used when an OBJ fails to load
-// — typically because `make models` hasn't run for a new SCAD file.
+// — typically because `make models` hasn't run for a new model script.
 // Per-mesh sizes were a development convenience but the working build has
 // all OBJs in place, so this only appears as a diagnostic. If you see
 // this cube, rebuild the models.
@@ -309,8 +312,16 @@ func loadOBJFile(path string) (*Mesh, uint32, error) {
 	}
 
 	mesh := NewMesh(vertices, indices, []int{3, 3, 2, 3}, []uint32{0, 1, 2, VertexColorLoc})
-	for _, p := range positions {
+	for i, p := range positions {
 		mesh.MaxY = max(mesh.MaxY, p[1])
+		v := mgl32.Vec3(p)
+		if i == 0 {
+			mesh.Bounds = [2]mgl32.Vec3{v, v}
+		}
+		for k := range 3 {
+			mesh.Bounds[0][k] = min(mesh.Bounds[0][k], v[k])
+			mesh.Bounds[1][k] = max(mesh.Bounds[1][k], v[k])
+		}
 	}
 
 	// Load texture from MTL if present

@@ -123,7 +123,7 @@ func snapRun(w *world.World, p mgl32.Vec2, exclude uint64, noTrails bool) runSna
 	best := float32(runSnapRadius)
 	s := runSnap{pos: p}
 	for _, l := range w.Lifts {
-		if l.IsHeli() {
+		if l.Cableless() {
 			continue
 		}
 		for _, end := range []struct {

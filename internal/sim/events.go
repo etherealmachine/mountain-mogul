@@ -8,35 +8,10 @@ import (
 	"mountain-mogul/internal/world"
 )
 
-// Event-feed emit helpers. Sim-internal sites (avalanche, rescue, lift
-// holds, day summary) call these directly; the scene calls the exported
-// Log* methods for player actions so every event is stamped with the same
-// sim clock.
-
-// LogBuildingPlaced records a player-placed building in the event feed.
-func (s *Simulation) LogBuildingPlaced(b *world.Building) {
-	s.World.LogEventAt(world.EventBuildPlaced, s.SimTime,
-		fmt.Sprintf("Built %s", b.Label()), b.Pos, b.ID)
-}
-
-// LogLiftPlaced records a player-placed lift in the event feed. The event
-// position is the lift base.
-func (s *Simulation) LogLiftPlaced(l *world.Lift) {
-	s.World.LogEventAt(world.EventBuildPlaced, s.SimTime,
-		fmt.Sprintf("Built %s (%s)", l.Name, l.Type.Label()), l.Base, l.ID)
-}
-
-// LogLiftOpenChanged records the player opening or closing a lift. Call
-// after flipping l.Open.
-func (s *Simulation) LogLiftOpenChanged(l *world.Lift) {
-	if l.Open {
-		s.World.LogEventAt(world.EventLiftOpened, s.SimTime,
-			fmt.Sprintf("%s opened", l.Name), l.Base, l.ID)
-	} else {
-		s.World.LogEventAt(world.EventLiftClosed, s.SimTime,
-			fmt.Sprintf("%s closed", l.Name), l.Base, l.ID)
-	}
-}
+// Event-feed emit helpers. The feed carries what the player would
+// otherwise miss: things the sim did (avalanches, rescues, lift holds),
+// what guests think, and the day's results. It doesn't echo the player's
+// own actions (building, opening a lift).
 
 // logLiftHoldChanged records a sim-driven hold transition (no snow at the
 // base station). Call after updating l.OnHold.
@@ -66,8 +41,11 @@ func (s *Simulation) logAvalanches(n int, cell [2]int) {
 // logDaySummary records the end-of-day recap for the sample just pushed,
 // with the moment behind most of the day's reviews below 3★.
 func (s *Simulation) logDaySummary(d world.DailySample, why ai.ThoughtKind) {
-	msg := fmt.Sprintf("%s recap: %d arrivals, %.1f stars, $%d in, $%d out",
-		world.FormatGameDate(d.Day, false), d.ArrivalsToday, d.Rating, d.Revenue, d.Costs)
+	if !d.Open {
+		return // nothing to sum up on a day the resort stayed shut
+	}
+	msg := fmt.Sprintf("%s: %d visitors, %.1f stars, $%s in, $%s out",
+		world.FormatGameDate(d.Day, false), d.ArrivalsToday, d.Rating, world.CommaInt(d.Revenue), world.CommaInt(d.Costs))
 	if why != ai.ThoughtNone {
 		msg += "; most heard: " + ai.ThoughtLabel[why]
 	}
@@ -95,4 +73,76 @@ func (s *Simulation) logGuestsSay() {
 // cellCentre converts a terrain cell index to its world XZ in metres.
 func cellCentre(cell [2]int) mgl32.Vec2 {
 	return mgl32.Vec2{float32(cell[0]) * world.CellSize, float32(cell[1]) * world.CellSize}
+}
+
+// longLineReport is the wait at which a lift's line makes the feed.
+const longLineReport = world.LongLineWait
+
+// logLongLines reports, once a lift a day, a running lift whose line has
+// reached a long wait, with what would help if it has no attendant.
+func (s *Simulation) logLongLines() {
+	if s.longLinesSaid == nil {
+		s.longLinesSaid = map[uint64]bool{}
+	}
+	for _, l := range s.World.Lifts {
+		if !l.Open || l.OnHold || s.longLinesSaid[l.ID] {
+			continue
+		}
+		wait := l.LineWait()
+		if wait < longLineReport {
+			continue
+		}
+		s.longLinesSaid[l.ID] = true
+		mins := int(wait / (world.SimSecondsPerHour / 60))
+		msg := fmt.Sprintf("%s has a %d-minute line", l.Name, mins)
+		if !l.Cableless() && !l.Staff.LineAttendant {
+			msg += "; a line attendant would fill its chairs"
+		}
+		s.World.LogEventAt(world.EventLongLine, s.SimTime, msg, l.Base, l.ID)
+	}
+}
+
+// freshSnowReport is the new snow, metres of water, worth a feed line:
+// about 8 cm of fresh snow.
+const freshSnowReport = 0.008
+
+// logFreshSnow reports the night's new snow, the day's powder.
+func (s *Simulation) logFreshSnow(dw DayWeather) {
+	if dw.AccumSWE < freshSnowReport {
+		return
+	}
+	cm := dw.AccumSWE * 1000 // fresh snow is about a tenth water
+	s.World.LogEvent(world.EventSnowfall, s.SimTime, fmt.Sprintf(
+		"Fresh snow: about %.0f cm (%.0f in) fell overnight", cm, cm/2.54))
+}
+
+// logRecordDay reports a day with more visitors than any before it, once
+// there are a few days to beat.
+func (s *Simulation) logRecordDay(d world.DailySample) {
+	days := s.World.History.Ordered()
+	if len(days) < 3 || d.ArrivalsToday == 0 {
+		return
+	}
+	for _, p := range days[:len(days)-1] {
+		if p.ArrivalsToday >= d.ArrivalsToday {
+			return
+		}
+	}
+	s.World.LogEvent(world.EventRecord, s.SimTime, fmt.Sprintf(
+		"Record day: %d visitors on %s", d.ArrivalsToday, world.FormatGameDate(d.Day, false)))
+}
+
+// logRescues reports the last hour's patrol rescues as one line, placed
+// where the latest ended, rather than a line for each.
+func (s *Simulation) logRescues() {
+	n := s.rescues.n
+	if n == 0 {
+		return
+	}
+	s.rescues.n = 0
+	msg := "Patrol brought an injured guest down in the last hour"
+	if n > 1 {
+		msg = fmt.Sprintf("Patrol brought %d injured guests down in the last hour", n)
+	}
+	s.World.LogEventAt(world.EventRescue, s.SimTime, msg, s.rescues.last, 0)
 }

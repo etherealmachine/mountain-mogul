@@ -1,3 +1,5 @@
+//go:build !demo
+
 package scene
 
 import (
@@ -106,6 +108,14 @@ type Editor struct {
 	pendingScreenshot         bool
 	layers                    layersPanel
 	osm                       osmOverlay
+}
+
+// NewEditorScenarioPicker lists the same files but opens the pick in the
+// Scenario Editor, with an extra entry for starting from a blank world.
+func NewEditorScenarioPicker() *ScenarioPicker {
+	p := &ScenarioPicker{}
+	p.open = func(path string) { p.app.ReplaceScene(NewEditor(path)) }
+	return p
 }
 
 // NewEditor creates an Editor scene loading from the given path. An empty
@@ -253,8 +263,8 @@ func (e *Editor) Init(app *engine.App) error {
 		e.settingsMenu.Show()
 	}
 	e.escapeMenu = NewEscapeMenu(app, e.saveCurrent, nil, openSettings)
-	e.escapeMenu.InsertButton(2, "Save As...", e.openSaveAsPrompt) // right after Save
-	e.escapeMenu.InsertButton(3, "Scenario details...", e.openDetailsPrompt)
+	e.escapeMenu.InsertButton(3, "Save As...", e.openSaveAsPrompt) // right after Save
+	e.escapeMenu.InsertButton(4, "Scenario details...", e.openDetailsPrompt)
 
 	// Top bar — editor-mode only has overlay-panel toggle + settings (gear)
 	// and the open scenario's name in the centre. No stats, date/weather, or
@@ -274,6 +284,10 @@ func (e *Editor) Init(app *engine.App) error {
 		})
 
 	e.overlayPanel = ui.NewOverlayPanel()
+	e.overlayPanel.AddRow(render.OverlayTrails, "Trails", render.IconFlag,
+		mgl32.Vec4{0.40, 0.85, 0.45, 1})
+	e.overlayPanel.AddRow(render.OverlayGround, "Ground", render.IconGridFour,
+		mgl32.Vec4{0.75, 0.55, 0.40, 1})
 	e.overlayPanel.AddRow(render.OverlayParcels, "Parcels", render.IconGlobe,
 		mgl32.Vec4{0.95, 0.75, 0.30, 1})
 	e.overlayPanel.Top = topBarH
@@ -334,11 +348,6 @@ const (
 	parcelIntentAdd    parcelRectIntent = iota // add rect cells to parcelEditID
 	parcelIntentRemove parcelRectIntent = iota // remove rect cells from parcelEditID
 )
-
-// uiDrawFunc adapts a bare function to the render.UIDrawable interface.
-type uiDrawFunc func(*render.Renderer)
-
-func (f uiDrawFunc) Draw(r *render.Renderer) { f(r) }
 
 func (e *Editor) Update(dt float64) {
 	inp := e.app.Input
@@ -902,7 +911,7 @@ func (e *Editor) applyPlacement(r *render.Renderer, shiftHeld bool) {
 		e.syncToolButtons()
 	case toolLiftTop:
 		lift := w.PlaceLift(e.liftType, e.liftBase[0], e.liftBase[1], wx, wz)
-		if lift.IsHeli() {
+		if lift.Cableless() {
 			applyHelipadPlacementEffects(w.Terrain, lift)
 		} else {
 			applyLiftPlacementEffects(w, lift)
@@ -2288,13 +2297,6 @@ func clampF(v, lo, hi float32) float32 {
 		return hi
 	}
 	return v
-}
-
-func maxF(a, b float32) float32 {
-	if a > b {
-		return a
-	}
-	return b
 }
 
 // activatePathTool starts the footpath tool (footpath_tool.go);

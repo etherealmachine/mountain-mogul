@@ -336,6 +336,9 @@ func (GoHome) Weight(s *WorldSnapshot, w *world.World) float32 {
 // canRent reports whether some building rents skis at a price the guest
 // will pay.
 func canRent(s *WorldSnapshot, w *world.World) bool {
+	if !world.ServiceRentals.Available() {
+		return false
+	}
 	for _, b := range w.Buildings {
 		if b.Type == world.BuildingLodge && b.OffersUse(ai.OfferRentals) && affordable(b, ai.OfferRentals, s) {
 			return true

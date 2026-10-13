@@ -1,3 +1,5 @@
+//go:build !demo
+
 // convertsave — one-shot tool to migrate legacy JSON scenarios into
 // the project's binary .save format (msgpack + gzip). Kept around
 // after the migration so anyone with an old hand-edited tutorial.json

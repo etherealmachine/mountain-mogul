@@ -1,3 +1,5 @@
+//go:build !demo
+
 // import runs the editor's terrain import without the editor and writes
 // a scenario save with nothing built:
 //

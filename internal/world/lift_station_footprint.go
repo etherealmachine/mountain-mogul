@@ -7,31 +7,8 @@ import (
 )
 
 // A station's footprint: the ground under its structure, where skiers
-// don't go (models-src/lift_station.scad). StationXZs is only the points
-// that stand on the ground; the footprint is everything overhead too.
-// Metres from the bullwheel in the station's frame: back along the line,
-// away from the other end, and across it toward the hut.
-const (
-	// The hood over the wheel (2 m round it), the boom under it and the
-	// drive housing behind the crossbeam.
-	stationHoodFront  = -2.0
-	stationHoodBack   = 3.7
-	stationHoodAcross = 2.0
-	// The portal frame: the legs on their footings and the crossbeam
-	// between them.
-	stationFrameFront  = 1.65
-	stationFrameBack   = 2.75
-	stationFrameAcross = 4.15
-	// The operator's hut.
-	stationHutFront = stationHutBack - 1.2
-	stationHutRear  = stationHutBack + 1.2
-	stationHutIn    = stationHutSide - 0.95
-	stationHutOut   = stationHutSide + 0.95
-)
-
-// StationExtent is the furthest any part of a station's footprint is
-// from its bullwheel (the hut's far corner), rounded up.
-const StationExtent = 8
+// don't go (the models; StationGeom). StationXZs is only the points that
+// stand on the ground; the footprint is everything overhead too.
 
 // StationBox is one rectangle of a station's footprint on the ground.
 type StationBox struct {
@@ -86,28 +63,8 @@ func (b StationBox) Edge(spacing, out float32, buf []mgl32.Vec2) []mgl32.Vec2 {
 	return buf
 }
 
-// StationFrame is the frame of lift l's top (or base) station: the
-// bullwheel, the unit direction back along the line away from the other
-// end, and the one across it toward the hut (StationXZs). ok is false
-// for a helicopter or a lift with both ends together.
-func (l *Lift) StationFrame(top bool) (at, back, side mgl32.Vec2, ok bool) {
-	if l.IsHeli() {
-		return
-	}
-	at, other := l.Base, l.Top
-	if top {
-		at, other = l.Top, l.Base
-	}
-	u := other.Sub(at)
-	if u.Len() < 1e-3 {
-		return
-	}
-	u = u.Normalize()
-	return at, u.Mul(-1), mgl32.Vec2{u[1], -u[0]}, true
-}
-
 // StationBoxes is lift l's stations' footprints: at each end the
-// terminal over the line (hood, then frame) and the hut. Nil for a
+// terminal over the line and the hut. Nil for a
 // helicopter.
 func (l *Lift) StationBoxes() []StationBox {
 	return l.AppendStationBoxes(nil)
@@ -121,15 +78,11 @@ func (l *Lift) AppendStationBoxes(out []StationBox) []StationBox {
 		if !ok {
 			continue
 		}
-		box := func(front, rear, in, outer float32, hut bool) StationBox {
-			c := at.Add(back.Mul((front + rear) / 2)).Add(side.Mul((in + outer) / 2))
-			return StationBox{Center: c, Axis: back, HalfBack: (rear - front) / 2, HalfAcross: (outer - in) / 2, Top: top, Hut: hut}
+		for _, r := range l.Station().rects {
+			c := at.Add(back.Mul((r.front + r.rear) / 2)).Add(side.Mul((r.in + r.out) / 2))
+			out = append(out, StationBox{Center: c, Axis: back, HalfBack: (r.rear - r.front) / 2,
+				HalfAcross: (r.out - r.in) / 2, Top: top, Hut: r.hut})
 		}
-		out = append(out,
-			box(stationHoodFront, stationHoodBack, -stationHoodAcross, stationHoodAcross, false),
-			box(stationFrameFront, stationFrameBack, -stationFrameAcross, stationFrameAcross, false),
-			box(stationHutFront, stationHutRear, stationHutIn, stationHutOut, true),
-		)
 	}
 	return out
 }
@@ -150,8 +103,8 @@ func (l *Lift) InStationFootprint(p mgl32.Vec2, margin float32) bool {
 // riders come round onto after getting off sideways (sim:
 // tickUnloading). The run takes them from there.
 const (
-	topRunEndBack   = 6.0 // level with the hut's far end
-	topRunEndAcross = 8.5 // past the frame's legs and the hut
+	topRunEndBack   = 6.0 // behind either terminal, level with the fixed-grip hut's far end
+	topRunEndAcross = 8.5 // past the legs, posts and huts
 )
 
 // TopRunEnd is where a run attached to l's top starts, on the side of

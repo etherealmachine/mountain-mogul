@@ -1,3 +1,5 @@
+//go:build !demo
+
 // days runs a save headless for some game days with the resort and every
 // lift open, and reports each day from its history sample: visitors,
 // stars and why, falls, rides per guest, peak crowd, and wall time.

@@ -1,7 +1,6 @@
 package scene
 
 import (
-	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/mathgl/mgl32"
 	"mountain-mogul/internal/engine"
 	"mountain-mogul/internal/render"
@@ -25,6 +24,7 @@ func NewEscapeMenu(app *engine.App, saveFunc, loadFunc, settingsFunc func()) *Es
 		fn    func()
 	}
 	defs := []def{
+		{"Resume", func() { m.visible = false }},
 		{"Main Menu", func() { app.PopScene() }},
 		{"Save", func() {
 			if saveFunc != nil {
@@ -120,12 +120,8 @@ func (m *EscapeMenu) Draw(r *render.Renderer) {
 	sh := float32(r.ScreenHeight())
 	m.layout(sw, sh)
 
-	gl.Enable(gl.BLEND)
-	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-	defer gl.Disable(gl.BLEND)
-
 	// Full-screen dimming overlay.
-	r.DrawColorRect(0, 0, sw, sh, mgl32.Vec4{0, 0, 0, 0.6})
+	r.DrawColorRect(0, 0, sw, sh, ui.Scrim)
 
 	// Panel background.
 	const btnW, btnH, spacing, pad float32 = 200, 40, 12, 24
@@ -134,7 +130,7 @@ func (m *EscapeMenu) Draw(r *render.Renderer) {
 	panelW := btnW + pad*2
 	panelX := (sw - panelW) / 2
 	panelY := (sh - panelH) / 2
-	r.DrawColorRect(panelX, panelY, panelW, panelH, mgl32.Vec4{0.08, 0.12, 0.22, 0.97})
+	ui.DrawPanelColor(r, panelX, panelY, panelW, panelH, ui.ModalFill)
 
 	if r.Font != nil {
 		r.Font.DrawText(r, "Menu", panelX+pad, panelY+pad, mgl32.Vec4{1, 0.95, 0.8, 1})

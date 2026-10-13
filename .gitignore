@@ -5,3 +5,7 @@ build/
 notes/.obsidian/workspace.json
 notes/.obsidian/workspace-mobile.json
 notes/.obsidian/cache
+
+# Python environment for the model build (make models-venv)
+.venv-models/
+__pycache__/

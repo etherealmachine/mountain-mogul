@@ -1,7 +1,6 @@
 package scene
 
 import (
-	"fmt"
 	"strconv"
 
 	"github.com/go-gl/mathgl/mgl32"
@@ -125,19 +124,4 @@ func (s *Scenario) openDayReport(d world.DailySample, prev *world.DailySample) {
 }
 
 // formatDollars renders n as "$12,345" or "-$12,345".
-func formatDollars(n int) string {
-	sign := ""
-	if n < 0 {
-		sign = "-"
-		n = -n
-	}
-	digits := strconv.Itoa(n)
-	out := make([]byte, 0, len(digits)+len(digits)/3)
-	for i := range digits {
-		if i > 0 && (len(digits)-i)%3 == 0 {
-			out = append(out, ',')
-		}
-		out = append(out, digits[i])
-	}
-	return fmt.Sprintf("%s$%s", sign, out)
-}
+func formatDollars(n int) string { return settings.FormatDollars(n) }

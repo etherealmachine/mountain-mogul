@@ -215,13 +215,63 @@ func (t *TopBar) Draw(r *render.Renderer) {
 	screenW := float32(r.ScreenWidth())
 	t.layout(screenW)
 
-	r.DrawColorRect(0, t.Y, screenW, t.H, t.bgColor)
-	// 1px powder-blue separator at the bottom edge — defines the bar/world boundary.
-	r.DrawColorRect(0, t.Y+t.H-1, screenW, 1, mgl32.Vec4{0.35, 0.50, 0.80, 0.60})
+	// Three floating pods over the world: stats, date and weather,
+	// and the controls.
+	if t.GetCash != nil || t.GetGuests != nil || t.GetRating != nil {
+		DrawPanel(r, topPodInset, t.Y+topPodInset, t.statsWidth(r), t.H-topPodInset*2)
+	}
+	if w := t.centerWidth(r); w > 0 {
+		DrawPanel(r, (screenW-w)/2, t.Y+topPodInset, w, t.H-topPodInset*2)
+	}
+	if btns := t.iconButtons(); len(btns) > 0 {
+		x := btns[0].x - 6
+		DrawPanel(r, x, t.Y+topPodInset, screenW-topPodInset-x, t.H-topPodInset*2)
+	}
 
 	t.drawStats(r)
 	t.drawCenter(r, screenW)
 	t.drawRight(r)
+	for _, b := range t.iconButtons() {
+		if b.hovered {
+			DrawTooltip(r, b.tip(), b.x+b.w/2, b.y+b.h, true)
+		}
+	}
+}
+
+// topClusterGap is the space between the playback and view clusters,
+// with the separator line centred in it.
+const topClusterGap = float32(14)
+
+// topPodInset is the gap round the top bar's pods.
+const topPodInset = float32(6)
+
+// statsWidth is the width of the left pod.
+func (t *TopBar) statsWidth(r *render.Renderer) float32 {
+	return 250
+}
+
+// centerWidth is the width of the centre pod: the date line or the
+// forecast strip, whichever is wider; 0 when there is nothing there.
+func (t *TopBar) centerWidth(r *render.Renderer) float32 {
+	if r.Font == nil {
+		return 0
+	}
+	var w float32
+	if t.GetTitle != nil {
+		w = r.Font.TextWidth(t.GetTitle())
+	}
+	if t.GetDate != nil {
+		date, clock := t.dateLine()
+		w = max(w, r.Font.TextWidth(date+clock))
+	}
+	if t.GetWeather != nil {
+		n := float32(min(len(t.GetWeather()), 5))
+		w = max(w, n*58+(n-1)*4)
+	}
+	if w == 0 {
+		return 0
+	}
+	return w + 36
 }
 
 // iconButtons returns every clickable icon for hover/click iteration.
@@ -252,9 +302,14 @@ func (t *TopBar) iconButtons() []*iconButton {
 // layout positions the right-edge icon buttons. Stats and centre are
 // laid out at draw time directly.
 func (t *TopBar) layout(screenW float32) {
-	const pad = float32(8)
+	const pad = float32(12)
 	const iconBoxW = float32(48) // icon + label column
 	x := screenW - pad
+	defer func() {
+		for _, b := range t.iconButtons() {
+			b.y, b.h = t.Y+topPodInset+6, t.H-topPodInset*2-12
+		}
+	}()
 
 	if t.gearBtn != nil {
 		x -= iconBoxW
@@ -291,6 +346,7 @@ func (t *TopBar) layout(screenW float32) {
 		t.goalsBtn.w = iconBoxW
 		t.goalsBtn.h = t.H
 	}
+	x -= topClusterGap // room for the separator between the clusters
 	for i := len(t.speedBtns) - 1; i >= 0; i-- {
 		x -= iconBoxW
 		t.speedBtns[i].x = x
@@ -314,23 +370,24 @@ func (t *TopBar) drawStats(r *render.Renderer) {
 		return
 	}
 	const iconSize = float32(20)
-	const pad = float32(10)
+	const pad = topPodInset + 12
 	// Values are bright snow-white; secondary labels slightly dimmer.
 	valCol := mgl32.Vec4{1.00, 1.00, 1.00, 1.00}
 
 	// Three rows fit inside H if H >= 3*(iconSize+gap).
-	rowH := t.H / 3
+	top := t.Y + topPodInset + 4
+	rowH := (t.H - (topPodInset+4)*2) / 3
 	textY := func(rowIdx int) float32 {
-		return t.Y + float32(rowIdx)*rowH + (rowH-float32(render.GlyphH))/2
+		return top + float32(rowIdx)*rowH + (rowH-float32(render.GlyphH))/2
 	}
 	iconY := func(rowIdx int) float32 {
-		return t.Y + float32(rowIdx)*rowH + (rowH-iconSize)/2
+		return top + float32(rowIdx)*rowH + (rowH-iconSize)/2
 	}
 
 	// Row 0: Cash
 	if t.GetCash != nil {
 		IconCoin(r, pad, iconY(0), iconSize, mgl32.Vec4{1.00, 0.82, 0.20, 1})
-		text := fmt.Sprintf("$%d", t.GetCash())
+		text := settings.FormatDollars(t.GetCash())
 		r.Font.DrawText(r, text, pad+iconSize+8, textY(0), valCol)
 	}
 
@@ -346,12 +403,11 @@ func (t *TopBar) drawStats(r *render.Renderer) {
 	if t.GetRating != nil {
 		IconHeart(r, pad, iconY(2), iconSize, mgl32.Vec4{0.95, 0.40, 0.52, 1})
 		barX := pad + iconSize + 8
-		barY := t.Y + float32(2)*rowH + (rowH-8)/2
+		barY := top + float32(2)*rowH + (rowH-8)/2
 		barW := float32(90)
 		barH := float32(8)
 		// Track background — darker inset look.
-		r.DrawColorRect(barX, barY, barW, barH, mgl32.Vec4{0.12, 0.14, 0.22, 1})
-		r.DrawColorRectOutline(barX, barY, barW, barH, mgl32.Vec4{0.30, 0.40, 0.62, 0.55})
+		r.DrawRoundRect(barX, barY, barW, barH, barH/2, mgl32.Vec4{0.12, 0.14, 0.22, 0.9})
 		last := t.GetRating()
 		stars, today := last, false
 		if t.GetRatingToday != nil {
@@ -367,15 +423,22 @@ func (t *TopBar) drawStats(r *render.Renderer) {
 		if h < 0.25 {
 			fill = mgl32.Vec4{0.90, 0.28, 0.28, 1}
 		}
-		r.DrawColorRect(barX, barY, barW*h, barH, fill)
-		text := fmt.Sprintf("%.1f stars", stars)
+		if barW*h >= barH {
+			r.DrawRoundRect(barX, barY, barW*h, barH, barH/2, fill)
+		}
+		text := fmt.Sprintf("%.1f", stars)
 		if today {
 			// A tick at the resort rating, to compare against.
 			lh := min(max((last-1)/4, 0), 1)
 			r.DrawColorRect(barX+barW*lh-1, barY-3, 2, barH+6, mgl32.Vec4{0.92, 0.95, 1.0, 0.9})
-			text = fmt.Sprintf("%.1f today", stars)
 		}
-		r.Font.DrawText(r, text, barX+barW+8, textY(2), valCol)
+		tx := barX + barW + 8
+		r.Font.DrawText(r, text, tx, textY(2), valCol)
+		tx += r.Font.TextWidth(text) + 9
+		r.DrawStar(tx, iconY(2)+iconSize/2, 8, mgl32.Vec4{1.00, 0.82, 0.25, 1})
+		if today {
+			r.Font.DrawText(r, "today", tx+12, textY(2), mgl32.Vec4{0.70, 0.78, 0.92, 1})
+		}
 	}
 }
 
@@ -415,21 +478,20 @@ func (t *TopBar) drawCenter(r *render.Renderer, screenW float32) {
 
 	const (
 		iconSize = float32(20)
-		colW     = float32(44)
-		colGap   = float32(6)
+		colW     = float32(58)
+		colGap   = float32(4)
 	)
 	stripW := float32(n)*colW + float32(n-1)*colGap
 	startX := (screenW - stripW) / 2
-	iconY := t.Y + t.H*0.40
-	highY := t.Y + t.H*0.66
-	lowY := t.Y + t.H*0.83
+	iconY := t.Y + t.H*0.38
+	highY := t.Y + t.H*0.56
+	lowY := t.Y + t.H*0.56
 
 	// Today column highlight drawn first so date text renders on top.
 	todayCX := startX
-	todayTop := iconY - 8
-	todayH := t.H - todayTop + t.Y - 4
-	r.DrawColorRect(todayCX-2, todayTop, colW+4, todayH, mgl32.Vec4{0.18, 0.26, 0.50, 0.95})
-	r.DrawColorRectOutline(todayCX-2, todayTop, colW+4, todayH, mgl32.Vec4{0.45, 0.65, 1.00, 0.70})
+	todayTop := iconY - 4
+	todayH := t.Y + t.H - topPodInset - 6 - todayTop
+	r.DrawRoundRect(todayCX-2, todayTop, colW+4, todayH, ButtonRadius, mgl32.Vec4{0.20, 0.30, 0.56, 0.85})
 
 	highCol := mgl32.Vec4{1.00, 1.00, 1.00, 1.00}    // white — today high
 	lowCol := mgl32.Vec4{0.55, 0.85, 1.00, 1.00}     // blue — today low
@@ -448,60 +510,62 @@ func (t *TopBar) drawCenter(r *render.Renderer, screenW float32) {
 			hc, lc = highCol, lowCol
 		}
 
-		// High temperature.
+		// High and low on one line: "42/9".
 		hiText := settings.FormatTemp(d.TempHigh)
-		hiW := r.Font.TextWidth(hiText)
-		r.Font.DrawText(r, hiText, cx+(colW-hiW)/2, highY, hc)
-
-		// Low temperature.
-		loText := settings.FormatTemp(d.TempLow)
-		loW := r.Font.TextWidth(loText)
-		r.Font.DrawText(r, loText, cx+(colW-loW)/2, lowY, lc)
+		loText := "/" + settings.FormatTemp(d.TempLow)
+		hiW, loW := r.Font.TextWidth(hiText), r.Font.TextWidth(loText)
+		tx := cx + (colW-hiW-loW)/2
+		r.Font.DrawText(r, hiText, tx, highY, hc)
+		r.Font.DrawText(r, loText, tx+hiW, lowY, lc)
 	}
 }
 
 // drawDateLine renders "Dec 8, Year 2026   9:42 AM   23F", with the clock
 // amber while the lifts are turning and blue otherwise.
 func (t *TopBar) drawDateLine(r *render.Renderer, screenW float32, col mgl32.Vec4) {
-	day, month, year := t.GetDate()
-	dateText := fmt.Sprintf("%s %d, Year %d", month, day, year)
-	if t.GetHoliday != nil {
-		if h := t.GetHoliday(); h != "" {
-			dateText += " (" + h + ")"
-		}
-	}
-	clockText := ""
+	dateText, clockText := t.dateLine()
 	clockCol := mgl32.Vec4{0.55, 0.85, 1.00, 1.00}
 	if t.GetClock != nil {
-		hour, tempC, open := t.GetClock()
-		clockText = "   " + settings.FormatClock(hour) + "   " +
-			settings.FormatTemp(tempC) + settings.TempUnit()[len("°"):]
-		if open {
+		if _, _, open := t.GetClock(); open {
 			clockCol = mgl32.Vec4{1.00, 0.85, 0.45, 1.00}
 		}
 	}
 	dateW := r.Font.TextWidth(dateText)
 	dateX := (screenW - dateW - r.Font.TextWidth(clockText)) / 2
-	dateY := t.Y + t.H*0.18
+	dateY := t.Y + topPodInset + 4
 	r.Font.DrawText(r, dateText, dateX, dateY, col)
 	if clockText != "" {
 		r.Font.DrawText(r, clockText, dateX+dateW, dateY, clockCol)
 	}
 }
 
+// dateLine is the date ("Dec 8, Year 2026") and the clock and
+// temperature after it ("   9:42 AM   23°F").
+func (t *TopBar) dateLine() (date, clock string) {
+	day, month, year := t.GetDate()
+	date = fmt.Sprintf("%s %d, Year %d", month, day, year)
+	if t.GetHoliday != nil {
+		if h := t.GetHoliday(); h != "" {
+			date += " (" + h + ")"
+		}
+	}
+	if t.GetClock != nil {
+		hour, tempC, _ := t.GetClock()
+		clock = "   " + settings.FormatClock(hour) + "   " +
+			settings.FormatTemp(tempC) + settings.TempUnit()
+	}
+	return date, clock
+}
+
 // drawRight renders the speed/pause/gear icon row.
 func (t *TopBar) drawRight(r *render.Renderer) {
 	// Thin separator between the playback cluster (pause/speed) and the
-	// view cluster (events/charts/overlay/gear).
-	if t.eventsBtn != nil {
-		sepX := t.eventsBtn.x - 3
-		r.DrawColorRect(sepX, t.Y+10, 1, t.H-20, mgl32.Vec4{0.35, 0.50, 0.80, 0.40})
-	} else if t.chartsBtn != nil {
-		sepX := t.chartsBtn.x - 3
-		r.DrawColorRect(sepX, t.Y+10, 1, t.H-20, mgl32.Vec4{0.35, 0.50, 0.80, 0.40})
-	} else if t.overlayBtn != nil {
-		sepX := t.overlayBtn.x - 3
-		r.DrawColorRect(sepX, t.Y+10, 1, t.H-20, mgl32.Vec4{0.35, 0.50, 0.80, 0.40})
+	// view cluster (goals/events/charts/overlay/gear).
+	for _, b := range []*iconButton{t.goalsBtn, t.eventsBtn, t.chartsBtn, t.overlayBtn} {
+		if b != nil {
+			r.DrawColorRect(b.x-topClusterGap/2-1, t.Y+topPodInset+12, 1, t.H-topPodInset*2-24, mgl32.Vec4{0.45, 0.60, 0.90, 0.40})
+			break
+		}
 	}
 	for _, b := range t.iconButtons() {
 		t.drawIconButton(r, b)
@@ -516,11 +580,10 @@ func (t *TopBar) drawIconButton(r *render.Renderer, b *iconButton) {
 	// Background — subtle highlight on hover, brighter on active.
 	switch {
 	case b.active:
-		r.DrawColorRect(b.x, b.y, b.w, b.h, mgl32.Vec4{0.18, 0.50, 0.28, 1.00})
-		r.DrawColorRectOutline(b.x, b.y, b.w, b.h, mgl32.Vec4{0.40, 0.80, 0.55, 0.55})
+		r.DrawRoundRect(b.x+2, b.y, b.w-4, b.h, ButtonRadius, mgl32.Vec4{0.18, 0.50, 0.30, 0.95})
+		r.DrawRoundRectOutline(b.x+2, b.y, b.w-4, b.h, ButtonRadius, 1, mgl32.Vec4{0.45, 0.85, 0.60, 0.55})
 	case b.hovered:
-		r.DrawColorRect(b.x, b.y, b.w, b.h, mgl32.Vec4{0.16, 0.24, 0.44, 1.00})
-		r.DrawColorRectOutline(b.x, b.y, b.w, b.h, mgl32.Vec4{0.40, 0.58, 0.90, 0.45})
+		r.DrawRoundRect(b.x+2, b.y, b.w-4, b.h, ButtonRadius, mgl32.Vec4{0.22, 0.32, 0.55, 0.95})
 	}
 
 	const iconSize = float32(28)
@@ -530,7 +593,7 @@ func (t *TopBar) drawIconButton(r *render.Renderer, b *iconButton) {
 	cx := b.x + b.w/2
 	if b.label != "" && r.Font != nil {
 		// Icon moves up to make room for the caption underneath.
-		labelY := b.y + b.h - float32(render.GlyphH) - 10
+		labelY := b.y + b.h - float32(render.GlyphH) - 2
 		cy = labelY - iconSize - 2
 		lw := r.Font.TextWidth(b.label)
 		r.Font.DrawText(r, b.label, cx-lw/2, labelY, mgl32.Vec4{1.00, 0.85, 0.35, 1})
@@ -585,4 +648,29 @@ func newIconButton(kind string, onClick func()) *iconButton {
 
 func (b *iconButton) contains(mx, my float32) bool {
 	return mx >= b.x && mx <= b.x+b.w && my >= b.y && my <= b.y+b.h
+}
+
+// tip is the button's hover tooltip.
+func (b *iconButton) tip() string {
+	switch b.kind {
+	case "pause":
+		return "Pause"
+	case "play":
+		return "Normal speed"
+	case "ff2":
+		return "Fast"
+	case "ff4":
+		return "Fastest"
+	case "goals":
+		return "Goals"
+	case "events":
+		return "Events"
+	case "charts":
+		return "Resort overview"
+	case "overlay":
+		return "Map views"
+	case "gear":
+		return "Menu"
+	}
+	return ""
 }

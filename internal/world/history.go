@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"mountain-mogul/internal/ai"
+	"mountain-mogul/internal/edition"
 )
 
 // HistoryCapacity is the ring-buffer length, in days. 376 ≈ 2 ski
@@ -36,15 +37,21 @@ func (k RevenueKind) Label() string {
 	case RevenueSeasonPasses:
 		return "Season passes"
 	case RevenueHeli:
-		return "Heli fares"
+		if !edition.Demo {
+			return "Heli fares"
+		}
 	case RevenueParking:
 		return "Parking"
 	case RevenueFood:
 		return "Food court"
 	case RevenueBar:
-		return "Bar"
+		if !edition.Demo {
+			return "Bar"
+		}
 	case RevenueRentals:
-		return "Rentals"
+		if !edition.Demo {
+			return "Rentals"
+		}
 	}
 	return "Other"
 }
@@ -71,7 +78,9 @@ func (k CostKind) Label() string {
 	case CostBuildings:
 		return "Buildings"
 	case CostSnowGuns:
-		return "Snow guns"
+		if !edition.Demo {
+			return "Snow guns"
+		}
 	case CostInterest:
 		return "Interest"
 	}

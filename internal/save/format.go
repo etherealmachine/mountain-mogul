@@ -458,8 +458,8 @@ type BuildingData struct {
 	MaxCars         int        `json:"max_cars,omitempty"`
 	DrivewayNodeIDs []uint64   `json:"driveway_ids,omitempty"` // road-network attach nodes, one per parking mesh slot
 
-	// SnowGun-only state.
-	SnowGunEnabled bool `json:"sg_on,omitempty"`
+	// On is Building.On.
+	On bool `json:"on,omitempty"`
 
 	// Service-building state. OriginX, OriginZ and Rotation place the
 	// building's own grid; Tiles is each shell cell in that grid with its
@@ -528,9 +528,9 @@ type LiftData struct {
 	Open        bool        `json:"open"`
 	Chairs      []ChairData `json:"chairs,omitempty"`
 	QueueIDs    []uint64    `json:"queue,omitempty"`
-	// HeliPhase and HeliProgress are only meaningful when Type == LiftHeli.
-	HeliPhase    uint8   `json:"heli_phase,omitempty"`
-	HeliProgress float32 `json:"heli_progress,omitempty"`
+	// liftDataExtras is saved state only the full game's lifts have: a
+	// heli lift's flight (heli.go). Empty in the demo.
+	liftDataExtras
 	// LineAttendant is Lift.Staff.LineAttendant.
 	LineAttendant bool `json:"line_attendant,omitempty"`
 }

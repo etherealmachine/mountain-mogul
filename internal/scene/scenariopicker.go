@@ -2,6 +2,7 @@ package scene
 
 import (
 	"fmt"
+	"mountain-mogul/internal/edition"
 	"os"
 	"path/filepath"
 	"sort"
@@ -23,9 +24,12 @@ import (
 // panel with the description and a Play button; in editor mode it opens
 // the file straight away. Back returns to the start menu.
 type ScenarioPicker struct {
-	app       *engine.App
-	buttons   []*ui.Button
-	forEditor bool // pick opens the editor, plus a "New blank scenario" entry
+	app     *engine.App
+	buttons []*ui.Button
+	// open, when set, opens the picked file ("" for a blank world) instead
+	// of showing its details, and adds a "New blank scenario" entry. The
+	// editor's picker sets it (NewEditorScenarioPicker).
+	open func(path string)
 
 	detail  *scenarioEntry // play mode: the scenario whose panel is open
 	playBtn *ui.Button
@@ -33,10 +37,6 @@ type ScenarioPicker struct {
 }
 
 func NewScenarioPicker() *ScenarioPicker { return &ScenarioPicker{} }
-
-// NewEditorScenarioPicker lists the same files but opens the pick in the
-// Scenario Editor, with an extra entry for starting from a blank world.
-func NewEditorScenarioPicker() *ScenarioPicker { return &ScenarioPicker{forEditor: true} }
 
 // scenarioEntry is one scenario file and the info read from its header.
 type scenarioEntry struct {
@@ -121,20 +121,20 @@ func (s *ScenarioPicker) Init(app *engine.App) error {
 	for _, entry := range listScenarios(dir) {
 		entry := entry
 		label := entry.label()
-		if s.forEditor && entry.info.Name != "" {
+		if s.open != nil && entry.info.Name != "" {
 			label += "  (" + entry.file + ")"
 		}
 		addBtn(label, func() {
-			if s.forEditor {
-				s.app.ReplaceScene(NewEditor(entry.path))
+			if s.open != nil {
+				s.open(entry.path)
 			} else {
 				s.detail = &entry
 			}
 		})
 	}
-	if s.forEditor {
+	if !edition.Demo && s.open != nil {
 		addBtn("New blank scenario", func() {
-			s.app.ReplaceScene(NewEditor(""))
+			s.open("")
 		})
 	}
 	back := ui.NewButton(0, 0, 280, 40, "Back", func() { s.app.PopScene() })
@@ -253,7 +253,7 @@ func (s *ScenarioPicker) detailPanel(sw, sh float32, r *render.Renderer) {
 		return
 	}
 
-	r.DrawColorRect(x, y, detailPanelW, h, mgl32.Vec4{0.08, 0.12, 0.22, 0.96})
+	ui.DrawPanel(r, x, y, detailPanelW, h)
 	if r.Font != nil {
 		tx, ty := x+detailPad, y+detailPad
 		r.Font.DrawText(r, e.label(), tx, ty, mgl32.Vec4{1, 0.95, 0.8, 1})

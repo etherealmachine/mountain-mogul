@@ -60,7 +60,7 @@ const (
 // they'll peel to from where the seat sits across the chair.
 func (s *Simulation) startUnloading(a *world.Guest, lift *world.Lift, slotIdx int) {
 	w := s.World
-	chairPos, heading := lift.ChairPos(0.4999, w.Terrain)
+	chairPos, heading := lift.ChairPos(lift.UnloadProgress(), w.Terrain)
 	slots := world.SlotsFor(lift.Type.MeshID())
 	seat := seatWorldPos(chairPos, heading, slotIdx, slots)
 	ground := w.Terrain.InterpolatedSurfaceElevationAt(seat[0], seat[2])

@@ -79,7 +79,7 @@ type ChartWindow struct {
 
 	width, height float32
 
-	closeBtn *Button
+	closeBtn *CloseButton
 	tabs     []*chartTab
 }
 
@@ -112,9 +112,7 @@ func NewChartWindow(title string, x, y float32, charts []Chart) *ChartWindow {
 		height: chartWindowH,
 		charts: charts,
 	}
-	cw.closeBtn = NewButton(0, 0, winBtnW, float32(render.GlyphH+4), "x", func() {
-		cw.Visible = false
-	})
+	cw.closeBtn = NewCloseButton(func() { cw.Visible = false })
 	cw.tabs = make([]*chartTab, len(charts))
 	for i := range charts {
 		i := i
@@ -185,8 +183,7 @@ func (cw *ChartWindow) HandleInput(inp *engine.Input) {
 // layout positions the close button and tab strip relative to the
 // window origin. Called after every Reposition / Center.
 func (cw *ChartWindow) layout() {
-	cw.closeBtn.X = cw.X + cw.width - winBtnW - 4
-	cw.closeBtn.Y = cw.Y + (chartTitleH-float32(render.GlyphH+4))/2
+	cw.closeBtn.PlaceInHeader(cw.X+cw.width, cw.Y, chartTitleH)
 	// Tab strip sits directly under the title bar, left-aligned with
 	// chartBodyPad inset. Each tab is chartTabSize square; gap of 4 px
 	// keeps the icons visually separate.
@@ -209,22 +206,23 @@ func (cw *ChartWindow) Draw(r *render.Renderer) {
 	}
 	cw.layout()
 
-	bgColor := mgl32.Vec4{0.08, 0.10, 0.14, 0.96}
-	titleBg := mgl32.Vec4{0.15, 0.20, 0.35, 1.0}
 	textColor := mgl32.Vec4{0.9, 0.95, 1.0, 1.0}
 
-	r.DrawColorRect(cw.X, cw.Y, cw.width, cw.height, bgColor)
-	r.DrawColorRect(cw.X, cw.Y, cw.width, chartTitleH, titleBg)
-	if r.Font != nil {
-		titleY := cw.Y + (chartTitleH-float32(render.GlyphH))/2
-		r.Font.DrawText(r, cw.Title, cw.X+winPadding, titleY, textColor)
-	}
+	DrawPanel(r, cw.X, cw.Y, cw.width, cw.height)
+	DrawPanelHeader(r, cw.X, cw.Y, cw.width, chartTitleH, cw.Title)
 	cw.closeBtn.Draw(r)
 
-	// Tab strip.
+	// Tab strip, with the hovered tab's name under it.
 	for i, t := range cw.tabs {
 		drawChartTab(r, t, i == cw.active)
 	}
+	defer func() {
+		for i, t := range cw.tabs {
+			if t.hovered && i != cw.active {
+				DrawTooltip(r, cw.charts[i].Title, t.x+t.w/2, t.y+t.h, true)
+			}
+		}
+	}()
 
 	if cw.active < 0 || cw.active >= len(cw.charts) {
 		return
@@ -268,13 +266,13 @@ func (cw *ChartWindow) Draw(r *render.Renderer) {
 // drawChartTab renders one switcher button — icon centred on a slot,
 // background tint indicates active vs. hovered vs. idle.
 func drawChartTab(r *render.Renderer, t *chartTab, active bool) {
-	bg := mgl32.Vec4{0.12, 0.15, 0.22, 1.0}
+	bg := mgl32.Vec4{0.14, 0.18, 0.28, 0.85}
 	if active {
-		bg = mgl32.Vec4{0.18, 0.42, 0.28, 1.0}
+		bg = mgl32.Vec4{0.18, 0.50, 0.30, 0.95}
 	} else if t.hovered {
-		bg = mgl32.Vec4{0.18, 0.20, 0.28, 1.0}
+		bg = mgl32.Vec4{0.22, 0.30, 0.48, 0.95}
 	}
-	r.DrawColorRect(t.x, t.y, t.w, t.h, bg)
+	r.DrawRoundRect(t.x, t.y, t.w, t.h, ButtonRadius, bg)
 	const inset = float32(6)
 	r.DrawIcon(t.icon, t.x+inset, t.y+inset, t.w-2*inset, mgl32.Vec4{0.95, 0.95, 1.0, 1})
 }
@@ -619,8 +617,11 @@ func drawStatsChart(r *render.Renderer, x, y, w, h float32, series []ChartSeries
 		format = func(v float64) string { return fmt.Sprintf("%.0f", v) }
 	}
 
-	const rowH = float32(52)
+	// One row per figure: a swatch and its name on the left, the value
+	// right-aligned in a column, on alternating stripes.
+	rowH := float32(render.GlyphH) + 14
 	labelColor := defaultChrome.label
+	colW := min(w, 520)
 
 	for i, s := range series {
 		v := 0.0
@@ -628,8 +629,14 @@ func drawStatsChart(r *render.Renderer, x, y, w, h float32, series []ChartSeries
 			v = vals[i]
 		}
 		ry := y + float32(i)*rowH
-		r.Font.DrawText(r, s.Name, x, ry, labelColor)
-		r.Font.DrawText(r, format(v), x, ry+float32(render.GlyphH)+6, s.Color)
+		if i%2 == 0 {
+			r.DrawRoundRect(x, ry, colW, rowH, ButtonRadius, mgl32.Vec4{1, 1, 1, 0.04})
+		}
+		ty := ry + (rowH-float32(render.GlyphH))/2
+		r.DrawRoundRect(x+10, ry+rowH/2-5, 10, 10, 3, s.Color)
+		r.Font.DrawText(r, s.Name, x+30, ty, labelColor)
+		val := format(v)
+		r.Font.DrawText(r, val, x+colW-12-r.Font.TextWidth(val), ty, s.Color)
 	}
 }
 

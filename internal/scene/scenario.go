@@ -2,10 +2,6 @@ package scene
 
 import (
 	"fmt"
-	"image"
-	"image/color/palette"
-	"image/draw"
-	"image/gif"
 	"math"
 	"math/rand"
 	"os"
@@ -13,12 +9,11 @@ import (
 	"strings"
 	"time"
 
-	xdraw "golang.org/x/image/draw"
-
 	"github.com/go-gl/glfw/v3.3/glfw"
 	"github.com/go-gl/mathgl/mgl32"
 	"mountain-mogul/internal/ai"
 	"mountain-mogul/internal/ai/goap"
+	"mountain-mogul/internal/edition"
 	"mountain-mogul/internal/engine"
 	"mountain-mogul/internal/render"
 	"mountain-mogul/internal/save"
@@ -127,8 +122,8 @@ func stationGroundElev(t *world.Terrain, pos mgl32.Vec2) float32 {
 
 // buildingFootprint returns the building's approximate physical
 // half-extents in (halfX, halfZ) metres. The authoritative source is the
-// `# footprint` line baked into the building's .obj by tools/scad2obj
-// from `echo("MOGUL_META", "footprint", halfX, halfY)` in the .scad — so
+// `# footprint` line baked into the building's .obj by the model writer
+// from `m.footprint(halfX, halfY)` in its script — so
 // model dimensions are declared once, in the source of truth. The
 // fallback below only kicks in when the OBJ hasn't been built (the
 // renderer is showing the magenta marker cube in that case), so its
@@ -476,19 +471,12 @@ type Scenario struct {
 	goals            goalsPanel       // the scenario's goals and the win/lose panel
 	escapeMenu       *EscapeMenu
 	settingsMenu     *SettingsMenu
-	debugConsole     *DebugConsole
 	toolButtons      map[toolMode]*ui.Button
-	liftDoubleBtn    *ui.Button        // toolbar button for the double-chair lift variant
-	liftTripleBtn    *ui.Button        // toolbar button for the fixed-triple lift variant
-	liftQuadBtn      *ui.Button        // toolbar button for the fixed-quad lift variant
-	liftHSQuadBtn    *ui.Button        // toolbar button for the high-speed quad lift variant
-	liftHS6PackBtn   *ui.Button        // toolbar button for the high-speed 6-pack lift variant
-	liftGondolaBtn   *ui.Button        // toolbar button for the MDG gondola
-	liftHeliBtn      *ui.Button        // toolbar button for the helicopter heli-ski lift
-	liftsSubmenu     *ui.SubmenuButton // Lifts group (all chair/gondola/heli variants)
-	buildingsSubmenu *ui.SubmenuButton // Buildings group: lodge, tent, shed
-	servicesSubmenu  *ui.SubmenuButton // Services group: what goes in them
-	transportSubmenu *ui.SubmenuButton // Transport group (parking, road)
+	liftButtons      map[world.LiftType]*ui.Button // Lifts submenu: one button per lift type
+	liftsSubmenu     *ui.SubmenuButton             // Lifts group (all chair/gondola/heli variants)
+	buildingsSubmenu *ui.SubmenuButton             // Buildings group: lodge, tent, shed
+	servicesSubmenu  *ui.SubmenuButton             // Services group: what goes in them
+	transportSubmenu *ui.SubmenuButton             // Transport group (parking, road)
 	activeTool       toolMode
 	liftType         world.LiftType // chair variant the toolLiftBase/Top flow will place
 	liftBase         mgl32.Vec2     // first click world position for lift placement
@@ -502,9 +490,6 @@ type Scenario struct {
 	hoverValid       bool       // false when the mouse is off-terrain or over the menu bars
 	followGuestID    uint64     // 0 = free camera; >0 = ID of followed skier
 	firstPerson      bool       // V: first-person camera at the followed skier's head
-	debugSteering    bool       // F3: render steering forces on the followed skier
-	debugPlanner     bool       // F4: show goal weights, full plan, snapshot anchors for the followed skier
-	debugTerrainIns  bool       // F5: dump cell snow/terrain state under the mouse cursor
 
 	// fpsSmoothed is an EMA of the wall-clock frame rate, updated every
 	// Update tick. Surfaced in the F5 inspector panel so the player can
@@ -521,10 +506,12 @@ type Scenario struct {
 	savePrompt    *savePrompt
 	confirmPrompt *confirmPrompt // Save as Scenario overwrite check
 	prebuiltWorld *world.World
-	simSeed       int64                         // 0 = wall-clock; nonzero forces deterministic RNG
-	rebuild       func(seed int64) *world.World // non-nil ⇒ "New Seed" button shown
-	tickHook      func(s *sim.Simulation)       // optional testbed hook; called each frame before Tick
-	queryServer   *sim.QueryServer              // non-nil when -live-query is set; wired into sim on installWorld
+	simSeed       int64 // 0 = wall-clock; nonzero forces deterministic RNG
+
+	// scenarioDev is the full game's developer state: the debug console,
+	// inspectors, the skier log, GIF capture, and testbed and live-query
+	// hooks. Empty in the demo.
+	scenarioDev
 
 	// Glade-tool sliders (radius in cells, thin = % of the trees under
 	// the brush removed per application). Visible only while toolGlade
@@ -601,20 +588,9 @@ type Scenario struct {
 	// road edit but for placed structures.
 	structureEdit structureEditSelection
 
-	// Debug instrumentation (see plan: orbiting-skier debug aids).
-	csvRecorder       *sim.CSVRecorder
 	pendingScreenshot bool
 	toastText         string
 	toastExpiry       float32 // s.time at which toast disappears
-
-	// GIF capture state. gifRecording is true while recording; gifFrames
-	// accumulates paletted frames; gifFrameCount counts rendered frames so we
-	// can subsample (capture every gifFrameInterval-th frame).
-	// gifResult receives a single message from the background encode goroutine.
-	gifRecording  bool
-	gifFrames     []*image.Paletted
-	gifFrameCount int
-	gifResult     chan string
 
 	// Trail of world-space positions for the currently followed skier.
 	// Reset when followGuestID changes; appended when at least
@@ -814,21 +790,6 @@ func (s *Scenario) TerrainSize() (int, int) {
 	return s.world.Terrain.Width, s.world.Terrain.Height
 }
 
-// RegenForest re-runs the auto-forest generator on the loaded terrain and
-// rebuilds the static batch so the new tree placement renders. Exposed
-// mainly for the -screenshot harness; in normal use the editor's
-// Auto-forest button drives this.
-func (s *Scenario) RegenForest(seed int64) {
-	if s.world == nil || s.world.Terrain == nil {
-		return
-	}
-	GenerateTreeCover(s.world.Terrain, 24, 0.55, 0.75, seed)
-	s.world.Terrain.RestampTreeWells()
-	if s.app != nil && s.app.Renderer != nil {
-		s.app.Renderer.RebuildStaticBatch(s.world)
-	}
-}
-
 // NewScenarioFromWorld creates a Scenario backed by a programmatically-built
 // world (e.g. a sim.Testbed). seed is forwarded to NewSimulationWithSeed for
 // reproducibility; pass 0 for wall-clock seeding. Save/Load are disabled in
@@ -843,23 +804,12 @@ func NewScenarioFromWorld(w *world.World, seed int64) *Scenario {
 // NewScenarioFromTestbed creates a Scenario from a sim.Testbed and remembers
 // how to rebuild the world from a seed, so the menu bar can offer a
 // "New Seed" button that re-rolls the run without leaving the scene.
-// globalQueryServer, if set, is attached to every Scenario on installWorld.
-var globalQueryServer *sim.QueryServer
 
 // globalSimSeed, if non-zero, overrides the RNG seed for every Scenario.
 var globalSimSeed int64
 
-// UseQueryServer registers a query server to be wired into every Scenario
-// that installs a world, regardless of how it was created. Call once from
-// main before app.Run().
-func UseQueryServer(qs *sim.QueryServer) { globalQueryServer = qs }
-
 // UseSimSeed sets a global RNG seed applied to every Scenario on installWorld.
 func UseSimSeed(seed int64) { globalSimSeed = seed }
-
-// SetQueryServer attaches a live-query server to this specific scenario.
-// Overrides the global server for this instance.
-func (s *Scenario) SetQueryServer(qs *sim.QueryServer) { s.queryServer = qs }
 
 // SetSeed overrides the RNG seed for this scenario's simulation.
 func (s *Scenario) SetSeed(seed int64) { s.simSeed = seed }
@@ -905,18 +855,6 @@ func (s *Scenario) setFollowGuest(id uint64) {
 	}
 }
 
-func NewScenarioFromTestbed(tb *sim.Testbed) *Scenario {
-	rebuild := func(seed int64) *world.World {
-		return tb.NewWorld()
-	}
-	return &Scenario{
-		prebuiltWorld: rebuild(tb.Seed),
-		simSeed:       tb.Seed,
-		rebuild:       rebuild,
-		tickHook:      tb.TickHook,
-	}
-}
-
 func (s *Scenario) Init(app *engine.App) error {
 	s.app = app
 
@@ -934,6 +872,7 @@ func (s *Scenario) Init(app *engine.App) error {
 		}
 		w = loaded
 		cam = loadedCam
+		levelStationAprons(w)
 	}
 	w.TerrainBase = nil
 	// A game started from a bundled scenario remembers which, for Retry.
@@ -952,41 +891,37 @@ func (s *Scenario) Init(app *engine.App) error {
 	}
 	if s.saveAllowed {
 		s.escapeMenu = NewEscapeMenu(app, s.openSavePrompt, s.gotoLoadMenu, openSettings)
-		s.escapeMenu.InsertButton(2, "Save as Scenario...", s.openScenarioSavePrompt)
+		if !edition.Demo {
+			s.escapeMenu.InsertButton(3, "Save as Scenario...", s.openScenarioSavePrompt)
+		}
 	} else {
 		s.escapeMenu = NewEscapeMenu(app, nil, nil, openSettings)
 	}
-	s.debugConsole = newDebugConsole(s.world, s.setToast)
-	r := s.app.Renderer
-	s.debugConsole.SetSim(s.sim, func() { r.FlushTerrainVerts(s.world.Terrain) }, func() { r.RebuildStaticBatch(s.world) })
 
 	// Bottom tool bar — palette of construction tools, centred along the
 	// bottom edge. Y is set each frame in Update() based on the current
 	// screen height. Tall enough to fit a 24-px icon plus a label row.
-	const toolBarH = float32(60)
+	const toolBarH = scenarioToolBarH
 	s.toolButtons = make(map[toolMode]*ui.Button)
 	s.toolBar = ui.NewMenuBar(0, toolBarH)
-	s.toolBar.Centered = true
+	s.toolBar.Dock = true
+	thumb := app.Renderer.Thumb
 
 	// Buildings submenu: lodge, tent, shed. Each drags out an empty
 	// building; services go in it from the Services submenu.
 	s.buildingsSubmenu = s.toolBar.AddSubmenu(render.IconHouse, "Buildings")
 	s.kindButtons = map[world.ShellKind]*ui.Button{}
-	for _, kv := range []struct {
-		kind world.ShellKind
-		icon render.IconName
-	}{
-		{world.ShellLodge, render.IconHouse},
-		{world.ShellTent, render.IconTriangle},
-		{world.ShellShed, render.IconGarage},
-	} {
+	for _, kv := range shellMenu() {
 		k := kv.kind
 		s.kindButtons[k] = s.buildingsSubmenu.AddChild(kv.icon, k.Label(), func() { s.setNewShellKind(k) })
+		s.kindButtons[k].Image = thumb(render.ShellThumb(k))
 	}
+	s.buildingsSubmenu.Btn.Image = thumb(render.ShellThumb(world.ShellLodge))
 
 	// Services submenu: one button per building service, put in the
 	// tiles of buildings already built.
 	s.servicesSubmenu = s.toolBar.AddSubmenu(render.IconUsers, "Services")
+	s.servicesSubmenu.Btn.Image = thumb(render.ThumbTicketOffice)
 	s.serviceButtons = map[world.Service]*ui.Button{}
 	for _, sv := range serviceMenu {
 		svc := sv.svc
@@ -997,38 +932,44 @@ func (s *Scenario) Init(app *engine.App) error {
 
 	// Transport submenu: Parking, Road
 	s.transportSubmenu = s.toolBar.AddSubmenu(render.IconRoad, "Transport")
+	s.transportSubmenu.Btn.Image = thumb(render.ThumbCar)
 	s.toolButtons[toolParking] = s.transportSubmenu.AddChild(render.IconUsers, "Parking", func() { s.activateParkingTool(0) })
+	s.toolButtons[toolParking].Image = thumb(render.ThumbCar)
 	s.toolButtons[toolRoadStart] = s.transportSubmenu.AddChild(render.IconRoad, "Road", func() { s.setTool(toolRoadStart) })
 	s.toolButtons[toolFootpath] = s.transportSubmenu.AddChild(render.IconFootprints, "Path", s.activatePathTool)
 	s.toolButtons[toolSkiRack] = s.transportSubmenu.AddChild(render.IconSki, "Ski Rack", func() { s.setTool(toolSkiRack) })
+	s.toolButtons[toolSkiRack].Image = thumb(render.ThumbSkiRack)
 	s.toolButtons[toolRope] = s.transportSubmenu.AddChild(render.IconRope, "Rope", s.activateRopeTool)
 
 	// Lifts submenu: all chair/gondola/heli variants
 	s.liftsSubmenu = s.toolBar.AddSubmenu(render.IconCableCar, "Lifts")
-	s.liftDoubleBtn = s.liftsSubmenu.AddChild(render.IconCableCar, "Double", func() { s.activateLiftTool(world.LiftDouble) })
-	s.liftTripleBtn = s.liftsSubmenu.AddChild(render.IconCableCar, "Triple", func() { s.activateLiftTool(world.LiftFixedTriple) })
-	s.liftQuadBtn = s.liftsSubmenu.AddChild(render.IconCableCar, "Quad", func() { s.activateLiftTool(world.LiftFixedQuad) })
-	s.liftHSQuadBtn = s.liftsSubmenu.AddChild(render.IconCableCar, "HSQuad", func() { s.activateLiftTool(world.LiftHSQuad) })
-	s.liftHS6PackBtn = s.liftsSubmenu.AddChild(render.IconCableCar, "6-Pack", func() { s.activateLiftTool(world.LiftHS6Pack) })
-	s.liftGondolaBtn = s.liftsSubmenu.AddChild(render.IconCableCar, "Gondola", func() { s.activateLiftTool(world.LiftGondola) })
-	s.liftHeliBtn = s.liftsSubmenu.AddChild(render.IconCableCar, "Heli", func() { s.activateLiftTool(world.LiftHeli) })
+	s.liftsSubmenu.Btn.Image = thumb(render.ThumbLiftStation)
+	s.liftButtons = map[world.LiftType]*ui.Button{}
+	for _, lt := range liftMenu() {
+		t := lt.typ
+		s.liftButtons[t] = s.liftsSubmenu.AddChild(render.IconCableCar, lt.label, func() { s.activateLiftTool(t) })
+		s.liftButtons[t].Image = thumb(lt.thumb)
+	}
 
 	// Flat tools
-	s.toolButtons[toolSnowGun] = s.toolBar.AddIconButton(render.IconSnowflake, "Snow Gun", func() { s.setTool(toolSnowGun) })
+	if !edition.Demo { // no snowmaking in the demo
+		s.toolButtons[toolSnowGun] = s.toolBar.AddIconButton(render.IconSnowflake, "Snow Gun", func() { s.setTool(toolSnowGun) })
+		s.toolButtons[toolSnowGun].Image = thumb(render.ThumbSnowGun)
+	}
 	s.toolButtons[toolGlade] = s.toolBar.AddIconButton(render.IconAxe, "Glade", func() { s.setTool(toolGlade) })
+	s.toolButtons[toolGlade].Image = thumb(render.ThumbTree)
 	s.toolButtons[toolTrailPaint] = s.toolBar.AddIconButton(render.IconFlag, "Trail", func() { s.activateTrailTool() })
 	s.toolButtons[toolRemove] = s.toolBar.AddIconButton(render.IconTrash, "Remove", func() { s.setTool(toolRemove) })
-	s.toolButtons[toolLandBuy] = s.toolBar.AddIconButton(render.IconGlobe, "Land", func() {
-		s.setTool(toolLandBuy)
-		if s.activeTool == toolLandBuy {
-			s.setToast("Click a purchasable parcel to buy it. Esc to exit.")
-		}
-	})
-	if s.rebuild != nil {
-		s.toolBar.AddButton("New Seed", func() {
-			s.restartWithSeed(rand.Int63n(1_000_000))
+	if !edition.Demo { // no buying land in the demo
+		s.toolButtons[toolLandBuy] = s.toolBar.AddIconButton(render.IconGlobe, "Land", func() {
+			s.setTool(toolLandBuy)
+			if s.activeTool == toolLandBuy {
+				s.setToast("Click a purchasable parcel to buy it. Esc to exit.")
+			}
 		})
 	}
+
+	s.initDev()
 
 	// Top resort-management bar — stats / date / weather / speed / settings.
 	// Three text rows on the left at 26 px glyph height + padding need ~90 px;
@@ -1135,6 +1076,7 @@ func (s *Scenario) Init(app *engine.App) error {
 	}
 	s.topBar.SetEventsToggle(func() {
 		s.topBar.SetEventsActive(s.eventPanel.Toggle())
+		s.topBar.SetOverlayActive(s.overlayPanel.Toggle())
 	})
 	s.initGoalsPanel()
 
@@ -1179,15 +1121,8 @@ func (s *Scenario) Init(app *engine.App) error {
 			GetData: func() []ui.ChartPoint { return historyToChart(s.world, pnlField) },
 		},
 		{
-			Title:   "Guest thoughts (at resort)",
-			Icon:    render.IconHeart,
-			Kind:    ui.ChartThoughtRank,
-			Series:  thoughtChartSeries(),
-			GetData: func() []ui.ChartPoint { return thoughtsToDistribution(s.world) },
-		},
-		{
 			Title:    "Reviews",
-			Icon:     render.IconFlag,
+			Icon:     render.IconHeart,
 			Kind:     ui.ChartThoughtRank,
 			Series:   reviewChartSeries(),
 			GetData:  func() []ui.ChartPoint { return reviewsToDistribution(s.world) },
@@ -1242,18 +1177,6 @@ func (s *Scenario) Init(app *engine.App) error {
 			},
 			FormatValue: func(v float64) string { return settings.FormatArea(int(v)) },
 		},
-		{
-			Title: "Mountain capacity",
-			Icon:  render.IconUsers,
-			Kind:  ui.ChartStats,
-			Series: []ui.ChartSeries{
-				{Name: "Terrain cap (guests at once)", Color: mgl32.Vec4{1.0, 0.75, 0.35, 1}},
-			},
-			GetData: func() []ui.ChartPoint {
-				return []ui.ChartPoint{{Values: []float64{float64(sim.TerrainCapacity(s.world))}}}
-			},
-			FormatValue: func(v float64) string { return fmt.Sprintf("%.0f guests", v) },
-		},
 	})
 	s.chartWindow.Center(app.Renderer.ScreenWidth(), app.Renderer.ScreenHeight())
 	s.topBar.SetChartsToggle(func() {
@@ -1303,53 +1226,6 @@ func historyToChart(w *world.World, field historyField) []ui.ChartPoint {
 		}
 	}
 	return out
-}
-
-// thoughtChartSeries builds the ChartSeries slice for thought charts by
-// iterating over ai.ThoughtLabel in enum order. Any ThoughtKind with a
-// non-empty label is included automatically — adding a new thought type
-// only requires filling in ThoughtLabel and ThoughtChartColor in ai/types.go.
-func thoughtChartSeries() []ui.ChartSeries {
-	var out []ui.ChartSeries
-	for k := ai.ThoughtKind(1); int(k) < ai.ThoughtKindCount; k++ {
-		if ai.ThoughtLabel[k] == "" {
-			continue
-		}
-		c := ai.ThoughtChartColor[k]
-		out = append(out, ui.ChartSeries{
-			Name:  ai.ThoughtLabel[k],
-			Color: mgl32.Vec4{c[0], c[1], c[2], c[3]},
-		})
-	}
-	return out
-}
-
-// thoughtValuesFor builds the Values slice for a single ChartPoint from
-// counts, iterating in the same order as thoughtChartSeries. Ranked by
-// count: each event and each start of a condition counts once.
-func thoughtValuesFor(counts [ai.ThoughtKindCount]int) []float64 {
-	var vals []float64
-	for k := ai.ThoughtKind(1); int(k) < ai.ThoughtKindCount; k++ {
-		if ai.ThoughtLabel[k] == "" {
-			continue
-		}
-		vals = append(vals, float64(counts[k]))
-	}
-	return vals
-}
-
-// thoughtsToDistribution returns a single ChartPoint holding the most
-// recently completed day's thought counts, or today's in-progress counts
-// if no day has been pushed yet.
-func thoughtsToDistribution(w *world.World) []ui.ChartPoint {
-	if w == nil || w.History == nil {
-		return nil
-	}
-	if samples := w.History.Ordered(); len(samples) > 0 {
-		last := samples[len(samples)-1]
-		return []ui.ChartPoint{{Day: last.Day, Values: thoughtValuesFor(last.ThoughtCounts)}}
-	}
-	return []ui.ChartPoint{{Values: thoughtValuesFor(w.History.ThoughtCountsToday)}}
 }
 
 // weatherToUI maps sim.WeatherState to the UI icon enum.
@@ -1430,14 +1306,7 @@ func (s *Scenario) installWorld(w *world.World) {
 		applyRoadCellState(w)
 		s.onDayRollover()
 	}
-	if s.queryServer != nil {
-		s.sim.QueryServer = s.queryServer
-	} else {
-		s.sim.QueryServer = globalQueryServer
-	}
-	if s.debugConsole != nil {
-		s.debugConsole.SetSim(s.sim, func() { r.FlushTerrainVerts(s.world.Terrain) }, func() { r.RebuildStaticBatch(s.world) })
-	}
+	s.installDev()
 	// Saved cells already carry every apron / road / corridor stamp that
 	// was in effect at save time. Testbeds set their own cell state
 	// directly in the builder (no aprons by default). Either way the
@@ -1462,7 +1331,7 @@ func (s *Scenario) installWorld(w *world.World) {
 // timestamp when the session has not saved yet). Disabled in testbed mode.
 func (s *Scenario) openSavePrompt() {
 	if !s.saveAllowed {
-		s.setToast("Save disabled in testbed mode")
+		s.setToast("Saving is off here")
 		return
 	}
 	initial := s.saveName
@@ -1552,25 +1421,6 @@ func (s *Scenario) gotoLoadMenu() {
 	app.PushScene(NewSaveList())
 }
 
-// restartWithSeed rebuilds the testbed world with a fresh RNG seed and
-// resets transient scene state (tool, popup, follow, debug overlays) so the
-// run starts clean. No-op if rebuild is nil (non-testbed scenarios).
-func (s *Scenario) restartWithSeed(seed int64) {
-	if s.rebuild == nil {
-		return
-	}
-	s.simSeed = seed
-	s.installWorld(s.rebuild(seed))
-	s.cancelTool()
-	if s.popup != nil {
-		s.popup.Visible = false
-	}
-	s.setFollowGuest(0)
-	s.app.Renderer.SetDebugLines(nil)
-	s.syncSpeedButtons()
-	s.setToast(fmt.Sprintf("Restarted with seed=%d", seed))
-}
-
 // syncSpeedButtons highlights the active speed/pause button on the top bar.
 func (s *Scenario) syncSpeedButtons() {
 	if s.topBar == nil {
@@ -1618,12 +1468,7 @@ func (s *Scenario) Update(dt float64) {
 	// CSV logging.
 	typing := s.popup.WantsKeyboard()
 
-	if inp.Pressed[glfw.KeyGraveAccent] {
-		s.debugConsole.Toggle()
-		inp.CharInput = inp.CharInput[:0] // swallow the ~ so it isn't typed into the field
-	}
-	if s.debugConsole.Visible() {
-		s.debugConsole.HandleInput(inp)
+	if s.devConsoleInput(inp) {
 		return
 	}
 
@@ -1711,73 +1556,7 @@ func (s *Scenario) Update(dt float64) {
 		r.TerrainOverlayMode = s.overlayPanel.Mask()
 	}
 
-	// B: toggle the bump-normal debug overlay — paints the perturbed
-	// shading normal directly as RGB so the procedural powder/mogul
-	// bump map is visible from the testbed without other overlays
-	// blending in.
-	if !typing && inp.Pressed[glfw.KeyB] {
-		s.overlayPanel.ToggleBit(render.OverlayBumpNormal)
-		r.TerrainOverlayMode = s.overlayPanel.Mask()
-	}
-
-	// N: toggle the surface-detail debug overlay — paints the raw
-	// uSnowSurface texture (R=tracks, G=tree wells, B=groom edges) so
-	// the 1 m sub-cell buffer is directly visible.
-	if !typing && inp.Pressed[glfw.KeyN] {
-		s.overlayPanel.ToggleBit(render.OverlaySurfaceDetail)
-		r.TerrainOverlayMode = s.overlayPanel.Mask()
-	}
-
-	// F3: toggle steering debug overlay (visualises forces for followed skier).
-	if inp.Pressed[glfw.KeyF3] {
-		s.debugSteering = !s.debugSteering
-		if !s.debugSteering {
-			r.SetDebugLines(nil)
-		}
-	}
-
-	// F6: colour guests by what they're doing (walking, queuing, on a
-	// lift, ...) over their outfits.
-	if inp.Pressed[glfw.KeyF6] {
-		r.ActivityTint = !r.ActivityTint
-	}
-
-	// F4: toggle planner debug panel (goal weights, full plan, snapshot
-	// anchors). Independent of F3 — the user can run either or both.
-	if inp.Pressed[glfw.KeyF4] {
-		s.debugPlanner = !s.debugPlanner
-	}
-
-	// F5: toggle terrain/snow inspector — reads the cell under the mouse
-	// cursor each frame and dumps GroundElevation, SnowAccumulation,
-	// Packed, derived VisibleSnowDepth, and the rest of the snow-state
-	// scalars. Used to verify save/load round-trips and to spot-check
-	// what the wear loop and grooming pass are doing to specific cells.
-	if inp.Pressed[glfw.KeyF5] {
-		s.debugTerrainIns = !s.debugTerrainIns
-	}
-
-	// L: toggle CSV log of the followed skier (debug instrumentation).
-	if !typing && inp.Pressed[glfw.KeyL] {
-		s.toggleSkierLog()
-	}
-
-	// F12: screenshot. Shift+F12: toggle GIF recording.
-	if inp.Pressed[glfw.KeyF12] {
-		if inp.Held[glfw.KeyLeftShift] || inp.Held[glfw.KeyRightShift] {
-			s.toggleGIFRecording(r)
-		} else {
-			s.pendingScreenshot = true
-		}
-	}
-
-	// Auto-stop CSV log if the followed skier changed or no longer exists.
-	if s.csvRecorder != nil {
-		a := s.findFollowedGuest()
-		if a == nil || a.ID != s.csvRecorder.GuestID() {
-			s.stopSkierLog("Logging stopped: skier no longer followed")
-		}
-	}
+	s.devHotkeys(inp, r, typing)
 
 	// Q/E: rotate camera.
 	const rotSpeed = float32(90.0) // degrees per second
@@ -1894,7 +1673,7 @@ func (s *Scenario) Update(dt float64) {
 	}
 
 	// Track hovered parcel for the land-buy tool.
-	if s.activeTool == toolLandBuy && s.hoverValid {
+	if !edition.Demo && s.activeTool == toolLandBuy && s.hoverValid {
 		p := s.world.ParcelAt(s.hoverCell[0], s.hoverCell[1])
 		if p != nil && p.State == world.ParcelPurchasable {
 			s.hoverParcel = p
@@ -1926,10 +1705,8 @@ func (s *Scenario) Update(dt float64) {
 	if s.activeTool == toolService {
 		s.serviceGhost(r)
 	}
-	// Drawn trails: every one while the Trails overlay or the run tool is
-	// on, else just the one whose popup is open; the run tool's live
-	// layer on top (run_tool.go).
-	trailsOn := s.overlayPanel != nil && s.overlayPanel.Mask()&render.OverlayTrails != 0
+	// Drawn trails: every one while the run tool is on, else just the one
+	// whose popup is open; the run tool's live layer on top (run_tool.go).
 	var live *runTool
 	switch {
 	case s.activeTool == toolTrailPaint:
@@ -1941,7 +1718,7 @@ func (s *Scenario) Update(dt float64) {
 	if live != nil && !live.drawing {
 		liveRun = live.focus
 	}
-	s.trailDraw.update(r, s.world, s.time, trailsOn || s.activeTool == toolTrailPaint, s.activeTrailID, liveRun)
+	s.trailDraw.update(r, s.world, s.time, s.activeTool == toolTrailPaint, s.activeTrailID, liveRun)
 	s.trailDraw.live(r, s.world, live)
 	// Highlight every existing road node while the road tool is active so
 	// the player can see snap targets. The snap-target node (or the
@@ -2184,14 +1961,10 @@ func (s *Scenario) Update(dt float64) {
 
 	// Tick simulation (skipped while paused).
 	if !s.paused {
-		if s.tickHook != nil {
-			s.tickHook(s.sim)
-		}
+		s.devTick()
 		s.tickSim(dt)
 	}
-	if s.sim != nil && s.sim.QueryServer != nil {
-		s.sim.QueryServer.Tick(s.world, s.sim)
-	}
+	s.devServeQueries()
 
 	// Upload the snow state the sim changed this frame: just the tiles
 	// it marked (skiers, cats, guns), or the whole map after snowfall
@@ -2336,15 +2109,9 @@ func (s *Scenario) updateOverlay(r *render.Renderer) {
 				Color: [3]float32{trackR, trackG, trackB},
 			})
 		}
-
-		if s.debugSteering && a.TargetID != 0 && !a.Fallen && a.OnLiftID == 0 && !a.Queued {
-			if target, ok := skierTarget(s.world, a); ok {
-				lines = append(lines, steeringLines(s.world, a, target)...)
-			}
-		}
 	}
 
-	r.SetDebugLines(lines)
+	r.SetDebugLines(s.devSteeringLines(a, lines))
 
 	if s.selectedCatID != 0 && s.showCatPath && s.popup != nil && s.popup.Visible {
 		r.SetCatPathLines(s.catPathLines())
@@ -2366,7 +2133,7 @@ func (s *Scenario) buildCellOverlay() (pixels []uint8, w, h int) {
 	tw := s.world.Terrain.Width
 	th := s.world.Terrain.Height
 
-	hasLandOverlay := s.hoverParcel != nil // hover highlight when buying land
+	hasLandOverlay := !edition.Demo && s.hoverParcel != nil // hover highlight when buying land
 	editedLodge := s.editedLodge()
 	fallsOn := s.overlayPanel != nil && s.overlayPanel.Mask()&render.OverlayFalls != 0
 	if !hasLandOverlay && editedLodge == nil && !fallsOn {
@@ -2699,6 +2466,9 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 	wx, wz := s.hoverWorld[0], s.hoverWorld[2]
 	switch s.activeTool {
 	case toolSnowGun:
+		if edition.Demo {
+			return
+		}
 		if !w.Terrain.IsAccessible(gx, gz) {
 			s.setToast("Can't build on land you don't own")
 			return
@@ -2713,8 +2483,7 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 			return
 		}
 		w.Cash -= world.SnowGunCost
-		b := placeBuilding(w, world.BuildingSnowGun, wx, wz, s.placeRotation)
-		s.sim.LogBuildingPlaced(b)
+		placeBuilding(w, world.BuildingSnowGun, wx, wz, s.placeRotation)
 		r.RebuildStaticBatch(w)
 	case toolSkiRack:
 		if !w.Terrain.IsAccessible(gx, gz) {
@@ -2731,8 +2500,7 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 			return
 		}
 		w.Cash -= world.SkiRackCost
-		b := placeBuilding(w, world.BuildingSkiRack, wx, wz, s.placeRotation)
-		s.sim.LogBuildingPlaced(b)
+		placeBuilding(w, world.BuildingSkiRack, wx, wz, s.placeRotation)
 		r.RebuildStaticBatch(w)
 	case toolGlade:
 		// Each click or drag-into-new-cell event removes the highlighted
@@ -2756,7 +2524,7 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 			return
 		}
 		minCost := s.liftType.StationCost()
-		if s.liftType == world.LiftHeli {
+		if s.liftType.Cableless() {
 			minCost = world.HelipadCost / 2
 		}
 		if !w.CanAfford(minCost) {
@@ -2771,8 +2539,12 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 			return
 		}
 		top := mgl32.Vec2{wx, wz}
+		if minLen := world.MinLiftLength(s.liftType); top.Sub(s.liftBase).Len() < minLen {
+			s.setToast(fmt.Sprintf("Too short: a %s needs at least %.0f m between its stations", s.liftType.Label(), minLen))
+			return
+		}
 		var cost int
-		if s.liftType == world.LiftHeli {
+		if s.liftType.Cableless() {
 			cost = world.HelipadCost
 		} else {
 			cost = world.LiftCost(s.liftType, s.liftBase, top)
@@ -2783,8 +2555,7 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		}
 		w.Cash -= cost
 		lift := w.PlaceLift(s.liftType, s.liftBase[0], s.liftBase[1], wx, wz)
-		s.sim.LogLiftPlaced(lift)
-		if lift.IsHeli() {
+		if lift.Cableless() {
 			applyHelipadPlacementEffects(w.Terrain, lift)
 		} else {
 			applyLiftPlacementEffects(w, lift)
@@ -2843,7 +2614,9 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 	case toolRemove:
 		s.removeAt(s.hoverWorld, r)
 	case toolLandBuy:
-		s.openLandBuyPopup(gx, gz, r.ScreenWidth(), r.ScreenHeight())
+		if openLandBuyPopup != nil {
+			openLandBuyPopup(s, gx, gz, r.ScreenWidth(), r.ScreenHeight())
+		}
 	}
 }
 
@@ -3088,7 +2861,7 @@ func (s *Scenario) Render(r *render.Renderer) {
 
 	// Parcel price labels — shown when the land-buy tool is active so the
 	// player can see what each purchasable parcel costs before clicking.
-	if s.activeTool == toolLandBuy && len(s.world.Parcels) > 0 && r.Font != nil {
+	if !edition.Demo && s.activeTool == toolLandBuy && len(s.world.Parcels) > 0 && r.Font != nil {
 		w := s.world
 		drawables = append(drawables, uiDrawFunc(func(rr *render.Renderer) {
 			for i := range w.Parcels {
@@ -3141,12 +2914,7 @@ func (s *Scenario) Render(r *render.Renderer) {
 				agent:   a,
 				simTime: s.sim.SimTime,
 			})
-			if s.debugPlanner {
-				drawables = append(drawables, &plannerDebugPanel{
-					world: s.world,
-					agent: a,
-				})
-			}
+			drawables = s.devPlannerPanel(drawables, a)
 			break
 		}
 	}
@@ -3175,17 +2943,7 @@ func (s *Scenario) Render(r *render.Renderer) {
 			screenH:  r.ScreenHeight(),
 		})
 	}
-	if s.debugTerrainIns && s.world != nil && s.world.Terrain != nil &&
-		s.world.Terrain.InBounds(s.hoverCell[0], s.hoverCell[1]) {
-		drawables = append(drawables, &terrainInspectPanel{
-			terrain:  s.world.Terrain,
-			cell:     s.hoverCell,
-			world:    s.hoverWorld,
-			fps:      s.fpsSmoothed,
-			updateMs: s.app.LastUpdateMs,
-			renderMs: s.app.LastRenderMs,
-		})
-	}
+	drawables = s.devInspector(drawables)
 	if s.popup != nil && s.popup.Visible {
 		drawables = append(drawables, s.popup)
 	}
@@ -3198,9 +2956,7 @@ func (s *Scenario) Render(r *render.Renderer) {
 	if s.settingsMenu.Visible() {
 		drawables = append(drawables, s.settingsMenu)
 	}
-	if s.debugConsole.Visible() {
-		drawables = append(drawables, s.debugConsole)
-	}
+	drawables = s.devConsoleDrawable(drawables)
 	if s.escapeMenu.Visible() {
 		drawables = append(drawables, s.escapeMenu)
 	}
@@ -3214,33 +2970,15 @@ func (s *Scenario) Render(r *render.Renderer) {
 		drawables = append(drawables, s.confirmPrompt)
 	}
 	if s.world != nil && len(s.world.Trails) > 0 {
-		showAll := s.overlayPanel != nil && (s.overlayPanel.Mask()&render.OverlayTrails) != 0
+		showAll := s.activeTool == toolTrailPaint
 		drawables = append(drawables, &trailLabels{
 			world:         s.world,
 			activeTrailID: s.activeTrailID,
 			showAll:       showAll,
 		})
 	}
-	// GIF capture happens before UI so toasts and overlays don't appear in
-	// recorded frames. Subsample every gifFrameInterval rendered frames.
-	if s.gifRecording {
-		s.gifFrameCount++
-		if s.gifFrameCount%gifFrameInterval == 0 {
-			if frame := r.ReadFrame(); frame != nil {
-				// Scale to half resolution before dithering — 4× fewer pixels.
-				b := frame.Bounds()
-				half := image.Rect(0, 0, b.Dx()/2, b.Dy()/2)
-				small := image.NewNRGBA(half)
-				xdraw.BiLinear.Scale(small, half, frame, b, xdraw.Over, nil)
-				p := image.NewPaletted(half, palette.Plan9)
-				draw.FloydSteinberg.Draw(p, half, small, image.Point{})
-				s.gifFrames = append(s.gifFrames, p)
-			}
-			if len(s.gifFrames) >= gifMaxFrames {
-				s.finishGIF()
-			}
-		}
-	}
+
+	s.devCaptureFrame(r)
 
 	drawables = append(drawables, uiDrawFunc(s.drawGoalsPanel))
 	r.DrawUI(drawables)
@@ -3257,82 +2995,14 @@ func (s *Scenario) Render(r *render.Renderer) {
 			s.setToast("Screenshot saved → " + path)
 		}
 	}
+	s.devAfterUI()
 
-	// Drain result from background GIF encode goroutine.
-	if s.gifResult != nil {
-		select {
-		case msg := <-s.gifResult:
-			s.setToast(msg)
-			s.gifResult = nil
-		default:
-		}
-	}
 }
 
 func (s *Scenario) Destroy() {
 	if s.app != nil && s.app.Renderer != nil {
 		s.app.Renderer.ResetSceneState()
 	}
-}
-
-const (
-	gifFrameInterval = 3   // capture every Nth rendered frame (~20fps at 60fps)
-	gifMaxFrames     = 600 // hard cap: ~30s at 20fps before auto-stop
-	gifCentiseconds  = 5   // delay per frame in 1/100s (gifFrameInterval/60fps ≈ 5cs)
-)
-
-// toggleGIFRecording starts or stops a GIF capture session.
-func (s *Scenario) toggleGIFRecording(r *render.Renderer) {
-	if s.gifRecording {
-		s.finishGIF()
-	} else {
-		s.gifRecording = true
-		s.gifFrames = nil
-		s.gifFrameCount = 0
-		s.gifResult = make(chan string, 1)
-		s.setToast("GIF recording — Shift+F12 to stop")
-	}
-}
-
-// finishGIF stops recording and encodes the accumulated frames to disk in a
-// background goroutine so the game doesn't freeze. The result is reported via
-// s.gifResult which Draw() drains each frame.
-func (s *Scenario) finishGIF() {
-	s.gifRecording = false
-	frames := s.gifFrames
-	s.gifFrames = nil
-	if len(frames) == 0 {
-		s.setToast("GIF: no frames captured")
-		return
-	}
-
-	s.setToast(fmt.Sprintf("GIF encoding %d frames…", len(frames)))
-	result := s.gifResult
-
-	go func() {
-		delays := make([]int, len(frames))
-		for i := range delays {
-			delays[i] = gifCentiseconds
-		}
-
-		path := filepath.Join("debug", "screens", time.Now().Format("20060102-150405")+".gif")
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			result <- "GIF failed: " + err.Error()
-			return
-		}
-		f, err := os.Create(path)
-		if err != nil {
-			result <- "GIF failed: " + err.Error()
-			return
-		}
-		defer f.Close()
-
-		if err := gif.EncodeAll(f, &gif.GIF{Image: frames, Delay: delays}); err != nil {
-			result <- "GIF encode failed: " + err.Error()
-			return
-		}
-		result <- fmt.Sprintf("GIF saved (%d frames) → %s", len(frames), path)
-	}()
 }
 
 // tryOpenPopup opens a popup window if the click is within the pick
@@ -3462,18 +3132,21 @@ func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 		s.popup = w
 		return
 	case world.BuildingSnowGun:
+		if edition.Demo {
+			return
+		}
 		w := ui.NewWindow("Snow Gun", 0, 0)
-		w.AddBoolToggle("Active", func() bool { return bldg.SnowGunEnabled }, func(v bool) {
-			bldg.SnowGunEnabled = v
+		w.AddBoolToggle("Active", func() bool { return bldg.On }, func(v bool) {
+			bldg.On = v
 		})
 		w.AddLabel("Daily cost", func() string {
-			if bldg.SnowGunEnabled {
+			if bldg.On {
 				return fmt.Sprintf("$%d/day", world.SnowGunActiveCostDay)
 			}
 			return "$0/day (off)"
 		})
 		w.AddLabel("Status", func() string {
-			if !bldg.SnowGunEnabled {
+			if !bldg.On {
 				return "Off"
 			}
 			now := s.sim.TempNow()
@@ -3578,7 +3251,7 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 	w.AddLabel("Chairs", func() string {
 		return fmt.Sprintf("%d × %d-seat", len(l.Chairs), l.Type.Capacity())
 	})
-	if !l.IsHeli() {
+	if !l.Cableless() {
 		w.AddLabel("Staff", func() string {
 			who := "2 operators"
 			if l.Staff.LineAttendant {
@@ -3598,7 +3271,7 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 		})
 	}
 	w.AddStepper("Speed (m/s)", &l.Speed, 0.5, 0.5, 8.0)
-	if l.Type == world.LiftHeli {
+	if l.Cableless() {
 		// Only heli charges per ride; cable lifts are covered by the day ticket.
 		w.AddIntStepper("Fare per ride ($)", &l.TicketPrice, 5, 0, 200)
 	}
@@ -3612,17 +3285,15 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 				g.Plan.Steps = nil
 			}
 			l.Open = false
-			s.sim.LogLiftOpenChanged(l)
 			s.openLiftPopup(l, screenW, screenH)
 		})
 	} else {
 		w.AddActionButton("Open Lift", func() {
 			l.Open = true
-			s.sim.LogLiftOpenChanged(l)
 			s.openLiftPopup(l, screenW, screenH)
 		})
 	}
-	for _, up := range liftUpgrades {
+	for _, up := range liftUpgrades() {
 		if l.Type != up.from {
 			continue
 		}
@@ -3645,15 +3316,64 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 
 // liftUpgrades are the chair upgrades a lift popup offers, by the lift's
 // current type (world.LiftUpgradeCost prices them).
-var liftUpgrades = []struct {
+func liftUpgrades() []liftUpgrade {
+	ups := []liftUpgrade{
+		{world.LiftDouble, world.LiftFixedTriple, "Triple"},
+		{world.LiftDouble, world.LiftFixedQuad, "Quad"},
+		{world.LiftFixedTriple, world.LiftFixedQuad, "Quad"},
+		{world.LiftFixedQuad, world.LiftHSQuad, "HS Quad"},
+	}
+	if !edition.Demo { // the demo has no 6-pack
+		ups = append(ups, liftUpgrade{world.LiftHSQuad, world.LiftHS6Pack, "HS 6-Pack"})
+	}
+	return ups
+}
+
+// liftUpgrade is one lift-popup upgrade button.
+type liftUpgrade struct {
 	from, to world.LiftType
 	label    string
-}{
-	{world.LiftDouble, world.LiftFixedTriple, "Triple"},
-	{world.LiftDouble, world.LiftFixedQuad, "Quad"},
-	{world.LiftFixedTriple, world.LiftFixedQuad, "Quad"},
-	{world.LiftFixedQuad, world.LiftHSQuad, "HS Quad"},
-	{world.LiftHSQuad, world.LiftHS6Pack, "HS 6-Pack"},
+}
+
+// shellMenuEntry is one button in the Buildings submenu.
+type shellMenuEntry struct {
+	kind world.ShellKind
+	icon render.IconName
+}
+
+// shellMenu is the Buildings submenu: the demo leaves out the tent.
+func shellMenu() []shellMenuEntry {
+	m := []shellMenuEntry{{world.ShellLodge, render.IconHouse}}
+	if !edition.Demo {
+		m = append(m, shellMenuEntry{world.ShellTent, render.IconTriangle})
+	}
+	return append(m, shellMenuEntry{world.ShellShed, render.IconGarage})
+}
+
+// liftMenuEntry is one button in the Lifts submenu.
+type liftMenuEntry struct {
+	typ   world.LiftType
+	label string
+	thumb render.ThumbID
+}
+
+// liftMenu is the Lifts submenu: the demo leaves out the 6-pack, the
+// gondola, and the heli.
+func liftMenu() []liftMenuEntry {
+	m := []liftMenuEntry{
+		{world.LiftDouble, "Double", render.ThumbChairDouble},
+		{world.LiftFixedTriple, "Triple", render.ThumbChairTriple},
+		{world.LiftFixedQuad, "Quad", render.ThumbChairQuad},
+		{world.LiftHSQuad, "HS Quad", render.ThumbChairQuad},
+	}
+	if !edition.Demo {
+		m = append(m,
+			liftMenuEntry{world.LiftHS6Pack, "6-Pack", render.ThumbChair6Pack},
+			liftMenuEntry{world.LiftGondola, "Gondola", render.ThumbGondola},
+			liftMenuEntry{world.LiftHeli, "Heli", render.ThumbHeli},
+		)
+	}
+	return m
 }
 
 func (s *Scenario) openSnowcatPopup(cat *world.Snowcat, screenW, screenH int) {
@@ -3694,39 +3414,6 @@ func (s *Scenario) openSnowcatPopup(cat *world.Snowcat, screenW, screenH int) {
 	})
 	w.AddActionButton("Show path", func() {
 		s.showCatPath = !s.showCatPath
-	})
-	w.Visible = true
-	w.Center(screenW, screenH)
-	s.popup = w
-}
-
-// openLandBuyPopup shows a purchase confirmation popup for the parcel at
-// terrain cell (gx, gz). Does nothing if the cell is not in a purchasable
-// parcel.
-func (s *Scenario) openLandBuyPopup(gx, gz, screenW, screenH int) {
-	p := s.world.ParcelAt(gx, gz)
-	if p == nil || p.State != world.ParcelPurchasable {
-		if p != nil && p.State == world.ParcelOffLimits {
-			s.setToast("This land is off-limits and cannot be purchased")
-		}
-		return
-	}
-	parcel := p
-	w := ui.NewWindow(parcel.Name, 0, 0)
-	w.AddLabel("Price", func() string { return fmt.Sprintf("$%d", parcel.Price) })
-	w.AddLabel("Status", func() string { return "Available for purchase" })
-	w.AddActionButton(fmt.Sprintf("Buy for $%d", parcel.Price), func() {
-		if !s.world.BuyParcel(parcel.ID) {
-			s.setToast(fmt.Sprintf("Need $%d — short by $%d", parcel.Price, parcel.Price-s.world.Available()))
-		} else {
-			s.parcelBoundaryDirty = true
-		}
-		w.Visible = false
-		s.popup = nil
-	})
-	w.AddActionButton("Cancel", func() {
-		w.Visible = false
-		s.popup = nil
 	})
 	w.Visible = true
 	w.Center(screenW, screenH)
@@ -3935,10 +3622,7 @@ func (s *Scenario) buildLot() {
 	}
 	text := t.summary(w)
 	w.Cash -= cost
-	b := commitLot(s.app.Renderer, w, t.lotID, t.rect)
-	if t.lotID == 0 {
-		s.sim.LogBuildingPlaced(b)
-	}
+	commitLot(s.app.Renderer, w, t.lotID, t.rect)
 	t.reset(t.only)
 	s.setToast(fmt.Sprintf("Parking lot: %s · $%s", text, world.CommaInt(cost)))
 }
@@ -3966,6 +3650,12 @@ func (s *Scenario) deletePaintedBuilding(id uint64) {
 		s.popup.Visible = false
 	}
 }
+
+// labelFill is the dark pill behind floating labels, hints and toasts.
+var labelFill = mgl32.Vec4{0.04, 0.06, 0.11, 0.86}
+
+// scenarioToolBarH is the height of the bottom dock's band.
+const scenarioToolBarH = float32(84)
 
 // barsContain reports whether a screen Y is inside either the top HUD bar
 // or the bottom tool bar — i.e. should be excluded from world hit-testing.
@@ -4025,26 +3715,8 @@ func (s *Scenario) syncToolButtons() {
 		btn.SetActive(s.activeTool == toolService && s.serviceTool.building && s.serviceTool.kind == k)
 	}
 	liftActive := s.activeTool == toolLiftBase || s.activeTool == toolLiftTop
-	if s.liftDoubleBtn != nil {
-		s.liftDoubleBtn.SetActive(liftActive && s.liftType == world.LiftDouble)
-	}
-	if s.liftTripleBtn != nil {
-		s.liftTripleBtn.SetActive(liftActive && s.liftType == world.LiftFixedTriple)
-	}
-	if s.liftQuadBtn != nil {
-		s.liftQuadBtn.SetActive(liftActive && s.liftType == world.LiftFixedQuad)
-	}
-	if s.liftHSQuadBtn != nil {
-		s.liftHSQuadBtn.SetActive(liftActive && s.liftType == world.LiftHSQuad)
-	}
-	if s.liftHS6PackBtn != nil {
-		s.liftHS6PackBtn.SetActive(liftActive && s.liftType == world.LiftHS6Pack)
-	}
-	if s.liftGondolaBtn != nil {
-		s.liftGondolaBtn.SetActive(liftActive && s.liftType == world.LiftGondola)
-	}
-	if s.liftHeliBtn != nil {
-		s.liftHeliBtn.SetActive(liftActive && s.liftType == world.LiftHeli)
+	for t, btn := range s.liftButtons {
+		btn.SetActive(liftActive && s.liftType == t)
 	}
 	// Sync submenu parent active state so the group button highlights when any
 	// child tool is selected, giving the user a visual cue of the active group.
@@ -4120,14 +3792,14 @@ func updatePlacementGhost(r *render.Renderer, t *world.Terrain, st placementGhos
 		})
 
 	case toolLiftBase:
-		if st.liftType == world.LiftHeli {
+		if st.liftType.Cableless() {
 			r.SetGhosts(render.MeshHelipad, []render.StaticInstance{
 				helipadInstance(st.hoverPos, st.hoverPos, t, st.tint),
 			})
 		} else {
 			// No top yet — render at default orientation by passing
 			// otherEnd == pos. Rotation kicks in in toolLiftTop below.
-			r.SetGhosts(render.MeshLiftStation, []render.StaticInstance{
+			r.SetGhosts(render.StationMesh(st.liftType), []render.StaticInstance{
 				stationInstance(st.hoverPos, st.hoverPos, t, st.tint),
 			})
 		}
@@ -4135,18 +3807,18 @@ func updatePlacementGhost(r *render.Renderer, t *world.Terrain, st placementGhos
 	case toolLiftTop:
 		base := st.liftBase
 		top := st.hoverPos
-		if st.liftType == world.LiftHeli {
+		if st.liftType.Cableless() {
 			r.SetGhosts(render.MeshHelipad, []render.StaticInstance{
 				helipadInstance(base, top, t, st.tint),
 				helipadInstance(top, base, t, st.tint),
 			})
 			// No cable ghost for helicopter lifts.
 		} else {
-			r.SetGhosts(render.MeshLiftStation, []render.StaticInstance{
+			r.SetGhosts(render.StationMesh(st.liftType), []render.StaticInstance{
 				stationInstance(base, top, t, st.tint), // base faces top
 				stationInstance(top, base, t, st.tint), // top faces base
 			})
-			r.SetGhostCable(base, top, t)
+			r.SetGhostCable(st.liftType, base, top, t)
 		}
 
 	case toolRoadEnd:
@@ -4208,14 +3880,14 @@ func (s *Scenario) placementCost() (cost int, affordable, legal, valid bool) {
 		cost = world.SkiRackCost
 		legal = cellOwned && !s.world.BuildingOverlap(world.BuildingSkiRack, pos[0], pos[1], s.placeRotation)
 	case toolLiftBase:
-		if s.liftType == world.LiftHeli {
+		if s.liftType.Cableless() {
 			cost = world.HelipadCost / 2
 		} else {
 			cost = s.liftType.StationCost()
 		}
 		legal = cellOwned
 	case toolLiftTop:
-		if s.liftType == world.LiftHeli {
+		if s.liftType.Cableless() {
 			cost = world.HelipadCost
 		} else {
 			cost = world.LiftCost(s.liftType, s.liftBase, pos)
@@ -4759,7 +4431,7 @@ func (t *snowLayerTooltip) Draw(r *render.Renderer) {
 		y = t.mouseY - bh - offsetY
 	}
 
-	r.DrawColorRect(x, y, bw, bh, mgl32.Vec4{0.04, 0.08, 0.14, 0.90})
+	r.DrawRoundRect(x, y, bw, bh, 6, labelFill)
 	if r.Font == nil {
 		return
 	}
@@ -4802,7 +4474,7 @@ func (t *groomingTooltip) Draw(r *render.Renderer) {
 		y = t.mouseY - bh - offsetY
 	}
 
-	r.DrawColorRect(x, y, bw, bh, mgl32.Vec4{0.04, 0.08, 0.14, 0.90})
+	r.DrawRoundRect(x, y, bw, bh, 6, labelFill)
 	if r.Font == nil {
 		return
 	}
@@ -4864,7 +4536,7 @@ func drawHUDBox(r *render.Renderer, rows []string, y float32, col mgl32.Vec4, ce
 	} else {
 		x = float32(r.ScreenWidth()) - bw - 8 // right-anchored panel
 	}
-	r.DrawColorRect(x, y, bw, boxH, mgl32.Vec4{0, 0, 0, 0.65})
+	r.DrawRoundRect(x, y, bw, boxH, 6, labelFill)
 	if r.Font == nil {
 		return
 	}
@@ -4894,8 +4566,8 @@ func (sl *seedLabel) Draw(r *render.Renderer) {
 	x := float32(r.ScreenWidth()) - boxW - 4
 	y := float32(102) // just below the 96-px top HUD bar
 	textY := y + (boxH-float32(render.GlyphH))/2
-	r.DrawColorRect(x, y, boxW, boxH, mgl32.Vec4{0.07, 0.09, 0.15, 0.82})
-	r.DrawColorRectOutline(x, y, boxW, boxH, mgl32.Vec4{0.30, 0.44, 0.72, 0.50})
+	r.DrawRoundRect(x, y, boxW, boxH, 6, labelFill)
+	r.DrawRoundRectOutline(x, y, boxW, boxH, 6, 1, ui.PanelBorder)
 	if r.Font != nil {
 		r.Font.DrawText(r, text, x+8, textY, mgl32.Vec4{0.60, 0.75, 1.00, 0.85})
 	}
@@ -4910,13 +4582,13 @@ type costLabel struct {
 }
 
 func (c *costLabel) Draw(r *render.Renderer) {
-	text := fmt.Sprintf("$%d", c.cost)
+	text := settings.FormatDollars(c.cost)
 	boxH := float32(render.GlyphH + 8)
 	boxW := float32(len(text)*render.GlyphAdvance + 16)
-	x := float32(4)
+	x := float32(8)
 	y := float32(102) // just below the 96-px top HUD bar
 	textY := y + (boxH-float32(render.GlyphH))/2
-	r.DrawColorRect(x, y, boxW, boxH, mgl32.Vec4{0, 0, 0, 0.7})
+	r.DrawRoundRect(x, y, boxW, boxH, 6, labelFill)
 	colour := mgl32.Vec4{0.6, 0.95, 0.55, 1}
 	if !c.affordable {
 		colour = mgl32.Vec4{0.95, 0.45, 0.45, 1}
@@ -4933,11 +4605,11 @@ type hintLabel struct {
 
 func (h *hintLabel) Draw(r *render.Renderer) {
 	boxH := float32(render.GlyphH + 8)
-	const toolBarReserve = float32(60) // matches Scenario.toolBar.H
+	const toolBarReserve = scenarioToolBarH
 	boxW := float32(len(h.text)*render.GlyphAdvance + 16)
 	y := float32(r.ScreenHeight()) - boxH - toolBarReserve - 6
 	textY := y + (boxH-float32(render.GlyphH))/2
-	r.DrawColorRect(4, y, boxW, boxH, mgl32.Vec4{0, 0, 0, 0.7})
+	r.DrawRoundRect(4, y, boxW, boxH, 6, labelFill)
 	if r.Font != nil {
 		r.Font.DrawText(r, h.text, 8+4, textY, mgl32.Vec4{1, 1, 0.5, 1})
 	}
@@ -4975,7 +4647,7 @@ func (l *liftDropLabel) Draw(r *render.Renderer) {
 	th := float32(render.GlyphH) + 6
 	bx := sx - tw/2
 	by := sy - th/2
-	r.DrawColorRect(bx, by, tw, th, mgl32.Vec4{0, 0, 0, 0.55})
+	r.DrawRoundRect(bx, by, tw, th, 6, labelFill)
 	r.Font.DrawText(r, text, bx+7, by+(th-float32(render.GlyphH))/2, mgl32.Vec4{1, 1, 1, 1})
 }
 
@@ -4987,7 +4659,7 @@ type toastLabel struct {
 
 func (t *toastLabel) Draw(r *render.Renderer) {
 	boxH := float32(render.GlyphH + 8)
-	const toolBarReserve = float32(60) // matches Scenario.toolBar.H
+	const toolBarReserve = scenarioToolBarH
 	var boxW float32
 	if r.Font != nil {
 		boxW = r.Font.TextWidth(t.text) + 20
@@ -4997,7 +4669,7 @@ func (t *toastLabel) Draw(r *render.Renderer) {
 	x := (float32(r.ScreenWidth()) - boxW) / 2
 	y := float32(r.ScreenHeight()) - boxH - toolBarReserve - 30
 	textY := y + (boxH-float32(render.GlyphH))/2
-	r.DrawColorRect(x, y, boxW, boxH, mgl32.Vec4{0, 0, 0, 0.75})
+	r.DrawRoundRect(x, y, boxW, boxH, 6, labelFill)
 	if r.Font != nil {
 		r.Font.DrawText(r, t.text, x+10, textY, mgl32.Vec4{1, 1, 1, 1})
 	}
@@ -5044,7 +4716,7 @@ func (tl *trailLabels) Draw(r *render.Renderer) {
 		by := sy - th/2
 
 		// Background pill.
-		r.DrawColorRect(bx, by, tw, th, mgl32.Vec4{0, 0, 0, 0.55})
+		r.DrawRoundRect(bx, by, tw, th, 6, labelFill)
 
 		// Text colour by difficulty.
 		var col mgl32.Vec4
@@ -5058,51 +4730,6 @@ func (tl *trailLabels) Draw(r *render.Renderer) {
 		}
 		r.Font.DrawText(r, label, bx+7, by+(th-float32(render.GlyphH))/2, col)
 	}
-}
-
-// toggleSkierLog starts or stops a CSV recorder for the followed skier.
-func (s *Scenario) toggleSkierLog() {
-	if s.csvRecorder != nil {
-		s.stopSkierLog("Logging stopped")
-		return
-	}
-	a := s.findFollowedGuest()
-	if a == nil {
-		s.setToast("Press Tab to follow a skier first")
-		return
-	}
-	if err := os.MkdirAll("debug", 0o755); err != nil {
-		s.setToast("Log dir error: " + err.Error())
-		return
-	}
-	ts := time.Now().Format("20060102-150405")
-	path := filepath.Join("debug", fmt.Sprintf("skier-%d-%s.csv", a.ID, ts))
-	rec, err := sim.NewCSVRecorder(path, a.ID)
-	if err != nil {
-		s.setToast("Log open error: " + err.Error())
-		return
-	}
-	s.csvRecorder = rec
-	s.sim.Recorder = rec
-	s.setToast(fmt.Sprintf("Logging skier #%d → %s", a.ID, path))
-}
-
-// stopSkierLog flushes and closes the active recorder, if any. msg is shown
-// in the toast (along with the path) so the user knows where the file landed.
-func (s *Scenario) stopSkierLog(msg string) {
-	if s.csvRecorder == nil {
-		return
-	}
-	path := s.csvRecorder.Path()
-	if err := s.csvRecorder.Close(); err != nil {
-		fmt.Println("CSV close error:", err)
-	}
-	s.csvRecorder = nil
-	s.sim.Recorder = nil
-	if msg == "" {
-		msg = "Logging stopped"
-	}
-	s.setToast(msg + " → " + path)
 }
 
 // setToast displays a transient status message for ~3 seconds.
@@ -5171,10 +4798,10 @@ func (p *savePrompt) Draw(r *render.Renderer) {
 	sw := float32(r.ScreenWidth())
 	sh := float32(r.ScreenHeight())
 	p.layout(sw, sh)
-	r.DrawColorRect(0, 0, sw, sh, mgl32.Vec4{0, 0, 0, 0.55})
+	r.DrawColorRect(0, 0, sw, sh, ui.Scrim)
 	x := (sw - savePromptW) / 2
 	y := (sh - savePromptH) / 2
-	r.DrawColorRect(x, y, savePromptW, savePromptH, mgl32.Vec4{0.08, 0.12, 0.22, 0.98})
+	ui.DrawPanelColor(r, x, y, savePromptW, savePromptH, ui.ModalFill)
 	if r.Font != nil {
 		r.Font.DrawText(r, p.title, x+16, y+16, mgl32.Vec4{1, 0.95, 0.8, 1})
 	}

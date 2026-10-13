@@ -531,8 +531,8 @@ by the cafeteria.
 authors the footprint and a few coarse choices — storeys, style palette,
 which perimeter cells are doors — and the building resolves itself from
 that shape. Exteriors are a tile kit (wall, corner, inside corner, door,
-glazed wall, gable, hip, ridge) authored parametrically in OpenSCAD and
-compiled through the existing `scad2obj` pipeline, so door tiles publish
+glazed wall, gable, hip, ridge) authored parametrically in build123d and
+built by the model pipeline, so door tiles publish
 their entrance anchor via `MOGUL_META` exactly as parking publishes its
 driveways. Tiles are chosen by neighbour configuration (marching-squares
 over the footprint, at half-cell resolution so a 20 m lodge is eight
