@@ -40,6 +40,7 @@ demo:
 	go build -tags demo -trimpath -ldflags "-s -w" -o $(DEMO_BIN) .
 	cp -R assets/fonts assets/icons assets/shaders assets/logo.png $(DEMO_DIR)/assets/
 	cp assets/scenarios/boreal.save $(DEMO_DIR)/assets/scenarios/
+	cp assets/menu.save $(DEMO_DIR)/assets/
 	cp $(filter-out $(addprefix assets/models/,$(DEMO_NO_MODELS)),$(wildcard assets/models/*.obj)) $(DEMO_DIR)/assets/models/
 
 demo-audit: demo

@@ -874,6 +874,7 @@ func (s *Scenario) setFollowGuest(id uint64) {
 
 func (s *Scenario) Init(app *engine.App) error {
 	s.app = app
+	releaseMenuBackdrop(app.Renderer)
 
 	var w *world.World
 	var cam *save.CameraData

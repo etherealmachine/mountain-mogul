@@ -68,6 +68,7 @@ func (s *SaveList) layout() {
 }
 
 func (s *SaveList) Update(dt float64) {
+	tickMenuBackdrop(s.app, dt)
 	s.layout()
 	inp := s.app.Input
 	mx, my := inp.MousePos[0], inp.MousePos[1]
@@ -83,6 +84,7 @@ func (s *SaveList) Update(dt float64) {
 func (s *SaveList) Render(r *render.Renderer) {
 	gl.ClearColor(0.635, 0.682, 0.918, 1.0)
 	gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+	renderMenuBackdrop(r)
 
 	sw := float32(r.ScreenWidth())
 	sh := float32(r.ScreenHeight())

@@ -1,8 +1,6 @@
 package scene
 
 import (
-	"math"
-
 	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
 	"github.com/go-gl/mathgl/mgl32"
@@ -19,7 +17,17 @@ type StartMenu struct {
 	buttons     []*ui.Button
 	hasContinue bool // true when buttons currently include the Continue entry
 	settings    *SettingsMenu
+	// fadeIn is seconds left fading in from the intro's sky (introSky);
+	// 0 when it opened without the intro.
+	fadeIn float32
 }
+
+// startMenuFadeIn is how long the start menu takes to fade in after the
+// intro.
+const startMenuFadeIn = float32(0.45)
+
+// newStartMenuFadingIn is the start menu fading in from the intro.
+func newStartMenuFadingIn() *StartMenu { return &StartMenu{fadeIn: startMenuFadeIn} }
 
 // NewStartMenu creates a StartMenu scene.
 func NewStartMenu() *StartMenu {
@@ -116,6 +124,8 @@ func (s *StartMenu) layout() {
 }
 
 func (s *StartMenu) Update(dt float64) {
+	tickMenuBackdrop(s.app, dt)
+	s.fadeIn = max(0, s.fadeIn-float32(dt))
 	// Re-evaluate Continue visibility every frame — when the user pops back
 	// here from a scenario where they just saved, the button needs to appear
 	// without an explicit lifecycle hook. Rebuild only on state change.
@@ -146,6 +156,7 @@ func (s *StartMenu) Update(dt float64) {
 func (s *StartMenu) Render(r *render.Renderer) {
 	gl.ClearColor(0.635, 0.682, 0.918, 1.0)
 	gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+	renderMenuBackdrop(r)
 
 	drawables := []render.UIDrawable{uiDrawFunc(s.drawBackdrop)}
 	for _, btn := range s.buttons {
@@ -153,6 +164,13 @@ func (s *StartMenu) Render(r *render.Renderer) {
 	}
 	if s.settings.Visible() {
 		drawables = append(drawables, s.settings)
+	}
+	if s.fadeIn > 0 {
+		drawables = append(drawables, uiDrawFunc(func(r *render.Renderer) {
+			c := introSky
+			c[3] = s.fadeIn / startMenuFadeIn
+			r.DrawColorRect(0, 0, float32(r.ScreenWidth()), float32(r.ScreenHeight()), c)
+		}))
 	}
 	r.DrawUI(drawables)
 }
@@ -189,26 +207,6 @@ func (s *StartMenu) drawBackdrop(r *render.Renderer) {
 	ui.DrawPanel(r, px, py, pw, ph)
 }
 
-// drawMenuSky paints the menus' backdrop: a winter sky over two ranges of
-// snowy peaks.
-func drawMenuSky(r *render.Renderer) {
-	sw := float32(r.ScreenWidth())
-	sh := float32(r.ScreenHeight())
-
-	// Sky: deep blue at the top to pale at the horizon.
-	const bands = 48
-	top := mgl32.Vec4{0.16, 0.27, 0.52, 1}
-	low := mgl32.Vec4{0.74, 0.82, 0.95, 1}
-	for i := range bands {
-		t := float32(i) / (bands - 1)
-		c := top.Mul(1 - t).Add(low.Mul(t))
-		r.DrawColorRect(0, sh*float32(i)/bands, sw, sh/bands+1, c)
-	}
-	// Two ranges of snowy peaks.
-	drawRange(r, sw, sh, sh*0.62, 0.13, mgl32.Vec4{0.80, 0.86, 0.96, 1}, 0)
-	drawRange(r, sw, sh, sh*0.74, 0.09, mgl32.Vec4{0.95, 0.97, 1.00, 1}, 1.7)
-}
-
 // titleDrawable draws the menu backdrop with the game's name at (x, y),
 // for the screens behind the start menu (saves, scenarios, testbeds).
 type titleDrawable struct {
@@ -225,20 +223,4 @@ func (t *titleDrawable) Draw(r *render.Renderer) {
 	cx := t.x + t.w/2
 	r.DrawRoundRect(cx-tw/2-16, t.y, tw+32, t.h, 8, ui.PanelFill)
 	r.Font.DrawText(r, title, cx-tw/2, t.y+(t.h-float32(render.GlyphH))/2, mgl32.Vec4{1, 1, 1, 1})
-}
-
-// drawRange draws a jagged mountain silhouette whose ridge sits around
-// baseY, peaks up to amp×screen height above it, filled to the bottom.
-func drawRange(r *render.Renderer, sw, sh, baseY, amp float32, col mgl32.Vec4, phase float64) {
-	const steps = 64
-	prevX, prevY := float32(0), baseY
-	for i := 1; i <= steps; i++ {
-		x := sw * float32(i) / steps
-		u := float64(i)/steps*7 + phase
-		h := 0.55*math.Abs(math.Sin(u)) + 0.30*math.Abs(math.Sin(u*2.3+1)) + 0.15*math.Abs(math.Sin(u*5.1))
-		y := baseY - float32(h)*amp*sh
-		r.DrawColorTriangle(prevX, prevY, x, y, prevX, sh, col)
-		r.DrawColorTriangle(x, y, x, sh, prevX, sh, col)
-		prevX, prevY = x, y
-	}
 }

@@ -195,6 +195,7 @@ func (s *ScenarioPicker) listTop() float32 {
 }
 
 func (s *ScenarioPicker) Update(dt float64) {
+	tickMenuBackdrop(s.app, dt)
 	inp := s.app.Input
 	mx, my := inp.MousePos[0], inp.MousePos[1]
 	s.scroll -= inp.ScrollDelta * 40
@@ -226,6 +227,7 @@ func (s *ScenarioPicker) Update(dt float64) {
 func (s *ScenarioPicker) Render(r *render.Renderer) {
 	gl.ClearColor(0.635, 0.682, 0.918, 1.0)
 	gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+	renderMenuBackdrop(r)
 
 	sw := float32(r.ScreenWidth())
 	s.layout()

@@ -10,41 +10,46 @@ import (
 	"mountain-mogul/internal/render"
 )
 
-// introHoldSeconds is how long the splash sticks before auto-advancing
-// to the start menu. Tuned to read the logo + studio name without
-// stalling the player on every launch; click / any-key dismisses early.
-const introHoldSeconds = 2.5
+// The studio splash: the Minty Fresh logo rises into place on a soft mint
+// background, the wordmark fades in under it, and after a moment the
+// screen fades to the start menu's sky, which the start menu fades in
+// from. A click or any key skips straight to the fade.
 
-// IntroScene is the studio splash shown at app start. Displays the
-// Minty Fresh logo and name centred, fades through, and replaces
-// itself with the StartMenu on click, key press, or after
-// introHoldSeconds.
+const (
+	introHoldSeconds = 2.4  // until the fade out starts
+	introFadeOut     = 0.45 // seconds fading to the start menu's sky
+	introRise        = 0.7  // seconds the logo takes to settle
+)
+
+// introSky is the colour the splash fades to and the start menu fades in
+// from: the top of the start menu's sky (drawMenuSky).
+var introSky = mgl32.Vec4{0.16, 0.27, 0.52, 1}
+
+// IntroScene is the studio splash shown at app start.
 type IntroScene struct {
-	app    *engine.App
-	logoID uint32 // 0 until the PNG loads; we fall back to a colour rect
-	logoW  float32
-	logoH  float32
-	t      float32 // seconds since Init
-	done   bool
+	app     *engine.App
+	logoID  uint32 // 0 until the PNG loads; we fall back to a colour rect
+	t       float32
+	leaving float32 // seconds since the fade out started; <0 before it
+	done    bool
 }
+
+// The logo's source SVG is 240×320 (assets/logo.svg); its PNG is drawn
+// at that aspect.
+const introLogoAspect = float32(240) / 320
 
 // NewIntroScene constructs the splash scene. Asset loading happens in
 // Init so the renderer is available for the texture upload.
-func NewIntroScene() *IntroScene { return &IntroScene{} }
+func NewIntroScene() *IntroScene { return &IntroScene{leaving: -1} }
 
 func (s *IntroScene) Init(app *engine.App) error {
 	s.app = app
-	// Load the rasterised logo PNG. Errors fall back to texID=0; Render
-	// detects that and draws a labelled colour box so a missing asset
-	// doesn't crash launch.
 	texID, err := render.LoadTexture(app.AssetDir + "/logo.png")
 	if err != nil {
 		fmt.Printf("IntroScene: logo.png missing (%v); rendering placeholder\n", err)
 	}
 	s.logoID = texID
-	// The logo's source SVG is 240×320; preserve that aspect ratio.
-	s.logoW = 240
-	s.logoH = 320
+	startMenuBackdropLoad(app.AssetDir)
 	return nil
 }
 
@@ -53,83 +58,88 @@ func (s *IntroScene) Update(dt float64) {
 		return
 	}
 	s.t += float32(dt)
-
 	inp := s.app.Input
-	dismiss := inp.LeftClick || inp.RightClick || len(inp.Pressed) > 0 || s.t >= introHoldSeconds
-	if dismiss {
-		s.done = true
-		s.app.ReplaceScene(NewStartMenu())
+	if s.leaving < 0 && (inp.LeftClick || inp.RightClick || len(inp.Pressed) > 0 || s.t >= introHoldSeconds) {
+		s.leaving = 0
+	}
+	if s.leaving >= 0 {
+		s.leaving += float32(dt)
+		if s.leaving >= introFadeOut {
+			s.done = true
+			s.app.ReplaceScene(newStartMenuFadingIn())
+		}
 	}
 }
 
 func (s *IntroScene) Render(r *render.Renderer) {
-	// Same cool blue background as the start menu so the transition
-	// reads as one continuous frame even without a fade.
-	gl.ClearColor(0.635, 0.682, 0.918, 1.0)
+	gl.ClearColor(0.92, 0.97, 0.94, 1.0)
 	gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+	r.DrawUI([]render.UIDrawable{uiDrawFunc(s.draw)})
+}
 
-	sw := float32(r.ScreenWidth())
-	sh := float32(r.ScreenHeight())
+// easeOut is a cubic ease-out of t in 0..1.
+func easeOut(t float32) float32 {
+	t = min(max(t, 0), 1)
+	k := 1 - t
+	return 1 - k*k*k
+}
 
-	// Fit the logo into a comfortable portion of the screen (60% of
-	// the smaller axis). Preserves aspect ratio.
-	targetH := sh * 0.6
-	scale := targetH / s.logoH
-	if w := sw * 0.6; s.logoW*scale > w {
-		scale = w / s.logoW
+func (s *IntroScene) draw(r *render.Renderer) {
+	sw, sh := float32(r.ScreenWidth()), float32(r.ScreenHeight())
+
+	// Mint sky: pale at the top, deeper toward the bottom.
+	const bands = 40
+	top := mgl32.Vec4{0.93, 0.98, 0.95, 1}
+	low := mgl32.Vec4{0.70, 0.88, 0.78, 1}
+	for i := range bands {
+		k := float32(i) / (bands - 1)
+		r.DrawColorRect(0, sh*float32(i)/bands, sw, sh/bands+1, top.Mul(1-k).Add(low.Mul(k)))
 	}
-	lw := s.logoW * scale
-	lh := s.logoH * scale
-	lx := (sw - lw) / 2
-	ly := (sh-lh)/2 - 30 // shift up a touch to leave room for the name
 
-	// Soft fade-in over the first 0.4 s.
-	alpha := s.t / 0.4
-	if alpha > 1 {
-		alpha = 1
+	// The logo: up to 55% of the screen's height, rising into place.
+	in := easeOut(s.t / introRise)
+	lh := min(sh*0.55, sw*0.6/introLogoAspect)
+	lw := lh * introLogoAspect
+	cx, cy := sw/2, sh*0.43
+	scale := 0.9 + 0.1*in
+	w, h := lw*scale, lh*scale
+	y := cy - h/2 + (1-in)*40
+
+	// A soft glow behind it.
+	for i := 5; i >= 1; i-- {
+		rad := lh * 0.22 * float32(i)
+		r.DrawColorDisc(cx, cy, rad, mgl32.Vec4{1, 1, 1, 0.07 * in})
+	}
+	if s.logoID != 0 {
+		r.DrawTexturedRect(cx-w/2, y, w, h, s.logoID, mgl32.Vec4{1, 1, 1, in})
+	} else {
+		r.DrawColorRect(cx-w/2, y, w, h, mgl32.Vec4{0.4, 0.7, 0.5, 0.6 * in})
 	}
 
-	drawables := []render.UIDrawable{
-		&introLogo{x: lx, y: ly, w: lw, h: lh, texID: s.logoID, alpha: alpha},
-		&introCaption{cx: sw / 2, y: ly + lh + 24, alpha: alpha},
+	// The wordmark, fading in after the logo.
+	f := r.TitleFont
+	if f == nil {
+		f = r.Font
 	}
-	r.DrawUI(drawables)
+	if f != nil {
+		const name = "Minty Fresh"
+		a := easeOut((s.t - 0.35) / 0.6)
+		tw := f.TextWidth(name)
+		ty := cy + lh/2 + 18 + (1-a)*12
+		f.DrawText(r, name, cx-tw/2+2, ty+3, mgl32.Vec4{0.05, 0.25, 0.15, 0.18 * a})
+		f.DrawText(r, name, cx-tw/2, ty, mgl32.Vec4{0.12, 0.36, 0.22, a})
+	}
+
+	// Fading out to the start menu's sky.
+	if s.leaving >= 0 {
+		c := introSky
+		c[3] = easeOut(s.leaving / introFadeOut)
+		r.DrawColorRect(0, 0, sw, sh, c)
+	}
 }
 
 func (s *IntroScene) Destroy() {
 	// The logo texture leaks here — the engine doesn't expose a
 	// gl.DeleteTextures wrapper and the intro is one-shot per app
 	// session anyway, so the extra GPU memory dies with the process.
-}
-
-// introLogo renders the studio logo PNG, or a placeholder rect when
-// the texture failed to load.
-type introLogo struct {
-	x, y, w, h float32
-	texID      uint32
-	alpha      float32
-}
-
-func (l *introLogo) Draw(r *render.Renderer) {
-	if l.texID != 0 {
-		r.DrawTexturedRect(l.x, l.y, l.w, l.h, l.texID, mgl32.Vec4{1, 1, 1, l.alpha})
-		return
-	}
-	// Missing-asset placeholder so the scene still reads as "studio splash".
-	r.DrawColorRect(l.x, l.y, l.w, l.h, mgl32.Vec4{0.4, 0.7, 0.5, 0.6 * l.alpha})
-}
-
-// introCaption renders the "Minty Fresh" wordmark below the logo.
-type introCaption struct {
-	cx, y, alpha float32
-}
-
-func (c *introCaption) Draw(r *render.Renderer) {
-	if r.Font == nil {
-		return
-	}
-	const text = "Minty Fresh"
-	w := r.Font.TextWidth(text)
-	x := c.cx - w/2
-	r.Font.DrawText(r, text, x, c.y, mgl32.Vec4{0.15, 0.35, 0.25, c.alpha})
 }

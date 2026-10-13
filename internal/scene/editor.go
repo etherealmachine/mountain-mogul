@@ -128,6 +128,7 @@ func NewEditor(path string) *Editor {
 
 func (e *Editor) Init(app *engine.App) error {
 	e.app = app
+	releaseMenuBackdrop(app.Renderer)
 
 	var w *world.World
 	var savedCam *save.CameraData
