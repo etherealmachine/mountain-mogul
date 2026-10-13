@@ -45,8 +45,12 @@ type apronShape struct{ front, depth, half float32 }
 // liftApron is lift l's stations' apron: under the whole terminal.
 func liftApron(l *world.Lift) apronShape {
 	a := apronShape{front: l.Station().ApronFront, depth: liftApronDepth, half: liftApronHalfWidth}
-	if l.Type.Detachable() {
+	switch {
+	case l.Type.Detachable():
 		a.half = 6.5 // the roof, its posts and the hut
+	case l.Type.Surface():
+		// The belt's end and the booth beside it, and room to step off.
+		a = apronShape{front: l.Station().ApronFront, depth: 5, half: 3.5}
 	}
 	return a
 }
@@ -69,7 +73,11 @@ var liftApronMaxGrade = float32(math.Tan(15 * math.Pi / 180))
 // have made afterward.
 func applyLiftPlacementEffects(w *world.World, lift *world.Lift) {
 	t := w.Terrain
-	clearLiftCorridor(t, lift.Base, lift.Top, liftCorridorHalfWidth)
+	corridor := liftCorridorHalfWidth
+	if lift.Type.Surface() {
+		corridor = 4 // no towers to service: the belt and a lane beside it
+	}
+	clearLiftCorridor(t, lift.Base, lift.Top, corridor)
 	axis := mgl32.Vec2{
 		lift.Top[0] - lift.Base[0],
 		lift.Top[1] - lift.Base[1],

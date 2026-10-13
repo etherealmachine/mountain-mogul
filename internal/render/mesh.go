@@ -41,6 +41,8 @@ const (
 	MeshSkiRack      uint32 = 26 // A-frame ski rack
 	MeshLiftTerminal uint32 = 27 // detachable lift's long terminal (lift_terminal.py)
 	MeshLiftTermWide uint32 = 28 // the 6-pack's wider terminal (lift_terminal_wide.py)
+	MeshBeltEnd      uint32 = 29 // a magic carpet's base end: the end plate and the control post
+	MeshBeltTop      uint32 = 31 // its top end, the same mirrored (30 is world.MeshBeltPlace)
 
 	// MeshLodgeTileBase + world.ShellMeshIndex(kind, tile) is the shell
 	// kits, one per building kind (models-src/{lodge,tent,shed}_*.py);

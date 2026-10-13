@@ -34,7 +34,7 @@ DIST        := build/dist
 DEMO_FLAGS  := -tags demo -trimpath
 DEMO_LD     := -s -w
 # Models of things the demo leaves out.
-DEMO_NO_MODELS := bar.obj chair_6pack.obj lift_terminal_wide.obj gondola_cabin.obj helicopter_% helipad.obj snow_gun.obj tent_%
+DEMO_NO_MODELS := bar.obj chair_6pack.obj lift_terminal_wide.obj gondola_cabin.obj helicopter_% helipad.obj snow_gun.obj tent_% magic_carpet_%
 
 # demo_assets copies the demo's assets into the folder $(1).
 define demo_assets

@@ -57,12 +57,6 @@ const (
 	// are everything they dislike, none when they're everything they
 	// love (Snow Tastes).
 	tasteMissSec = 300.0
-
-	// Minimum vertical drop for a SkiTo* action to be applicable. Below
-	// this, the destination is effectively at the same elevation as the
-	// lift top, and skiing-to-it is degenerate. Keeps the action graph
-	// from generating "ski to the lift you just unloaded at."
-	minDescentMeters = 20.0
 )
 
 // =============================================================================
@@ -227,7 +221,7 @@ func (a *RideLift) Cost(s *WorldSnapshot, w *world.World) float32 {
 }
 
 // SkiToLift descends from a lift top to another lift's base. The base
-// must be at least minDescentMeters below the source lift top — gravity-
+// must be at least the source lift's MinRunDrop below its top — gravity-
 // gated reachability stands in for explicit trails in the MVP.
 type SkiToLift struct{ LiftID uint64 }
 
@@ -244,7 +238,7 @@ func (a *SkiToLift) Precondition(s *WorldSnapshot, w *world.World) bool {
 	if src == nil || dst == nil {
 		return false
 	}
-	return liftTopElev(w, src)-liftBaseElev(w, dst) >= minDescentMeters
+	return liftTopElev(w, src)-liftBaseElev(w, dst) >= src.MinRunDrop(w.Terrain)
 }
 
 func (a *SkiToLift) Apply(s *WorldSnapshot, w *world.World) {
@@ -288,7 +282,7 @@ func (a *SkiToService) Precondition(s *WorldSnapshot, w *world.World) bool {
 	if src == nil || dst == nil || !dst.OffersAnyUse() {
 		return false
 	}
-	return liftTopElev(w, src)-buildingElev(w, dst) >= minDescentMeters
+	return liftTopElev(w, src)-buildingElev(w, dst) >= src.MinRunDrop(w.Terrain)
 }
 
 func (a *SkiToService) Apply(s *WorldSnapshot, w *world.World) {
@@ -328,7 +322,7 @@ func (a *SkiToParking) Precondition(s *WorldSnapshot, w *world.World) bool {
 	if src == nil || dst == nil {
 		return false
 	}
-	return liftTopElev(w, src)-buildingElev(w, dst) >= minDescentMeters
+	return liftTopElev(w, src)-buildingElev(w, dst) >= src.MinRunDrop(w.Terrain)
 }
 
 func (a *SkiToParking) Apply(s *WorldSnapshot, w *world.World) {

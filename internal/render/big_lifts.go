@@ -159,4 +159,5 @@ func addBigLiftThumbs(specs map[ThumbID]thumbSpec) {
 	specs[ThumbGondola] = chairThumb("gondola_cabin")
 	specs[ThumbGondola] = thumbSpec{parts: specs[ThumbGondola].parts, yaw: 0.6, bottom: 0.7}
 	specs[ThumbHeli] = onePart("helicopter_body", thumbWhite, 0.6)
+	specs[ThumbBelt] = onePart("magic_carpet_end", thumbWhite, 0.4)
 }

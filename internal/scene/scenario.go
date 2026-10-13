@@ -2605,6 +2605,10 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 			s.setToast(fmt.Sprintf("Too short: a %s needs at least %.0f m between its stations", s.liftType.Label(), minLen))
 			return
 		}
+		if p := liftLineProblem(w.Terrain, s.liftType, s.liftBase, top); p != "" {
+			s.setToast(p)
+			return
+		}
 		var cost int
 		if s.liftType.Cableless() {
 			cost = world.HelipadCost
@@ -2961,7 +2965,14 @@ func (s *Scenario) Render(r *render.Renderer) {
 		drawables = append(drawables, s.gladeRadiusSlider, s.gladeThinSlider)
 	}
 	if s.activeTool == toolLiftTop {
-		drawables = append(drawables, &hintLabel{text: "Click to set lift top"})
+		hint := "Click to set lift top"
+		if s.hoverValid {
+			hover := mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]}
+			if p := liftLineProblem(s.world.Terrain, s.liftType, s.liftBase, hover); p != "" {
+				hint = p
+			}
+		}
+		drawables = append(drawables, &hintLabel{text: hint})
 		if s.hoverValid {
 			drawables = append(drawables, &liftDropLabel{
 				terrain: s.world.Terrain,
@@ -3417,6 +3428,35 @@ func shellMenu() []shellMenuEntry {
 	return append(m, shellMenuEntry{world.ShellShed, render.IconGarage})
 }
 
+// liftLineProblem is why a lift of type typ can't run from base to top,
+// or "" if it can: longer than the type's MaxLength, or climbing ground
+// steeper than its MaxGrade over any stretch of world.MaxGradeSpan.
+func liftLineProblem(t *world.Terrain, typ world.LiftType, base, top mgl32.Vec2) string {
+	length := top.Sub(base).Len()
+	if m := typ.MaxLength(); m > 0 && length > m {
+		return fmt.Sprintf("Too long: a %s runs at most %.0f m", typ.Label(), m)
+	}
+	m := typ.MaxGrade()
+	if m <= 0 || length < 1 {
+		return ""
+	}
+	dir := top.Sub(base).Mul(1 / length)
+	elev := func(d float32) float32 {
+		p := base.Add(dir.Mul(d))
+		return t.InterpolatedSurfaceElevationAt(p[0], p[1])
+	}
+	span := min(float32(world.MaxGradeSpan), length)
+	steepest := float32(0)
+	for d := float32(0); d+span <= length+0.01; d += 2 {
+		rise := float32(math.Abs(float64(elev(d+span) - elev(d))))
+		steepest = max(steepest, float32(math.Atan(float64(rise/span))*180/math.Pi))
+	}
+	if steepest > m {
+		return fmt.Sprintf("Too steep: a %s climbs at most %.0f°, this line has %.0f°", typ.Label(), m, steepest)
+	}
+	return ""
+}
+
 // liftMenuEntry is one button in the Lifts submenu.
 type liftMenuEntry struct {
 	typ   world.LiftType
@@ -3438,6 +3478,7 @@ func liftMenu() []liftMenuEntry {
 			liftMenuEntry{world.LiftHS6Pack, "6-Pack", render.ThumbChair6Pack},
 			liftMenuEntry{world.LiftGondola, "Gondola", render.ThumbGondola},
 			liftMenuEntry{world.LiftHeli, "Heli", render.ThumbHeli},
+			liftMenuEntry{world.LiftMagicCarpet, "Magic Carpet", render.ThumbBelt},
 		)
 	}
 	return m
@@ -3877,11 +3918,20 @@ func updatePlacementGhost(r *render.Renderer, t *world.Terrain, st placementGhos
 			})
 			// No cable ghost for helicopter lifts.
 		} else {
-			r.SetGhosts(render.StationMesh(st.liftType), []render.StaticInstance{
-				stationInstance(base, top, t, st.tint), // base faces top
-				stationInstance(top, base, t, st.tint), // top faces base
-			})
-			r.SetGhostCable(st.liftType, base, top, t)
+			if topMesh := render.TopStationMesh(st.liftType); topMesh != render.StationMesh(st.liftType) {
+				r.SetGhosts(render.StationMesh(st.liftType), []render.StaticInstance{
+					stationInstance(base, top, t, st.tint),
+				})
+				r.SetGhosts(topMesh, []render.StaticInstance{
+					stationInstance(top, base, t, st.tint),
+				})
+			} else {
+				r.SetGhosts(render.StationMesh(st.liftType), []render.StaticInstance{
+					stationInstance(base, top, t, st.tint), // base faces top
+					stationInstance(top, base, t, st.tint), // top faces base
+				})
+			}
+			r.SetGhostCable(st.liftType, base, top, t, st.tint)
 		}
 
 	case toolRoadEnd:
@@ -3955,7 +4005,7 @@ func (s *Scenario) placementCost() (cost int, affordable, legal, valid bool) {
 		} else {
 			cost = world.LiftCost(s.liftType, s.liftBase, pos)
 		}
-		legal = cellOwned
+		legal = cellOwned && liftLineProblem(s.world.Terrain, s.liftType, s.liftBase, pos) == ""
 	case toolRoadStart:
 		cost = world.RoadBaseCost
 	case toolRoadEnd:

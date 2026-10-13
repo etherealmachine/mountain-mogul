@@ -7,9 +7,23 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 )
 
-// trailMinDescentMeters is the minimum elevation drop required for a trail
-// edge to be added to the graph. Mirrors minDescentMeters in ai/goap.
-const trailMinDescentMeters = 20.0
+// MinRunDrop is the least elevation a run must drop for a trail edge to
+// be added to the graph, and for a guest to plan skiing it (ai/goap's
+// SkiTo* actions); from a short lift's top, less (Lift.MinRunDrop).
+const MinRunDrop = 20.0
+
+// minShortRunDrop is the least drop a run off even the shortest lift
+// must make.
+const minShortRunDrop = 3.0
+
+// MinRunDrop is the least a run from l's top must drop to count: half the
+// lift's own rise, between minShortRunDrop and MinRunDrop, so a magic
+// carpet's few metres of bunny slope are a run but the flat beside a
+// chair's top isn't.
+func (l *Lift) MinRunDrop(t *Terrain) float32 {
+	rise := t.InterpolatedSurfaceElevationAt(l.Top[0], l.Top[1]) - t.InterpolatedSurfaceElevationAt(l.Base[0], l.Base[1])
+	return max(minShortRunDrop, min(MinRunDrop, rise/2))
+}
 
 // TrailEdge is one directed edge in the trail connectivity graph. An edge
 // goes downhill from FromID to ToID via the named trail.
@@ -68,6 +82,7 @@ func BuildTrailGraph(w *World) *TrailGraph {
 			kind EdgeKind
 			elev float32
 			pos  mgl32.Vec2
+			drop float32 // the least drop a run from here makes
 		}
 
 		var entities []entityInfo
@@ -80,6 +95,7 @@ func BuildTrailGraph(w *World) *TrailGraph {
 					kind: KindLiftTop,
 					elev: w.Terrain.SurfaceElevationAt(top[0], top[1]),
 					pos:  lift.Top,
+					drop: lift.MinRunDrop(w.Terrain),
 				})
 			}
 			base := lift.QueueCell()
@@ -151,7 +167,11 @@ func BuildTrailGraph(w *World) *TrailGraph {
 				if i == j || to.kind == KindLiftTop {
 					continue // don't generate edges that go to a lift top
 				}
-				if from.elev-to.elev < trailMinDescentMeters {
+				drop := from.drop
+				if drop == 0 {
+					drop = MinRunDrop
+				}
+				if from.elev-to.elev < drop {
 					continue
 				}
 				addEdge(g, TrailEdge{
@@ -174,7 +194,7 @@ func BuildTrailGraph(w *World) *TrailGraph {
 			if to.kind == KindLiftTop {
 				continue
 			}
-			if centroidElev-to.elev < trailMinDescentMeters {
+			if centroidElev-to.elev < MinRunDrop {
 				continue
 			}
 			addEdge(g, TrailEdge{

@@ -19,6 +19,8 @@ snow_gun
 Snow Gun
 sg_on
 HS6Pack
+Carpet
+carpet
 6Pack
 6-Pack
 6pack

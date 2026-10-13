@@ -117,11 +117,24 @@ var detachWideStation = func() StationGeom {
 	return g
 }()
 
+// beltStation is a magic carpet's end (magic_carpet_end.py): the belt
+// runs from a low end plate at the "bullwheel", riders' side only (the
+// return run is under it), and riders step on just past the plate at the
+// base and off over it at the top, so nothing stands across the line.
+// No booth: the operator stands on the snow beside the belt (StaffPosts).
+var beltStation = StationGeom{
+	LoadAhead:  0.8,
+	Flat:       1,
+	ApronFront: 3,
+}
+
 // Station is the shape of l's terminals.
 func (l *Lift) Station() *StationGeom { return stationFor(l.Type) }
 
 func stationFor(t LiftType) *StationGeom {
 	switch {
+	case t.Surface():
+		return &beltStation
 	case t == LiftHS6Pack:
 		return &detachWideStation
 	case t.Detachable():
@@ -184,6 +197,9 @@ func (l *Lift) UnloadXZ() mgl32.Vec2 {
 // through each terminal, then up to TowerHeight over StationOffset. A
 // lift too short for towers stays at loading height.
 func (l *Lift) CableHeightAt(dist float32) float32 {
+	if l.Type.Surface() {
+		return BeltHeight
+	}
 	g := l.Station()
 	length := l.cableLen()
 	d := min(dist, length-dist)
@@ -238,10 +254,7 @@ func (l *Lift) loopAt(p float32) (pos mgl32.Vec2, heading, d float32) {
 // chair at progress on the loop. Used by both simulation and renderer.
 func (l *Lift) ChairPos(progress float32, t *Terrain) (mgl32.Vec3, float32) {
 	pos, heading, d := l.loopAt(progress)
-	h := float32(BullwheelHeight) // round a wheel
-	if d > 0 {
-		h = l.CableHeightAt(d) // d is from the nearer wheel; the profile is the same at both ends
-	}
+	h := l.CableHeightAt(d) // d is from the nearer wheel (0 round one); the profile is the same at both ends
 	return mgl32.Vec3{pos[0], t.InterpolatedSurfaceElevationAt(pos[0], pos[1]) + h, pos[1]}, heading
 }
 

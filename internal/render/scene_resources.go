@@ -110,6 +110,7 @@ type SceneResources struct {
 	ghostBatches   map[uint32]*Batch
 	ghostUpCable   *Mesh
 	ghostDownCable *Mesh
+	ghostCableTint [3]float32 // the placement tint; white when the line is fine
 }
 
 func newSceneResources() *SceneResources {

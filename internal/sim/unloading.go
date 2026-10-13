@@ -53,6 +53,10 @@ const (
 	unloadAimMin   = float32(30 * math.Pi / 180)
 	unloadAimMax   = float32(150 * math.Pi / 180)
 	unloadAimAlong = float32(20)
+	// Off a magic carpet riders glide straight on over the end plate for
+	// beltRunOut metres at beltOffSpeed, then ski.
+	beltRunOut   = float32(3)
+	beltOffSpeed = float32(1.5)
 )
 
 // startUnloading takes a rider off the chair at the top of lift: placed
@@ -83,6 +87,11 @@ func (s *Simulation) startUnloading(a *world.Guest, lift *world.Lift, slotIdx in
 		turn = -turn
 	}
 	a.Unload.Turn = turn
+	if lift.Type.Surface() {
+		a.Speed = beltOffSpeed
+		a.Unload.Side, a.Unload.SeatY = 0, 0
+		return
+	}
 	if rng.Global().Float32() < unloadFallChance(a.Traits.Skill, lift.Type) {
 		// Somewhere between finding their feet and getting clear.
 		a.Unload.FallAt = 1 + rng.Global().Float32()*unloadFallSpan
@@ -95,6 +104,9 @@ func (s *Simulation) startUnloading(a *world.Guest, lift *world.Lift, slotIdx in
 // they stand; how far they turn, the aim's direction, kept between
 // unloadAimMin and unloadAimMax.
 func (s *Simulation) aimUnload(a *world.Guest) {
+	if l := findLiftByID(s.World, a.Unload.LiftID); l != nil && l.Type.Surface() {
+		return // straight off the belt
+	}
 	aim, ok := s.unloadAim(a)
 	if !ok {
 		return
@@ -207,6 +219,17 @@ func (s *Simulation) tickUnloading(a *world.Guest, dt float64) {
 	backHeading := float32(math.Atan2(float64(back[0]), float64(back[1])))
 	t := s.World.Terrain
 	defer func() { a.Pos[1] = t.InterpolatedSurfaceElevationAt(a.Pos[0], a.Pos[2]) }()
+	if lift.Type.Surface() {
+		// Straight on off the belt, then away.
+		step := beltOffSpeed * float32(dt)
+		a.Speed = beltOffSpeed
+		a.Pos[0] += float32(math.Sin(float64(a.Heading))) * step
+		a.Pos[2] += float32(math.Cos(float64(a.Heading))) * step
+		if u.Gone += step; u.Gone >= beltRunOut {
+			a.Unload = world.Unloading{}
+		}
+		return
+	}
 	a.Speed = unloadSpeed
 	a.Balance = 1
 	sign := float32(1)

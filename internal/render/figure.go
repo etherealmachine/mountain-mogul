@@ -248,6 +248,12 @@ func (a *figureAnim) walk(t *world.Terrain, pos mgl32.Vec3, speed, dt float32, c
 	return walkPose(a.stride, speed, pitch, roll, carry)
 }
 
+// onBelt reports whether lift id is a surface lift, whose riders stand.
+func onBelt(w *world.World, id uint64) bool {
+	l := w.LiftByID(id)
+	return l != nil && l.Type.Surface()
+}
+
 // guestPose poses a guest from their sim state.
 func (f *figures) guestPose(w *world.World, g *world.Guest, a *figureAnim, dt float32) figPose {
 	t := w.Terrain
@@ -256,9 +262,18 @@ func (f *figures) guestPose(w *world.World, g *world.Guest, a *figureAnim, dt fl
 		p := lyingPose(1, 0)
 		p.hide = 1<<boneSkiL | 1<<boneSkiR | 1<<bonePoleL | 1<<bonePoleR
 		return p
-	case g.OnLiftID != 0:
-		return chairPose()
-	case g.Unload.LiftID != 0 && !g.Fallen:
+	case g.OnLiftID != 0 || g.Unload.LiftID != 0 && !g.Fallen:
+		id := g.OnLiftID
+		if id == 0 {
+			id = g.Unload.LiftID
+		}
+		if onBelt(w, id) {
+			// Standing on the belt, and gliding off it.
+			return a.skiPose(t, g.Pos, 0, g.Traits.Skill, 0, dt)
+		}
+		if g.OnLiftID != 0 {
+			return chairPose()
+		}
 		up := clampF(g.Unload.Gone/world.UnloadRise, 0, 1)
 		return lerpPose(chairPose(), a.skiPose(t, g.Pos, 0, g.Traits.Skill, 0, dt), easeStep(up))
 	case g.Fallen:
@@ -448,6 +463,8 @@ func (f *figures) build(r *Renderer, w *world.World) {
 		pose.solve(&bones)
 		y := pos[1]
 		switch {
+		case g.OnLiftID != 0 && onBelt(w, g.OnLiftID):
+			y = VisualElevationAt(t, pos[0], pos[2]) + world.BeltHeight
 		case g.OnLiftID != 0:
 		case g.OnPatrollerID != 0:
 			y = VisualElevationAt(t, pos[0], pos[2]) + 0.1

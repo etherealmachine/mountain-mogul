@@ -31,6 +31,7 @@ const (
 	LiftGondola                     // 8-person monocable detachable gondola
 	LiftHeli                        // helicopter heli-ski "lift" (no cable)
 	LiftFixedTriple                 // 3-seat fixed grip
+	LiftMagicCarpet                 // conveyor belt for beginners, riders standing on it (a surface lift)
 )
 
 const (
@@ -53,6 +54,8 @@ func (t LiftType) Capacity() int {
 		return 8
 	case LiftHeli:
 		return HeliCapacity
+	case LiftMagicCarpet:
+		return 1
 	}
 	return 2
 }
@@ -72,6 +75,8 @@ func (t LiftType) MeshID() uint32 {
 		return MeshGondolaCabin
 	case LiftHeli:
 		return MeshHelicopter
+	case LiftMagicCarpet:
+		return MeshBeltPlace
 	}
 	return MeshChair
 }
@@ -87,6 +92,8 @@ func (t LiftType) DefaultSpeed() float32 {
 		return 6.0
 	case LiftHeli:
 		return HeliAirspeedMs
+	case LiftMagicCarpet:
+		return 1.0
 	}
 	return 2.5
 }
@@ -109,6 +116,8 @@ func (t LiftType) Label() string {
 			return "Gondola"
 		case LiftHeli:
 			return "Helicopter"
+		case LiftMagicCarpet:
+			return "Magic Carpet"
 		}
 	}
 	return "Double"
@@ -253,7 +262,7 @@ func (l *Lift) TowerXZs() []mgl32.Vec2 {
 	// The first tower is where the cable reaches tower height, past the
 	// terminal's flat run.
 	stationOffset := float32(StationOffset) + l.Station().Flat
-	if length <= 2*stationOffset {
+	if length <= 2*stationOffset || l.Type.Surface() {
 		return nil
 	}
 	innerLen := length - 2*stationOffset
@@ -385,6 +394,58 @@ func (t LiftType) Cableless() bool {
 	return !edition.Demo && t == LiftHeli
 }
 
+// Surface reports whether riders of this type keep their skis on the
+// snow: they stand on a belt (the magic carpet) instead of sitting on a
+// chair under a cable. A surface lift's places ride at ground height
+// (BeltHeight), it has no towers or cable, and riders step straight off
+// at the top. Always false in the demo, which has none.
+func (t LiftType) Surface() bool {
+	return !edition.Demo && t == LiftMagicCarpet
+}
+
+// BeltHeight is how far a magic carpet's belt sits above the ground,
+// where its riders stand.
+const BeltHeight = 0.12
+
+// PlaceSpacing is the metres between places on the loop: a chair every
+// ChairSpacingM, a rider every few metres on a belt.
+func (t LiftType) PlaceSpacing() float32 {
+	if t.Surface() {
+		return 2.5
+	}
+	return ChairSpacingM
+}
+
+// MaxLength is the longest lift of this type, metres between its ends;
+// 0 for no limit.
+func (t LiftType) MaxLength() float32 {
+	if t.Surface() {
+		return 120
+	}
+	return 0
+}
+
+// MaxGrade is the steepest ground a lift of this type climbs, degrees,
+// over any MaxGradeSpan metres of its line; 0 for no limit.
+func (t LiftType) MaxGrade() float32 {
+	if t.Surface() {
+		return 12
+	}
+	return 0
+}
+
+// MaxGradeSpan is the stretch of line MaxGrade is measured over.
+const MaxGradeSpan = 10.0
+
+// Operators is how many operators run a lift of this type: one at each
+// station, or one at the base of a magic carpet.
+func (t LiftType) Operators() int {
+	if t.Surface() {
+		return 1
+	}
+	return LiftOperators
+}
+
 // Available reports whether this edition has the lift type: the demo
 // leaves out the 6-pack, the gondola, and the heli.
 func (t LiftType) Available() bool {
@@ -431,6 +492,8 @@ func (t LiftType) StationCost() int {
 		return 1_700_000
 	case LiftGondola:
 		return 4_000_000
+	case LiftMagicCarpet:
+		return 90_000
 	}
 	return 0
 }
@@ -452,6 +515,8 @@ func (t LiftType) PerMeterCost() int {
 		return 250
 	case LiftGondola:
 		return 2_400
+	case LiftMagicCarpet:
+		return 600 // the belt itself
 	}
 	return 0
 }
@@ -475,6 +540,8 @@ func (t LiftType) RunningCostDay() int {
 		return 7_500
 	case LiftHeli:
 		return 9_000 // pilot + fuel
+	case LiftMagicCarpet:
+		return 200
 	}
 	return 0
 }
@@ -549,7 +616,7 @@ func (l *Lift) Headcount() int {
 	if l.Cableless() {
 		return LiftOperators // ground crew; the pilot is in RunningCostDay
 	}
-	n := LiftOperators
+	n := l.Type.Operators()
 	if l.Staff.LineAttendant {
 		n++
 	}
@@ -593,12 +660,20 @@ func (l *Lift) StaffPosts() []LiftStaffPost {
 		out = append(out, LiftStaffPost{Role: role, Pos: pos, Heading: float32(math.Atan2(float64(d[0]), float64(d[1])))})
 	}
 	for _, top := range [2]bool{false, true} {
+		if top && l.Type.Operators() < 2 {
+			break // a magic carpet's one operator is at the base
+		}
 		at, back, side, ok := l.StationFrame(top)
 		if !ok {
 			return nil
 		}
-		// At the window on the line side of the hut, half a metre out.
+		// At the window on the line side of the hut, half a metre out;
+		// with no hut (a magic carpet), at the control post behind the
+		// end plate (carpet_kit.py), on its side away from the belt.
 		p := at.Add(back.Mul((hut.front + hut.rear) / 2)).Add(side.Mul(hut.in - 0.6))
+		if hut == (stationRect{}) {
+			p = at.Add(back.Mul(0.6)).Add(side.Mul(-0.15))
+		}
 		role, look := StaffBottomOperator, l.LoadXZ()
 		if top {
 			role, look = StaffTopOperator, l.UnloadXZ()

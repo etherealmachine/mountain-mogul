@@ -32,6 +32,7 @@ const (
 	ThumbTree
 	ThumbSnowcat
 	ThumbBulldozer // the Remove tool
+	ThumbBelt      // the magic carpet
 	// ThumbShellBase + world.ShellKind is that kind's building.
 	ThumbShellBase
 )

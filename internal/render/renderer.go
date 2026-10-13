@@ -53,6 +53,7 @@ type partBatch struct {
 
 // Renderer coordinates all rendering passes.
 type Renderer struct {
+	beltFrame     int // frames since belts were last rebuilt (syncBelts)
 	TerrainShader *Shader
 	StaticShader  *Shader
 	DynamicShader *Shader
@@ -408,6 +409,8 @@ func (r *Renderer) initStaticMeshes() {
 			meshDef{MeshSnowGun, "snow_gun"}, // built by models-src/snow_gun.py
 			meshDef{MeshBar, "bar"},
 			meshDef{MeshLiftTermWide, "lift_terminal_wide"},
+			meshDef{MeshBeltEnd, "magic_carpet_end"},
+			meshDef{MeshBeltTop, "magic_carpet_top"},
 		)
 	}
 
@@ -848,6 +851,8 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 		}
 		if stationBatch, ok := r.staticBatches[StationMesh(lift.Type)]; ok {
 			stationBatch.AddStatic(LiftStationTransform(lift.Base, lift.Top, w.Terrain), mgl32.Vec3{1, 1, 1})
+		}
+		if stationBatch, ok := r.staticBatches[TopStationMesh(lift.Type)]; ok {
 			stationBatch.AddStatic(LiftStationTransform(lift.Top, lift.Base, w.Terrain), mgl32.Vec3{1, 1, 1})
 		}
 	}
@@ -1124,12 +1129,24 @@ func LiftStationTransform(pos, otherEnd mgl32.Vec2, terrain *world.Terrain) mgl3
 // long terminal, else the fixed-grip station.
 func StationMesh(t world.LiftType) uint32 {
 	switch {
+	case t.Surface():
+		return MeshBeltEnd
 	case t == world.LiftHS6Pack:
 		return MeshLiftTermWide
 	case t.Detachable():
 		return MeshLiftTerminal
 	}
 	return MeshLiftStation
+}
+
+// TopStationMesh is the model for the top station of a lift of type t:
+// the same as the base, but for a magic carpet, whose belt runs on one
+// side of the line, so its top end is the base end mirrored.
+func TopStationMesh(t world.LiftType) uint32 {
+	if t.Surface() {
+		return MeshBeltTop
+	}
+	return StationMesh(t)
 }
 
 // TowerInstancesForLift returns world transforms for the lift's towers,
@@ -1369,6 +1386,7 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	}
 	r.StaticShader.SetInt("uFoliage", 0)
 
+	r.syncBelts(w)
 	// Cable pass — world-space meshes, drawn with identity instance
 	// transform. Towers are instanced through the static batch above.
 	gl.BindTexture(gl.TEXTURE_2D, r.whiteTexID)
@@ -1412,12 +1430,19 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	gl.DepthFunc(gl.LESS)
 	gl.BindTexture(gl.TEXTURE_2D, r.whiteTexID)
 	setCableTransformAttribs()
+	if tint := r.scene.ghostCableTint; tint != [3]float32{1, 1, 1} {
+		// A charcoal line tinted red stays near black, and a belt lying
+		// on the snow all but vanishes: draw it red, and stronger.
+		r.StaticShader.SetFloat("uAlpha", 0.7)
+		gl.VertexAttrib3f(7, 0.8*tint[0], 0.6*tint[1], 0.6*tint[2])
+	}
 	if r.scene.ghostUpCable != nil {
 		r.scene.ghostUpCable.Draw()
 	}
 	if r.scene.ghostDownCable != nil {
 		r.scene.ghostDownCable.Draw()
 	}
+	r.StaticShader.SetFloat("uAlpha", 0.4)
 	if r.scene.roadGhostMesh != nil {
 		setRoadTransformAttribs()
 		r.scene.roadGhostMesh.Draw()
@@ -1603,6 +1628,9 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		r.DynamicShader.Use()
 		var doubles, triples, quads, sixPacks, gondolas []DynamicInstance
 		for _, lift := range w.Lifts {
+			if lift.Type.Surface() {
+				continue // the belt is drawn with the cables
+			}
 			for _, chair := range lift.Chairs {
 				pos, heading := lift.ChairPos(chair.Progress, w.Terrain)
 				hasPax := false
@@ -2020,8 +2048,10 @@ func (r *Renderer) ClearAllGhosts() {
 
 // SetGhostCable regenerates the ghost cable meshes and tower-instance
 // previews from base to top. The tower ghosts go through the standard
-// ghost-batch path so they share geometry with the live towers.
-func (r *Renderer) SetGhostCable(typ world.LiftType, base, top mgl32.Vec2, t *world.Terrain) {
+// ghost-batch path so they share geometry with the live towers. tint is
+// the placement tint: anything but white draws the line red.
+func (r *Renderer) SetGhostCable(typ world.LiftType, base, top mgl32.Vec2, t *world.Terrain, tint [3]float32) {
+	r.scene.ghostCableTint = tint
 	if r.scene.ghostUpCable != nil {
 		r.scene.ghostUpCable.Delete()
 	}
@@ -2029,13 +2059,18 @@ func (r *Renderer) SetGhostCable(typ world.LiftType, base, top mgl32.Vec2, t *wo
 		r.scene.ghostDownCable.Delete()
 	}
 	tempLift := &world.Lift{Type: typ, Base: base, Top: top}
-	r.scene.ghostUpCable = generateCableMesh(tempLift, t, world.CableGap)
-	r.scene.ghostDownCable = generateCableMesh(tempLift, t, -world.CableGap)
+	if typ.Surface() {
+		r.scene.ghostUpCable = generateBeltMesh(tempLift, t)
+		r.scene.ghostDownCable = nil
+	} else {
+		r.scene.ghostUpCable = generateCableMesh(tempLift, t, world.CableGap)
+		r.scene.ghostDownCable = generateCableMesh(tempLift, t, -world.CableGap)
+	}
 
 	mats := TowerInstancesForLift(tempLift, t)
 	ghosts := make([]StaticInstance, len(mats))
 	for i, m := range mats {
-		ghosts[i].ColorTint = [3]float32{1, 1, 1}
+		ghosts[i].ColorTint = tint
 		copy(ghosts[i].Transform[:], m[:])
 	}
 	r.SetGhosts(MeshTower, ghosts)
@@ -2059,6 +2094,11 @@ func (r *Renderer) ClearGhostCable() {
 // helicopter lifts, which have no cable infrastructure.
 func (r *Renderer) AddLiftMeshes(lift *world.Lift, t *world.Terrain) {
 	if lift.Cableless() {
+		return
+	}
+	r.RemoveLiftMeshes(lift.ID)
+	if lift.Type.Surface() {
+		r.scene.liftUpCables[lift.ID] = generateBeltMesh(lift, t)
 		return
 	}
 	r.scene.liftUpCables[lift.ID] = generateCableMesh(lift, t, world.CableGap)
@@ -2437,4 +2477,82 @@ func (r *Renderer) drawTrailLayers(vp mgl32.Mat4) {
 		r.trailLayers[i].lines.draw()
 	}
 	gl.DepthMask(true)
+}
+
+// generateBeltMesh builds a magic carpet's belt along the riders' side of
+// the line (the return run is under it): the belt's top at
+// world.BeltHeight over the ground, between low side walls, sampled a
+// metre apart so it follows the snow.
+func generateBeltMesh(lift *world.Lift, t *world.Terrain) *Mesh {
+	const (
+		beltHalf = float32(0.40) // the belt
+		wallIn   = float32(0.45) // the side walls' inner face
+		wallOut  = float32(0.55) // and outer
+		wallTop  = float32(0.30) // over the ground
+		wallSink = float32(-0.3) // into it
+	)
+	b := float32(world.BeltHeight)
+	// Each face of the cross-section runs from a to b (across, up), its
+	// outward normal a→b turned a quarter toward up.
+	type face struct{ a, b [2]float32 }
+	faces := []face{
+		{[2]float32{-beltHalf, b}, [2]float32{beltHalf, b}},
+		{[2]float32{-wallIn, wallTop}, [2]float32{-wallIn, b}},
+		{[2]float32{-wallOut, wallTop}, [2]float32{-wallIn, wallTop}},
+		{[2]float32{-wallOut, wallSink}, [2]float32{-wallOut, wallTop}},
+		{[2]float32{wallIn, b}, [2]float32{wallIn, wallTop}},
+		{[2]float32{wallIn, wallTop}, [2]float32{wallOut, wallTop}},
+		{[2]float32{wallOut, wallTop}, [2]float32{wallOut, wallSink}},
+	}
+	dir, length := lift.Top.Sub(lift.Base), lift.Top.Sub(lift.Base).Len()
+	if length < 1 {
+		length = 1
+	}
+	dir = dir.Mul(1 / length)
+	perp := mgl32.Vec2{-dir[1], dir[0]}
+	var dists []float32
+	for d := float32(0); d < length; d++ {
+		dists = append(dists, d)
+	}
+	dists = append(dists, length)
+
+	var verts []float32
+	var indices []uint32
+	for _, f := range faces {
+		e := mgl32.Vec2{f.b[0] - f.a[0], f.b[1] - f.a[1]}.Normalize()
+		nAcross, nUp := -e[1], e[0]
+		n := mgl32.Vec3{perp[0] * nAcross, nUp, perp[1] * nAcross}
+		start := uint32(len(verts) / 8)
+		for i, d := range dists {
+			c := lift.Base.Add(dir.Mul(d)).Add(perp.Mul(world.CableGap))
+			ground := VisualElevationAt(t, c[0], c[1])
+			for k, p := range [2][2]float32{f.a, f.b} {
+				x, z := c[0]+perp[0]*p[0], c[1]+perp[1]*p[0]
+				verts = append(verts, x, ground+p[1], z, n[0], n[1], n[2], d/length, float32(k))
+			}
+			if i < len(dists)-1 {
+				v := start + uint32(i*2)
+				indices = append(indices, v, v+1, v+2, v+1, v+3, v+2)
+			}
+		}
+	}
+	return NewMesh(verts, indices, []int{3, 3, 2}, nil)
+}
+
+// beltSyncFrames is how often, in frames, belts are rebuilt on the snow.
+const beltSyncFrames = 30
+
+// syncBelts rebuilds every magic carpet's belt every beltSyncFrames
+// frames, so it stays on top of the snow as storms build it up and it
+// melts: a carpet is kept dug out.
+func (r *Renderer) syncBelts(w *world.World) {
+	if r.beltFrame++; r.beltFrame < beltSyncFrames {
+		return
+	}
+	r.beltFrame = 0
+	for _, l := range w.Lifts {
+		if l.Type.Surface() {
+			r.AddLiftMeshes(l, w.Terrain)
+		}
+	}
 }

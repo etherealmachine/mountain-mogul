@@ -602,6 +602,16 @@ func (w *World) RemoveBuilding(id uint64) {
 	}
 }
 
+// LiftByID is the lift with this ID, or nil.
+func (w *World) LiftByID(id uint64) *Lift {
+	for _, l := range w.Lifts {
+		if l.ID == id {
+			return l
+		}
+	}
+	return nil
+}
+
 // PlaceLift creates a lift between two world XZ positions and marks
 // the containing cells as impassable. Cost / affordability gating
 // lives in the caller (the placement tool path) so save load and
@@ -632,7 +642,7 @@ func (w *World) PlaceLift(typ LiftType, bx, bz, tx, tz float32) *Lift {
 	} else {
 		// Initialise chairs evenly spaced around the loop, each pre-sized
 		// to the lift type's per-chair capacity.
-		numChairs := int(lift.LoopLength() / ChairSpacingM)
+		numChairs := int(lift.LoopLength() / typ.PlaceSpacing())
 		if numChairs < 2 {
 			numChairs = 2
 		}

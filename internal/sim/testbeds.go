@@ -290,6 +290,34 @@ var Testbeds = []Testbed{
 		},
 	},
 	{
+		// A magic carpet up a 6° bunny slope with a green run beside it
+		// and three novices (skill 0.05), rested and fed, with day tickets,
+		// who ride only all-green lifts.
+		// The carpet rises about 8 m, short of the 20 m a run off a chair
+		// must drop, so this checks short runs count (Lift.MinRunDrop).
+		//
+		// World: 30×44 cells (150 m × 220 m). Carpet base (15,34), top
+		// (15,18), 80 m. Run from the top round the west side to the base.
+		Name: "Magic carpet, bunny slope, novice skiers",
+		Seed: 1,
+		Build: func() *world.World {
+			waypoints := [][2]int{{15, 17}, {11, 21}, {10, 28}, {12, 33}, {15, 36}}
+			w := scene(30, 44).slope(6).
+				parkingAt(15, 40).
+				liftOfType(world.LiftMagicCarpet, 15, 34, 15, 18).
+				groomedRun(world.DiffGreen, waypoints, 20).
+				goapSkierAt(13, 38, 0.05, 0.5).
+				goapSkierAt(15, 38, 0.05, 0.5).
+				goapSkierAt(17, 38, 0.05, 0.5).
+				build()
+			for _, g := range w.OnMountain {
+				g.HasDayTicket = true // no ticket office here
+				g.Energy, g.Hunger, g.Thirst = 1, 1, 1
+			}
+			return w
+		},
+	},
+	{
 		// Trail divergence: side walls channel the skier, a center patch
 		// blocks the straight line, and the skier spawns 1 cell east of
 		// the corridor centerline. The patch sits well below the spawn so
@@ -961,6 +989,18 @@ func (b *builder) parkingAt(gx, gz int) *builder {
 func (b *builder) liftFromTo(bx, bz, tx, tz int) *builder {
 	const cs = float32(5.0)
 	lift := b.w.PlaceLift(world.LiftDouble,
+		(float32(bx)+0.5)*cs, (float32(bz)+0.5)*cs,
+		(float32(tx)+0.5)*cs, (float32(tz)+0.5)*cs,
+	)
+	lift.Open = true
+	return b
+}
+
+// liftOfType places an open lift of type typ with its base at cell
+// (bx, bz) and its top at cell (tx, tz).
+func (b *builder) liftOfType(typ world.LiftType, bx, bz, tx, tz int) *builder {
+	const cs = float32(5.0)
+	lift := b.w.PlaceLift(typ,
 		(float32(bx)+0.5)*cs, (float32(bz)+0.5)*cs,
 		(float32(tx)+0.5)*cs, (float32(tz)+0.5)*cs,
 	)
