@@ -52,7 +52,7 @@ func main() {
 	camPitch := flag.Float64("camera-pitch", math.NaN(), "initial camera pitch in degrees for -screenshot or -testbed UI mode. Default: 45.")
 	camZoom := flag.Float64("camera-zoom", math.NaN(), "initial camera OrthoScale (world units per half-viewport-height) for -screenshot or -testbed UI mode. Default: auto-fit terrain.")
 	clockHour := flag.Float64("clock-hour", math.NaN(), "-screenshot: jump the clock to this hour of the current day (e.g. 7.5 for 7:30) before capture")
-	dayPace := flag.Float64("day-pace", 0, "-screenshot: run at the speed button nearest this many real seconds a game day (320, 160, 80), quiet nights included, instead of -time-scale")
+	dayPace := flag.Float64("day-pace", 0, "-screenshot: run at the speed button nearest this many real seconds a game day (2560, 80, 40) instead of -time-scale")
 	benchHours := flag.Float64("bench-hours", 0, "-screenshot: keep running frames until this many game hours have passed (overrides -warmup)")
 	timeScale := flag.Float64("time-scale", 0, "-screenshot: run the sim at this speed multiplier during warmup (0 = the save's speed)")
 	groomNow := flag.Bool("groom-now", false, "-screenshot: give every snowcat's section a full grooming pass before capture")

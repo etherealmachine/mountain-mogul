@@ -555,9 +555,9 @@ type Scenario struct {
 	runTool runTool
 	// pathTool is the footpath tool's session while toolFootpath is
 	// active (footpath_tool.go).
-	pathTool  pathTool
+	pathTool pathTool
 	// ropeTool is the rope tool's session while toolRope is active.
-	ropeTool ropeTool
+	ropeTool  ropeTool
 	trailEdit runTool // editing the selected run (editSelectedTrail)
 	trailDraw trailDrawing
 
@@ -629,42 +629,21 @@ const (
 )
 
 // dayPaces are the speed buttons: the real seconds a game day takes at
-// normal, fast, and fastest (Season Calendar). The hours from
-// activeFromHour to activeToHour share the pace less quietSeconds; the
-// quiet rest of the day (night, with nobody on the mountain) passes in
-// quietSeconds. A closed resort's day runs at the pace too, so the
-// buttons work before opening (Boreal Playtest). Nothing runs faster
-// than the fastest button. The sim substeps internally (see Simulation.Tick), so a fast pace only costs
-// CPU; when a busy day needs more than the CPU has, the day runs slower
-// than its pace. Pause is its own button, not in this list. Normal is
-// a game day in about 43 minutes: motion at about 4 times real speed, so
-// chairs and skiers can be followed by eye.
-var dayPaces = []float64{2560, 160, 80}
-
-const (
-	activeFromHour = 6.0
-	activeToHour   = 17.0
-	quietSeconds   = 2.0
-)
+// normal, fast, and fastest (Season Calendar). The whole day, night
+// included, runs at one even rate. A closed resort's day runs at the
+// pace too, so the buttons work before opening (Boreal Playtest).
+// Nothing runs faster than the fastest button. The sim substeps
+// internally (see Simulation.Tick), so a fast pace only costs CPU; when
+// a busy day needs more than the CPU has, the day runs slower than its
+// pace. Pause is its own button, not in this list. Normal is a game day
+// in about 43 minutes: motion at about 4 times real speed, so chairs
+// and skiers can be followed by eye.
+var dayPaces = []float64{2560, 80, 40}
 
 // paceScale is the sim seconds a real second runs at for pace seconds a
-// day: the active hours, or, when quiet, the quiet ones.
-func paceScale(pace float64, quiet bool) float64 {
-	activeHours := activeToHour - activeFromHour
-	if quiet {
-		return (24 - activeHours) * world.SimSecondsPerHour / quietSeconds
-	}
-	return activeHours * world.SimSecondsPerHour / (pace - quietSeconds)
-}
-
-// quietNow reports whether the mountain is quiet: outside the active
-// hours, with no guests or cars about.
-func (s *Scenario) quietNow() bool {
-	h := sim.HourOfDay(s.sim.SimTime)
-	if h >= activeFromHour && h < activeToHour {
-		return false
-	}
-	return len(s.world.OnMountain) == 0 && len(s.world.Cars) == 0
+// day.
+func paceScale(pace float64) float64 {
+	return 24 * world.SimSecondsPerHour / pace
 }
 
 // tickSim runs the sim for a frame of dt real seconds.
@@ -680,7 +659,7 @@ func (s *Scenario) updateTimeScale() {
 		s.sim.TimeScale = s.fixedScale
 		return
 	}
-	s.sim.TimeScale = paceScale(dayPaces[s.pace], s.quietNow())
+	s.sim.TimeScale = paceScale(dayPaces[s.pace])
 }
 
 // NewScenarioFromFile creates a Scenario that loads its initial world from

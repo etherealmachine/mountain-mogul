@@ -12,7 +12,7 @@ Sim time maps to a real date: one calendar day is 24 clock hours of 15 sim-minut
 
 Opening is the player's choice, made from the popup of any building with [[Tickets]]: the resort is open or closed, and when open, the lifts run during opening hours (9 to 4 by default). Closing mid-day empties the lift lines and sends everyone home. The day rollover advances [[Weather]], charges the day's costs to [[Finance]], writes the daily stats, and pauses the game behind the day report.
 
-The speed buttons are real seconds a game day (2560, 160, 80), with quiet nights passing in a couple of seconds; nothing runs faster than the fastest ([[Season Calendar]]).
+The speed buttons are real seconds a game day (2560, 80, 40), at one even rate through the day and night; nothing runs faster than the fastest ([[Season Calendar]]).
 
 The game calendar has 6-day months, open December to April (a 30-day season), with holidays on the 3rd and 6th ([[Season Calendar]]) and speeds set as real time per day.
 
@@ -31,3 +31,5 @@ Code: `internal/sim/calendar.go`, `resort.go`, `sun.go`.
 - 2026-10-10: Still too fast (the user): normal halved again to 2,560 s a day, motion at about 4 times real speed.
 - 2026-10-10: 6-day months, holidays on the 3rd and 6th (the user): Christmas Dec 6, MLK Day Jan 3, Presidents' Day Feb 3, Easter Mar 6, Apr 3 or Apr 6. A game day stands for about five real days.
 - 2026-10-11: A game opens paused and pauses at each midnight rollover ([[Boreal Playtest]]).
+- 2026-10-12: Fast and fastest doubled to 80 s and 40 s a day (the user); normal unchanged at 2,560 s.
+- 2026-10-12: Quiet nights no longer pass in 2 s (the user): the whole day runs at one rate, so a speed button is exactly its seconds a day.
