@@ -61,7 +61,7 @@ From the user, 2026-10-09:
   - Boreal can be made easier with lots of beginner groups, who all want the same green terrain.
   - A challenge can send groups dragging along an advanced skier, who gets bored on greens unless the resort gives them something (terrain nearby, a way to split off and meet up).
 - **Solo skiers stay**: a group of one is a leader with no followers, as today.
-- **Families and children** come later as guest types, with [[Childcare]] and [[Ski School]]; groups come first.
+- **Families and children** come later as guest types, with [[Childcare]] and [[Ski School]]; groups come first. Planned in [[Families]].
 
 ## The gain
 

@@ -10,7 +10,7 @@ How the game ships, from the user, 2026-10-07: a free demo, then early access, t
 
 1. **Free Steam demo** ([[Demo]]): the [[Boreal]] tutorial and [[Kirkwood]], as a separate build of the game with the extras stripped out, and maybe the code obfuscated.
 2. **Early access**: release what the game has, and build on it in public.
-3. **DLC**: snowboarders and the other guest types ([[Guest Types]]), and likely more after.
+3. **DLC**: snowboarders and the other guest types ([[Guest Types]]), and likely more after. Kids and families are in the base game ([[Families]]).
 
 ## The demo build
 
@@ -29,3 +29,4 @@ A different build, not a mode of the full game:
 
 - 2026-10-07: Release path from the user: free Steam demo as its own stripped build, early access, guest types as DLC.
 - 2026-10-07: Dropped the snowboard roll until the DLC ([[Guest Types]]).
+- 2026-10-13: Kids and families moved to the base game (the user, [[Families]]).

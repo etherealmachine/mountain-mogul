@@ -14,6 +14,7 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 In the order to work on them:
 
 1. [[SkiFree Mode]]: ski your own resort on the guests' physics. Steps: take control, chase camera, ride the lift up, timed runs with a ghost, the yeti.
+2. [[Families]]: kids who arrive and ski with their parents, and the [[Ski School]], whose instructors lead classes and whose lessons raise skill for good.
 
 ## Bugs
 
@@ -93,7 +94,6 @@ Diagnose each first, report the cause, then fix:
 - **What each skill wants**: the terrain half is in [[Snow Tastes]]. Beginners want rentals and easy terrain; intermediates want terrain plus food and places to rest; advanced skiers want terrain and no crowds. Feeds [[Demand]] and [[Moments]]. *For* [[Kirkwood]].
 - **Snowboarders**: guests already roll Snowboard but still ski and look like skiers.
 - [[Groups]]: guests who come together ski together, led by one member; followers ski the leader's line with their own physics, tracks and collisions but no planning or steering fan, so a group costs about as much as two skiers ([[Crowd Scale]]). First step: a prototype measuring a follower's cost.
-- **Children and families**: their own guest type, arriving and moving as a group. *Needs* [[Groups]].
 - **Guest goals beyond lapping**: find the shortest line, go to après-ski, stay near the lodge. Powder hunting moved to [[Snow Tastes]].
 - **Regulars**: guests who remember their last visit and come back, or don't. *For* [[Mad River Glen]].
 - **Crowding**: guests notice crowded lodges, not only lift lines; crowded runs are in [[Snow Tastes]]. *For* [[Mad River Glen]].
@@ -317,3 +317,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-12: [[Boreal Tutorial]] played through headless (`tools/tutorial`): the credit line to $1.4M, highlights offset annoyances in reviews ([[Scoreless Rating]]); won on day 19.
 - 2026-10-13: Priority cleared: the [[Demo]] is ready enough (its open steps dropped until a QA pass) and the [[Boreal Playtest]] list is closed.
 - 2026-10-13: [[SkiFree Mode]] planned and ranked first.
+- 2026-10-13: [[Families]] planned and ranked second, with the [[Ski School]]; kids are in the base game, not DLC.

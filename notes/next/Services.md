@@ -33,7 +33,7 @@ Skiing: [[Lifts]] are the skiing service, and their variety is breadth too: the 
 | | [[Demo Shop]] | demo skis (new want) | idea |
 | | [[Tune Shop]] | a tune (new, from ice and falls) | idea |
 | | [[Retail Shop]] | something forgotten (new) | idea |
-| Learning and family | [[Ski School]] | a lesson (new); raises skill | idea |
+| Learning and family | [[Ski School]] | a lesson (new); raises skill | planned in [[Families]] |
 | | [[Childcare]] | families | idea; needs families |
 | Convenience | [[Guest Services]] | questions, lost property; the pass office serves pass holders faster | idea |
 | | [[Lockers]] | storing bags and shoes | idea |
