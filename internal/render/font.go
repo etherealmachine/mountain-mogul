@@ -24,8 +24,9 @@ const (
 )
 
 // fontExtra is the non-ASCII characters the UI's text uses, baked after
-// printable ASCII.
-var fontExtra = []rune("—–→←°×·²…©≈★’é")
+// printable ASCII. Barlow has no arrows, ≈ or ★: the UI draws its stars
+// (Renderer.DrawStar) and avoids the rest.
+var fontExtra = []rune("—–°×·²…©’é")
 
 // fontNumChars is how many glyphs the atlas holds.
 var fontNumChars = fontASCII + len(fontExtra)

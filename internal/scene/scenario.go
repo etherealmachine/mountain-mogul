@@ -1012,20 +1012,17 @@ func (s *Scenario) Init(app *engine.App) error {
 	const topBarH = float32(96)
 	s.topBar = ui.NewTopBar(topBarH)
 	s.topBar.GetCash = func() int { return s.world.Cash }
-	s.topBar.GetDebt = func() (bool, int) {
-		w := s.world
-		left := 0
-		if w.Cash < -w.CreditLimit && !w.Bankrupt {
-			left = max(world.BankruptcyGraceDays-w.DaysBelowFloor, 1)
-		}
-		return w.Cash < 0, left
-	}
+	s.topBar.GetBorrowing = func() bool { return s.world.Cash < 0 }
 	s.topBar.GetGuests = func() int { return len(s.world.OnMountain) }
 	s.topBar.GetRating = func() float32 {
 		if s.sim == nil || s.sim.Demand == nil {
 			return 0
 		}
 		return s.world.Rating
+	}
+	s.topBar.GetRated = func() bool {
+		_, ok := s.world.History.RecentRating()
+		return ok
 	}
 	s.topBar.GetRatingToday = func() (float32, bool) {
 		return s.world.History.DayRating()

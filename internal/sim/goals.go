@@ -103,6 +103,12 @@ func updateGoal(w *world.World, g world.Goal, p *world.GoalProgress, sample worl
 		p.Best = max(p.Best, float64(sample.ArrivalsToday))
 		return float64(sample.ArrivalsToday) >= g.Target
 	case world.GoalRating:
+		// Only a day guests reviewed counts: the rating holds its last
+		// value (or the starting 3★) through a day nobody left, so an
+		// empty resort would otherwise keep any rating it started with.
+		if sample.Reviews.N == 0 {
+			return p.Streak >= max(g.Days, 1)
+		}
 		return streak(float64(w.Rating) >= g.Target)
 	case world.GoalCash:
 		p.Best = max(p.Best, float64(w.Cash))

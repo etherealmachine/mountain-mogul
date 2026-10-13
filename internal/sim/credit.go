@@ -35,16 +35,11 @@ func (s *Simulation) applyCredit(dayIdx int) int {
 	}
 	if w.Cash < -w.CreditLimit {
 		w.DaysBelowFloor++
-		switch left := world.BankruptcyGraceDays - w.DaysBelowFloor; {
-		case left <= 0:
+		// The days left show as a notification (sim/hints.go).
+		if world.BankruptcyGraceDays-w.DaysBelowFloor <= 0 {
 			w.Bankrupt = true
 			w.LogEvent(world.EventFinance, s.SimTime, fmt.Sprintf(
 				"Bankrupt: cash below the credit floor for %d days", world.BankruptcyGraceDays))
-		case w.DaysBelowFloor == 1:
-			w.LogEvent(world.EventFinance, s.SimTime, fmt.Sprintf(
-				"Cash below the credit floor: %d days to recover", left))
-		case left == 7:
-			w.LogEvent(world.EventFinance, s.SimTime, "Cash below the credit floor: 7 days to recover")
 		}
 	} else if w.DaysBelowFloor > 0 {
 		w.DaysBelowFloor = 0

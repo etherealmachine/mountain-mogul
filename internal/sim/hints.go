@@ -67,6 +67,7 @@ func (s *Simulation) logSetupHints() {
 	}
 	day := dayIndex(s.SimTime) + 1 // 0 means never
 	hints := append(setupHints(s.World), s.groomHints()...)
+	hints = append(s.bankruptcyHint(), hints...)
 	// A hint that no longer holds comes down, wherever it is in the feed.
 	holds := make(map[string]bool, len(hints))
 	keys := make(map[string]bool, len(hints))
@@ -131,4 +132,19 @@ func (s *Simulation) groomHints() []setupHint {
 		out = append(out, setupHint{key: fmt.Sprintf("groom:%d", t.ID), msg: t.Name + " can't be groomed", at: at})
 	}
 	return out
+}
+
+// bankruptcyHint is the days left before bankruptcy, while cash is below
+// the credit floor: one notification, replaced each day as it counts down.
+func (s *Simulation) bankruptcyHint() []setupHint {
+	w := s.World
+	if w.Bankrupt || w.Cash >= -w.CreditLimit {
+		return nil
+	}
+	left := max(world.BankruptcyGraceDays-w.DaysBelowFloor, 1)
+	msg := fmt.Sprintf("%d days to bankruptcy", left)
+	if left == 1 {
+		msg = "1 day to bankruptcy"
+	}
+	return []setupHint{{key: msg, msg: msg}}
 }

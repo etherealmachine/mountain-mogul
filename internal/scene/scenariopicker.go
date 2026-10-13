@@ -26,7 +26,8 @@ import (
 // Back returns to the start menu.
 type ScenarioPicker struct {
 	app     *engine.App
-	buttons []*ui.Button // editor mode: the scenarios; both modes: Back last
+	buttons []*ui.Button // editor mode: the scenarios
+	back    *ui.Button   // top left, away from where New Game was clicked
 	// open, when set, opens the picked file ("" for a blank world) and
 	// lists files as buttons, with a "New blank scenario" entry. The
 	// editor's picker sets it (NewEditorScenarioPicker).
@@ -141,7 +142,7 @@ func (s *ScenarioPicker) Init(app *engine.App) error {
 			s.open("")
 		})
 	}
-	addBtn("Back", func() { s.app.PopScene() })
+	s.back = ui.NewButton(24, 24, 120, pickerBtnH, "Back", func() { s.app.PopScene() })
 	return nil
 }
 
@@ -213,7 +214,7 @@ func (s *ScenarioPicker) Update(dt float64) {
 		s.play(s.cards[0])
 		return
 	}
-	for _, btn := range s.buttons {
+	for _, btn := range append(s.buttons, s.back) {
 		btn.SetHovered(btn.Contains(mx, my))
 		if inp.LeftClick && btn.Contains(mx, my) {
 			btn.Click()
@@ -240,6 +241,7 @@ func (s *ScenarioPicker) Render(r *render.Renderer) {
 	for _, btn := range s.buttons {
 		drawables = append(drawables, btn)
 	}
+	drawables = append(drawables, s.back)
 	r.DrawUI(drawables)
 }
 
@@ -261,7 +263,7 @@ func (c *scenarioCard) Draw(r *render.Renderer) {
 	tx, ty := c.x+cardPad, c.y+cardPad
 	r.Font.DrawText(r, c.entry.label(), tx, ty, mgl32.Vec4{1, 0.95, 0.8, 1})
 	if c.hovered {
-		play := "Play →"
+		play := "Play"
 		r.Font.DrawText(r, play, c.x+c.w-cardPad-r.Font.TextWidth(play), ty, mgl32.Vec4{0.6, 0.95, 0.65, 1})
 	}
 	r.Font.DrawText(r, scenarioSubtitle(c.entry.info), tx, ty+lineH, mgl32.Vec4{0.65, 0.75, 0.9, 1})
