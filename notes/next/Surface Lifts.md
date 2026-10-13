@@ -1,7 +1,7 @@
 ---
 title: Surface Lifts
 kind: plan
-status: planned
+status: in progress
 ---
 
 # Surface Lifts
@@ -27,9 +27,9 @@ A surface lift is a lift type on the chair loop the lifts already run (`tickLift
 
 In order. Each step builds with `go build` and `go vet`, and is checked headless on the Boreal Goals Test and on screen.
 
-1. **The magic carpet.** `LiftMagicCarpet` added at the end of the type enum (old saves keep their values). One rider per place, places about 3 m apart (a per-type spacing replacing `ChairSpacingM` in `PlaceLift`), belt speed about 1 m/s, riding at ground height. No towers or cable. A small station geometry (head and tail housings, a short flat) so `MinLiftLength` is short. One operator at the base (a per-type operator count in `Headcount` and `StaffPosts`). Placement checks in the lift tool, per type: a carpet runs up to about 120 m and up to about 12°. Cheap to build and run (numbers set in the balance pass, step 6). Riders stand, and at the top step straight off onto a short run-out with no peel; no unload falls.
-2. **Short runs count.** Today a trail edge needs 20 m of drop (`trailMinDescentMeters`, `world/trail_graph.go`; `minDescentMeters` in `ai/goap/action.go`), so a carpet with 10 m of rise serves no runs and nobody rides it. Edges from a short lift's top count with a drop scaled to the lift's own rise (at least a few metres). Then check that novices pick the carpet, the "No runs off" hint stays quiet, and the novice boredom bug improves with a carpet beside Kiss A Bear.
-3. **The carpet's look.** A belt draped on the ground between the housings, with side rails, as a build123d model ([[Model Pipeline]]); riders drawn standing, not seated; the return run hidden.
+1. Done: **The magic carpet.** `LiftMagicCarpet` (Lifts menu, full game only): one standing rider per place, places 2.5 m apart, 1 m/s, at `BeltHeight` (0.12 m) over the ground; no towers or cable; `beltStation` ends, no station house: the belt's end plate and a control post with stop and start buttons (`lib/carpet_kit.py`; the top end, `magic_carpet_top.py`, is the base mirrored, since the belt runs on one side of the line); one operator at the base's post; up to 120 m (about 400 ft, the long end of real carpets) and 12° over any 10 m (`liftLineProblem`: the ghost, belt and all, turns red and the hint says why). $90k plus $600 a metre, $200 a day plus the operator. Riders glide straight off over the top's end plate for 3 m (no peel, no falls). A 4 m tree corridor and small aprons.
+2. Done: **Short runs count.** A run off a lift's top counts if it drops half the lift's rise, between 3 and 20 m (`Lift.MinRunDrop`, used by the trail graph and the SkiTo* actions). On the "Magic carpet, bunny slope, novice skiers" testbed (8 m of rise) novices queue, ride, ski the green and lap. Left: the novice boredom bug on Boreal with a carpet beside Kiss A Bear (step 6).
+3. Done: **The carpet's look.** The belt between low side walls, drawn on the snow and rebuilt every 30 frames so storms don't bury it (`generateBeltMesh`, `syncBelts`); the end models (`magic_carpet_end.py`, `magic_carpet_top.py`); riders standing in their ski stance.
 4. **The rope tow.** A second ground-riding type: a rope on low posts, riders gripping it and sliding up a packed track on their skis. Longer and steeper than a carpet (up to about 300 m and 25°). Novices don't ride it. Riders can fall off: a chance by skill on each ride, after which they let go, get up beside the track, and ski down or rejoin the line, annoyed ("fell off the rope tow"). The track packs the snow under it.
 5. **The T-bar.** Towers and a cable like a chair, with T-shaped hangers pulling two riders side by side up a track (one if riding alone). Long and steep (up to about 1,500 m). Falls as for the rope tow, more likely for beginners. A model for the towers, the bar and the stations.
 6. **Balance and placement.** Costs and running costs for the three types against chairs; Boreal with a carpet by the base and Kirkwood with its OpenStreetMap carpets and T-bar placed; measure novice boredom, falls on tows, and line waits.
@@ -42,3 +42,6 @@ In order. Each step builds with `go build` and `go vet`, and is checked headless
 
 - 2026-10-13: Planned with the user: all three surface lifts, the carpet first and always open, anyone may ride.
 - 2026-10-13: Novices avoid rope tows and T-bars; surface lifts keep running in wind (the user).
+- 2026-10-13: Steps 1–3 built: the magic carpet, short runs counting, its belt and end model. Found on the way: testbed guests built with `goapSkierAt` start with no energy or day ticket, so they plan to go home at once; the carpet testbed fills both.
+- 2026-10-13: No station house on the carpet (the user); its operator stands by the belt. The illegal ghost looked like it vanished, since the belt line was never tinted and drew pale grey on snow: ghost cables and belts now take the placement tint, and the hint names the problem while hovering.
+- 2026-10-13: A control post with stop and start buttons at each end (the user). The top end was the base model turned to face down the line, which put its plate on the far side from the belt; it's now its own mirrored model.

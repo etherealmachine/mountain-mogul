@@ -48,3 +48,4 @@ Code: `internal/world/lift.go`. Upgrades: `UpgradeLift` in `internal/world/world
 - 2026-10-13: Detachable terminal reworked after Red Dog (the user): wheel in the roof, chairs flat at loading height through the terminal (no raised rails), load point 4.5 m in front of the wheel, roof down to 4.6 m at the eaves; the fixed-grip station's roof lowered to 4.2 m.
 - 2026-10-13: Station roofs replaced by a low housing that encloses the cable and bullwheel, underside 2.6 m, top about 4.3 m; the chairs hang out of slots (the user: still too tall).
 - 2026-10-13: Planned [[Surface Lifts]]: magic carpet, rope tow and T-bar on the chair loop at ground height.
+- 2026-10-13: The magic carpet: a belt of standing riders at ground height, one operator, up to 120 m and 12°; runs off a short lift's top count with half its rise in drop ([[Surface Lifts]]).

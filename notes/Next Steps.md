@@ -15,7 +15,7 @@ In the order to work on them:
 
 1. [[SkiFree Mode]]: ski your own resort on the guests' physics. Steps: take control, chase camera, ride the lift up, timed runs with a ghost, the yeti.
 2. [[Families]]: kids who arrive and ski with their parents, and the [[Ski School]], whose instructors lead classes and whose lessons raise skill for good.
-3. [[Surface Lifts]]: the magic carpet, then the rope tow and the T-bar; short lifts' runs counting so novices ride them.
+3. [[Surface Lifts]]: the magic carpet is in (steps 1–3); next the rope tow, the T-bar, and balance.
 
 ## Bugs
 
