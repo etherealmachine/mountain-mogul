@@ -131,18 +131,19 @@ func (m *ropeMesher) mesh() *Mesh {
 	return NewMesh(m.verts, m.idxs, []int{3, 3, 2}, nil)
 }
 
-// generateRopeMesh builds every rope line, nil when there are none.
+// generateRopeMesh builds every rope line (the player's and the lift
+// corrals'), nil when there are none.
 func generateRopeMesh(w *world.World) *Mesh {
 	var m ropeMesher
-	for _, r := range w.Ropes {
-		m.line(w.Terrain, r.Nodes)
+	for _, nodes := range w.RopeLines() {
+		m.line(w.Terrain, nodes)
 	}
 	return m.mesh()
 }
 
 // syncRopes rebuilds the rope mesh when the ropes have changed.
 func (r *Renderer) syncRopes(w *world.World) {
-	if r.scene.ropeRev == w.RopesRev && (r.scene.ropeMesh != nil || len(w.Ropes) == 0) {
+	if r.scene.ropeRev == w.RopesRev && (r.scene.ropeMesh != nil || !w.HasRopes()) {
 		return
 	}
 	if r.scene.ropeMesh != nil {

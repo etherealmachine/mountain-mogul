@@ -52,3 +52,4 @@ Ropes the player puts up to guide skiers: they can't cross them, so the player s
 - 2026-10-10: Noted with the user: rope lines to help guide skiers. Folds in "Ropes and signs at trail splits" (2026-10-08).
 - 2026-10-10: The user: ropes are cheap; skiers try not to cross them, but crossing is fine and nothing collides; the ski area boundary is a rope with the same rules.
 - 2026-10-10: Built the Rope tool, skier and route avoidance, and the soft boundary (see Built).
+- 2026-10-12: Lift corrals' ropes are in the rope index with the player's (`World.RopeLines`), and walkers go round ropes in their way (`walkClear`) ([[Lift Lines]]).

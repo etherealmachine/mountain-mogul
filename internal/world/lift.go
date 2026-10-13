@@ -287,6 +287,13 @@ type Lift struct {
 	// step out to. Set by UpdateQueueFolds; not saved.
 	QueueFold     int
 	QueueFoldSide float32
+	// CorralRows is how many rows each lane of the line attendant's corral
+	// has, 0 for no corral (lift_corral.go). Not saved.
+	CorralRows int
+	corralRoom int // the most rows its lanes can have here (updateCorralRoom)
+	// mergeTurn is the lane (1 or 2) whose turn it is to send guests into
+	// the run, and mergeTaken how many it has sent this turn.
+	mergeTurn, mergeTaken int
 }
 
 // LoopLength returns the total length of the chair loop in metres (2× cable length).

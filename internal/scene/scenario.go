@@ -750,6 +750,20 @@ func (s *Scenario) LoadDetailHeights(path string) error {
 	return nil
 }
 
+// HireLineAttendants opens the resort and every lift, puts a line
+// attendant on each (for -screenshot), and returns where each lift's
+// base is.
+func (s *Scenario) HireLineAttendants() []string {
+	s.sim.SetResortOpen(true)
+	var out []string
+	for _, l := range s.world.Lifts {
+		l.Staff.LineAttendant, l.Fill, l.Open = true, 0, true
+		out = append(out, fmt.Sprintf("%s base %.0f,%.0f", l.Name, l.Base[0], l.Base[1]))
+	}
+	s.world.UpdateLineLayouts()
+	return out
+}
+
 // GroomNow gives every cat's section a full grooming pass at once.
 func (s *Scenario) GroomNow() {
 	if s.sim != nil {

@@ -55,6 +55,7 @@ func main() {
 	dayPace := flag.Float64("day-pace", 0, "-screenshot: run at the speed button nearest this many real seconds a game day (2560, 80, 40) instead of -time-scale")
 	benchHours := flag.Float64("bench-hours", 0, "-screenshot: keep running frames until this many game hours have passed (overrides -warmup)")
 	timeScale := flag.Float64("time-scale", 0, "-screenshot: run the sim at this speed multiplier during warmup (0 = the save's speed)")
+	lineAttendants := flag.Bool("line-attendants", false, "-screenshot: open the resort and every lift, and hire each a line attendant, before warmup")
 	groomNow := flag.Bool("groom-now", false, "-screenshot: give every snowcat's section a full grooming pass before capture")
 	detailFile := flag.String("detail-file", "", "-screenshot: draw the ground from a detail heights file (from tools/lidar)")
 	detailTest := flag.Bool("detail-test", false, "-screenshot: replace terrain detail with a synthetic bump-and-step pattern, for checking mesh seams")
@@ -114,33 +115,34 @@ func main() {
 		stopProfile := startInteractiveProfiles(*cpuProfile, *memProfile)
 		defer stopProfile()
 		runScreenshot(screenshotOpts{
-			outPath:       *screenshot,
-			testbedName:   *testbed,
-			loadPath:      *loadPath,
-			warmupFrames:  *warmupFrames,
-			regenForest:   *regenForest,
-			forestSeed:    *forestSeed,
-			camTargetX:    *camTargetX,
-			camTargetZ:    *camTargetZ,
-			camYaw:        *camYaw,
-			camPitch:      *camPitch,
-			camZoom:       *camZoom,
-			seed:          *seed,
-			overlayMode:   *overlayMode,
-			clockHour:     *clockHour,
-			timeScale:     *timeScale,
-			dayPace:       *dayPace,
-			benchHours:    *benchHours,
-			storm:         *storm,
-			showGoals:     *showGoals,
-			showChart:     *showChart,
-			showBuilding:  *showBuilding,
-			followRider:   *followRider,
-			followGuest:   *followGuest,
-			figureGallery: *figureGallery,
-			groomNow:      *groomNow,
-			detailTest:    *detailTest,
-			detailFile:    *detailFile,
+			outPath:        *screenshot,
+			testbedName:    *testbed,
+			loadPath:       *loadPath,
+			warmupFrames:   *warmupFrames,
+			regenForest:    *regenForest,
+			forestSeed:     *forestSeed,
+			camTargetX:     *camTargetX,
+			camTargetZ:     *camTargetZ,
+			camYaw:         *camYaw,
+			camPitch:       *camPitch,
+			camZoom:        *camZoom,
+			seed:           *seed,
+			overlayMode:    *overlayMode,
+			clockHour:      *clockHour,
+			timeScale:      *timeScale,
+			dayPace:        *dayPace,
+			benchHours:     *benchHours,
+			storm:          *storm,
+			showGoals:      *showGoals,
+			showChart:      *showChart,
+			showBuilding:   *showBuilding,
+			followRider:    *followRider,
+			followGuest:    *followGuest,
+			figureGallery:  *figureGallery,
+			groomNow:       *groomNow,
+			lineAttendants: *lineAttendants,
+			detailTest:     *detailTest,
+			detailFile:     *detailFile,
 		})
 		return
 	}
@@ -303,6 +305,7 @@ type screenshotOpts struct {
 	followGuest            string
 	figureGallery          bool
 	groomNow               bool
+	lineAttendants         bool
 	detailTest             bool
 	detailFile             string
 }
@@ -420,6 +423,11 @@ func runScreenshot(opt screenshotOpts) {
 		fmt.Println("screenshot: synthetic terrain detail")
 	}
 
+	if opt.lineAttendants {
+		for _, l := range sc.HireLineAttendants() {
+			fmt.Println("screenshot: line attendant at", l)
+		}
+	}
 	if opt.groomNow {
 		sc.GroomNow()
 		fmt.Println("screenshot: groomed every section")

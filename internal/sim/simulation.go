@@ -789,7 +789,7 @@ func (s *Simulation) tickGuests(dt float64) {
 			s.tickResting(agent, dt)
 		case agent.SkiTransitionTimer != 0:
 			s.tickSkiTransition(agent, dt)
-		case len(agent.Path) > 0 && agent.PathIdx < len(agent.Path):
+		case len(agent.Path) > 0 && agent.PathIdx < len(agent.Path) || s.repathToLine(agent):
 			s.tickPath(agent, dt)
 		case s.holdForGroup(agent):
 			// Waiting at the top for the group, at their hold spot
@@ -1897,7 +1897,9 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		if wait >= world.LongLineWait {
 			s.applyEvent(a, ai.ThoughtLongLine, lift.ID)
 		}
-		lift.JoinLine(a, s.SimTime)
+		if lift.JoinLine(a, s.SimTime) {
+			w.RebuildRopes()
+		}
 		a.Queued = true
 		a.TargetID = 0
 	case ai.ActRideLift:
@@ -2262,6 +2264,12 @@ func planActionPreconditionHolds(step ai.PlanAction, snap goap.WorldSnapshot, w 
 	switch step.Kind {
 	case ai.ActWalkToLift, ai.ActJoinQueue, ai.ActRideLift, ai.ActSkiToLift:
 		l := findLiftByID(w, step.LiftID)
+		if step.Kind == ai.ActRideLift && snap.Queued != step.LiftID && snap.OnLift != step.LiftID {
+			// Riding needs them in its line or on it: a follower who
+			// copied the leader's plan past the line stood waiting for
+			// a chair for hours.
+			return false
+		}
 		return l != nil && l.Open && !l.OnHold
 	case ai.ActSkiToService, ai.ActSkiToParking, ai.ActWalkToParking,
 		ai.ActDepart, ai.ActWalkToTicketOffice, ai.ActWalkToService, ai.ActBuySeasonPass, ai.ActBuyDayTicket:
@@ -2544,6 +2552,11 @@ func (s *Simulation) recordWalkTick(a *world.Guest, target mgl32.Vec3) {
 // through to goal-based locomotion next tick.
 func (s *Simulation) tickPath(agent *world.Guest, dt float64) {
 	w := s.World
+	// A waypoint in a station's hut or under a top terminal can't be
+	// reached: go on to the next.
+	for agent.PathIdx < len(agent.Path)-1 && inStationHazard(w, agent.Path[agent.PathIdx]) {
+		agent.PathIdx++
+	}
 	target := agent.Path[agent.PathIdx]
 	tx := (float32(target[0]) + 0.5) * CellSize
 	tz := (float32(target[1]) + 0.5) * CellSize
@@ -2562,7 +2575,8 @@ func (s *Simulation) tickPath(agent *world.Guest, dt float64) {
 	if st := agent.Plan.Head(); st.Kind == ai.ActWalkToLift {
 		if l := findLiftByID(w, st.LiftID); l != nil {
 			p := liftApproachWorldPos(w, l, agent)
-			if agent.PathIdx == len(agent.Path)-1 || (mgl32.Vec2{p[0] - agent.Pos[0], p[2] - agent.Pos[2]}).Len() < walkToLineNear {
+			if d := (mgl32.Vec2{p[0] - agent.Pos[0], p[2] - agent.Pos[2]}).Len(); d < walkToLineNear ||
+				agent.PathIdx == len(agent.Path)-1 && d < walkToLineNear+5 {
 				targetPos, toLine = p, true
 			}
 		}
@@ -2580,6 +2594,7 @@ func (s *Simulation) tickPath(agent *world.Guest, dt float64) {
 		if toLine {
 			agent.PathIdx = len(agent.Path)
 		}
+		s.repathToMovedLine(agent)
 		if agent.PathIdx >= len(agent.Path) {
 			agent.Path = nil
 			agent.PathIdx = 0
@@ -2642,22 +2657,62 @@ func (s *Simulation) walkClear(pos mgl32.Vec3, dir mgl32.Vec2, dist float32) mgl
 		}
 		return t.Normalize()
 	}
+	// Nor across a rope (the player's, or a lift corral's): walk along it
+	// toward whichever end makes the shorter way round to the goal.
+	// A goal just over one is inside it (a waypoint in a corral): step
+	// over, or they turn back and forth at the rope.
+	if s.World.HasRopes() && dist > walkRopeGoalNear {
+		if _, c, d, ok := s.World.RopeCrossingSeg(at, at.Add(dir.Mul(min(dist, walkRopeLook)))); ok {
+			along := d.Sub(c).Normalize()
+			if at.Sub(c).Len()+c.Sub(goal).Len() < at.Sub(d).Len()+d.Sub(goal).Len() {
+				along = along.Mul(-1)
+			}
+			// In a corner, with a rope that way too, they step over:
+			// a rope isn't a wall.
+			if !s.World.RopeCrosses(at, at.Add(along.Mul(walkRopeLook))) {
+				return along
+			}
+		}
+	}
 	// Nor under a top station or into a hut (stationHazards): if the way
-	// ahead goes in, step aside along whichever side stays out. Once
-	// inside, they walk on out.
+	// ahead goes in, step aside on the side of the box the goal is on.
+	// That side holds as they go along it (the box's bearing turns faster
+	// than the goal's beyond it); choosing by which side is further from
+	// the box flipped every tick for a walker heading straight at it, who
+	// then stood shaking (Boreal Playtest). Once inside, they walk on out.
 	ahead := at.Add(dir.Mul(min(dist, walkClearance+1)))
 	for _, b := range stationHazards(s.World, at[0], at[1], walkClearance+2, nil) {
-		if !b.Contains(ahead, walkStationMargin) || b.Contains(at, 0) {
-			continue
+		if !b.Contains(ahead, walkStationMargin) || b.Contains(at, 0) || b.Contains(goal, walkStationMargin) {
+			continue // a goal in the box: no way round to it
 		}
 		left, right := mgl32.Vec2{-dir[1], dir[0]}, mgl32.Vec2{dir[1], -dir[0]}
-		if b.Dist(at.Add(left)) >= b.Dist(at.Add(right)) {
+		to, g := b.Center.Sub(at), goal.Sub(at)
+		if to[0]*g[1]-to[1]*g[0] >= 0 {
 			return left
 		}
 		return right
 	}
 	return dir
 }
+
+// inStationHazard reports whether cell c's centre is in (or within
+// walkStationMargin of) a station hut or top terminal (stationHazards).
+func inStationHazard(w *world.World, c [2]int) bool {
+	p := mgl32.Vec2{(float32(c[0]) + 0.5) * CellSize, (float32(c[1]) + 0.5) * CellSize}
+	for _, b := range stationHazards(w, p[0], p[1], walkStationMargin, nil) {
+		if b.Contains(p, walkStationMargin) {
+			return true
+		}
+	}
+	return false
+}
+
+// walkRopeLook is how far ahead a walker looks for a rope in the way,
+// metres; within walkRopeGoalNear of their goal they don't go round.
+const (
+	walkRopeLook     = float32(1.5)
+	walkRopeGoalNear = float32(4)
+)
 
 // walkStationMargin is how far outside a station's footprint a walker's
 // way must stay, metres.
@@ -2688,7 +2743,7 @@ func (s *Simulation) tickQueued(agent *world.Guest, dt float64) {
 		}
 		x, z := lift.LinePlaceXZ(agent, idx)
 		slot := mgl32.Vec3{x, w.Terrain.InterpolatedSurfaceElevationAt(x, z), z}
-		s.tickWalkToward(agent, slot, dt)
+		s.shuffleToward(agent, slot, dt)
 		// Always face the lift base — tickWalkToward sets heading to the
 		// walk direction, but skiers who've reached their slot need to
 		// keep looking forward instead of holding whatever heading they
@@ -2700,6 +2755,28 @@ func (s *Simulation) tickQueued(agent *world.Guest, dt float64) {
 		}
 		return
 	}
+}
+
+// lineSnap is how close to their place in line a guest steps onto it,
+// metres. tickWalkToward's ArrivalThreshold (2 m) is a whole place: with
+// it, guests hopped a place at a time and zipped through a corral's lanes.
+const lineSnap = float32(0.15)
+
+// shuffleToward walks a guest in line toward target at walking pace.
+func (s *Simulation) shuffleToward(agent *world.Guest, target mgl32.Vec3, dt float64) {
+	d := mgl32.Vec2{target[0] - agent.Pos[0], target[2] - agent.Pos[2]}
+	dist := d.Len()
+	if dist < lineSnap {
+		agent.Pos, agent.Speed = target, 0
+		return
+	}
+	dir := s.walkClear(agent.Pos, d.Mul(1/dist), dist)
+	speed := s.walkSpeed(agent)
+	step := min(float32(speed*dt), dist)
+	agent.Pos[0] += dir[0] * step
+	agent.Pos[2] += dir[1] * step
+	agent.Pos[1] = s.World.Terrain.InterpolatedSurfaceElevationAt(agent.Pos[0], agent.Pos[2])
+	agent.Speed = float32(speed)
 }
 
 // tickRiding glues the agent to its current chair's position. Seat
@@ -2945,6 +3022,55 @@ func clipInToRide(a *world.Guest) {
 // leaves their route for it, metres.
 const walkToLineNear = float32(10)
 
+// repathToMovedLine re-routes a walker heading for a lift line whose
+// route no longer ends at it: a crowd has grown past the route's end, or
+// a corral's entrance has moved as it grew.
+func (s *Simulation) repathToMovedLine(a *world.Guest) {
+	st := a.Plan.Head()
+	if st.Kind != ai.ActWalkToLift || a.PathIdx >= len(a.Path) {
+		return
+	}
+	l := findLiftByID(s.World, st.LiftID)
+	if l == nil {
+		return
+	}
+	pos := mgl32.Vec2{a.Pos[0], a.Pos[2]}
+	end := l.BackOfQueueCell(pos)
+	if last := a.Path[len(a.Path)-1]; max(last[0]-end[0], end[0]-last[0]) <= 1 && max(last[1]-end[1], end[1]-last[1]) <= 1 {
+		return
+	}
+	cell := [2]int{int(math.Floor(float64(pos[0] / CellSize))), int(math.Floor(float64(pos[1] / CellSize)))}
+	if path := s.Pathfinder.FindPath(cell, end); len(path) > 0 {
+		a.Path, a.PathIdx = path, 0
+	}
+}
+
+// repathToLine gives a walker heading for a lift line a new route when
+// they've none and the line is well beyond where they left the last
+// (a corral's entrance moves as it grows), and reports whether it did.
+// Without one they walked straight at it, into the corral's ropes.
+func (s *Simulation) repathToLine(a *world.Guest) bool {
+	st := a.Plan.Head()
+	if st.Kind != ai.ActWalkToLift || a.SkisOn || a.Queued {
+		return false
+	}
+	l := findLiftByID(s.World, st.LiftID)
+	if l == nil {
+		return false
+	}
+	pos := mgl32.Vec2{a.Pos[0], a.Pos[2]}
+	if l.LineEndXZ(pos).Sub(pos).Len() < walkToLineNear+5 {
+		return false
+	}
+	cell := [2]int{int(math.Floor(float64(pos[0] / CellSize))), int(math.Floor(float64(pos[1] / CellSize)))}
+	path := s.Pathfinder.FindPath(cell, l.BackOfQueueCell(pos))
+	if len(path) == 0 {
+		return false
+	}
+	a.Path, a.PathIdx = path, 0
+	return true
+}
+
 // lineWayReach is how close to a point on the way round a lift line a
 // guest must come before choosing the next, metres; lineWayKeep is how
 // long one is kept at most, sim seconds.
@@ -2977,9 +3103,10 @@ func liftApproachWorldPos(w *world.World, l *world.Lift, a *world.Guest) mgl32.V
 	at := func(p mgl32.Vec2) mgl32.Vec3 {
 		return mgl32.Vec3{p[0], w.Terrain.InterpolatedSurfaceElevationAt(p[0], p[1]), p[1]}
 	}
-	if l.IsCrowd() {
-		// The edge of the crowd nearest them: no way round it.
-		return at(l.CrowdArrivalXZ(pos))
+	if l.IsCrowd() || l.HasCorral() {
+		// The edge of the crowd nearest them, or the corral's entrance:
+		// its ropes steer them round it.
+		return at(l.LineEndXZ(pos))
 	}
 	if a.LineWayLift == l.ID && w.SimTime-a.LineWayAt < lineWayKeep && a.LineWay.Sub(pos).Len() > lineWayReach {
 		return at(a.LineWay)

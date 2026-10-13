@@ -107,13 +107,14 @@ func (w *World) RebuildRopes() {
 		return
 	}
 	idx := ropeIndex{w: t.Width, h: t.Height}
-	if len(w.Ropes) > 0 {
+	lines := w.RopeLines()
+	if len(lines) > 0 {
 		idx.segs = make([][]ropeSeg, t.Width*t.Height)
 		idx.cells = make([]bool, t.Width*t.Height)
 	}
-	for _, r := range w.Ropes {
-		for i := 1; i < len(r.Nodes); i++ {
-			seg := ropeSeg{r.Nodes[i-1], r.Nodes[i]}
+	for _, nodes := range lines {
+		for i := 1; i < len(nodes); i++ {
+			seg := ropeSeg{nodes[i-1], nodes[i]}
 			x0 := int(min(seg.a[0], seg.b[0])/CellSize) - 1
 			x1 := int(max(seg.a[0], seg.b[0])/CellSize) + 1
 			z0 := int(min(seg.a[1], seg.b[1])/CellSize) - 1
@@ -130,6 +131,16 @@ func (w *World) RebuildRopes() {
 		}
 	}
 	w.ropes = idx
+}
+
+// RopeLines is every rope up, as lines of nodes: the player's and the
+// lift corrals'.
+func (w *World) RopeLines() [][]mgl32.Vec2 {
+	out := w.CorralRopeLines()
+	for _, r := range w.Ropes {
+		out = append(out, r.Nodes)
+	}
+	return out
 }
 
 // segCrossesCell reports whether stretch s passes through cell (cx, cz).
@@ -207,6 +218,31 @@ func (w *World) RopeCrossing(a, b mgl32.Vec2) (float32, bool) {
 		}
 	}
 	return best, found
+}
+
+// RopeCrossingSeg is RopeCrossing with the stretch of rope crossed: its
+// two ends.
+func (w *World) RopeCrossingSeg(a, b mgl32.Vec2) (u float32, c, d mgl32.Vec2, ok bool) {
+	idx := &w.ropes
+	if idx.segs == nil {
+		return 0, c, d, false
+	}
+	u = 2
+	dir := b.Sub(a)
+	n := int(dir.Len()/CellSize) + 1
+	for i := 0; i <= n; i++ {
+		p := a.Add(dir.Mul(float32(i) / float32(n)))
+		cx, cz := int(p[0]/CellSize), int(p[1]/CellSize)
+		if p[0] < 0 || p[1] < 0 || cx >= idx.w || cz >= idx.h {
+			continue
+		}
+		for _, s := range idx.segs[cx*idx.h+cz] {
+			if v, hit := segIntersect(a, b, s.a, s.b); hit && v < u {
+				u, c, d, ok = v, s.a, s.b, true
+			}
+		}
+	}
+	return u, c, d, ok
 }
 
 // RopeCrosses reports whether the straight line from a to b crosses a

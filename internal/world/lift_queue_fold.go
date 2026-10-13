@@ -6,13 +6,13 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 )
 
-// A lift with a line attendant has a single-file line running out from
-// the base along queueDir (without one it's a crowd: lift_crowd.go). Left
+// A lift with neither a crowd (lift_crowd.go) nor a corral
+// (lift_corral.go), a helicopter, has a single-file line running out from
+// the base along queueDir. Left
 // alone a long line runs straight on into whatever is downhill (a parking
 // lot, a lodge), so it folds into switchback lanes QueueFoldLaneGap apart
 // before it gets there. Arrivals come to the back of the line from
-// outside it (QueueApproachXZ) instead of walking through it. A stopgap
-// until the attendant lays out a maze (Lift Lines step 3).
+// outside it (QueueApproachXZ) instead of walking through it.
 
 const (
 	// QueueFoldLaneGap is the distance between switchback lanes, metres.
@@ -23,8 +23,8 @@ const (
 	queueFoldMin = 6
 	// queueFoldClear is how far from the base the lanes after the first
 	// start, metres: clear of the station's legs and hut, which stand
-	// beside the first few places.
-	queueFoldClear = float32(6)
+	// beside the first few places (the hut reaches about 4.6 m out).
+	queueFoldClear = float32(10)
 	// queueFoldLanes is how many lanes the fold keeps clear of lots and
 	// blocked cells: room for a line of about 60.
 	queueFoldLanes = 4
@@ -181,7 +181,8 @@ func (w *World) UpdateQueueFolds() {
 		for _, side := range [2]float32{away, -away} {
 			// The station's own cells are blocked: start past it.
 			n := l.queueFoldSkip()
-			for n < queueFoldMax && lanesClear(l, float32(n)*QueueSpacing, side) {
+			// One place more is clear beyond the far end.
+			for n < queueFoldMax && lanesClear(l, float32(n+1)*QueueSpacing, side) {
 				n++
 			}
 			if n > best {

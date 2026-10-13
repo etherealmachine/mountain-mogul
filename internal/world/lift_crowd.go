@@ -225,13 +225,18 @@ func (l *Lift) CrowdArrivalXZ(from mgl32.Vec2) mgl32.Vec2 {
 }
 
 // JoinLine puts g in lift l's line at time now: at the back of a single
-// file, or in a crowd at the free place on its edge nearest them, or
-// nearest someone from their group already in it.
-func (l *Lift) JoinLine(g *Guest, now float64) {
+// file or of a corral lane (which grows when the line outgrows it), or in a crowd at the free place on
+// its edge nearest them, or nearest someone from their group already in
+// it. Reports whether a corral grew, so its ropes need rebuilding.
+func (l *Lift) JoinLine(g *Guest, now float64) bool {
 	g.LineJoined, g.CrowdPlace, g.LinePassed = now, 0, 0
 	if !l.IsCrowd() {
+		if l.HasCorral() {
+			l.joinCorral(g)
+			return l.growCorral()
+		}
 		l.Queue = append(l.Queue, g)
-		return
+		return false
 	}
 	near, slack := mgl32.Vec2{g.Pos[0], g.Pos[2]}, crowdEdge
 	head := g.PartyHead()
@@ -246,6 +251,7 @@ func (l *Lift) JoinLine(g *Guest, now float64) {
 		g.CrowdPlace = i + 1
 	}
 	l.Queue = append(l.Queue, g)
+	return false
 }
 
 // LeaveLine takes g out of lift l's line, wherever they are in it.
@@ -255,6 +261,10 @@ func (l *Lift) LeaveLine(g *Guest) {
 			l.Queue = append(l.Queue[:i], l.Queue[i+1:]...)
 			break
 		}
+	}
+	g.LineLane = 0
+	if l.HasCorral() {
+		l.mergeCorral()
 	}
 	if g.CrowdPlace > 0 && g.CrowdPlace <= len(l.Crowd) && l.Crowd[g.CrowdPlace-1].Guest == g {
 		l.Crowd[g.CrowdPlace-1].Guest = nil
@@ -270,7 +280,7 @@ func (l *Lift) ClearLine() []*Guest {
 		l.Crowd[i].Guest = nil
 	}
 	for _, g := range out {
-		g.CrowdPlace = 0
+		g.CrowdPlace, g.LineLane = 0, 0
 	}
 	return out
 }
@@ -357,6 +367,9 @@ func (l *Lift) queueAhead(g, other *Guest) {
 // crowd place, or their place in a single file. A guest the crowd has
 // no room for stands at its dearest place.
 func (l *Lift) LinePlaceXZ(g *Guest, index int) (x, z float32) {
+	if l.HasCorral() {
+		return l.CorralPlaceXZ(g, index)
+	}
 	if !l.IsCrowd() {
 		return l.QueueSlotXZ(index)
 	}
@@ -369,38 +382,56 @@ func (l *Lift) LinePlaceXZ(g *Guest, index int) (x, z float32) {
 }
 
 // LineEndXZ is where an arrival at from joins lift l's line: the edge of
-// its crowd nearest them, or the back of its single file.
+// its crowd nearest them, the entrance of the corral lane they'd join,
+// or the back of its single file.
 func (l *Lift) LineEndXZ(from mgl32.Vec2) mgl32.Vec2 {
 	if l.IsCrowd() {
 		return l.CrowdArrivalXZ(from)
+	}
+	if l.HasCorral() {
+		return l.CorralEntranceXZ(from)
 	}
 	x, z := l.QueueSlotXZ(len(l.Queue))
 	return mgl32.Vec2{x, z}
 }
 
 // UpdateLineLayouts lays out every lift's line: a crowd where there's no
-// line attendant, a folded single file where there is (until the
-// attendant's maze), nothing for a helicopter. Everyone in line keeps
-// their order.
+// line attendant, a rope corral sized to the line where there is, nothing
+// for a helicopter. Everyone in line keeps their order.
 func (w *World) UpdateLineLayouts() {
 	if w.Terrain == nil {
 		return
 	}
 	w.UpdateQueueFolds()
 	for _, l := range w.Lifts {
-		w.UpdateLineLayout(l)
+		w.layLine(l)
 	}
+	w.RebuildRopes()
 }
 
 // UpdateLineLayout lays out lift l's line, as UpdateLineLayouts does.
 func (w *World) UpdateLineLayout(l *Lift) {
-	if w.Terrain == nil || l.IsHeli() || l.Staff.LineAttendant {
+	if w.Terrain == nil {
+		return
+	}
+	w.layLine(l)
+	w.RebuildRopes()
+}
+
+func (w *World) layLine(l *Lift) {
+	switch {
+	case l.IsHeli():
 		l.setCrowd(nil)
-		return
+		l.stopCorral()
+	case l.Staff.LineAttendant:
+		l.setCrowd(nil)
+		w.updateCorralRoom(l)
+		if !l.HasCorral() {
+			l.startCorral()
+		}
+		l.fitCorral()
+	default:
+		l.stopCorral()
+		l.setCrowd(w.buildCrowd(l))
 	}
-	if places := w.buildCrowd(l); len(places) > 0 {
-		l.setCrowd(places)
-		return
-	}
-	l.setCrowd(nil)
 }

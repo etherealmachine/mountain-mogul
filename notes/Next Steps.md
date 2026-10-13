@@ -14,7 +14,7 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 In the order to work on them:
 
 1. [[Boreal Playtest]]: the user's notes from playing the tutorial (2026-10-11), ranked in the note. Left: the rest of guests' thoughts (to plan) and the loading animation (what looked wrong?); the lift lines are planned as [[Lift Lines]].
-2. [[Lift Lines]] step 3: the attendant's automatic rope maze, then singles and patrol lanes (the crowd for unattended lifts is built, to try in the game).
+2. [[Lift Lines]] step 4: the singles lane, then the patrol lane (the crowd and the attendant's rope corral are built, to try in the game).
 3. [[Demo]]: the free Steam demo ([[Release]]: demo, then early access, then guest types as DLC), the Boreal tutorial and Kirkwood, playable for a few hours, as its own stripped build. Steps in order: terrain expectations (readouts, demand by terrain mix, a challenge preference); service staffing and quality ([[Service Quality]]); balance so the goals are reachable; goals and unlocking; the snow bugs; a Kirkwood map pass; a demo pop-up; UI polish (including a closed-resort sign); graphics polish; visible traffic; menus; the demo build.
 
 Not ranked yet: everything below.
@@ -23,6 +23,7 @@ Not ranked yet: everything below.
 
 Diagnose each first, report the cause, then fix:
 
+- **Skiers stall at run gaps and flats**: found 2026-10-12 testing [[Lift Lines]]. Skiers stall 10 minutes or more where a run ends short of the next (Sunset Blvd. into Road Island on the Goals Test, a 50 m gap) and on the flat short of Lift4's base, turning back and forth at walking pace; and at Lift4's top, where the Goals Test's Kiss A Bear is drawn bottom to top.
 - **Fallen skiers walk too far uphill**: the user, 2026-10-08, watching the game. After a fall guests walk much further back uphill than is realistic. Suspects: in a yard sale the skis stay near where the fall began (up to 0.5 + 0.2 × speed metres along the line) while the body slides on, so the guest climbs back up the whole slide for them (`knockDown`, `collectSki` in `sim/falls.go`); or the walk back up toward a route point or carrot uphill after getting up. Diagnose which before changing ([[Skiing]]).
 - **Snow compacts far too fast**: found 2026-10-07 on the re-dressed Boreal. Fresh snow starts at a believable depth (150 mm of water as 83 cm on the opening storm), but within three days 135 mm sits in 23 cm (density about 0.6), and by mid-January 263 mm in 37 cm (about 0.7). Settled early-season snow is about 0.25–0.35, so the slopes look thin over a decent pack. Diagnose the settling in [[Snow]] (`SnowLayer` densification) before changing it. Also blocked moguls, which now gate on snow water instead of visible depth (2026-10-07).
 - **Point-placed services fail silently with no free cell**: found 2026-10-07 fixing tests. `PlaceBuildingType` for a lodge, bar, or ticket office (tests, testbeds, the editor's ticket office) converts to a service building only on free cells (`placePointService`); with none (say, inside a parking lot) it quietly stays an old-style building with no tiles or doors that serves nothing, and guests looking for it go home. It should fail visibly or find room. Belongs with footpaths and pathing work ([[Pathfinding]], [[Lodge Shell]]).
@@ -313,3 +314,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-11: [[Boreal Playtest]]: overnight cars, the ski on/off loop, grooming after the weather and under trees, groups spread at lift tops, and skiers kept out of top stations, each diagnosed first; Fresh corduroy turns to crust overnight closed.
 - 2026-10-12: Planned [[Lift Lines]] with the user (playtest item 9), ranked second.
 - 2026-10-12: [[Lift Lines]] steps 1–2: one line for every lift (the doubles' lanes gone), and a crowd at lifts with no attendant.
+- 2026-10-12: [[Lift Lines]] step 3: the attendant's rope maze. Guests no longer stand shaking beside lift stations for hours (walkers flipped sides of a hut every tick); guests in line walk to their place instead of hopping.

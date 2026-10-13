@@ -119,9 +119,12 @@ type Guest struct {
 	// LineJoined is when they joined the line they're in; CrowdPlace is
 	// 1 + their place in its crowd (Lift.Crowd), 0 for none; LinePassed
 	// how many times someone has slipped in ahead of them in it. Not saved.
-	LineJoined      float64
-	CrowdPlace      int
-	LinePassed      int
+	LineJoined float64
+	CrowdPlace int
+	LinePassed int
+	// LineLane is the lane of a lift's corral they're in (1 or 2), 0 in
+	// its run to the load or in any other line (lift_corral.go). Not saved.
+	LineLane        int
 	Fallen          bool // down after a fall, through getting up and collecting skis (Tumble)
 	Tumble          Tumble
 	Injured         bool    // injured after a severe fall; cannot self-recover
