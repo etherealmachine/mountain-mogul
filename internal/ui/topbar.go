@@ -2,6 +2,8 @@ package ui
 
 import (
 	"fmt"
+	"math"
+	"time"
 
 	"github.com/go-gl/mathgl/mgl32"
 	"mountain-mogul/internal/engine"
@@ -14,6 +16,11 @@ import (
 // (right). Layout is recomputed from the screen width every frame so resize
 // works without re-registering anything.
 type TopBar struct {
+	// GetDebt, when set, reports whether the resort is borrowing (cash
+	// below zero: the cash shows red) and, below the credit floor, how
+	// many days are left before bankruptcy (0 when not below it).
+	GetDebt func() (borrowing bool, daysLeft int)
+
 	// EventsUnread reports whether there are unseen notifications (the
 	// dot on the notifications button); nil for none.
 	EventsUnread func() bool
@@ -249,9 +256,30 @@ const topClusterGap = float32(14)
 // topPodInset is the gap round the top bar's pods.
 const topPodInset = float32(6)
 
-// statsWidth is the width of the left pod.
+// statsWidth is the width of the left pod: room for the rating row, or
+// the cash and its bankruptcy countdown when that's longer.
 func (t *TopBar) statsWidth(r *render.Renderer) float32 {
-	return 250
+	w := float32(250)
+	if r.Font != nil && t.GetCash != nil {
+		cash, warn := t.cashText()
+		w = max(w, topPodInset+12+20+8+r.Font.TextWidth(cash+warn)+16)
+	}
+	return w
+}
+
+// cashText is the cash and, below the credit floor, the days to
+// bankruptcy.
+func (t *TopBar) cashText() (cash, warn string) {
+	cash = settings.FormatDollars(t.GetCash())
+	if t.GetDebt != nil {
+		if _, left := t.GetDebt(); left > 0 {
+			warn = fmt.Sprintf("  %d days to bankruptcy", left)
+			if left == 1 {
+				warn = "  1 day to bankruptcy"
+			}
+		}
+	}
+	return cash, warn
 }
 
 // centerWidth is the width of the centre pod: the date line or the
@@ -391,8 +419,19 @@ func (t *TopBar) drawStats(r *render.Renderer) {
 	// Row 0: Cash
 	if t.GetCash != nil {
 		IconCoin(r, pad, iconY(0), iconSize, mgl32.Vec4{1.00, 0.82, 0.20, 1})
-		text := settings.FormatDollars(t.GetCash())
-		r.Font.DrawText(r, text, pad+iconSize+8, textY(0), valCol)
+		text, warn := t.cashText()
+		col := valCol
+		if t.GetDebt != nil {
+			if borrowing, _ := t.GetDebt(); borrowing {
+				col = mgl32.Vec4{1.00, 0.45, 0.40, 1}
+			}
+		}
+		r.Font.DrawText(r, text, pad+iconSize+8, textY(0), col)
+		if warn != "" {
+			// Pulses, so it's noticed.
+			a := float32(0.65 + 0.35*math.Sin(float64(time.Now().UnixMilli())/180))
+			r.Font.DrawText(r, warn, pad+iconSize+8+r.Font.TextWidth(text), textY(0), mgl32.Vec4{1.00, 0.35, 0.30, a})
+		}
 	}
 
 	// Row 1: Guests

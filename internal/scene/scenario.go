@@ -474,7 +474,9 @@ type Scenario struct {
 	goalsOnStart bool   // a new game: open on the goals panel
 	eventsSeen   uint64 // the notifications' Seq when last looked at (the unread dot)
 	moneyFloats  []moneyFloat
-	hintsChecked float32 // s.time of the last setup-hint check
+	confetti     []confetti // the win's confetti (confetti.go)
+	celebratedAt float32    // s.time it started
+	hintsChecked float32    // s.time of the last setup-hint check
 	// popupAt and reportAt are where the player last dragged a popup and
 	// the day report: the next one opens there (placeWindow).
 	popupAt, reportAt *mgl32.Vec2
@@ -1010,6 +1012,14 @@ func (s *Scenario) Init(app *engine.App) error {
 	const topBarH = float32(96)
 	s.topBar = ui.NewTopBar(topBarH)
 	s.topBar.GetCash = func() int { return s.world.Cash }
+	s.topBar.GetDebt = func() (bool, int) {
+		w := s.world
+		left := 0
+		if w.Cash < -w.CreditLimit && !w.Bankrupt {
+			left = max(world.BankruptcyGraceDays-w.DaysBelowFloor, 1)
+		}
+		return w.Cash < 0, left
+	}
 	s.topBar.GetGuests = func() int { return len(s.world.OnMountain) }
 	s.topBar.GetRating = func() float32 {
 		if s.sim == nil || s.sim.Demand == nil {
@@ -3039,7 +3049,7 @@ func (s *Scenario) Render(r *render.Renderer) {
 
 	s.devCaptureFrame(r)
 
-	drawables = append(drawables, uiDrawFunc(s.drawGoalsPanel))
+	drawables = append(drawables, uiDrawFunc(s.drawGoalsPanel), uiDrawFunc(s.drawConfetti))
 	r.DrawUI(drawables)
 
 	// Screenshot is taken AFTER UI is drawn so the captured frame includes UI.

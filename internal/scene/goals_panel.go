@@ -146,6 +146,9 @@ func (s *Scenario) pollGoalsOutcome() {
 	p.open, p.result = true, o
 	s.topBar.SetGoalsActive(true)
 	s.pauseForResult()
+	if o == world.Won {
+		s.celebrate()
+	}
 }
 
 // pauseForResult pauses the game behind the result panel.
@@ -276,6 +279,14 @@ func (s *Scenario) drawGoalsPanel(r *render.Renderer) {
 		p.x, p.y = max(0, min(p.at[0], sw-p.w)), max(0, min(p.at[1], sh-p.h))
 	}
 	p.titleH, p.sw, p.sh = lineH+10, sw, sh
+	// A win's panel drops in from above, overshooting a little.
+	if p.result == world.Won {
+		if t := (s.time - s.celebratedAt) / 0.55; t < 1 {
+			k := t - 1
+			ease := 1 + 2.2*k*k*k + 1.2*k*k // ease-out with a small overshoot
+			p.y -= (1 - ease) * (p.y + p.h)
+		}
+	}
 
 	ui.DrawPanel(r, p.x, p.y, p.w, p.h)
 	ui.DrawPanelHeader(r, p.x, p.y, p.w, lineH+10, title)
