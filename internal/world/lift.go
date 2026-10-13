@@ -647,16 +647,31 @@ func (l *Lift) StationXZs() []mgl32.Vec2 {
 // (notes/next/Service Quality.md).
 const LiftQuality = 0.5
 
-// Line waits. A guest won't join a line whose wait is over MaxLineWait
-// (they look for another lift, or say "every lift line is way too
-// long"), and calls one over LongLineWait long. Both are clock time.
+// Line waits. A guest won't join a line whose wait is over their
+// MaxLineWaitFor (they look for another lift, or say "every lift line is
+// way too long"), and calls one over LongLineWait long. All clock time.
 const (
-	MaxLineWait  = SimSecondsPerHour / 2
-	LongLineWait = SimSecondsPerHour / 4
+	MaxLineWait = SimSecondsPerHour / 2
+	// FirstRideMaxLineWait is the longest wait a guest who hasn't ridden
+	// yet today will join: they came to ski, so they queue and grumble.
+	// With MaxLineWait for everyone, holiday arrivals took one look at
+	// the lines and went home without a run, a 1★ each, and their stalls
+	// let the next car in (Boreal Tutorial, 2026-10-12).
+	FirstRideMaxLineWait = SimSecondsPerHour * 3 / 2
+	LongLineWait         = SimSecondsPerHour / 4
 	// fallbackSecPerRider is the wait per person ahead for a lift with no
 	// chairs to count (a heli).
 	fallbackSecPerRider = 8.0
 )
+
+// MaxLineWaitFor is the longest wait a guest will join a line for:
+// longer before their first ride of the day.
+func MaxLineWaitFor(ridden bool) float32 {
+	if ridden {
+		return MaxLineWait
+	}
+	return FirstRideMaxLineWait
+}
 
 // RidersPerSecond is how many riders the lift loads a second: every
 // chair passes the base once a loop.

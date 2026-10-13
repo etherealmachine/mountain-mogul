@@ -78,6 +78,7 @@ func (g *Guest) ServiceQuality() float32 {
 // DayReview is the review the guest would leave now.
 func (g *Guest) DayReview() Review {
 	var deal, letdown, annoy, high *Moment
+	highlights := 0
 	r := Review{NoRuns: len(g.TrailTally) == 0}
 	for i := range g.Moments {
 		m := &g.Moments[i]
@@ -96,6 +97,7 @@ func (g *Guest) DayReview() Review {
 				annoy = m
 			}
 		case ai.Highlight:
+			highlights += int(m.N)
 			if high == nil || m.N > high.N {
 				high = m
 			}
@@ -110,7 +112,7 @@ func (g *Guest) DayReview() Review {
 		r.Kind = g.noRunsReason()
 	case letdown != nil:
 		r.Level, why = 2, letdown
-	case r.Annoyances >= ai.AnnoyancesPerLetdown:
+	case r.Annoyances-highlights >= ai.AnnoyancesPerLetdown:
 		r.Level, why = 2, annoy
 	case high == nil:
 		r.Level = 2

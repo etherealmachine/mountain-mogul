@@ -1,7 +1,7 @@
 ---
 title: Boreal Tutorial
 kind: plan
-status: planned
+status: started
 ---
 
 # Boreal Tutorial
@@ -22,6 +22,105 @@ From the user, 2026-10-10. The player starts with one parking lot, sized for abo
 8. **Grooming for two lifts.** A second cat, and a bigger garage.
 9. **Parking.** A second lot.
 10. **Finish.** Borrow again or wait, then build the third lift (49er). The goals are met about then.
+
+## Played through (2026-10-12)
+
+The user's stages (2026-10-12): the player runs out of money and waits a day or two for each, and the last lift needs a longer wait, the credit line, or savings.
+
+1. A beginner lift with two runs, grooming (one cat) and a ticket window.
+2. A lodge with a food court, and ski patrol. Built with stage 1, it leaves very little money.
+3. A second lift, with beginner and intermediate runs.
+4. The third lift, with advanced runs where there are any.
+
+`tools/tutorial` plays it headless: the tutorial's start from `boreal.save` (its cash, credit line and goals, one 300-stall lot) on the Goals Test's layout, which lines up with the tutorial's map. It takes out everything but the lot, then puts each stage back as soon as the money allows, at what the game charges: lifts, buildings by tile, cats and snowmobiles, and clearing the trees the tutorial's map has on each run ($100 a tree, about $200k of Accelerator's runs). Cruiser gets a second green, painted beside Kiss A Bear. Stage 1: Cruiser, Kiss A Bear and the second green, a 4-tile garage with a cat, tickets ($755k). Stage 2: the lodge with 6 food court and 2 lounge tiles, patrol with a snowmobile ($189k). Stage 3: Accelerator and every green and blue ($1.52M). Stage 4: 49er and the blacks ($527k). Stage 5: the lodge to 16 food court and 8 lounge, the garage to 12 tiles, two more cats ($422k).
+
+**What it found.**
+
+- With `boreal.save`'s $1M cash and $1M credit, stages 1 and 2 go up on day 0 and leave $56k: as wanted. But stage 3 waits until day 21 (cash and credit together), and paying cash only it never comes before the season ends. Earnings with one lift are $10–20k on an ordinary day and about $55k on a holiday.
+- **The rating goal couldn't be met.** Even the full resort ended ordinary days at 2.5–2.8★ and holidays at about 2.1★. Cruiser's runs are never great runs (about 38 m of vertical against the 40 m minimum), so with one lift every review is 2★ (2.6 with service quality). On the full resort two thirds of 2★ reviews had a highlight, mostly great runs, and most of those were pulled down by three small annoyances, mostly "it's packed in there" from the small lodge.
+- The guest goal (1,000 in a day) falls on the first holiday, Christmas, with only Cruiser open.
+
+**Changed.**
+
+- The credit line is $1.4M (`boreal.save`; the user chose it).
+- Highlights offset annoyances: annoyances make a letdown only when three more than the day's highlights ([[Scoreless Rating]]; the user chose to make 3★ reachable). The full resort with the small lodge then reaches about 2.65★; with the full lodge and three cats, 2.95–3.17★ on ordinary days.
+
+**Played through after** (two seeds, the same day by day):
+
+Builds come at the end of the day shown, from what it took. The calendar is the Goals Test's, opening Dec 4; `boreal.save` starts on another date, so its holidays fall on other days.
+
+| Day | Date | Built after it | Cash after | Note |
+|---|---|---|---|---|
+| 0 | before opening | stages 1 and 2 | $56k | one lift: 250–330 visitors, $15–20k a day |
+| 3 | Dec 6 (Christmas) | stage 3, on credit | −$1.37M | about 1,070 visitors, the guest goal met |
+| 11 | Feb 2 | stage 4 | −$1.39M | an 8-day wait; three lifts open |
+| 17 | Mar 2 | stage 5 | −$1.39M | another 6 days |
+| 19 | Mar 4 | | −$1.26M | 3.16–3.17★: won |
+
+So stages 1–2 come at once, stage 3 waits for Christmas's takings, stage 4 waits 8 days for the credit line to free up, and the rating needs the lodge and grooming grown on top (another 6 days). The credit line is nearly all drawn at the win.
+
+**Demand retuned** (the user, 2026-10-12: one lift with two beginner runs shouldn't bring 1,000+ guests). On Christmas at one lift, no more than about 300 were on the mountain at once, but guests fed up with lines left and others came in their place (729 left fed up). The terrain's draw now saturates more slowly (half at 3,000 suitable cells and 6 runs, from 1,000 and 2) and `dailyVisitShare` doubled (0.1 → 0.2), so a small hill draws about half what it did while the full resort's crowds hold (its lot fills either way). Stages 1–2 now draw 100–210 on an ordinary day (from 250–330) and 680–770 on a holiday (from about 1,100), and net about $0–10k on an ordinary day: one lift with a lodge and patrol about breaks even.
+
+| Day | Date | Built after it | Cash after | Note |
+|---|---|---|---|---|
+| 0 | before opening | stages 1 and 2 | $56k | 100–210 visitors on ordinary days, about 700 at Christmas |
+| 6 | Jan 3 (MLK Day) | stage 3, on credit | −$1.37M | waited for two holidays' takings |
+| 9 | Jan 6 | | | about 1,600 visitors: the guest goal met, with two lifts |
+| 14–15 | Feb 5–6 | stage 4 | −$1.33M to −$1.39M | an 8–9-day wait |
+| 16 or 22 | | stage 5 on day 20 (seed 2) | | won: seed 1 met 3★ on a quiet day (567 visitors, 3.06★) with two lifts and the small lodge, so three lifts on day 16 won; seed 2 needed stage 5 |
+
+So the guest goal now needs the second lift, stage 3 waits six days instead of three, and the win comes on day 16–22.
+
+**A 3-day rating** (the user, 2026-10-12: the rating is the average of the last three days' stars, so one quiet good day can't meet the goal). With holidays on the 3rd and 6th of every 6-day month, every three days hold a holiday, and holidays rate 2.2–2.4★ at every stage, so the finished resort's best was 2.82★ (ordinary days 2.9–3.1★): the tutorial couldn't be won by day 30.
+
+**What a player can do about holidays** (the finished resort with stage 5, three days to Christmas, one seed each; single days vary by about ±0.15★):
+
+| Player does | Ordinary days | Christmas | 3-day rating after Christmas |
+|---|---|---|---|
+| nothing more | 2.88, 3.00 | 2.44 | 2.77 |
+| a line attendant at every lift | 2.96, 2.96 | 2.78 | 2.90 |
+| each lift upgraded a step | 3.02, 2.98 | 2.67 | 2.89 |
+| $90 day ticket | 2.98, 3.06 | 2.36 | 2.80 |
+| attendants and upgrades | 3.01, 3.03 | 2.51 | 2.85 |
+| attendants, upgrades, $90 | 2.95, 3.01 | 2.77 | 2.91 |
+| attendants and $90 | 3.05, 3.13 | 2.51 | 2.90 |
+
+What sinks a holiday is the 1★s (582 at Christmas, against about 85 on an ordinary day), and most are guests who never got a run: every lift line looked too long (185), the lodge was packed (about 60), they'd had to rent skis in town (33), or nothing named (about 80). Each one's stall frees a space for the next car, so about 1,350 come through a 300-stall lot while 2,800 more are turned away. Attendants cut the 1★s to about 240; nothing tried gets a holiday past about 2.8★, or three days past about 2.9★. A price rise doesn't thin the crowd: demand is several times what the lot holds.
+
+**Guests give their first ride a chance** (the user, 2026-10-12, first of the tools above). A guest who hasn't ridden yet today joins a line of up to 90 clock minutes (`world.FirstRideMaxLineWait`), not 30: they came to ski, so they queue and grumble ("this line is way too long", an annoyance) instead of going home without a run. On the finished resort at Christmas: 2.44 → 2.92★ (2.99 with attendants), 1★ reviews 582 → about 20, "fed up with lines" departures about 600 → 5, and about 945 visitors instead of 1,350 (less churn through the lot), net about $65k instead of $79k. Holidays now rate about as ordinary days do. One lift's holidays dropped to 550–580 visitors.
+
+Played through after (two seeds):
+
+| Day | Built after it | Note |
+|---|---|---|
+| 0 | stages 1 and 2 | $56k left |
+| 5–6 | stage 3 | |
+| 6–9 | | the guest goal (a holiday with two lifts) |
+| 13–14 | stage 4 | an 8-day wait |
+| 19 | stage 5 | the 3-day rating 2.73–2.75★ until then |
+| 22–24 | | won: the 3-day rating 3.00–3.02★ |
+
+**Wider margins** (the user, 2026-10-12: the 8-day wait for stage 4 should be more like 5). Every price and what guests will pay went up by half together, so guests behave as before and revenue rises by half against unchanged costs: day ticket $60 → $90 (and the price guests think fair), season pass $150 → $225, meal $18 → $27, drink $8 → $12, rentals $40 → $60, a heli ride $10 → $15, the parking reference $20 → $30, guest budgets 90 + 150 × skill → 135 + 225 × skill, and the value-for-money reference budget 150 → 225. The three scenario saves' ticket, pass and lodge prices scaled too. The full resort's ordinary day: revenue about $92k → $135k (tickets $53k, food $35k before), net about $64k → $100k.
+
+Played through after (two seeds, the same days):
+
+| Day | Built after it | Cash after | Note |
+|---|---|---|---|
+| 0 | stages 1 and 2 | $56k | one lift: 135–210 visitors, $8–20k a day |
+| 3 (Christmas) | stage 3 | −$1.37M | |
+| 6 | | | the guest goal (MLK Day, two lifts) |
+| 8 | stage 4 | −$1.37M | a 5-day wait; the stage-3 resort nets about $97k on an ordinary day |
+| 12 | stage 5 | −$1.30M | 4 days |
+| 15–16 | | about −$0.9M | won: the 3-day rating 3.00–3.01★ |
+
+Still: the pay and quality system that would let a player trade cost for quality ([[Service Quality]]) isn't built; it's the other lever the user named for the rating.
+
+**Left.**
+
+- The cost-cutting the user wants to make stage 4 a choice (lowering food court quality, the patrol's pay) doesn't exist: service quality isn't the player's to set and doesn't change costs ([[Service Quality]]). Today a player can save only by leaving out line attendants (none are hired here) or closing lifts.
+- One lift's holiday crowd meets the guest goal on day 3; fine by the user before (guest targets can move).
+- Holidays rate about 2.1–2.3★ at every stage: lift lines and the full lot (about 2,400 turned away).
+- The runs are the Goals Test's; the tutorial's own runs will differ.
 
 ## Measured today
 
@@ -206,6 +305,9 @@ Normal speed is now a game day in 2,560 s (43 minutes, [[Season Calendar]]), so 
 
 ## Measuring
 
+`go run ./tools/tutorial assets/scenarios/boreal.save "assets/scenarios/Boreal (Goals Test).save" -credit` plays the tutorial through (Played through, above); `-cash`, `-limit`, `-lodge food,lounge`, `-cats` and `-seed` try other starts. A 20-day run takes about 5 minutes.
+
+
 `go run ./tools/stages "assets/scenarios/Boreal (Goals Test).save" <stage> <days>` builds a stage from the Goals Test save by removing what comes later, prices it, and runs it headless; it's how the table above was measured, and how each change should be re-measured.
 
 ## Open questions
@@ -222,3 +324,7 @@ Normal speed is now a game day in 2,560 s (43 minutes, [[Season Calendar]]), so 
 - 2026-10-10: Measured with a 200-stall first lot: it fills on holidays with the lodge and every day with Accelerator; the second lot pays back in about 6 days. `tools/stages` gained `-hourly` and `-stalls`.
 - 2026-10-10: The goal day (the user): 1,000+ guests ending at 3.0 stars or better, replacing a week at 70%.
 - 2026-10-10: Economics pinned (the user): build costs cut (fixed quad and high-speed quad station fees, cats $80k, lodge tiles), running costs tripled, $700k cash and a $1.5M credit line by default; re-measured all eight stages; three lifts by about day 17, everything by day 21.
+- 2026-10-12: Played through headless (`tools/tutorial`) with the user's four stages: stage 3 waited 21 days and 3★ was out of reach. Changed: the credit line to $1.4M, and highlights offset annoyances in reviews. Now stage 3 on day 3, stage 4 on day 11, the lodge and cats grown on day 17, won on day 19.
+- 2026-10-12: Demand retuned (the user): `terrainDrawCells` 1,000 → 3,000, `terrainDrawTrails` 2 → 6, `dailyVisitShare` 0.1 → 0.2. One lift: 100–210 a day, about 700 on holidays. Stage 3 on day 6, stage 4 on day 14–15, won on day 16–22.
+- 2026-10-12: The 3-day rating (the user) made the tutorial unwinnable (every 3 days hold a holiday at 2.2–2.4★); measured what a player can do about holidays; then guests who haven't ridden yet join lines of up to 90 minutes (from 30). Holidays now rate like ordinary days; won on day 22–24.
+- 2026-10-12: Prices and guest budgets up by half together (the user: a 5-day wait for stage 4, not 8): stage 3 on day 3, stage 4 on day 8, stage 5 on day 12, won on day 15–16.

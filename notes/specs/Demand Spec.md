@@ -128,11 +128,11 @@ weighs the runs the running lifts serve (`World.ReachableTrails`: the
 runs off each top and those branching off them) against the guest's
 run range (`runRange`): a level in range counts 1, one easier 0.3, two
 easier 0.1, harder 0. With S the weighted trail cells and n the
-weighted run count, draw = S / (S + 1000) × n / (n + 2). More terrain
+weighted run count, draw = S / (S + 3000) × n / (n + 6). More terrain
 and more runs at a guest's level draw more of them, with diminishing
-returns.
+returns. Retuned 2026-10-12 (the user: one lift with two beginner runs shouldn't bring 1,000 guests): from 1,000 cells and 2 runs, with `dailyVisitShare` doubled to keep a full resort's crowd. A small hill draws about half what it did against the full resort ([[Boreal Tutorial]]).
 
-**`dailyVisitShare`** (0.1) turns `VisitsPerSeason` into a daily chance.
+**`dailyVisitShare`** (0.2) turns `VisitsPerSeason` into a daily chance.
 It doesn't divide by the season's length, so the calendar can change
 without moving demand.
 
@@ -167,26 +167,27 @@ counts twice: once for "is this place any good" and once for "is it worth
 the price". Elasticity 0.5 bows the curve, so a guest keeps most of their
 interest until the price gets close to their budget.
 
-Worked numbers for the seeded catchment (`DailyBudget = 90 + 150 × skill`,
-60/30/10 beginner/intermediate/advanced, so budgets run $90–$240 and 60%
-sit below $140). The $90 floor covers a default ticket, a parking share
+Worked numbers for the seeded catchment (`DailyBudget = 135 + 225 × skill`,
+60/30/10 beginner/intermediate/advanced, so budgets run $135–$360 and 60%
+sit below $210; prices and budgets went up by half together on
+2026-10-12, so the shares below hold at half again the prices). The $135 floor covers a default ticket, a parking share
 and a food-court meal, so beginners have money left to spend on site.
 "Share" is the pool-average price factor, which is the fraction of the
 no-price arrival rate that still comes:
 
-| Day ticket | rating 0.5 (ref $65) | rating 1.0 (ref $95) |
+| Day ticket | rating 0.5 (ref $98) | rating 1.0 (ref $143) |
 |---|---|---|
-| $30 | 100% | 100% |
-| $60 (default) | 100% | 100% |
-| $90 | 74% | 100% |
-| $120 (2× default) | 36% | 44% |
-| $150 | 16% | 18.5% |
-| $180 | 6% | 6% |
-| $241 (above every budget) | 0% | 0% |
+| $45 | 100% | 100% |
+| $90 (default) | 100% | 100% |
+| $135 | 74% | 100% |
+| $180 (2× default) | 36% | 44% |
+| $225 | 16% | 18.5% |
+| $270 | 6% | 6% |
+| $361 (above every budget) | 0% | 0% |
 
 Every guest can afford the default price, so it costs no demand. Doubling
-from $60 to $120 cuts arrivals by about 64%. The hard budget cutoff alone
-accounts for 36 points of that, because only 64% of guests have a $120
+from $90 to $180 cuts arrivals by about 64%. The hard budget cutoff alone
+accounts for 36 points of that, because only 64% of guests have a $180
 budget. The budget distribution, not the elasticity, dominates the
 response to large price moves.
 
@@ -300,9 +301,9 @@ half-bar on a fresh scenario; the bar drifts up or down as guests depart.
 | `ratingEMAAlpha` | 1/70 ≈ 0.014 | EMA blend factor; ~50-departure half-life for ResortRating |
 | `initialResortRating` | 0.5 | Bootstrap value on fresh sim |
 | `avgSessionSec` | 1500 | Capacity estimate denominator |
-| `dailyVisitShare` | 0.1 | VisitsPerSeason → a day's chance, independent of the season's length |
-| `terrainDrawCells` | 1000 | Suitable trail cells (5 m) at which terrain draws half |
-| `terrainDrawTrails` | 2 | Suitable runs at which the choice of runs draws half |
+| `dailyVisitShare` | 0.2 | VisitsPerSeason → a day's chance, independent of the season's length |
+| `terrainDrawCells` | 3000 | Suitable trail cells (5 m) at which terrain draws half |
+| `terrainDrawTrails` | 6 | Suitable runs at which the choice of runs draws half |
 | `world.DefaultDayTicketPrice` | $60 | Starting day ticket; player-adjustable via `World.DayTicketPrice` |
 | `world.DayTicketReferencePrice` | $60 | No-penalty day-ticket price at rating 0.5 |
 | `world.DayTicketRatingPremium` | 1.0 | How far rating shifts the reference (±50% across rating 0..1) |

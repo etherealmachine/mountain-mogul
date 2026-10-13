@@ -516,14 +516,16 @@ const (
 	Dealbreaker
 	// Letdown: the day is at most 2★.
 	Letdown
-	// Annoyance: AnnoyancesPerLetdown of them make a letdown.
+	// Annoyance: AnnoyancesPerLetdown more of them than highlights make a
+	// letdown.
 	Annoyance
 	// Highlight: 3★ needs at least one.
 	Highlight
 )
 
-// AnnoyancesPerLetdown is how many annoyances in a day count as a
-// letdown ("too many little things").
+// AnnoyancesPerLetdown is how many more annoyances than highlights in a
+// day count as a letdown ("too many little things"): each highlight
+// makes up for one annoyance.
 const AnnoyancesPerLetdown = 3
 
 // Effect is what one ThoughtKind is: an event (Condition false), which

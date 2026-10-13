@@ -208,6 +208,34 @@ func (h *History) DayRating() (float32, bool) {
 	return h.ReviewsToday.Stars / float32(h.ReviewsToday.N), true
 }
 
+// RatingDays is how many days with reviews the resort rating averages.
+const RatingDays = 3
+
+// RecentRating is the average of the day's average stars over the last
+// RatingDays days anyone left a review, today's included, each day
+// counting the same however many came. ok is false when there are none.
+func (h *History) RecentRating() (float32, bool) {
+	if h == nil {
+		return 0, false
+	}
+	var sum float32
+	n := 0
+	if r, ok := h.DayRating(); ok {
+		sum, n = r, 1
+	}
+	for i := 1; i <= h.Len() && n < RatingDays; i++ {
+		t := h.Samples[(h.Head-i+HistoryCapacity)%HistoryCapacity].Reviews
+		if t.N > 0 {
+			sum += t.Stars / float32(t.N)
+			n++
+		}
+	}
+	if n == 0 {
+		return 0, false
+	}
+	return sum / float32(n), true
+}
+
 // TopWhy is the moment that set the most of today's reviews below 3★,
 // ThoughtNone when there's none to name.
 func (h *History) TopWhy() ai.ThoughtKind {

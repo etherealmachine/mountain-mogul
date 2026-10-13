@@ -52,7 +52,7 @@ const demandPollInterval = 30.0
 // world.SeasonDays: the season's length is chosen for play time, and
 // changing it shouldn't move every day's crowd. VisitsPerSeason ranks
 // guests from casual to regular rather than counting visits exactly.
-const dailyVisitShare = 0.1
+const dailyVisitShare = 0.2
 
 // dayTypeDemand scales a day's visits by its kind (world.HolidayAt): a
 // holiday brings two and a half times an ordinary day's crowd, a named
@@ -468,8 +468,8 @@ func terrainDraw(w *world.World, o terrainOffer, traits ai.GuestTraits) float32 
 // The amount of suitable terrain (5 m trail cells) and number of
 // suitable runs at which each draws half as well as it could.
 const (
-	terrainDrawCells  = float32(1000)
-	terrainDrawTrails = float32(2)
+	terrainDrawCells  = float32(3000)
+	terrainDrawTrails = float32(6)
 )
 
 // Steep tastes past these shift the run level a guest wants: one easier

@@ -15,8 +15,8 @@ From the user, 2026-10-09:
 - **Stars are left per guest at departure**, so the rating can be read review by review.
 - **Each star is a level the resort reaches**:
   - ★ a dealbreaker: turned away, hurt with no one coming, gave up.
-  - ★★ skied, but with a letdown (a need unmet past its grace period, nothing to their taste), three annoyances, or no highlight.
-  - ★★★ no letdown, fewer than three annoyances, at least one highlight. **Boreal's goal is 3★.**
+  - ★★ skied, but with a letdown (a need unmet past its grace period, nothing to their taste), three more annoyances than highlights, or no highlight.
+  - ★★★ no letdown, annoyances fewer than highlights plus three, at least one highlight. **Boreal's goal is 3★.**
   - ★★★★ needs more than skiing and the basics: shopping and other activities (to be worked out).
   - ★★★★★ isn't a level: it's reached only from 4★ with excellent service (the quality axis below).
 - **Quality adds up to 1.2 stars** on top of the level: the average quality of the services the guest used, 0–1, times 1.2, capped at 5★. Excellent service is worth a level up: a 2★ guest at excellent places leaves 3.2★. Lift attendants count as a service (parking attendants later), so a guest who used none, at quality 0, is rare ([[Scoreless Rating]]).
@@ -27,13 +27,13 @@ From the user, 2026-10-09:
 
 **The star a guest leaves** is the highest level whose conditions they met, checked from what happened to them during the visit:
 
-- **Moments**: the level is set by the guest's moments by class, three annoyances making a letdown ([[Scoreless Rating]]).
+- **Moments**: the level is set by the guest's moments by class, three more annoyances than highlights making a letdown ([[Scoreless Rating]]).
 - **Quality**: plus 1.2 × the average quality of the services they used.
 - **4★**: open below. **5★**: 4★ plus excellent service.
 
 **The review line** names the moment that set the star: the dealbreaker, the letdown, the annoyances, or the best highlight ([[Scoreless Rating]]).
 
-**The resort rating** is the day's average stars, shown as e.g. 2.8★. Demand and the ticket-price premium take (stars − 1) / 4 so they stay on 0–1.
+**The resort rating** is the average of the last three days' average stars (days anyone left a review, each counting the same), shown as e.g. 2.8★. Demand and the ticket-price premium take (stars − 1) / 4 so they stay on 0–1.
 
 **Goals**: the rating goal becomes a star target (`GoalRating` with Target 1–5), described as "Keep the rating at 3★ or better". With quality on top, a 3★ guest at today's quality (0.5) leaves 3.6★ and a 2★ guest 2.6★, so an average of 3★ is reachable without every guest at 3★.
 
@@ -61,3 +61,4 @@ Each step builds with `go build` and `go vet` and is judged headless. No Go test
 - 2026-10-09: Levels now come from moments by class ([[Scoreless Rating]]); renting in town is an annoyance, not a letdown, so the 2026-10-09 measurement's biggest cause would mostly drop to annoyances.
 - 2026-10-09: Stars per guest and goals in stars built ([[Scoreless Rating]]). Boreal Goals Test: 3.02★ after one day, 3.12★ after two. The reviews panel is next.
 - 2026-10-09: The Reviews tab replaces "Why guests left".
+- 2026-10-12: The resort rating is the average of the last 3 days' average stars (days with reviews, each counting the same; `world.RatingDays`, `History.RecentRating`), the user: one quiet good day shouldn't meet the Boreal rating goal ([[Boreal Tutorial]]).

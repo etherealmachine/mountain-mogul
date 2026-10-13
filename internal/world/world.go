@@ -13,7 +13,7 @@ import (
 // Calibration target — a Season 1 pod: one ~1 km fixed quad with its
 // trails, plus parking, ticket office, lodge, shed (first cat), and a
 // patrol hut. At the VISION S1 attendance (~170 guests/day averaged over
-// weekdays and weekends) and the $60 day ticket, a 186-day season grosses
+// weekdays and weekends) and a $60 day ticket, a 186-day season grosses
 // ~$1.9M. Daily opex for that resort (see DailyOperatingCost) is ~$3.8k,
 // ~$0.71M a season ≈ 37% of gross, so the pod ($900k) nets back roughly
 // its own build cost in one season. Lift build prices are per LiftType
@@ -37,28 +37,28 @@ const (
 
 	GladeCostPerTree = 100 // per tree the glade brush removes; a full cell (MaxTreesPerCell) costs $200
 
-	DefaultTicketPrice    = 10 // dollars per heli ride; only heli charges per ride, player adjusts via the lift popup
-	DefaultDayTicketPrice = 60 // dollars per visit, paid once at the ticket window (VISION §7: $60–90); pass holders pay nothing
+	DefaultTicketPrice    = 15 // dollars per heli ride; only heli charges per ride, player adjusts via the lift popup
+	DefaultDayTicketPrice = 90 // dollars per visit, paid once at the ticket window (VISION §7: $60–90); pass holders pay nothing
 
 	// Day-ticket price elasticity in the demand poll. A guest's price factor
 	// is 1 at or below the reference price and falls to 0 as the price rises
 	// to their DailyBudget: ((budget − price) / (budget − ref))^elasticity.
 	// The reference scales with resort rating, ref × (1 + premium × (rating − 0.5)),
 	// so a well-rated resort can charge more before guests balk.
-	DayTicketReferencePrice = 60           // dollars; the no-penalty price at rating 0.5
+	DayTicketReferencePrice = 90           // dollars; the no-penalty price at rating 0.5
 	DayTicketRatingPremium  = float32(1.0) // unitless; reference spans 0.5×–1.5× across rating 0..1
 	DayTicketElasticity     = float32(0.5) // unitless exponent; <1 bows the curve so guests hold on until price nears budget
 
 	// ParkingReferencePrice is the per-car fee guests accept without
 	// complaint; each guest's share (÷ MeanCarload) adds to the day
 	// ticket in the demand poll, on both the price and the reference.
-	ParkingReferencePrice = 20 // dollars per car
+	ParkingReferencePrice = 30 // dollars per car
 
 	TicketOfficeCost       = 80_000
-	DefaultSeasonPassPrice = 150                          // one-time fee per guest per season; guests with sufficient budget buy it on arrival
+	DefaultSeasonPassPrice = 225                          // one-time fee per guest per season; guests with sufficient budget buy it on arrival
 	HelipadCost            = 2_000_000                    // flat cost for a heli-ski operation (two pads + helicopter); the post-gondola unlock
 	SnowGunCost            = 40_000                       // snowmaking cannon; operating cost below
-	SnowGunActiveCostDay   = 1_200                          // dollars per game-day while enabled (water + power)
+	SnowGunActiveCostDay   = 1_200                        // dollars per game-day while enabled (water + power)
 	SnowGunRangeCells      = 3                            // spray radius in terrain cells
 	SnowGunRangeM          = SnowGunRangeCells * CellSize // = 15 metres
 	SnowGunMinTempC        = float32(-2.0)                // air must be at or below this to make snow
@@ -279,9 +279,9 @@ type World struct {
 	// OutcomeDay is the day index the scenario was won or lost.
 	OutcomeDay int
 
-	// Rating is the resort rating in stars, 1–5: the average stars the
-	// guests who left the last day with departures gave (Review), shown
-	// as the HUD's heart. RatingShare puts it on 0–1 for demand.
+	// Rating is the resort rating in stars, 1–5: the average of the last
+	// RatingDays days' average stars from the guests who left (Review),
+	// shown as the HUD's heart. RatingShare puts it on 0–1 for demand.
 	Rating float32
 
 	// Lakes are the map's lakes and ponds and their ice; their cells are

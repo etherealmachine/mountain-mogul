@@ -96,9 +96,9 @@ const (
 	// FoodCourtSeatsPerCell is seating per 5 × 5 m cell (~2 m² a seat
 	// once counters and aisles are taken out).
 	FoodCourtSeatsPerCell = 10
-	DefaultMealPrice      = 18 // dollars per meal
-	DefaultDrinkPrice     = 8  // dollars per drink
-	DefaultRentalPrice    = 40 // dollars for a day's rental skis
+	DefaultMealPrice      = 27 // dollars per meal
+	DefaultDrinkPrice     = 12 // dollars per drink
+	DefaultRentalPrice    = 60 // dollars for a day's rental skis
 
 	// A lodge placed by a single point (testbeds, tests) is this many
 	// cells on a side.

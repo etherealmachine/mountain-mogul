@@ -211,7 +211,7 @@ var offerRefPrice = [ai.OfferCount]float32{
 }
 
 const (
-	valueRefBudget  = float32(150)
+	valueRefBudget  = float32(225)
 	GoodValueRatio  = float32(0.75)
 	OverpricedRatio = float32(1.5)
 	RefuseRatio     = float32(2.5)

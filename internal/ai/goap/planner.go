@@ -199,7 +199,7 @@ func appendBlocked(blocked []ai.ThoughtKind, k ai.ThoughtKind) []ai.ThoughtKind 
 // rideBlocker is the thought for why a guest can't plan a lift ride,
 // checked in order: no lift running, none running they'd ride (for their
 // level; for a novice, all-green terrain), every
-// line they could join over world.MaxLineWait, or (with none of those) no
+// line they could join over world.MaxLineWaitFor, or (with none of those) no
 // ticket and no way to buy one. ThoughtNone when none of these is the
 // reason.
 func rideBlocker(s *WorldSnapshot, w *world.World) ai.ThoughtKind {
@@ -227,7 +227,7 @@ func allLinesFull(s *WorldSnapshot, w *world.World) bool {
 			continue
 		}
 		any = true
-		if l.LineWait() <= world.MaxLineWait {
+		if l.LineWait() <= world.MaxLineWaitFor(len(s.RidenLifts) > 0) {
 			return false
 		}
 	}

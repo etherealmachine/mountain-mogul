@@ -24,7 +24,7 @@ A moment is a thought that happened to the guest: an event, or a condition that 
 |---|---|---|
 | **Dealbreaker** | the day is 1★ | turned away at arrival (lifts closed, nothing for me, no ticket window, priced out of a ticket), injured and no one came, caught in an avalanche, gave up on a run |
 | **Letdown** | the day is at most 2★ | hungry, thirsty, nowhere to rest, chilled with no lounge, priced out of every place for a need, nothing here is my kind of skiing, skied this place to death, every lift line too long to join |
-| **Annoyance** | three of them make a letdown ("too many little things") | a fall, a tree hit, a long line, a crowded run, too hard, overpriced, a shabby place, packed inside, a slow patrol, a fall unloading, rented in town |
+| **Annoyance** | three more than the day's highlights make a letdown ("too many little things"): each highlight makes up for one | a fall, a tree hit, a long line, a crowded run, too hard, overpriced, a shabby place, packed inside, a slow patrol, a fall unloading, rented in town |
 | **Highlight** | 3★ needs at least one | a great run, first tracks, patrol arriving fast, a good meal when really hungry, a nice place |
 | **Extra** | 4★ needs some (later) | a sit-down lunch, shopping, après, a lesson, the view from a summit restaurant |
 
@@ -33,8 +33,8 @@ Neutral moments (rented gear, warmed up, rested, a good-value visit) are counted
 **The level.**
 
 - 1★: any dealbreaker.
-- 2★: any letdown, or three annoyances.
-- 3★: no letdown, fewer than three annoyances, and at least one highlight. Without a highlight the day was fine but no more: 2★, "nothing special".
+- 2★: any letdown, or three more annoyances than highlights.
+- 3★: no letdown, annoyances fewer than highlights plus three, and at least one highlight. Without a highlight the day was fine but no more: 2★, "nothing special".
 - 4★: 3★ plus extras (to be worked out with [[Star Ratings]]).
 - There's no 5★ level: quality is the only way from 4★ to 5★.
 
@@ -127,3 +127,4 @@ Each step builds with `go build` and `go vet` and is checked headless on the Bor
 - 2026-10-09: The user: keep no-rentals departures as a sign of lost business; they leave no review and don't count toward the rating.
 - 2026-10-09: The user: "Why guests left" becomes Reviews, the aggregate; each guest's moments are in their popup. Built: the Reviews tab in the charts window (it replaced "Why guests left"): the day's average stars and count at each level in its heading, then a ranked list of what set each review (a good day; each dealbreaker, letdown, or too many annoyances; nothing special; never got a run in) and the guests who went home without renting skis, as lost business.
 - 2026-10-09: Hunger and thirst don't use up the grace period while the guest's plan is taking them to food or drink (`seeingToIt`): guests in line or being served were being marked thirsty. Found balancing Christmas on the [[Season Calendar]].
+- 2026-10-12: Highlights offset annoyances (the user chose to make 3★ reachable in the Boreal tutorial): annoyances make a letdown only when three more than the day's highlights. On the full tutorial resort two thirds of 2★ reviews had a highlight, mostly great runs, and most of those were pulled down by three small annoyances ("it's packed in there") ([[Boreal Tutorial]]).

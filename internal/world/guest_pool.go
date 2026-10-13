@@ -143,9 +143,11 @@ func SyncGuestPool(w *World, seed int64) {
 // one visit (ticket, parking, food). Not persisted: save load derives it
 // from skill again, so it must stay a pure function of skill. The floor
 // covers a default day ticket, a parking share and a meal, so even the
-// greenest beginner can eat at the resort.
+// greenest beginner can eat at the resort. Prices and budgets went up by
+// half together on 2026-10-12 (Boreal Tutorial: wider margins, the same
+// behaviour).
 func DailyBudgetFor(skill float32) float32 {
-	return 90 + skill*150
+	return 135 + skill*225
 }
 
 // rollSkill biases toward beginners — the real-world resort split is

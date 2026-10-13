@@ -148,6 +148,7 @@ Diagnose each first, report the cause, then fix:
 - [[First Week Balance]]: starting cash buys a parking lot, a short lift, and a cat shed; the guest pool scales with the resort; a week of revenue buys about one lift. *Needs* the ticket-window bug fixed.
 - **Full cost rebalance**: build and operating costs across the board. *Needs* [[First Week Balance]].
 - **Loans**: from the old `NEXT.md`; a credit line already exists, so scope what loans add first. *For* the Turnaround idea in [[Scenario Campaign]].
+- **Demand feedback**: the player can't see what prices and building do to demand, so nothing stops them raising prices on a busy day. A day ticket above the fair price only keeps some guests home, and when demand is far beyond what the lot holds (Boreal's busy days) the lot fills anyway: $60 → $90 cost about 9% of visitors and added about $9k a day, with no hit to the rating ([[Boreal Tutorial]], 2026-10-12). The ticket price stays out of reviews (the user, 2026-10-12); instead, a system that tells the player about demand, made into a game: they pay for surveys or marketing data to learn how many wanted to come, who stayed home over price, what guests think is fair, and what would draw more. To plan with the user.
 
 ## Real estate and attractions ([[Finance]], [[Amenities]])
 
@@ -321,3 +322,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-12: [[Lift Lines]] step 3: the attendant's rope maze. Guests no longer stand shaking beside lift stations for hours (walkers flipped sides of a hut every tick); guests in line walk to their place instead of hopping.
 - 2026-10-12: Speeds: fast and fastest doubled (80 s and 40 s a day), the whole day at one rate. [[Lift Lines]]: the attendant's maze replaced by a corral of straight lanes. The playtest list (`notes.txt`) removed; every item is in [[Boreal Playtest]].
 - 2026-10-12: [[Lift Lines]] out of Priority, good enough for now; its extensions listed under Lifts.
+- 2026-10-12: [[Boreal Tutorial]] played through headless (`tools/tutorial`): the credit line to $1.4M, highlights offset annoyances in reviews ([[Scoreless Rating]]); won on day 19.

@@ -138,10 +138,10 @@ func (a *JoinQueue) Precondition(s *WorldSnapshot, w *world.World) bool {
 	if !hasTicket(s) || s.Need[ai.NeedRentals] > 0 {
 		return false
 	}
-	// A line with a wait over world.MaxLineWait sends the planner to
+	// A line with a wait over world.MaxLineWaitFor sends the planner to
 	// another lift; the cap is bypassed when Patience < 0.05 so GoHome
 	// routing can still ride up and exit a lift base.
-	if s.Patience >= 0.05 && l.LineWait() > world.MaxLineWait {
+	if s.Patience >= 0.05 && l.LineWait() > world.MaxLineWaitFor(len(s.RidenLifts) > 0) {
 		return false
 	}
 	// Reject if the guest can't afford this lift. Pass holders skip the budget

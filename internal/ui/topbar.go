@@ -23,7 +23,8 @@ type TopBar struct {
 	GetRating func() float32 // stars, 1–5
 	// GetRatingToday, when set, is the average stars of the guests who
 	// have left so far today, and false before anyone has; the bar
-	// shows it live, with a tick at GetRating (the last full day).
+	// shows it live, with a tick at GetRating (the resort rating, over
+	// the last world.RatingDays days).
 	GetRatingToday func() (float32, bool)
 
 	// Date + weather snapshot. Same callback pattern as stats so the bar
@@ -369,7 +370,7 @@ func (t *TopBar) drawStats(r *render.Renderer) {
 		r.DrawColorRect(barX, barY, barW*h, barH, fill)
 		text := fmt.Sprintf("%.1f stars", stars)
 		if today {
-			// A tick at the last full day's rating, to compare against.
+			// A tick at the resort rating, to compare against.
 			lh := min(max((last-1)/4, 0), 1)
 			r.DrawColorRect(barX+barW*lh-1, barY-3, 2, barH+6, mgl32.Vec4{0.92, 0.95, 1.0, 0.9})
 			text = fmt.Sprintf("%.1f today", stars)

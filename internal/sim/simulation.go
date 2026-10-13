@@ -1036,10 +1036,10 @@ func (s *Simulation) maybeSampleHistory() {
 		w.Cash -= costs.Total()
 		costs[world.CostInterest] = s.applyCredit(dayIdx)
 
-		// The rating is the day's average stars; a day
-		// nobody left keeps the last one.
-		if r, ok := w.History.DayRating(); ok {
-			w.Rating = r
+		// The rating is the average of the last few days' average
+		// stars (RatingDays); a day nobody left keeps the last one.
+		if _, today := w.History.DayRating(); today {
+			w.Rating, _ = w.History.RecentRating()
 		}
 		sample := world.DailySample{
 			Day:              s.DateAt(float64(dayIdx) * secondsPerSimDay),
@@ -1888,7 +1888,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		// bail guard (Patience >= 0.05) is false — preventing recursion.
 		wait := lift.LineWait()
 		// A follower whose leader is already in this line joins them.
-		if a.Patience >= 0.05 && wait > world.MaxLineWait && !leaderInLine(a, lift) {
+		if a.Patience >= 0.05 && wait > world.MaxLineWaitFor(len(a.RidenLifts) > 0) && !leaderInLine(a, lift) {
 			s.applyEvent(a, ai.ThoughtLineTooLong, lift.ID)
 			a.Patience = 0
 			s.replan(a)
