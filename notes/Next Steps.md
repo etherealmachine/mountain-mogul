@@ -15,6 +15,7 @@ In the order to work on them:
 
 1. [[SkiFree Mode]]: ski your own resort on the guests' physics. Steps: take control, chase camera, ride the lift up, timed runs with a ghost, the yeti.
 2. [[Families]]: kids who arrive and ski with their parents, and the [[Ski School]], whose instructors lead classes and whose lessons raise skill for good.
+3. [[Surface Lifts]]: the magic carpet, then the rope tow and the T-bar; short lifts' runs counting so novices ride them.
 
 ## Bugs
 
@@ -38,7 +39,6 @@ Diagnose each first, report the cause, then fix:
 ## Lifts ([[Lifts]])
 
 - [[Lift Operations]]: refuse overlapping lifts, then breakdowns and a maintenance contract, wind holds that spare the gondola, and guests riding down. Wind holds *need* wind that varies by day. Breakdowns are *for* the Turnaround idea in [[Scenario Campaign]].
-- **Surface lifts**: magic carpet first (not in the [[Demo]], the user 2026-10-10), then T-bar and rope tow, for beginner areas. None are lift types yet (today: double, quad, high-speed quad, 6-pack, gondola, heli). Kirkwood has two magic carpets and a T-bar in OpenStreetMap. *For* [[Kirkwood]], [[Boreal]], and Portillo in [[Scenario Campaign]].
 - **Long gondola spans**: few, tall towers over terrain a chair can't cross ([[Vision]]). *For* [[Palisades Tahoe]], [[Zermatt]].
 - **Riders on both sides of the line**: arriving riders spawn on both sides of the lift line, not one.
 - [[Lift Lines]] extensions: good enough for now (the user, 2026-10-12): a crowd with no attendant, and with one a corral of two straight lanes merging into a short run to the load. Possible next steps, none planned yet:
@@ -318,3 +318,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-13: Priority cleared: the [[Demo]] is ready enough (its open steps dropped until a QA pass) and the [[Boreal Playtest]] list is closed.
 - 2026-10-13: [[SkiFree Mode]] planned and ranked first.
 - 2026-10-13: [[Families]] planned and ranked second, with the [[Ski School]]; kids are in the base game, not DLC.
+- 2026-10-13: [[Surface Lifts]] planned and ranked third.

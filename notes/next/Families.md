@@ -29,7 +29,7 @@ In order. Each step builds with `go build` and `go vet`, and is checked headless
 2. **Kids look and tire like kids.** A smaller figure (about two-thirds scale, in `place` in `render/figure.go`), with the seat, unload and carry heights adjusted so a kid sits on the chair rather than floating over it. Energy drains faster, so a family needs breaks sooner, and comfort speed sits lower.
 3. **Parents' stars follow the kids.** A parent's star level is at most one above their worst-off kid's; a kid's highlight gives the parent one too ("the kids loved it"). Family moments: "waited for the kids at every turn", "the whole family on one chair". Kids' reviews count in the rating like anyone's.
 4. **The Ski School building.** A service room in the [[Building Tool]] with a desk and a meeting spot on the snow outside, best near gentle terrain. The school popup sets the instructor headcount, the wage, and the lesson price. A lesson need is rolled per visit: kids whose parents want harder terrain than they do, and a share of beginner adults (the Ski School card's lesson need). Guests sign up at the desk and wait at the meeting spot for a class.
-5. **Classes on the hill.** An instructor leads a class of up to eight as a group leader, on the existing follower code (`sim/groups.go`), planning at the class's level and keeping to the gentlest lift the school can reach. A lesson runs about two game hours, then the class skis back to the meeting spot. Parents ski on their own meanwhile, and the family plans to meet at the school when the lesson ends. With no instructor free, students wait and get annoyed.
+5. **Classes on the hill.** An instructor leads a class of up to eight as a group leader, on the existing follower code (`sim/groups.go`), planning at the class's level and keeping to the gentlest lift the school can reach (a chair is fine; a magic carpet once it exists, [[Surface Lifts]]). Instructors and classes use the patrol and ski school lane in [[Lift Lines]] once it exists. A lesson runs about two game hours, then the class skis back to the meeting spot. Parents ski on their own meanwhile, and the family plans to meet at the school when the lesson ends. With no instructor free, students wait and get annoyed.
 6. **Lessons raise skill.** Each lesson raises the student's skill in the catchment (less each time), and their traits follow. The school popup shows lessons today and students who've moved up a level.
 7. **Demand and balance.** Families are drawn by green terrain and a ski school, and their share rises on holidays (Christmas, Presidents' Day). Measure on the Goals Test: share of families, kids' and parents' stars, how often families split, and what a school earns against its wages.
 
@@ -37,9 +37,8 @@ In order. Each step builds with `go build` and `go vet`, and is checked headless
 
 - A kid's day ticket: half the adult price, a separate price, or free under some age?
 - Do a family's adults ever split up, one skiing with the kids and one off alone?
-- Lessons on Boreal with no magic carpet: is its gentlest chair enough, or does the school want the magic carpet first (Surface lifts in [[Next Steps]])?
-- Do instructors use the patrol and ski school lane in [[Lift Lines]], once it exists?
 
 ## Log
 
 - 2026-10-13: Planned with the user: kids and family groups in the base game, with the Ski School (instructors as staff who lead classes; lessons for kids and beginner adults; skill gains that last).
+- 2026-10-13: The gentlest chair is fine for lessons; classes use the ski school lane once there is one (the user). Kids' tickets and adults splitting up left for later.
