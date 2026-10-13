@@ -18,13 +18,19 @@ func main() {
 	app.Run()
 }
 
-// assetDir finds the assets folder beside the executable, falling back
-// to one in the working directory.
+// assetDir finds the assets folder beside the executable, or in a Mac
+// app's Resources (Contents/MacOS/../Resources/assets), falling back to
+// one in the working directory.
 func assetDir() string {
 	if exe, err := os.Executable(); err == nil {
-		dir := filepath.Join(filepath.Dir(exe), "assets")
-		if _, err := os.Stat(dir); err == nil {
-			return dir
+		if real, err := filepath.EvalSymlinks(exe); err == nil {
+			exe = real
+		}
+		here := filepath.Dir(exe)
+		for _, dir := range []string{filepath.Join(here, "assets"), filepath.Join(here, "..", "Resources", "assets")} {
+			if _, err := os.Stat(dir); err == nil {
+				return dir
+			}
 		}
 	}
 	return "assets"
