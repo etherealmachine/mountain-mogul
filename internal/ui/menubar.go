@@ -250,7 +250,11 @@ func (m *MenuBar) drawDock(r *render.Renderer, screenW float32) {
 		sub.DrawPopup(r, screenW)
 	}
 	if tip != nil && !open {
-		DrawTooltip(r, tip.Label, tip.X+tip.W/2, tip.Y-4, false)
+		text := tip.Label
+		if tip.Price != "" {
+			text += " · " + tip.Price
+		}
+		DrawTooltip(r, text, tip.X+tip.W/2, tip.Y-4, false)
 	}
 }
 

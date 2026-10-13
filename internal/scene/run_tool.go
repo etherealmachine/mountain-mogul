@@ -76,6 +76,9 @@ type runEnv struct {
 	w       *world.World
 	toast   func(string)
 	changed func() // after any trail change (game: snowcat sections; editor: dirty)
+	// placed, when set, is called with a run once it's drawn (the game
+	// ends the tool and selects it); without it a toast describes the run.
+	placed func(t *world.Trail)
 }
 
 // runInput is one frame's input for the run tool.
@@ -452,6 +455,10 @@ func (env runEnv) finish(st *runTool, end world.TrailEnd) {
 		env.changed()
 	}
 	st.drawing, st.nodes, st.start = false, nil, world.TrailEnd{}
+	if env.placed != nil {
+		env.placed(t)
+		return
+	}
 	env.toast(fmt.Sprintf("%s: %s to %s, %.0f m long, %.0f m drop. Click it with no tool to name it or set its difficulty.",
 		t.Name, runEndLabel(w, t.Start), runEndLabel(w, t.End), t.Length(), runDrop(w, t)))
 }

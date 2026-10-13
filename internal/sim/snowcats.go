@@ -325,6 +325,8 @@ func (s *Simulation) reassignAllSections() {
 		length float32
 	}
 	s.groomable = map[[2]int]bool{}
+	s.groomCovered = map[uint64]bool{}
+	s.groomCats = 0
 	var all []planned
 	for _, trail := range w.Trails {
 		if !trail.Groomed || len(trail.Cells) == 0 {
@@ -357,6 +359,7 @@ func (s *Simulation) reassignAllSections() {
 			activeCats = append(activeCats, cat)
 		}
 	}
+	s.groomCats = len(activeCats)
 	if len(activeCats) == 0 {
 		return
 	}
@@ -405,6 +408,7 @@ func (s *Simulation) reassignAllSections() {
 		}
 		if bestID != 0 {
 			shedPasses[bestID] = append(shedPasses[bestID], p)
+			s.groomCovered[p.pass.TrailID] = true
 		}
 	}
 

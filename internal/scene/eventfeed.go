@@ -32,6 +32,8 @@ func eventKindTint(k world.EventKind) mgl32.Vec4 {
 		return mgl32.Vec4{0.75, 0.88, 1.00, 1}
 	case world.EventRecord:
 		return mgl32.Vec4{0.40, 0.90, 0.50, 1}
+	case world.EventHint:
+		return mgl32.Vec4{1.00, 0.85, 0.35, 1}
 	case world.EventGoal, world.EventScenario:
 		return mgl32.Vec4{0.55, 0.85, 1.00, 1}
 	}

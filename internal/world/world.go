@@ -110,8 +110,8 @@ const (
 	// clock had hours; save load rescales their clocks.
 	LegacySecondsPerSimDay = 240.0
 
-	// NewGameStartHour is the clock hour a fresh game or scenario starts
-	// at, so the first thing the player sees is the morning.
+	// NewGameStartHour is the default World.StartHour: a fresh game opens
+	// on the morning, light out, before the lifts open.
 	NewGameStartHour = 8.0
 )
 
@@ -301,6 +301,10 @@ type World struct {
 	// sim's calendar (sim.DateAt) counts one day per sim day from here.
 	// Authored per scenario in the editor; defaults to DefaultStartDate.
 	StartDate time.Time
+	// StartHour is the clock hour a new game of the scenario starts at, on
+	// StartDate. Authored per scenario in the editor; defaults to
+	// NewGameStartHour.
+	StartHour float32
 
 	// Scenario is the scenario's name, description, and campaign placing.
 	Scenario ScenarioInfo
@@ -345,6 +349,7 @@ func NewWorld(terrain *Terrain) *World {
 		CreditLimit:     DefaultCreditLimit,
 		CreditRate:      DefaultCreditRate,
 		StartDate:       DefaultStartDate,
+		StartHour:       NewGameStartHour,
 		History:         NewHistory(),
 		SeasonPassPrice: DefaultSeasonPassPrice,
 		DayTicketPrice:  DefaultDayTicketPrice,

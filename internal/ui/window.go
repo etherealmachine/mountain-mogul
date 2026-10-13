@@ -102,8 +102,15 @@ type Window struct {
 	rows     []*windowRow
 	closeBtn *CloseButton
 	width    float32 // auto-computed from label widths
-	height   float32 // auto-computed from row count
-	labelW   float32 // label column right edge, relative to X
+	minWidth float32 // at least this wide: grown to fit the values as drawn (fitText)
+
+	// OnMoved, when set, is called with the window's corner when the
+	// player lets go of it after dragging it by its title bar.
+	OnMoved func(x, y float32)
+	drag    TitleDrag
+	sw, sh  float32 // the screen size at the last draw, for keeping a drag on screen
+	height  float32 // auto-computed from row count
+	labelW  float32 // label column right edge, relative to X
 }
 
 // NewWindow creates a window at the given screen position.
@@ -301,10 +308,7 @@ func (w *Window) rebuildLayout() {
 	w.labelW = winPadding + maxLabelPx + 8 // 8px gap between label and value
 
 	titleMinW := winPadding + float32(len(w.Title)*render.GlyphAdvance) + winBtnW + 20
-	w.width = w.labelW + winValueAreaW
-	if w.width < titleMinW {
-		w.width = titleMinW
-	}
+	w.width = max(w.labelW+winValueAreaW, titleMinW, w.minWidth)
 
 	// Height: title bar + rows + half-padding top and bottom.
 	h := winTitleH + winPadding/2
@@ -359,6 +363,10 @@ func (w *Window) Reposition(x, y float32) {
 	w.rebuildLayout()
 }
 
+// Width and Height are the window's size.
+func (w *Window) Width() float32  { return w.width }
+func (w *Window) Height() float32 { return w.height }
+
 // Center repositions the window so it is centred on the screen.
 func (w *Window) Center(screenW, screenH int) {
 	w.Reposition(
@@ -375,6 +383,18 @@ func (w *Window) HandleInput(inp *engine.Input) {
 		return
 	}
 	mx, my := inp.MousePos[0], inp.MousePos[1]
+	if w.sw > 0 {
+		moved, ended := w.drag.Handle(inp, &w.X, &w.Y, w.width, winTitleH, w.sw, w.sh, w.closeBtn.Contains)
+		if moved {
+			w.rebuildLayout()
+		}
+		if ended && w.OnMoved != nil {
+			w.OnMoved(w.X, w.Y)
+		}
+		if w.drag.Active() {
+			return
+		}
+	}
 	// Mark the click consumed if it lands inside the window rect, BEFORE
 	// dispatching to button callbacks — those callbacks may flip w.Visible
 	// (e.g. close button, "Paint Route" hides the popup) and later code
@@ -478,6 +498,8 @@ func (w *Window) Draw(r *render.Renderer) {
 		return
 	}
 
+	w.sw, w.sh = float32(r.ScreenWidth()), float32(r.ScreenHeight())
+	w.fitText(r)
 	textColor := mgl32.Vec4{0.9, 0.95, 1.0, 1.0}
 	labelColor := mgl32.Vec4{0.6, 0.7, 0.85, 1.0}
 
@@ -601,5 +623,40 @@ func drawToggleEntry(r *render.Renderer, t *toggleEntry) {
 		r.DrawColorRect(t.x, t.y+t.w-th, t.w, th, outline)
 		r.DrawColorRect(t.x, t.y, th, t.w, outline)
 		r.DrawColorRect(t.x+t.w-th, t.y, th, t.w, outline)
+	}
+}
+
+// fitText widens the window to fit its values and buttons as the font
+// draws them (the value column is only an estimate), and keeps it on
+// screen. It only grows, so a value that changes doesn't make it jitter.
+func (w *Window) fitText(r *render.Renderer) {
+	if r.Font == nil {
+		return
+	}
+	need := float32(0)
+	for _, row := range w.rows {
+		switch row.kind {
+		case rowLabel, rowStepperFn, rowAmount:
+			if row.getText == nil {
+				continue
+			}
+			vw := r.Font.TextWidth(row.getText())
+			if row.kind == rowStepperFn {
+				vw += 2*winBtnW + 8
+			}
+			need = max(need, w.labelW+vw+winPadding+4)
+		case rowActionButton:
+			need = max(need, r.Font.TextWidth(row.actionBtn.Label)+2*winPadding+16)
+		case rowSection:
+			need = max(need, r.Font.TextWidth(row.label)+2*winPadding)
+		}
+	}
+	if need > w.width {
+		w.minWidth = need
+		w.rebuildLayout()
+	}
+	if sw := float32(r.ScreenWidth()); w.X+w.width > sw-8 {
+		w.X = max(8, sw-8-w.width)
+		w.rebuildLayout()
 	}
 }

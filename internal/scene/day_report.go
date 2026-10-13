@@ -119,7 +119,7 @@ func (s *Scenario) openDayReport(d world.DailySample, prev *world.DailySample) {
 
 	win.Visible = true
 	r := s.app.Renderer
-	win.Center(r.ScreenWidth(), r.ScreenHeight())
+	s.placeWindow(win, r.ScreenWidth(), r.ScreenHeight(), &s.reportAt)
 	s.dayReport = win
 }
 

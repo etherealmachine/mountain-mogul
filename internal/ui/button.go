@@ -16,7 +16,10 @@ type Button struct {
 	// Icon when set; with no Label it fills the tile.
 	Image uint32
 	// Tooltip is shown on hover by containers that draw tooltips.
-	Tooltip     string
+	Tooltip string
+	// Price, when set, is drawn under a picture tile's label (and added to
+	// a dock button's tooltip), e.g. "$40k".
+	Price       string
 	Color       mgl32.Vec4
 	HoverColor  mgl32.Vec4
 	ActiveColor mgl32.Vec4
@@ -109,14 +112,15 @@ func (b *Button) Draw(r *render.Renderer) {
 		iconX := b.X + (b.W-iconSize)/2
 		iconY := b.Y + 4
 		if b.H >= 80 {
-			iconY = b.Y + (b.H-float32(render.GlyphH)-4-iconSize)/2
+			captionH := float32(render.GlyphH) + 4
+			if b.Price != "" {
+				captionH += float32(render.GlyphH) + 2
+			}
+			iconY = b.Y + (b.H-captionH-iconSize)/2
 		}
 		r.DrawIcon(b.Icon, iconX, iconY, iconSize, white)
 		if r.Font != nil && b.Label != "" {
-			labelW := r.Font.TextWidth(b.Label)
-			labelX := b.X + (b.W-labelW)/2
-			labelY := iconY + iconSize + 4
-			r.Font.DrawText(r, b.Label, labelX, labelY, white)
+			b.drawCaption(r, iconY+iconSize+4)
 		}
 		return
 	}
@@ -139,11 +143,24 @@ func (b *Button) drawImage(r *render.Renderer) {
 	labelH := float32(0)
 	if b.Label != "" && r.Font != nil {
 		labelH = float32(render.GlyphH) + 2
+		if b.Price != "" {
+			labelH *= 2
+		}
 		size = min(b.W-pad*2, b.H-labelH-pad*2)
 	}
 	r.DrawTexturedRect(b.X+(b.W-size)/2, b.Y+pad, size, size, b.Image, mgl32.Vec4{1, 1, 1, 1})
 	if labelH > 0 {
-		lw := r.Font.TextWidth(b.Label)
-		r.Font.DrawText(r, b.Label, b.X+(b.W-lw)/2, b.Y+b.H-labelH-2, mgl32.Vec4{1, 1, 1, 1})
+		b.drawCaption(r, b.Y+b.H-labelH-2)
+	}
+}
+
+// drawCaption draws the label centred from y, and the price under it in
+// gold.
+func (b *Button) drawCaption(r *render.Renderer, y float32) {
+	lw := r.Font.TextWidth(b.Label)
+	r.Font.DrawText(r, b.Label, b.X+(b.W-lw)/2, y, mgl32.Vec4{1, 1, 1, 1})
+	if b.Price != "" {
+		pw := r.Font.TextWidth(b.Price)
+		r.Font.DrawText(r, b.Price, b.X+(b.W-pw)/2, y+float32(render.GlyphH)+2, mgl32.Vec4{1.00, 0.85, 0.40, 1})
 	}
 }

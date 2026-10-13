@@ -1389,11 +1389,27 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	// Ghost pass — translucent preview of in-progress placements.
 	gl.Enable(gl.BLEND)
 	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+	// Model ghosts (buildings, lifts): their nearest surface only, each
+	// pixel blended once, so where a kit's tiles overlap (walls, corners,
+	// eaves) the ghost doesn't shimmer. Depth first, then colour where the
+	// depth matches, counting pixels in the stencil.
+	gl.ColorMask(false, false, false, false)
+	for _, batch := range r.scene.ghostBatches {
+		batch.Draw()
+	}
+	gl.ColorMask(true, true, true, true)
 	gl.DepthMask(false)
+	gl.DepthFunc(gl.LEQUAL)
+	gl.Clear(gl.STENCIL_BUFFER_BIT)
+	gl.Enable(gl.STENCIL_TEST)
+	gl.StencilFunc(gl.EQUAL, 0, 0xff)
+	gl.StencilOp(gl.KEEP, gl.KEEP, gl.INCR)
 	r.StaticShader.SetFloat("uAlpha", 0.4)
 	for _, batch := range r.scene.ghostBatches {
 		batch.Draw()
 	}
+	gl.Disable(gl.STENCIL_TEST)
+	gl.DepthFunc(gl.LESS)
 	gl.BindTexture(gl.TEXTURE_2D, r.whiteTexID)
 	setCableTransformAttribs()
 	if r.scene.ghostUpCable != nil {

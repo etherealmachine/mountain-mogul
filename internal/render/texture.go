@@ -2,6 +2,7 @@ package render
 
 import (
 	"image"
+	"image/draw"
 	_ "image/jpeg" // register JPEG decoder for image.Decode
 	"image/png"
 	"os"
@@ -64,14 +65,19 @@ func LoadIconTexture(path string) (uint32, error) {
 		return whiteTexture(), err
 	}
 
-	rgba := toRGBA(img)
-	// Force RGB to white, preserve alpha. After this, sampling the texture
-	// returns vec4(1, 1, 1, alpha) and the shader's multiply with vColor
-	// yields the tinted icon over the alpha mask.
-	for i := 0; i+3 < len(rgba.Pix); i += 4 {
-		rgba.Pix[i] = 255
-		rgba.Pix[i+1] = 255
-		rgba.Pix[i+2] = 255
+	// Straight (not premultiplied) alpha, as the UI blends.
+	rgba := image.NewNRGBA(img.Bounds())
+	draw.Draw(rgba, rgba.Bounds(), img, img.Bounds().Min, draw.Src)
+	// A one-colour icon (the Phosphor set) becomes a mask: RGB forced to white,
+	// alpha kept, so sampling returns vec4(1, 1, 1, alpha) and the shader's
+	// multiply with vColor tints it. An icon with colour in it (the trail
+	// signs) keeps its colours.
+	if !coloured(rgba) {
+		for i := 0; i+3 < len(rgba.Pix); i += 4 {
+			rgba.Pix[i] = 255
+			rgba.Pix[i+1] = 255
+			rgba.Pix[i+2] = 255
+		}
 	}
 	bounds := rgba.Bounds()
 	w := int32(bounds.Dx())
@@ -131,4 +137,16 @@ func toRGBA(img image.Image) *image.RGBA {
 		}
 	}
 	return rgba
+}
+
+// coloured reports whether an icon has clearly coloured (saturated)
+// opaque pixels; the mask icons are one grey, black or white.
+func coloured(img *image.NRGBA) bool {
+	for i := 0; i+3 < len(img.Pix); i += 4 {
+		r, g, b := img.Pix[i], img.Pix[i+1], img.Pix[i+2]
+		if img.Pix[i+3] > 200 && int(max(r, g, b))-int(min(r, g, b)) > 80 {
+			return true
+		}
+	}
+	return false
 }

@@ -31,6 +31,7 @@ const (
 	ThumbSnowGun
 	ThumbTree
 	ThumbSnowcat
+	ThumbBulldozer // the Remove tool
 	// ThumbShellBase + world.ShellKind is that kind's building.
 	ThumbShellBase
 )
@@ -84,6 +85,7 @@ func thumbSpecs() map[ThumbID]thumbSpec {
 		ThumbSkiRack:      onePart("ski_rack", thumbWhite, 0.3),
 		ThumbTree:         onePart("tree", mgl32.Vec3{0.75, 1.0, 0.75}, 0),
 		ThumbSnowcat:      onePart("snowcat", thumbWhite, 0.5),
+		ThumbBulldozer:    onePart("bulldozer", thumbWhite, 0.4),
 	}
 	if !edition.Demo {
 		specs[ThumbSnowGun] = onePart("snow_gun", thumbWhite, 0.4)

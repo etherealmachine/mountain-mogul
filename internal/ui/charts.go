@@ -81,6 +81,8 @@ type ChartWindow struct {
 
 	closeBtn *CloseButton
 	tabs     []*chartTab
+	drag     TitleDrag
+	sw, sh   float32 // the screen size at the last draw, for keeping a drag on screen
 }
 
 // chartTab is one switcher icon at the top of the window.
@@ -158,6 +160,14 @@ func (cw *ChartWindow) HandleInput(inp *engine.Input) {
 		return
 	}
 	mx, my := inp.MousePos[0], inp.MousePos[1]
+	if cw.sw > 0 {
+		if moved, _ := cw.drag.Handle(inp, &cw.X, &cw.Y, cw.width, chartTitleH, cw.sw, cw.sh, cw.closeBtn.Contains); moved {
+			cw.layout()
+		}
+		if cw.drag.Active() {
+			return
+		}
+	}
 	if inp.LeftClick && cw.ContainsPoint(mx, my) {
 		inp.LeftClickConsumed = true
 	}
@@ -205,6 +215,7 @@ func (cw *ChartWindow) Draw(r *render.Renderer) {
 		return
 	}
 	cw.layout()
+	cw.sw, cw.sh = float32(r.ScreenWidth()), float32(r.ScreenHeight())
 
 	textColor := mgl32.Vec4{0.9, 0.95, 1.0, 1.0}
 

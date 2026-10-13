@@ -146,3 +146,15 @@ func DrawCheckbox(r *render.Renderer, x, y, size float32, on, hovered bool) {
 		r.DrawColorLine(x+size*0.43, y+size*0.70, x+size*0.77, y+size*0.32, 2.5, white)
 	}
 }
+
+// DrawClosedSign draws the "closed" mark, a red circle with a slash
+// across it on white, centred at (cx, cy).
+func DrawClosedSign(r *render.Renderer, cx, cy, radius float32) {
+	red := mgl32.Vec4{0.86, 0.16, 0.14, 1}
+	r.DrawColorDisc(cx+1, cy+2, radius+1, mgl32.Vec4{0, 0, 0, 0.3})
+	r.DrawColorDisc(cx, cy, radius, mgl32.Vec4{1, 1, 1, 0.95})
+	t := radius * 0.24
+	r.DrawRing(cx, cy, radius, t, red)
+	a := (radius - t) * 0.72
+	r.DrawColorLine(cx-a, cy-a, cx+a, cy+a, t, red)
+}

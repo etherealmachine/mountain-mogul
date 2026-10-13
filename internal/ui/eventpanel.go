@@ -10,7 +10,7 @@ import (
 // into rows so the ui package stays free of world/sim imports.
 type EventRow struct {
 	When string     // short timestamp, e.g. "Dec 14"
-	Text string     // event message; truncated to fit the panel width
+	Text string     // event message; wrapped to the panel width (up to eventMaxLines)
 	Tint mgl32.Vec4 // colour of the left-edge kind marker
 
 	// Jumpable marks X/Z (world metres) as a camera target; clicking the
@@ -37,14 +37,30 @@ type EventPanel struct {
 	OnJump func(x, z float32)
 
 	rows    []EventRow // snapshot from the last HandleInput / Draw
-	hovered int        // index into rows, -1 when none
+	lines   [][]string // each row's message, wrapped (layoutRows)
+	ys      []float32  // each shown row's top; rows past the bottom aren't laid out
+	font    *render.Font
+	hovered int // index into rows, -1 when none
 	bgColor mgl32.Vec4
 }
 
 // eventPanelHeaderH covers the gap above the panel and its title strip.
 var eventPanelHeaderH = sidePanelInset + float32(render.GlyphH+10)
 
-const eventPanelRowH = float32(52) // two text lines: timestamp + message
+// eventLineH is a text line in a row, eventRowPad the space round a row,
+// and eventMaxLines the most lines a message wraps to.
+const (
+	eventLineH    = float32(24)
+	eventRowPad   = float32(8)
+	eventMaxLines = 3
+)
+
+// Row text starts here, after the kind marker.
+const (
+	eventPad     = float32(18)
+	eventMarkerW = float32(4)
+	eventTextX   = eventPad + eventMarkerW + 8
+)
 
 // NewEventPanel returns a hidden panel; the top-bar button toggles it.
 func NewEventPanel() *EventPanel {
@@ -69,16 +85,34 @@ func (p *EventPanel) ContainsXY(mx, my float32) bool {
 	return mx >= 0 && mx <= p.Width && my >= p.Top && my <= p.Bottom
 }
 
-// visibleRowCount is how many rows fit between the header and Bottom.
-func (p *EventPanel) visibleRowCount() int {
-	n := int((p.Bottom - p.Top - eventPanelHeaderH) / eventPanelRowH)
-	if n > len(p.rows) {
-		n = len(p.rows)
+// rowH is row i's height: the timestamp and its message's lines.
+func (p *EventPanel) rowH(i int) float32 {
+	return eventRowPad + eventLineH*float32(1+len(p.lines[i]))
+}
+
+// layoutRows wraps each row's message to the panel and finds where the
+// rows that fit stand.
+func (p *EventPanel) layoutRows() {
+	maxW := p.Width - eventTextX - eventPad
+	p.lines = p.lines[:0]
+	p.ys = p.ys[:0]
+	y := p.Top + eventPanelHeaderH
+	for i, row := range p.rows {
+		lines := []string{row.Text}
+		if p.font != nil {
+			lines = WrapText(row.Text, maxW, p.font.TextWidth)
+			if len(lines) > eventMaxLines {
+				lines = lines[:eventMaxLines]
+				lines[eventMaxLines-1] = fitText(p.font, lines[eventMaxLines-1]+" …", maxW)
+			}
+		}
+		p.lines = append(p.lines, lines)
+		if y+p.rowH(i) > p.Bottom-sidePanelInset {
+			break
+		}
+		p.ys = append(p.ys, y)
+		y += p.rowH(i)
 	}
-	if n < 0 {
-		n = 0
-	}
-	return n
 }
 
 func (p *EventPanel) refresh() {
@@ -103,13 +137,15 @@ func (p *EventPanel) HandleInput(input *engine.Input) {
 	if input.LeftClick {
 		input.LeftClickConsumed = true
 	}
-	i := int((my - p.Top - eventPanelHeaderH) / eventPanelRowH)
-	if my < p.Top+eventPanelHeaderH || i >= p.visibleRowCount() {
-		return
-	}
-	p.hovered = i
-	if input.LeftClick && p.rows[i].Jumpable && p.OnJump != nil {
-		p.OnJump(p.rows[i].X, p.rows[i].Z)
+	p.layoutRows()
+	for i, y := range p.ys {
+		if my >= y && my < y+p.rowH(i) {
+			p.hovered = i
+			if input.LeftClick && p.rows[i].Jumpable && p.OnJump != nil {
+				p.OnJump(p.rows[i].X, p.rows[i].Z)
+			}
+			return
+		}
 	}
 }
 
@@ -119,8 +155,9 @@ func (p *EventPanel) Draw(r *render.Renderer) {
 		return
 	}
 	p.refresh()
+	p.font = r.Font
 	DrawPanel(r, sidePanelInset, p.Top+sidePanelInset, p.Width-sidePanelInset, p.Bottom-p.Top-sidePanelInset*2)
-	DrawPanelHeader(r, sidePanelInset, p.Top+sidePanelInset, p.Width-sidePanelInset, eventPanelHeaderH-sidePanelInset, "Events")
+	DrawPanelHeader(r, sidePanelInset, p.Top+sidePanelInset, p.Width-sidePanelInset, eventPanelHeaderH-sidePanelInset, "Notifications")
 	if r.Font == nil {
 		return
 	}
@@ -130,21 +167,18 @@ func (p *EventPanel) Draw(r *render.Renderer) {
 		return
 	}
 
-	const pad = float32(18)
-	const markerW = float32(4)
-	textX := pad + markerW + 8
-	textMaxW := p.Width - textX - pad
-	for i := 0; i < p.visibleRowCount(); i++ {
+	p.layoutRows()
+	for i, y := range p.ys {
 		row := p.rows[i]
-		y := p.Top + eventPanelHeaderH + float32(i)*eventPanelRowH
+		h := p.rowH(i)
 		if i == p.hovered && row.Jumpable {
-			r.DrawRoundRect(sidePanelInset+4, y+1, p.Width-sidePanelInset-8, eventPanelRowH-2, ButtonRadius, mgl32.Vec4{0.22, 0.30, 0.50, 0.8})
+			r.DrawRoundRect(sidePanelInset+4, y+1, p.Width-sidePanelInset-8, h-2, ButtonRadius, mgl32.Vec4{0.22, 0.30, 0.50, 0.8})
 		}
-		r.DrawRoundRect(pad, y+6, markerW, eventPanelRowH-12, markerW/2, row.Tint)
-		lineH := eventPanelRowH / 2
-		r.Font.DrawText(r, row.When, textX, y+2, mgl32.Vec4{0.55, 0.60, 0.70, 1})
-		r.Font.DrawText(r, fitText(r.Font, row.Text, textMaxW), textX, y+lineH-2,
-			mgl32.Vec4{0.90, 0.93, 1.0, 1})
+		r.DrawRoundRect(eventPad, y+6, eventMarkerW, h-12, eventMarkerW/2, row.Tint)
+		r.Font.DrawText(r, row.When, eventTextX, y+2, mgl32.Vec4{0.55, 0.60, 0.70, 1})
+		for k, line := range p.lines[i] {
+			r.Font.DrawText(r, line, eventTextX, y+2+eventLineH*float32(k+1), mgl32.Vec4{0.90, 0.93, 1.0, 1})
+		}
 	}
 }
 

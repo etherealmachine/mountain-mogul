@@ -27,6 +27,12 @@ type goalsPanel struct {
 
 	closeBtn, keepBtn, retryBtn, quitBtn *ui.Button
 	x, y, w, h                           float32
+	titleH, sw, sh                       float32 // its title bar, and the screen, at the last draw
+
+	// at is where the player last dragged it by its title bar; nil for
+	// centred.
+	at   *mgl32.Vec2
+	drag ui.TitleDrag
 }
 
 const (
@@ -125,7 +131,7 @@ func (s *Scenario) retryScenario() {
 	if f == "" {
 		return
 	}
-	s.app.ReplaceScene(NewScenarioFromFile(filepath.Join(s.app.AssetDir, "scenarios", f)))
+	s.app.ReplaceScene(NewGameFromScenario(filepath.Join(s.app.AssetDir, "scenarios", f)))
 }
 
 // pollGoalsOutcome opens the result panel the first time the scenario is
@@ -155,6 +161,13 @@ func (s *Scenario) handleGoalsInput(inp *engine.Input) {
 		return
 	}
 	mx, my := inp.MousePos[0], inp.MousePos[1]
+	if p.sw > 0 {
+		p.drag.Handle(inp, &p.x, &p.y, p.w, p.titleH, p.sw, p.sh, nil)
+		if p.drag.Active() {
+			p.at = &mgl32.Vec2{p.x, p.y}
+			return
+		}
+	}
 	for _, b := range s.goalsButtons() {
 		b.SetHovered(b.Contains(mx, my))
 		if inp.LeftClick && !inp.LeftClickConsumed && b.Contains(mx, my) {
@@ -256,6 +269,13 @@ func (s *Scenario) drawGoalsPanel(r *render.Renderer) {
 	sw, sh := float32(r.ScreenWidth()), float32(r.ScreenHeight())
 	p.w, p.h = goalsPanelW, h
 	p.x, p.y = (sw-p.w)/2, max((sh-p.h)/2, 70)
+	if s.eventPanel != nil && s.eventPanel.Visible {
+		p.x = max(p.x, s.eventPanel.Width+16) // clear of the event feed
+	}
+	if p.at != nil {
+		p.x, p.y = max(0, min(p.at[0], sw-p.w)), max(0, min(p.at[1], sh-p.h))
+	}
+	p.titleH, p.sw, p.sh = lineH+10, sw, sh
 
 	ui.DrawPanel(r, p.x, p.y, p.w, p.h)
 	ui.DrawPanelHeader(r, p.x, p.y, p.w, lineH+10, title)

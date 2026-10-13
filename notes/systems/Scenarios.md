@@ -8,7 +8,7 @@ status: partial
 
 A scenario is the starting state for a new game: a save file in `assets/scenarios/` with the [[Terrain]], [[Parcels]], starting cash and credit line ([[Finance]]), start date ([[Calendar]]), and anything already built. New Game lists every file there and starts from the one picked ([[Scenes]]). The [[Scenario Editor]] creates and edits them, and maps usually start from [[Terrain Import]].
 
-Each scenario also carries a display name, location, difficulty (1 to 5), campaign order, tutorial flag, and description, set in the editor's Scenario details dialog ([[Scenario Metadata]]). The picker lists scenarios by name, tutorial first and then in campaign order, and a pick opens a panel with the description before Play. Games started from a scenario keep its info, so the save list shows which mountain each save is on.
+Each scenario also carries a display name, location, difficulty (1 to 5), campaign order, tutorial flag, and description, set in the editor's Scenario details dialog ([[Scenario Metadata]]). The picker shows each scenario as a card (name, then location and difficulty or "Tutorial"), tutorial first and then in campaign order; a click starts it, and a new game opens on its goals panel. Games started from a scenario keep its info, so the save list shows which mountain each save is on.
 
 There are two scenarios: [[Boreal]] (`boreal.save`), the tutorial, and [[Kirkwood]] (`kirkwood.save`), step 2 of the [[Scenario Campaign]].
 
@@ -24,3 +24,4 @@ Code: `internal/scene/scenariopicker.go`, `editor_file.go`, `editor_details.go`;
 - 2026-10-02: Scenarios have names, descriptions, locations, difficulty, and campaign order, shown in the picker and set in the editor.
 - 2026-10-03: Added Kirkwood, the second scenario.
 - 2026-10-05: Renamed `tutorial.save` to `boreal.save`.
+- 2026-10-13: New Game lists each scenario as a card with its name, location, and difficulty or tutorial; a click starts it, opening on the goals panel (Retry too). The editor's picker stays a list.

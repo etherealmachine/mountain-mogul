@@ -27,6 +27,7 @@ const (
 	EventLongLine         EventKind = 13 // a lift's line passed a long wait, once a lift a day
 	EventSnowfall         EventKind = 14 // fresh snow overnight
 	EventRecord           EventKind = 15 // a record day of visitors
+	EventHint             EventKind = 16 // something the resort needs before guests can ski (sim/hints.go)
 )
 
 // Event is one entry in the World-level event feed: something the player
@@ -75,6 +76,24 @@ func (l *EventLog) ScaleTimes(k float64) {
 	for i := range l.entries {
 		l.entries[i].SimTime *= k
 	}
+}
+
+// RemoveIf drops every retained event drop reports true for, keeping the
+// rest in order. Seq is left alone: removing isn't news.
+func (l *EventLog) RemoveIf(drop func(Event) bool) {
+	kept := make([]Event, 0, l.count)
+	for i := 0; i < l.count; i++ {
+		if e := l.At(i); !drop(e) {
+			kept = append(kept, e)
+		}
+	}
+	if len(kept) == l.count {
+		return
+	}
+	l.entries = [EventLogCapacity]Event{}
+	copy(l.entries[:], kept)
+	l.count = len(kept)
+	l.head = len(kept) % EventLogCapacity
 }
 
 // Len returns the number of events currently retained.

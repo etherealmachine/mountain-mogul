@@ -14,6 +14,10 @@ import (
 // (right). Layout is recomputed from the screen width every frame so resize
 // works without re-registering anything.
 type TopBar struct {
+	// EventsUnread reports whether there are unseen notifications (the
+	// dot on the notifications button); nil for none.
+	EventsUnread func() bool
+
 	Y, H float32
 
 	// Stats — pure read-only callbacks. The bar pulls fresh values every
@@ -624,6 +628,11 @@ func (t *TopBar) drawIconButton(r *render.Renderer, b *iconButton) {
 		r.DrawIcon(render.IconChartBar, cx-iconSize/2, cy, iconSize, col)
 	case "events":
 		r.DrawIcon(render.IconFlag, cx-iconSize/2, cy, iconSize, col)
+		if t.EventsUnread != nil && t.EventsUnread() && !b.active {
+			dx, dy := cx+iconSize/2, cy+2
+			r.DrawColorDisc(dx, dy, 6, mgl32.Vec4{0.95, 0.30, 0.25, 1})
+			r.DrawRing(dx, dy, 6, 1.5, mgl32.Vec4{1, 1, 1, 0.9})
+		}
 	case "goals":
 		r.DrawIcon(render.IconTrophy, cx-iconSize/2, cy, iconSize, col)
 	}
@@ -664,7 +673,7 @@ func (b *iconButton) tip() string {
 	case "goals":
 		return "Goals"
 	case "events":
-		return "Events"
+		return "Notifications"
 	case "charts":
 		return "Resort overview"
 	case "overlay":

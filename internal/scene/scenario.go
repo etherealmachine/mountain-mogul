@@ -459,37 +459,44 @@ const (
 
 // Scenario is the main gameplay scene.
 type Scenario struct {
-	app              *engine.App
-	world            *world.World
-	sim              *sim.Simulation
-	toolBar          *ui.MenuBar      // bottom-of-screen tool palette
-	topBar           *ui.TopBar       // resort-management HUD strip
-	overlayPanel     *ui.OverlayPanel // right-side terrain-overlay toggles
-	chartWindow      *ui.ChartWindow  // resort-stats charts (line + grouped bar)
-	dayReport        *ui.Window       // profit/loss recap opened at each midnight
-	eventPanel       *ui.EventPanel   // left-side world event feed
-	goals            goalsPanel       // the scenario's goals and the win/lose panel
-	escapeMenu       *EscapeMenu
-	settingsMenu     *SettingsMenu
-	toolButtons      map[toolMode]*ui.Button
-	liftButtons      map[world.LiftType]*ui.Button // Lifts submenu: one button per lift type
-	liftsSubmenu     *ui.SubmenuButton             // Lifts group (all chair/gondola/heli variants)
-	buildingsSubmenu *ui.SubmenuButton             // Buildings group: lodge, tent, shed
-	servicesSubmenu  *ui.SubmenuButton             // Services group: what goes in them
-	transportSubmenu *ui.SubmenuButton             // Transport group (parking, road)
-	activeTool       toolMode
-	liftType         world.LiftType // chair variant the toolLiftBase/Top flow will place
-	liftBase         mgl32.Vec2     // first click world position for lift placement
-	roadStart        mgl32.Vec2     // first click world position for road placement (post-snap)
-	scenarioPath     string
-	time             float32
-	rightDragging    bool
-	hoverCell        [2]int     // terrain cell under the mouse — for cell-based tools
-	hoverWorld       mgl32.Vec3 // continuous terrain hit under the mouse — for placement
-	hoverMouseScreen mgl32.Vec2 // screen-space mouse position, updated with hoverValid
-	hoverValid       bool       // false when the mouse is off-terrain or over the menu bars
-	followGuestID    uint64     // 0 = free camera; >0 = ID of followed skier
-	firstPerson      bool       // V: first-person camera at the followed skier's head
+	app          *engine.App
+	world        *world.World
+	sim          *sim.Simulation
+	toolBar      *ui.MenuBar      // bottom-of-screen tool palette
+	topBar       *ui.TopBar       // resort-management HUD strip
+	overlayPanel *ui.OverlayPanel // right-side terrain-overlay toggles
+	chartWindow  *ui.ChartWindow  // resort-stats charts (line + grouped bar)
+	dayReport    *ui.Window       // profit/loss recap opened at each midnight
+	eventPanel   *ui.EventPanel   // left-side world event feed
+	goals        goalsPanel       // the scenario's goals and the win/lose panel
+	escapeMenu   *EscapeMenu
+	settingsMenu *SettingsMenu
+	goalsOnStart bool   // a new game: open on the goals panel
+	eventsSeen   uint64 // the notifications' Seq when last looked at (the unread dot)
+	moneyFloats  []moneyFloat
+	hintsChecked float32 // s.time of the last setup-hint check
+	// popupAt and reportAt are where the player last dragged a popup and
+	// the day report: the next one opens there (placeWindow).
+	popupAt, reportAt *mgl32.Vec2
+	toolButtons       map[toolMode]*ui.Button
+	liftButtons       map[world.LiftType]*ui.Button // Lifts submenu: one button per lift type
+	liftsSubmenu      *ui.SubmenuButton             // Lifts group (all chair/gondola/heli variants)
+	buildingsSubmenu  *ui.SubmenuButton             // Buildings group: lodge, tent, shed
+	servicesSubmenu   *ui.SubmenuButton             // Services group: what goes in them
+	transportSubmenu  *ui.SubmenuButton             // Transport group (parking, road)
+	activeTool        toolMode
+	liftType          world.LiftType // chair variant the toolLiftBase/Top flow will place
+	liftBase          mgl32.Vec2     // first click world position for lift placement
+	roadStart         mgl32.Vec2     // first click world position for road placement (post-snap)
+	scenarioPath      string
+	time              float32
+	rightDragging     bool
+	hoverCell         [2]int     // terrain cell under the mouse — for cell-based tools
+	hoverWorld        mgl32.Vec3 // continuous terrain hit under the mouse — for placement
+	hoverMouseScreen  mgl32.Vec2 // screen-space mouse position, updated with hoverValid
+	hoverValid        bool       // false when the mouse is off-terrain or over the menu bars
+	followGuestID     uint64     // 0 = free camera; >0 = ID of followed skier
+	firstPerson       bool       // V: first-person camera at the followed skier's head
 
 	// fpsSmoothed is an EMA of the wall-clock frame rate, updated every
 	// Update tick. Surfaced in the F5 inspector panel so the player can
@@ -643,6 +650,14 @@ func (s *Scenario) updateTimeScale() {
 // saves). Save is enabled; the first Save click prompts for a name. If the
 // loaded path lives inside the user's saves directory, that name is used as
 // the default for subsequent saves so re-saving overwrites the same file.
+// NewGameFromScenario starts a new game of the scenario at path, opening
+// on its goals.
+func NewGameFromScenario(path string) *Scenario {
+	s := NewScenarioFromFile(path)
+	s.goalsOnStart = true
+	return s
+}
+
 func NewScenarioFromFile(path string) *Scenario {
 	s := &Scenario{
 		scenarioPath: path,
@@ -873,12 +888,19 @@ func (s *Scenario) Init(app *engine.App) error {
 		w = loaded
 		cam = loadedCam
 		levelStationAprons(w)
+		// A new game of a scenario (its clock never run) opens at the
+		// scenario's start hour.
+		if w.SimTime == 0 {
+			w.SimTime = sim.SimTimeAt(0, float64(w.StartHour))
+		}
 	}
 	w.TerrainBase = nil
 	// A game started from a bundled scenario remembers which, for Retry.
 	if dir, file := filepath.Split(s.scenarioPath); s.app != nil && filepath.Clean(dir) == filepath.Clean(filepath.Join(app.AssetDir, "scenarios")) {
 		w.Scenario.File = file
 	}
+	// What's already in a save's notifications counts as read.
+	s.eventsSeen = w.Events.Seq
 	s.installWorld(w)
 	if cam != nil {
 		applyCameraSnapshot(app.Renderer.Camera, cam)
@@ -915,6 +937,7 @@ func (s *Scenario) Init(app *engine.App) error {
 		k := kv.kind
 		s.kindButtons[k] = s.buildingsSubmenu.AddChild(kv.icon, k.Label(), func() { s.setNewShellKind(k) })
 		s.kindButtons[k].Image = thumb(render.ShellThumb(k))
+		s.kindButtons[k].Price = "from " + settings.FormatDollarsShort(k.BaseCost()+k.StructureTileCost())
 	}
 	s.buildingsSubmenu.Btn.Image = thumb(render.ShellThumb(world.ShellLodge))
 
@@ -926,6 +949,7 @@ func (s *Scenario) Init(app *engine.App) error {
 	for _, sv := range serviceMenu {
 		svc := sv.svc
 		s.serviceButtons[svc] = s.servicesSubmenu.AddChild(sv.icon, svc.Label(), func() { s.activateServiceTool(svc) })
+		s.serviceButtons[svc].Price = settings.FormatDollarsShort(newBuildingKind(svc).TileCost(svc)) + "/tile"
 	}
 
 	// Operations submenu: Shed, Patrol
@@ -935,11 +959,16 @@ func (s *Scenario) Init(app *engine.App) error {
 	s.transportSubmenu.Btn.Image = thumb(render.ThumbCar)
 	s.toolButtons[toolParking] = s.transportSubmenu.AddChild(render.IconUsers, "Parking", func() { s.activateParkingTool(0) })
 	s.toolButtons[toolParking].Image = thumb(render.ThumbCar)
+	s.toolButtons[toolParking].Price = fmt.Sprintf("$%d/m²", world.ParkingCostPerM2)
 	s.toolButtons[toolRoadStart] = s.transportSubmenu.AddChild(render.IconRoad, "Road", func() { s.setTool(toolRoadStart) })
+	s.toolButtons[toolRoadStart].Price = fmt.Sprintf("$%d/m", world.RoadCostPerMeter)
 	s.toolButtons[toolFootpath] = s.transportSubmenu.AddChild(render.IconFootprints, "Path", s.activatePathTool)
+	s.toolButtons[toolFootpath].Price = fmt.Sprintf("$%d/m²", world.FootpathCostPerM2)
 	s.toolButtons[toolSkiRack] = s.transportSubmenu.AddChild(render.IconSki, "Ski Rack", func() { s.setTool(toolSkiRack) })
 	s.toolButtons[toolSkiRack].Image = thumb(render.ThumbSkiRack)
+	s.toolButtons[toolSkiRack].Price = settings.FormatDollarsShort(world.SkiRackCost)
 	s.toolButtons[toolRope] = s.transportSubmenu.AddChild(render.IconRope, "Rope", s.activateRopeTool)
+	s.toolButtons[toolRope].Price = fmt.Sprintf("$%d/m", world.RopeCostPerM)
 
 	// Lifts submenu: all chair/gondola/heli variants
 	s.liftsSubmenu = s.toolBar.AddSubmenu(render.IconCableCar, "Lifts")
@@ -949,22 +978,26 @@ func (s *Scenario) Init(app *engine.App) error {
 		t := lt.typ
 		s.liftButtons[t] = s.liftsSubmenu.AddChild(render.IconCableCar, lt.label, func() { s.activateLiftTool(t) })
 		s.liftButtons[t].Image = thumb(lt.thumb)
+		s.liftButtons[t].Price = settings.FormatDollarsShort(t.StationCost()) + "+"
 	}
 
 	// Flat tools
 	if !edition.Demo { // no snowmaking in the demo
 		s.toolButtons[toolSnowGun] = s.toolBar.AddIconButton(render.IconSnowflake, "Snow Gun", func() { s.setTool(toolSnowGun) })
 		s.toolButtons[toolSnowGun].Image = thumb(render.ThumbSnowGun)
+		s.toolButtons[toolSnowGun].Price = settings.FormatDollarsShort(world.SnowGunCost)
 	}
 	s.toolButtons[toolGlade] = s.toolBar.AddIconButton(render.IconAxe, "Glade", func() { s.setTool(toolGlade) })
 	s.toolButtons[toolGlade].Image = thumb(render.ThumbTree)
-	s.toolButtons[toolTrailPaint] = s.toolBar.AddIconButton(render.IconFlag, "Trail", func() { s.activateTrailTool() })
+	s.toolButtons[toolGlade].Price = fmt.Sprintf("$%d/tree", world.GladeCostPerTree)
+	s.toolButtons[toolTrailPaint] = s.toolBar.AddIconButton(render.IconTrailSigns, "Trail", func() { s.activateTrailTool() })
 	s.toolButtons[toolRemove] = s.toolBar.AddIconButton(render.IconTrash, "Remove", func() { s.setTool(toolRemove) })
+	s.toolButtons[toolRemove].Image = thumb(render.ThumbBulldozer)
 	if !edition.Demo { // no buying land in the demo
 		s.toolButtons[toolLandBuy] = s.toolBar.AddIconButton(render.IconGlobe, "Land", func() {
 			s.setTool(toolLandBuy)
 			if s.activeTool == toolLandBuy {
-				s.setToast("Click a purchasable parcel to buy it. Esc to exit.")
+				s.setToast("Click a parcel to buy it")
 			}
 		})
 	}
@@ -1076,9 +1109,13 @@ func (s *Scenario) Init(app *engine.App) error {
 	}
 	s.topBar.SetEventsToggle(func() {
 		s.topBar.SetEventsActive(s.eventPanel.Toggle())
-		s.topBar.SetOverlayActive(s.overlayPanel.Toggle())
+		s.eventsSeen = s.world.Events.Seq
 	})
+	s.topBar.EventsUnread = func() bool { return s.world.Events.Seq > s.eventsSeen }
 	s.initGoalsPanel()
+	if s.goalsOnStart && len(s.world.Goals) > 0 {
+		s.ShowGoals() // a new game opens on its goals
+	}
 
 	// Charts window — three tabs: guest population (line), arrivals /
 	// departures (grouped bar), cash on hand (line). Data is pulled
@@ -1437,6 +1474,7 @@ func (s *Scenario) Update(dt float64) {
 	s.time += float32(dt)
 	inp := s.app.Input
 	r := s.app.Renderer
+	cashBefore := s.world.Cash
 
 	// Wall-clock FPS, exponentially smoothed. α=0.08 gives a ~0.2 s
 	// time constant — steady enough that the displayed number doesn't
@@ -1877,7 +1915,7 @@ func (s *Scenario) Update(dt float64) {
 	// (run_tool.go).
 	if s.activeTool == toolTrailPaint {
 		covered := s.barsContain(inp.MousePos[1]) || s.uiCovers(inp.MousePos[0], inp.MousePos[1], float32(r.ScreenWidth()))
-		s.runEnv().input(&s.runTool, runInput{
+		used := s.runEnv().input(&s.runTool, runInput{
 			toolInput: toolInput{
 				mouse: inp.MousePos, covered: covered,
 				ground: s.hoverWorld, groundValid: s.hoverValid,
@@ -1889,6 +1927,9 @@ func (s *Scenario) Update(dt float64) {
 			narrow: !typing && inp.Pressed[glfw.KeyLeftBracket],
 			newRun: inp.Held[glfw.KeyLeftShift] || inp.Held[glfw.KeyRightShift],
 		})
+		if used {
+			inp.LeftClickConsumed = true // a finished run's click mustn't also select something
+		}
 	}
 	// The footpath tool: lay paths node by node (footpath_tool.go).
 	if s.activeTool == toolFootpath {
@@ -1957,6 +1998,19 @@ func (s *Scenario) Update(dt float64) {
 				}
 			}
 		}
+	}
+
+	// Setup hints come down as soon as what they ask for is built, paused
+	// or not (sim/hints.go); checked twice a second.
+	if s.time-s.hintsChecked > 0.5 {
+		s.hintsChecked = s.time
+		s.sim.RefreshSetupHints()
+	}
+
+	// What the player's clicks this frame spent or earned floats up from
+	// the cursor (the sim's own money doesn't).
+	if d := s.world.Cash - cashBefore; d != 0 {
+		s.addMoneyFloat(inp.MousePos[0], inp.MousePos[1], d)
 	}
 
 	// Tick simulation (skipped while paused).
@@ -2634,7 +2688,7 @@ func (s *Scenario) activateTrailTool() {
 	s.runTool = newRunTool(s.trailDifficulty)
 	s.activeTool = toolTrailPaint
 	s.syncToolButtons()
-	s.setToast("Click near a lift top to start a run, then click to add nodes and click a lift base to finish. Click a run with no tool to select and edit it. Esc to finish.")
+	s.setToast("Click from a lift's top down to a lift's base")
 }
 
 // activatePathTool starts the footpath tool (footpath_tool.go);
@@ -2650,7 +2704,6 @@ func (s *Scenario) activatePathTool() {
 	s.pathTool = newPathTool()
 	s.activeTool = toolFootpath
 	s.syncToolButtons()
-	s.setToast(fmt.Sprintf("Click to lay a footpath, node by node: $%d a square metre. Guests walk twice as fast on paths. Esc to finish.", world.FootpathCostPerM2))
 }
 
 // activateRopeTool starts the rope tool (rope_tool.go); re-clicking the
@@ -2666,7 +2719,6 @@ func (s *Scenario) activateRopeTool() {
 	s.ropeTool = newRopeTool()
 	s.activeTool = toolRope
 	s.syncToolButtons()
-	s.setToast(fmt.Sprintf("Click to string a rope, pole by pole: $%d a metre. Guests try not to cross ropes, but can. Esc to finish.", world.RopeCostPerM))
 }
 
 // ropeEnv is the game's rope-tool surroundings.
@@ -2708,7 +2760,13 @@ func (s *Scenario) editSelectedTrail(r *render.Renderer, inp *engine.Input, typi
 // runEnv is the game's run-tool surroundings: shape changes re-plan the
 // snowcats.
 func (s *Scenario) runEnv() runEnv {
-	return runEnv{w: s.world, toast: s.setToast, changed: func() { s.sim.InvalidateSections() }}
+	return runEnv{w: s.world, toast: s.setToast, changed: func() { s.sim.InvalidateSections() },
+		placed: func(t *world.Trail) {
+			// A finished run ends the tool and is selected, its popup open.
+			s.cancelTool()
+			r := s.app.Renderer
+			s.openTrailPopup(t, r.ScreenWidth(), r.ScreenHeight())
+		}}
 }
 
 // findBuilding returns the building with the given ID, or nil.
@@ -2857,7 +2915,7 @@ func (s *Scenario) Render(r *render.Renderer) {
 	if s.eventPanel != nil {
 		s.eventPanel.Bottom = float32(r.ScreenHeight()) - s.toolBar.H
 	}
-	drawables := []render.UIDrawable{&fallenMarkers{world: s.world}, s.topBar, s.toolBar, s.overlayPanel, s.eventPanel}
+	drawables := []render.UIDrawable{&fallenMarkers{world: s.world}, uiDrawFunc(s.drawClosedSigns), s.topBar, s.toolBar, s.overlayPanel, s.eventPanel}
 
 	// Parcel price labels — shown when the land-buy tool is active so the
 	// player can see what each purchasable parcel costs before clicking.
@@ -2960,6 +3018,7 @@ func (s *Scenario) Render(r *render.Renderer) {
 	if s.escapeMenu.Visible() {
 		drawables = append(drawables, s.escapeMenu)
 	}
+	drawables = append(drawables, uiDrawFunc(s.drawMoneyFloats))
 	if s.toastText != "" && s.time < s.toastExpiry {
 		drawables = append(drawables, &toastLabel{text: s.toastText})
 	}
@@ -3030,7 +3089,7 @@ func (s *Scenario) tryOpenPopup(clickPos mgl32.Vec3, screenW, screenH int) {
 			if _, ok := b.RoomAt(c); ok {
 				s.buildRoomPopup(b, c, false, screenW, screenH)
 			} else {
-				s.buildLodgePopup(b, false, screenW, screenH)
+				s.openLodge(b, screenW, screenH)
 			}
 			return
 		}
@@ -3106,7 +3165,7 @@ func (s *Scenario) buildTrailPopup(trail *world.Trail, confirmClear bool, screen
 		reopen: func(confirm bool) { s.buildTrailPopup(t, confirm, screenW, screenH) },
 	})
 	w.Visible = true
-	w.Center(screenW, screenH)
+	s.placePopup(w, screenW, screenH)
 	s.popup = w
 }
 
@@ -3128,7 +3187,7 @@ func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 			return fmt.Sprintf("%d / %d pairs", s.sim.SkisInRack(bldg.ID), world.SkiRackPairs)
 		})
 		w.Visible = true
-		w.Center(screenW, screenH)
+		s.placePopup(w, screenW, screenH)
 		s.popup = w
 		return
 	case world.BuildingSnowGun:
@@ -3156,11 +3215,11 @@ func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 			return fmt.Sprintf("Too warm (%s; needs %s)", settings.FormatTemp(now), settings.FormatTemp(world.SnowGunMinTempC))
 		})
 		w.Visible = true
-		w.Center(screenW, screenH)
+		s.placePopup(w, screenW, screenH)
 		s.popup = w
 		return
 	case world.BuildingLodge:
-		s.buildLodgePopup(bldg, false, screenW, screenH)
+		s.openLodge(bldg, screenW, screenH)
 		return
 	default:
 		panic(fmt.Sprintf("openBuildingPopup: unhandled building type %d", bldg.Type))
@@ -3188,7 +3247,7 @@ func (s *Scenario) buildParkingPopup(lot *world.Building, confirmDelete bool, sc
 		w.AddActionButton("Delete lot", func() { s.buildParkingPopup(lot, true, screenW, screenH) })
 	}
 	w.Visible = true
-	w.Center(screenW, screenH)
+	s.placePopup(w, screenW, screenH)
 	s.popup = w
 }
 
@@ -3310,7 +3369,7 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 		})
 	}
 	w.Visible = true
-	w.Center(screenW, screenH)
+	s.placePopup(w, screenW, screenH)
 	s.popup = w
 }
 
@@ -3416,7 +3475,7 @@ func (s *Scenario) openSnowcatPopup(cat *world.Snowcat, screenW, screenH int) {
 		s.showCatPath = !s.showCatPath
 	})
 	w.Visible = true
-	w.Center(screenW, screenH)
+	s.placePopup(w, screenW, screenH)
 	s.popup = w
 }
 
@@ -3555,11 +3614,6 @@ func (s *Scenario) activateParkingTool(lotID uint64) {
 	if s.popup != nil {
 		s.popup.Visible = false
 	}
-	if lotID != 0 {
-		s.setToast(fmt.Sprintf("Drag an edge of the lot to resize it ($%d per m² added). Esc to finish.", world.ParkingCostPerM2))
-	} else {
-		s.setToast(fmt.Sprintf("Drag to draw a parking lot ($%d per m²). R turns it. Drag a lot's edge to resize. Esc to finish.", world.ParkingCostPerM2))
-	}
 }
 
 // lotCost is what committing the lot drag costs: the added area, plus
@@ -3620,11 +3674,9 @@ func (s *Scenario) buildLot() {
 		s.setToast(fmt.Sprintf("Need $%s for this parking — short by $%s", world.CommaInt(cost), world.CommaInt(cost-w.Available())))
 		return
 	}
-	text := t.summary(w)
 	w.Cash -= cost
 	commitLot(s.app.Renderer, w, t.lotID, t.rect)
 	t.reset(t.only)
-	s.setToast(fmt.Sprintf("Parking lot: %s · $%s", text, world.CommaInt(cost)))
 }
 
 // deletePaintedBuilding tears down a lot or lodge shell and sends any guest whose plan runs
@@ -3675,6 +3727,9 @@ func (s *Scenario) barsContain(y float32) bool {
 // inp.LeftClickConsumed instead, since that survives a button callback
 // that hides its own popup mid-frame.
 func (s *Scenario) uiCovers(x, y float32, screenW float32) bool {
+	if ui.Dragging() {
+		return true // a panel being dragged has the mouse
+	}
 	if s.barsContain(y) {
 		return true
 	}
@@ -4835,4 +4890,22 @@ func entityName(w *world.World) func(uint64) string {
 		}
 		return ""
 	}
+}
+
+// placePopup places a popup where the player last dragged one, or in the
+// middle of the screen.
+func (s *Scenario) placePopup(w *ui.Window, screenW, screenH int) {
+	s.placeWindow(w, screenW, screenH, &s.popupAt)
+}
+
+// placeWindow centres w, or puts it at *at (kept on screen) once the
+// player has dragged one there, and remembers where they drag it next.
+func (s *Scenario) placeWindow(w *ui.Window, screenW, screenH int, at **mgl32.Vec2) {
+	w.Center(screenW, screenH)
+	if p := *at; p != nil {
+		x := max(0, min(p[0], float32(screenW)-w.Width()))
+		y := max(0, min(p[1], float32(screenH)-w.Height()))
+		w.Reposition(x, y)
+	}
+	w.OnMoved = func(x, y float32) { *at = &mgl32.Vec2{x, y} }
 }

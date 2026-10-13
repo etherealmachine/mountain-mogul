@@ -4,26 +4,32 @@ package scene
 
 import (
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/go-gl/mathgl/mgl32"
 	"mountain-mogul/internal/engine"
 	"mountain-mogul/internal/render"
+	"mountain-mogul/internal/settings"
 	"mountain-mogul/internal/ui"
 	"mountain-mogul/internal/world"
 )
 
-// startDatePanel is the editor's Start date control: month, day and year
-// steppers for World.StartDate, drawn as a strip centred under the top bar.
-// get/set read and write the date; set also marks the scenario dirty.
+// startDatePanel is the editor's Start control: month, day and year
+// steppers for World.StartDate and an hour stepper for World.StartHour,
+// drawn as a strip centred under the top bar. get/set read and write the
+// date, getHour/setHour the hour; the setters also mark the scenario
+// dirty.
 type startDatePanel struct {
-	get  func() time.Time
-	set  func(time.Time)
-	btns []*ui.Button // month −/+, day −/+, year −/+
-	top  float32      // y of the strip's anchor (the top bar's bottom edge)
+	get     func() time.Time
+	set     func(time.Time)
+	getHour func() float32
+	setHour func(float32)
+	btns    []*ui.Button // month −/+, day −/+, year −/+, hour −/+
+	top     float32      // y of the strip's anchor (the top bar's bottom edge)
 
 	x, y, w, h float32 // background rect, from the last layout
-	labelX     [3]float32
+	labelX     [4]float32
 }
 
 const (
@@ -31,19 +37,30 @@ const (
 	startDatePad  = float32(8)
 )
 
-// startDateFieldW is the width of each value slot between its steppers:
-// room for "2026" or "Sep" in the loaded font.
-func startDateFieldW() float32 { return 4*float32(render.GlyphAdvance) + startDatePad }
+// startDateFieldW is the width of value slot i between its steppers:
+// room for "2026" or "Sep", or "10:00 AM" for the hour, in the loaded
+// font.
+func startDateFieldW(i int) float32 {
+	if i == 3 {
+		return 7*float32(render.GlyphAdvance) + startDatePad
+	}
+	return 4*float32(render.GlyphAdvance) + startDatePad
+}
 
-func newStartDatePanel(top float32, get func() time.Time, set func(time.Time)) *startDatePanel {
-	p := &startDatePanel{get: get, set: set, top: top}
+func newStartDatePanel(top float32, get func() time.Time, set func(time.Time),
+	getHour func() float32, setHour func(float32)) *startDatePanel {
+	p := &startDatePanel{get: get, set: set, getHour: getHour, setHour: setHour, top: top}
 	step := func(years, months, days int) func() {
 		return func() { p.set(stepStartDate(p.get(), years, months, days)) }
+	}
+	hour := func(d float32) func() {
+		return func() { p.setHour(float32(math.Mod(float64(p.getHour()+d)+24, 24))) }
 	}
 	for _, f := range []func(){
 		step(0, -1, 0), step(0, 1, 0),
 		step(0, 0, -1), step(0, 0, 1),
 		step(-1, 0, 0), step(1, 0, 0),
+		hour(-1), hour(1),
 	} {
 		label := "<"
 		if len(p.btns)%2 == 1 {
@@ -66,11 +83,12 @@ func stepStartDate(d time.Time, years, months, days int) time.Time {
 
 // layout centres the strip horizontally just below the top bar.
 func (p *startDatePanel) layout(screenW float32) {
-	caption := 11 * float32(render.GlyphAdvance) // "Start date" plus a gap
-	fieldW := startDateFieldW()
+	caption := 6 * float32(render.GlyphAdvance) // "Start" plus a gap
 	btnH := float32(render.GlyphH) + 6
-	slotW := 2*startDateBtnW + fieldW
-	p.w = startDatePad + caption + 3*slotW + 2*startDatePad + startDatePad
+	p.w = startDatePad + caption + startDatePad
+	for i := range p.labelX {
+		p.w += 2*startDateBtnW + startDateFieldW(i) + startDatePad
+	}
 	p.h = btnH + 2*6
 	p.x = (screenW - p.w) / 2
 	p.y = p.top + 6
@@ -79,11 +97,11 @@ func (p *startDatePanel) layout(screenW float32) {
 	for _, b := range p.btns {
 		b.Y, b.H = by, btnH
 	}
-	for i := 0; i < 3; i++ {
+	for i := range p.labelX {
 		p.btns[2*i].X = x
 		p.labelX[i] = x + startDateBtnW
-		p.btns[2*i+1].X = x + startDateBtnW + fieldW
-		x += slotW + startDatePad
+		p.btns[2*i+1].X = x + startDateBtnW + startDateFieldW(i)
+		x += 2*startDateBtnW + startDateFieldW(i) + startDatePad
 	}
 }
 
@@ -114,7 +132,7 @@ func (p *startDatePanel) HandleInput(inp *engine.Input, screenW float32) {
 
 func (p *startDatePanel) Draw(r *render.Renderer) {
 	p.layout(float32(r.ScreenWidth()))
-	r.DrawColorRect(p.x, p.y, p.w, p.h, mgl32.Vec4{0.08, 0.10, 0.14, 0.92})
+	ui.DrawPanel(r, p.x, p.y, p.w, p.h)
 	for _, b := range p.btns {
 		b.Draw(r)
 	}
@@ -123,10 +141,11 @@ func (p *startDatePanel) Draw(r *render.Renderer) {
 	}
 	col := mgl32.Vec4{0.9, 0.95, 1, 1}
 	textY := p.y + (p.h-float32(render.GlyphH))/2
-	r.Font.DrawText(r, "Start date", p.x+startDatePad, textY, col)
+	r.Font.DrawText(r, "Start", p.x+startDatePad, textY, col)
 	d := p.get()
-	for i, s := range []string{d.Format("Jan"), fmt.Sprint(world.GameDay(d)), d.Format("2006")} {
+	for i, s := range []string{d.Format("Jan"), fmt.Sprint(world.GameDay(d)), d.Format("2006"),
+		settings.FormatClock(float64(p.getHour()))} {
 		tw := r.Font.TextWidth(s)
-		r.Font.DrawText(r, s, p.labelX[i]+(startDateFieldW()-tw)/2, textY, col)
+		r.Font.DrawText(r, s, p.labelX[i]+(startDateFieldW(i)-tw)/2, textY, col)
 	}
 }

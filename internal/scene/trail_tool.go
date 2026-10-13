@@ -76,7 +76,11 @@ func newTrailWindow(w *world.World, t *world.Trail, confirmClear bool, h trailHo
 		if reach.missed == 0 {
 			return "none in the way"
 		}
-		return fmt.Sprintf("%.0f%% under trees: cats won't groom", float32(reach.missed)/float32(len(t.Cells))*100)
+		pct := float32(reach.missed) / float32(len(t.Cells)) * 100
+		if pct < 1 {
+			return "a little under trees"
+		}
+		return fmt.Sprintf("%.0f%% under trees", pct)
 	})
 	if confirmClear {
 		win.AddLabel("Confirm", func() string { return "Delete this trail?" })

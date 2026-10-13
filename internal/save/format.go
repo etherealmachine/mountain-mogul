@@ -29,6 +29,8 @@ type ScenarioData struct {
 	// StartDate is World.StartDate, the date SimTime 0 maps to, as
 	// "2006-01-02". Absent loads world.DefaultStartDate.
 	StartDate string `json:"start_date,omitempty"`
+	// StartHour is World.StartHour. Absent loads world.NewGameStartHour.
+	StartHour *float32 `json:"start_hour,omitempty"`
 	// GroupMix is World.GroupMix: mean group size, lesson share, mixed
 	// share. Absent loads world.DefaultGroupMix.
 	GroupMix []float32    `json:"group_mix,omitempty"`

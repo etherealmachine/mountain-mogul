@@ -73,6 +73,8 @@ type Simulation struct {
 	// lastSaid is the complaint the event feed last reported as the
 	// day's most common (logGuestsSay); cleared at rollover.
 	lastSaid ai.ThoughtKind
+	// hintsPosted is the day (index + 1) each setup hint was last posted.
+	hintsPosted map[string]int
 	// longLinesSaid is the lifts whose long line the feed reported today.
 	longLinesSaid map[uint64]bool
 	// rescues counts patrol rescues since the feed last reported them,
@@ -163,8 +165,13 @@ type Simulation struct {
 	// groomable is every cell of a groomed trail, rebuilt with sections.
 	// catGroomed records, per cat, the cells its current route has
 	// groomed, so each gets one pass a night.
-	groomable  map[[2]int]bool
-	catGroomed map[uint64]map[[2]int]bool
+	groomable map[[2]int]bool
+	// groomCovered is the groomed trails some active cat has passes on,
+	// and groomCats how many cats are active; rebuilt with sections, for
+	// the "can't be groomed" hints.
+	groomCovered map[uint64]bool
+	groomCats    int
+	catGroomed   map[uint64]map[[2]int]bool
 
 	// openToday records whether World.ResortOpen was true at any point in
 	// the current sim day; the rollover bills operating costs if so and
@@ -238,6 +245,7 @@ func NewSimulationWithSeed(w *world.World, seed int64) *Simulation {
 		}
 	}
 	sim.regroup()
+	sim.logSetupHints()
 	return sim
 }
 
@@ -1313,6 +1321,7 @@ func (s *Simulation) tickHourly() {
 		defer s.logGuestsSay()
 		defer s.logLongLines()
 		defer s.logRescues()
+		defer s.logSetupHints()
 	}
 	for s.lastHour < idx {
 		mid := (float64(s.lastHour) + 0.5) * simSecondsPerHour

@@ -11,8 +11,8 @@ const (
 
 	// trayTileW and trayTileH size a dock submenu's picture tiles; the
 	// caption sits under the picture.
-	trayTileW = float32(96)
-	trayTileH = float32(104)
+	trayTileW = float32(104)
+	trayTileH = float32(130)
 	trayGap   = float32(6)
 	trayPad   = float32(8)
 )

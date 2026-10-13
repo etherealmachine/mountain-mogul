@@ -20,20 +20,28 @@ import (
 
 // ScenarioPicker lists every starter scenario in assets/scenarios/ so the
 // user can pick which one a New Game begins from — or, in editor mode,
-// which one the Scenario Editor opens. In play mode a pick opens a detail
-// panel with the description and a Play button; in editor mode it opens
-// the file straight away. Back returns to the start menu.
+// which one the Scenario Editor opens. In play mode each scenario is a card
+// with its name, where it is and how hard (or that it's the tutorial), and
+// a click starts it; in editor mode it's a list of buttons that open the file.
+// Back returns to the start menu.
 type ScenarioPicker struct {
 	app     *engine.App
-	buttons []*ui.Button
-	// open, when set, opens the picked file ("" for a blank world) instead
-	// of showing its details, and adds a "New blank scenario" entry. The
+	buttons []*ui.Button // editor mode: the scenarios; both modes: Back last
+	// open, when set, opens the picked file ("" for a blank world) and
+	// lists files as buttons, with a "New blank scenario" entry. The
 	// editor's picker sets it (NewEditorScenarioPicker).
 	open func(path string)
 
-	detail  *scenarioEntry // play mode: the scenario whose panel is open
-	playBtn *ui.Button
-	backBtn *ui.Button
+	cards  []*scenarioCard // play mode
+	scroll float32         // how far the list is scrolled up, when it's taller than the screen
+}
+
+// scenarioCard is one scenario in the play-mode list: its entry and where
+// it was last laid out.
+type scenarioCard struct {
+	entry      scenarioEntry
+	x, y, w, h float32
+	hovered    bool
 }
 
 func NewScenarioPicker() *ScenarioPicker { return &ScenarioPicker{} }
@@ -113,87 +121,99 @@ func (s *ScenarioPicker) Init(app *engine.App) error {
 	s.app = app
 	dir := filepath.Join(app.AssetDir, "scenarios")
 	addBtn := func(label string, fn func()) {
-		btn := ui.NewButton(0, 0, 280, 40, label, fn)
-		btn.Color = mgl32.Vec4{0.15, 0.25, 0.45, 0.95}
-		btn.HoverColor = mgl32.Vec4{0.25, 0.45, 0.75, 0.95}
+		btn := ui.NewButton(0, 0, pickerBtnW, pickerBtnH, label, fn)
 		s.buttons = append(s.buttons, btn)
 	}
 	for _, entry := range listScenarios(dir) {
 		entry := entry
+		if s.open == nil {
+			s.cards = append(s.cards, &scenarioCard{entry: entry})
+			continue
+		}
 		label := entry.label()
-		if s.open != nil && entry.info.Name != "" {
+		if entry.info.Name != "" {
 			label += "  (" + entry.file + ")"
 		}
-		addBtn(label, func() {
-			if s.open != nil {
-				s.open(entry.path)
-			} else {
-				s.detail = &entry
-			}
-		})
+		addBtn(label, func() { s.open(entry.path) })
 	}
 	if !edition.Demo && s.open != nil {
 		addBtn("New blank scenario", func() {
 			s.open("")
 		})
 	}
-	back := ui.NewButton(0, 0, 280, 40, "Back", func() { s.app.PopScene() })
-	back.Color = mgl32.Vec4{0.4, 0.25, 0.25, 0.95}
-	back.HoverColor = mgl32.Vec4{0.6, 0.4, 0.4, 0.95}
-	s.buttons = append(s.buttons, back)
-
-	s.playBtn = ui.NewButton(0, 0, 120, 40, "Play", func() {
-		s.app.ReplaceScene(NewScenarioFromFile(s.detail.path))
-	})
-	s.playBtn.Color = mgl32.Vec4{0.15, 0.45, 0.25, 0.95}
-	s.playBtn.HoverColor = mgl32.Vec4{0.25, 0.65, 0.35, 0.95}
-	s.backBtn = ui.NewButton(0, 0, 120, 40, "Back", func() { s.detail = nil })
-	s.backBtn.Color = back.Color
-	s.backBtn.HoverColor = back.HoverColor
+	addBtn("Back", func() { s.app.PopScene() })
 	return nil
 }
 
 const (
 	pickerBtnW, pickerBtnH, pickerSpacing = float32(280), float32(40), float32(12)
+	cardW, cardPad                        = float32(460), float32(16)
 )
 
-// listTop is the y of the first scenario button.
-func (s *ScenarioPicker) listTop() float32 {
-	sh := float32(s.app.Renderer.ScreenHeight())
-	n := float32(len(s.buttons))
-	return (sh - (n*pickerBtnH + (n-1)*pickerSpacing)) / 2
+// play starts a new game of the card's scenario.
+func (s *ScenarioPicker) play(c *scenarioCard) {
+	s.app.ReplaceScene(NewGameFromScenario(c.entry.path))
 }
 
+// layout places the cards (or the editor's buttons) as a column centred on
+// the screen, with Back under them.
 func (s *ScenarioPicker) layout() {
 	sw := float32(s.app.Renderer.ScreenWidth())
-	startY := s.listTop()
-	for i, btn := range s.buttons {
-		btn.X = (sw - pickerBtnW) / 2
-		btn.Y = startY + float32(i)*(pickerBtnH+pickerSpacing)
-		btn.W = pickerBtnW
-		btn.H = pickerBtnH
+	sh := float32(s.app.Renderer.ScreenHeight())
+	lineH := float32(render.GlyphH) + 4
+	var total float32
+	for _, c := range s.cards {
+		c.w = cardW
+		c.h = cardPad*2 + lineH*2
+		total += c.h + pickerSpacing
 	}
+	total += float32(len(s.buttons)) * (pickerBtnH + pickerSpacing)
+	// Centred when it fits; else it starts under the title and scrolls.
+	room := sh - 120 - 20
+	s.scroll = max(0, min(s.scroll, total-room))
+	y := max((sh-total)/2, 120) - s.scroll
+	for _, c := range s.cards {
+		c.x, c.y = (sw-c.w)/2, y
+		y += c.h + pickerSpacing
+	}
+	for _, b := range s.buttons {
+		b.X, b.Y, b.W, b.H = (sw-pickerBtnW)/2, y, pickerBtnW, pickerBtnH
+		y += pickerBtnH + pickerSpacing
+	}
+}
+
+// listTop is the top of the first card or button.
+func (s *ScenarioPicker) listTop() float32 {
+	if len(s.cards) > 0 {
+		return s.cards[0].y
+	}
+	if len(s.buttons) > 0 {
+		return s.buttons[0].Y
+	}
+	return 0
 }
 
 func (s *ScenarioPicker) Update(dt float64) {
 	inp := s.app.Input
 	mx, my := inp.MousePos[0], inp.MousePos[1]
-	buttons := s.buttons
-	if s.detail != nil {
-		if inp.Pressed[glfw.KeyEscape] {
-			s.detail = nil
-			return
-		}
-		if inp.Pressed[glfw.KeyEnter] || inp.Pressed[glfw.KeyKPEnter] {
-			s.playBtn.Click()
-			return
-		}
-		s.detailPanel(float32(s.app.Renderer.ScreenWidth()), float32(s.app.Renderer.ScreenHeight()), nil)
-		buttons = []*ui.Button{s.playBtn, s.backBtn}
-	} else {
-		s.layout()
+	s.scroll -= inp.ScrollDelta * 40
+	s.layout()
+	if inp.Pressed[glfw.KeyEscape] {
+		s.app.PopScene()
+		return
 	}
-	for _, btn := range buttons {
+	for _, c := range s.cards {
+		c.hovered = mx >= c.x && mx <= c.x+c.w && my >= c.y && my <= c.y+c.h
+		if inp.LeftClick && c.hovered {
+			s.play(c)
+			return
+		}
+	}
+	if (inp.Pressed[glfw.KeyEnter] || inp.Pressed[glfw.KeyKPEnter]) && len(s.cards) == 1 {
+		s.play(s.cards[0])
+		return
+	}
+	for _, btn := range s.buttons {
 		btn.SetHovered(btn.Contains(mx, my))
 		if inp.LeftClick && btn.Contains(mx, my) {
 			btn.Click()
@@ -207,70 +227,48 @@ func (s *ScenarioPicker) Render(r *render.Renderer) {
 	gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
 	sw := float32(r.ScreenWidth())
-	sh := float32(r.ScreenHeight())
-	if s.detail != nil {
-		r.DrawUI([]render.UIDrawable{uiDrawFunc(func(r *render.Renderer) {
-			s.detailPanel(sw, sh, r)
-		})})
-		return
-	}
 	s.layout()
-	drawables := make([]render.UIDrawable, 0, len(s.buttons)+1)
-	drawables = append(drawables, &titleDrawable{
+	drawables := []render.UIDrawable{&titleDrawable{
 		x: sw/2 - 100,
 		y: s.listTop() - 70,
 		w: 200,
 		h: 40,
-	})
+	}}
+	for _, c := range s.cards {
+		drawables = append(drawables, c)
+	}
 	for _, btn := range s.buttons {
 		drawables = append(drawables, btn)
 	}
 	r.DrawUI(drawables)
 }
 
-const (
-	detailPanelW = float32(560)
-	detailPad    = float32(24)
-)
-
-// detailPanel lays out the open scenario's panel and its buttons, and
-// draws it when r is non-nil. Layout and drawing share one pass because
-// the panel's height depends on how the description wraps.
-func (s *ScenarioPicker) detailPanel(sw, sh float32, r *render.Renderer) {
-	e := s.detail
-	lineH := float32(render.GlyphH) + 6
-	var desc []string
-	if s.app.Renderer.Font != nil {
-		desc = ui.WrapText(e.info.Description, detailPanelW-2*detailPad, s.app.Renderer.Font.TextWidth)
+// Draw renders a scenario card: name, then where and how hard; lit when
+// hovered, since a click starts it.
+func (c *scenarioCard) Draw(r *render.Renderer) {
+	fill := ui.ModalFill
+	if c.hovered {
+		fill = mgl32.Vec4{0.14, 0.22, 0.40, 0.97}
 	}
-	h := detailPad + lineH*2 + 12 + float32(len(desc))*lineH + 24 + pickerBtnH + detailPad
-	x := (sw - detailPanelW) / 2
-	y := (sh - h) / 2
-	by := y + h - detailPad - pickerBtnH
-	s.playBtn.X, s.playBtn.Y = x+detailPanelW-detailPad-s.playBtn.W, by
-	s.backBtn.X, s.backBtn.Y = s.playBtn.X-12-s.backBtn.W, by
-	if r == nil {
+	ui.DrawPanelColor(r, c.x, c.y, c.w, c.h, fill)
+	if c.hovered {
+		r.DrawRoundRectOutline(c.x, c.y, c.w, c.h, ui.PanelRadius, 2, mgl32.Vec4{0.55, 0.75, 1, 0.9})
+	}
+	if r.Font == nil {
 		return
 	}
-
-	ui.DrawPanel(r, x, y, detailPanelW, h)
-	if r.Font != nil {
-		tx, ty := x+detailPad, y+detailPad
-		r.Font.DrawText(r, e.label(), tx, ty, mgl32.Vec4{1, 0.95, 0.8, 1})
-		r.Font.DrawText(r, scenarioSubtitle(e.info), tx, ty+lineH, mgl32.Vec4{0.65, 0.75, 0.9, 1})
-		ty += lineH*2 + 12
-		for _, line := range desc {
-			r.Font.DrawText(r, line, tx, ty, mgl32.Vec4{0.92, 0.94, 1, 1})
-			ty += lineH
-		}
+	lineH := float32(render.GlyphH) + 4
+	tx, ty := c.x+cardPad, c.y+cardPad
+	r.Font.DrawText(r, c.entry.label(), tx, ty, mgl32.Vec4{1, 0.95, 0.8, 1})
+	if c.hovered {
+		play := "Play →"
+		r.Font.DrawText(r, play, c.x+c.w-cardPad-r.Font.TextWidth(play), ty, mgl32.Vec4{0.6, 0.95, 0.65, 1})
 	}
-	s.playBtn.Draw(r)
-	s.backBtn.Draw(r)
+	r.Font.DrawText(r, scenarioSubtitle(c.entry.info), tx, ty+lineH, mgl32.Vec4{0.65, 0.75, 0.9, 1})
 }
 
 // scenarioSubtitle is the line under a scenario's name: where it is and
-// how hard it is, e.g. "Donner Pass, California  -  Tutorial". The font
-// is ASCII only.
+// how hard it is, e.g. "Donner Pass, California · Tutorial".
 func scenarioSubtitle(info world.ScenarioInfo) string {
 	var parts []string
 	if info.Location != "" {
@@ -282,7 +280,7 @@ func scenarioSubtitle(info world.ScenarioInfo) string {
 	case info.Difficulty > 0:
 		parts = append(parts, fmt.Sprintf("Difficulty %d of %d", info.Difficulty, world.MaxScenarioDifficulty))
 	}
-	return strings.Join(parts, "  -  ")
+	return strings.Join(parts, " · ")
 }
 
 func (s *ScenarioPicker) Destroy() {}

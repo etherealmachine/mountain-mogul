@@ -16,12 +16,13 @@ import (
 	"mountain-mogul/internal/world"
 )
 
-// Service buildings go up in two steps. The building tool drags out a
-// rectangle of empty floor on the building's own 5 m grid (turned to line
-// up with the nearest road or lot; R turns it), shown as a ghost with its
-// price, and builds it on a click inside or Enter; a drag that starts
-// beside a building adds floor to it instead. The service tool then puts
-// a service in a building's tiles, a click or a drag at a time. Doors are
+// Service buildings. The building tool drags out a rectangle of empty
+// floor on the building's own 5 m grid (turned to line up with the nearest
+// road or lot; R turns it), shown as a ghost, and builds it when the mouse
+// is let go; a drag that starts beside a building adds floor to it
+// instead. The service tool puts a service in a building's tiles, a click
+// or a drag at a time; on open ground it builds a new building full of
+// the service the same way (a lodge, or a shed for a garage). Doors are
 // automatic (world.RefreshDoors), one per room. The data model lives in
 // world/lodge.go; the tile kit in world/lodge_shell.go.
 
@@ -69,9 +70,17 @@ type serviceTool struct {
 	pick    tilePick // the tile under the cursor
 	painted tilePick // service mode: the last tile painted this stroke
 
-	rect     shellRect // building mode: the floor being laid out
-	dragging bool      // the rectangle is following the mouse
-	pending  bool      // it's laid out and waiting to be built
+	rect     shellRect // the floor being laid out (or under the cursor)
+	dragging bool      // the rectangle is following the mouse; it builds on release
+}
+
+// newBuildingKind is what the service tool builds on open ground for svc:
+// a shed for a garage, else a lodge.
+func newBuildingKind(svc world.Service) world.ShellKind {
+	if svc == world.ServiceGarage {
+		return world.ShellShed
+	}
+	return world.ShellLodge
 }
 
 // tilePick is a tile of a service building.
@@ -303,10 +312,16 @@ func rectKind(w *world.World, st *serviceTool) (world.ShellKind, int) {
 	return st.kind, 1
 }
 
-// rectCost is what building the rectangle costs.
+// rectCost is what building the rectangle costs, fitted out with the
+// service tool's service.
 func rectCost(w *world.World, st *serviceTool) int {
 	k, storeys := rectKind(w, st)
-	return world.ShellCost(k, storeys, len(st.rect.cells(w)), st.rect.bldg == 0)
+	n := len(st.rect.cells(w))
+	cost := world.ShellCost(k, storeys, n, st.rect.bldg == 0)
+	if !st.building {
+		cost += n * world.FitOutCost(k, storeys, st.svc)
+	}
+	return cost
 }
 
 // fitLegal checks putting the tool's service in tile p.
@@ -335,35 +350,19 @@ func fitCost(w *world.World, p tilePick, svc world.Service) int {
 func (st *serviceTool) turn(delta float32) {
 	st.rot = stepRotation(st.rot, delta)
 	st.turned = true
-	if st.rect.bldg == 0 && (st.dragging || st.pending) {
+	if st.rect.bldg == 0 && st.dragging {
 		st.rect.rot = st.rot
 	}
 }
 
-// laidOut reports whether a rectangle is being dragged or waiting to be
-// built: Esc drops it rather than ending the tool.
-func (st *serviceTool) laidOut() bool { return st.dragging || st.pending }
+// laidOut reports whether a rectangle is being dragged: Esc drops it
+// rather than ending the tool.
+func (st *serviceTool) laidOut() bool { return st.dragging }
 
 // dropRect forgets the rectangle, keeping the tool.
 func (st *serviceTool) dropRect() {
-	st.dragging, st.pending = false, false
+	st.dragging = false
 	st.rect = shellRect{}
-}
-
-// buildingToolText is the building tool's hint for kind k.
-func buildingToolText(k world.ShellKind) string {
-	heat := "heated"
-	if !k.Heated() {
-		heat = "unheated"
-	}
-	return fmt.Sprintf("%s (%s): $%s a tile, plus $%s to start one. Drag out its floor (R turns it), then click inside or press Enter to build. Drag from a wall to extend; right-click a tile to remove it. Esc to finish.",
-		k.Label(), heat, formatDollars(k.StructureTileCost()), formatDollars(k.BaseCost()))
-}
-
-// serviceToolText is the service tool's hint for svc.
-func serviceToolText(svc world.Service) string {
-	return fmt.Sprintf("%s: $%s a tile to fit out in a lodge (less in a tent or shed). Click or drag over a building's tiles; right-click empties a tile. Esc to finish.",
-		svc.Label(), formatDollars(world.ShellLodge.FitOutTileCost(svc)))
 }
 
 // setNewShellKind starts the building tool for kind k; picking the
@@ -374,7 +373,6 @@ func (s *Scenario) setNewShellKind(k world.ShellKind) {
 		return
 	}
 	s.startServiceTool(serviceTool{building: true, kind: k, seed: rng.Global().Uint32()})
-	s.setToast(buildingToolText(k))
 }
 
 // activateServiceTool starts putting svc in buildings' tiles; picking the
@@ -384,8 +382,7 @@ func (s *Scenario) activateServiceTool(svc world.Service) {
 		s.cancelTool()
 		return
 	}
-	s.startServiceTool(serviceTool{svc: svc})
-	s.setToast(serviceToolText(svc))
+	s.startServiceTool(serviceTool{svc: svc, kind: newBuildingKind(svc), seed: rng.Global().Uint32()})
 }
 
 func (s *Scenario) startServiceTool(st serviceTool) {
@@ -424,7 +421,7 @@ type toolInput struct {
 	leftHeld     bool
 	rightClick   bool
 	rightRelease bool
-	enter        bool
+	enter        bool // the path, rope and run tools finish on Enter
 }
 
 // input runs one frame of the build tool.
@@ -442,47 +439,47 @@ func (env serviceEnv) input(st *serviceTool, in toolInput) {
 	}
 	rightTap := in.rightRelease && in.mouse.Sub(st.rightDown).Len() < 4
 
-	if st.building {
-		switch {
-		case st.dragging && in.leftHeld:
+	// A rectangle of floor follows the drag and builds when it's let go.
+	if st.dragging {
+		if in.leftHeld {
 			if in.groundValid {
 				st.rect.extendTo(g)
 			}
-		case st.dragging:
-			st.dragging, st.pending = false, true
-			env.toast(env.rectText(st))
-		case in.leftClick && onMap && st.pending && st.rect.contains(g):
+		} else {
 			env.buildRect(st)
-		case in.leftClick && onMap:
-			if !st.turned {
-				st.rot = serviceRotation(env.w, g, st.rot)
-			}
-			st.rect, st.dragging, st.pending = anchorRect(env.w, g, st.rot), true, false
-		case in.enter && st.pending:
-			env.buildRect(st)
-		case !st.pending:
-			// Before a drag: a one-cell ghost follows the cursor.
-			st.rect = shellRect{}
-			if onMap {
-				if !st.turned {
-					st.rot = serviceRotation(env.w, g, st.rot)
-				}
-				st.rect = anchorRect(env.w, g, st.rot)
-			}
 		}
-		if rightTap && !st.laidOut() {
+		return
+	}
+	// Where a click would start one: the building tool anywhere, the
+	// service tool on open ground.
+	startRect := func() {
+		if !st.turned {
+			st.rot = serviceRotation(env.w, g, st.rot)
+		}
+		st.rect = anchorRect(env.w, g, st.rot)
+	}
+	st.rect = shellRect{}
+
+	if st.building {
+		if onMap {
+			startRect()
+			st.dragging = in.leftClick
+		}
+		if rightTap {
 			env.removeTile(st.pick)
 		}
 		return
 	}
 
-	// Service mode.
+	// Service mode: over a building, fit out its tiles; on open ground,
+	// build a new one full of the service.
 	if !in.leftHeld {
 		st.painted = tilePick{}
 	}
 	switch {
-	case in.leftClick && onMap && !st.pick.ok:
-		env.toast("Put services in a building: build one first from the Buildings menu")
+	case onMap && !st.pick.ok && st.painted == (tilePick{}):
+		startRect()
+		st.dragging = in.leftClick
 	case in.leftClick || in.leftHeld && st.painted.ok && st.pick.ok && st.pick != st.painted:
 		if st.pick.ok {
 			env.fit(st)
@@ -492,21 +489,6 @@ func (env serviceEnv) input(st *serviceTool, in toolInput) {
 	if rightTap {
 		env.emptyTile(st.pick)
 	}
-}
-
-// rectText is the toast for a laid-out rectangle: its size and price.
-func (env serviceEnv) rectText(st *serviceTool) string {
-	n := len(st.rect.cells(env.w))
-	k, _ := rectKind(env.w, st)
-	what := "a new " + strings.ToLower(k.Label())
-	if b := env.w.BuildingByID(st.rect.bldg); b != nil {
-		what = "more floor for " + b.Label()
-	}
-	price := ""
-	if !env.free {
-		price = fmt.Sprintf(" for $%s", formatDollars(rectCost(env.w, st)))
-	}
-	return fmt.Sprintf("%d tiles of %s%s. Click inside or press Enter to build; Esc to drop it.", n, what, price)
 }
 
 // buildRect builds the laid-out rectangle.
@@ -521,26 +503,34 @@ func (env serviceEnv) buildRect(st *serviceTool) {
 	if !env.free {
 		cost := rectCost(w, st)
 		if !w.CanAfford(cost) {
-			env.toast(fmt.Sprintf("Need $%s to build that — short by $%s", formatDollars(cost), formatDollars(cost-w.Available())))
+			env.toast(fmt.Sprintf("Need %s to build that — short by %s", formatDollars(cost), formatDollars(cost-w.Available())))
 			return
 		}
 		w.Cash -= cost
 	}
 	cells := st.rect.cells(w)
-	if b := w.BuildingByID(st.rect.bldg); b != nil {
+	svc := world.ServiceNone
+	if !st.building {
+		svc = st.svc
+	}
+	b := w.BuildingByID(st.rect.bldg)
+	if b != nil {
 		w.AddShellCells(b, cells)
-		env.finish(b, true)
+		for _, c := range cells {
+			if svc != world.ServiceNone {
+				w.SetTileService(b, c, svc)
+			}
+		}
 	} else {
 		tiles := make(map[[2]int]world.Service, len(cells))
 		for _, c := range cells {
-			tiles[c] = world.ServiceNone
+			tiles[c] = svc
 		}
-		b := w.PlaceServiceBuilding(st.rect.origin, st.rect.rot, tiles, st.seed)
+		b = w.PlaceServiceBuilding(st.rect.origin, st.rect.rot, tiles, st.seed)
 		b.Kind = st.kind
 		st.seed = rand.Uint32() // style only; the editor has no sim RNG
-		env.finish(b, true)
-		env.toast(fmt.Sprintf("Built a %s. Put services in it from the Services menu.", strings.ToLower(b.Kind.Label())))
 	}
+	env.finish(b, true)
 	st.dropRect()
 }
 
@@ -558,7 +548,7 @@ func (env serviceEnv) fit(st *serviceTool) {
 	if !env.free {
 		cost := fitCost(w, p, st.svc)
 		if !w.CanAfford(cost) {
-			env.toast(fmt.Sprintf("Need $%s to fit out a %s tile — short by $%s",
+			env.toast(fmt.Sprintf("Need %s to fit out a %s tile — short by %s",
 				formatDollars(cost), strings.ToLower(st.svc.Label()), formatDollars(cost-w.Available())))
 			return
 		}
@@ -618,16 +608,13 @@ func (env serviceEnv) finish(b *world.Building, regrade bool) {
 	}
 }
 
-// ghost previews the tool: the rectangle of floor as a shell, or the tile
-// under the cursor with the service in it; red when it can't go ahead.
+// ghost previews the tool: the rectangle of floor as a shell (a new
+// building, or one the service tool would build), or the tile under the
+// cursor with the service in it; red when it can't go ahead.
 func (env serviceEnv) ghost(st *serviceTool) {
 	w := env.w
 	green, red := [3]float32{0.6, 1.0, 0.6}, [3]float32{1.0, 0.4, 0.4}
-	if st.building {
-		cells := st.rect.cells(w)
-		if len(cells) == 0 {
-			return
-		}
+	if cells := st.rect.cells(w); len(cells) > 0 {
 		k, storeys := rectKind(w, st)
 		seed, floor := st.seed, float32(0)
 		if b := w.BuildingByID(st.rect.bldg); b != nil {
@@ -738,7 +725,7 @@ func (s *Scenario) buyVehicle(b *world.Building, cat bool) {
 		return
 	}
 	if !w.CanAfford(price) {
-		s.setToast(fmt.Sprintf("Need $%s for a %s — short by $%s", formatDollars(price), name, formatDollars(price-w.Available())))
+		s.setToast(fmt.Sprintf("Need %s for a %s — short by %s", formatDollars(price), name, formatDollars(price-w.Available())))
 		return
 	}
 	w.Cash -= price
@@ -748,7 +735,6 @@ func (s *Scenario) buyVehicle(b *world.Building, cat bool) {
 	} else {
 		w.AddSnowmobile(b)
 	}
-	s.setToast(fmt.Sprintf("Bought a %s: $%s", name, formatDollars(price)))
 }
 
 // sellVehicle sells one of b's snowcats (cat) or snowmobiles for half
@@ -770,7 +756,6 @@ func (s *Scenario) sellVehicle(b *world.Building, cat bool) {
 		w.RemoveSnowcat(pick.ID)
 		w.Cash += world.CatPurchasePrice / 2
 		s.sim.InvalidateSections()
-		s.setToast(fmt.Sprintf("Sold a snowcat: $%s", formatDollars(world.CatPurchasePrice/2)))
 		return
 	}
 	ms := w.SnowmobilesIn(b)
@@ -779,7 +764,6 @@ func (s *Scenario) sellVehicle(b *world.Building, cat bool) {
 	}
 	w.RemoveSnowmobile(ms[len(ms)-1].ID)
 	w.Cash += world.SnowmobilePrice / 2
-	s.setToast(fmt.Sprintf("Sold a snowmobile: $%s", formatDollars(world.SnowmobilePrice/2)))
 }
 
 // setCatsActive puts one of b's snowcats on standby (parked, cheaper) or
@@ -809,11 +793,10 @@ func (s *Scenario) setStoreys(b *world.Building, n int) {
 	if n > b.Floors() {
 		cost := b.AddStoreyCost()
 		if !w.CanAfford(cost) {
-			s.setToast(fmt.Sprintf("Need $%s for another storey — short by $%s", formatDollars(cost), formatDollars(cost-w.Available())))
+			s.setToast(fmt.Sprintf("Need %s for another storey — short by %s", formatDollars(cost), formatDollars(cost-w.Available())))
 			return
 		}
 		w.Cash -= cost
-		s.setToast(fmt.Sprintf("Added a storey: $%s", formatDollars(cost)))
 	}
 	b.Storeys = n
 	s.app.Renderer.RebuildStaticBatch(w)
@@ -831,11 +814,8 @@ type roomSel struct {
 // it is, its storeys and floor, its rooms (each opens its own popup), and
 // the building's own actions. confirmDelete swaps the Delete button for
 // Confirm / Cancel.
-func (s *Scenario) buildLodgePopup(b *world.Building, confirmDelete bool, screenW, screenH int) {
+func (s *Scenario) buildLodgePopup(b *world.Building, screenW, screenH int) {
 	s.selectedRoom = roomSel{}
-	reopen := func(confirm bool) func() {
-		return func() { s.buildLodgePopup(b, confirm, screenW, screenH) }
-	}
 	w := ui.NewWindow(b.Label(), 0, 0)
 	w.AddLabel("Built as", func() string {
 		if b.Kind.Heated() {
@@ -843,7 +823,7 @@ func (s *Scenario) buildLodgePopup(b *world.Building, confirmDelete bool, screen
 		}
 		return b.Kind.Label() + ", unheated"
 	})
-	if b.Kind.MaxStoreys() > 1 {
+	if b.Kind.MaxStoreys() > 1 && !edition.Demo { // one storey in the demo
 		w.AddIntStepperFn("Storeys", func() string { return fmt.Sprintf("%d", b.Floors()) },
 			func() { s.setStoreys(b, b.Floors()-1) }, func() { s.setStoreys(b, b.Floors()+1) })
 	}
@@ -855,7 +835,7 @@ func (s *Scenario) buildLodgePopup(b *world.Building, confirmDelete bool, screen
 	})
 	rooms := b.Rooms()
 	if len(rooms) == 0 {
-		w.AddLabel("Services", func() string { return "none yet: add them from the Services menu" })
+		w.AddLabel("Services", func() string { return "none" })
 	}
 	for _, room := range rooms {
 		cell := room.Cells[0]
@@ -864,7 +844,7 @@ func (s *Scenario) buildLodgePopup(b *world.Building, confirmDelete bool, screen
 		})
 	}
 	w.AddLabel("Daily cost", func() string {
-		return fmt.Sprintf("$%s/day", formatDollars(world.LodgeUpkeep(b)))
+		return fmt.Sprintf("%s/day", formatDollars(world.LodgeUpkeep(b)))
 	})
 	w.AddLabel("Inbound", func() string {
 		count := 0
@@ -875,19 +855,8 @@ func (s *Scenario) buildLodgePopup(b *world.Building, confirmDelete bool, screen
 		}
 		return fmt.Sprintf("%d", count)
 	})
-	w.AddActionButton("New style", func() {
-		b.StyleSeed = rng.Global().Uint32()
-		s.app.Renderer.RebuildStaticBatch(s.world)
-	})
-	if confirmDelete {
-		w.AddLabel("Confirm", func() string { return "Delete this building and everything in it?" })
-		w.AddActionButton("Confirm", func() { s.deletePaintedBuilding(b.ID) })
-		w.AddActionButton("Cancel", reopen(false))
-	} else {
-		w.AddActionButton("Delete building", reopen(true))
-	}
 	w.Visible = true
-	w.Center(screenW, screenH)
+	s.placePopup(w, screenW, screenH)
 	s.popup = w
 }
 
@@ -897,12 +866,12 @@ func (s *Scenario) buildLodgePopup(b *world.Building, confirmDelete bool, screen
 func (s *Scenario) buildRoomPopup(b *world.Building, cell [2]int, confirmRemove bool, screenW, screenH int) {
 	room, ok := b.RoomAt(cell)
 	if !ok {
-		s.buildLodgePopup(b, false, screenW, screenH)
+		s.buildLodgePopup(b, screenW, screenH)
 		return
 	}
 	s.selectedBuildingID = b.ID
 	s.selectedRoom = roomSel{bldg: b.ID, cell: cell, ok: true}
-	back := func() { s.buildLodgePopup(b, false, screenW, screenH) }
+	back := func() { s.openLodge(b, screenW, screenH) }
 	reopen := func(confirm bool) func() {
 		return func() { s.buildRoomPopup(b, cell, confirm, screenW, screenH) }
 	}
@@ -964,8 +933,8 @@ func (s *Scenario) buildRoomPopup(b *world.Building, cell [2]int, confirmRemove 
 		w.AddLabel("Vehicles", func() string {
 			return fmt.Sprintf("%d snowcats, %d snowmobiles", len(s.world.CatsOwnedBy(b.ID)), len(s.world.SnowmobilesIn(b)))
 		})
-		w.AddActionButton(fmt.Sprintf("Buy snowcat ($%s)", formatDollars(world.CatPurchasePrice)), func() { s.buyVehicle(b, true) })
-		w.AddActionButton(fmt.Sprintf("Buy snowmobile ($%s)", formatDollars(world.SnowmobilePrice)), func() { s.buyVehicle(b, false) })
+		w.AddActionButton(fmt.Sprintf("Buy snowcat (%s)", formatDollars(world.CatPurchasePrice)), func() { s.buyVehicle(b, true) })
+		w.AddActionButton(fmt.Sprintf("Buy snowmobile (%s)", formatDollars(world.SnowmobilePrice)), func() { s.buyVehicle(b, false) })
 		w.AddActionButton("Sell snowcat", func() { s.sellVehicle(b, true) })
 		w.AddActionButton("Sell snowmobile", func() { s.sellVehicle(b, false) })
 		w.AddIntStepperFn("Snowcats active",
@@ -985,7 +954,7 @@ func (s *Scenario) buildRoomPopup(b *world.Building, cell [2]int, confirmRemove 
 		s.addResortControls(w, reopen(false))
 	}
 	w.AddLabel("Daily cost", func() string {
-		return fmt.Sprintf("$%s/day", formatDollars(world.RoomUpkeep(b, room)))
+		return fmt.Sprintf("%s/day", formatDollars(world.RoomUpkeep(b, room)))
 	})
 	if confirmRemove {
 		w.AddLabel("Confirm", func() string { return "Take this out, leaving empty floor? No refund." })
@@ -994,9 +963,11 @@ func (s *Scenario) buildRoomPopup(b *world.Building, cell [2]int, confirmRemove 
 	} else {
 		w.AddActionButton("Remove "+strings.ToLower(sv.Label()), reopen(true))
 	}
-	w.AddActionButton("Back to building", back)
+	if !singleService(b) {
+		w.AddActionButton("Back to building", back)
+	}
 	w.Visible = true
-	w.Center(screenW, screenH)
+	s.placePopup(w, screenW, screenH)
 	s.popup = w
 }
 
@@ -1089,4 +1060,29 @@ func (s *Scenario) addResortControls(w *ui.Window, rebuild func()) {
 		}
 		return fmt.Sprintf("%d on mountain", count)
 	})
+}
+
+// singleService reports whether every room in building b is the same
+// service: clicking it opens that service's popup (openLodge).
+func singleService(b *world.Building) bool {
+	rooms := b.Rooms()
+	if len(rooms) == 0 {
+		return false
+	}
+	for _, r := range rooms[1:] {
+		if r.Service != rooms[0].Service {
+			return false
+		}
+	}
+	return true
+}
+
+// openLodge opens building b's popup, or its service's when it has only
+// the one.
+func (s *Scenario) openLodge(b *world.Building, screenW, screenH int) {
+	if singleService(b) {
+		s.buildRoomPopup(b, b.Rooms()[0].Cells[0], false, screenW, screenH)
+		return
+	}
+	s.buildLodgePopup(b, screenW, screenH)
 }

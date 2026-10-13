@@ -43,6 +43,6 @@ func landBuyPopup(s *Scenario, gx, gz, screenW, screenH int) {
 		s.popup = nil
 	})
 	w.Visible = true
-	w.Center(screenW, screenH)
+	s.placePopup(w, screenW, screenH)
 	s.popup = w
 }

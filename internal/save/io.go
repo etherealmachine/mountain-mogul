@@ -610,9 +610,9 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 
 	simTime := w.SimTime
 	if forScenario {
-		// New games from a starter scenario open on its day's morning.
+		// New games from a starter scenario open at its start hour.
 		day := math.Floor(simTime / world.SecondsPerSimDay)
-		simTime = day*world.SecondsPerSimDay + world.NewGameStartHour*world.SimSecondsPerHour
+		simTime = day*world.SecondsPerSimDay + float64(w.StartHour)*world.SimSecondsPerHour
 	}
 	return ScenarioData{
 		Name:         w.Scenario.Name,
@@ -629,6 +629,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		OpenHour:     w.OpenHour,
 		CloseHour:    w.CloseHour,
 		StartDate:    w.StartDate.Format(startDateLayout),
+		StartHour:    &w.StartHour,
 		GroupMix:     groupMixData(w.GroupMix),
 		Width:        t.Width,
 		Height:       t.Height,
@@ -1431,6 +1432,9 @@ func dataToWorld(data ScenarioData) *world.World {
 	w.SimTime = data.SimTime
 	if d, err := time.Parse(startDateLayout, data.StartDate); err == nil {
 		w.StartDate = d
+	}
+	if data.StartHour != nil {
+		w.StartHour = *data.StartHour
 	}
 	w.Scenario = scenarioInfoOf(data)
 	if len(data.Geo) == 4 {

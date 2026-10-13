@@ -281,6 +281,11 @@ func (e *Editor) Init(app *engine.App) error {
 			if base := e.world.TerrainBase; base != nil && base.LayerOn("snow") {
 				e.queueWorldLayer("snow")
 			}
+		},
+		func() float32 { return e.world.StartHour },
+		func(h float32) {
+			e.world.StartHour = h
+			e.markDirty()
 		})
 
 	e.overlayPanel = ui.NewOverlayPanel()
@@ -1298,6 +1303,7 @@ func (e *Editor) applyImportedTerrain(imp ImportedTerrain, r *render.Renderer) {
 	} else {
 		w.StartDate = e.world.StartDate
 	}
+	w.StartHour = e.world.StartHour
 	e.markDirty()
 	e.world = w
 	e.layers.stack, e.layers.job = imp.Layers, nil

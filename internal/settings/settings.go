@@ -158,3 +158,22 @@ func FormatDollars(n int) string {
 	}
 	return sign + "$" + string(out)
 }
+
+// FormatDollarsShort renders n compactly for buttons: "$800", "$1.5k",
+// "$40k", "$1.2M".
+func FormatDollarsShort(n int) string {
+	trim := func(f float64, unit string) string {
+		s := strconv.FormatFloat(f, 'f', 1, 64)
+		if f >= 10 || s[len(s)-2:] == ".0" {
+			s = strconv.FormatFloat(f, 'f', 0, 64)
+		}
+		return "$" + s + unit
+	}
+	switch {
+	case n >= 1_000_000:
+		return trim(float64(n)/1_000_000, "M")
+	case n >= 1_000:
+		return trim(float64(n)/1_000, "k")
+	}
+	return "$" + strconv.Itoa(n)
+}
