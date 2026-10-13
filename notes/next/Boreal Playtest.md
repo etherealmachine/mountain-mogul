@@ -1,7 +1,7 @@
 ---
 title: Boreal Playtest
 kind: plan
-status: planned
+status: done
 ---
 
 # Boreal Playtest
@@ -35,10 +35,6 @@ The order puts first what blocks playing the tutorial or reading its results, th
 14. Done: **Follow the path.** "skiers should try to follow the path", read as walkers keeping to footpaths. Diagnosed: the walking search did route along paths, but cutting the route down to its corners replaced it with a straight line whenever either end (a car or a door) was off the path, which is nearly every walk; it only kept to a path when both ends of a cut were on it. A probe on Boreal's terrain found 0% of an L-shaped path walked with both ends 15 m off it. Fixed: a corner cut is kept only if walking it is no slower than the route it replaces, with path cells at twice the speed (`footShortcutOK`, in `FindPath`'s corners and in `planSkiRoute` and `routeTarget`'s skip-ahead). What made it hard to see: the route was right; the smoothing after it threw it away. Paths still lose to a much shorter walk over snow, by design. If "the path" meant trails, ask the user.
 15. **Loading animation.** "getting on lift animation needs work". The boarding motion onto the chair. Graphics polish for [[Demo]] step 10; ask the user what looked wrong.
 
-## Unclear
-
-16. "$30k per day! $239939 left, build shed, tickets, and 1 beginner lift". After building a shed, a ticket office, and one beginner lift, $239,939 was left of the $700k start, and something was $30k a day. Unclear whether $30k is the day's income (the measured stage 1 net was about $16k), the running costs, or the spend, and whether the "!" means too much or too little. The $460k spent is also less than the pinned $626k for Cruiser and tickets, so the lift may not be Cruiser. Ask the user; it belongs with [[Boreal Tutorial]] step 8 (play it through and re-measure).
-
 ## Log
 
 - 2026-10-11: The user's notes from playing the Boreal tutorial, filed and ranked.
@@ -47,3 +43,4 @@ The order puts first what blocks playing the tutorial or reading its results, th
 - 2026-10-11: Items 4–7, 12 and 13 done, 9 mostly. Found along the way and fixed: a follower whose leader was already in a too-long line stood beside it for up to 10 minutes (now joins them); a guest close to the station flipped each tick between ways round the line (now keeps each point until reached); a leader whose planner came back empty shared the empty plan, and followers waited on it at the door for up to 10 minutes (now only a real plan is shared, the plan home included). Stuck guests on the Goals Test (5 minutes without moving 3 m, not indoors, queued, riding or waiting to be served): 200 → 51, most of the rest stranded fallers and the injured waiting for patrol.
 - 2026-10-11: Two days on the Goals Test with everything in: 2.82–2.83★ (2.70–2.76 at the start of the day), falls 434–597 a day (738–948); top complaints "it's packed in there" (a small lodge for 1,100 visitors, balance), "I wish they'd groom the runs" 70–94, "this line is way too long".
 - 2026-10-12: Item 9's attendant-managed line planned with the user as [[Lift Lines]].
+- 2026-10-13: Closed (the user): the demo is ready enough. Item 15 dropped until a later QA pass; the rest of item 10 lives on as [[Readable Complaints]] and Named complaints in [[Next Steps]]; item 16 dropped, the economy has been rebalanced since.

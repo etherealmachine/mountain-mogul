@@ -1,7 +1,7 @@
 ---
 title: Demo
 kind: plan
-status: planned
+status: done
 ---
 
 # Demo
@@ -78,3 +78,4 @@ In order. Each step builds with `go build` and `go vet`, and gameplay is checked
 - 2026-10-13: More QA: lift stations rebuilt so riders load under them, with a long terminal for detachables ([[Lifts]]); settings check boxes; the top bar's separator padded.
 - 2026-10-13: Release builds for all three platforms from the Mac (the user): `make demo-mac` (a universal .app for macOS 11+, ad-hoc signed, assets in Resources), `make demo-cross` (Windows and Linux x86-64 in an x86-64 Debian 11 container, `tools/dist/Dockerfile`, via the lima Docker VM; the Linux binary needs glibc 2.27+), `make demo-all` for both; each audited, zipped into `build/dist/`. The user is weighing a Steam demo over self-release; Steam takes the same per-platform builds as depots.
 - 2026-10-13: The user paid the Steam Direct fee; tax form approval pending. The demo is on hold until then. Next on Steam: the base game's store page (public as Coming Soon for two weeks before anything is playable), then the demo app with the three builds as depots; Next Fest February 2027 is the likely target.
+- 2026-10-13: Ready enough (the user). Steps still open when it closed are dropped until a later QA pass: service staffing (3, still in [[Service Quality]]), the snow bugs (6, still under Bugs in [[Next Steps]]), the pop-up (8), graphics polish (10), visible traffic (12), the save and load screens' look (13), and playing the stripped build through. Goals and balance went in with the [[Boreal Tutorial]].

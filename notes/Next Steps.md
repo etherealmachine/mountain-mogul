@@ -13,10 +13,7 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 
 In the order to work on them:
 
-1. [[Boreal Playtest]]: the user's notes from playing the tutorial (2026-10-11), ranked in the note. Left: the rest of guests' thoughts (to plan) and the loading animation (what looked wrong?).
-2. [[Demo]]: the free Steam demo ([[Release]]: demo, then early access, then guest types as DLC), the Boreal tutorial only, with a limited build menu, as its own stripped build (left-out features compiled out). Steps in order: terrain expectations (readouts, demand by terrain mix, a challenge preference); service staffing and quality ([[Service Quality]]); balance so the goals are reachable; goals and unlocking; the snow bugs; a Kirkwood map pass; a demo pop-up; UI polish (including a closed-resort sign); graphics polish; visible traffic; menus; the demo build.
-
-Not ranked yet: everything below.
+1. [[SkiFree Mode]]: ski your own resort on the guests' physics. Steps: take control, chase camera, ride the lift up, timed runs with a ghost, the yeti.
 
 ## Bugs
 
@@ -176,10 +173,6 @@ Diagnose each first, report the cause, then fix:
 - **Storm lag**: lag was reported after a heavy storm at [[Boreal]]. The GPU half is fixed (fresh snow zoomed out: 10.6 → 7.2 ms), and snow changes no longer re-upload the whole terrain vertex buffer every frame ([[Terrain Realism]] step 1). The sim half is unchecked, because the tutorial save has no guests; play a busy game through a storm with `-cpuprofile` to see if deep powder or avalanche checks slow the sim ([[Debug Tools]]).
 - **5,000 guests**: persistent buffers, culling the guest batch, lower-detail skier meshes. Big maps also lean on the terrain chunks from [[Terrain Realism]] step 1.
 
-## Play modes
-
-- [[SkiFree Mode]]: take a skier and ski the resort yourself, on the same physics as the guests, with a yeti past the boundary. An idea from the user, 2026-10-10, after SimGolf.
-
 ## Easter eggs
 
 Things that happen on their own when conditions are right, not placed by the player:
@@ -322,3 +315,5 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-12: Speeds: fast and fastest doubled (80 s and 40 s a day), the whole day at one rate. [[Lift Lines]]: the attendant's maze replaced by a corral of straight lanes. The playtest list (`notes.txt`) removed; every item is in [[Boreal Playtest]].
 - 2026-10-12: [[Lift Lines]] out of Priority, good enough for now; its extensions listed under Lifts.
 - 2026-10-12: [[Boreal Tutorial]] played through headless (`tools/tutorial`): the credit line to $1.4M, highlights offset annoyances in reviews ([[Scoreless Rating]]); won on day 19.
+- 2026-10-13: Priority cleared: the [[Demo]] is ready enough (its open steps dropped until a QA pass) and the [[Boreal Playtest]] list is closed.
+- 2026-10-13: [[SkiFree Mode]] planned and ranked first.
