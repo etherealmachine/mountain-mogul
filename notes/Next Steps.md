@@ -13,8 +13,8 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 
 In the order to work on them:
 
-1. [[Boreal Playtest]]: the user's notes from playing the tutorial (2026-10-11), ranked in the note. Left: the rest of guests' thoughts (to plan) and the loading animation (what looked wrong?); the lift lines are planned as [[Lift Lines]].
-2. [[Lift Lines]] step 4: the singles lane, then the patrol lane (the crowd and the attendant's rope corral are built, to try in the game).
+1. [[Lift Lines]]: the crowd and the attendant's corral (two straight lanes into one run) are built and look good (the user, 2026-10-12). Next: the attendant picks a layout to suit (one line a chair wide, or two lanes into one), and a line too long for the room it has (today it runs on unroped, into a lot). A patrol and ski school lane, and singles, later.
+2. [[Boreal Playtest]]: the user's notes from playing the tutorial (2026-10-11), ranked in the note. Left: the rest of guests' thoughts (to plan) and the loading animation (what looked wrong?).
 3. [[Demo]]: the free Steam demo ([[Release]]: demo, then early access, then guest types as DLC), the Boreal tutorial and Kirkwood, playable for a few hours, as its own stripped build. Steps in order: terrain expectations (readouts, demand by terrain mix, a challenge preference); service staffing and quality ([[Service Quality]]); balance so the goals are reachable; goals and unlocking; the snow bugs; a Kirkwood map pass; a demo pop-up; UI polish (including a closed-resort sign); graphics polish; visible traffic; menus; the demo build.
 
 Not ranked yet: everything below.
@@ -315,3 +315,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-12: Planned [[Lift Lines]] with the user (playtest item 9), ranked second.
 - 2026-10-12: [[Lift Lines]] steps 1–2: one line for every lift (the doubles' lanes gone), and a crowd at lifts with no attendant.
 - 2026-10-12: [[Lift Lines]] step 3: the attendant's rope maze. Guests no longer stand shaking beside lift stations for hours (walkers flipped sides of a hut every tick); guests in line walk to their place instead of hopping.
+- 2026-10-12: Speeds: fast and fastest doubled (80 s and 40 s a day), the whole day at one rate. [[Lift Lines]]: the attendant's maze replaced by a corral of straight lanes. The playtest list (`notes.txt`) removed; every item is in [[Boreal Playtest]].
