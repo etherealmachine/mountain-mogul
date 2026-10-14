@@ -39,6 +39,9 @@ type WorldSnapshot struct {
 	// Instructor is a ski school instructor teaching a class: staff, who
 	// never go home (sim/lessons.go takes them back to the school).
 	Instructor bool
+	// WithFamily is a kid with an adult of their family still out and
+	// not heading home: they don't go home on their own.
+	WithFamily bool
 
 	AtLiftBase     uint64 // 0 or lift ID — at the base of this lift, not yet queued
 	AtLiftTop      uint64 // 0 or lift ID — just unloaded at the top
@@ -133,6 +136,7 @@ func Extract(a *world.Guest, w *world.World) WorldSnapshot {
 		RidenLifts:      a.RidenLifts,
 		CarLot:          a.CarLot,
 		Instructor:      a.InstructorOf != 0,
+		WithFamily:      withFamily(a, w),
 	}
 	poolGroup(&snap, a)
 	if a.Queued {
@@ -278,7 +282,8 @@ func poolGroup(s *WorldSnapshot, a *world.Guest) {
 		s.Patience = min(s.Patience, f.Patience)
 		s.Energy = min(s.Energy, f.Energy)
 		for k := ai.NeedKind(0); k < ai.NeedCount; k++ {
-			if k != ai.NeedRentals && k != ai.NeedLesson { // their own
+			// Their own, except a kid's lesson: their parent takes them.
+			if k != ai.NeedRentals && (k != ai.NeedLesson || f.Child) {
 				s.Need[k] = max(s.Need[k], f.NeedUrgency(k))
 			}
 		}
@@ -338,4 +343,18 @@ func sqDistXZ(p mgl32.Vec3, x, z float32) float32 {
 	dx := p[0] - x
 	dz := p[2] - z
 	return dx*dx + dz*dz
+}
+
+// withFamily reports whether kid a has an adult of their family still
+// out and not heading home.
+func withFamily(a *world.Guest, w *world.World) bool {
+	if !a.Child || a.GroupID == 0 {
+		return false
+	}
+	for _, m := range w.GroupOf(a) {
+		if m != a && !m.Child && m.State == world.OnMountain && !m.Removed && m.Plan.GoalName != (GoHome{}).Name() {
+			return true
+		}
+	}
+	return false
 }

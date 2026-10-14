@@ -397,7 +397,11 @@ func (s *Simulation) applySkier(a *world.Guest, target mgl32.Vec3, dist float32,
 
 	// Energy drain from skiing. Rate depends on skill tier × snow kind;
 	// see energyDrainRate for the full table.
-	a.Energy -= energyDrainRate(a.Traits.Skill, surfKind, onGroomed) * (1 + underfootTiring*dislike) * float32(dt)
+	drain := energyDrainRate(a.Traits.Skill, surfKind, onGroomed) * (1 + underfootTiring*dislike)
+	if a.Child {
+		drain *= kidTiring // kids tire sooner: their family needs breaks
+	}
+	a.Energy -= drain * float32(dt)
 	if a.Energy < 0 {
 		a.Energy = 0
 	}
@@ -469,6 +473,10 @@ func (s *Simulation) applySkier(a *world.Guest, target mgl32.Vec3, dist float32,
 	recordFrame(s, a, target, dist, perc, dec)
 	return false
 }
+
+// kidTiring is how much faster a kid's energy drains skiing than an
+// adult's of their skill.
+const kidTiring = 1.5
 
 // splatSkierTrack writes the agent's segment from prevPos to a.Pos into
 // the surface-detail R channel. Gated on the same "actively skiing"

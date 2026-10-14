@@ -68,7 +68,7 @@ func newScenarioDetailsPrompt(info world.ScenarioInfo, goals []world.Goal, rules
 		d, lo, hi float32
 	}{
 		{&p.mix.MeanSize, 0.2, 1, 6},
-		{&p.mix.Lessons, 0.01, 0, 0.5},
+		{&p.mix.Families, 0.05, 0, 1},
 		{&p.mix.Mixed, 0.1, 0, 1},
 	} {
 		p.mixBtn[2*i] = ui.NewButton(0, 0, 26, detailsRowH, "<", stepMix(st.v, -st.d, st.lo, st.hi))
@@ -276,7 +276,7 @@ func (p *scenarioDetailsPrompt) drawMix(r *render.Renderer) {
 	lx := p.x + detailsPad
 	rows := []struct{ name, value string }{
 		{"Group size (average)", fmt.Sprintf("%.1f", p.mix.MeanSize)},
-		{"Ski lessons (groups of 13)", fmt.Sprintf("%.0f%%", p.mix.Lessons*100)},
+		{"Families (1-2 adults, 1-3 kids)", fmt.Sprintf("%.0f%%", p.mix.Families*100)},
 		{"Mixed-skill groups", fmt.Sprintf("%.0f%%", p.mix.Mixed*100)},
 	}
 	for i, row := range rows {

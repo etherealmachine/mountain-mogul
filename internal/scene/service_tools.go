@@ -1055,6 +1055,14 @@ func (s *Scenario) addResortControls(w *ui.Window, rebuild func()) {
 		w.AddLabel(l.Name+" base", func() string { return liftBaseSnowText(s.world, l) })
 	}
 	w.AddIntStepper("Day ticket ($)", &s.world.DayTicketPrice, 5, 0, 500)
+	// The cheaper tickets: each offered or not, at its own price.
+	t := &s.world.Tickets
+	w.AddBoolToggle("Kids 0-4 ticket", func() bool { return t.Kids }, func(v bool) { t.Kids = v })
+	w.AddIntStepper("Kids 0-4 ($)", &t.KidsPrice, 5, 0, 500)
+	w.AddBoolToggle("Child 5-12 ticket", func() bool { return t.Child }, func(v bool) { t.Child = v })
+	w.AddIntStepper("Child 5-12 ($)", &t.ChildPrice, 5, 0, 500)
+	w.AddBoolToggle("Afternoon ticket", func() bool { return t.Afternoon }, func(v bool) { t.Afternoon = v })
+	w.AddIntStepper("Afternoon from "+settings.FormatClock(world.AfternoonFrom)+" ($)", &t.AfternoonPrice, 5, 0, 500)
 	w.AddIntStepper("Pass price ($)", &s.world.SeasonPassPrice, 10, 0, 1000)
 	w.AddLabel("Pass holders", func() string {
 		count := 0

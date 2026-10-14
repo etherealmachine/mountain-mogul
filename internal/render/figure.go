@@ -109,6 +109,14 @@ func outfit(id uint64, skill float32) [figureOutfitSlots]mgl32.Vec3 {
 	return o
 }
 
+// kidScale is a kid's size against an adult's; chairPelvisY is how
+// far over the footrest a seated rider's hips are (chairPose), which a
+// kid is lifted by the difference of, to sit on the seat.
+const (
+	kidScale     = float32(0.67)
+	chairPelvisY = float32(0.6)
+)
+
 // guestOutfit is g's outfit: their own, or a ski school instructor's.
 func guestOutfit(g *world.Guest) [figureOutfitSlots]mgl32.Vec3 {
 	if g.InstructorOf != 0 {
@@ -550,7 +558,13 @@ func (f *figures) build(r *Renderer, w *world.World) {
 			// bridge, from its deck.
 			y = deckOrGround(w)(pos[0], pos[2]) + g.Unload.UnloadLift()
 		}
+		if g.Child && g.OnLiftID != 0 && !onSurface(w, g.OnLiftID) {
+			y += chairPelvisY * (1 - kidScale) // on the seat, legs dangling
+		}
 		place := mgl32.Translate3D(pos[0], y, pos[2]).Mul4(headingBasis(a.heading))
+		if g.Child {
+			place = place.Mul4(mgl32.Scale3D(kidScale, kidScale, kidScale))
+		}
 		o := guestOutfit(g)
 		tint := mgl32.Vec4{}
 		if r.ActivityTint {

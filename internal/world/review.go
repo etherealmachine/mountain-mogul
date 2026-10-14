@@ -144,3 +144,38 @@ func (g *Guest) noRunsReason() ai.ThoughtKind {
 	}
 	return ai.ThoughtNone
 }
+
+// FamilyReview is the review g would leave now, with their kids' days in
+// it: a parent's level is at most one above their worst-off kid's
+// (notes/next/Families.md), the kids' "rough day" then being the reason.
+// A kid already gone keeps the review they left with.
+func (w *World) FamilyReview(g *Guest) Review {
+	r := g.DayReview()
+	if g.Child || g.GroupID == 0 {
+		return r
+	}
+	worst := int8(0)
+	for _, m := range w.GroupOf(g) {
+		if !m.Child {
+			continue
+		}
+		var lvl int8
+		switch {
+		case m.Leaving.Pending:
+			lvl = m.Leaving.Review.Level
+		case m.State == OnMountain && !m.Removed:
+			lvl = m.DayReview().Level
+		default:
+			continue
+		}
+		if worst == 0 || lvl < worst {
+			worst = lvl
+		}
+	}
+	if worst > 0 && r.Level > worst+1 {
+		r.Level = worst + 1
+		r.Kind, r.Count, r.Context = ai.ThoughtKidsRough, 1, 0
+		r.Stars = min(float32(r.Level)+QualityStars*r.Quality, MaxStars)
+	}
+	return r
+}

@@ -21,7 +21,7 @@ func (s *Scenario) addSchoolControls(w *ui.Window, b *world.Building) {
 	w.AddLabel("Waiting for a class", func() string {
 		n := 0
 		for _, g := range s.world.OnMountain {
-			if g.Lesson.SchoolID == b.ID && !g.Lesson.InClass {
+			if g.Lesson.SchoolID == b.ID && !g.Lesson.InClass && !g.Lesson.PickUp {
 				n++
 			}
 		}

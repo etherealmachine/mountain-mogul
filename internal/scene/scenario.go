@@ -4270,7 +4270,7 @@ func (f *followLabel) Draw(r *render.Renderer) {
 	}
 	// The stars they'd leave now, marked with the conditions on right
 	// now (each counts as a moment once past its grace period).
-	review := f.agent.DayReview()
+	review := f.world.FamilyReview(f.agent)
 	score := fmt.Sprintf("%.1f stars", review.Stars)
 	var tags []string
 	for k := ai.ThoughtKind(1); int(k) < ai.ThoughtKindCount; k++ {

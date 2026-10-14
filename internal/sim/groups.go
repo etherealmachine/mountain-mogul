@@ -119,7 +119,15 @@ func leaveParty(g *world.Guest) {
 		g.Party.Leader = nil
 		return
 	}
+	// The first follower still out leads now: an adult, when there is
+	// one (a kid never leads).
 	var next *world.Guest
+	for _, f := range g.Party.Followers {
+		if !f.Removed && f.State == world.OnMountain && !f.Child {
+			next = f
+			break
+		}
+	}
 	for _, f := range g.Party.Followers {
 		if f.Removed || f.State != world.OnMountain {
 			f.Party.Leader = nil
@@ -127,6 +135,8 @@ func leaveParty(g *world.Guest) {
 		}
 		if next == nil {
 			next = f
+		}
+		if f == next {
 			f.Party.Leader = nil
 			continue
 		}
@@ -577,6 +587,12 @@ func (s *Simulation) holdForGroup(a *world.Guest) bool {
 	lift := a.Party.TopLift
 	if a.Party.Leader == nil {
 		lift = a.Run.LiftID
+		if a.Party.HoldLift != lift && !a.Child && a.InstructorOf == 0 && waitsForKids(a) {
+			// Another stop for the kids: after enough, it wears on them.
+			if a.KidWaits++; a.KidWaits == kidWaitsAnnoy {
+				s.applyEvent(a, ai.ThoughtWaitedKids)
+			}
+		}
 	}
 	s.holdAt(a, lift)
 	return true
@@ -1025,4 +1041,134 @@ func FollowForDebug(s *Simulation, a *world.Guest) (mgl32.Vec3, int, int8) {
 	goal, _ := liveTarget(s.World, a)
 	t, _, off := followTarget(s.World.Terrain, a, l, goal)
 	return t, off, why
+}
+
+// kidsHomeWith sends a's kids home with them when a, an adult heading
+// home, is the last of their family's adults still out: kids never stay
+// on alone (notes/next/Families.md).
+func (s *Simulation) kidsHomeWith(a *world.Guest) {
+	if a.Child || a.GroupID == 0 {
+		return
+	}
+	var kids []*world.Guest
+	for _, m := range s.World.GroupOf(a) {
+		if m == a || m.State != world.OnMountain || m.Removed {
+			continue
+		}
+		if !m.Child {
+			if !goingHome(m) {
+				return // another adult's still skiing: the kids stay with them
+			}
+			continue
+		}
+		if !goingHome(m) {
+			kids = append(kids, m)
+		}
+	}
+	for _, k := range kids {
+		if k.Lesson.SchoolID != 0 && !k.Lesson.InClass {
+			k.Lesson = world.Lesson{} // off the meeting spot
+		}
+		k.WantsLesson = false
+		k.DepartReason = ai.DepartFamily
+		s.directHomePlan(k)
+	}
+}
+
+// goingHome reports whether g's plan takes them home.
+func goingHome(g *world.Guest) bool {
+	return g.Removed || endsInDeparture(g.Plan) && g.Plan.Step < len(g.Plan.Steps)
+}
+
+// kidsNotAlone sends home any kid out without an adult of their family
+// (however the adults left: home, carried down by patrol, or never out
+// of the car).
+func (s *Simulation) kidsNotAlone() {
+	for _, k := range s.World.OnMountain {
+		if !k.Child || k.Removed || goingHome(k) || k.Fallen || k.OnLiftID != 0 || k.OnPatrollerID != 0 {
+			continue
+		}
+		adult := false
+		for _, m := range s.World.GroupOf(k) {
+			if !m.Child && m.State == world.OnMountain && !m.Removed {
+				adult = true
+				break
+			}
+		}
+		if adult {
+			continue
+		}
+		if k.Lesson.SchoolID != 0 && !k.Lesson.InClass {
+			k.Lesson = world.Lesson{}
+		}
+		if k.Class != nil {
+			continue // their class brings them back first
+		}
+		k.WantsLesson = false
+		k.DepartReason = ai.DepartFamily
+		s.directHomePlan(k)
+	}
+}
+
+// kidWaitsAnnoy is how many stops at lift tops to wait for the kids
+// make a parent think they waited at every turn.
+const kidWaitsAnnoy = 4
+
+// waitsForKids reports whether the leader a has a kid among their
+// followers.
+func waitsForKids(a *world.Guest) bool {
+	for _, f := range a.Party.Followers {
+		if f.Child {
+			return true
+		}
+	}
+	return false
+}
+
+// kidsLovedIt gives the adults of kid k's family out with them a
+// highlight of their own: the kids loved it.
+func (s *Simulation) kidsLovedIt(k *world.Guest) {
+	if k.GroupID == 0 {
+		return
+	}
+	for _, m := range s.World.GroupOf(k) {
+		if !m.Child && m.State == world.OnMountain && !m.Removed {
+			s.applyEvent(m, ai.ThoughtKidsLovedIt)
+		}
+	}
+}
+
+// familyOnChair gives everyone on chair a highlight when a whole family
+// out on the mountain, kids and all, boarded it together.
+func (s *Simulation) familyOnChair(chair *world.Chair) {
+	seen := map[uint64]bool{}
+	for _, g := range chair.Passengers {
+		if g == nil || !g.Child || g.GroupID == 0 || seen[g.GroupID] {
+			continue
+		}
+		seen[g.GroupID] = true
+		all := true
+		var fam []*world.Guest
+		for _, m := range s.World.GroupOf(g) {
+			if m.State != world.OnMountain || m.Removed {
+				continue
+			}
+			on := false
+			for _, p := range chair.Passengers {
+				if p == m {
+					on = true
+				}
+			}
+			if !on {
+				all = false
+				break
+			}
+			fam = append(fam, m)
+		}
+		if all && len(fam) >= 2 {
+			for _, m := range fam {
+				s.applyEvent(m, ai.ThoughtFamilyChair)
+			}
+		}
+	}
 }

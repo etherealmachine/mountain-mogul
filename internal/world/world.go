@@ -265,6 +265,9 @@ type World struct {
 	// to DefaultDayTicketPrice; the player adjusts it via the ticket
 	// office popup.
 	DayTicketPrice int
+	// Tickets are the cheaper day tickets the player may offer: for kids
+	// 0–4 and 5–12, and from AfternoonFrom (TicketPrice).
+	Tickets TicketTiers
 
 	// ParkingPrice is the per-car fee in dollars for every lot, set from
 	// the parking lot popup. The car's guests split it and each pays their
@@ -370,6 +373,7 @@ func NewWorld(terrain *Terrain) *World {
 		History:         NewHistory(),
 		SeasonPassPrice: DefaultSeasonPassPrice,
 		DayTicketPrice:  DefaultDayTicketPrice,
+		Tickets:         DefaultTicketTiers(DefaultDayTicketPrice),
 		OpenHour:        DefaultOpenHour,
 		CloseHour:       DefaultCloseHour,
 		Rating:          InitialRating,

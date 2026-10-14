@@ -31,8 +31,10 @@ type ScenarioData struct {
 	StartDate string `json:"start_date,omitempty"`
 	// StartHour is World.StartHour. Absent loads world.NewGameStartHour.
 	StartHour *float32 `json:"start_hour,omitempty"`
-	// GroupMix is World.GroupMix: mean group size, lesson share, mixed
-	// share. Absent loads world.DefaultGroupMix.
+	// GroupMix is World.GroupMix: mean group size, family share, mixed
+	// share, and a 2 marking the family share (before families the
+	// second was a share of ski lessons, which loads as the default).
+	// Absent loads world.DefaultGroupMix.
 	GroupMix []float32    `json:"group_mix,omitempty"`
 	Cells    []CellData   `json:"cells"` // flat array, row-major (x-major)
 	Objects  []ObjectData `json:"objects"`
@@ -95,7 +97,10 @@ type ScenarioData struct {
 	DaysBelowFloor  int      `json:"days_below_floor,omitempty"`
 	Bankrupt        bool     `json:"bankrupt,omitempty"`
 	DayTicket       *int     `json:"day_ticket,omitempty"`
-	SeasonPass      *int     `json:"season_pass,omitempty"`
+	// Tickets is World.Tickets; absent loads the defaults for the day
+	// ticket's price.
+	Tickets    *TicketsData `json:"tickets,omitempty"`
+	SeasonPass *int         `json:"season_pass,omitempty"`
 	// Parking is World.ParkingPrice, per car. Absent loads free.
 	Parking int `json:"parking,omitempty"`
 	// ResortOpen is World.ResortOpen. Absent loads closed.
@@ -607,6 +612,8 @@ type GuestData struct {
 	VisitsThisSeason int     `json:"vts,omitempty"`
 	LifetimeVisits   int     `json:"lv,omitempty"`
 	Lessons          int     `json:"lessons,omitempty"`
+	Child            bool    `json:"child,omitempty"`
+	Age              uint8   `json:"age,omitempty"`
 	LastVisitUnix    int64   `json:"lvu,omitempty"` // 0 = never visited
 	LastStars        float32 `json:"lst,omitempty"`
 
@@ -712,4 +719,15 @@ type SkisData struct {
 	Yaw  float32    `json:"yaw,omitempty"`
 	// Lying is set for a pair dropped flat when its rack was removed.
 	Lying bool `json:"lying,omitempty"`
+}
+
+// TicketsData is world.TicketTiers: which cheaper tickets are on offer,
+// and their prices.
+type TicketsData struct {
+	Kids           bool `json:"kids,omitempty"`
+	Child          bool `json:"child,omitempty"`
+	Afternoon      bool `json:"afternoon,omitempty"`
+	KidsPrice      int  `json:"kids_price,omitempty"`
+	ChildPrice     int  `json:"child_price,omitempty"`
+	AfternoonPrice int  `json:"afternoon_price,omitempty"`
 }

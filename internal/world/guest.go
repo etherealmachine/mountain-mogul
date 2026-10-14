@@ -72,6 +72,15 @@ type Guest struct {
 
 	VisitsThisSeason int
 	LifetimeVisits   int
+	// Child marks a kid: one of a family (world/group.go), who skis with
+	// their parents and never leads, drives, or stays on alone.
+	Child bool
+	// Age is a kid's age in years (0–12; ChildAge), which sets their
+	// ticket (TicketPrice); 0 for adults.
+	Age uint8
+	// KidWaits counts the times today a parent leading the family
+	// stopped at a lift top to wait for the kids. Not saved.
+	KidWaits uint8
 	// Lessons is how many ski school lessons they've had, here, ever:
 	// each raises their skill less than the one before (sim/lessons.go).
 	Lessons   int
@@ -590,6 +599,7 @@ func (g *Guest) LastThought() ai.Thought {
 // preserved. Called by reapDeparted when State flips back to AtHome.
 func (g *Guest) ResetForDeparture() {
 	g.State = AtHome
+	g.KidWaits = 0
 	g.Pos = mgl32.Vec3{}
 	g.Heading = 0
 	g.Speed = 0
@@ -706,7 +716,18 @@ type Lesson struct {
 	SchoolID uint64
 	Since    float64
 	InClass  bool
+	// PickUp: a kid back from their class, waiting at the meeting spot
+	// for a parent to collect them (sim/lessons.go).
+	PickUp bool
 }
+
+// Kids' lessons: a kid wants one in KidLessonBehind of visits when a
+// parent skis a level above them (so the family can ski apart), else in
+// KidLessonShare.
+var (
+	KidLessonBehind = float32(0.6)
+	KidLessonShare  = float32(0.1)
+)
 
 // NoRentalsStayHome is the share of guests who'd need to rent that stay
 // home from a resort without a rental shop; the rest rent in town on the

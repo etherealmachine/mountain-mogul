@@ -465,6 +465,7 @@ func (s *Simulation) tickLifts(dt float64) {
 							s.boarders = append(s.boarders, boarder{agent, lift, s.SimTime})
 						}
 					}
+					s.familyOnChair(chair)
 				}
 			}
 		}
@@ -682,6 +683,7 @@ func (s *Simulation) tickGuests(dt float64) {
 		}
 	}
 	s.tickSchools()
+	s.kidsNotAlone()
 	s.planRoutes()
 	s.checkPlans()
 	s.skiJobs = s.skiJobs[:0]
@@ -701,16 +703,21 @@ func (s *Simulation) tickGuests(dt float64) {
 			// Patroller is responsible for this guest's position and departure.
 			continue
 		}
-		if agent.Lesson.SchoolID != 0 && !agent.Lesson.InClass && agent.RestTimer <= 0 && !agent.Fallen {
-			// Signed up: at the meeting spot till a class takes them.
+		// Signed up for a lesson, or back from one waiting to be
+		// collected: at the meeting spot till a class (or a parent)
+		// takes them, making no plans of their own meanwhile; a fall, a
+		// ride or a rest they're in plays out first.
+		lessonHold := agent.Lesson.SchoolID != 0 && !agent.Lesson.InClass
+		if lessonHold && agent.RestTimer <= 0 && !agent.Fallen && agent.OnLiftID == 0 && !agent.Queued && agent.Unload.LiftID == 0 {
 			s.tickLessonWait(agent, dt)
 			continue
 		}
+		s.collectKids(agent)
 		if c := agent.Class; c != nil && c.Instructor == agent && c.Ending && agent.Plan.GoalName != backToSchool &&
 			agent.OnLiftID == 0 && !agent.Queued && agent.Unload.LiftID == 0 && !agent.Fallen {
 			s.headBack(c) // off the lift, or up again: back to the school
 		}
-		if (i >= len(s.planQuiet) || !s.planQuiet[i]) && !(agent.Class != nil && agent.Class.Instructor == agent && agent.Class.Ending) {
+		if (i >= len(s.planQuiet) || !s.planQuiet[i]) && !lessonHold && !(agent.Class != nil && agent.Class.Instructor == agent && agent.Class.Ending) {
 			s.tickPlanning(agent)
 		}
 		if agent.Removed {
@@ -829,6 +836,16 @@ func (s *Simulation) spawnGuestAt(lot *world.Building, g *world.Guest, pos mgl32
 	g.Thirst = 0.5 + rng.Global().Float32()*0.5
 	g.HasSeasonPass = hasValidPass(g, s.SimTime)
 	g.RollVisitNeeds(rng.Global())
+	if g.Child {
+		// A kid's lesson: likely when a parent skis a level above them.
+		share := world.KidLessonShare
+		for _, m := range w.GroupOf(g) {
+			if !m.Child && world.SkillTier(m.Traits.Skill) > world.SkillTier(g.Traits.Skill) {
+				share = world.KidLessonBehind
+			}
+		}
+		g.WantsLesson = rng.Global().Float32() < share
+	}
 	noSchool := false
 	if g.WantsLesson && !anySchool(w) {
 		// Came for a lesson and there's no school (silently in an
@@ -892,6 +909,9 @@ func (s *Simulation) spawnGuestAt(lot *world.Building, g *world.Guest, pos mgl32
 func (s *Simulation) applyEvent(a *world.Guest, kind ai.ThoughtKind, context ...uint64) {
 	if a.Player || a.InstructorOf != 0 {
 		return // the player and staff have no thoughts for the resort to count
+	}
+	if a.Child && ai.Effects[kind].Class == ai.Highlight {
+		defer s.kidsLovedIt(a) // their parents' day too
 	}
 	s.recordThought(a, kind, context...)
 	var ctx uint64
@@ -1678,6 +1698,7 @@ func (s *Simulation) planAlone(a *world.Guest) {
 	s.setBlocked(a, a.Plan.Blocked)
 	if a.Plan.GoalName == (goap.GoHome{}).Name() {
 		s.setDepartReason(a, s.departReasonFor(a))
+		defer s.kidsHomeWith(a)
 	}
 	if !a.Plan.Done() {
 		s.share(a, from, a.Plan, done)
@@ -2082,7 +2103,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		// Set the departure aside until the car drives off the map
 		// (finishDeparture); a guest with no car leaves now.
 		s.setDepartReason(a, s.departReasonFor(a))
-		a.Leaving = world.Leaving{Pending: true, Review: a.DayReview(), Reason: a.DepartReason}
+		a.Leaving = world.Leaving{Pending: true, Review: w.FamilyReview(a), Reason: a.DepartReason}
 		if a.CarID == 0 {
 			s.finishDeparture(a)
 		}
@@ -2183,6 +2204,7 @@ func (s *Simulation) directHomePlan(a *world.Guest) {
 		},
 	}
 	s.onPlanStepStart(a)
+	s.kidsHomeWith(a)
 }
 
 // injuredGiveUpPlan builds a direct [SkiToParking, Depart] plan so an

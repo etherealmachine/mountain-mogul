@@ -474,6 +474,8 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 			VisitsThisSeason: g.VisitsThisSeason,
 			LifetimeVisits:   g.LifetimeVisits,
 			Lessons:          g.Lessons,
+			Child:            g.Child,
+			Age:              g.Age,
 			LastStars:        g.LastStars,
 			State:            uint8(g.State),
 		}
@@ -676,6 +678,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		SkiArea:      skiAreaData(w),
 		Cash:         &w.Cash,
 		DayTicket:    &w.DayTicketPrice,
+		Tickets:      (*TicketsData)(&w.Tickets),
 		SeasonPass:   &w.SeasonPassPrice,
 		CreditRate:   &w.CreditRate,
 		Parking:      w.ParkingPrice,
@@ -946,6 +949,10 @@ func dataToWorld(data ScenarioData) *world.World {
 	if data.DayTicket != nil {
 		w.DayTicketPrice = *data.DayTicket
 	}
+	w.Tickets = world.DefaultTicketTiers(w.DayTicketPrice)
+	if data.Tickets != nil {
+		w.Tickets = world.TicketTiers(*data.Tickets)
+	}
 	if data.SeasonPass != nil {
 		w.SeasonPassPrice = *data.SeasonPass
 	}
@@ -1155,7 +1162,7 @@ func dataToWorld(data ScenarioData) *world.World {
 		} else {
 			id = w.NextID()
 		}
-		traits := ai.TraitsFor(gd.Skill)
+		traits := world.TraitsFor(gd.Skill, gd.Child)
 		arrivalOffset := world.RollArrivalOffset(rand.New(rand.NewSource(int64(id) ^ 0x5eed)))
 		if gd.ArrivalOffset != nil {
 			arrivalOffset = *gd.ArrivalOffset
@@ -1181,6 +1188,8 @@ func dataToWorld(data ScenarioData) *world.World {
 			VisitsThisSeason: gd.VisitsThisSeason,
 			LifetimeVisits:   gd.LifetimeVisits,
 			Lessons:          gd.Lessons,
+			Child:            gd.Child,
+			Age:              kidAge(gd),
 			LastStars:        gd.LastStars,
 			State:            world.GuestState(gd.State),
 			CarID:            gd.CarID,
@@ -1431,14 +1440,18 @@ func dataToWorld(data ScenarioData) *world.World {
 	// Make the guest pool match the road entries' pools (each guest lives
 	// beyond one entry), or seed the default pool for a map without
 	// entries, so pools edited in the editor take effect on the next load.
-	if m := data.GroupMix; len(m) == 3 {
-		w.GroupMix = world.GroupMix{MeanSize: m[0], Lessons: m[1], Mixed: m[2]}
+	switch m := data.GroupMix; len(m) {
+	case 4:
+		w.GroupMix = world.GroupMix{MeanSize: m[0], Families: m[1], Mixed: m[2]}
+	case 3:
+		w.GroupMix = world.GroupMix{MeanSize: m[0], Families: world.DefaultGroupMix.Families, Mixed: m[2]}
 	}
 	guestSeed := w.Seed
 	if guestSeed == 0 {
 		guestSeed = 1 // legacy saves with no seed: stable fallback
 	}
 	world.SyncGuestPool(w, guestSeed)
+	world.EnsureFamilies(w, guestSeed)
 
 	// Rehydrate the history ring. Absent in the save → allocate an
 	// empty *History so the sim starts recording immediately.
@@ -1922,5 +1935,14 @@ func groupMixData(m world.GroupMix) []float32 {
 	if m == (world.GroupMix{}) {
 		return nil
 	}
-	return []float32{m.MeanSize, m.Lessons, m.Mixed}
+	return []float32{m.MeanSize, m.Families, m.Mixed, 2}
+}
+
+// kidAge is a saved guest's age: a kid saved before ages had none, and
+// gets one that's the same on every load.
+func kidAge(gd GuestData) uint8 {
+	if gd.Child && gd.Age == 0 {
+		return world.RollKidAge(rand.New(rand.NewSource(int64(gd.ID) ^ 0xa9e)))
+	}
+	return gd.Age
 }

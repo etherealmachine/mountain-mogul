@@ -63,6 +63,33 @@ var dayTypeDemand = [...]float32{
 	world.NamedHoliday: 4.0,
 }
 
+// familyDemand scales a family's chance of coming by the kind of day:
+// school holidays bring them, and ordinary days have the kids in school.
+// familySchoolDraw is how much more a family comes to a resort with a
+// ski school.
+var familyDemand = [...]float32{
+	world.OrdinaryDay:  0.8,
+	world.Holiday:      1.2,
+	world.NamedHoliday: 1.6,
+}
+
+const familySchoolDraw = 1.15
+
+// afternoonDraw is how much more likely an arrival from the afternoon
+// ticket's start is, per share of the adult price it saves: at half
+// price, 75% more.
+const afternoonDraw = 1.5
+
+// hasKid reports whether a kid is in grp.
+func hasKid(grp []*world.Guest) bool {
+	for _, g := range grp {
+		if g.Child {
+			return true
+		}
+	}
+	return false
+}
+
 // Capacity formula constant. avgSessionSec is how long a typical guest
 // takes over one lift cycle (line, ride, and descent): about 1,500 s on
 // the Boreal Goals Test, where a guest rides about three times in five
@@ -138,6 +165,7 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 	occFactor := 1 - occupancy
 	dayType, _ := world.HolidayAt(s.DateAt(s.SimTime))
 	busy := dayTypeDemand[dayType]
+	school := anySchool(s.World)
 	hasOffice := hasTicketOffice(s.World)
 	hasRentals := anyRentals(s.World)
 	if !hasParking(s.World) {
@@ -163,6 +191,14 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 			continue
 		}
 		p /= float32(len(grp))
+		if hasKid(grp) {
+			// Families come on holidays more, school days less, and more
+			// to a resort with a ski school.
+			p *= familyDemand[dayType]
+			if school {
+				p *= familySchoolDraw
+			}
+		}
 		if rng.Global().Float32() >= p {
 			continue
 		}
@@ -205,6 +241,11 @@ func visitChance(s *Simulation, g *world.Guest, rating, busy, match float32, h0,
 	}
 	dailyRate := g.VisitsPerSeason * dailyVisitShare * busy
 	p := dailyRate * float32(arrivalShare(s.World, g, h0, h1)) * rating * match * occFactor * priceFactor
+	if t := s.World.Tickets; t.Afternoon && h0 >= world.AfternoonFrom && s.World.DayTicketPrice > 0 && !hasValidPass(g, s.SimTime) {
+		// A cheaper afternoon brings half-day skiers who'd not have come.
+		off := 1 - min(max(float32(t.AfternoonPrice)/float32(s.World.DayTicketPrice), 0), 1)
+		p *= 1 + afternoonDraw*off
+	}
 	if !hasRentals && !hasValidPass(g, s.SimTime) {
 		// Some who'd have rented skis stay home from a resort with
 		// no rental shop.
@@ -215,7 +256,8 @@ func visitChance(s *Simulation, g *world.Guest, rating, busy, match float32, h0,
 
 // dayTicketCharge returns the day ticket guest g will pay for a visit
 // starting at simTime and whether they can afford to come at all. Pass
-// holders pay 0 and always can; everyone else pays w.DayTicketPrice if
+// holders pay 0 and always can; everyone else pays their ticket (the
+// adult price, or a kids', a child's or an afternoon ticket's) if
 // their DailyBudget covers it. spawnGuest sets the price aside from the
 // guest's budget and the ticket office collects it (ActBuyDayTicket);
 // the demand poll weighs it via visitPriceFactor.
@@ -223,10 +265,8 @@ func dayTicketCharge(w *world.World, g *world.Guest, simTime float64) (price int
 	if hasValidPass(g, simTime) {
 		return 0, true
 	}
-	price = w.DayTicketPrice
-	if price < 0 {
-		price = 0
-	}
+	// The adult price, or a kid's or the afternoon's (world.TicketPrice).
+	price = w.TicketPrice(g, HourOfDay(simTime))
 	return price, float32(price) <= g.Traits.DailyBudget
 }
 

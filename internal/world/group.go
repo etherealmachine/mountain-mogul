@@ -3,6 +3,7 @@ package world
 import (
 	"math"
 	"math/rand"
+	"sort"
 
 	"github.com/go-gl/mathgl/mgl32"
 	"mountain-mogul/internal/ai"
@@ -15,24 +16,33 @@ import (
 // trees, and steers with the full fan; the others copy the leader's plans
 // and ski the leader's line with their own bodies (sim/groups.go).
 
-// MaxGroupSize is the largest group: a ski lesson, an instructor and a
-// class of twelve.
-const MaxGroupSize = 13
+// MaxGroupSize is the largest group of friends.
+const MaxGroupSize = 12
 
-// GroupMix is how a scenario's guests come: the mean size of a group
-// (lessons aside), the share of groups that are a lesson of
-// MaxGroupSize beginners, and the share whose members' skills are
-// rolled separately (the rest share the first member's skill tier).
+// GroupMix is how a scenario's guests come: the mean size of a group of
+// friends, the share of groups that are a family (one or two adults
+// and one to three kids, notes/next/Families.md), and the share of
+// friends' groups whose members' skills are rolled separately (the rest
+// share the first member's skill tier).
 type GroupMix struct {
 	MeanSize float32
-	Lessons  float32
+	Families float32
 	Mixed    float32
 }
 
 // DefaultGroupMix is the mix a scenario gets unless it says otherwise:
 // groups of about two and a half, as carloads were before groups, about
-// half of them mixed in skill.
-var DefaultGroupMix = GroupMix{MeanSize: 2.4, Lessons: 0.01, Mixed: 0.5}
+// half of them mixed in skill, and a quarter of groups families.
+var DefaultGroupMix = GroupMix{MeanSize: 2.4, Families: 0.25, Mixed: 0.5}
+
+// Families: one adult in familySingle, else two; one to three kids
+// (familyKids gives the share with one and two, the rest three). A kid
+// is a beginner, or an intermediate in kidIntermediate of families.
+var (
+	familySingle    = float32(0.3)
+	familyKids      = [2]float32{0.4, 0.4}
+	kidIntermediate = float32(0.25)
+)
 
 // Mix is the world's group mix, DefaultGroupMix when it hasn't one.
 func (w *World) Mix() GroupMix {
@@ -42,7 +52,7 @@ func (w *World) Mix() GroupMix {
 	return w.GroupMix
 }
 
-// rollGroupSize draws a group's size outside lessons: one plus a
+// rollGroupSize draws the size of a group of friends: one plus a
 // Poisson draw for the members beyond the first, so the mean is
 // mix.MeanSize, kept below a lesson's size.
 func rollGroupSize(mix GroupMix, r *rand.Rand) int {
@@ -61,7 +71,9 @@ func rollGroupSize(mix GroupMix, r *rand.Rand) int {
 // FormGroups puts every guest without a group into one: guests from the
 // same road entry, in groups rolled from the world's mix. A same-skill
 // group takes its members from the first member's tier while it has
-// guests left; a lesson takes beginners. Bumps GroupsRev.
+// guests left; a family takes adults and kids (making kids of adults
+// when there aren't enough, and adults of kids left over). Bumps
+// GroupsRev.
 func FormGroups(w *World, seed int64) {
 	mix := w.Mix()
 	byEntry := map[uint64][]*Guest{}
@@ -86,7 +98,13 @@ func FormGroups(w *World, seed int64) {
 func formEntryGroups(guests []*Guest, mix GroupMix, r *rand.Rand) {
 	r.Shuffle(len(guests), func(i, j int) { guests[i], guests[j] = guests[j], guests[i] })
 	var tiers [3][]*Guest
+	var kids, adults []*Guest
 	for _, g := range guests {
+		if g.Child {
+			kids = append(kids, g)
+			continue
+		}
+		adults = append(adults, g)
 		t := SkillTier(g.Traits.Skill)
 		tiers[t] = append(tiers[t], g)
 	}
@@ -103,21 +121,53 @@ func formEntryGroups(guests []*Guest, mix GroupMix, r *rand.Rand) {
 		}
 		return nil
 	}
-	all := append([]*Guest(nil), guests...)
-	for {
-		size, from := rollGroupSize(mix, r), -1 // from: the tier members come from; -1 any
-		lesson := r.Float32() < mix.Lessons
-		var first *Guest
-		if lesson {
-			size, from = MaxGroupSize, 0
-			first = take(&tiers[0])
-		} else {
-			first = take(&all)
+	all := append([]*Guest(nil), adults...)
+	defer func() {
+		// Kids left over grow up: they come as adults.
+		for _, k := range kids {
+			if !used[k] {
+				k.Child = false
+			}
 		}
+	}()
+	for {
+		if r.Float32() < mix.Families {
+			first := take(&all)
+			if first == nil {
+				return
+			}
+			first.GroupID = first.ID
+			if r.Float32() >= familySingle {
+				if m := take(&all); m != nil {
+					m.GroupID = first.ID
+				}
+			}
+			n := 3
+			switch u := r.Float32(); {
+			case u < familyKids[0]:
+				n = 1
+			case u < familyKids[0]+familyKids[1]:
+				n = 2
+			}
+			intermediate := r.Float32() < kidIntermediate
+			for ; n > 0; n-- {
+				k := take(&kids)
+				if k == nil {
+					if k = take(&all); k == nil {
+						return
+					}
+					makeKid(k, intermediate, r)
+				}
+				k.GroupID = first.ID
+			}
+			continue
+		}
+		size, from := rollGroupSize(mix, r), -1 // from: the tier members come from; -1 any
+		first := take(&all)
 		if first == nil {
 			return
 		}
-		if !lesson && r.Float32() >= mix.Mixed {
+		if r.Float32() >= mix.Mixed {
 			from = SkillTier(first.Traits.Skill)
 		}
 		first.GroupID = first.ID
@@ -135,6 +185,63 @@ func formEntryGroups(guests []*Guest, mix GroupMix, r *rand.Rand) {
 			m.GroupID = first.ID
 		}
 	}
+}
+
+// makeKid makes g a kid: a beginner, or an intermediate, with the traits
+// and budget that go with their skill.
+func makeKid(g *Guest, intermediate bool, r *rand.Rand) {
+	tier := 0
+	if intermediate {
+		tier = 1
+	}
+	g.Child = true
+	g.Age = RollKidAge(r)
+	skill := SkillInTier(tier, r)
+	tastes := g.Traits.Tastes
+	g.Traits = TraitsFor(skill, true)
+	g.Traits.Tastes = tastes
+	g.Traits.DailyBudget = DailyBudgetFor(skill)
+}
+
+// littleKids is the share of kids who are little (2 to LittleKidAge);
+// the rest are 5 to ChildAge.
+const littleKids = 0.25
+
+// RollKidAge rolls a kid's age.
+func RollKidAge(r interface{ Float32() float32 }) uint8 {
+	if r.Float32() < littleKids {
+		return uint8(2 + int(r.Float32()*float32(LittleKidAge-1)))
+	}
+	return uint8(LittleKidAge + 1 + int(r.Float32()*float32(ChildAge-LittleKidAge)))
+}
+
+// KidSpeed is how much slower a kid is comfortable going than an adult
+// of their skill.
+const KidSpeed = float32(0.8)
+
+// TraitsFor is ai.TraitsFor for a guest of skill, a kid when child: kids
+// are comfortable at KidSpeed of an adult's speed.
+func TraitsFor(skill float32, child bool) ai.GuestTraits {
+	t := ai.TraitsFor(skill)
+	if child {
+		t.ComfortSpeed *= KidSpeed
+	}
+	return t
+}
+
+// EnsureFamilies forms the catchment's groups again, families among
+// them, when the mix has families and nobody in it is a kid yet (a save
+// from before families).
+func EnsureFamilies(w *World, seed int64) {
+	if w.Mix().Families <= 0 {
+		return
+	}
+	for _, g := range w.Guests {
+		if g.Child {
+			return
+		}
+	}
+	RegroupGuests(w, seed)
 }
 
 // SkillTier is a skill's tier: 0 beginner, 1 intermediate, 2 advanced.
@@ -186,6 +293,11 @@ func (w *World) GuestGroups() [][]*Guest {
 			list = append(list, nil)
 		}
 		list[i] = append(list[i], g)
+	}
+	// Adults first, so one of them is out of the car first and leads
+	// (sim.joinParty).
+	for _, grp := range list {
+		sort.SliceStable(grp, func(i, j int) bool { return !grp[i].Child && grp[j].Child })
 	}
 	w.groups.list, w.groups.rev, w.groups.n = list, w.GroupsRev, len(w.Guests)
 	w.groups.byID = idx

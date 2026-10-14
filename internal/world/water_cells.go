@@ -11,7 +11,11 @@ import (
 // so a creek's open stretch or an unfrozen lake is a wall to the route
 // searches and something skiers steer clear of. Snow bridges and lake
 // ice are crossable, and a cell a bridge crosses is open to walk (the
-// bridge carries them over). The grid is kept up to date by
+// bridge carries them over). So is ground built on, and builtMargin
+// cells round it: lots, buildings, roads and footpaths stand on solid
+// ground, whatever a lake outline drawn under them says (on the Boreal
+// Goals Test a lake reached under a lot, and the thaw of its shallows on
+// the second day cut the base off). The grid is kept up to date by
 // World.RefreshOpenWater, run serially (the sim's Tick) since route
 // searches read it in parallel.
 
@@ -25,6 +29,7 @@ type openWaterCells struct {
 	material   *TerrainMaterial
 	version    int
 	bridgesRev int
+	built      uint64 // builtSig when made
 	made       bool
 }
 
@@ -37,10 +42,11 @@ func (w *World) RefreshOpenWater() {
 	}
 	o := &t.openWater
 	m := t.Material
-	if o.made && o.material == m && (m == nil || o.version == m.Version) && o.bridgesRev == w.BridgesRev {
+	sig := w.builtSig()
+	if o.made && o.material == m && (m == nil || o.version == m.Version) && o.bridgesRev == w.BridgesRev && o.built == sig {
 		return
 	}
-	o.made, o.material, o.bridgesRev = true, m, w.BridgesRev
+	o.made, o.material, o.bridgesRev, o.built = true, m, w.BridgesRev, sig
 	o.cells = nil
 	if m == nil {
 		return
@@ -61,6 +67,48 @@ func (w *World) RefreshOpenWater() {
 	if !any {
 		return
 	}
+	// Built-on ground is solid.
+	open := func(cx, cz int) {
+		for x := cx - builtMargin; x <= cx+builtMargin; x++ {
+			for z := cz - builtMargin; z <= cz+builtMargin; z++ {
+				if t.InBounds(x, z) {
+					cells[x*t.Height+z] = false
+				}
+			}
+		}
+	}
+	for _, b := range w.Buildings {
+		if b.Type == BuildingSnowGun {
+			continue
+		}
+		if len(b.Ground) > 0 {
+			for _, c := range b.Ground {
+				open(c[0], c[1])
+			}
+			continue
+		}
+		x0, z0, x1, z1 := b.Footprint().Bounds()
+		for x := int(x0 / CellSize); x <= int(x1/CellSize); x++ {
+			for z := int(z0 / CellSize); z <= int(z1/CellSize); z++ {
+				open(x, z)
+			}
+		}
+	}
+	for _, n := range w.RoadNodes {
+		open(int(n.Pos[0]/CellSize), int(n.Pos[1]/CellSize))
+	}
+	for _, c := range w.FindRoadChains() {
+		for _, p := range SampleRoadChain(c, t, RoadChainSamplesPerSegment) {
+			open(int(p[0]/CellSize), int(p[1]/CellSize))
+		}
+	}
+	for x := 0; x < t.Width; x++ {
+		for z := 0; z < t.Height; z++ {
+			if cells[x*t.Height+z] && w.FootpathCell(x, z) {
+				cells[x*t.Height+z] = false
+			}
+		}
+	}
 	// A bridge opens the cells along its deck.
 	for _, b := range w.Bridges {
 		for s := 1; s < len(b.Points); s++ {
@@ -76,6 +124,23 @@ func (w *World) RefreshOpenWater() {
 		}
 	}
 	o.cells = cells
+}
+
+// builtMargin is how many cells round ground built on are solid too:
+// the door steps, the lot's edge, a road's shoulders.
+const builtMargin = 2
+
+// builtSig changes when the buildings, roads or footpaths do, so the
+// open-water grid is remade (RefreshOpenWater).
+func (w *World) builtSig() uint64 {
+	h := uint64(len(w.Buildings))*1_000_003 + uint64(len(w.RoadEdges))*7_919 + uint64(w.FootpathsRev)*104_729
+	for _, b := range w.Buildings {
+		h = h*31 + b.ID + uint64(len(b.Ground))
+	}
+	for _, n := range w.RoadNodes {
+		h = h*31 + n.ID + uint64(n.Pos[0]*8) + uint64(n.Pos[1]*8)<<20
+	}
+	return h
 }
 
 // OpenWaterCell reports whether cell (cx, cz) is open water with no

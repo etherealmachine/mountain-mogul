@@ -501,6 +501,10 @@ const (
 	ThoughtNoSchool     // came for a lesson and there's no ski school
 	ThoughtNoClass      // signed up for a lesson and waited, and no class came
 	ThoughtGoodLesson   // had a ski lesson
+	ThoughtKidsLovedIt  // a parent, when one of their kids had a highlight
+	ThoughtKidsRough    // a parent's review, capped by their worst-off kid's day
+	ThoughtWaitedKids   // a parent who waited for the kids at lift tops, again and again
+	ThoughtFamilyChair  // the whole family rode up on one chair
 
 	thoughtKindSentinel // must stay last; equals the total count
 )
@@ -560,6 +564,10 @@ var Effects = [ThoughtKindCount]Effect{
 	ThoughtNoSchool:          {Class: Annoyance},
 	ThoughtNoClass:           {Class: Letdown},
 	ThoughtGoodLesson:        {Class: Highlight},
+	ThoughtKidsLovedIt:       {Class: Highlight},
+	ThoughtKidsRough:         {Class: Letdown},
+	ThoughtWaitedKids:        {Class: Annoyance},
+	ThoughtFamilyChair:       {Class: Highlight},
 	ThoughtHurtGoingHome:     {Class: Letdown},
 	ThoughtHitTree:           {Class: Annoyance},
 	ThoughtCaughtInAvalanche: {Class: Dealbreaker},
@@ -689,6 +697,10 @@ var thoughtText = [ThoughtKindCount]string{
 	ThoughtNoSchool:          "I wanted a lesson, but there's no ski school",
 	ThoughtNoClass:           "I waited ages for my lesson and no class came",
 	ThoughtGoodLesson:        "my lesson was great",
+	ThoughtKidsLovedIt:       "the kids loved it",
+	ThoughtKidsRough:         "the kids had a rough day",
+	ThoughtWaitedKids:        "waited for the kids at every turn",
+	ThoughtFamilyChair:       "the whole family on one chair",
 	ThoughtLongLine:          "this line is way too long",
 	ThoughtLineTooLong:       "that line will take forever",
 	ThoughtNeedsLodge:        "this place needs a lodge",
@@ -774,6 +786,10 @@ var ThoughtChartColor = [ThoughtKindCount][4]float32{
 	ThoughtNoSchool:          {0.85, 0.40, 0.30, 1},
 	ThoughtNoClass:           {0.85, 0.30, 0.30, 1},
 	ThoughtGoodLesson:        {0.45, 0.85, 0.55, 1},
+	ThoughtKidsLovedIt:       {0.50, 0.85, 0.60, 1},
+	ThoughtKidsRough:         {0.85, 0.40, 0.40, 1},
+	ThoughtWaitedKids:        {0.80, 0.55, 0.45, 1},
+	ThoughtFamilyChair:       {0.55, 0.80, 0.90, 1},
 	ThoughtLongLine:          {0.80, 0.45, 0.70, 1},
 	ThoughtLineTooLong:       {0.70, 0.30, 0.60, 1},
 	ThoughtNeedsLodge:        {0.60, 0.50, 0.80, 1},
@@ -850,6 +866,7 @@ const (
 	DepartBored                     // nothing left worth another run to them
 	DepartNoRentals                 // came without skis and couldn't rent any
 	DepartGaveUp                    // kept falling on a descent and gave up
+	DepartFamily                    // a kid, going home with their family
 	departReasonSentinel
 )
 
@@ -873,13 +890,14 @@ var DepartReasonLabel = [DepartReasonCount]string{
 	DepartNothingToSki: "Nothing to ski",
 	DepartBored:        "Bored of the terrain",
 	DepartNoRentals:    "Couldn't rent skis",
+	DepartFamily:       "Went home with their family",
 }
 
 // DepartNormal reports whether a reason is an ordinary end to a day:
 // these cost the guest nothing beyond what their conditions already did.
 func DepartNormal(r DepartReason) bool {
 	switch r {
-	case DepartDone, DepartTired, DepartHungry, DepartThirsty, DepartClosing:
+	case DepartDone, DepartTired, DepartHungry, DepartThirsty, DepartClosing, DepartFamily:
 		return true
 	}
 	return false
@@ -896,6 +914,7 @@ var DepartReasonColor = [DepartReasonCount][4]float32{
 	DepartHurt:         {0.90, 0.45, 0.35, 1},
 	DepartAbandoned:    {0.60, 0.10, 0.80, 1},
 	DepartGaveUp:       {0.85, 0.20, 0.20, 1},
+	DepartFamily:       {0.50, 0.75, 0.55, 1},
 	DepartLines:        {0.80, 0.45, 0.70, 1},
 	DepartMoney:        {0.95, 0.85, 0.20, 1},
 	DepartNoTicket:     {0.85, 0.40, 0.30, 1},

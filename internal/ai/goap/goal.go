@@ -314,6 +314,9 @@ func (GoHome) Weight(s *WorldSnapshot, w *world.World) float32 {
 	if s.Instructor {
 		return 0 // staff: the school takes them back
 	}
+	if s.WithFamily && !w.ClosedForDay {
+		return 0 // a kid goes home with their family (sim.kidsHomeWith)
+	}
 	// Closed for the day: home before anything else, even a rest.
 	if w.ClosedForDay {
 		return goHomeClosedWeight

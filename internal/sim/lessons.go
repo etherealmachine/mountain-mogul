@@ -75,6 +75,10 @@ func anySchool(w *world.World) bool {
 // gone.
 func (s *Simulation) tickLessonWait(a *world.Guest, dt float64) {
 	w := s.World
+	if a.Lesson.PickUp {
+		s.tickPickUp(a, dt)
+		return
+	}
 	if !s.LiftsRunning() && !s.ClosedForDay() {
 		a.Lesson.Since = s.SimTime // classes start with the lifts: the wait counts from then
 	}
@@ -93,7 +97,7 @@ func (s *Simulation) tickLessonWait(a *world.Guest, dt float64) {
 		if o == a {
 			break
 		}
-		if o.Lesson.SchoolID == b.ID && !o.Lesson.InClass {
+		if o.Lesson.SchoolID == b.ID && !o.Lesson.InClass && !o.Lesson.PickUp {
 			place++
 		}
 	}
@@ -139,7 +143,7 @@ func (s *Simulation) tickSchools() {
 		}
 		var waiting []*world.Guest
 		for _, g := range w.OnMountain {
-			if g.Lesson.SchoolID == b.ID && !g.Lesson.InClass && g.RestTimer <= 0 && !g.Fallen && !g.Removed {
+			if g.Lesson.SchoolID == b.ID && !g.Lesson.InClass && !g.Lesson.PickUp && g.RestTimer <= 0 && !g.Fallen && !g.Removed {
 				waiting = append(waiting, g)
 			}
 		}
@@ -364,8 +368,15 @@ func (s *Simulation) finishClass(c *world.Class, done bool) {
 			s.learn(g, findBuildingByID(w, c.SchoolID))
 		}
 		g.Party = world.Party{}
-		s.joinParty(g)
 		g.Plan = ai.Plan{}
+		if g.Child && adultOut(w, g) && atSchool(w, g, c.SchoolID) {
+			// A kid back at the school waits for a parent to collect
+			// them, out of the family's group till then (tickPickUp);
+			// one who lost the class carries on with their family.
+			g.Lesson = world.Lesson{SchoolID: c.SchoolID, Since: s.SimTime, PickUp: true}
+			continue
+		}
+		s.joinParty(g)
 	}
 	in := c.Instructor
 	in.Class = nil
@@ -420,7 +431,7 @@ func (s *Simulation) learn(g *world.Guest, b *world.Building) {
 	before := g.Traits.Skill
 	skill := min(before+lessonGain/float32(1+g.Lessons), 1)
 	g.Lessons++
-	t := ai.TraitsFor(skill)
+	t := world.TraitsFor(skill, g.Child)
 	g.Traits.Skill = skill
 	g.Traits.ComfortSpeed, g.Traits.ComfortSlope, g.Traits.Aggression = t.ComfortSpeed, t.ComfortSlope, t.Aggression
 	if b == nil {
@@ -433,4 +444,88 @@ func (s *Simulation) learn(g *world.Guest, b *world.Building) {
 	if world.SkillTier(skill) > world.SkillTier(before) {
 		b.MovedUpToday++
 	}
+}
+
+// pickUpNear is how near a kid waiting at the school a parent must come,
+// metres, to collect them.
+const pickUpNear = float32(30)
+
+// adultOut reports whether kid g has an adult of their family out.
+func adultOut(w *world.World, g *world.Guest) bool {
+	for _, m := range w.GroupOf(g) {
+		if !m.Child && m.State == world.OnMountain && !m.Removed {
+			return true
+		}
+	}
+	return false
+}
+
+// tickPickUp holds a kid back from a lesson at the meeting spot until an
+// adult of their family comes for them (collectKids sends one), then
+// back with the family they go.
+func (s *Simulation) tickPickUp(k *world.Guest, dt float64) {
+	w := s.World
+	b := findBuildingByID(w, k.Lesson.SchoolID)
+	spot, out, ok := mgl32.Vec2{}, mgl32.Vec2{}, false
+	if b != nil {
+		spot, out, ok = b.MeetingSpot()
+	}
+	for _, m := range w.GroupOf(k) {
+		if !m.Child && m.State == world.OnMountain && !m.Removed && m.Pos.Sub(k.Pos).Len() <= pickUpNear || !ok {
+			k.Lesson = world.Lesson{}
+			k.Party = world.Party{}
+			s.joinParty(k)
+			k.Plan = ai.Plan{}
+			return
+		}
+	}
+	side := mgl32.Vec2{-out[1], out[0]}
+	at := spot.Sub(side.Mul((lessonRow/2 + 1) * lessonSpacing))
+	target := mgl32.Vec3{at[0], w.Terrain.InterpolatedSurfaceElevationAt(at[0], at[1]), at[1]}
+	if d := (mgl32.Vec2{target[0] - k.Pos[0], target[2] - k.Pos[2]}); d.Len() > 2 {
+		s.shuffleToward(k, target, dt)
+		return
+	}
+	k.Speed = 0
+}
+
+// collectKids sends adult a, free to go, to the ski school where one of
+// their kids is waiting to be collected (when no other adult of theirs
+// already is): a plan to ski there, shared with whoever's with them.
+func (s *Simulation) collectKids(a *world.Guest) {
+	if a.Child || a.GroupID == 0 || a.Party.Leader != nil || a.InstructorOf != 0 || goingHome(a) ||
+		a.OnLiftID != 0 || a.Queued || a.Unload.LiftID != 0 || a.Fallen || a.RestTimer > 0 || a.Visit.Waiting {
+		return
+	}
+	var school uint64
+	for _, m := range s.World.GroupOf(a) {
+		if m.Child && m.Lesson.PickUp && m.State == world.OnMountain && !m.Removed {
+			school = m.Lesson.SchoolID
+		}
+		if !m.Child && m != a && m.Plan.GoalName == collectKidsGoal {
+			return // someone's on their way
+		}
+	}
+	if school == 0 || a.Plan.GoalName == collectKidsGoal {
+		return
+	}
+	done := min(a.Plan.Step, len(a.Plan.Steps))
+	a.Plan = ai.Plan{GoalName: collectKidsGoal, Steps: []ai.PlanAction{{Kind: ai.ActSkiToService, BldgID: school}}}
+	a.Route = world.SkiRoute{}
+	s.share(a, s.planFrom(a), a.Plan, done)
+	s.onPlanStepStart(a)
+}
+
+// collectKidsGoal is the goal of a parent's plan to collect a kid from
+// the ski school.
+const collectKidsGoal = "CollectKids"
+
+// atSchool reports whether g is back by school id's meeting spot.
+func atSchool(w *world.World, g *world.Guest, id uint64) bool {
+	b := findBuildingByID(w, id)
+	if b == nil || g.OnLiftID != 0 || g.Queued || g.Unload.LiftID != 0 {
+		return false
+	}
+	spot, _, ok := b.MeetingSpot()
+	return ok && (mgl32.Vec2{g.Pos[0], g.Pos[2]}).Sub(spot).Len() <= 2*classBackNear
 }
