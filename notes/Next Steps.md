@@ -75,7 +75,6 @@ Nothing ranked.
 
 - [[Large Vehicles]]: buses (shuttles, clubs, school trips) and RVs staying overnight. Wanted (the user, 2026-10-14).
 - **Trains**: a way in with no parking. *For* [[Zermatt]].
-- **Road closures**: no arrivals the day a road is shut. *For* [[Alta]].
 - **Tunnels**: roads and paths through terrain.
 - [[Lot Surfaces]]: asphalt, gravel or dirt lots, each its own cost, capacity and look.
 
