@@ -462,4 +462,3 @@ func (l *RailLine) SetProfile(heights []float32, tunnels [][2]int) {
 		}
 	}
 }
-

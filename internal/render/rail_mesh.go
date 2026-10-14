@@ -206,4 +206,3 @@ func portalTransform(p world.TunnelPortal) mgl32.Mat4 {
 	rot := float32(math.Atan2(-float64(c), float64(s)))
 	return mgl32.Translate3D(p.Pos[0], p.Y-world.RailBallast, p.Pos[1]).Mul4(mgl32.HomogRotate3DY(rot))
 }
-
