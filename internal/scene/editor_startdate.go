@@ -17,7 +17,7 @@ import (
 
 // startDatePanel is the editor's Start control: month, day and year
 // steppers for World.StartDate and an hour stepper for World.StartHour,
-// drawn as a strip centred under the top bar. get/set read and write the
+// drawn as a strip centred at the top of the screen. get/set read and write the
 // date, getHour/setHour the hour; the setters also mark the scenario
 // dirty.
 type startDatePanel struct {
@@ -26,7 +26,7 @@ type startDatePanel struct {
 	getHour func() float32
 	setHour func(float32)
 	btns    []*ui.Button // month −/+, day −/+, year −/+, hour −/+
-	top     float32      // y of the strip's anchor (the top bar's bottom edge)
+	top     float32      // y of the strip's anchor
 
 	x, y, w, h float32 // background rect, from the last layout
 	labelX     [4]float32
@@ -81,7 +81,7 @@ func stepStartDate(d time.Time, years, months, days int) time.Time {
 	return world.GameDayStart(first.Year(), first.Month(), world.GameDay(d))
 }
 
-// layout centres the strip horizontally just below the top bar.
+// layout centres the strip horizontally just below top.
 func (p *startDatePanel) layout(screenW float32) {
 	caption := 6 * float32(render.GlyphAdvance) // "Start" plus a gap
 	btnH := float32(render.GlyphH) + 6

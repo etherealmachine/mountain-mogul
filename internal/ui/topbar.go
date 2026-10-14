@@ -54,11 +54,6 @@ type TopBar struct {
 	// in °C, and whether the lifts are turning.
 	GetClock func() (hour float64, tempC float32, open bool)
 
-	// GetTitle, when set, draws a single centred line in the bar's middle
-	// region. The editor uses it for the open scenario's name; scenes that
-	// show a date leave it nil.
-	GetTitle func() string
-
 	// Speed-control buttons — index-aligned with SpeedOptions in the
 	// scenario. The scenario sets active state through SetSpeedActive /
 	// SetPauseActive after each click.
@@ -290,9 +285,6 @@ func (t *TopBar) centerWidth(r *render.Renderer) float32 {
 		return 0
 	}
 	var w float32
-	if t.GetTitle != nil {
-		w = r.Font.TextWidth(t.GetTitle())
-	}
 	if t.GetDate != nil {
 		date, clock := t.dateLine()
 		w = max(w, r.Font.TextWidth(date+clock))
@@ -491,13 +483,6 @@ func (t *TopBar) drawCenter(r *render.Renderer, screenW float32) {
 	}
 
 	col := mgl32.Vec4{1.00, 1.00, 1.00, 1.00}
-
-	if t.GetTitle != nil {
-		title := t.GetTitle()
-		titleW := r.Font.TextWidth(title)
-		titleY := t.Y + (t.H-float32(render.GlyphH))/2
-		r.Font.DrawText(r, title, (screenW-titleW)/2, titleY, col)
-	}
 
 	// Date line, deferred so it draws over the forecast strip's today highlight.
 	if t.GetDate != nil {

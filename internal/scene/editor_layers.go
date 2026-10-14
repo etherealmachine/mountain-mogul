@@ -104,6 +104,12 @@ func (j *layerJob) status() (stage string, done bool) {
 	return j.stage, j.done
 }
 
+// layersTop is where the Layers panel hangs from: under the title panel
+// and the start date strip.
+func (e *Editor) layersTop() float32 {
+	return max(e.title.y+e.title.h, e.startDate.y+e.startDate.h)
+}
+
 func (p *layersPanel) layout(top float32, base *world.TerrainBase) {
 	lineH := float32(render.GlyphH + 6)
 	p.x, p.y, p.w = 12, top+8, layersPanelW

@@ -30,11 +30,11 @@ type LakeSeason struct {
 // FrozeOn is the day the spot depth metres deep in lake i last froze,
 // and false when it's open on the last day.
 func (s *LakeSeason) FrozeOn(w *world.World, i int, depth float32) (time.Time, bool) {
-	switch w.Lakes[i].Cover {
-	case world.WaterOpen:
+	switch t := w.Lakes[i].Type; {
+	case t.Open():
 		return time.Time{}, false
-	case world.WaterCovered:
-		return s.Start, true // snowed over all season
+	case t == world.WaterTypePond:
+		depth = world.PondDepth
 	}
 	need := world.FreezeFrostPerM * depth
 	f := s.Frost[i]

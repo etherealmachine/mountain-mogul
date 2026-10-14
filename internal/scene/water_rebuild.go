@@ -39,11 +39,13 @@ func rebuildWater(w *world.World, stack *geo.LayerStack, c *layerCache, old *wor
 		runMaterialLayer(w, c)
 	}
 	// Each lake keeps its ice: by name where it has one, else by place
-	// in the list.
+	// in the list. One that was open and now freezes is thawed.
+	thawed := make([]bool, len(w.Lakes))
 	for i := range w.Lakes {
 		for j, o := range oldIce {
 			if o.Name == w.Lakes[i].Name && (o.Name != "" || i == j) {
 				w.Lakes[i].Frost, w.Lakes[i].Thaw = o.Frost, o.Thaw
+				thawed[i] = o.Type.Open() && !w.Lakes[i].Type.Open()
 				break
 			}
 		}
@@ -52,7 +54,7 @@ func rebuildWater(w *world.World, stack *geo.LayerStack, c *layerCache, old *wor
 	if oldLakeOf != nil && t.LakeOf != nil {
 		snowOntoOldLake(t, oldLakeOf)
 	}
-	snowOntoCoveredLakes(w)
+	snowOntoThawedLakes(w, thawed)
 	removeTreesInWater(t)
 	return nil
 }
@@ -127,11 +129,11 @@ func removeTreesInWater(t *world.Terrain) {
 	}
 }
 
-// snowOntoCoveredLakes gives each lake set to stay Covered at least the
-// mean snow of the dry ground round its shore (lakeShoreRing grid points
-// out), where it has less: a lake that was open, now covered, takes the
-// snow it would have held.
-func snowOntoCoveredLakes(w *world.World) {
+// snowOntoThawedLakes gives the ice of each thawed lake (one that was
+// open water and now freezes) at least the mean snow of the dry ground
+// round its shore (lakeShoreRing grid points out), where it has less: it
+// takes the snow it would have held.
+func snowOntoThawedLakes(w *world.World, thawed []bool) {
 	t := w.Terrain
 	if t.LakeOf == nil {
 		return
@@ -151,7 +153,7 @@ func snowOntoCoveredLakes(w *world.World) {
 					if nx < 0 || nz < 0 || nx >= W || nz >= H {
 						continue
 					}
-					if id := t.LakeOf[nx*H+nz]; id != 0 && w.Lakes[id-1].Cover == world.WaterCovered {
+					if id := t.LakeOf[nx*H+nz]; id != 0 && thawed[id-1] {
 						c := t.Cells[x][z]
 						sum[id-1] += float64(c.Base + c.Top.Accumulation)
 						n[id-1]++
@@ -164,7 +166,7 @@ func snowOntoCoveredLakes(w *world.World) {
 	for x := 0; x < W; x++ {
 		for z := 0; z < H; z++ {
 			id := t.LakeOf[x*H+z]
-			if id == 0 || n[id-1] == 0 {
+			if id == 0 || n[id-1] == 0 || w.Lakes[id-1].IceAt(t.LakeDepth[x*H+z]) <= 0 {
 				continue
 			}
 			want := float32(sum[id-1] / float64(n[id-1]))

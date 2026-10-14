@@ -941,7 +941,7 @@ func dataToWorld(data ScenarioData) *world.World {
 	w := world.NewWorld(t)
 	w.Seed = data.Seed
 	for _, l := range data.Lakes {
-		w.Lakes = append(w.Lakes, world.Lake{Name: l.Name, Altitude: l.Altitude, AreaHa: l.AreaHa, MaxDepth: l.MaxDepth, Frost: l.Frost, Thaw: l.Thaw, Cover: world.WaterCover(l.Cover)})
+		w.Lakes = append(w.Lakes, world.Lake{Name: l.Name, Altitude: l.Altitude, AreaHa: l.AreaHa, MaxDepth: l.MaxDepth, Frost: l.Frost, Thaw: l.Thaw, Type: world.WaterType(l.Type)})
 	}
 	if data.Cash != nil {
 		w.Cash = *data.Cash
@@ -1644,10 +1644,10 @@ func waterToData(w *world.Water) *WaterData {
 	}
 	d := &WaterData{Fitted: w.Fitted}
 	for _, c := range w.Creeks {
-		d.Creeks = append(d.Creeks, WaterCreekData{Name: c.Name, Kind: c.Kind, Points: flatXZ(c.Points), Cover: uint8(c.Cover)})
+		d.Creeks = append(d.Creeks, WaterCreekData{Name: c.Name, Kind: c.Kind, Points: flatXZ(c.Points), Type: uint8(c.Type)})
 	}
 	for _, l := range w.Lakes {
-		ld := WaterLakeData{Name: l.Name, Kind: l.Kind, AreaHa: l.AreaHa, Cover: uint8(l.Cover)}
+		ld := WaterLakeData{Name: l.Name, Kind: l.Kind, AreaHa: l.AreaHa, Type: uint8(l.Type)}
 		for _, r := range l.Rings {
 			ld.Rings = append(ld.Rings, flatXZ(r))
 		}
@@ -1663,10 +1663,10 @@ func waterFromData(d *WaterData) *world.Water {
 	}
 	w := &world.Water{Fitted: d.Fitted}
 	for _, c := range d.Creeks {
-		w.Creeks = append(w.Creeks, world.WaterCreek{Name: c.Name, Kind: c.Kind, Points: pairXZ(c.Points), Cover: world.WaterCover(c.Cover)})
+		w.Creeks = append(w.Creeks, world.WaterCreek{Name: c.Name, Kind: c.Kind, Points: pairXZ(c.Points), Type: world.WaterType(c.Type)})
 	}
 	for _, l := range d.Lakes {
-		wl := world.WaterLake{Name: l.Name, Kind: l.Kind, AreaHa: l.AreaHa, Cover: world.WaterCover(l.Cover)}
+		wl := world.WaterLake{Name: l.Name, Kind: l.Kind, AreaHa: l.AreaHa, Type: world.WaterType(l.Type)}
 		for _, r := range l.Rings {
 			wl.Rings = append(wl.Rings, pairXZ(r))
 		}
@@ -1777,7 +1777,7 @@ func lakeDepthBytes(d []float32) []byte {
 func lakesToData(ls []world.Lake) []LakeData {
 	var out []LakeData
 	for _, l := range ls {
-		out = append(out, LakeData{Name: l.Name, Altitude: l.Altitude, AreaHa: l.AreaHa, MaxDepth: l.MaxDepth, Frost: l.Frost, Thaw: l.Thaw, Cover: uint8(l.Cover)})
+		out = append(out, LakeData{Name: l.Name, Altitude: l.Altitude, AreaHa: l.AreaHa, MaxDepth: l.MaxDepth, Frost: l.Frost, Thaw: l.Thaw, Type: uint8(l.Type)})
 	}
 	return out
 }

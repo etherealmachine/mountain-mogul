@@ -75,95 +75,118 @@ type waterTool struct {
 	// ready is false until the layer stack has run once (startLayerJob
 	// warm), seeding the water; until then the tool does nothing.
 	ready bool
-	// coverBtns set the selected creek or lake's winter cover, by
-	// world.WaterCover; made on first use.
-	coverBtns [world.WaterCoverCount]*ui.Button
-	panel     [4]float32 // the cover panel as last laid out: x, y, w, h
+	// typeBtns set the selected creek or lake's world.WaterType, by
+	// type; made on first use. A creek shows world.CreekTypes, a lake
+	// world.LakeTypes (shownTypeBtns).
+	typeBtns [world.WaterTypeCount]*ui.Button
+	panel    [4]float32 // the type panel as last laid out: x, y, w, h
 }
 
-// The cover panel, bottom left over the toolbar: the selection's name and
-// a button for each world.WaterCover.
+// The type panel, bottom left over the toolbar: the selection's name and
+// a button for each type it can be, the one it is lit (the Water layer's
+// pick from OpenStreetMap until changed).
 const (
-	coverPanelW = float32(330)
-	coverPanelH = float32(86)
+	typePanelH = float32(86)
+	typeBtnW   = float32(72)
+	typeBtnGap = float32(8)
 )
 
-// layoutCoverPanel places the cover panel and its buttons.
-func (e *Editor) layoutCoverPanel(r *render.Renderer) {
-	st := &e.water
-	x := float32(12)
-	y := float32(r.ScreenHeight()) - e.menuBar.H - coverPanelH - 12
-	st.panel = [4]float32{x, y, coverPanelW, coverPanelH}
-	for c := range world.WaterCoverCount {
-		if st.coverBtns[c] == nil {
-			c := c
-			st.coverBtns[c] = ui.NewButton(0, 0, 96, 32, c.Label(), func() { e.setWaterCover(c) })
+// waterTypes is the types the selection can be.
+func (e *Editor) waterTypes() []world.WaterType {
+	if e.water.sel.lake {
+		return world.LakeTypes
+	}
+	return world.CreekTypes
+}
+
+// shownTypeBtns is the type panel's buttons for the selection.
+func (e *Editor) shownTypeBtns() []*ui.Button {
+	var out []*ui.Button
+	for _, t := range e.waterTypes() {
+		if b := e.water.typeBtns[t]; b != nil {
+			out = append(out, b)
 		}
-		b := st.coverBtns[c]
-		b.X, b.Y, b.W, b.H = x+10+float32(c)*(96+10), y+coverPanelH-32-10, 96, 32
-		b.SetActive(e.waterCover() == c)
+	}
+	return out
+}
+
+// layoutTypePanel places the type panel and its buttons.
+func (e *Editor) layoutTypePanel(r *render.Renderer) {
+	st := &e.water
+	types := e.waterTypes()
+	w := max(20+float32(len(types))*(typeBtnW+typeBtnGap)-typeBtnGap, 330)
+	x := float32(12)
+	y := float32(r.ScreenHeight()) - e.menuBar.H - typePanelH - 12
+	st.panel = [4]float32{x, y, w, typePanelH}
+	for k, t := range types {
+		if st.typeBtns[t] == nil {
+			t := t
+			st.typeBtns[t] = ui.NewButton(0, 0, typeBtnW, 32, t.Label(), func() { e.setWaterType(t) })
+		}
+		b := st.typeBtns[t]
+		b.X, b.Y, b.W, b.H = x+10+float32(k)*(typeBtnW+typeBtnGap), y+typePanelH-32-10, typeBtnW, 32
+		b.SetActive(e.waterType() == t)
 	}
 }
 
-// inCoverPanel reports whether screen point (mx, my) is on the panel.
-func (e *Editor) inCoverPanel(mx, my float32) bool {
+// inTypePanel reports whether screen point (mx, my) is on the panel.
+func (e *Editor) inTypePanel(mx, my float32) bool {
 	p := e.water.panel
 	return e.water.sel.ok && mx >= p[0] && mx <= p[0]+p[2] && my >= p[1] && my <= p[1]+p[3]
 }
 
-// waterCover is the selected creek or lake's cover.
-func (e *Editor) waterCover() world.WaterCover {
+// waterType is the selected creek or lake's type.
+func (e *Editor) waterType() world.WaterType {
 	sel := e.water.sel
-	switch {
-	case !sel.ok:
-		return world.WaterAuto
-	case sel.lake:
-		return e.world.Water.Lakes[sel.i].Cover
+	if sel.lake {
+		return e.world.Water.Lakes[sel.i].Type
 	}
-	return e.world.Water.Creeks[sel.i].Cover
+	return e.world.Water.Creeks[sel.i].Type
 }
 
-// setWaterCover sets the selected creek or lake's cover and rebuilds its
+// setWaterType sets the selected creek or lake's type and rebuilds its
 // water, ice and snow.
-func (e *Editor) setWaterCover(c world.WaterCover) {
+func (e *Editor) setWaterType(t world.WaterType) {
 	sel := e.water.sel
-	if !sel.ok || !e.waterUsable() || e.waterCover() == c {
+	if !sel.ok || !e.waterUsable() || e.waterType() == t {
 		return
 	}
 	e.waterSnapshot()
 	if sel.lake {
-		e.world.Water.Lakes[sel.i].Cover = c
+		e.world.Water.Lakes[sel.i].Type = t
 	} else {
-		e.world.Water.Creeks[sel.i].Cover = c
+		e.world.Water.Creeks[sel.i].Type = t
 	}
 	e.rebuildEditedWater()
-	e.setToast(e.waterSummary(sel) + ": " + coverText(c, sel.lake))
+	e.setToast(e.waterSummary(sel) + ": " + typeText(t, sel.lake))
 }
 
-func coverText(c world.WaterCover, lake bool) string {
+// typeText is what water of type t does in winter.
+func typeText(t world.WaterType, lake bool) string {
 	switch {
-	case c == world.WaterOpen:
+	case t.Open():
 		return "open water all winter, no snow on it."
-	case c == world.WaterCovered && lake:
-		return "frozen and snowed over all winter."
-	case c == world.WaterCovered:
+	case !lake:
 		return "snow-bridged all winter."
-	case lake:
-		return "freezes with the cold, from its shallows out."
+	case t == world.WaterTypePond:
+		return "shallow, so it freezes all at once when the cold comes."
 	}
-	return "open where it's big enough, with snow bridges between."
+	return "freezes with the cold, from its shallows out, and thaws in spring."
 }
 
-// drawCoverPanel draws the cover panel for the selected creek or lake.
-func (e *Editor) drawCoverPanel(r *render.Renderer) {
+// drawTypePanel draws the type panel for the selected creek or lake.
+func (e *Editor) drawTypePanel(r *render.Renderer) {
 	st := &e.water
-	e.layoutCoverPanel(r)
+	if !st.sel.ok {
+		return
+	}
+	e.layoutTypePanel(r)
 	p := st.panel
 	r.DrawColorRect(p[0], p[1], p[2], p[3], mgl32.Vec4{0.08, 0.10, 0.14, 0.95})
 	if r.Font != nil {
-		r.Font.DrawText(r, "Winter: "+e.waterSummary(st.sel), p[0]+10, p[1]+8, mgl32.Vec4{0.92, 0.95, 1, 1})
+		r.Font.DrawText(r, e.waterSummary(st.sel), p[0]+10, p[1]+8, mgl32.Vec4{0.92, 0.95, 1, 1})
 	}
-	for _, b := range st.coverBtns {
+	for _, b := range e.shownTypeBtns() {
 		b.Draw(r)
 	}
 }
@@ -375,15 +398,15 @@ func (e *Editor) waterMouse(r *render.Renderer, inp *engine.Input) {
 		return
 	}
 	if st.sel.ok {
-		e.layoutCoverPanel(r)
+		e.layoutTypePanel(r)
 		mx, my := inp.MousePos[0], inp.MousePos[1]
-		for _, b := range st.coverBtns {
+		for _, b := range e.shownTypeBtns() {
 			b.SetHovered(b.Contains(mx, my))
 		}
-		if e.inCoverPanel(mx, my) {
+		if e.inTypePanel(mx, my) {
 			st.hover = waterHandle{}
 			if inp.LeftClick {
-				for _, b := range st.coverBtns {
+				for _, b := range e.shownTypeBtns() {
 					if b.Contains(mx, my) {
 						b.Click()
 					}

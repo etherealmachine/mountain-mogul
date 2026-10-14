@@ -161,7 +161,7 @@ func (h *cellHeap) Pop() any {
 type Stream struct {
 	Name      string
 	Kind      string
-	Cover     world.WaterCover // the creek's (world.WaterCreek.Cover)
+	Type      world.WaterType // the creek's (world.WaterCreek.Type)
 	Points    [][2]float32
 	Catchment []float32
 }

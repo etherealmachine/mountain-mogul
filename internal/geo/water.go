@@ -56,7 +56,7 @@ func SeedCreeks(h []float32, w, ht int, spacing float64, base *world.TerrainBase
 	joinCreekEnds(lines)
 	out := make([]world.WaterCreek, 0, len(kept))
 	for i, s := range kept {
-		out = append(out, world.WaterCreek{Name: s.Name, Kind: s.Kind, Points: simplifyLine(easeLine(lines[i]), creekSimplify)})
+		out = append(out, world.WaterCreek{Name: s.Name, Kind: s.Kind, Type: world.CreekTypeOf(s.Kind), Points: simplifyLine(easeLine(lines[i]), creekSimplify)})
 	}
 	return out
 }
@@ -129,7 +129,7 @@ func CreekLines(creeks []world.WaterCreek, w, ht int, area []float32, lake []boo
 		if len(c.Points) < 2 {
 			continue
 		}
-		s := Stream{Name: c.Name, Kind: c.Kind, Cover: c.Cover, Points: c.Curve()}
+		s := Stream{Name: c.Name, Kind: c.Kind, Type: c.Type, Points: c.Curve()}
 		for _, p := range s.Points {
 			ci := min(max(int(math.Round(float64(p[0]/world.CellSize))), 0), w-1)
 			cj := min(max(int(math.Round(float64(p[1]/world.CellSize))), 0), ht-1)
@@ -204,7 +204,8 @@ func SeedLakes(h []float32, w, ht int, spacing float64, base *world.TerrainBase)
 		if len(rings) == 0 {
 			continue
 		}
-		out = append(out, world.WaterLake{Name: bl.Name, Kind: bl.Kind, AreaHa: float32(LakeAreaHa(bl)), Rings: rings})
+		ha := float32(LakeAreaHa(bl))
+		out = append(out, world.WaterLake{Name: bl.Name, Kind: bl.Kind, Type: world.LakeTypeOf(bl.Kind, ha), AreaHa: ha, Rings: rings})
 	}
 	return out
 }

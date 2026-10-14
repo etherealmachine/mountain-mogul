@@ -24,6 +24,7 @@ type Editor struct {
 	world        *world.World
 	menuBar      *ui.MenuBar
 	topBar       *ui.TopBar       // editor-mode bar: just overlay + settings buttons
+	title        *titlePanel      // top left: the scenario's name; click for details
 	overlayPanel *ui.OverlayPanel // right-edge terrain-overlay toggles
 	escapeMenu   *EscapeMenu
 	settingsMenu *SettingsMenu
@@ -235,7 +236,7 @@ func (e *Editor) Init(app *engine.App) error {
 	e.toolButtons[toolSkiArea] = e.menuBar.AddIconButton(render.IconTriangle, "Ski Area", func() { e.activateSkiAreaTool() })
 	e.toolButtons[toolWater] = e.menuBar.AddIconButton(render.IconDrop, "Water", func() { e.activateWaterTool() })
 
-	e.toolButtons[toolParcelRect] = e.menuBar.AddIconButton(render.IconGlobe, "Add Parcel", func() {
+	e.toolButtons[toolParcelRect] = e.menuBar.AddIconButton(render.IconGlobe, "Parcels", func() {
 		e.parcelRectIntent = parcelIntentNew
 		e.parcelRectActive = false
 		e.parcelEditID = 0
@@ -260,7 +261,6 @@ func (e *Editor) Init(app *engine.App) error {
 	e.layers.reloadBtn.Icon = render.IconArrowClockwise
 	e.menuBar.AddIconButton(render.IconFloppyDisk, "Save", e.saveCurrent)
 	e.menuBar.AddIconButton(render.IconFloppyDisk, "Save As", e.openSaveAsPrompt)
-	e.menuBar.AddIconButton(render.IconFlag, "Details", e.openDetailsPrompt)
 
 	e.settingsMenu = NewSettingsMenu(app, func() { e.escapeMenu.Show() })
 	openSettings := func() {
@@ -271,14 +271,15 @@ func (e *Editor) Init(app *engine.App) error {
 	e.escapeMenu.InsertButton(3, "Save As...", e.openSaveAsPrompt) // right after Save
 	e.escapeMenu.InsertButton(4, "Scenario details...", e.openDetailsPrompt)
 
-	// Top bar — editor-mode only has overlay-panel toggle + settings (gear)
-	// and the open scenario's name in the centre. No stats, date/weather, or
-	// time controls, so those callbacks stay unset.
+	// Top bar — editor-mode only has overlay-panel toggle + settings (gear).
+	// No stats, date/weather, or time controls, so those callbacks stay
+	// unset. The scenario's name sits top left (titlePanel, click for details), the
+	// start date strip top centre.
 	const topBarH = float32(96)
 	e.topBar = ui.NewTopBar(topBarH)
-	e.topBar.GetTitle = e.editorTitle
 	e.topBar.SetSettingsButton(func() { e.escapeMenu.Toggle() })
-	e.startDate = newStartDatePanel(topBarH,
+	e.title = newTitlePanel(e.editorTitle, e.openDetailsPrompt)
+	e.startDate = newStartDatePanel(0,
 		func() time.Time { return e.world.StartDate },
 		func(d time.Time) {
 			e.world.StartDate = d
@@ -558,8 +559,9 @@ func (e *Editor) Update(dt float64) {
 	e.menuBar.Y = float32(r.ScreenHeight()) - e.menuBar.H
 	e.menuBar.HandleInput(inp, float32(r.ScreenWidth()), float32(r.ScreenHeight()))
 	e.topBar.HandleInput(inp, float32(r.ScreenWidth()))
+	e.title.HandleInput(inp)
 	e.startDate.HandleInput(inp, float32(r.ScreenWidth()))
-	e.handleLayersInput(inp, e.startDate.y+e.startDate.h)
+	e.handleLayersInput(inp, e.layersTop())
 
 	// Keep overlay panel sized to the live window and mirror its mask into
 	// the renderer so toggles take effect this frame.
@@ -681,6 +683,7 @@ func (e *Editor) Update(dt float64) {
 	overChrome := e.menuBar.ContainsXY(inp.MousePos[0], inp.MousePos[1]) ||
 		e.topBar.ContainsXY(inp.MousePos[0], inp.MousePos[1]) ||
 		e.startDate.Contains(inp.MousePos[0], inp.MousePos[1]) ||
+		e.title.Contains(inp.MousePos[0], inp.MousePos[1]) ||
 		e.layers.contains(inp.MousePos[0], inp.MousePos[1]) ||
 		e.overlayPanel.ContainsXY(inp.MousePos[0], inp.MousePos[1], float32(r.ScreenWidth())) ||
 		popupCoversClick
@@ -2106,15 +2109,15 @@ func (e *Editor) Render(r *render.Renderer) {
 	// Re-anchor before draw so menuBar.Y matches the live screen height.
 	e.menuBar.Y = float32(r.ScreenHeight()) - e.menuBar.H
 	e.overlayPanel.Bottom = float32(r.ScreenHeight()) - e.menuBar.H
-	edDrawables := []render.UIDrawable{uiDrawFunc(e.drawOSMLabels), e.topBar, e.startDate, e.menuBar, e.overlayPanel}
+	edDrawables := []render.UIDrawable{uiDrawFunc(e.drawOSMLabels), e.topBar, e.title, e.startDate, e.menuBar, e.overlayPanel}
 	if e.activeTool == toolSkiArea && len(e.skiDraft) == 0 {
 		edDrawables = append(edDrawables, uiDrawFunc(e.drawSkiHandles))
 	}
 	if e.activeTool == toolWater && e.waterUsable() && e.water.sel.ok {
-		edDrawables = append(edDrawables, uiDrawFunc(e.drawWaterHandles), uiDrawFunc(e.drawCoverPanel))
+		edDrawables = append(edDrawables, uiDrawFunc(e.drawWaterHandles), uiDrawFunc(e.drawTypePanel))
 	}
 	if e.layers.open {
-		edDrawables = append(edDrawables, uiDrawFunc(func(r *render.Renderer) { e.drawLayersPanel(r, e.startDate.y+e.startDate.h) }))
+		edDrawables = append(edDrawables, uiDrawFunc(func(r *render.Renderer) { e.drawLayersPanel(r, e.layersTop()) }))
 	}
 
 	// Parcel labels — price tag at the centroid of each purchasable parcel,

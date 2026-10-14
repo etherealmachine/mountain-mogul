@@ -17,36 +17,92 @@ type Water struct {
 	Fitted bool
 }
 
-// WaterCover is what a creek or lake shows in winter, set in the
-// scenario editor: Auto lets the season decide (a creek open by its
-// size with snow bridges between, a lake freezing in the cold, from its
-// shallows out); Open water never freezes or holds snow; Covered water is
-// snowed over (bridged, or frozen) all winter.
-type WaterCover uint8
+// WaterType is what kind of water a creek or lake is, which sets what it
+// does in winter. A creek's line is a Creek, snow-bridged all winter, or
+// a River, open all winter. A lake's outline is a Pond, shallow, freezing
+// all at once when the cold comes; a Lake, freezing from its shallows
+// out over weeks and thawing in spring; or a River, Sea or Ocean, open
+// all winter. The Water layer picks one from OpenStreetMap
+// (CreekTypeOf, LakeTypeOf); the scenario editor's Water tool changes it.
+type WaterType uint8
 
 const (
-	WaterAuto WaterCover = iota
-	WaterOpen
-	WaterCovered
-	WaterCoverCount
+	WaterTypeCreek WaterType = iota
+	WaterTypeRiver
+	WaterTypePond
+	WaterTypeLake
+	WaterTypeSea
+	WaterTypeOcean
+	WaterTypeCount
 )
 
-// Label is the cover's name in the editor.
-func (c WaterCover) Label() string {
-	switch c {
-	case WaterOpen:
-		return "Open"
-	case WaterCovered:
-		return "Covered"
+// CreekTypes and LakeTypes are the types a creek's line and a lake's
+// outline can be, in the editor's order.
+var (
+	CreekTypes = []WaterType{WaterTypeCreek, WaterTypeRiver}
+	LakeTypes  = []WaterType{WaterTypePond, WaterTypeLake, WaterTypeRiver, WaterTypeSea, WaterTypeOcean}
+)
+
+// Label is the type's name in the editor.
+func (t WaterType) Label() string {
+	switch t {
+	case WaterTypeRiver:
+		return "River"
+	case WaterTypePond:
+		return "Pond"
+	case WaterTypeLake:
+		return "Lake"
+	case WaterTypeSea:
+		return "Sea"
+	case WaterTypeOcean:
+		return "Ocean"
 	}
-	return "Auto"
+	return "Creek"
+}
+
+// Open reports whether water of this type stays open all winter.
+func (t WaterType) Open() bool {
+	return t == WaterTypeRiver || t == WaterTypeSea || t == WaterTypeOcean
+}
+
+// pondMaxHa is the largest untagged lake taken for a pond, hectares.
+const pondMaxHa = 2
+
+// CreekTypeOf is the type of a creek with OpenStreetMap waterway value
+// kind: a river or canal is a River, anything smaller a Creek.
+func CreekTypeOf(kind string) WaterType {
+	if kind == "river" || kind == "canal" {
+		return WaterTypeRiver
+	}
+	return WaterTypeCreek
+}
+
+// LakeTypeOf is the type of a lake with OpenStreetMap water value kind
+// and areaHa hectares: by its tag, else a Pond up to pondMaxHa and a Lake
+// above.
+func LakeTypeOf(kind string, areaHa float32) WaterType {
+	switch kind {
+	case "pond", "basin", "fishpond", "reflecting_pool", "wastewater":
+		return WaterTypePond
+	case "river", "canal", "stream":
+		return WaterTypeRiver
+	case "sea":
+		return WaterTypeSea
+	case "ocean":
+		return WaterTypeOcean
+	case "":
+		if areaHa <= pondMaxHa {
+			return WaterTypePond
+		}
+	}
+	return WaterTypeLake
 }
 
 // WaterCreek is a creek's line from its source down.
 type WaterCreek struct {
 	Name, Kind string
 	Points     [][2]float32
-	Cover      WaterCover
+	Type       WaterType
 }
 
 // WaterLake is a lake's outline: closed rings, each ring's last point
@@ -56,7 +112,7 @@ type WaterLake struct {
 	Name, Kind string
 	AreaHa     float32
 	Rings      [][][2]float32
-	Cover      WaterCover
+	Type       WaterType
 }
 
 // Clone is a deep copy of w.

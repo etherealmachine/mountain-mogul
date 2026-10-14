@@ -20,15 +20,14 @@ type Lake struct {
 	MaxDepth float32 // metres, its deepest cell
 	Frost    float32 // °C·days
 	Thaw     float32 // °C·days
-	// Cover is the editor's setting (WaterLake.Cover): Auto runs the ice
-	// as above; an Open lake never freezes, a Covered one is frozen (at
-	// least CoveredIce thick) all winter.
-	Cover WaterCover
+	// Type is the lake's (WaterLake.Type): a Lake runs the ice as above; a
+	// Pond freezes everywhere as though PondDepth deep, so all at once;
+	// a River, Sea or Ocean never freezes.
+	Type WaterType
 }
 
-// CoveredIce is the least ice on a lake set to stay Covered, metres:
-// enough to hold snow everywhere.
-const CoveredIce = 0.3
+// PondDepth is the depth a Pond freezes and thaws as, everywhere, metres.
+const PondDepth = 0.5
 
 const (
 	// FreezeFrostPerM is the frost, °C·days, a metre of water depth needs
@@ -89,17 +88,12 @@ func (t *Terrain) LakeNear(i, j int) uint8 {
 
 // IceAt is the ice thickness, metres, where the lake is depth metres deep.
 func (l *Lake) IceAt(depth float32) float32 {
-	switch l.Cover {
-	case WaterOpen:
+	switch {
+	case l.Type.Open():
 		return 0
-	case WaterCovered:
-		return max(l.autoIceAt(depth), CoveredIce)
+	case l.Type == WaterTypePond:
+		depth = PondDepth
 	}
-	return l.autoIceAt(depth)
-}
-
-// autoIceAt is IceAt as the season makes it.
-func (l *Lake) autoIceAt(depth float32) float32 {
 	grown := l.Frost - FreezeFrostPerM*depth
 	if grown <= 0 {
 		return 0

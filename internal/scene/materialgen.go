@@ -119,7 +119,7 @@ func setUpLakes(w *world.World, h []float32) {
 			Name:     ls.Name,
 			Altitude: w.BaseAltitude + float32(sum[li]/float64(n[li])),
 			AreaHa:   ls.AreaHa,
-			Cover:    ls.Cover,
+			Type:     ls.Type,
 		})
 		index[li] = uint8(len(w.Lakes))
 	}
@@ -234,45 +234,26 @@ func lakeGrid(w *world.World, mask []int32, index map[int32]uint8) {
 	}
 }
 
-// Creek water: where a flowing creek's channel is open water and where
-// snow bridges it. Bigger creeks are open more of their length; along
-// one creek, open stretches and bridges alternate every few tens of
-// metres.
-const (
-	creekOpenFrom = 0.3e6 // m² of catchment: mostly bridged below this...
-	creekOpenTo   = 3e6   // ...mostly open above
-	creekBridgeM  = 25.0  // metres, the length of a typical bridge or opening
-)
-
 // markCreeks marks the channels of w's flowing creeks in the material
-// map: open water where the creek runs open, ice (snow-covered, like a
-// frozen lake) where snow bridges it. Either way trees stay off it.
+// map by type: open water along a River, ice (snow-covered, like a
+// frozen lake) along a Creek, which snow bridges all winter. Either way
+// trees stay off it.
 func markCreeks(w *world.World, c *layerCache) {
 	m := w.Terrain.Material
 	if m == nil || c == nil || w.TerrainBase == nil || !w.TerrainBase.LayerOn("creeks") {
 		return
 	}
 	const per = world.CellSize / world.DetailPerCell
-	seed := int(layerSeed(w))
-	for si, s := range c.streamsFor(w) {
-		var along float32
+	for _, s := range c.streamsFor(w) {
+		surface := world.MatIce
+		if s.Type.Open() {
+			surface = world.MatOpenWater
+		}
 		for i := 1; i < len(s.Points); i++ {
 			a, b := s.Points[i-1], s.Points[i]
 			l := float32(math.Hypot(float64(b[0]-a[0]), float64(b[1]-a[1])))
-			along += l
 			if !s.Flowing(i) || l == 0 {
 				continue
-			}
-			open := smoothstep32(creekOpenFrom, creekOpenTo, s.Catchment[i])
-			gap := valueNoise2D(along/creekBridgeM, float32(si)*7.3, seed+47)
-			surface := world.MatIce
-			switch s.Cover {
-			case world.WaterOpen:
-				surface = world.MatOpenWater
-			case world.WaterAuto:
-				if gap < open*0.9+0.05 {
-					surface = world.MatOpenWater
-				}
 			}
 			half, _ := geo.CreekShape(s.Catchment[i])
 			half *= 0.8 // the water, inside the banks

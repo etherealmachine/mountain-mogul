@@ -24,20 +24,20 @@ func (e *Editor) scenarioName() string {
 	return strings.TrimSuffix(filepath.Base(e.scenarioPath), save.SaveExt)
 }
 
-// editorTitle is the top-bar caption: the scenario's display name and file
-// name, plus a "*" marker while there are unsaved edits.
+// editorTitle is the title panel's caption: the scenario's display name,
+// else its file name, plus a "*" marker while there are unsaved edits.
 func (e *Editor) editorTitle() string {
-	name := e.scenarioName()
-	switch {
-	case name == "":
+	name := e.world.Scenario.Name
+	if name == "" {
+		name = e.scenarioName()
+	}
+	if name == "" {
 		name = "Untitled scenario"
-	case e.world.Scenario.Name != "":
-		name = e.world.Scenario.Name + " (" + name + ")"
 	}
 	if e.dirty {
 		name += " *"
 	}
-	return "Editing: " + name
+	return name
 }
 
 // markDirty flags the scenario as having unsaved edits. Called from each

@@ -178,7 +178,7 @@ type WaterCreekData struct {
 	Name   string    `json:"name,omitempty"`
 	Kind   string    `json:"kind,omitempty"`
 	Points []float32 `json:"points"`
-	Cover  uint8     `json:"cover,omitempty"`
+	Type   uint8     `json:"type,omitempty"` // world.WaterType
 }
 
 // WaterLakeData is world.WaterLake, each ring as flat x, z pairs.
@@ -187,7 +187,7 @@ type WaterLakeData struct {
 	Kind   string      `json:"kind,omitempty"`
 	AreaHa float32     `json:"area,omitempty"`
 	Rings  [][]float32 `json:"rings"`
-	Cover  uint8       `json:"cover,omitempty"`
+	Type   uint8       `json:"type,omitempty"` // world.WaterType
 }
 
 // BaseStreamData is world.BaseStream, its path as flat lat, lon pairs.
@@ -213,7 +213,7 @@ type LakeData struct {
 	MaxDepth float32 `json:"max_depth"`
 	Frost    float32 `json:"frost"`
 	Thaw     float32 `json:"thaw"`
-	Cover    uint8   `json:"cover,omitempty"` // world.WaterCover
+	Type     uint8   `json:"type,omitempty"` // world.WaterType
 }
 
 // BaseRoadData is world.BaseRoad, its path as flat lat, lon pairs.
