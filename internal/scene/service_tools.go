@@ -1063,6 +1063,10 @@ func (s *Scenario) addResortControls(w *ui.Window, rebuild func()) {
 	w.AddIntStepper("Child 5-12 ($)", &t.ChildPrice, 5, 0, 500)
 	w.AddBoolToggle("Afternoon ticket", func() bool { return t.Afternoon }, func(v bool) { t.Afternoon = v })
 	w.AddIntStepper("Afternoon from "+settings.FormatClock(world.AfternoonFrom)+" ($)", &t.AfternoonPrice, 5, 0, 500)
+	if world.NightSkiingAvailable() {
+		w.AddBoolToggle("Night ticket", func() bool { return t.Night }, func(v bool) { t.Night = v })
+		w.AddIntStepper("Night from "+settings.FormatClock(world.NightFrom)+" ($)", &t.NightPrice, 5, 0, 500)
+	}
 	w.AddIntStepper("Pass price ($)", &s.world.SeasonPassPrice, 10, 0, 1000)
 	w.AddLabel("Pass holders", func() string {
 		count := 0

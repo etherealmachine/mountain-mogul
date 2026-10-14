@@ -2,19 +2,24 @@ package world
 
 // Ticket tiers: besides the adult day ticket (World.DayTicketPrice) the
 // player may offer a ticket for little kids (0–4), one for children
-// (5–12), and an afternoon ticket for guests arriving from AfternoonFrom;
+// (5–12), an afternoon ticket for guests arriving from AfternoonFrom, and
+// a night ticket from NightFrom when there's a night session;
 // each is a checkbox and a price at the ticket window. A guest pays the
 // cheapest they qualify for.
 
 // TicketTiers are the cheaper tickets on offer and their prices.
 type TicketTiers struct {
-	Kids, Child, Afternoon                bool
-	KidsPrice, ChildPrice, AfternoonPrice int
+	Kids, Child, Afternoon, Night                     bool
+	KidsPrice, ChildPrice, AfternoonPrice, NightPrice int
 }
 
 // AfternoonFrom is the clock hour from which an arriving guest can buy an
 // afternoon ticket: 12:30.
 const AfternoonFrom = 12.5
+
+// NightFrom is the clock hour from which an arriving guest can buy a
+// night ticket: 16:00, for a night session (lights.go).
+const NightFrom = 16.0
 
 // Kids' ages: a little kid is LittleKidAge or younger, a child up to
 // ChildAge.
@@ -32,6 +37,8 @@ func DefaultTicketTiers(adult int) TicketTiers {
 		KidsPrice:      0,
 		ChildPrice:     (adult*3 + 10) / 20 * 5, // three quarters, to the nearest $5
 		AfternoonPrice: adult / 2,
+		Night:          true,
+		NightPrice:     adult / 2,
 	}
 }
 
@@ -42,6 +49,9 @@ func (w *World) TicketPrice(g *Guest, hour float64) int {
 	t := w.Tickets
 	if t.Afternoon && hour >= AfternoonFrom {
 		p = min(p, max(t.AfternoonPrice, 0))
+	}
+	if t.Night && hour >= NightFrom && w.NightSession() {
+		p = min(p, max(t.NightPrice, 0))
 	}
 	if g.Child {
 		switch {

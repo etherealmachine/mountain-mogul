@@ -959,6 +959,10 @@ func dataToWorld(data ScenarioData) *world.World {
 	w.Tickets = world.DefaultTicketTiers(w.DayTicketPrice)
 	if data.Tickets != nil {
 		w.Tickets = world.TicketTiers(*data.Tickets)
+		if data.Tickets.NightPrice == 0 { // saved before the night ticket
+			def := world.DefaultTicketTiers(w.DayTicketPrice)
+			w.Tickets.Night, w.Tickets.NightPrice = def.Night, def.NightPrice
+		}
 	}
 	if data.SeasonPass != nil {
 		w.SeasonPassPrice = *data.SeasonPass

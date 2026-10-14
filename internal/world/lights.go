@@ -66,3 +66,32 @@ func (w *World) liftOpenHours(l *Lift) float32 {
 	}
 	return max(end-w.OpenHour, 0)
 }
+
+// NightSession reports whether the resort skis after dark: a lit lift,
+// and closing at least an hour past dusk.
+func (w *World) NightSession() bool {
+	if w.DuskHour <= 0 || w.CloseHour < w.DuskHour+1 {
+		return false
+	}
+	for _, l := range w.Lifts {
+		if l.Lit && l.Open {
+			return true
+		}
+	}
+	return false
+}
+
+// LitShare is the share of the runs' ground that's lit.
+func (w *World) LitShare() float32 {
+	lit, all := 0, 0
+	for _, t := range w.Trails {
+		all += len(t.Cells)
+		if t.Lit {
+			lit += len(t.Cells)
+		}
+	}
+	if all == 0 {
+		return 0
+	}
+	return float32(lit) / float32(all)
+}

@@ -14,7 +14,7 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 In the order to work on them:
 
 1. [[Snowmaking on Runs]]: step 1 is in (snowmaking bought for a run, made by temperature and altitude to a target depth, paid by the water; machine snow; the placed guns gone). Steps 2 and 3 are in too (lift holds under 30 cm, rock under 20 cm; guns, plumes, the map view and feed). Next: balance.
-2. [[Night Sessions]]: steps 1–2 in (lights bought for a run or lift, unlit lifts stopping at dusk, closing time as the night's close, lift costs by the hour, the lights' cost). Step 3 too (poles and the light map). Next: evening guests and the night ticket, grooming and balance; lodge windows glowing.
+2. [[Night Sessions]]: steps 1–2 in (lights bought for a run or lift, unlit lifts stopping at dusk, closing time as the night's close, lift costs by the hour, the lights' cost). Step 3 too (poles and the light map). Step 4 too (evening guests and the night ticket). Next: checking grooming against a 23:00 close, balance, and lodge windows glowing.
 3. [[Surface Lifts]]: the magic carpet, rope tow and T-bar are in (steps 1–5); next balance and placing them at Boreal and Kirkwood.
 
 ## Bugs
@@ -332,3 +332,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-14: [[Snowmaking on Runs]] step 3 built: guns and plumes, the map view, readouts.
 - 2026-10-14: [[Night Sessions]] steps 1–2 built.
 - 2026-10-14: [[Night Sessions]] step 3 built: light poles and the light map.
+- 2026-10-14: [[Night Sessions]] step 4 built: evening guests and the night ticket.

@@ -246,6 +246,7 @@ func visitChance(s *Simulation, g *world.Guest, rating, busy, match float32, h0,
 		off := 1 - min(max(float32(t.AfternoonPrice)/float32(s.World.DayTicketPrice), 0), 1)
 		p *= 1 + afternoonDraw*off
 	}
+	p += eveningChance(s, g, dailyRate, h0, h1) * rating * match * occFactor * priceFactor
 	if !hasRentals && !hasValidPass(g, s.SimTime) {
 		// Some who'd have rented skis stay home from a resort with
 		// no rental shop.
@@ -575,4 +576,36 @@ func hasParking(w *world.World) bool {
 		}
 	}
 	return false
+}
+
+// Evening guests: a night session draws locals after work and the like,
+// arriving from eveningFrom to eveningTo (or an hour before closing), on
+// top of the day's guests, up to nightDraw of a day's visits with half
+// the runs lit or more.
+const (
+	eveningFrom = world.NightFrom + 0.5
+	eveningTo   = 19.0
+	nightDraw   = float32(0.35)
+	// eveningEnergy is the energy an evening guest arrives with: a day's
+	// work behind them, they ski two or three hours.
+	eveningEnergy = float32(0.6)
+)
+
+// eveningChance is guest g's chance, before the rating and the rest, of
+// coming for the night session in the poll window h0 to h1.
+func eveningChance(s *Simulation, g *world.Guest, dailyRate float32, h0, h1 float64) float32 {
+	w := s.World
+	if !w.NightSession() {
+		return 0
+	}
+	from, to := eveningFrom, min(eveningTo, float64(w.CloseHour)-arrivalLastHourBeforeClose)
+	if to <= from {
+		return 0
+	}
+	share := (math.Min(h1, to) - math.Max(h0, from)) / (to - from)
+	if share <= 0 {
+		return 0
+	}
+	lit := min(w.LitShare()*2, 1)
+	return dailyRate * nightDraw * lit * float32(share)
 }

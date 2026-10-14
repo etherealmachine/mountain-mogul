@@ -852,6 +852,9 @@ func (s *Simulation) spawnGuestAt(lot *world.Building, g *world.Guest, pos mgl32
 	g.SkisOn = false // carried from the car; on at the snow
 	g.Patience = 1.0
 	g.Energy = 1.0
+	if HourOfDay(s.SimTime) >= world.NightFrom && w.NightSession() {
+		g.Energy = eveningEnergy // after a day's work
+	}
 	g.Hunger = 0.5 + rng.Global().Float32()*0.5
 	g.Thirst = 0.5 + rng.Global().Float32()*0.5
 	g.HasSeasonPass = hasValidPass(g, s.SimTime)

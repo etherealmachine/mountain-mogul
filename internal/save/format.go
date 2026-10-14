@@ -737,7 +737,9 @@ type TicketsData struct {
 	Kids           bool `json:"kids,omitempty"`
 	Child          bool `json:"child,omitempty"`
 	Afternoon      bool `json:"afternoon,omitempty"`
+	Night          bool `json:"night,omitempty"`
 	KidsPrice      int  `json:"kids_price,omitempty"`
 	ChildPrice     int  `json:"child_price,omitempty"`
 	AfternoonPrice int  `json:"afternoon_price,omitempty"`
+	NightPrice     int  `json:"night_price,omitempty"`
 }
