@@ -1,7 +1,7 @@
 ---
 title: Trains and Tunnels
 kind: plan
-status: planned
+status: partial
 ---
 
 # Trains and Tunnels
@@ -40,9 +40,22 @@ From the user, 2026-10-14:
 - **The funicular** (`LiftFunicular`): two cars of stepped compartments, about 100 riders each, counterbalanced on one track with a passing loop in the middle, up to 45°; the cars pitch with the slope; tunnelled where the line runs under the ground.
 - **Pitch**: vehicles get a pitch as well as a heading, so trains on grades and funicular cars tilt.
 
+## Built: the models
+
+All along the track (+X, the A end), from the top of the rail (`models-src/lib/rail_kit.py`: bogies, wheelsets, buffers, bodies, window bands, roof sections, pantographs):
+
+- **Steam**: `steam_loco.py`, a green tank engine with a black boiler, tall chimney, brass dome and three red driving wheels a side (9.6 m); `steam_coach.py`, a maroon and cream clerestory coach with open end platforms (12.4 m).
+- **Electric**: `electric_loco.py`, a traffic-red DB class 146 with sloped cab fronts and two pantographs (18.9 m); `electric_coach.py`, a red double-decker with its lower deck dropped between the bogies (26.8 m).
+- **High-speed**: `hsr_power.py`, a white power car with a long tapering nose, wraparound windscreen and red stripe (20.5 m, one at each end); `hsr_coach.py`, a close-coupled coach with a continuous window band (24.8 m).
+- **Funicular**: `funicular_car.py`, four red and cream compartments stepped on an 11 m chassis, level on a 30° line (the renderer pitches it with its line).
+- **Portals**: `lib/portal_kit.py`, a stone face round an arched opening, dark inside, with wing walls: `tunnel_portal_rail.py` (5 × 6.8 m), `_road.py` (9 × 6), `_path.py` (3.2 × 3.2).
+- `tools/modelview/view.py` renders OBJs to a PNG sheet for a look without the game.
+
+None are in the demo. The station waits for step 2, where its platform's length is set by the style.
+
 ## Steps
 
-1. **The models**: steam engine and coaches, the electric unit, the high-speed set, the funicular car, a station, a tunnel portal; checked on screen.
+1. Done but for the station: **The models**: steam engine and coaches, the electric unit, the high-speed set, the funicular car, a station, a tunnel portal; checked on screen.
 2. **Rail lines and stations**: the rail entry in the editor, the Rail tool with grade limits, the graded rail bed and its look, stations.
 3. **Trains running**: timetables, consists following the track with pitch, guests arriving and leaving by train, costs.
 4. **Tunnels**: on rail, roads and footpaths: deep cuts become tunnels, portals, hidden vehicles, the dashed course.
@@ -57,3 +70,4 @@ From the user, 2026-10-14:
 ## Log
 
 - 2026-10-14: Surveyed and planned with the user, ranked first.
+- 2026-10-14: Step 1's models built and looked at on a sheet (`tools/modelview`).
