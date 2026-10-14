@@ -58,6 +58,7 @@ const (
 	MeshTriTerm      uint32 = 209 // a 3S gondola's station house (tri_terminal.py)
 	MeshTowerWide    uint32 = 210 // the 8-pack's tower (tower_wide.py)
 	MeshFunitelTower uint32 = 211 // a funitel's tower (funitel_tower.py)
+	MeshRailStation  uint32 = 212 // a railway station house (rail_station.py)
 
 	// MeshLodgeTileBase + world.ShellMeshIndex(kind, tile) is the shell
 	// kits, one per building kind (models-src/{lodge,tent,shed}_*.py);

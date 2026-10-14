@@ -426,6 +426,7 @@ func (r *Renderer) initStaticMeshes() {
 			meshDef{MeshTriTerm, "tri_terminal"},
 			meshDef{MeshTowerWide, "tower_wide"},
 			meshDef{MeshFunitelTower, "funitel_tower"},
+			meshDef{MeshRailStation, "rail_station"},
 			meshDef{MeshBeltEnd, "magic_carpet_end"},
 			meshDef{MeshBeltTop, "magic_carpet_top"},
 			meshDef{MeshRopeBase, "rope_tow_base"},
@@ -900,6 +901,16 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 	}
 
 	addHelipads(r, w)
+
+	// Railway stations.
+	if b, ok := r.staticBatches[MeshRailStation]; ok {
+		for _, l := range w.RailLines {
+			if len(l.Track) >= 2 {
+				b.AddStatic(stationTransform(l), mgl32.Vec3{1, 1, 1})
+			}
+		}
+	}
+	r.RebuildRails(w)
 
 	// Road edge-connection markers — one yellow-flag post per node with
 	// kind RoadNodeEdgeConnection. Editor-placed scenario metadata, but
@@ -1464,6 +1475,7 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		batch.Draw()
 	}
 	r.StaticShader.SetInt("uFoliage", 0)
+	r.drawRails()
 
 	r.syncBelts(w)
 	// Cable pass — world-space meshes, drawn with identity instance

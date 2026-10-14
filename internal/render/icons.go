@@ -62,6 +62,7 @@ const (
 	IconRope       IconName = "line-segments"     // rope line tool
 	IconFlag       IconName = "flag"              // road-network edge-connection marker (editor only)
 	IconTrailSigns IconName = "trail-signs"       // the Trail tool: green circle, blue square, black diamond (tools/icons)
+	IconTrain      IconName = "train"             // the Rail tools (tools/icons/train.py)
 )
 
 // allIcons is the full set loaded at startup. Adding an icon requires
@@ -77,7 +78,7 @@ var allIcons = []IconName{
 	IconStack, IconChartLine, IconChartBar, IconTriangle, IconWaves, IconBroom, IconGridFour, IconDrop, IconDotsNine,
 	IconGarage,
 	IconRoad, IconFootprints, IconSki, IconRope,
-	IconFlag, IconTrailSigns,
+	IconFlag, IconTrailSigns, IconTrain,
 }
 
 // LoadIcons populates r.icons from assetDir/icons/. Missing files log a

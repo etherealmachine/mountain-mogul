@@ -674,6 +674,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		Trails:       trails,
 		Footpaths:    footpaths,
 		Ropes:        ropes,
+		Rails:        railsToData(w),
 		Guests:       guests,
 		Snowcats:     snowcats,
 		Snowmobiles:  snowmobiles,
@@ -1409,6 +1410,17 @@ func dataToWorld(data ScenarioData) *world.World {
 		}
 	}
 	w.RebuildRopes()
+	for _, rd := range data.Rails {
+		l := &world.RailLine{ID: rd.ID, Style: world.RailStyle(rd.Style)}
+		for _, n := range rd.Nodes {
+			l.Nodes = append(l.Nodes, mgl32.Vec2{n[0], n[1]})
+		}
+		if len(l.Nodes) >= 2 {
+			w.SetMinNextID(l.ID)
+			l.LayOut(w.Terrain)
+			w.RailLines = append(w.RailLines, l)
+		}
+	}
 
 	// Validate parking driveways now that road nodes are in place.
 	// EnsureParkingDriveway is idempotent — a parking lot whose
@@ -1980,4 +1992,17 @@ func kidAge(gd GuestData) uint8 {
 		return world.RollKidAge(rand.New(rand.NewSource(int64(gd.ID) ^ 0xa9e)))
 	}
 	return gd.Age
+}
+
+// railsToData is the world's railways for saving.
+func railsToData(w *world.World) []RailData {
+	var out []RailData
+	for _, l := range w.RailLines {
+		d := RailData{ID: l.ID, Style: uint8(l.Style)}
+		for _, n := range l.Nodes {
+			d.Nodes = append(d.Nodes, [2]float32{n[0], n[1]})
+		}
+		out = append(out, d)
+	}
+	return out
 }

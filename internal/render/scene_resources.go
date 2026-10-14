@@ -75,7 +75,8 @@ type SceneResources struct {
 	// world; roadLanesMesh is a parallel mesh of dashed centre-line
 	// quads drawn over it in a second pass. Both regenerated wholesale
 	// by RebuildRoads whenever the road graph changes.
-	roadMesh      *Mesh
+	roadMesh *Mesh
+	railDrawing
 	roadLanesMesh *Mesh
 	roadGhostMesh *Mesh
 
@@ -135,6 +136,12 @@ func newSceneResources() *SceneResources {
 
 // Delete releases every GPU resource owned by the scene.
 func (s *SceneResources) Delete() {
+	for _, rb := range s.rails {
+		rb.delete()
+	}
+	s.rails = nil
+	s.railGhost.delete()
+	s.railGhost = nil
 	if s.terrainMesh != nil {
 		s.terrainMesh.Delete()
 		s.terrainMesh = nil

@@ -452,6 +452,7 @@ const (
 	toolLandBuy      toolMode = iota // click to purchase a land parcel
 	toolService      toolMode = iota // build service-building tiles
 	toolFootpath     toolMode = iota // lay footpaths node by node
+	toolRail         toolMode = iota // lay a railway point by point (rail_tool.go)
 	toolSkiRack      toolMode = iota // place a ski rack
 	toolRope         toolMode = iota // string rope lines pole by pole
 )
@@ -549,6 +550,8 @@ type Scenario struct {
 	// runTool is the run tool's session while toolTrailPaint is active;
 	// trailDraw keeps the drawn trails up to date (run_tool.go).
 	runTool runTool
+	// railTool is the Rail tool's session (rail_tool.go).
+	railTool railTool
 	// pathTool is the footpath tool's session while toolFootpath is
 	// active (footpath_tool.go).
 	pathTool pathTool
@@ -971,6 +974,13 @@ func (s *Scenario) Init(app *engine.App) error {
 	s.toolButtons[toolRoadStart].Price = fmt.Sprintf("$%d/m", world.RoadCostPerMeter)
 	s.toolButtons[toolFootpath] = s.transportSubmenu.AddChild(render.IconFootprints, "Path", s.activatePathTool)
 	s.toolButtons[toolFootpath].Price = fmt.Sprintf("$%d/m²", world.FootpathCostPerM2)
+	if !edition.Demo { // no railways in the demo
+		for st := world.RailStyle(0); st < world.RailStyles; st++ {
+			spec := st.Spec()
+			b := s.transportSubmenu.AddChild(render.IconTrain, spec.Label, func() { s.startRailTool(st) })
+			b.Price = fmt.Sprintf("$%d/m", spec.CostPerM)
+		}
+	}
 	s.toolButtons[toolSkiRack] = s.transportSubmenu.AddChild(render.IconSki, "Ski Rack", func() { s.setTool(toolSkiRack) })
 	s.toolButtons[toolSkiRack].Image = thumb(render.ThumbSkiRack)
 	s.toolButtons[toolSkiRack].Price = settings.FormatDollarsShort(world.SkiRackCost)
@@ -1353,6 +1363,7 @@ func (s *Scenario) installWorld(w *world.World) {
 	s.dayReport = nil
 	s.sim.OnDayRollover = func(w *world.World) {
 		applyRoadCellState(w)
+		w.PlowRails()
 		s.onDayRollover()
 	}
 	s.installDev()
@@ -1539,6 +1550,9 @@ func (s *Scenario) Update(dt float64) {
 			s.runTool.drawing, s.runTool.nodes = false, nil // drop the run, keep the tool
 		case s.activeTool == toolFootpath && s.pathTool.drawing():
 			s.pathTool.nodes = nil // drop the path, keep the tool
+		case s.activeTool == toolRail && len(s.railTool.nodes) > 0:
+			s.railTool = railTool{style: s.railTool.style} // drop the line, keep the tool
+			s.app.Renderer.SetRailGhost(nil, [3]float32{})
 		case s.activeTool == toolRope && s.ropeTool.drawing():
 			s.ropeTool.nodes = nil // drop the rope, keep the tool
 		case s.activeTool != toolNone:
@@ -1945,6 +1959,9 @@ func (s *Scenario) Update(dt float64) {
 		if used {
 			inp.LeftClickConsumed = true // a finished run's click mustn't also select something
 		}
+	}
+	if s.activeTool == toolRail {
+		s.updateRailGhost(r)
 	}
 	// The footpath tool: lay paths node by node (footpath_tool.go).
 	if s.activeTool == toolFootpath {
@@ -2541,6 +2558,8 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 	gx, gz := s.hoverCell[0], s.hoverCell[1]
 	wx, wz := s.hoverWorld[0], s.hoverWorld[2]
 	switch s.activeTool {
+	case toolRail:
+		s.railClick(r, wx, wz)
 	case toolSkiRack:
 		if !w.Terrain.IsAccessible(gx, gz) {
 			s.setToast("Can't build on land you don't own")
@@ -3596,6 +3615,7 @@ func (s *Scenario) setTool(t toolMode) {
 	r.ClearGhostRoad()
 	r.SetFootpathGhost(s.world, nil, false)
 	r.SetRopeGhost(s.world, nil, false)
+	r.SetRailGhost(nil, [3]float32{})
 	if isActive {
 		s.activeTool = toolNone
 	} else {
@@ -4036,6 +4056,11 @@ func (s *Scenario) placementCost() (cost int, affordable, legal, valid bool) {
 			cost = world.LiftCost(s.liftType, s.liftBase, pos)
 		}
 		legal = cellOwned && liftLineProblem(s.world.Terrain, s.liftType, s.liftBase, pos) == ""
+	case toolRail:
+		if len(s.railTool.nodes) == 0 {
+			return 0, false, true, false
+		}
+		cost = s.railCost()
 	case toolRoadStart:
 		cost = world.RoadBaseCost
 	case toolRoadEnd:

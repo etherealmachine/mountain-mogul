@@ -53,10 +53,19 @@ All along the track (+X, the A end), from the top of the rail (`models-src/lib/r
 
 None are in the demo. The station waits for step 2, where its platform's length is set by the style.
 
+## Built: rail lines and stations
+
+- **Styles** (`world/rail.go`, `RailSpec`): steam 11 m/s, 150 riders, $600 a metre, a $150,000 station, $300 a trip, grades to 4%, an engine and 3 coaches; electric 28 m/s, 400 riders, $1,500 a metre, $300,000, $600 a trip, 4%, an engine and 4 double-deckers, wired; high-speed 70 m/s, 600 riders, $4,000 a metre, $600,000, $1,200 a trip, 3.5%, a power car each end and 6 coaches, wired.
+- **The Rail tool**: three buttons in the Transport menu, one a style. The first click must be within 25 m of the map's edge (no editor entries: a line can come in anywhere along the edge); each click adds a point; clicking the last point again builds it, its station at that end; Esc drops the line. A ghost of the laid-out line follows the mouse, red when it's too short (its platform and 60 m) or unaffordable, with the cost by the cursor.
+- **Laying out** (`RailLine.LayOut`): a Catmull-Rom curve through the points, sampled every 2 m; the track's height follows the ground plus the ballast, relaxed and clamped to the style's grade, level along the platform at the station end.
+- **The bed** (`GradeRailBed`): the ground within 3 m of the track cut or filled to the ballast's foot, shoulders banked 1.5 to 1 out to the ground (up to 25 m), trees cleared 9 m either side; the bed's cells are plowed of snow when it's built and at each day's rollover (`PlowRails`).
+- **Drawn** (`render/rail_mesh.go`, a static mesh a line): ballast with sloping sides, sleepers every 0.7 m, two rails, the platform (as long as the train and 10 m) with a yellow edge, and for wired lines masts every 45 m and the wire; the station house (`rail_station.py`) beside the platform's middle. Saved as each line's style and points, laid out again on load.
+- On the Goals Test, an electric line from the west edge to near the base: 698 m, $1,347,000.
+
 ## Steps
 
-1. Done but for the station: **The models**: steam engine and coaches, the electric unit, the high-speed set, the funicular car, a station, a tunnel portal; checked on screen.
-2. **Rail lines and stations**: the rail entry in the editor, the Rail tool with grade limits, the graded rail bed and its look, stations.
+1. Done: **The models**: steam engine and coaches, the electric unit, the high-speed set, the funicular car, a station, a tunnel portal; checked on screen.
+2. Done: **Rail lines and stations**: the Rail tool with grade limits, the graded rail bed and its look, stations.
 3. **Trains running**: timetables, consists following the track with pitch, guests arriving and leaving by train, costs.
 4. **Tunnels**: on rail, roads and footpaths: deep cuts become tunnels, portals, hidden vehicles, the dashed course.
 5. **The funicular**: the lift type on the tram's shuttle, on rails, tunnelled.
@@ -71,3 +80,4 @@ None are in the demo. The station waits for step 2, where its platform's length 
 
 - 2026-10-14: Surveyed and planned with the user, ranked first.
 - 2026-10-14: Step 1's models built and looked at on a sheet (`tools/modelview`).
+- 2026-10-14: Step 2 built (the Rail tool, laying out, the bed, the look, stations). The first look had the ballast and rails buried in snow: the bed is now plowed.

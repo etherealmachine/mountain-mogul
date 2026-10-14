@@ -77,7 +77,9 @@ type ScenarioData struct {
 	// (x, z, width).
 	Footpaths []FootpathData `json:"footpaths,omitempty"`
 	// Ropes are world.Ropes: each rope's ID and its nodes as (x, z).
-	Ropes       []RopeData       `json:"ropes,omitempty"`
+	Ropes []RopeData `json:"ropes,omitempty"`
+	// Rails are world.RailLines: each line's ID, style and nodes.
+	Rails       []RailData       `json:"rails,omitempty"`
 	Guests      []GuestData      `json:"guests"`
 	Snowcats    []SnowcatData    `json:"snowcats,omitempty"`
 	Snowmobiles []SnowmobileData `json:"snowmobiles,omitempty"`
@@ -753,4 +755,11 @@ type TicketsData struct {
 	ChildPrice     int  `json:"child_price,omitempty"`
 	AfternoonPrice int  `json:"afternoon_price,omitempty"`
 	NightPrice     int  `json:"night_price,omitempty"`
+}
+
+// RailData is a saved railway (world.RailLine): laid out again on load.
+type RailData struct {
+	ID    uint64       `json:"id"`
+	Style uint8        `json:"style,omitempty"`
+	Nodes [][2]float32 `json:"nodes"`
 }
