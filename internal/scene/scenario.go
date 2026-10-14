@@ -3397,6 +3397,26 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 				}
 				return
 			}
+			// A new chair can bring a new terminal and cables.
+			r := s.app.Renderer
+			applyLiftPlacementEffects(s.world, l)
+			r.FlushTerrainVerts(s.world.Terrain)
+			r.RemoveLiftCable(l.ID)
+			r.AddLiftCable(l, s.world.Terrain)
+			r.RebuildStaticBatch(s.world)
+			s.openLiftPopup(l, screenW, screenH)
+		})
+	}
+	if l.Type.Bubbles() && !l.Bubble {
+		cost := l.BubbleCost()
+		w.AddActionButton(fmt.Sprintf("Add bubble covers ($%s)", world.CommaInt(cost)), func() {
+			if !s.world.AddBubbles(l) {
+				if !s.world.CanAfford(cost) {
+					s.setToast(fmt.Sprintf("Need $%s for bubble covers — short by $%s",
+						world.CommaInt(cost), world.CommaInt(cost-s.world.Available())))
+				}
+				return
+			}
 			s.openLiftPopup(l, screenW, screenH)
 		})
 	}
@@ -3418,7 +3438,8 @@ func liftUpgrades() []liftUpgrade {
 		{world.LiftFixedQuad, world.LiftHSQuad, "HS Quad"},
 	}
 	if !edition.Demo { // the demo has no 6-pack
-		ups = append(ups, liftUpgrade{world.LiftHSQuad, world.LiftHS6Pack, "HS 6-Pack"})
+		ups = append(ups, liftUpgrade{world.LiftHSQuad, world.LiftHS6Pack, "HS 6-Pack"},
+			liftUpgrade{world.LiftHS6Pack, world.LiftHS8Pack, "HS 8-Pack"})
 	}
 	return ups
 }
@@ -3481,7 +3502,7 @@ type liftMenuEntry struct {
 }
 
 // liftMenu is the Lifts submenu: the demo leaves out the 6-pack, the
-// gondola, and the heli.
+// gondola, the tram, the heli, and the surface lifts.
 func liftMenu() []liftMenuEntry {
 	m := []liftMenuEntry{
 		{world.LiftDouble, "Double", render.ThumbChairDouble},
@@ -3493,6 +3514,11 @@ func liftMenu() []liftMenuEntry {
 		m = append(m,
 			liftMenuEntry{world.LiftHS6Pack, "6-Pack", render.ThumbChair6Pack},
 			liftMenuEntry{world.LiftGondola, "Gondola", render.ThumbGondola},
+			liftMenuEntry{world.LiftHS8Pack, "8-Pack", render.ThumbChair8Pack},
+			liftMenuEntry{world.LiftFunitel, "Funitel", render.ThumbFunitel},
+			liftMenuEntry{world.LiftTri, "3S Gondola", render.ThumbTri},
+			liftMenuEntry{world.LiftTram, "Tram", render.ThumbTram},
+			liftMenuEntry{world.LiftSingle, "Single", render.ThumbChairSingle},
 			liftMenuEntry{world.LiftHeli, "Heli", render.ThumbHeli},
 			liftMenuEntry{world.LiftMagicCarpet, "Magic Carpet", render.ThumbBelt},
 			liftMenuEntry{world.LiftRopeTow, "Rope Tow", render.ThumbRope},

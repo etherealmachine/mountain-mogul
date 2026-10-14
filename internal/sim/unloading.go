@@ -62,9 +62,9 @@ const (
 // startUnloading takes a rider off the chair at the top of lift: placed
 // on the ground under their seat, facing up the lift line, with the side
 // they'll peel to from where the seat sits across the chair.
-func (s *Simulation) startUnloading(a *world.Guest, lift *world.Lift, slotIdx int) {
+func (s *Simulation) startUnloading(a *world.Guest, lift *world.Lift, chairIdx, slotIdx int) {
 	w := s.World
-	chairPos, heading := lift.ChairPos(lift.UnloadProgress(), w.Terrain)
+	chairPos, heading := lift.UnloadPos(chairIdx, w.Terrain)
 	slots := world.SlotsFor(lift.Type.MeshID())
 	seat := seatWorldPos(chairPos, heading, slotIdx, slots)
 	ground := w.Terrain.InterpolatedSurfaceElevationAt(seat[0], seat[2])
@@ -91,6 +91,9 @@ func (s *Simulation) startUnloading(a *world.Guest, lift *world.Lift, slotIdx in
 		a.Speed = beltOffSpeed
 		a.Unload.Side, a.Unload.SeatY = 0, 0
 		return
+	}
+	if lift.Station().Enclosed {
+		a.Unload.SeatY = 0 // off onto the platform, out of sight under the roof
 	}
 	if rng.Global().Float32() < unloadFallChance(a.Traits.Skill, lift.Type) {
 		// Somewhere between finding their feet and getting clear.
@@ -161,9 +164,9 @@ func (s *Simulation) unloadAim(a *world.Guest) (mgl32.Vec2, bool) {
 func unloadFallChance(skill float32, t world.LiftType) float32 {
 	var chance [3]float32 // beginner, intermediate, advanced
 	switch t {
-	case world.LiftDouble, world.LiftFixedTriple, world.LiftFixedQuad:
+	case world.LiftDouble, world.LiftFixedTriple, world.LiftFixedQuad, world.LiftSingle:
 		chance = [3]float32{0.03, 0.005, 0.001}
-	case world.LiftHSQuad, world.LiftHS6Pack:
+	case world.LiftHSQuad, world.LiftHS6Pack, world.LiftHS8Pack:
 		chance = [3]float32{0.01, 0.002, 0}
 	default:
 		return 0
@@ -232,6 +235,10 @@ func (s *Simulation) tickUnloading(a *world.Guest, dt float64) {
 	}
 	a.Speed = unloadSpeed
 	a.Balance = 1
+	if g := lift.Station(); g.Enclosed {
+		s.walkOutUnloading(a, g, at, back, side, backHeading, dt)
+		return
+	}
 	sign := float32(1)
 	if u.Turn < 0 {
 		sign = -1
@@ -262,6 +269,46 @@ func (s *Simulation) tickUnloading(a *world.Guest, dt float64) {
 			turn := unloadPeelRate * step
 			a.Heading = wrapAngle(a.Heading + clamp32(want-turned, -turn, turn))
 		}
+		a.Pos[0] += float32(math.Sin(float64(a.Heading))) * step
+		a.Pos[2] += float32(math.Cos(float64(a.Heading))) * step
+		u.Gone += step
+	}
+}
+
+// walkOutUnloading moves a rider getting off at a station house (g) one
+// step: on the ground floor under the platform, in toward the line until
+// they're in line with the door, then straight back along the line and
+// out of it, and round to their final heading (Turn) once unloadClear
+// past its back wall.
+func (s *Simulation) walkOutUnloading(a *world.Guest, g *world.StationGeom, at, back, side mgl32.Vec2, backHeading float32, dt float64) {
+	u := &a.Unload
+	rear := g.Rear()
+	door := g.DoorHalf - 0.6
+	for left := unloadSpeed * float32(dt); left > 0; {
+		step := min(left, unloadSubstep)
+		left -= step
+		d := mgl32.Vec2{a.Pos[0], a.Pos[2]}.Sub(at)
+		across, behind := d.Dot(side), d.Dot(back)
+		out := behind >= rear+unloadClear
+		turned := wrapAngle(a.Heading - backHeading)
+		if out && abs32(u.Turn-turned) < 0.05 || u.Gone >= unloadMaxGone+rear {
+			a.Unload = world.Unloading{}
+			return
+		}
+		var want float32 // straight back along the line
+		switch {
+		case out:
+			want = u.Turn
+		case abs32(across) > door && behind < rear:
+			// In toward the door's span, angled back: turning off the
+			// back to a larger heading moves toward -side.
+			want = float32(math.Pi / 3)
+			if across < 0 {
+				want = -want
+			}
+		}
+		turn := unloadPeelRate * 2 * step
+		a.Heading = wrapAngle(a.Heading + clamp32(wrapAngle(want-turned), -turn, turn))
 		a.Pos[0] += float32(math.Sin(float64(a.Heading))) * step
 		a.Pos[2] += float32(math.Cos(float64(a.Heading))) * step
 		u.Gone += step

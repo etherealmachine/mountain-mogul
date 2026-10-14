@@ -55,7 +55,7 @@ func LoadOBJSlots(path string) []world.MeshSlot {
 			continue
 		}
 		fields := strings.Fields(line)
-		if len(fields) != 6 {
+		if len(fields) != 6 && len(fields) != 7 {
 			continue
 		}
 		idx, err1 := strconv.Atoi(fields[2])
@@ -65,10 +65,21 @@ func LoadOBJSlots(path string) []world.MeshSlot {
 		if err1 != nil || err2 != nil || err3 != nil || err4 != nil {
 			continue
 		}
-		slots = append(slots, world.MeshSlot{
+		sl := world.MeshSlot{
 			Index: idx,
 			Pos:   [3]float32{float32(x), float32(y), float32(z)},
-		})
+		}
+		if len(fields) == 7 { // a cabin rider's pose: sit or stand, -back facing back
+			pose, back := strings.CutSuffix(fields[6], "-back")
+			sl.Back = back
+			switch pose {
+			case "sit":
+				sl.Pose = world.SlotSit
+			case "stand":
+				sl.Pose = world.SlotStand
+			}
+		}
+		slots = append(slots, sl)
 	}
 	return slots
 }

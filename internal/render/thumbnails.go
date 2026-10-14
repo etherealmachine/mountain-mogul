@@ -35,6 +35,11 @@ const (
 	ThumbBelt      // the magic carpet
 	ThumbRope      // the rope tow
 	ThumbTBar      // the T-bar
+	ThumbTram      // the aerial tram
+	ThumbChairSingle
+	ThumbChair8Pack
+	ThumbFunitel
+	ThumbTri // the 3S gondola
 	// ThumbShellBase + world.ShellKind is that kind's building.
 	ThumbShellBase
 )

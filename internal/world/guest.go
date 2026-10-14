@@ -127,6 +127,7 @@ type Guest struct {
 
 	// Implicit-state markers.
 	OnLiftID uint64 // nonzero ⇒ riding the named lift's chair (locomotion is suspended)
+	LiftSeat int    // their place on the chair or in the cabin while OnLiftID: its mesh slot (RiderSlot)
 	Queued   bool   // in some lift.Queue, waiting to board
 	// LineJoined is when they joined the line they're in; CrowdPlace is
 	// 1 + their place in its crowd (Lift.Crowd), 0 for none; LinePassed

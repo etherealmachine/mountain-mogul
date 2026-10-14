@@ -434,7 +434,7 @@ func (s *Simulation) tickLifts(dt float64) {
 					// onPlanStepStart sets TargetID for the next step
 					// (typically SkiToLift/SkiToLodge/SkiToParking). They
 					// glide off the ramp (tickUnloading) before skiing to it.
-					s.startUnloading(agent, lift, j)
+					s.startUnloading(agent, lift, i, j)
 					if agent.Party.Leader != nil {
 						agent.Party.TopLift, agent.Party.TopSince = lift.ID, s.SimTime
 					}
@@ -457,10 +457,10 @@ func (s *Simulation) tickLifts(dt float64) {
 							break
 						}
 						chair.Passengers[j] = agent
-						agent.OnLiftID = lift.ID
+						agent.OnLiftID, agent.LiftSeat = lift.ID, j
 						agent.Queued = false
 						clipInToRide(agent)
-						agent.UseService(world.LiftQuality)
+						agent.UseService(lift.RideQuality())
 						if !agent.Player {
 							s.boarders = append(s.boarders, boarder{agent, lift, s.SimTime})
 						}
@@ -2820,14 +2820,17 @@ func (s *Simulation) tickRiding(agent *world.Guest, dt float64) {
 			return
 		}
 		slots := world.SlotsFor(lift.Type.MeshID())
-		for _, chair := range lift.Chairs {
+		for ci, chair := range lift.Chairs {
 			for slotIdx, p := range chair.Passengers {
 				if p != agent {
 					continue
 				}
-				pos, heading := lift.ChairPos(chair.Progress, w.Terrain)
+				pos, heading := lift.PlacePos(ci, w.Terrain)
 				agent.Pos = seatWorldPos(pos, heading, slotIdx, slots)
 				agent.Heading = heading
+				if slotIdx < len(slots) && slots[slotIdx].Back {
+					agent.Heading = heading + math.Pi // facing the back of the cabin
+				}
 				return
 			}
 		}

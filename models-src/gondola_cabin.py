@@ -1,5 +1,5 @@
 """Monocable detachable (MDG) gondola cabin — 8 passengers in two rows of
-four.
+four, after a Doppelmayr Omega.
 
 Conventions, units, and axis docs: see models-src/README.md.
 
@@ -7,106 +7,132 @@ Conventions, units, and axis docs: see models-src/README.md.
     +Y = lateral (perpendicular to cable)
     +Z = up (the writer turns it to the game's Y-up)
 
-Origin sits at the cable-grip point. The entire cabin hangs in -Z. The
-hanger arm runs from the grip down to the cabin roof; the body hangs below
-that. The body is one rounded shell: corners rounded top to bottom, the
-roof edge rounded over, a window band round the long sides. Keep colours
-near white so the per-instance tint (grey = empty, blue = occupied) reads
-cleanly.
+Origin sits at the cable-grip point. The entire cabin hangs in -Z: on top
+the grip and its carriage, whose rollers run on the terminal's rail; a
+hanger arm down to the roof; the body below. The cabin hangs long enough
+that, at a terminal (cable at world.BullwheelHeight), its floor is just
+over the snow and riders step straight in.
+
+The body is one rounded shell, square in plan with round corners,
+that narrows toward the floor like a tub: a red skirt, a wraparound band
+of tinted glass, a white roof. Sliding doors on the -Y side (the outside
+of the loop, where riders get on and off); ski holders on both ends.
+The game tints the whole cabin a touch cooler when it carries riders.
 """
 
 import numpy as np
 
 from lib.mogul import *
 
-
-def polyhedron_hull(points):
-    """The convex hull of a point list, as a solid."""
-    return hull_points(np.array(points))
-
-
 # ── Dimensions (metres) ────────────────────────────────────────────────
-hanger_thick = 0.14  # cross-section of the grip arm
-hanger_len = 0.80  # grip to cabin roof
+cable_h = 3.65  # world.BullwheelHeight
+floor_gap = 0.12  # the floor's underside over the snow at a terminal
 
-cabin_w = 2.40  # lateral (Y) — fits 4 riders side-by-side at 0.60 m spacing
-cabin_d = 1.30  # along-cable (X) — two facing rows with ~0.30 m knee clearance
-cabin_h = 2.10  # floor to ceiling
-wall_t = 0.08  # wall thickness
-corner_r = 0.28  # vertical corners, rounded
-roof_r = 0.14  # roof edge, rounded over
-
-# Divide the side-wall height into three bands.
-lower_frac = 0.28  # solid skirt below windows
-win_frac = 0.47  # window strip
-upper_frac = 0.25  # solid header above windows (= 1 - lower - win)
-
-lower_h = cabin_h * lower_frac  # 0.588
-win_h = cabin_h * win_frac  # 0.987
-upper_h = cabin_h * upper_frac  # 0.525
+cabin_w = 2.10  # lateral (Y) — square in plan, 4 riders side by side at 0.48 m, shoulder to shoulder
+cabin_d = 2.10  # along-cable (X) — two facing benches
+cabin_h = 2.05  # floor to roof
+corner_r = 0.45  # plan corners, rounded
+taper = 0.10  # how much the plan draws in at the floor
+roof_r = 0.16  # the roof edge, rolled over
 
 # Z anchors (everything hangs in -Z).
-cabin_top_z = -hanger_len  # -0.80
-cabin_bot_z = cabin_top_z - cabin_h  # -2.90
-win_bot_z = cabin_bot_z + lower_h  # -2.312
-win_top_z = win_bot_z + win_h  # -1.325
-cabin_ctr_z = (cabin_top_z + cabin_bot_z) / 2  # -1.85
+cabin_bot_z = -cable_h + floor_gap  # -3.53
+cabin_top_z = cabin_bot_z + cabin_h  # -1.48
+skirt_top_z = cabin_bot_z + 0.62  # glass from here...
+glass_top_z = cabin_top_z - 0.30  # ...to here, under the roof band
+hanger_bot_z = cabin_top_z + 0.02
+
+red = [0.74, 0.11, 0.13]
+shell = [0.95, 0.95, 0.96]
+glass = [0.26, 0.36, 0.44]
+dark = [0.18, 0.19, 0.21]
+steel = [0.55, 0.57, 0.60]
 
 m = Model()
 
-# ── Hanger ─────────────────────────────────────────────────────────────
-m.add(translate([0, 0, -hanger_len], cylinder(h=hanger_len, r=hanger_thick / 2, fn=10)), "white")
 
-# ── Cabin ──────────────────────────────────────────────────────────────
-# Kept faceted (the game draws one per cabin on every gondola): the plan is
-# a rectangle with its corners rounded in a few steps, and the roof edge
-# rolls over in two steps.
+def plan_at(inset, z, r=corner_r):
+    return [(x, y, z) for x, y in rounded_rect(cabin_d - 2 * inset, cabin_w - 2 * inset, r - inset, seg=3)]
 
 
-def rounded_rect(hx, hy, r, steps=3):
-    pts = []
-    for cx, cy, a0 in ((hx - r, hy - r, 0), (-hx + r, hy - r, 90), (-hx + r, -hy + r, 180), (hx - r, -hy + r, 270)):
-        for i in range(steps + 1):
-            a = math.radians(a0 + 90 * i / steps)
-            pts.append((cx + r * math.cos(a), cy + r * math.sin(a)))
-    return pts
-
-
-def plan_at(inset, z):
-    return [(x, y, z) for x, y in rounded_rect(cabin_d / 2 - inset, cabin_w / 2 - inset, corner_r - inset)]
-
-
+# ── Body ───────────────────────────────────────────────────────────────
+# Kept faceted (the game draws one per cabin on every gondola): hulls of
+# rounded plans, drawn in at the floor, the roof edge rolled in two steps.
 walls_top = cabin_top_z - roof_r
-body = union(
-    translate([0, 0, cabin_bot_z], linear_extrude(rounded_rect(cabin_d / 2, cabin_w / 2, corner_r), walls_top - cabin_bot_z)),
-    polyhedron_hull(plan_at(0, walls_top - 0.001) + plan_at(roof_r * 0.3, cabin_top_z - roof_r * 0.3)
-                    + plan_at(roof_r, cabin_top_z)),
-)
+tub = hull_points(np.array(plan_at(taper, cabin_bot_z) + plan_at(taper * 0.3, cabin_bot_z + 0.35)
+                           + plan_at(0, skirt_top_z)))
+walls = translate([0, 0, skirt_top_z - 0.001], linear_extrude(rounded_rect(cabin_d, cabin_w, corner_r, seg=3),
+                                                             walls_top - skirt_top_z + 0.002))
+roof = hull_points(np.array(plan_at(0, walls_top) + plan_at(roof_r * 0.35, cabin_top_z - roof_r * 0.3)
+                            + plan_at(roof_r, cabin_top_z)))
+m.add(tub, red, tolerance=0.02)
+band = translate([0, 0, (skirt_top_z + glass_top_z) / 2],
+                 cube([cabin_d + 0.2, cabin_w + 0.2, glass_top_z - skirt_top_z], center=True))
+m.add(walls & band, glass, tolerance=0.02)
+m.add([walls - band, roof], shell, tolerance=0.02)
 
-# The window strip along each long side, running round into the corners
-# between the front and rear walls; the rest of the shell is white.
-inner_w = cabin_d - 2 * wall_t
-band = translate([0, 0, (win_bot_z + win_top_z) / 2], cube([inner_w, cabin_w + 0.1, win_h], center=True))
-m.add(body - band, "white", tolerance=0.02)
-m.add(body & band, [0.70, 0.88, 1.00], tolerance=0.02)
+# Pillars between the panes: one each side of the door and at the middle
+# of the ends, standing just proud of the glass.
+pil = 0.07
+pillars = [translate([x, -cabin_w / 2 - 0.005, (skirt_top_z + glass_top_z) / 2],
+                     cube([pil, 0.04, glass_top_z - skirt_top_z], center=True)) for x in (-0.45, 0.45)]
+pillars += [translate([0, s * (cabin_w / 2 - 0.005), (skirt_top_z + glass_top_z) / 2],
+                      cube([pil, 0.04, glass_top_z - skirt_top_z], center=True)) for s in (1,)]
+pillars += [translate([s * (cabin_d / 2 - 0.005), y, (skirt_top_z + glass_top_z) / 2],
+                      cube([0.04, pil, glass_top_z - skirt_top_z], center=True))
+            for s in (-1, 1) for y in (-0.3, 0.3)]
+m.add(pillars, shell)
 
-# ── Passenger seat anchors ─────────────────────────────────────────────
-# Eight riders in two rows of four (front row at +X, rear at -X).
-# Riders stand; slot_z is the cabin floor level (just above the floor panel).
-row_x_front = 0.35
-row_x_rear = -0.35
-slot_y_outer = 0.90
-slot_y_inner = 0.30
-slot_z = cabin_bot_z + wall_t  # -2.82 — standing on the floor
+# Doors: two sliding leaves on the -Y side, the seam and edges dark.
+door_w, door_z0, door_z1 = 0.88, cabin_bot_z + 0.10, glass_top_z + 0.12
+dy = -cabin_w / 2 - 0.012
+m.add([translate([x, dy, (door_z0 + door_z1) / 2], cube([0.025, 0.03, door_z1 - door_z0], center=True))
+       for x in (-door_w / 2, 0, door_w / 2)]
+      + [translate([0, dy, door_z1], cube([door_w, 0.03, 0.025], center=True))], dark)
+# The skirt's door leaves in white, so the door reads from afar.
+m.add([translate([s * door_w / 4, dy + 0.01, (door_z0 + skirt_top_z) / 2],
+                 cube([door_w / 2 - 0.04, 0.02, skirt_top_z - door_z0], center=True)) for s in (-1, 1)], shell)
 
-# Front row (slots 0–3, left to right in travel direction).
-m.slot(0, row_x_front, -slot_y_outer, slot_z)
-m.slot(1, row_x_front, -slot_y_inner, slot_z)
-m.slot(2, row_x_front, slot_y_inner, slot_z)
-m.slot(3, row_x_front, slot_y_outer, slot_z)
-# Rear row (slots 4–7).
-m.slot(4, row_x_rear, -slot_y_outer, slot_z)
-m.slot(5, row_x_rear, -slot_y_inner, slot_z)
-m.slot(6, row_x_rear, slot_y_inner, slot_z)
-m.slot(7, row_x_rear, slot_y_outer, slot_z)
+# Ski holders on both ends: a dark frame with a few skis stood up in it.
+for s in (-1, 1):
+    x = s * (cabin_d / 2 + 0.06)
+    m.add([translate([x, 0, skirt_top_z - 0.05], cube([0.10, 1.2, 0.06], center=True)),
+           translate([x, 0, glass_top_z - 0.05], cube([0.10, 1.2, 0.05], center=True))], dark)
+    skis = [(-0.48, [0.85, 0.75, 0.12]), (-0.36, [0.85, 0.75, 0.12]), (0.34, [0.15, 0.55, 0.75]),
+            (0.46, [0.15, 0.55, 0.75])]
+    for y, c in skis:
+        m.add(translate([x + s * 0.05, y, (cabin_bot_z + 0.3 + glass_top_z + 0.15) / 2],
+                        cube([0.025, 0.08, glass_top_z - cabin_bot_z - 0.15], center=True)), c)
+
+# Floor pan.
+m.add(translate([0, 0, cabin_bot_z - 0.02], linear_extrude(
+    rounded_rect(cabin_d - 2 * taper - 0.04, cabin_w - 2 * taper - 0.04, corner_r - taper, seg=2), 0.03)), dark)
+
+# ── Hanger, carriage and grip ──────────────────────────────────────────
+# A roof plate, the hanger arm up to the carriage, and the carriage: a
+# beam with a roller at each corner, which run on the terminal's rail,
+# and the grip under the cable.
+m.add(translate([0, 0, cabin_top_z - 0.01], cylinder(h=0.06, r=0.34, fn=10)), steel)
+arm = [rod([0, 0, hanger_bot_z], [0, 0.10, -0.45], 0.065, fn=8),
+       rod([0, 0.10, -0.45], [0, 0, -0.18], 0.065, fn=8)]
+m.add(arm, steel)
+m.add(translate([0, 0, -0.14], cube([0.84, 0.14, 0.12], center=True)), dark)
+m.add([translate([x, y, -0.10], rotate([90, 0, 0], cylinder(h=0.05, r=0.07, fn=8, center=True)))
+       for x in (-0.36, 0.36) for y in (-0.10, 0.10)], [0.12, 0.12, 0.13])
+m.add(translate([0, 0, -0.02], cube([0.30, 0.12, 0.16], center=True)), steel)
+
+# ── Benches and riders ─────────────────────────────────────────────────
+# Eight riders seated on two benches facing each other, four on each,
+# 0.48 m apart: the rear bench (-X) faces forward, the front faces back.
+# Their skis ride in the racks outside. A rider's slot is where their feet
+# are; the figure's hips sit 0.2 m back from them, over the bench.
+from lib.cabin_kit import bench, seated_row  # noqa: E402
+
+floor_z = cabin_bot_z + 0.03
+inner = cabin_d / 2 - 0.08  # the end walls' inside
+for s in (-1, 1):
+    bench(m, s * inner, s * (inner - 0.40), 0.95, floor_z)
+ys = (-0.72, -0.24, 0.24, 0.72)
+i = seated_row(m, 0, inner - 0.42, ys, floor_z, back=True)  # front bench
+seated_row(m, i, -(inner - 0.42), ys, floor_z, back=False)  # rear bench
 m.main()

@@ -415,6 +415,14 @@ func (r *Renderer) initStaticMeshes() {
 			meshDef{MeshSnowGun, "snow_gun"}, // built by models-src/snow_gun.py
 			meshDef{MeshBar, "bar"},
 			meshDef{MeshLiftTermWide, "lift_terminal_wide"},
+			meshDef{MeshGondolaTerm, "gondola_terminal"},
+			meshDef{MeshTramTerm, "tram_terminal"},
+			meshDef{MeshTramTower, "tram_tower"},
+			meshDef{MeshLiftTerm8, "lift_terminal_8pack"},
+			meshDef{MeshFunitelTerm, "funitel_terminal"},
+			meshDef{MeshTriTerm, "tri_terminal"},
+			meshDef{MeshTowerWide, "tower_wide"},
+			meshDef{MeshFunitelTower, "funitel_tower"},
 			meshDef{MeshBeltEnd, "magic_carpet_end"},
 			meshDef{MeshBeltTop, "magic_carpet_top"},
 			meshDef{MeshRopeBase, "rope_tow_base"},
@@ -1146,7 +1154,7 @@ func LiftStationTransform(pos, otherEnd mgl32.Vec2, terrain *world.Terrain) mgl3
 }
 
 // StationMesh is the station model for a lift of type t: a detachable's
-// long terminal, else the fixed-grip station.
+// long terminal (the gondola's its own hall), else the fixed-grip station.
 func StationMesh(t world.LiftType) uint32 {
 	switch {
 	case t.Belt():
@@ -1157,6 +1165,16 @@ func StationMesh(t world.LiftType) uint32 {
 		return MeshTBarBase
 	case t == world.LiftHS6Pack:
 		return MeshLiftTermWide
+	case t == world.LiftGondola:
+		return MeshGondolaTerm
+	case t.Tram():
+		return MeshTramTerm
+	case t == world.LiftHS8Pack:
+		return MeshLiftTerm8
+	case t == world.LiftFunitel:
+		return MeshFunitelTerm
+	case t == world.LiftTri:
+		return MeshTriTerm
 	case t.Detachable():
 		return MeshLiftTerminal
 	}
@@ -1184,6 +1202,14 @@ func TowerMesh(t world.LiftType) uint32 {
 	if t.Hangers() {
 		return MeshTBarTower
 	}
+	switch t {
+	case world.LiftTram, world.LiftTri:
+		return MeshTramTower
+	case world.LiftFunitel:
+		return MeshFunitelTower
+	case world.LiftHS8Pack:
+		return MeshTowerWide
+	}
 	return MeshTower
 }
 
@@ -1210,6 +1236,24 @@ func TowerInstancesForLift(lift *world.Lift, t *world.Terrain) []mgl32.Mat4 {
 // generateCableMesh creates a quad strip for one cable at the given lateral offset.
 // perpOff > 0 = up cable side, perpOff < 0 = down cable side.
 func generateCableMesh(lift *world.Lift, t *world.Terrain, perpOff, cableWidth float32) *Mesh {
+	return generateCablesMesh(lift, t, []float32{perpOff}, cableWidth)
+}
+
+// cableMesh is the cables on one side of lift's line (side +1 the up
+// side, -1 the down): its ropes (world.Lift.RopeOffsets).
+func cableMesh(lift *world.Lift, t *world.Terrain, side, cableWidth float32) *Mesh {
+	off := side * lift.CableOffset()
+	ropes := lift.RopeOffsets()
+	offs := make([]float32, len(ropes))
+	for i, r := range ropes {
+		offs[i] = off + r
+	}
+	return generateCablesMesh(lift, t, offs, cableWidth)
+}
+
+// generateCablesMesh is generateCableMesh for several cables side by
+// side, perpOffs off the line, in one mesh.
+func generateCablesMesh(lift *world.Lift, t *world.Terrain, perpOffs []float32, cableWidth float32) *Mesh {
 
 	bx, bz := lift.Base[0], lift.Base[1]
 	tx, tz := lift.Top[0], lift.Top[1]
@@ -1224,7 +1268,7 @@ func generateCableMesh(lift *world.Lift, t *world.Terrain, perpOff, cableWidth f
 
 	// Sample a metre apart through the terminals and their ramps, where
 	// the cable's height changes, and every 5 m between.
-	ramp := lift.Station().Flat + world.StationOffset
+	ramp := lift.Station().Flat + lift.Ramp()
 	var dists []float32
 	for d := float32(0); d < length; {
 		dists = append(dists, d)
@@ -1236,26 +1280,29 @@ func generateCableMesh(lift *world.Lift, t *world.Terrain, perpOff, cableWidth f
 	}
 	dists = append(dists, length)
 
-	verts := make([]float32, 0, len(dists)*2*8)
-	indices := make([]uint32, 0, len(dists)*6)
+	verts := make([]float32, 0, len(perpOffs)*len(dists)*2*8)
+	indices := make([]uint32, 0, len(perpOffs)*len(dists)*6)
 
-	for i, d := range dists {
-		frac := d / length
-		cx := bx + dx*frac + perpX*perpOff
-		cz := bz + dz*frac + perpZ*perpOff
-		cy := t.InterpolatedSurfaceElevationAt(cx, cz) + lift.CableHeightAt(d)
+	for _, perpOff := range perpOffs {
+		start := uint32(len(verts) / 8)
+		for i, d := range dists {
+			frac := d / length
+			cx := bx + dx*frac + perpX*perpOff
+			cz := bz + dz*frac + perpZ*perpOff
+			cy := t.InterpolatedSurfaceElevationAt(cx, cz) + lift.CableHeightAt(d)
 
-		for side := -1; side <= 1; side += 2 {
-			s := float32(side) * cableWidth * 0.5
-			verts = append(verts,
-				cx+perpX*s, cy, cz+perpZ*s,
-				0, 1, 0,
-				frac, float32((side+1)/2),
-			)
-		}
-		if i < len(dists)-1 {
-			base := uint32(i * 2)
-			indices = append(indices, base, base+1, base+2, base+1, base+3, base+2)
+			for side := -1; side <= 1; side += 2 {
+				s := float32(side) * cableWidth * 0.5
+				verts = append(verts,
+					cx+perpX*s, cy, cz+perpZ*s,
+					0, 1, 0,
+					frac, float32((side+1)/2),
+				)
+			}
+			if i < len(dists)-1 {
+				base := start + uint32(i*2)
+				indices = append(indices, base, base+1, base+2, base+1, base+3, base+2)
+			}
 		}
 	}
 	return NewMesh(verts, indices, []int{3, 3, 2}, nil)
@@ -1675,13 +1722,13 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	// Re-bind the dynamic shader: the debug pass above may have switched it.
 	if r.chairBatch != nil || r.chairTripleBatch != nil || r.chairQuadBatch != nil {
 		r.DynamicShader.Use()
-		var doubles, triples, quads, sixPacks, gondolas, tbars, tbarsUp []DynamicInstance
+		var doubles, triples, quads []DynamicInstance
 		for _, lift := range w.Lifts {
 			if lift.Type.Surface() && !lift.Type.Hangers() {
 				continue // the belt or rope is drawn with the cables
 			}
-			for _, chair := range lift.Chairs {
-				pos, heading := lift.ChairPos(chair.Progress, w.Terrain)
+			for ci, chair := range lift.Chairs {
+				pos, heading := lift.PlacePos(ci, w.Terrain)
 				hasPax := false
 				for _, p := range chair.Passengers {
 					if p != nil {
@@ -1705,20 +1752,10 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 					triples = append(triples, inst)
 				case world.LiftFixedQuad, world.LiftHSQuad:
 					quads = append(quads, inst)
-				case world.LiftHS6Pack:
-					sixPacks = append(sixPacks, inst)
-				case world.LiftGondola:
-					gondolas = append(gondolas, inst)
-				case world.LiftTBar:
-					// Let down to riders, else reeled in; no tint.
-					inst.Color = [3]float32{1, 1, 1}
-					if hasPax {
-						tbars = append(tbars, inst)
-					} else {
-						tbarsUp = append(tbarsUp, inst)
-					}
-				default:
+				case world.LiftDouble:
 					doubles = append(doubles, inst)
+				default:
+					addBigLiftChair(r, lift, chair.Progress, inst, hasPax)
 				}
 			}
 		}
@@ -1734,10 +1771,11 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 			r.chairQuadBatch.SetDynamic(quads)
 			r.chairQuadBatch.Draw()
 		}
-		drawBigLiftChairs(r, sixPacks, gondolas, tbars, tbarsUp)
+		drawBigLiftChairs(r)
 	}
 
 	r.drawWater(w, vp, light, time)
+	drawBubbleHoods(r)
 	r.drawWeatherOverlay(time, light)
 }
 
@@ -2142,8 +2180,8 @@ func (r *Renderer) SetGhostCable(typ world.LiftType, base, top mgl32.Vec2, t *wo
 		}
 		r.SetGhosts(MeshRopePost, posts)
 	default:
-		r.scene.ghostUpCable = generateCableMesh(tempLift, t, world.CableGap, ghostLineWidth)
-		r.scene.ghostDownCable = generateCableMesh(tempLift, t, -world.CableGap, ghostLineWidth)
+		r.scene.ghostUpCable = cableMesh(tempLift, t, 1, ghostLineWidth)
+		r.scene.ghostDownCable = cableMesh(tempLift, t, -1, ghostLineWidth)
 	}
 
 	mats := TowerInstancesForLift(tempLift, t)
@@ -2167,6 +2205,9 @@ func (r *Renderer) ClearGhostCable() {
 	}
 	r.SetGhosts(MeshTower, nil)
 	r.SetGhosts(MeshTBarTower, nil)
+	r.SetGhosts(MeshTramTower, nil)
+	r.SetGhosts(MeshTowerWide, nil)
+	r.SetGhosts(MeshFunitelTower, nil)
 }
 
 // AddLiftMeshes generates and stores cable and queue meshes for a lift.
@@ -2186,8 +2227,12 @@ func (r *Renderer) AddLiftMeshes(lift *world.Lift, t *world.Terrain) {
 		r.scene.liftDownCables[lift.ID] = generateTowRopeMesh(lift, t, -world.RopeGap, ropeWidth)
 		return
 	}
-	r.scene.liftUpCables[lift.ID] = generateCableMesh(lift, t, world.CableGap, cableWidth)
-	r.scene.liftDownCables[lift.ID] = generateCableMesh(lift, t, -world.CableGap, cableWidth)
+	w := float32(cableWidth)
+	if len(lift.RopeOffsets()) > 1 {
+		w *= 1.3 // track ropes, or a funitel's pair, heavier than a chairlift's haul rope
+	}
+	r.scene.liftUpCables[lift.ID] = cableMesh(lift, t, 1, w)
+	r.scene.liftDownCables[lift.ID] = cableMesh(lift, t, -1, w)
 }
 
 // RemoveLiftMeshes removes the cable meshes for a lift.

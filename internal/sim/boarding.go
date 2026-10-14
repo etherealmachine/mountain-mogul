@@ -26,7 +26,8 @@ const fillSmoothing = 0.05
 // base, and updates the lift's Fill when people are left waiting.
 func loadChair(lift *world.Lift, seats int) []*world.Guest {
 	var taken []*world.Guest
-	for len(lift.Queue) > 0 && len(taken) < seats && (lift.Staff.LineAttendant || joins(taken, lift.Queue, seats)) {
+	// A tram's cabin takes the line as it comes: everyone crowds in.
+	for len(lift.Queue) > 0 && len(taken) < seats && (lift.Staff.LineAttendant || lift.Type.Tram() || joins(taken, lift.Queue, seats)) {
 		g := lift.Queue[0]
 		lift.LeaveLine(g)
 		taken = append(taken, g)

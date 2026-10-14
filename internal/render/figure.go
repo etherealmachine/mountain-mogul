@@ -296,6 +296,39 @@ func tbarPose(p figPose) figPose {
 }
 
 // onSurface reports whether lift id is a surface lift.
+// riderPose is g riding a chair or cabin: on the chair's seat with their
+// skis on, or in a cabin (skis in its racks) on a bench or standing.
+func riderPose(w *world.World, g *world.Guest) figPose {
+	sl, ok := cabinSlot(w, g)
+	if !ok {
+		return chairPose()
+	}
+	var p figPose
+	if sl.Pose == world.SlotStand {
+		p = stancePose(stanceParams{})
+	} else {
+		p = chairPose()
+		for s := range 2 { // hands on the knees, not out over a footrest
+			p.armPitch[s], p.elbow[s] = 0.35, 0.6
+		}
+	}
+	p.hide = 1<<boneSkiL | 1<<boneSkiR | 1<<bonePoleL | 1<<bonePoleR
+	return p
+}
+
+// cabinSlot is the cabin slot g rides in: false on a chair or off a lift.
+func cabinSlot(w *world.World, g *world.Guest) (world.MeshSlot, bool) {
+	if g.OnLiftID == 0 {
+		return world.MeshSlot{}, false
+	}
+	l := w.LiftByID(g.OnLiftID)
+	if l == nil {
+		return world.MeshSlot{}, false
+	}
+	sl, ok := world.RiderSlot(l, g)
+	return sl, ok && sl.Pose != world.SlotChair
+}
+
 func onSurface(w *world.World, id uint64) bool {
 	_, ok := surfaceLift(w, id)
 	return ok
@@ -341,7 +374,7 @@ func (f *figures) guestPose(w *world.World, g *world.Guest, a *figureAnim, dt fl
 			return p
 		}
 		if g.OnLiftID != 0 {
-			return chairPose()
+			return riderPose(w, g)
 		}
 		up := clampF(g.Unload.Gone/world.UnloadRise, 0, 1)
 		return lerpPose(chairPose(), a.skiPose(t, g.Pos, 0, g.Traits.Skill, 0, dt), easeStep(up))
@@ -559,7 +592,9 @@ func (f *figures) build(r *Renderer, w *world.World) {
 			y = deckOrGround(w)(pos[0], pos[2]) + g.Unload.UnloadLift()
 		}
 		if g.Child && g.OnLiftID != 0 && !onSurface(w, g.OnLiftID) {
-			y += chairPelvisY * (1 - kidScale) // on the seat, legs dangling
+			if sl, ok := cabinSlot(w, g); !ok || sl.Pose == world.SlotSit {
+				y += chairPelvisY * (1 - kidScale) // on the seat, legs dangling
+			}
 		}
 		place := mgl32.Translate3D(pos[0], y, pos[2]).Mul4(headingBasis(a.heading))
 		if g.Child {

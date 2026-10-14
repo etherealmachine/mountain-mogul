@@ -99,3 +99,53 @@ def chair(m, w, cushion, hanger=0.10):
                      cushion_box(back_cushion, w, back_top_z - back_bot_z, r=0.025))
     m.add(translate([back_x + back_cushion / 2, 0, back_bot_z], rotate([0, -8, 0], back)),
           cushion, tolerance=0.02)
+
+
+def bench(m, w, cushion, hanger=0.10):
+    """A chair w wide (chair) with a rider's slot every 0.6 m across it,
+    feet on the footrest."""
+    chair(m, w, cushion, hanger)
+    n = round(w / 0.6)
+    for i in range(n):
+        m.slot(i, 0, (i - (n - 1) / 2) * 0.6, foot_top_z)
+
+
+# The bubble cover (the 6-pack's and 8-pack's upgrade): a tinted hood
+# hinged at the bend of the hanger over the backrest, as wide as the
+# chair, with side panels. Down on the line it closes over the riders to
+# their knees; up in the terminals it swings back over the top. Its frame
+# is part of the chair (chair_*_bubble*.py); the hood's tinted shell is
+# its own model (chair_*_hood*.py), which the game draws see-through.
+bubble_pivot = (back_x - 0.03, yoke_z + 0.18)
+bubble_r = 1.08
+
+
+def bubble(m, w, color=None, down=True, hood=True, frame=True):
+    """Add the bubble cover to a chair w wide, down over the riders or
+    up: its tinted hood (coloured color) and its frame."""
+    a0, a1 = (-38, 100) if down else (75, 210)
+    px, pz = bubble_pivot
+    r0, r1 = bubble_r - 0.04, bubble_r
+    steps = 10
+    arc = [math.radians(a0 + (a1 - a0) * k / steps) for k in range(steps + 1)]
+    shell = [(r1 * math.cos(a), r1 * math.sin(a)) for a in arc] + [(r0 * math.cos(a), r0 * math.sin(a)) for a in reversed(arc)]
+    pie = [(0.0, 0.0)] + [(r1 * math.cos(a), r1 * math.sin(a)) for a in arc]
+    hw = w / 2 + 0.08
+    if hood:
+        parts = [rotate([90, 0, 0], linear_extrude(shell, height=2 * hw, center=True))]
+        parts += [translate([0, s * hw, 0], rotate([90, 0, 0], linear_extrude(pie, height=0.03, center=True)))
+                  for s in (-1, 1)]
+        m.add([translate([px, 0, pz], p) for p in parts], color)
+    if not frame:
+        return
+    # Its frame: a rim along the free edge, ribs down each end and between
+    # the panes, dark against the tinted shell.
+    edge = math.radians(a0)
+    ex, ez = px + (r1 + 0.02) * math.cos(edge), pz + (r1 + 0.02) * math.sin(edge)
+    frame = [translate([ex, 0, ez], rotate([90, 0, 0], cylinder(h=2 * hw, r=0.035, fn=6, center=True)))]
+    for y in [-hw, hw] + [hw * (2 * k / 4 - 1) for k in range(1, 4)]:
+        rib = [(px + (r1 + 0.015) * math.cos(a), y, pz + (r1 + 0.015) * math.sin(a)) for a in arc]
+        frame += [rod(rib[k], rib[k + 1], 0.025, fn=6) for k in range(len(rib) - 1)]
+    m.add(frame, frame_color)
+    # The hinge bar along the pivot.
+    m.add(translate([px, 0, pz], rotate([90, 0, 0], cylinder(h=2 * hw + 0.1, r=0.04, fn=8, center=True))), frame_color)

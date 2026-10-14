@@ -397,8 +397,8 @@ func (l *Lift) LineEndXZ(from mgl32.Vec2) mgl32.Vec2 {
 }
 
 // UpdateLineLayouts lays out every lift's line: a crowd where there's no
-// line attendant, a rope corral sized to the line where there is, nothing
-// for a helicopter. Everyone in line keeps their order.
+// line attendant, a rope corral sized to the line where there is, a
+// single file into a station house, nothing for a helicopter. Everyone in line keeps their order.
 func (w *World) UpdateLineLayouts() {
 	if w.Terrain == nil {
 		return
@@ -421,7 +421,7 @@ func (w *World) UpdateLineLayout(l *Lift) {
 
 func (w *World) layLine(l *Lift) {
 	switch {
-	case l.Cableless():
+	case l.Cableless(), l.Station().Enclosed: // a station house's line files in at its door
 		l.setCrowd(nil)
 		l.stopCorral()
 	case l.Staff.LineAttendant:

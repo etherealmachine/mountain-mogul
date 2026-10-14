@@ -8,6 +8,9 @@ out vec4 fragColor;
 
 // uEmissive = 1 draws vColor unlit (lamp lenses, beacons).
 uniform float uEmissive;
+// uFade is how see-through the mesh is, 0 (opaque, the default) to 1:
+// the bubble hoods, drawn blended after everything solid.
+uniform float uFade;
 
 // lighting.glsl is prepended by shader loader
 
@@ -17,5 +20,5 @@ void main() {
         return;
     }
     vec3 lit = computeLightingAt(vNormal, vColor, vWorldPos);
-    fragColor = vec4(toneMap(applyHaze(lit, vWorldPos)), 1.0);
+    fragColor = vec4(toneMap(applyHaze(lit, vWorldPos)), 1.0 - uFade);
 }

@@ -572,6 +572,8 @@ type LiftData struct {
 	liftDataExtras
 	// LineAttendant is Lift.Staff.LineAttendant.
 	LineAttendant bool `json:"line_attendant,omitempty"`
+	// Bubble is Lift.Bubble: a 6-pack's or 8-pack's bubble covers.
+	Bubble bool `json:"bubble,omitempty"`
 }
 
 // PlanActionData is one serialised step in a guest's L0 plan. Fields map

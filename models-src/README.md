@@ -97,14 +97,19 @@ them without depending on the render package.
 
 ### Passenger slots — `slot`
 
-For ridden meshes (chairs). An anchor where a rider's feet land; indices
-0, 1, 2 … must be unique.
+For ridden meshes (chairs and cabins). An anchor where a rider's feet
+land; indices 0, 1, 2 … must be unique. A cabin's slots take a pose:
+`"sit"` (on a bench, the hips 0.2 m back from the feet and 0.6 m up) or
+`"stand"`, with `"-back"` for a rider facing the back of the cabin. Cabin
+riders have no skis on (they're in the racks outside). Without a pose, a
+rider sits on a chair's seat, skis on, feet on the footrest.
 
 ```python
-m.slot(index, x, y, z)
+m.slot(index, x, y, z)           # a chair's seat
+m.slot(index, x, y, z, "sit-back")  # a cabin's bench, facing back
 ```
 
-OBJ output: `# slot <index> <x> <y> <z>` (game axes).
+OBJ output: `# slot <index> <x> <y> <z> [<pose>]` (game axes).
 Loader: `render.LoadOBJSlots` → `world.RegisterMeshSlots`.
 
 ### Building footprint — `footprint`

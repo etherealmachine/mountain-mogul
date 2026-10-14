@@ -38,6 +38,11 @@ const (
 	MeshSkiRack      uint32 = 26       // A-frame ski rack
 	MeshBeltPlace    uint32 = 30       // a rider's place on a magic carpet's belt or a rope tow's rope: nothing drawn, no seat slots
 	MeshTBarHanger   uint32 = 35       // a T-bar's hanger, let down to two riders (tbar_hanger.py; its slots are their feet)
+	MeshTramCabin    uint32 = 200      // an aerial tram's cabin (tram_cabin.py), clear of the shell kits' IDs from 40
+	MeshChairSingle  uint32 = 203      // 1-seat fixed grip chair
+	MeshChair8Pack   uint32 = 204      // 8-seat high-speed detachable chair
+	MeshFunitelCabin uint32 = 205      // funitel cabin (funitel_cabin.py)
+	MeshTriCabin     uint32 = 206      // tricable gondola cabin (tri_cabin.py)
 )
 
 // MeshSlot is an anchor point baked into a mesh by the model pipeline
@@ -47,6 +52,30 @@ const (
 type MeshSlot struct {
 	Index int
 	Pos   [3]float32
+	// Pose is how a rider is there: on a chair's seat, or in a cabin (no
+	// skis: they're in its racks) on a bench or standing. Back is a cabin
+	// rider facing the back of the cabin.
+	Pose SlotPose
+	Back bool
+}
+
+// SlotPose is how a rider is at a mesh slot.
+type SlotPose uint8
+
+const (
+	SlotChair SlotPose = iota // on a chair's seat, skis on, feet on the footrest
+	SlotSit                   // on a cabin's bench, feet on the floor
+	SlotStand                 // standing on a cabin's floor
+)
+
+// RiderSlot is the slot g rides in on lift l, if they're riding it and
+// its mesh has slots.
+func RiderSlot(l *Lift, g *Guest) (MeshSlot, bool) {
+	slots := SlotsFor(l.Type.MeshID())
+	if g.OnLiftID != l.ID || g.LiftSeat < 0 || g.LiftSeat >= len(slots) {
+		return MeshSlot{}, false
+	}
+	return slots[g.LiftSeat], true
 }
 
 var meshSlots = map[uint32][]MeshSlot{}

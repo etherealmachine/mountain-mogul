@@ -689,8 +689,8 @@ func (w *World) PlaceLift(typ LiftType, bx, bz, tx, tz float32) *Lift {
 		// Initialise chairs evenly spaced around the loop, each pre-sized
 		// to the lift type's per-chair capacity.
 		numChairs := int(lift.LoopLength() / typ.PlaceSpacing())
-		if numChairs < 2 {
-			numChairs = 2
+		if numChairs < 2 || typ.Tram() {
+			numChairs = 2 // a tram's two cabins, half a round trip apart
 		}
 		cap := typ.Capacity()
 		lift.Chairs = make([]Chair, numChairs)
@@ -728,7 +728,8 @@ func LiftUpgradeCost(from, to LiftType) int {
 		from == LiftDouble && to == LiftFixedQuad,
 		from == LiftFixedTriple && to == LiftFixedQuad,
 		from == LiftFixedQuad && to == LiftHSQuad,
-		from == LiftHSQuad && to == LiftHS6Pack:
+		from == LiftHSQuad && to == LiftHS6Pack,
+		from == LiftHS6Pack && to == LiftHS8Pack:
 		return to.StationCost() - from.StationCost()
 	}
 	return 0
@@ -741,8 +742,9 @@ func LiftUpgradeCost(from, to LiftType) int {
 // seat indices in the resized chair).
 //
 // Supported transitions: Double → Triple or FixedQuad, Triple →
-// FixedQuad, FixedQuad → HSQuad, HSQuad → HS6Pack.
-// Cable, towers, queue, and chair positions are unchanged.
+// FixedQuad, FixedQuad → HSQuad, HSQuad → HS6Pack, HS6Pack → HS8Pack.
+// The line and its chairs' progress are unchanged; the 8-pack's wider
+// cables and terminal move its stations' parts.
 func (w *World) UpgradeLift(l *Lift, target LiftType) bool {
 	if l == nil {
 		return false
@@ -757,12 +759,25 @@ func (w *World) UpgradeLift(l *Lift, target LiftType) bool {
 	w.Spend(cost)
 	l.Type = target
 	l.Speed = target.DefaultSpeed()
+	l.ResetTowerCache()
 	cap := target.Capacity()
 	for i := range l.Chairs {
 		fresh := make([]*Guest, cap)
 		copy(fresh, l.Chairs[i].Passengers)
 		l.Chairs[i].Passengers = fresh
 	}
+	return true
+}
+
+// AddBubbles buys bubble covers for every chair of l, a 6-pack or an
+// 8-pack. Returns false if it can't have them, has them, or the player
+// can't afford them.
+func (w *World) AddBubbles(l *Lift) bool {
+	if l == nil || l.Bubble || !l.Type.Bubbles() || !w.CanAfford(l.BubbleCost()) {
+		return false
+	}
+	w.Spend(l.BubbleCost())
+	l.Bubble = true
 	return true
 }
 

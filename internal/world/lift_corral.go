@@ -47,7 +47,16 @@ const (
 func (l *Lift) HasCorral() bool { return l.CorralRows > 0 }
 
 // corralWidth is a row's places: the chair's seats.
-func (l *Lift) corralWidth() int { return max(l.Type.Capacity(), 1) }
+func (l *Lift) corralWidth() int {
+	if l.Type.Tram() {
+		return tramRowWidth
+	}
+	return max(l.Type.Capacity(), 1)
+}
+
+// tramRowWidth is a row of a tram's corral: a cabin holds far more than a
+// row, so its rows are a few abreast, as wide as the platform.
+const tramRowWidth = 4
 
 // corralRunLen is how many places the run to the load holds.
 func (l *Lift) corralRunLen() int { return corralRunRows * l.corralWidth() }

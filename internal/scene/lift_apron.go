@@ -46,6 +46,11 @@ type apronShape struct{ front, depth, half float32 }
 func liftApron(l *world.Lift) apronShape {
 	a := apronShape{front: l.Station().ApronFront, depth: liftApronDepth, half: liftApronHalfWidth}
 	switch {
+	case l.Station().Enclosed:
+		// The station house, and room behind it for riders walking out.
+		a.half, a.depth = max(6.5, l.Station().HalfWidth()+1.4), max(a.depth, l.Station().Rear()+7)
+	case l.Type == world.LiftHS8Pack:
+		a.half = 8.5 // its wider roof, posts and hut
 	case l.Type.Detachable():
 		a.half = 6.5 // the roof, its posts and the hut
 	case l.Type.Hangers():

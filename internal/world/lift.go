@@ -34,6 +34,11 @@ const (
 	LiftMagicCarpet                 // conveyor belt for beginners, riders standing on it (a surface lift)
 	LiftRopeTow                     // a moving rope riders hold, sliding up on their skis (a surface lift)
 	LiftTBar                        // T-shaped bars off an overhead cable pulling two riders up on their skis (a surface lift)
+	LiftTram                        // aerial tramway: two big cabins shuttling back and forth, each on its own track (tram.go)
+	LiftSingle                      // 1-seat fixed grip (Mad River Glen's)
+	LiftHS8Pack                     // 8-seat high-speed detachable 8-pack, on wider-set cables
+	LiftFunitel                     // 24-person cabins on two haul ropes a way, steady in wind (cabin_lifts.go)
+	LiftTri                         // tricable (3S) gondola: 28-person cabins on two track ropes and a haul rope, huge spans (cabin_lifts.go)
 )
 
 const (
@@ -58,6 +63,16 @@ func (t LiftType) Capacity() int {
 		return HeliCapacity
 	case LiftMagicCarpet, LiftRopeTow:
 		return 1
+	case LiftTram:
+		return TramCapacity
+	case LiftSingle:
+		return 1
+	case LiftHS8Pack:
+		return 8
+	case LiftFunitel:
+		return 24
+	case LiftTri:
+		return 28
 	}
 	return 2 // a T-bar too
 }
@@ -81,6 +96,16 @@ func (t LiftType) MeshID() uint32 {
 		return MeshBeltPlace
 	case LiftTBar:
 		return MeshTBarHanger
+	case LiftTram:
+		return MeshTramCabin
+	case LiftSingle:
+		return MeshChairSingle
+	case LiftHS8Pack:
+		return MeshChair8Pack
+	case LiftFunitel:
+		return MeshFunitelCabin
+	case LiftTri:
+		return MeshTriCabin
 	}
 	return MeshChair
 }
@@ -100,6 +125,14 @@ func (t LiftType) DefaultSpeed() float32 {
 		return 1.0
 	case LiftTBar:
 		return 3.0
+	case LiftTram:
+		return 10.0
+	case LiftHS8Pack, LiftFunitel:
+		return 6.0
+	case LiftTri:
+		return 7.5
+	case LiftSingle:
+		return 2.2
 	}
 	return 2.5 // a rope tow too
 }
@@ -128,6 +161,16 @@ func (t LiftType) Label() string {
 			return "Rope Tow"
 		case LiftTBar:
 			return "T-Bar"
+		case LiftTram:
+			return "Aerial Tram"
+		case LiftSingle:
+			return "Single"
+		case LiftHS8Pack:
+			return "High-Speed 8-Pack"
+		case LiftFunitel:
+			return "Funitel"
+		case LiftTri:
+			return "3S Gondola"
 		}
 	}
 	return "Double"
@@ -200,6 +243,9 @@ type Lift struct {
 
 	// Staff is who works the lift beyond its two operators.
 	Staff LiftStaff
+	// Bubble is a 6-pack's or 8-pack's bubble covers (Bubbles), bought in
+	// its popup: riders ride out of the wind under them, a better ride.
+	Bubble bool
 	// Fill is how full chairs leave the base while people are still in
 	// line, a running average (0 until a chair has loaded with a line
 	// behind it); see LineWait. Not persisted.
@@ -271,12 +317,12 @@ func (l *Lift) TowerXZs() []mgl32.Vec2 {
 	length := float32(math.Sqrt(float64(dx*dx + dz*dz)))
 	// The first tower is where the cable reaches tower height, past the
 	// terminal's flat run.
-	stationOffset := float32(StationOffset) + l.Station().Flat
+	stationOffset := l.Ramp() + l.Station().Flat
 	if length <= 2*stationOffset || !l.Type.HasTowers() {
 		return nil
 	}
 	innerLen := length - 2*stationOffset
-	intervals := int(innerLen / TowerSpacing)
+	intervals := int(innerLen / l.Type.towerSpacing())
 	if intervals < 1 {
 		intervals = 1
 	}
@@ -434,7 +480,7 @@ func (t LiftType) Rope() bool { return !edition.Demo && t == LiftRopeTow }
 func (t LiftType) Hangers() bool { return !edition.Demo && t == LiftTBar }
 
 // HasTowers reports whether a lift of this type has towers along its
-// line (TowerXZs): a chairlift or a T-bar.
+// line (TowerXZs): a chairlift, a T-bar or a tram.
 func (t LiftType) HasTowers() bool { return !t.Surface() || t.Hangers() }
 
 // TBarCableHeight is a T-bar's cable over the snow, the same all the way
@@ -473,8 +519,12 @@ func (t LiftType) PlaceSpacing() float32 {
 		return 8
 	case t.Hangers():
 		return 15
+	case t == LiftFunitel:
+		return 60
+	case t == LiftTri:
+		return 100
 	}
-	return ChairSpacingM
+	return ChairSpacingM // a tram has two cabins whatever its length (PlaceLift)
 }
 
 // MaxLength is the longest lift of this type, metres between its ends;
@@ -589,6 +639,16 @@ func (t LiftType) StationCost() int {
 		return 40_000
 	case LiftTBar:
 		return 250_000
+	case LiftTram:
+		return 7_000_000
+	case LiftSingle:
+		return 300_000
+	case LiftHS8Pack:
+		return 2_300_000
+	case LiftFunitel:
+		return 6_000_000
+	case LiftTri:
+		return 9_000_000
 	}
 	return 0
 }
@@ -616,6 +676,16 @@ func (t LiftType) PerMeterCost() int {
 		return 120
 	case LiftTBar:
 		return 140 // towers and cable
+	case LiftTram:
+		return 2_000 // track ropes, haul rope, a few big towers
+	case LiftSingle:
+		return 120
+	case LiftHS8Pack:
+		return 300
+	case LiftFunitel:
+		return 3_200
+	case LiftTri:
+		return 4_500
 	}
 	return 0
 }
@@ -645,14 +715,46 @@ func (t LiftType) RunningCostDay() int {
 		return 150
 	case LiftTBar:
 		return 700
+	case LiftTram:
+		return 8_000
+	case LiftSingle:
+		return 700
+	case LiftHS8Pack:
+		return 3_800
+	case LiftFunitel:
+		return 9_000
+	case LiftTri:
+		return 12_000
 	}
 	return 0
 }
 
 // LiftQuality is the quality of a lift ride as a service, toward a
 // guest's quality stars (Guest.UseService): the going rate for now
-// (notes/next/Service Quality.md).
-const LiftQuality = 0.5
+// (notes/next/Service Quality.md). BubbleLiftQuality is a ride under a
+// bubble cover.
+const (
+	LiftQuality       = 0.5
+	BubbleLiftQuality = 0.65
+)
+
+// RideQuality is the quality of a ride on l.
+func (l *Lift) RideQuality() float32 {
+	if l.Bubble && l.Type.Bubbles() {
+		return BubbleLiftQuality
+	}
+	return LiftQuality
+}
+
+// Bubbles reports whether chairs of this type can have bubble covers:
+// the 6-pack and the 8-pack.
+func (t LiftType) Bubbles() bool { return !edition.Demo && (t == LiftHS6Pack || t == LiftHS8Pack) }
+
+// BubbleCostPerChair is what a bubble cover costs, each chair.
+const BubbleCostPerChair = 6_000
+
+// BubbleCost is what covering every chair of l costs.
+func (l *Lift) BubbleCost() int { return len(l.Chairs) * BubbleCostPerChair }
 
 // Line waits. A guest won't join a line whose wait is over their
 // MaxLineWaitFor (they look for another lift, or say "every lift line is
@@ -792,6 +894,9 @@ func (l *Lift) StaffPosts() []LiftStaffPost {
 		dir, perp := l.lineAxes()
 		load := l.LoadXZ()
 		reach := float32(l.Type.Capacity())*0.3 + 0.7 // past the chair's end (0.6 m a seat), by the posts
+		if l.Type.Tram() {
+			reach = 1.0 // on the platform between the cabins, beside the line
+		}
 		post(StaffLineAttendant, load.Sub(dir.Mul(0.8)).Add(perp.Mul(reach)), load)
 	}
 	return out

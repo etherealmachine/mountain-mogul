@@ -447,6 +447,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 			QueueIDs:    queueIDs,
 
 			LineAttendant: l.Staff.LineAttendant,
+			Bubble:        l.Bubble,
 		}
 		if l.Cableless() && !forScenario {
 			saveHeli(l, &ld)
@@ -1147,6 +1148,7 @@ func dataToWorld(data ScenarioData) *world.World {
 			loadHeli(lift, ld)
 		}
 		lift.Staff.LineAttendant = ld.LineAttendant
+		lift.Bubble = ld.Bubble
 	}
 
 	// Restore guests. Every row in data.Guests rehydrates into a *Guest in
@@ -1291,6 +1293,7 @@ func dataToWorld(data ScenarioData) *world.World {
 				}
 				if a := guestByID[pid]; a != nil {
 					lift.Chairs[ci].Passengers[pi] = a
+					a.LiftSeat = pi
 				}
 			}
 		}
