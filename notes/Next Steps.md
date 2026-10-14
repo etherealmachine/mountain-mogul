@@ -131,7 +131,7 @@ Diagnose each first, report the cause, then fix:
 - **Tunnels**: roads and paths through terrain.
 - **Parking choice**: guests pick lots weighted by distance to the lifts. Part of [[Transit]] step 5.
 - [[Lot Surfaces]]: asphalt, gravel, or dirt per lot, with its own cost, capacity, and look. Planned, split out of [[Transit]].
-- [[Large Vehicles]]: buses and RVs, which don't fit one stall: long-stall rows or paired stalls, bus drop-offs, and overnight RVs.
+- [[Large Vehicles]]: buses and RVs, which don't fit one stall: long-stall rows or paired stalls, bus drop-offs (shuttles from town and hotels, [[Shuttles and Parking]]), and overnight RVs. Wanted (the user, 2026-10-14).
 - **Better traffic**: merging, turning lanes, signals, and more than one entrance per lot, for resorts past a couple of thousand cars a morning. Part of [[Transit]] step 5.
 
 ## Economy ([[Finance]], [[Demand]])
