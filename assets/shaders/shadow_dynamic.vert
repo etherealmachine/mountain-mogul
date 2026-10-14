@@ -6,12 +6,16 @@
 layout(location = 0) in vec3 aPos;
 layout(location = 2) in vec3 iPosition;
 layout(location = 3) in float iHeading;
+layout(location = 6) in float iPitch;
 
 uniform mat4 uLightVP;
 
 void main() {
     float s = sin(iHeading);
     float c = cos(iHeading);
-    vec3 p = vec3(s * aPos.x - c * aPos.z, aPos.y, c * aPos.x + s * aPos.z);
+    float sp = sin(iPitch);
+    float cp = cos(iPitch);
+    vec3 q = vec3(cp * aPos.x - sp * aPos.y, sp * aPos.x + cp * aPos.y, aPos.z);
+    vec3 p = vec3(s * q.x - c * q.z, q.y, c * q.x + s * q.z);
     gl_Position = uLightVP * vec4(p + iPosition, 1.0);
 }

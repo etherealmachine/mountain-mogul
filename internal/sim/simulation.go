@@ -378,6 +378,7 @@ func (s *Simulation) subTick(dt float64) {
 		s.tickSnowmaking(dt)
 	}
 	s.tickAvalanche(dt)
+	s.tickTrains(dt)
 }
 
 func (s *Simulation) tickLifts(dt float64) {
@@ -1060,7 +1061,7 @@ func (s *Simulation) maybeSampleHistory() {
 		}
 		s.openToday = w.ResortOpen
 		w.Cash -= costs.Total()
-		w.SnowmakingToday, w.LightingToday, w.AvyToday = 0, 0, 0
+		w.SnowmakingToday, w.LightingToday, w.AvyToday, w.TrainsToday = 0, 0, 0, 0
 		// Patrol rooms hire anyone they've lost.
 		for _, b := range w.Buildings {
 			if b.Offers(world.ServicePatrol) {
@@ -1982,7 +1983,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 				return
 			}
 			a.TargetID = b.ID
-			if b.Type == world.BuildingParking {
+			if b.IsDepartPoint() {
 				a.Plan.Goal = ai.GoalDepart
 			} else {
 				a.Plan.Goal = ai.GoalNone
@@ -2195,7 +2196,7 @@ func (s *Simulation) directHomePlan(a *world.Guest) {
 	var best *world.Building
 	var bestD2 float32
 	for _, b := range w.Buildings {
-		if b.Type != world.BuildingParking {
+		if !b.IsDepartPoint() || (b.Type == world.BuildingStation && b.ID != a.CarLot) {
 			continue
 		}
 		if b.ID == a.CarLot {

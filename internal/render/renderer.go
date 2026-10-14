@@ -93,6 +93,7 @@ type Renderer struct {
 	bigLifts
 	snowmakingRender
 	nightLights
+	trainDrawing
 
 	uiVAO, uiVBO     uint32
 	whiteTexID       uint32             // 1×1 white texture; always bound to unit 0 during UI pass
@@ -496,6 +497,7 @@ func (r *Renderer) initStaticMeshes() {
 	loadBigLifts(r, modelDir)
 	loadSnowmaking(r, modelDir)
 	loadNightLights(r, modelDir)
+	loadTrains(r, modelDir)
 
 	// Snowcat — dynamic batch. Snowcats drive over the terrain every
 	// tick so they share the agent-style instance path rather than
@@ -846,6 +848,9 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 	for _, bldg := range w.Buildings {
 		if bldg.IsCellLot() {
 			continue // drawn procedurally by RebuildParkingLots
+		}
+		if bldg.Type == world.BuildingStation {
+			continue // drawn with its railway (rail_mesh.go)
 		}
 		if bldg.IsShell() {
 			r.addLodgeShell(w, bldg)
@@ -1673,6 +1678,8 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	}
 
 	drawHelicopters(r, w)
+
+	drawTrains(r, w)
 
 	// Cars — on the roads and in the lots. Dynamic: they move every
 	// frame.

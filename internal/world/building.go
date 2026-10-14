@@ -25,6 +25,7 @@ const (
 	BuildingTicketOffice BuildingType = 5
 	BuildingBar          BuildingType = 6 // bar/restaurant — relieve thirst/hunger
 	BuildingSkiRack      BuildingType = 7 // a rack for skis by the doors (ski_rack.go)
+	BuildingStation      BuildingType = 8 // a railway station's platform: where rail guests arrive and leave (rail.go)
 )
 
 // Building represents a structure placed on the terrain. Lodges are
@@ -348,4 +349,10 @@ func (t BuildingType) Label() string {
 		return "Ski Rack"
 	}
 	return "Lodge"
+}
+
+// IsDepartPoint reports whether guests leave the resort from b: a
+// parking lot (by car) or a railway station (by train).
+func (b *Building) IsDepartPoint() bool {
+	return b.Type == BuildingParking || b.Type == BuildingStation
 }

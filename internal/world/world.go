@@ -250,6 +250,9 @@ type World struct {
 	// LightsOn is whether the night-skiing lights are on: from sunset
 	// while the lifts are running. Set by the sim; not saved.
 	LightsOn bool
+	// TrainsToday is what the trains' trips have cost since the day's
+	// costs were last charged. Not saved.
+	TrainsToday float64
 	// AvyToday is what avalanche control's rounds have cost since the
 	// day's costs were last charged. Not saved.
 	AvyToday float64
@@ -507,6 +510,7 @@ func (w *World) OperatingCosts() CostBreakdown {
 	c[CostSnowmaking] = int(math.Round(w.SnowmakingToday))
 	c[CostLighting] = int(math.Round(w.LightingToday))
 	c[CostAvalanche] = int(math.Round(w.AvyToday))
+	c[CostTrains] = int(math.Round(w.TrainsToday))
 	return c
 }
 
@@ -530,6 +534,7 @@ func (w *World) StandbyCosts() CostBreakdown {
 	c[CostSnowmaking] = int(math.Round(w.SnowmakingToday))
 	c[CostLighting] = int(math.Round(w.LightingToday))
 	c[CostAvalanche] = int(math.Round(w.AvyToday))
+	c[CostTrains] = int(math.Round(w.TrainsToday))
 	return c
 }
 

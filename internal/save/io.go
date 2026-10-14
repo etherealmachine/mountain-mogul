@@ -1410,8 +1410,19 @@ func dataToWorld(data ScenarioData) *world.World {
 		}
 	}
 	w.RebuildRopes()
+	// Guests booked on a train when it was saved aren't on one now.
+	defer func() {
+		for _, g := range w.Guests {
+			if g.State == world.InCar && g.CarID == 0 {
+				g.State = world.AtHome
+			}
+		}
+	}()
 	for _, rd := range data.Rails {
-		l := &world.RailLine{ID: rd.ID, Style: world.RailStyle(rd.Style)}
+		l := &world.RailLine{ID: rd.ID, Style: world.RailStyle(rd.Style), StationID: rd.Station, Interval: rd.Interval}
+		if l.Interval <= 0 {
+			l.Interval = world.DefaultRailInterval
+		}
 		for _, n := range rd.Nodes {
 			l.Nodes = append(l.Nodes, mgl32.Vec2{n[0], n[1]})
 		}
@@ -1998,7 +2009,7 @@ func kidAge(gd GuestData) uint8 {
 func railsToData(w *world.World) []RailData {
 	var out []RailData
 	for _, l := range w.RailLines {
-		d := RailData{ID: l.ID, Style: uint8(l.Style)}
+		d := RailData{ID: l.ID, Style: uint8(l.Style), Station: l.StationID, Interval: l.Interval}
 		for _, n := range l.Nodes {
 			d.Nodes = append(d.Nodes, [2]float32{n[0], n[1]})
 		}

@@ -8,6 +8,7 @@ layout(location = 2) in vec3 iPosition;
 layout(location = 3) in float iHeading;
 layout(location = 4) in vec3 iColor;
 layout(location = 5) in float iSpinMode;
+layout(location = 6) in float iPitch; // nose up, radians, about the model's lateral axis
 // 0 = rigid  2 = spin_y (main rotor)  3 = spin_z (tail rotor)
 
 // per-vertex base colour from the 3MF pipeline (color() blocks in SCAD).
@@ -61,10 +62,18 @@ void main() {
     }
 
     vec3 animPos = spinPos;
-    mat4 model = translate * rotY;
+    float sp = sin(iPitch);
+    float cp = cos(iPitch);
+    mat4 rotPitch = mat4(
+        cp,  sp,  0.0, 0.0,
+        -sp, cp,  0.0, 0.0,
+        0.0, 0.0, 1.0, 0.0,
+        0.0, 0.0, 0.0, 1.0
+    );
+    mat4 model = translate * rotY * rotPitch;
 
     vColor = iColor * aBaseColor;
-    vNormal = mat3(rotY) * aNormal;
+    vNormal = mat3(rotY * rotPitch) * aNormal;
     vec4 world = model * vec4(animPos, 1.0);
     vWorldPos = world.xyz;
     gl_Position = uViewProj * world;

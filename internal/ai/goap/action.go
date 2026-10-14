@@ -708,7 +708,7 @@ func ApplicableActions(s *WorldSnapshot, w *world.World) []Action {
 				if a := (&SkiToService{BldgID: b.ID}); a.Precondition(s, w) {
 					out = append(out, a)
 				}
-			case world.BuildingParking:
+			case world.BuildingParking, world.BuildingStation:
 				a := &SkiToParking{LotID: b.ID}
 				if a.Precondition(s, w) {
 					out = append(out, a)
@@ -735,7 +735,7 @@ func ApplicableActions(s *WorldSnapshot, w *world.World) []Action {
 	// down to a lift base gets home.
 	if !s.Removed && s.OnLift == 0 && s.Queued == 0 && s.AtLiftTop == 0 && s.AtParking == 0 {
 		for _, b := range w.Buildings {
-			if b.Type != world.BuildingParking {
+			if !b.IsDepartPoint() {
 				continue
 			}
 			if a := (&WalkToParking{LotID: b.ID}); a.Precondition(s, w) {
@@ -973,7 +973,7 @@ func findLift(w *world.World, id uint64) *world.Lift {
 
 func findBuilding(w *world.World, id uint64, typ world.BuildingType) *world.Building {
 	for _, b := range w.Buildings {
-		if b.ID == id && b.Type == typ {
+		if b.ID == id && (b.Type == typ || typ == world.BuildingParking && b.IsDepartPoint()) {
 			return b
 		}
 	}

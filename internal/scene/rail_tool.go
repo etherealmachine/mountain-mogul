@@ -7,6 +7,7 @@ import (
 
 	"mountain-mogul/internal/render"
 	"mountain-mogul/internal/settings"
+	"mountain-mogul/internal/ui"
 	"mountain-mogul/internal/world"
 )
 
@@ -132,3 +133,48 @@ func (s *Scenario) railCost() int {
 	hover := mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]}
 	return world.RailLineCost(s.railTool.style, append(append([]mgl32.Vec2(nil), nodes...), hover))
 }
+
+// openStationPopup shows a railway's station: its style, how often its
+// trains run, where its train is, and who it's bringing.
+func (s *Scenario) openStationPopup(l *world.RailLine, screenW, screenH int) {
+	spec := l.Style.Spec()
+	w := ui.NewWindow(spec.Label, 0, 0)
+	w.AddLabel("Train", func() string {
+		return fmt.Sprintf("%d riders, %.0f km/h, %s a trip", spec.Capacity, spec.Speed*3.6, settings.FormatDollars(spec.TripCost))
+	})
+	w.AddIntStepperFn("Trains every",
+		func() string { return fmt.Sprintf("%.0f minutes", l.Interval) },
+		func() { l.Interval = max(l.Interval/2, 15) },
+		func() { l.Interval = min(l.Interval*2, 240) })
+	w.AddLabel("Now", func() string {
+		switch l.Train.State {
+		case world.TrainInbound:
+			return "the train's coming in"
+		case world.TrainDwelling:
+			return "the train's at the platform"
+		case world.TrainOutbound:
+			return "the train's leaving"
+		}
+		return "the next train's on its way"
+	})
+	w.AddLabel("Booked", func() string {
+		n := 0
+		for _, g := range l.Bound {
+			n += len(g)
+		}
+		return fmt.Sprintf("%d guests on the next train", n)
+	})
+	w.AddLabel("Here by train", func() string {
+		n := 0
+		for _, g := range s.world.OnMountain {
+			if g.CarLot == l.StationID {
+				n++
+			}
+		}
+		return fmt.Sprintf("%d on the mountain", n)
+	})
+	w.Visible = true
+	s.placePopup(w, screenW, screenH)
+	s.popup = w
+}
+

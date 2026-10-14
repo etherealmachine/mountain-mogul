@@ -221,7 +221,7 @@ func Extract(a *world.Guest, w *world.World) WorldSnapshot {
 func setAtBuilding(s *WorldSnapshot, b *world.Building) bool {
 	s.AtService, s.AtParking, s.AtTicketOffice = 0, 0, 0
 	switch {
-	case b.Type == world.BuildingParking:
+	case b.IsDepartPoint():
 		s.AtParking = b.ID
 	case b.IsShell() && b.ServesGuests():
 		if b.OffersAnyUse() {

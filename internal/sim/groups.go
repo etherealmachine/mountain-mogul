@@ -354,7 +354,7 @@ func (s *Simulation) copyPlan(a *world.Guest, p ai.Plan) (ai.Plan, bool) {
 				return ai.Plan{}, false
 			}
 		case ai.ActSkiTrail:
-			if b := findBuildingByID(s.World, st.BldgID); b != nil && b.Type == world.BuildingParking && a.CarLot != 0 && st.BldgID != a.CarLot {
+			if b := findBuildingByID(s.World, st.BldgID); b != nil && b.IsDepartPoint() && a.CarLot != 0 && st.BldgID != a.CarLot {
 				return ai.Plan{}, false
 			}
 		}

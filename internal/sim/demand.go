@@ -168,8 +168,9 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 	school := anySchool(s.World)
 	hasOffice := hasTicketOffice(s.World)
 	hasRentals := anyRentals(s.World)
-	if !hasParking(s.World) {
-		return // no lots → no arrivals
+	parking := hasParking(s.World)
+	if !parking && len(s.World.RailLines) == 0 {
+		return // no lots and no trains → no arrivals
 	}
 	winners := map[uint64][][]*world.Guest{} // groups, by home entry
 
@@ -215,7 +216,7 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 		entries = append(entries, e.ID)
 	}
 	for _, e := range entries {
-		for _, grp := range winners[e] {
+		for _, grp := range s.bookByRail(winners[e], parking) {
 			// A group bigger than a car comes in as few cars as hold it,
 			// filled evenly: a van for five to seven (world.RollCar).
 			cars := (len(grp) + world.MaxCarSeats - 1) / world.MaxCarSeats

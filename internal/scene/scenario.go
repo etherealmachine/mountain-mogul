@@ -3212,6 +3212,11 @@ func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 	case world.BuildingParking:
 		s.buildParkingPopup(bldg, false, screenW, screenH)
 		return
+	case world.BuildingStation:
+		if l := s.world.RailLineByStation(bldg.ID); l != nil {
+			s.openStationPopup(l, screenW, screenH)
+		}
+		return
 	case world.BuildingSkiRack:
 		w := ui.NewWindow("Ski Rack", 0, 0)
 		w.AddLabel("Skis", func() string {

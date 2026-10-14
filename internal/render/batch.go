@@ -26,6 +26,9 @@ type DynamicInstance struct {
 	Heading  float32
 	Color    [3]float32
 	SpinMode float32
+	// Pitch tilts the model nose up (radians) about its own lateral axis
+	// before the heading turns it: trains and funicular cars on grades.
+	Pitch float32
 }
 
 // batchType distinguishes static vs dynamic batch layout.
@@ -150,6 +153,11 @@ func NewDynamicBatch(mesh *Mesh, texID uint32) *Batch {
 	gl.EnableVertexAttribArray(5)
 	gl.VertexAttribPointerWithOffset(5, 1, gl.FLOAT, false, stride, 28)
 	gl.VertexAttribDivisor(5, 1)
+
+	// Pitch at location 6.
+	gl.EnableVertexAttribArray(6)
+	gl.VertexAttribPointerWithOffset(6, 1, gl.FLOAT, false, stride, 32)
+	gl.VertexAttribDivisor(6, 1)
 
 	gl.BindVertexArray(0)
 

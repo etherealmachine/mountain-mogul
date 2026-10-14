@@ -762,4 +762,8 @@ type RailData struct {
 	ID    uint64       `json:"id"`
 	Style uint8        `json:"style,omitempty"`
 	Nodes [][2]float32 `json:"nodes"`
+	// Station is its station building's ID; Interval its clock minutes
+	// between trains.
+	Station  uint64  `json:"station,omitempty"`
+	Interval float32 `json:"interval,omitempty"`
 }

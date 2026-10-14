@@ -62,11 +62,19 @@ None are in the demo. The station waits for step 2, where its platform's length 
 - **Drawn** (`render/rail_mesh.go`, a static mesh a line): ballast with sloping sides, sleepers every 0.7 m, two rails, the platform (as long as the train and 10 m) with a yellow edge, and for wired lines masts every 45 m and the wire; the station house (`rail_station.py`) beside the platform's middle. Saved as each line's style and points, laid out again on load.
 - On the Goals Test, an electric line from the west edge to near the base: 698 m, $1,347,000.
 
+## Built: trains running
+
+- **Timetable** (`sim/trains.go`): a line's one train sets off from the map's edge every Interval clock minutes (60 by default; 15 to 240 in the station's popup) from two hours before the lifts open to half an hour after they close, runs in at its style's speed, brakes at 0.6 m/s² to stop by the platform's end, stands four clock minutes, and pulls away at 0.5 m/s² back off the map. Each trip costs its style's TripCost, the day's "Trains" cost line.
+- **Riders**: each demand poll books a share of its arriving groups on a line's next train instead of a car (steam 12%, electric 30%, high-speed 45%, at most 80% together; all of them with no car park), picked by those shares. The train lets off whole groups up to its capacity on the platform; the rest take the next. Their "lot" is the station (`BuildingStation`, a building with no tiles at the platform's middle): they leave by walking back to it (`IsDepartPoint`). Nobody's booked overnight, and a save made with guests booked sends them home.
+- **Drawn** (`render/trains.go`): the engine and coaches along the track, the engine leading whichever way it's running (a high-speed set's second power car at the tail facing back), pitched with the grade: dynamic instances now have a pitch, in the dynamic and shadow shaders.
+- **Station popup**: the train's riders, speed and trip cost, the interval, where the train is, how many are booked and how many came by train.
+- On the Goals Test with an electric line: of 1,041 visitors in a day, about 250 came by train, every hourly train clearing its bookings; all left by evening.
+
 ## Steps
 
 1. Done: **The models**: steam engine and coaches, the electric unit, the high-speed set, the funicular car, a station, a tunnel portal; checked on screen.
 2. Done: **Rail lines and stations**: the Rail tool with grade limits, the graded rail bed and its look, stations.
-3. **Trains running**: timetables, consists following the track with pitch, guests arriving and leaving by train, costs.
+3. Done: **Trains running**: timetables, consists following the track with pitch, guests arriving and leaving by train, costs.
 4. **Tunnels**: on rail, roads and footpaths: deep cuts become tunnels, portals, hidden vehicles, the dashed course.
 5. **The funicular**: the lift type on the tram's shuttle, on rails, tunnelled.
 6. **Balance**, and a look at it all on Zermatt-like ground.
@@ -81,3 +89,4 @@ None are in the demo. The station waits for step 2, where its platform's length 
 - 2026-10-14: Surveyed and planned with the user, ranked first.
 - 2026-10-14: Step 1's models built and looked at on a sheet (`tools/modelview`).
 - 2026-10-14: Step 2 built (the Rail tool, laying out, the bed, the look, stations). The first look had the ballast and rails buried in snow: the bed is now plowed.
+- 2026-10-14: Step 3 built (timetables, booking riders, arrivals and departures by the station, consists with pitch, the station popup).

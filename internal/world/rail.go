@@ -78,10 +78,43 @@ type RailLine struct {
 	// station's far end.
 	Nodes []mgl32.Vec2
 
+	// StationID is its station's building (BuildingStation), where its
+	// guests arrive and leave; Interval the clock minutes between trains.
+	StationID uint64
+	Interval  float32
+
 	// Track is the laid-out line (LayOut): every RailSampleStep along
 	// it, with the track's height. Not saved.
 	Track []RailSample
+	// Train is its train, and Bound the guests booked on the next one
+	// in (sim/trains.go). Not saved.
+	Train Train
+	Bound [][]*Guest
 }
+
+// Train is a line's one train: away off the map, coming in, standing at
+// the platform, or going out again; Front is how far along the line its
+// front is, metres, and Speed its speed.
+type Train struct {
+	State      TrainState
+	Front      float32
+	Speed      float32
+	DwellUntil float64 // sim time it leaves the platform
+	NextAt     float64 // sim time the next one sets off for the resort
+}
+
+// TrainState is where a line's train is.
+type TrainState uint8
+
+const (
+	TrainAway TrainState = iota
+	TrainInbound
+	TrainDwelling
+	TrainOutbound
+)
+
+// DefaultRailInterval is a new line's clock minutes between trains.
+const DefaultRailInterval = 60
 
 // RailSample is a point on a line's track.
 type RailSample struct {
@@ -298,12 +331,15 @@ func (p *GroundPatch) index(w mgl32.Vec2) (int, int) {
 // PlaceRailLine lays a new line of style through nodes: laid out, the
 // ground graded under it.
 func (w *World) PlaceRailLine(style RailStyle, nodes []mgl32.Vec2) *RailLine {
-	l := &RailLine{ID: w.NextID(), Style: style, Nodes: append([]mgl32.Vec2(nil), nodes...)}
+	l := &RailLine{ID: w.NextID(), Style: style, Nodes: append([]mgl32.Vec2(nil), nodes...), Interval: DefaultRailInterval}
 	l.LayOut(w.Terrain)
 	w.Terrain.GradeRailBed(l)
 	w.Terrain.RecomputeSlopes()
 	w.RailLines = append(w.RailLines, l)
 	w.PlowRails()
+	st := &Building{ID: w.NextID(), Type: BuildingStation, Pos: l.PlatformSpot()}
+	w.Buildings = append(w.Buildings, st)
+	l.StationID = st.ID
 	return l
 }
 
@@ -343,3 +379,23 @@ func (w *World) PlowRails() {
 	}
 }
 
+// PlatformSpot is where on line l's platform guests get off and wait:
+// its middle, on the platform beside the track.
+func (l *RailLine) PlatformSpot() mgl32.Vec2 {
+	pos, _, heading := l.Station()
+	s, c := float32(math.Sin(float64(heading))), float32(math.Cos(float64(heading)))
+	return pos.Add(mgl32.Vec2{c, -s}.Mul(3.45))
+}
+
+// RailLineByStation is the line whose station is building id.
+func (w *World) RailLineByStation(id uint64) *RailLine {
+	for _, l := range w.RailLines {
+		if l.StationID == id {
+			return l
+		}
+	}
+	return nil
+}
+
+// AddTrainCost charges a train's trip to the day's costs.
+func (w *World) AddTrainCost(c int) { w.TrainsToday += float64(c) }

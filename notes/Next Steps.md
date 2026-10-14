@@ -11,7 +11,7 @@ New features only, a line each, to say yes or no to. A feature big enough to nee
 
 ## Priority
 
-1. [[Trains and Tunnels]]: rail lines in three styles (steam, German electric, high-speed), stations and timetables, a funicular lift, and tunnels for rail, roads and paths.
+1. [[Trains and Tunnels]]: railways in three styles, stations and trains running are in. Next: tunnels for rail, roads and paths, and the funicular lift.
 
 ## Lifts
 
