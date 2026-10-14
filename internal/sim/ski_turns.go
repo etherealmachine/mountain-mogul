@@ -188,8 +188,9 @@ func nearHazards(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, a *worl
 // arcRun is how far the guest gets, turning from heading h0 toward h1
 // at rate (rad/s) while moving at speed, before the corridor they sweep
 // (each hazard's clearance either side) meets a hazard; reach when it
-// doesn't within reach.
-func arcRun(px, pz, h0, h1, rate, speed, reach float32, hazards []hazardPoint) float32 {
+// doesn't within reach. With water, an open-water cell
+// (world.Terrain.OpenWaterCell) under the arc stops it too.
+func arcRun(water *world.Terrain, px, pz, h0, h1, rate, speed, reach float32, hazards []hazardPoint) float32 {
 	const step = float32(0.75)
 	turn := rate * step / max(speed, 1) // rad per step
 	h := h0
@@ -208,6 +209,9 @@ func arcRun(px, pz, h0, h1, rate, speed, reach float32, hazards []hazardPoint) f
 		}
 		px += hx * step
 		pz += hz * step
+		if water != nil && water.OpenWaterCell(int(px/world.CellSize), int(pz/world.CellSize)) {
+			return d
+		}
 	}
 	return reach
 }
@@ -221,11 +225,16 @@ func swerve(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, a *world.Gue
 	reach := max(float32(swerveMinDist), a.Speed*float32(swerveLookSec))
 	*buf = nearHazards(w, towers, grid, a, reach, *buf)
 	hazards := *buf
-	if len(hazards) == 0 {
+	px, pz := a.Pos[0], a.Pos[2]
+	// Open water's edge is a hazard too, unless they're in it already.
+	var water *world.Terrain
+	if t := w.Terrain; t.HasOpenWater() && !t.OpenWaterCell(int(px/world.CellSize), int(pz/world.CellSize)) {
+		water = t
+	}
+	if len(hazards) == 0 && water == nil {
 		return desired, false, false
 	}
-	px, pz := a.Pos[0], a.Pos[2]
-	if arcRun(px, pz, a.Heading, desired, carveRate, a.Speed, reach, hazards) >= reach {
+	if arcRun(water, px, pz, a.Heading, desired, carveRate, a.Speed, reach, hazards) >= reach {
 		return desired, false, false
 	}
 	best, bestScore := float32(0), float32(math.Inf(1))
@@ -233,7 +242,7 @@ func swerve(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, a *world.Gue
 	step := float32(swerveMaxOff) / swerveSteps
 	for i := -swerveSteps; i <= swerveSteps; i++ {
 		h := wrapAngle(a.Heading + float32(i)*step)
-		run := arcRun(px, pz, a.Heading, h, pivotRate, a.Speed, reach, hazards)
+		run := arcRun(water, px, pz, a.Heading, h, pivotRate, a.Speed, reach, hazards)
 		if run > longestRun {
 			longest, longestRun = h, run
 		}

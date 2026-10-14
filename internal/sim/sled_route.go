@@ -46,7 +46,7 @@ type sledGrid struct {
 }
 
 // newSledGrid marks the cells a snowmobile can't enter: buildings and
-// thick trees (not Walkable), unfrozen lakes, and cells within
+// thick trees (not Walkable), unfrozen lakes and other open water, and cells within
 // sledTowerClear of a lift tower or station part.
 func newSledGrid(w *world.World, towers []mgl32.Vec2) *sledGrid {
 	t := w.Terrain
@@ -54,7 +54,7 @@ func newSledGrid(w *world.World, towers []mgl32.Vec2) *sledGrid {
 	for x := 0; x < t.Width; x++ {
 		for z := 0; z < t.Height; z++ {
 			k := x*t.Height + z
-			if !t.Cells[x][z].Walkable() {
+			if !t.Cells[x][z].Walkable() || t.OpenWaterCell(x, z) {
 				g.blocked[k] = true
 				continue
 			}

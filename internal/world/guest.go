@@ -690,6 +690,9 @@ type SkiRoute struct {
 	Checked   bool
 	NextCheck float64
 	NextLook  float64
+	// CutOff counts the checks in a row that found no way round open
+	// water lying across the straight way (sim.prepareRoute).
+	CutOff uint8
 }
 
 // FallPhase is where a fallen guest is in going down and getting going

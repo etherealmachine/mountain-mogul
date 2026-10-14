@@ -83,6 +83,12 @@ type Simulation struct {
 		n    int
 		last mgl32.Vec2
 	}
+	// cutOff counts guests cut off by open water since the feed last
+	// reported them, and where the latest was.
+	cutOff struct {
+		n    int
+		last mgl32.Vec2
+	}
 
 	// Demand owns the global skier pool and resort rating. The
 	// per-30-sim-seconds poll fires from Tick.
@@ -289,6 +295,8 @@ func (s *Simulation) Tick(dt float64) {
 	// Bring the cached trunk hazards up to date with any tree edits
 	// since the last frame, before skiers read them (in parallel).
 	s.World.Terrain.RefreshTrunkField()
+	// And the open-water cells with the lakes' ice and any water edit.
+	s.World.RefreshOpenWater()
 
 	remaining := dt * s.TimeScale
 	simulated := remaining
@@ -1325,6 +1333,7 @@ func (s *Simulation) tickHourly() {
 		defer s.logGuestsSay()
 		defer s.logLongLines()
 		defer s.logRescues()
+		defer s.logCutOff()
 		defer s.logSetupHints()
 	}
 	for s.lastHour < idx {
@@ -2550,7 +2559,12 @@ func (s *Simulation) tickPath(agent *world.Guest, dt float64) {
 			dirNorm = mgl32.Vec3{d[0], 0, d[1]}
 		}
 	}
-	agent.Pos = agent.Pos.Add(dirNorm.Mul(step))
+	next := agent.Pos.Add(dirNorm.Mul(step))
+	to := s.World.Terrain.KeepOutOfWater(mgl32.Vec2{agent.Pos[0], agent.Pos[2]}, mgl32.Vec2{next[0], next[2]})
+	if to != (mgl32.Vec2{next[0], next[2]}) {
+		next = mgl32.Vec3{to[0], s.World.Terrain.InterpolatedSurfaceElevationAt(to[0], to[1]), to[1]}
+	}
+	agent.Pos = next
 	agent.Heading = float32(math.Atan2(float64(dirNorm[0]), float64(dirNorm[2])))
 	agent.Speed = float32(speed)
 }
@@ -2786,6 +2800,10 @@ func seatWorldPos(chairPos mgl32.Vec3, heading float32, slotIdx int, slots []wor
 // callback.
 func (s *Simulation) tickLocomote(agent *world.Guest, dt float64) {
 	w := s.World
+	if agent.Route.CutOff >= cutOffChecks && w.Terrain.NearOpenWater(agent.Pos[0], agent.Pos[2], cutOffNear) {
+		s.cutOffByWater(agent)
+		return
+	}
 	var targetPos mgl32.Vec3
 	if agent.TargetID != 0 {
 		var ok bool
@@ -2915,8 +2933,9 @@ func (s *Simulation) tickWalkToward(agent *world.Guest, target mgl32.Vec3, dt fl
 	if step > distXZ {
 		step = distXZ
 	}
-	agent.Pos[0] += dirNorm[0] * step
-	agent.Pos[2] += dirNorm[1] * step
+	to := s.World.Terrain.KeepOutOfWater(mgl32.Vec2{agent.Pos[0], agent.Pos[2]},
+		mgl32.Vec2{agent.Pos[0] + dirNorm[0]*step, agent.Pos[2] + dirNorm[1]*step})
+	agent.Pos[0], agent.Pos[2] = to[0], to[1]
 	agent.Pos[1] = s.World.Terrain.InterpolatedSurfaceElevationAt(agent.Pos[0], agent.Pos[2])
 	agent.Heading = float32(math.Atan2(float64(dirNorm[0]), float64(dirNorm[1])))
 	agent.Speed = float32(speed)

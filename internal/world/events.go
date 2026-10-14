@@ -28,6 +28,7 @@ const (
 	EventSnowfall         EventKind = 14 // fresh snow overnight
 	EventRecord           EventKind = 15 // a record day of visitors
 	EventHint             EventKind = 16 // something the resort needs before guests can ski (sim/hints.go)
+	EventCutOff           EventKind = 17 // guests stuck behind open water, waiting for patrol
 )
 
 // Event is one entry in the World-level event feed: something the player

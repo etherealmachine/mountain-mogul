@@ -82,10 +82,19 @@ type SceneResources struct {
 	// footpathMesh is every footpath (footpath_mesh.go), rebuilt when
 	// World.FootpathsRev moves past footpathRev; footpathGhost is the
 	// path being drawn, footpathGhostOK whether it can be laid.
-	footpathMesh    *Mesh
-	footpathRev     int
-	footpathGhost   *Mesh
-	footpathGhostOK bool
+	// footbridgeMesh and roadBridgeMesh are the bridges round the paths
+	// and roads over water (bridge_mesh.go), rebuilt when World.BridgesRev
+	// moves past bridgeRev.
+	footbridgeMesh, roadBridgeMesh *Mesh
+	// footpathGhostBridge and roadGhostBridge are the ghosts' bridges.
+	footpathGhostBridge, roadGhostBridge *Mesh
+	bridgeRev                            int
+	bridgesBuilt                         bool
+	footpathMesh                         *Mesh
+	footpathRev                          int
+	footpathBridgeRev                    int
+	footpathGhost                        *Mesh
+	footpathGhostOK                      bool
 
 	// ropeMesh is every rope line (rope_mesh.go), rebuilt when
 	// World.RopesRev moves past ropeRev; ropeGhost is the rope being
@@ -180,7 +189,7 @@ func (s *SceneResources) Delete() {
 		s.roadMesh.Delete()
 		s.roadMesh = nil
 	}
-	for _, m := range []**Mesh{&s.footpathMesh, &s.footpathGhost, &s.ropeMesh, &s.ropeGhost} {
+	for _, m := range []**Mesh{&s.footpathMesh, &s.footpathGhost, &s.ropeMesh, &s.ropeGhost, &s.footbridgeMesh, &s.roadBridgeMesh, &s.footpathGhostBridge, &s.roadGhostBridge} {
 		if *m != nil {
 			(*m).Delete()
 			*m = nil

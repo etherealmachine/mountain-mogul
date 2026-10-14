@@ -494,6 +494,7 @@ const (
 	ThoughtLiftTooHard  // a novice put off a lift by the runs off its top
 	ThoughtNotGroomed   // a beginner who loves corduroy skied a mostly ungroomed run
 	ThoughtCutIn        // someone slipped in ahead of them in a lift's crowd
+	ThoughtCutOff       // open water between them and where they were going; waiting for patrol
 
 	thoughtKindSentinel // must stay last; equals the total count
 )
@@ -548,6 +549,7 @@ var Effects = [ThoughtKindCount]Effect{
 	ThoughtLiftTooHard:       {Class: Annoyance},
 	ThoughtNotGroomed:        {Class: Annoyance},
 	ThoughtCutIn:             {Class: Annoyance},
+	ThoughtCutOff:            {Class: Letdown},
 	ThoughtHurtGoingHome:     {Class: Letdown},
 	ThoughtHitTree:           {Class: Annoyance},
 	ThoughtCaughtInAvalanche: {Class: Dealbreaker},
@@ -672,6 +674,7 @@ var thoughtText = [ThoughtKindCount]string{
 	ThoughtLiftTooHard:       "the lifts here look too difficult for me",
 	ThoughtNotGroomed:        "I wish they'd groom the runs",
 	ThoughtCutIn:             "people keep cutting in",
+	ThoughtCutOff:            "I couldn't get across the water",
 	ThoughtLongLine:          "this line is way too long",
 	ThoughtLineTooLong:       "that line will take forever",
 	ThoughtNeedsLodge:        "this place needs a lodge",
@@ -752,6 +755,7 @@ var ThoughtChartColor = [ThoughtKindCount][4]float32{
 	ThoughtLiftTooHard:       {0.75, 0.55, 0.45, 1},
 	ThoughtNotGroomed:        {0.75, 0.55, 0.45, 1},
 	ThoughtCutIn:             {0.80, 0.45, 0.70, 1},
+	ThoughtCutOff:            {0.85, 0.20, 0.20, 1},
 	ThoughtLongLine:          {0.80, 0.45, 0.70, 1},
 	ThoughtLineTooLong:       {0.70, 0.30, 0.60, 1},
 	ThoughtNeedsLodge:        {0.60, 0.50, 0.80, 1},

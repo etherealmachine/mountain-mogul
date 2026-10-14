@@ -146,3 +146,18 @@ func (s *Simulation) logRescues() {
 	}
 	s.World.LogEventAt(world.EventRescue, s.SimTime, msg, s.rescues.last, 0)
 }
+
+// logCutOff reports the last hour's guests cut off by open water as one
+// line, placed where the latest was.
+func (s *Simulation) logCutOff() {
+	n := s.cutOff.n
+	if n == 0 {
+		return
+	}
+	s.cutOff.n = 0
+	msg := "A guest was cut off by open water and is waiting for patrol; a footpath across makes a bridge"
+	if n > 1 {
+		msg = fmt.Sprintf("%d guests were cut off by open water in the last hour; a footpath across makes a bridge", n)
+	}
+	s.World.LogEventAt(world.EventCutOff, s.SimTime, msg, s.cutOff.last, 0)
+}

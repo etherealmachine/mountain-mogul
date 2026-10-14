@@ -1737,7 +1737,7 @@ func (s *Scenario) Update(dt float64) {
 
 	// Ghost preview for placement tools — uses the continuous hover so
 	// the preview tracks the cursor without snapping.
-	updatePlacementGhost(r, s.world.Terrain, placementGhostState{
+	updatePlacementGhost(r, s.world, placementGhostState{
 		activeTool: s.activeTool,
 		hoverPos:   mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]},
 		hoverValid: s.hoverValid || s.holdingLiftTop(),
@@ -2654,7 +2654,7 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 			s.setToast("Click somewhere else to finish the road")
 			return
 		}
-		cost := world.RoadCost(start.pos, end.pos)
+		cost := w.RoadPrice(start.pos, end.pos)
 		if !w.CanAfford(cost) {
 			s.setToast(fmt.Sprintf("Need $%d for this road — short by $%d",
 				cost, cost-w.Available()))
@@ -3881,7 +3881,8 @@ type placementGhostState struct {
 //
 // Reads the continuous hoverPos so previews track the cursor at freeform
 // precision, not snapped to a cell.
-func updatePlacementGhost(r *render.Renderer, t *world.Terrain, st placementGhostState) {
+func updatePlacementGhost(r *render.Renderer, w *world.World, st placementGhostState) {
+	t := w.Terrain
 	r.ClearAllGhosts()
 	r.ClearGhostCable()
 	r.ClearGhostRoad()
@@ -3957,7 +3958,7 @@ func updatePlacementGhost(r *render.Renderer, t *world.Terrain, st placementGhos
 		// Ghost a road segment between the stored start and the cursor.
 		// SetGhostRoad mirrors SetGhostCable: a fresh single-segment
 		// mesh regenerated each frame as the cursor moves.
-		r.SetGhostRoad(st.roadStart, st.hoverPos, t, st.tint)
+		r.SetGhostRoad(w, st.roadStart, st.hoverPos, st.tint)
 
 	case toolEdgeConnect:
 		// Show the post at the perimeter and a road stub extending
@@ -3976,7 +3977,7 @@ func updatePlacementGhost(r *render.Renderer, t *world.Terrain, st placementGhos
 		r.SetGhosts(render.MeshRoadConnect, []render.StaticInstance{
 			roadConnectInstance(previewPos, t, st.tint),
 		})
-		r.SetGhostRoad(previewPos, inland, t, st.tint)
+		r.SetGhostRoad(w, previewPos, inland, st.tint)
 	}
 }
 
@@ -4029,7 +4030,7 @@ func (s *Scenario) placementCost() (cost int, affordable, legal, valid bool) {
 		cost = world.RoadBaseCost
 	case toolRoadEnd:
 		end := resolveRoadEndpoint(s.world, pos)
-		cost = world.RoadCost(s.roadStart, end.pos)
+		cost = s.world.RoadPrice(s.roadStart, end.pos)
 	case toolGlade:
 		if len(s.gladePreview) == 0 {
 			return 0, false, true, false

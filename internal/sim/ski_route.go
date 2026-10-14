@@ -19,7 +19,7 @@ import (
 // comfort along the line, so a nervous skier traverses a steep face or
 // goes round it; for guests who keep to trails (all but the advanced
 // who'd rather roam), ground off any trail at their level; and climbing,
-// since skiers can't go uphill well. Buildings block. The route is cut
+// since skiers can't go uphill well. Buildings and open water block. The route is cut
 // down to the corners where the line between waypoints stops suiting
 // them, and the guest steers at the next one, skipping ahead whenever
 // the way to the one after suits them.
@@ -186,10 +186,12 @@ func (s *Simulation) prepareRoute(a *world.Guest, goal mgl32.Vec3, sc *routeScra
 	}
 	r := &a.Route
 	stray := len(r.Points) > 0 && r.Index < len(r.Points) && r.Points[r.Index].Sub(pos).LenSqr() > routeStraySq
-	if (!r.Checked || stray) && s.SimTime >= r.NextCheck {
+	// One cut off by water keeps looking, in case it's frozen or bridged.
+	if (!r.Checked || stray || r.CutOff > 0) && s.SimTime >= r.NextCheck {
 		r.Checked, r.NextCheck = true, s.SimTime+routeRecheckSec
 		r.Points, r.Index = nil, 0
 		prof := s.routeProfileFor(a)
+		cut := false
 		// With footpaths about, a walker's straight way may be slower
 		// than one by a path, so they always look.
 		if prof.paths || !lineClear(t, pos, g, &prof) {
@@ -197,7 +199,13 @@ func (s *Simulation) prepareRoute(a *world.Guest, goal mgl32.Vec3, sc *routeScra
 				r.Points = pts
 			} else {
 				r.Points = planSkiRoute(t, pos, g, &prof, sc)
+				cut = r.Points == nil && t.OpenWaterOnLine(pos, g)
 			}
+		}
+		if cut {
+			r.CutOff = min(r.CutOff+1, 255)
+		} else {
+			r.CutOff = 0
 		}
 		if prof.paths {
 			snapToFootpaths(s.World, r.Points)
@@ -219,7 +227,7 @@ func snapToFootpaths(w *world.World, pts []mgl32.Vec2) {
 
 // lineClear reports whether the straight way from a to b suits the
 // guest: out of trees they mind (cover × scale under inTreesThreshold),
-// off buildings, never much steeper along it than they're comfortable
+// off buildings and open water, never much steeper along it than they're comfortable
 // with, and, away from its ends, on their trails.
 func lineClear(t *world.Terrain, a, b mgl32.Vec2, prof *routeProfile) bool {
 	d := b.Sub(a)
@@ -234,6 +242,10 @@ func lineClear(t *world.Terrain, a, b mgl32.Vec2, prof *routeProfile) bool {
 	// Nor does it cross a rope, or the ski area boundary, that the route
 	// it shortens went round.
 	if !ropeClear(prof.w, a, b) {
+		return false
+	}
+	// Nor through open water.
+	if t.OpenWaterOnLine(a, b) {
 		return false
 	}
 	inside := t.IsAccessibleWorld(a[0], a[1])
@@ -290,7 +302,7 @@ func planSkiRoute(t *world.Terrain, a, b mgl32.Vec2, prof *routeProfile, sc *rou
 	sc.begin(w * h)
 	cost := func(c [2]int) float32 {
 		cell := &t.Cells[c[0]][c[1]]
-		if c != goal && !cell.Walkable() {
+		if c != goal && (!cell.Walkable() || t.OpenWaterCell(c[0], c[1])) {
 			return float32(math.Inf(1))
 		}
 		c2 := 1 + routeTreeCost*cell.TreeCover()*prof.cover
@@ -341,6 +353,10 @@ func planSkiRoute(t *world.Terrain, a, b mgl32.Vec2, prof *routeProfile, sc *rou
 				continue
 			}
 			if d[0] != 0 && d[1] != 0 {
+				// No cutting across open water's corner.
+				if t.OpenWaterCell(pos[0]+d[0], pos[1]) || t.OpenWaterCell(pos[0], pos[1]+d[1]) {
+					continue
+				}
 				step *= math.Sqrt2
 			}
 			step += ropeStepCost(prof.w, pos, nb)
@@ -473,6 +489,16 @@ func (s *Simulation) trailRoute(a *world.Guest, pos, goal mgl32.Vec2) ([]mgl32.V
 		}
 	}
 	pts = append(pts, goal)
+	// A run across open water: find the way round instead.
+	if t := s.World.Terrain; t.HasOpenWater() {
+		from := pos
+		for _, p := range pts {
+			if t.OpenWaterOnLine(from, p) {
+				return nil, false
+			}
+			from = p
+		}
+	}
 	// A run with a rope across it: find the way round instead.
 	if s.World.HasRopes() {
 		from := pos

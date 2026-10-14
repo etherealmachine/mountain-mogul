@@ -456,6 +456,8 @@ type Terrain struct {
 	// Material is what the ground is made of, on the detail lattice, or
 	// nil when nothing has set it. See material.go.
 	Material *TerrainMaterial
+	// openWater is the per-cell open-water grid (water_cells.go).
+	openWater openWaterCells
 
 	// LakeOf is each grid point's lake, indexed x*Height+z: 1 + its index
 	// in World.Lakes, or 0 for none. Like a cell's elevation and snow, it's

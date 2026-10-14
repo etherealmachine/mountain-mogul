@@ -702,7 +702,7 @@ func (e *Editor) Update(dt float64) {
 
 	// Ghost preview for placement tools — editor placements are free so
 	// the tint is always the affordable colour.
-	updatePlacementGhost(r, e.world.Terrain, placementGhostState{
+	updatePlacementGhost(r, e.world, placementGhostState{
 		activeTool: e.activeTool,
 		hoverPos:   mgl32.Vec2{e.hoverWorld[0], e.hoverWorld[2]},
 		// The lift-top preview holds at the last point on the ground

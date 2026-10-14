@@ -24,8 +24,9 @@ const (
 func generateFootpathMesh(w *world.World) *Mesh {
 	var verts []float32
 	var idx []uint32
+	height := deckOrGround(w)
 	for _, f := range w.Footpaths {
-		verts, idx = appendFootpath(verts, idx, w.Terrain, f.Centerline())
+		verts, idx = appendFootpath(verts, idx, height, f.Centerline())
 	}
 	if len(idx) == 0 {
 		return nil
@@ -34,12 +35,12 @@ func generateFootpathMesh(w *world.World) *Mesh {
 }
 
 // appendFootpath adds one path's strip and end caps along line.
-func appendFootpath(verts []float32, idx []uint32, t *world.Terrain, line []world.TrailSample) ([]float32, []uint32) {
+func appendFootpath(verts []float32, idx []uint32, height heightFunc, line []world.TrailSample) ([]float32, []uint32) {
 	if len(line) < 2 {
 		return verts, idx
 	}
 	vert := func(p mgl32.Vec2) uint32 {
-		verts = append(verts, p[0], VisualElevationAt(t, p[0], p[1])+footpathHover, p[1], 0, 1, 0, 0, 0)
+		verts = append(verts, p[0], height(p[0], p[1])+footpathHover, p[1], 0, 1, 0, 0, 0)
 		return uint32(len(verts)/8 - 1)
 	}
 	dirAt := func(i int) mgl32.Vec2 {
@@ -83,15 +84,20 @@ func appendFootpath(verts []float32, idx []uint32, t *world.Terrain, line []worl
 // SetFootpathGhost shows the path being drawn through nodes (with the
 // next node at the cursor), red when it can't be laid; nil nodes clear it.
 func (r *Renderer) SetFootpathGhost(w *world.World, nodes []world.TrailNode, ok bool) {
-	if r.scene.footpathGhost != nil {
-		r.scene.footpathGhost.Delete()
-		r.scene.footpathGhost = nil
+	for _, m := range []**Mesh{&r.scene.footpathGhost, &r.scene.footpathGhostBridge} {
+		if *m != nil {
+			(*m).Delete()
+			*m = nil
+		}
 	}
 	if len(nodes) < 2 {
 		return
 	}
 	f := world.Footpath{Nodes: nodes}
-	verts, idx := appendFootpath(nil, nil, w.Terrain, f.Centerline())
+	line := f.Centerline()
+	bridges := w.BridgesFor(line, false)
+	r.scene.footpathGhostBridge = ghostBridgeMesh(w.Terrain, bridges)
+	verts, idx := appendFootpath(nil, nil, deckOrGroundWith(w, bridges), line)
 	if len(idx) > 0 {
 		r.scene.footpathGhost = NewMesh(verts, idx, []int{3, 3, 2}, nil)
 		r.scene.footpathGhostOK = ok
@@ -100,7 +106,8 @@ func (r *Renderer) SetFootpathGhost(w *world.World, nodes []world.TrailNode, ok 
 
 // syncFootpaths rebuilds the footpath mesh when the paths have changed.
 func (r *Renderer) syncFootpaths(w *world.World) {
-	if r.scene.footpathRev == w.FootpathsRev && (r.scene.footpathMesh != nil || len(w.Footpaths) == 0) {
+	// The paths sit on the bridges, so a change to them redraws the paths.
+	if r.scene.footpathRev == w.FootpathsRev && r.scene.footpathBridgeRev == w.BridgesRev && (r.scene.footpathMesh != nil || len(w.Footpaths) == 0) {
 		return
 	}
 	if r.scene.footpathMesh != nil {
@@ -108,7 +115,7 @@ func (r *Renderer) syncFootpaths(w *world.World) {
 		r.scene.footpathMesh = nil
 	}
 	r.scene.footpathMesh = generateFootpathMesh(w)
-	r.scene.footpathRev = w.FootpathsRev
+	r.scene.footpathRev, r.scene.footpathBridgeRev = w.FootpathsRev, w.BridgesRev
 }
 
 // setFootpathAttribs is the footpath counterpart of setRoadTransformAttribs:

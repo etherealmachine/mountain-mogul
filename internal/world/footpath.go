@@ -126,6 +126,7 @@ func (w *World) RebuildFootpaths() {
 		}
 	}
 	w.footpaths = idx
+	w.RebuildBridges()
 }
 
 // segDist is p's distance from segment ab, and the nearest point on it.

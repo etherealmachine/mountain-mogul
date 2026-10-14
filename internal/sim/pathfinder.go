@@ -14,7 +14,8 @@ import (
 // so walkers go straight between them rather than cell by cell.
 //
 // The search is A* in eight directions (a diagonal costs √2 and never
-// cuts the corner of a blocked cell), over walkable cells; the
+// cuts the corner of a blocked cell), over walkable cells out of open
+// water; the
 // destination may be blocked (a lift base, a door in a wall). Crossing a
 // rope or the ski area boundary costs extra (ropeStepCost), so routes go
 // round or stay inside when they can, but aren't stopped. A cell on a footpath costs 1/FootpathSpeedup,
@@ -56,7 +57,7 @@ func (p *Pathfinder) FindPath(from, to [2]int) [][2]int {
 		if !t.InBounds(c[0], c[1]) {
 			return false
 		}
-		return c == to || t.Cells[c[0]][c[1]].Walkable()
+		return c == to || t.Cells[c[0]][c[1]].Walkable() && !t.OpenWaterCell(c[0], c[1])
 	}
 	cost := func(c [2]int) float32 {
 		if paths && p.world.FootpathCell(c[0], c[1]) {

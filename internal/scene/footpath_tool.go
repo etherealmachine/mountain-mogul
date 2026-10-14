@@ -216,7 +216,7 @@ func (env pathEnv) dragTo(st *pathTool, in pathInput, raw mgl32.Vec2) {
 // game the extra area is charged, or the change undone if it can't be.
 func (env pathEnv) commit(f *world.Footpath, before []world.TrailNode) {
 	w := env.w
-	extra := world.FootpathCost(f.Nodes) - world.FootpathCost(before)
+	extra := w.FootpathPrice(f.Nodes) - w.FootpathPrice(before)
 	if !env.free && extra > 0 {
 		if ok, why := env.check(f.Nodes, extra); !ok {
 			f.Nodes = before
@@ -253,7 +253,7 @@ func (env pathEnv) check(nodes []world.TrailNode, cost int) (bool, string) {
 		}
 	}
 	if cost == 0 {
-		cost = world.FootpathCost(nodes)
+		cost = env.w.FootpathPrice(nodes)
 	}
 	if !env.w.CanAfford(cost) {
 		return false, fmt.Sprintf("Need %s for this path — short by %s", formatDollars(cost), formatDollars(cost-env.w.Available()))
@@ -271,7 +271,7 @@ func (env pathEnv) finish(st *pathTool) {
 		env.toast(why)
 		return
 	}
-	cost := world.FootpathCost(st.nodes)
+	cost := env.w.FootpathPrice(st.nodes)
 	if !env.free {
 		env.w.Cash -= cost
 	}

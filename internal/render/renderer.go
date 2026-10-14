@@ -1084,7 +1084,7 @@ func carInstancesFor(w *world.World, cars *[world.CarKindCount][]DynamicInstance
 			// z-fighting with the paint.
 			y = parkingSurfaceY(w.Terrain, c.Pos[0], c.Pos[1]) + parkingHoverOffset + parkingStripeHover + 0.02
 		} else {
-			y = VisualElevationAt(w.Terrain, c.Pos[0], c.Pos[1]) + roadHoverOffset + 0.02
+			y = deckOrGround(w)(c.Pos[0], c.Pos[1]) + roadHoverOffset + 0.02
 		}
 		// The paint, and the roof box's colour, from the car's ID.
 		hash := uint32(c.ID * 2654435761)
@@ -1391,6 +1391,7 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		setFootpathAttribs()
 		r.scene.footpathMesh.Draw()
 	}
+	r.drawBridges(w)
 	if r.scene.roadMesh != nil {
 		gl.BindTexture(gl.TEXTURE_2D, r.whiteTexID)
 		setRoadTransformAttribs()
@@ -1484,6 +1485,11 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		setRoadTransformAttribs()
 		r.scene.roadGhostMesh.Draw()
 	}
+	if r.scene.roadGhostBridge != nil {
+		setFootpathAttribs()
+		gl.VertexAttrib3f(7, roadBridgeRGB[0], roadBridgeRGB[1], roadBridgeRGB[2])
+		r.scene.roadGhostBridge.Draw()
+	}
 	if r.scene.footpathGhost != nil {
 		r.StaticShader.SetFloat("uAlpha", 0.6)
 		setFootpathAttribs()
@@ -1491,6 +1497,12 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 			gl.VertexAttrib3f(7, 0.75, 0.15, 0.10) // can't be laid
 		}
 		r.scene.footpathGhost.Draw()
+		if r.scene.footpathGhostBridge != nil {
+			if r.scene.footpathGhostOK {
+				gl.VertexAttrib3f(7, footbridgeRGB[0], footbridgeRGB[1], footbridgeRGB[2])
+			}
+			r.scene.footpathGhostBridge.Draw()
+		}
 		r.StaticShader.SetFloat("uAlpha", 0.4)
 	}
 	if r.scene.ropeGhost != nil {
@@ -2196,9 +2208,11 @@ func (r *Renderer) AddLiftCable(lift *world.Lift, t *world.Terrain) {
 }
 
 // RebuildRoads regenerates the world's road meshes (asphalt body + dashed
-// centre-line) from the current road graph. Call after any add/remove on
-// RoadNodes / RoadEdges.
+// centre-line) from the current road graph, and the bridges (footpaths'
+// too). Call after any add/remove on RoadNodes / RoadEdges, or a change
+// to the ground or water under them.
 func (r *Renderer) RebuildRoads(w *world.World) {
+	w.RebuildBridges()
 	if r.scene.roadMesh != nil {
 		r.scene.roadMesh.Delete()
 		r.scene.roadMesh = nil
@@ -2216,19 +2230,22 @@ func (r *Renderer) RebuildRoads(w *world.World) {
 // moves. The tint parameter is currently advisory — road meshes share
 // the cable shader path, which uses a fixed dark grey for the strip;
 // once roads pick up an instance-tinted path the tint will pass through.
-func (r *Renderer) SetGhostRoad(a, b mgl32.Vec2, t *world.Terrain, tint [3]float32) {
-	if r.scene.roadGhostMesh != nil {
-		r.scene.roadGhostMesh.Delete()
-	}
-	r.scene.roadGhostMesh = generateRoadEdgeMesh(a, b, t)
+func (r *Renderer) SetGhostRoad(w *world.World, a, b mgl32.Vec2, tint [3]float32) {
+	r.ClearGhostRoad()
+	line := []world.TrailSample{{Pos: a, Width: 2 * world.RoadHalfWidth}, {Pos: b, Width: 2 * world.RoadHalfWidth}}
+	bridges := w.BridgesFor(line, true)
+	r.scene.roadGhostMesh = generateRoadEdgeMesh(a, b, deckOrGroundWith(w, bridges))
+	r.scene.roadGhostBridge = ghostBridgeMesh(w.Terrain, bridges)
 	_ = tint // see doc comment — reserved for future use
 }
 
 // ClearGhostRoad removes the in-flight road preview.
 func (r *Renderer) ClearGhostRoad() {
-	if r.scene.roadGhostMesh != nil {
-		r.scene.roadGhostMesh.Delete()
-		r.scene.roadGhostMesh = nil
+	for _, m := range []**Mesh{&r.scene.roadGhostMesh, &r.scene.roadGhostBridge} {
+		if *m != nil {
+			(*m).Delete()
+			*m = nil
+		}
 	}
 }
 

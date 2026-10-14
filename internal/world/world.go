@@ -138,6 +138,10 @@ type World struct {
 	Footpaths    []*Footpath
 	FootpathsRev int
 	footpaths    footpathIndex
+	// Bridges carry footpaths and roads over water (bridge.go), made
+	// from them by RebuildBridges; BridgesRev counts changes.
+	Bridges    []Bridge
+	BridgesRev int
 
 	// Ropes are rope lines guests try not to cross (rope.go); RopesRev
 	// moves on every change, for the renderer.

@@ -517,8 +517,9 @@ func (f *figures) build(r *Renderer, w *world.World) {
 		case g.OnPatrollerID != 0:
 			y = VisualElevationAt(t, pos[0], pos[2]) + 0.1
 		default:
-			// An unloading rider stands up from their seat's height.
-			y = VisualElevationAt(t, pos[0], pos[2]) + g.Unload.UnloadLift()
+			// An unloading rider stands up from their seat's height; on a
+			// bridge, from its deck.
+			y = deckOrGround(w)(pos[0], pos[2]) + g.Unload.UnloadLift()
 		}
 		place := mgl32.Translate3D(pos[0], y, pos[2]).Mul4(headingBasis(a.heading))
 		o := outfit(g.ID, g.Traits.Skill)

@@ -195,6 +195,31 @@ var Testbeds = []Testbed{
 		},
 	},
 	{
+		// An open creek across a 10° slope at z=30, snow-bridged for
+		// x=30..33, between the skier at the top and the lodge at the
+		// bottom: the skier should cross on the snow bridge.
+		Name: "Open creek across a slope, intermediate skier",
+		Seed: 1,
+		Build: func() *world.World {
+			return scene(40, 60).slope(10).
+				groomRect(13, 0, 26, 59).
+				creekAcross(30, 30, 33).
+				lodge().skier(0.5).build()
+		},
+	},
+	{
+		// The same creek open all the way across: no way over, so the
+		// skier is cut off and waits for patrol.
+		Name: "Open creek, no crossing, intermediate skier",
+		Seed: 1,
+		Build: func() *world.World {
+			return scene(40, 60).slope(10).
+				groomRect(13, 0, 26, 59).
+				creekAcross(30, -1, -1).
+				lodge().skier(0.5).build()
+		},
+	},
+	{
 		Name: "15 degree slope, intermediate skier",
 		Seed: 1,
 		Build: func() *world.World {
@@ -1162,6 +1187,24 @@ func (b *builder) goapSkierAt(gx, gz int, skill float32, patience float32) *buil
 		Patience:   patience,
 	}
 	b.w.OnMountain = append(b.w.OnMountain, a)
+	return b
+}
+
+// creekAcross puts an open creek across the map along cell row z, a
+// metre and a half wide, snow-bridged where x is in [bx0, bx1].
+func (b *builder) creekAcross(z, bx0, bx1 int) *builder {
+	t := b.w.Terrain
+	m := world.NewTerrainMaterial(t.Width, t.Height)
+	for i := 0; i < m.W; i++ {
+		for _, j := range []int{z*world.DetailPerCell + 2, z*world.DetailPerCell + 3} {
+			mat := world.MatOpenWater
+			if x := i / world.DetailPerCell; x >= bx0 && x <= bx1 {
+				mat = world.MatIce
+			}
+			m.M[j*m.W+i] = mat
+		}
+	}
+	t.Material = m
 	return b
 }
 

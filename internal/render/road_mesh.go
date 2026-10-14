@@ -53,7 +53,7 @@ func generateRoadsMesh(w *world.World, t *world.Terrain) *Mesh {
 	indices := make([]uint32, 0, 256)
 	var baseIdx uint32
 	for _, samples := range lay.samples {
-		v, idx := buildRoadStripFromSamples(samples, t, baseIdx)
+		v, idx := buildRoadStripFromSamples(samples, deckOrGround(w), baseIdx)
 		verts = append(verts, v...)
 		indices = append(indices, idx...)
 		baseIdx += uint32(len(v) / 8)
@@ -72,9 +72,9 @@ func generateRoadsMesh(w *world.World, t *world.Terrain) *Mesh {
 // the ghost preview path. Stays linear by design: the placement ghost
 // is cheap-and-cheerful, and the final committed mesh re-curves through
 // the chain on the next RebuildRoads.
-func generateRoadEdgeMesh(a, b mgl32.Vec2, t *world.Terrain) *Mesh {
+func generateRoadEdgeMesh(a, b mgl32.Vec2, height heightFunc) *Mesh {
 	samples := []mgl32.Vec2{a, b}
-	v, idx := buildRoadStripFromSamples(samples, t, 0)
+	v, idx := buildRoadStripFromSamples(samples, height, 0)
 	if len(idx) == 0 {
 		return nil
 	}
@@ -93,7 +93,7 @@ func generateRoadLanesMesh(w *world.World, t *world.Terrain) *Mesh {
 	indices := make([]uint32, 0, 256)
 	var baseIdx uint32
 	for _, samples := range lay.samples {
-		v, idx := buildRoadDashes(samples, t, baseIdx)
+		v, idx := buildRoadDashes(samples, deckOrGround(w), baseIdx)
 		verts = append(verts, v...)
 		indices = append(indices, idx...)
 		baseIdx += uint32(len(v) / 8)
@@ -113,7 +113,7 @@ func generateRoadLanesMesh(w *world.World, t *world.Terrain) *Mesh {
 // mesh (VisualElevationAt), so the strip always sits roadHoverOffset
 // above it — interpolating cell centres instead sinks the road's edges
 // under the mesh beside a fresh cut.
-func buildRoadStripFromSamples(samples []mgl32.Vec2, t *world.Terrain, baseIdx uint32) ([]float32, []uint32) {
+func buildRoadStripFromSamples(samples []mgl32.Vec2, height heightFunc, baseIdx uint32) ([]float32, []uint32) {
 	if len(samples) < 2 {
 		return nil, nil
 	}
@@ -146,10 +146,10 @@ func buildRoadStripFromSamples(samples []mgl32.Vec2, t *world.Terrain, baseIdx u
 		cz := samples[i][1]
 		lx := cx - perpX
 		lz := cz - perpZ
-		ly := VisualElevationAt(t, lx, lz) + roadHoverOffset
+		ly := height(lx, lz) + roadHoverOffset
 		rx := cx + perpX
 		rz := cz + perpZ
-		ry := VisualElevationAt(t, rx, rz) + roadHoverOffset
+		ry := height(rx, rz) + roadHoverOffset
 
 		frac := cumDist[i] / totalLen
 		verts = append(verts,
@@ -218,7 +218,7 @@ func sampleTangent(samples []mgl32.Vec2, i int) (tx, tz float32) {
 // so curve length, not Euclidean distance between nodes, drives the
 // pattern. Each dash quad is small enough that its endpoints can share
 // the closest sample's tangent without visible bending.
-func buildRoadDashes(samples []mgl32.Vec2, t *world.Terrain, baseIdx uint32) ([]float32, []uint32) {
+func buildRoadDashes(samples []mgl32.Vec2, height heightFunc, baseIdx uint32) ([]float32, []uint32) {
 	if len(samples) < 2 {
 		return nil, nil
 	}
@@ -262,8 +262,8 @@ func buildRoadDashes(samples []mgl32.Vec2, t *world.Terrain, baseIdx uint32) ([]
 
 		// Each end of a dash sits on the asphalt, which runs straight
 		// across between the road's edges, not on the ground under it.
-		y0 := roadSurfaceY(t, p0, tan0) + dashOff
-		y1 := roadSurfaceY(t, p1, tan1) + dashOff
+		y0 := roadSurfaceY(height, p0, tan0) + dashOff
+		y1 := roadSurfaceY(height, p1, tan1) + dashOff
 		quadBase := baseIdx + idx
 		verts = append(verts,
 			x0L, y0, z0L, 0, 1, 0, 0, 0,
@@ -282,11 +282,11 @@ func buildRoadDashes(samples []mgl32.Vec2, t *world.Terrain, baseIdx uint32) ([]
 
 // roadSurfaceY is the drawn road's height above its centreline point p,
 // heading tan, before the hover: halfway between its edges' heights.
-func roadSurfaceY(t *world.Terrain, p, tan mgl32.Vec2) float32 {
+func roadSurfaceY(height heightFunc, p, tan mgl32.Vec2) float32 {
 	hw := world.RoadHalfWidth
 	lx, lz := p[0]+tan[1]*hw, p[1]-tan[0]*hw
 	rx, rz := p[0]-tan[1]*hw, p[1]+tan[0]*hw
-	return (VisualElevationAt(t, lx, lz) + VisualElevationAt(t, rx, rz)) / 2
+	return (height(lx, lz) + height(rx, rz)) / 2
 }
 
 // pointAlongChain returns the XZ position at arc length `dist` along

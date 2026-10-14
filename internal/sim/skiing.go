@@ -1039,6 +1039,7 @@ func stationHazards(w *world.World, x, z, reach float32, buf []world.StationBox)
 //     terrain's cached trunk field (world.TrunkHazardAt)
 //   - falloff inside towerHazardRadius of any lift tower
 //   - falloff inside skierHazardRadius of any other skier
+//   - open water (Terrain.OpenWaterCell), in full
 //
 // Combination is max(): one big hazard dominates. Cover keeps skiers out
 // of stands; the trunk, tower, and skier terms route them around single
@@ -1049,6 +1050,9 @@ func hazardDensityAt(t *world.Terrain, near *steerNear, x, z, coverScale float32
 	d := t.TreeCoverAt(x, z) * coverScale
 	if d < 1 {
 		d = max(d, t.TrunkHazardAt(x, z))
+	}
+	if d < 1 && t.OpenWaterCell(int(x/world.CellSize), int(z/world.CellSize)) {
+		d = 1
 	}
 	if near == nil {
 		return d
@@ -1381,8 +1385,13 @@ func apply(t *world.Terrain, a *world.Guest, dec Decision, perc Perception, dt f
 	}
 
 	step := a.Speed * float32(dt)
-	a.Pos[0] += hx * step
-	a.Pos[2] += hz * step
+	from, ahead := mgl32.Vec2{a.Pos[0], a.Pos[2]}, mgl32.Vec2{a.Pos[0] + hx*step, a.Pos[2] + hz*step}
+	to := t.KeepOutOfWater(from, ahead)
+	if to != ahead && dt > 0 {
+		// Pulled up at the water's edge.
+		a.Speed = min(a.Speed, max(to.Sub(from).Len()/float32(dt), skiCreepSpeed))
+	}
+	a.Pos[0], a.Pos[2] = to[0], to[1]
 	a.Pos[1] = t.InterpolatedSurfaceElevationAt(a.Pos[0], a.Pos[2])
 }
 
@@ -1494,6 +1503,32 @@ func (s *Simulation) injure(a *world.Guest, serious bool) {
 // giveUpRun ends a descent the guest can't manage: down for the
 // fallGiveUpCount-th time, they take their skis off and wait for patrol
 // as an injured guest does (Stranded marks them as unhurt).
+// cutOffChecks is how many route checks in a row (routeRecheckSec
+// apart) must find open water in the way, with no way round, before a
+// guest who has reached it (within cutOffNear cells) gives up and waits
+// for patrol.
+const (
+	cutOffChecks = 3
+	cutOffNear   = 2
+)
+
+// cutOffByWater has a guest with open water between them and where
+// they're going, and no way round it, give up and wait for patrol, as
+// one who's fallen over and over does, and counts them for the feed.
+func (s *Simulation) cutOffByWater(a *world.Guest) {
+	a.Route = world.SkiRoute{}
+	// Down where they are, as a stranded guest is, till patrol comes
+	// (tickFallen, tickInjured).
+	a.Fallen, a.Tumble = true, world.Tumble{Phase: world.FallDown}
+	a.Injured, a.Stranded = true, true
+	a.InjuryWaitTimer = injuryWaitTime
+	a.SkisOn = false
+	a.Speed, a.TurnSide = 0, 0
+	s.applyEvent(a, ai.ThoughtCutOff)
+	s.cutOff.n++
+	s.cutOff.last = mgl32.Vec2{a.Pos[0], a.Pos[2]}
+}
+
 func (s *Simulation) giveUpRun(a *world.Guest) {
 	a.Injured, a.Stranded = true, true
 	a.InjuryWaitTimer = injuryWaitTime

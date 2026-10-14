@@ -657,6 +657,7 @@ func (e *Editor) waterRebuilt() {
 	r.BuildTerrainMesh(w.Terrain)
 	r.BuildSnowSurfaceTex(w.Terrain)
 	r.RebuildStaticBatch(w)
+	r.RebuildRoads(w) // and the bridges, over the water as it now is
 }
 
 // updateWaterTool runs the tool's right button and redraws its lines.
