@@ -1,7 +1,7 @@
 ---
 title: Groups
 kind: plan
-status: partial
+status: shipped
 ---
 
 # Groups
@@ -111,3 +111,4 @@ Each step builds with `go build` and `go vet`, and is checked headless and on sc
   - **Known:** a few followers a day crawl on a descent until a 15-minute fallback replans them.
   - **Not done:** chairs filled by group, splitting up, group moments.
 - 2026-10-13: The lesson share in the group mix is gone: lessons are the [[Ski School]]'s classes now, and the mix has a family share instead (25% by default: one or two adults with one to three kids, [[Families]]). Groups of friends are at most twelve. A kid never takes over leading a group.
+- 2026-10-14: Shipped (the user). Chairs fill by group (`sim/boarding.go`) and family moments are in ([[Families]]); left: splitting up and meeting again, friends' moments, and followers' own lines.

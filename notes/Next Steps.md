@@ -75,7 +75,7 @@ Diagnose each first, report the cause, then fix:
 - **Glaciers**: year-round snow at the top of high resorts. *For* [[Zermatt]].
 - **Avalanche control**: explosives, closures, and barriers. *For* [[Alta]].
 - **Avalanche risk overlay**: show where slopes are loaded before anything releases. *For* [[Alta]].
-- [[Season Calendar]]: our own calendar, 6 days a month, open December to April (a 30-day season), holidays on the 3rd and 6th; a day in 80 s at the fastest speed and 320 s at normal. First measure how much skier movement a game hour can hold. To be ranked by the user.
+- [[Season Calendar]] leftovers: what happens in the off-season (skipped with a summary, or fast with building allowed), and how a day's place in the month is shown. The calendar itself shipped (6-day months, December to April, holidays, speeds as real time a day).
 
 ## Safety ([[Ski Patrol]])
 
@@ -90,7 +90,7 @@ Diagnose each first, report the cause, then fix:
 - **Calibrate the satisfaction ledger** (tabled by the user, 2026-10-07): every event amount and condition rate in `ai.Effects` was set for the old drifting model. On Boreal, intermediate and advanced guests carry "too easy" all day and can end at 0, and a storm day on an ungroomed green drops Cruisers from 0.53 to 0.32. Tune with a resort that has blue and black runs.
 - **What each skill wants**: the terrain half is in [[Snow Tastes]]. Beginners want rentals and easy terrain; intermediates want terrain plus food and places to rest; advanced skiers want terrain and no crowds. Feeds [[Demand]] and [[Moments]]. *For* [[Kirkwood]].
 - **Snowboarders**: guests already roll Snowboard but still ski and look like skiers.
-- [[Groups]]: guests who come together ski together, led by one member; followers ski the leader's line with their own physics, tracks and collisions but no planning or steering fan, so a group costs about as much as two skiers ([[Crowd Scale]]). First step: a prototype measuring a follower's cost.
+- [[Groups]] leftovers: splitting up and meeting again (the strong skier skis alone and meets the others for lunch or at the car), group moments ("skied with friends", "lost the group"), and followers picking their own line within a run (undecided). Groups themselves shipped: leaders plan, followers ski their line, families and boarding together.
 - **Guest goals beyond lapping**: find the shortest line, go to après-ski, stay near the lodge. Powder hunting moved to [[Snow Tastes]].
 - **Regulars**: guests who remember their last visit and come back, or don't. *For* [[Mad River Glen]].
 - **Crowding**: guests notice crowded lodges, not only lift lines; crowded runs are in [[Snow Tastes]]. *For* [[Mad River Glen]].
@@ -324,3 +324,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-14: Kids' ages and cheaper tickets (kids 0–4, child 5–12, afternoon) ([[Tickets]], [[Families]]).
 - 2026-10-14: Aerial ropeways done ([[Lifts]]): gondola station houses, the aerial tram, the single, the high-speed 8-pack, bubble covers, the funitel and the 3S gondola, none in the [[Demo]]. Long gondola spans became **Towers by terrain**, since the tram and 3S already cross on towers 350 m apart. Guests head for the back of a lift line and go round stations, not through them.
 - 2026-10-14: Towers by terrain shipped ([[Lifts]]): towers placed from the ground at the heights it needs, sagging spans between them, and the tram and 3S crossing hollows in spans of up to 1.5 km.
+- 2026-10-14: [[Season Calendar]] and [[Groups]] marked shipped (the user); their leftovers stay listed.

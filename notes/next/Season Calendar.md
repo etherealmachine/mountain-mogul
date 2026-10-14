@@ -1,7 +1,7 @@
 ---
 title: Season Calendar
 kind: plan
-status: partial
+status: shipped
 ---
 
 # Season Calendar
@@ -176,3 +176,4 @@ The "Boreal (Goals Test)" save starts closed with its lifts stopped, so headless
 - 2026-10-10: Still too fast: normal is now 1,280 s a day, motion at about 8 times real speed; a season at normal is about 18 hours.
 - 2026-10-10: Still too fast: normal is now 2,560 s a day, motion at about 4 times real speed and a clock hour in about 4 real minutes.
 - 2026-10-10: Decided (the user): 6-day months (a 30-day season, holidays on the 3rd and 6th), and demand decoupled from `SeasonDays` (`dailyVisitShare` in `sim/demand.go`).
+- 2026-10-14: Shipped (the user): the calendar, speeds and demand are in; the open questions on the off-season and showing the day stay open.
