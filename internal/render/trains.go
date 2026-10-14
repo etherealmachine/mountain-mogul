@@ -73,8 +73,8 @@ func drawTrains(r *Renderer, w *world.World) {
 		for _, c := range cars {
 			mid := at + dir*c.len/2
 			at += dir * c.len
-			if mid < 0 || mid > l.Length() {
-				continue // still off the map, or past the buffers
+			if mid < 0 || mid > l.Length() || l.InTunnel(mid) {
+				continue // still off the map, past the buffers, or in a tunnel
 			}
 			pos, y, heading, pitch := l.At(mid)
 			// Facing back along the line when running out (and a tail

@@ -766,4 +766,9 @@ type RailData struct {
 	// between trains.
 	Station  uint64  `json:"station,omitempty"`
 	Interval float32 `json:"interval,omitempty"`
+	// Heights is the track's height at each sample (world.RailSample.Y)
+	// and Tunnels its tunnels' sample spans: kept, since laying the line
+	// out again over the ground it graded would move them.
+	Heights []float32 `json:"heights,omitempty"`
+	Tunnels [][2]int  `json:"tunnels,omitempty"`
 }

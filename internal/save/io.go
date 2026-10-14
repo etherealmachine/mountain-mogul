@@ -1429,6 +1429,7 @@ func dataToWorld(data ScenarioData) *world.World {
 		if len(l.Nodes) >= 2 {
 			w.SetMinNextID(l.ID)
 			l.LayOut(w.Terrain)
+			l.SetProfile(rd.Heights, rd.Tunnels)
 			w.RailLines = append(w.RailLines, l)
 		}
 	}
@@ -2010,6 +2011,15 @@ func railsToData(w *world.World) []RailData {
 	var out []RailData
 	for _, l := range w.RailLines {
 		d := RailData{ID: l.ID, Style: uint8(l.Style), Station: l.StationID, Interval: l.Interval}
+		for i, s := range l.Track {
+			d.Heights = append(d.Heights, s.Y)
+			if s.Tunnel && (i == 0 || !l.Track[i-1].Tunnel) {
+				d.Tunnels = append(d.Tunnels, [2]int{i, i})
+			}
+			if s.Tunnel {
+				d.Tunnels[len(d.Tunnels)-1][1] = i
+			}
+		}
 		for _, n := range l.Nodes {
 			d.Nodes = append(d.Nodes, [2]float32{n[0], n[1]})
 		}

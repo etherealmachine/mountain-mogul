@@ -81,7 +81,7 @@ func railFrame(l *world.RailLine, i int) (pos mgl32.Vec3, along, across mgl32.Ve
 
 // railLineMesh builds line l's mesh: tint multiplies every colour (white
 // for the built line, a placement tint for the ghost).
-func railLineMesh(l *world.RailLine, tint [3]float32) *Mesh {
+func railLineMesh(l *world.RailLine, t *world.Terrain, tint [3]float32) *Mesh {
 	tr := l.Track
 	if len(tr) < 2 {
 		return nil
@@ -91,8 +91,12 @@ func railLineMesh(l *world.RailLine, tint [3]float32) *Mesh {
 	var b meshBuilder
 	spec := l.Style.Spec()
 	// Ballast and rails: strips along the track.
+	open := func(i int) bool { return !tr[i].Tunnel && !tr[i+1].Tunnel }
 	strip := func(off, half, h float32, c [3]float32) {
 		for i := 0; i+1 < len(tr); i++ {
+			if !open(i) {
+				continue
+			}
 			p0, _, x0 := railFrame(l, i)
 			p1, _, x1 := railFrame(l, i+1)
 			o0, o1 := x0.Mul(off), x1.Mul(off)
@@ -105,6 +109,9 @@ func railLineMesh(l *world.RailLine, tint [3]float32) *Mesh {
 	// The ballast's sloping sides down to the bed.
 	for _, s := range [2]float32{-1, 1} {
 		for i := 0; i+1 < len(tr); i++ {
+			if !open(i) {
+				continue
+			}
 			p0, _, x0 := railFrame(l, i)
 			p1, _, x1 := railFrame(l, i+1)
 			t0, t1 := p0.Add(x0.Mul(s*1.9)).Add(up.Mul(-0.18)), p1.Add(x1.Mul(s*1.9)).Add(up.Mul(-0.18))
@@ -118,6 +125,9 @@ func railLineMesh(l *world.RailLine, tint [3]float32) *Mesh {
 	}
 	// Sleepers every 0.7 m.
 	for d := float32(0.35); d < l.Length(); d += 0.7 {
+		if l.InTunnel(d) {
+			continue
+		}
 		pos, y, _, _ := l.At(d)
 		i := min(int(d/world.RailSampleStep), len(tr)-1)
 		_, along, across := railFrame(l, i)
@@ -142,6 +152,9 @@ func railLineMesh(l *world.RailLine, tint [3]float32) *Mesh {
 	if spec.Wired {
 		const mastEvery, wireH, mastOff = 45.0, 5.6, 3.3
 		for d := float32(10); d < l.Length(); d += mastEvery {
+			if l.InTunnel(d) {
+				continue
+			}
 			pos, y, _, _ := l.At(d)
 			i := min(int(d/world.RailSampleStep), len(tr)-1)
 			_, along, across := railFrame(l, i)
@@ -150,13 +163,27 @@ func railLineMesh(l *world.RailLine, tint [3]float32) *Mesh {
 			b.box(foot.Add(up.Mul(wireH+0.4)).Add(across.Mul(mastOff/2)), across, up, along, mastOff/2+0.2, 0.06, 0.06, col(mastCol))
 		}
 		for i := 0; i+1 < len(tr); i++ {
+			if !open(i) {
+				continue
+			}
 			p0, _, x0 := railFrame(l, i)
 			p1, _, x1 := railFrame(l, i+1)
 			h := up.Mul(wireH)
 			b.quad(p0.Add(h).Sub(x0.Mul(0.03)), p0.Add(h).Add(x0.Mul(0.03)), p1.Add(h).Add(x1.Mul(0.03)), p1.Add(h).Sub(x1.Mul(0.03)), col(wireCol))
 		}
 	}
-	_ = math.Pi
+	// A tunnel's course: a dashed line on the ground over it.
+	for i := 0; i+1 < len(tr); i += 2 {
+		if !tr[i].Tunnel || !tr[i+1].Tunnel || (i/2)%2 == 1 {
+			continue
+		}
+		a, c := tr[i].Pos, tr[i+1].Pos
+		ya := t.InterpolatedSurfaceElevationAt(a[0], a[1]) + 0.3
+		yc := t.InterpolatedSurfaceElevationAt(c[0], c[1]) + 0.3
+		_, _, x0 := railFrame(l, i)
+		p0, p1 := mgl32.Vec3{a[0], ya, a[1]}, mgl32.Vec3{c[0], yc, c[1]}
+		b.quad(p0.Sub(x0.Mul(0.6)), p0.Add(x0.Mul(0.6)), p1.Add(x0.Mul(0.6)), p1.Sub(x0.Mul(0.6)), col([3]float32{0.30, 0.28, 0.26}))
+	}
 	return b.mesh()
 }
 
@@ -171,3 +198,12 @@ func stationTransform(l *world.RailLine) mgl32.Mat4 {
 	rot := float32(math.Atan2(-float64(along[1]), float64(along[0])))
 	return mgl32.Translate3D(at[0], y-0.6, at[1]).Mul4(mgl32.HomogRotate3DY(rot))
 }
+
+// portalTransform places a tunnel portal: its face at the mouth, facing
+// out, the opening's foot at the line's level.
+func portalTransform(p world.TunnelPortal) mgl32.Mat4 {
+	s, c := float32(math.Sin(float64(p.Heading))), float32(math.Cos(float64(p.Heading)))
+	rot := float32(math.Atan2(-float64(c), float64(s)))
+	return mgl32.Translate3D(p.Pos[0], p.Y-world.RailBallast, p.Pos[1]).Mul4(mgl32.HomogRotate3DY(rot))
+}
+

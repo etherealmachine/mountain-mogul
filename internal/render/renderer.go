@@ -428,6 +428,9 @@ func (r *Renderer) initStaticMeshes() {
 			meshDef{MeshTowerWide, "tower_wide"},
 			meshDef{MeshFunitelTower, "funitel_tower"},
 			meshDef{MeshRailStation, "rail_station"},
+			meshDef{MeshPortalRail, "tunnel_portal_rail"},
+			meshDef{MeshPortalRoad, "tunnel_portal_road"},
+			meshDef{MeshPortalPath, "tunnel_portal_path"},
 			meshDef{MeshBeltEnd, "magic_carpet_end"},
 			meshDef{MeshBeltTop, "magic_carpet_top"},
 			meshDef{MeshRopeBase, "rope_tow_base"},
@@ -912,6 +915,13 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 		for _, l := range w.RailLines {
 			if len(l.Track) >= 2 {
 				b.AddStatic(stationTransform(l), mgl32.Vec3{1, 1, 1})
+			}
+		}
+	}
+	if b, ok := r.staticBatches[MeshPortalRail]; ok {
+		for _, l := range w.RailLines {
+			for _, p := range l.Portals() {
+				b.AddStatic(portalTransform(p), mgl32.Vec3{1, 1, 1})
 			}
 		}
 	}

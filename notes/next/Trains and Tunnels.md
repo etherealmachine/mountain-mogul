@@ -70,12 +70,20 @@ None are in the demo. The station waits for step 2, where its platform's length 
 - **Station popup**: the train's riders, speed and trip cost, the interval, where the train is, how many are booked and how many came by train.
 - On the Goals Test with an electric line: of 1,041 visitors in a day, about 250 came by train, every hourly train clearing its bookings; all left by evening.
 
+## Built: rail tunnels
+
+- Where a line's grade-held track runs more than 12 m under the ground, it tunnels (`world/tunnels.go`): runs within 40 m of each other join, and a tunnel under 30 m is cut instead. The hill isn't graded over a tunnel; its track, masts and wire aren't drawn, nor its train; a portal (`tunnel_portal_rail.py`) stands at each mouth facing out, and a dashed line on the snow marks the course. A tunnel costs $8,000 a metre in place of the track's price (`RailLineCost` now prices the laid-out line, so the tool's cost preview counts tunnels).
+- The bed is graded to the nearest point on the track's segments, not its sample points (the banks were toothed), and plowed like the roads: bare within 6 m of the track, the snow back over the next 6 m (cell-by-cell clearing left a sawtooth).
+- Each line's track heights and tunnel spans are saved: laying a line out again over the ground it graded moved its tunnels (a portal ended up 25 m inside the uncut hill).
+- On the Goals Test a line from the north-east corner to the base runs 1,064 m in a tunnel under the mountain.
+- **Roads and footpaths** don't tunnel yet: they lie on the ground with no grade limit, so they'd first need a profile of their own (held to a grade, graded into the ground) for a tunnel to come from.
+
 ## Steps
 
 1. Done: **The models**: steam engine and coaches, the electric unit, the high-speed set, the funicular car, a station, a tunnel portal; checked on screen.
 2. Done: **Rail lines and stations**: the Rail tool with grade limits, the graded rail bed and its look, stations.
 3. Done: **Trains running**: timetables, consists following the track with pitch, guests arriving and leaving by train, costs.
-4. **Tunnels**: on rail, roads and footpaths: deep cuts become tunnels, portals, hidden vehicles, the dashed course.
+4. Rail done; roads and footpaths left: **Tunnels**: on rail, roads and footpaths: deep cuts become tunnels, portals, hidden vehicles, the dashed course.
 5. **The funicular**: the lift type on the tram's shuttle, on rails, tunnelled.
 6. **Balance**, and a look at it all on Zermatt-like ground.
 
@@ -90,3 +98,4 @@ None are in the demo. The station waits for step 2, where its platform's length 
 - 2026-10-14: Step 1's models built and looked at on a sheet (`tools/modelview`).
 - 2026-10-14: Step 2 built (the Rail tool, laying out, the bed, the look, stations). The first look had the ballast and rails buried in snow: the bed is now plowed.
 - 2026-10-14: Step 3 built (timetables, booking riders, arrivals and departures by the station, consists with pitch, the station popup).
+- 2026-10-14: Rail tunnels built (step 4's rail half); roads and footpaths need profiles first.

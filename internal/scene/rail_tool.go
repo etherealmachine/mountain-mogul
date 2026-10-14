@@ -21,8 +21,9 @@ type railTool struct {
 	style world.RailStyle
 	nodes []mgl32.Vec2
 	// ghostAt is the hover the ghost was last built for.
-	ghostAt mgl32.Vec2
-	ghostN  int
+	ghostAt   mgl32.Vec2
+	ghostN    int
+	ghostCost int
 }
 
 // railFinishReach is how near the last point a click counts as
@@ -62,7 +63,7 @@ func (s *Scenario) railClick(r *render.Renderer, wx, wz float32) {
 	}
 	// Build it.
 	spec := rt.style.Spec()
-	cost := world.RailLineCost(rt.style, rt.nodes)
+	cost := world.RailLineCost(s.railPreview(rt.nodes))
 	if problem := railProblem(rt.style, rt.nodes); problem != "" {
 		s.setToast(problem)
 		return
@@ -74,7 +75,7 @@ func (s *Scenario) railClick(r *render.Renderer, wx, wz float32) {
 	}
 	w.Spend(cost)
 	w.PlaceRailLine(rt.style, rt.nodes)
-	r.SetRailGhost(nil, [3]float32{})
+	r.SetRailGhost(nil, nil, [3]float32{})
 	r.FlushTerrainVerts(w.Terrain)
 	r.RebuildStaticBatch(w)
 	s.setToast(fmt.Sprintf("%s built: %s", spec.Label, settings.FormatDollars(cost)))
@@ -100,7 +101,7 @@ func (s *Scenario) updateRailGhost(r *render.Renderer) {
 	rt := &s.railTool
 	if len(rt.nodes) == 0 || !s.hoverValid {
 		if rt.ghostN != 0 {
-			r.SetRailGhost(nil, [3]float32{})
+			r.SetRailGhost(nil, nil, [3]float32{})
 			rt.ghostN = 0
 		}
 		return
@@ -115,23 +116,25 @@ func (s *Scenario) updateRailGhost(r *render.Renderer) {
 	}
 	rt.ghostAt, rt.ghostN = hover, len(nodes)
 	if len(nodes) < 2 {
-		r.SetRailGhost(nil, [3]float32{})
+		r.SetRailGhost(nil, nil, [3]float32{})
 		return
 	}
-	l := &world.RailLine{Style: rt.style, Nodes: nodes}
-	l.LayOut(s.world.Terrain)
-	tint := ghostTint(s.world.CanAfford(world.RailLineCost(rt.style, nodes)), railProblem(rt.style, nodes) == "")
-	r.SetRailGhost(l, tint)
+	l := s.railPreview(nodes)
+	tint := ghostTint(s.world.CanAfford(world.RailLineCost(l)), railProblem(rt.style, nodes) == "")
+	rt.ghostCost = world.RailLineCost(l)
+	r.SetRailGhost(l, s.world.Terrain, tint)
 }
 
-// railCost is the cost preview for the Rail tool.
-func (s *Scenario) railCost() int {
-	nodes := s.railTool.nodes
-	if len(nodes) == 0 {
-		return 0
-	}
-	hover := mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]}
-	return world.RailLineCost(s.railTool.style, append(append([]mgl32.Vec2(nil), nodes...), hover))
+// railCost is the cost preview for the Rail tool: the line as the ghost
+// last laid it out.
+func (s *Scenario) railCost() int { return s.railTool.ghostCost }
+
+// railPreview lays out a line of the tool's style through nodes, without
+// touching the ground.
+func (s *Scenario) railPreview(nodes []mgl32.Vec2) *world.RailLine {
+	l := &world.RailLine{Style: s.railTool.style, Nodes: nodes}
+	l.LayOut(s.world.Terrain)
+	return l
 }
 
 // openStationPopup shows a railway's station: its style, how often its

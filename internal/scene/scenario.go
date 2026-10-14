@@ -1552,7 +1552,7 @@ func (s *Scenario) Update(dt float64) {
 			s.pathTool.nodes = nil // drop the path, keep the tool
 		case s.activeTool == toolRail && len(s.railTool.nodes) > 0:
 			s.railTool = railTool{style: s.railTool.style} // drop the line, keep the tool
-			s.app.Renderer.SetRailGhost(nil, [3]float32{})
+			s.app.Renderer.SetRailGhost(nil, nil, [3]float32{})
 		case s.activeTool == toolRope && s.ropeTool.drawing():
 			s.ropeTool.nodes = nil // drop the rope, keep the tool
 		case s.activeTool != toolNone:
@@ -3620,7 +3620,7 @@ func (s *Scenario) setTool(t toolMode) {
 	r.ClearGhostRoad()
 	r.SetFootpathGhost(s.world, nil, false)
 	r.SetRopeGhost(s.world, nil, false)
-	r.SetRailGhost(nil, [3]float32{})
+	r.SetRailGhost(nil, nil, [3]float32{})
 	if isActive {
 		s.activeTool = toolNone
 	} else {

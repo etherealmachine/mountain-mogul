@@ -121,6 +121,9 @@ type RailSample struct {
 	Pos  mgl32.Vec2
 	Y    float32 // top of the rail
 	Dist float32 // metres from the line's start
+	// Tunnel is under the hill here: the ground's left as it is, the
+	// track and trains hidden (tunnels.go).
+	Tunnel bool
 }
 
 // Rail bed and grading.
@@ -146,14 +149,20 @@ func (l *RailLine) Length() float32 {
 	return l.Track[len(l.Track)-1].Dist
 }
 
-// RailLineCost is what laying line l costs: its track and its station.
-func RailLineCost(style RailStyle, nodes []mgl32.Vec2) int {
-	var m float32
-	for i := 1; i < len(nodes); i++ {
-		m += nodes[i].Sub(nodes[i-1]).Len()
+// RailLineCost is what laying line l (laid out) costs: its track, its
+// tunnels, and its station.
+func RailLineCost(l *RailLine) int {
+	s := l.Style.Spec()
+	var track, tunnel float32
+	for i := 1; i < len(l.Track); i++ {
+		d := l.Track[i].Dist - l.Track[i-1].Dist
+		if l.Track[i].Tunnel {
+			tunnel += d
+		} else {
+			track += d
+		}
 	}
-	s := style.Spec()
-	return int(m)*s.CostPerM + s.StationCost
+	return int(track)*s.CostPerM + int(tunnel)*TunnelCostPerM + s.StationCost
 }
 
 // LayOut smooths the line through its nodes and works out the track's
@@ -229,6 +238,7 @@ func (l *RailLine) LayOut(t *Terrain) {
 	for i := range l.Track {
 		l.Track[i].Y = y[i]
 	}
+	l.markTunnels(t)
 }
 
 // At is where the track is d metres along the line: its position, height
@@ -283,15 +293,25 @@ func (t *Terrain) GradeRailBed(l *RailLine) {
 		best[i] = math.MaxFloat32
 	}
 	bedY := make([]float32, len(p.After))
-	for _, s := range l.Track {
-		ci, cj := p.index(s.Pos)
-		r := int(reach/p.Spacing) + 1
+	// Each sample's ground takes the nearest point on the track's
+	// segments (not its sample points, which leave the banks toothed).
+	for n := 0; n+1 < len(l.Track); n++ {
+		a, b := l.Track[n], l.Track[n+1]
+		if a.Tunnel && b.Tunnel {
+			continue // the hill stays
+		}
+		ci, cj := p.index(a.Pos)
+		r := int(reach/p.Spacing) + 2
+		ab := b.Pos.Sub(a.Pos)
+		ab2 := max(ab.LenSqr(), 1e-6)
 		for j := max(cj-r, 0); j <= min(cj+r, p.H-1); j++ {
 			for i := max(ci-r, 0); i <= min(ci+r, p.W-1); i++ {
 				wx, wz := p.Pos(i, j)
-				d := mgl32.Vec2{wx - s.Pos[0], wz - s.Pos[1]}.Len()
+				q := mgl32.Vec2{wx, wz}
+				f := clamp01(q.Sub(a.Pos).Dot(ab) / ab2)
+				d := q.Sub(a.Pos.Add(ab.Mul(f))).Len()
 				if k := j*p.W + i; d < best[k] {
-					best[k], bedY[k] = d, s.Y-RailBallast
+					best[k], bedY[k] = d, a.Y+(b.Y-a.Y)*f-RailBallast
 				}
 			}
 		}
@@ -312,7 +332,7 @@ func (t *Terrain) GradeRailBed(l *RailLine) {
 	hw2 := (RailBedHalf + 6) * (RailBedHalf + 6) // and a clear strip either side
 	t.RemoveTreesIn(x0, z0, x1, z1, func(tr Tree) bool {
 		for _, s := range l.Track {
-			if (mgl32.Vec2{tr.X - s.Pos[0], tr.Z - s.Pos[1]}).LenSqr() <= hw2 {
+			if !s.Tunnel && (mgl32.Vec2{tr.X - s.Pos[0], tr.Z - s.Pos[1]}).LenSqr() <= hw2 {
 				return true
 			}
 		}
@@ -351,30 +371,57 @@ func (w *World) NearMapEdge(p mgl32.Vec2) bool {
 	return p[0] < RailEdgeReach || p[1] < RailEdgeReach || mx-p[0] < RailEdgeReach || mz-p[1] < RailEdgeReach
 }
 
-// PlowRails clears the snow off every railway's bed (the cells within
-// RailBedHalf + 1 m of its track) and the trees beside it: run when
-// it's built and after each day's snow, as a plow train would.
+// Plowing: cells whose centre is within RailPlowInner of a railway's
+// track are cleared bare, and the snow comes back over the next
+// RailPlowFalloff, so the cells' edges don't show (as roads are plowed).
+const (
+	RailPlowInner   = float32(6)
+	RailPlowFalloff = float32(6)
+)
+
+// PlowRails clears the snow off every railway's bed: run when it's
+// built and after each day's snow, as a plow train would.
 func (w *World) PlowRails() {
 	t := w.Terrain
-	reach := RailBedHalf + 1
+	reach := RailPlowInner + RailPlowFalloff
 	for _, l := range w.RailLines {
-		done := map[[2]int]bool{}
-		for _, s := range l.Track {
-			x0, z0 := int((s.Pos[0]-reach)/CellSize), int((s.Pos[1]-reach)/CellSize)
-			x1, z1 := int((s.Pos[0]+reach)/CellSize), int((s.Pos[1]+reach)/CellSize)
+		near := map[[2]int]float32{}
+		for n := 0; n+1 < len(l.Track); n++ {
+			a, b := l.Track[n], l.Track[n+1]
+			if a.Tunnel && b.Tunnel {
+				continue
+			}
+			ab := b.Pos.Sub(a.Pos)
+			ab2 := max(ab.LenSqr(), 1e-6)
+			x0, z0 := int((min(a.Pos[0], b.Pos[0])-reach)/CellSize), int((min(a.Pos[1], b.Pos[1])-reach)/CellSize)
+			x1, z1 := int((max(a.Pos[0], b.Pos[0])+reach)/CellSize), int((max(a.Pos[1], b.Pos[1])+reach)/CellSize)
 			for x := x0; x <= x1; x++ {
 				for z := z0; z <= z1; z++ {
-					if done[[2]int{x, z}] || !t.InBounds(x, z) {
-						continue
-					}
-					done[[2]int{x, z}] = true
-					c := &t.Cells[x][z]
-					if c.Base > 0 || c.Top.Accumulation > 0 {
-						c.Base, c.BaseDensity, c.Top = 0, 0, SnowLayer{}
-						t.MarkSnowDirty(x, z)
+					q := mgl32.Vec2{(float32(x) + 0.5) * CellSize, (float32(z) + 0.5) * CellSize}
+					f := clamp01(q.Sub(a.Pos).Dot(ab) / ab2)
+					d := q.Sub(a.Pos.Add(ab.Mul(f))).Len()
+					k := [2]int{x, z}
+					if old, ok := near[k]; !ok || d < old {
+						near[k] = d
 					}
 				}
 			}
+		}
+		for k, d := range near {
+			if d >= reach || !t.InBounds(k[0], k[1]) {
+				continue
+			}
+			c := &t.Cells[k[0]][k[1]]
+			keep := clamp01((d - RailPlowInner) / RailPlowFalloff)
+			if c.Base == 0 && c.Top.Accumulation == 0 {
+				continue
+			}
+			c.Base *= keep
+			c.Top.Accumulation *= keep
+			if c.Top.Accumulation <= 0 {
+				c.Top = SnowLayer{}
+			}
+			t.MarkSnowDirty(k[0], k[1])
 		}
 	}
 }
@@ -399,3 +446,20 @@ func (w *World) RailLineByStation(id uint64) *RailLine {
 
 // AddTrainCost charges a train's trip to the day's costs.
 func (w *World) AddTrainCost(c int) { w.TrainsToday += float64(c) }
+
+// SetProfile puts back a saved line's track heights and tunnel spans
+// (sample indices) over its laid-out curve; ignored if they don't fit.
+func (l *RailLine) SetProfile(heights []float32, tunnels [][2]int) {
+	if len(heights) != len(l.Track) {
+		return
+	}
+	for i := range l.Track {
+		l.Track[i].Y, l.Track[i].Tunnel = heights[i], false
+	}
+	for _, r := range tunnels {
+		for i := max(r[0], 0); i <= min(r[1], len(l.Track)-1); i++ {
+			l.Track[i].Tunnel = true
+		}
+	}
+}
+

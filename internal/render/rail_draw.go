@@ -32,8 +32,8 @@ func (rb *railBatch) delete() {
 	}
 }
 
-func newRailBatch(r *Renderer, l *world.RailLine, tint [3]float32) *railBatch {
-	m := railLineMesh(l, tint)
+func newRailBatch(r *Renderer, l *world.RailLine, t *world.Terrain, tint [3]float32) *railBatch {
+	m := railLineMesh(l, t, tint)
 	if m == nil {
 		return nil
 	}
@@ -56,7 +56,7 @@ func (r *Renderer) RebuildRails(w *world.World) {
 			continue
 		}
 		rb.delete()
-		r.scene.rails[l.ID] = newRailBatch(r, l, [3]float32{1, 1, 1})
+		r.scene.rails[l.ID] = newRailBatch(r, l, w.Terrain, [3]float32{1, 1, 1})
 	}
 	for id, rb := range r.scene.rails {
 		if !live[id] {
@@ -68,11 +68,11 @@ func (r *Renderer) RebuildRails(w *world.World) {
 
 // SetRailGhost shows line l (nil for none) as a placement preview,
 // tinted.
-func (r *Renderer) SetRailGhost(l *world.RailLine, tint [3]float32) {
+func (r *Renderer) SetRailGhost(l *world.RailLine, t *world.Terrain, tint [3]float32) {
 	r.scene.railGhost.delete()
 	r.scene.railGhost = nil
 	if l != nil && len(l.Track) >= 2 {
-		r.scene.railGhost = newRailBatch(r, l, tint)
+		r.scene.railGhost = newRailBatch(r, l, t, tint)
 	}
 }
 
