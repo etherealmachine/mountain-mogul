@@ -16,6 +16,7 @@ Nothing ranked.
 ## Lifts
 
 - [[Lift Maintenance]]: breakdowns, paying for maintenance, and overriding wind holds at a risk.
+- **Lift colours and station variants** (minor): pick a lift's chair and cabin colours, and a station's look.
 - **Riding lifts down**: beginners stuck at a top, tired guests at the end of the day, a bare lower mountain in spring; gondolas and trams freely, chairs if the player allows it ([[Lift Operations]] step 4).
 
 ## Terrain and runs
@@ -64,7 +65,6 @@ Nothing ranked.
 - [[Childcare]]: parents ski once their kids are looked after.
 - **Views**: well-sited buildings draw more guests and can charge more.
 - [[Building Interiors]]: a legend for the cutaway, then furniture.
-- **Lodge storeys and styles**: more storeys, a style choice and a shuffle button.
 - [[Packed Snow]]: walkers slowed by deep snow, feet packing it down, sweepers clearing stations.
 
 ## Staff
@@ -96,6 +96,7 @@ Nothing ranked.
 
 ## Look
 
+- **Building styles by region**: lodges and the rest in a region's look, so a US resort, an Alpine one and a Japanese one look different; with more storeys and a shuffle.
 - **Environmental variety**: tree species, deciduous trees, snags, saplings, shrubs and rocks.
 
 ## Easter eggs
