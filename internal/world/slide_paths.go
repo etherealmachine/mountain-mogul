@@ -214,11 +214,20 @@ func tracePath(t *Terrain, zone [][2]int, trailAt map[[2]int][]uint64) *SlidePat
 
 // DangerFor is the danger a path's load makes on a slope of steep
 // radians: the load against dangerLoad (about 25 cm of new snow makes
-// "Danger" on a 38° slope), less on slopes off the 38° that slides best.
+// "Danger" on a 38° slope), less on slopes off the 38° that slides best:
+// little under 33°, nothing at 30°, and down to a third on the steepest
+// ground, which sloughs as it loads.
 func DangerFor(load, steep float32) (DangerLevel, float32) {
 	const dangerLoad = 0.03
-	best := float32(38 * math.Pi / 180)
-	slope := max(1-abs32(steep-best)/float32(15*math.Pi/180), 0.3)
+	deg := steep * 180 / math.Pi
+	var slope float32
+	switch {
+	case deg < 38:
+		slope = clamp01((deg - 30) / 8)
+		slope *= slope
+	default:
+		slope = max(1-(deg-38)/15, 0.3)
+	}
 	index := load / dangerLoad * slope
 	switch {
 	case index < 0.4:
@@ -282,3 +291,59 @@ func angleDiff(a, b float32) float32 {
 	}
 	return d
 }
+
+// Avalanche control (notes/next/Avalanche Control.md): an upgrade to a
+// patrol room (Building.AvyControl). Its patrollers are trained for
+// control work and paid more; with it, runs under a slide path at or
+// over the resort's limit (World.AvyLimit) close until the danger
+// drops (Trail.AvyClosed).
+const (
+	AvyControlCost        = 80_000
+	AvyPatrollerDailyCost = 250 // on top of PatrollerDailyCost
+)
+
+// AvyControlled reports whether the resort has avalanche control: a
+// patrol room with the upgrade.
+func (w *World) AvyControlled() bool {
+	for _, b := range w.Buildings {
+		if b.AvyControl && b.Offers(ServicePatrol) {
+			return true
+		}
+	}
+	return false
+}
+
+// SetAvyClosedCells records the cells of the runs closed for avalanche
+// danger that aren't on an open run too, for routes to keep off
+// (AvyClosedAt).
+func (w *World) SetAvyClosedCells() {
+	w.avyClosedCells = nil
+	open := map[[2]int]bool{}
+	for _, t := range w.Trails {
+		if !t.AvyClosed {
+			for _, c := range t.Cells {
+				open[c] = true
+			}
+		}
+	}
+	for _, t := range w.Trails {
+		if !t.AvyClosed {
+			continue
+		}
+		for _, c := range t.Cells {
+			if !open[c] {
+				if w.avyClosedCells == nil {
+					w.avyClosedCells = map[[2]int]bool{}
+				}
+				w.avyClosedCells[c] = true
+			}
+		}
+	}
+}
+
+// AvyClosedAt reports whether cell (x, z) is on a run closed for
+// avalanche danger, and no open one.
+func (w *World) AvyClosedAt(x, z int) bool {
+	return w.avyClosedCells != nil && w.avyClosedCells[[2]int{x, z}]
+}
+

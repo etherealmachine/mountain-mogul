@@ -92,14 +92,21 @@ func (a *SkiTrail) Cost(s *WorldSnapshot, w *world.World) float32 {
 	cost := a.Distance / skiSpeedMps
 	// After dark guests keep to lit runs, unless an unlit one's the only
 	// way down.
-	if t := w.FindTrail(a.TrailID); t != nil && !w.TrailInService(t) {
+	if t := w.FindTrail(a.TrailID); t != nil && t.AvyClosed {
+		cost *= closedTrailCost
+	} else if t != nil && !w.TrailInService(t) {
 		cost *= unlitTrailCost
 	}
 	return cost
 }
 
-// unlitTrailCost is how much dearer an unlit run is after dark.
-const unlitTrailCost = 6
+// unlitTrailCost is how much dearer an unlit run is after dark, and
+// closedTrailCost one closed for avalanche danger: only the way down
+// from where they are.
+const (
+	unlitTrailCost  = 6
+	closedTrailCost = 50
+)
 
 // =============================================================================
 // ApplicableActions extension — trail-based descents

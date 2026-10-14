@@ -958,6 +958,9 @@ func RoomUpkeep(b *Building, r Room) int {
 	cost := int(float32(r.Service.TileDailyCost()*len(r.Cells)*b.Floors()) * b.Kind.dailyScale())
 	if r.Service == ServicePatrol {
 		cost += b.Patrollers * PatrollerDailyCost
+		if b.AvyControl {
+			cost += b.Patrollers * AvyPatrollerDailyCost
+		}
 	}
 	return cost
 }

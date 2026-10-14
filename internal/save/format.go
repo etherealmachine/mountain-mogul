@@ -98,6 +98,9 @@ type ScenarioData struct {
 	Bankrupt        bool     `json:"bankrupt,omitempty"`
 	Sandbox         bool     `json:"sandbox,omitempty"`
 	DayTicket       *int     `json:"day_ticket,omitempty"`
+	// AvyLimit is World.AvyLimit, the danger level plus one (0 in older
+	// saves: the default).
+	AvyLimit int `json:"avy_limit,omitempty"`
 	// Tickets is World.Tickets; absent loads the defaults for the day
 	// ticket's price.
 	Tickets    *TicketsData `json:"tickets,omitempty"`
@@ -524,6 +527,7 @@ type BuildingData struct {
 	// Patrollers is the patrol room's staffing (0 in older saves: one a
 	// patrol tile).
 	Patrollers int      `json:"patrollers,omitempty"`
+	AvyControl bool     `json:"avy_control,omitempty"`
 	Quality    *float32 `json:"q,omitempty"`
 }
 

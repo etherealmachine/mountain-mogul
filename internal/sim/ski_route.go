@@ -75,6 +75,9 @@ const (
 	// through (rocks.go). Only searched routes weigh it; a straight line
 	// that's otherwise clear is skied as it is.
 	routeThinCost = 6.0
+	// routeClosedCost is the extra cost of a cell of a run closed for
+	// avalanche danger, in cells: they go round unless there's no way.
+	routeClosedCost = 15.0
 )
 
 // routeProfile is what a guest's route weighs besides distance.
@@ -258,6 +261,9 @@ func lineClear(t *world.Terrain, a, b mgl32.Vec2, prof *routeProfile) bool {
 	inside := t.IsAccessibleWorld(a[0], a[1])
 	keepSide := inside == t.IsAccessibleWorld(b[0], b[1])
 	prev, prevY := a, t.InterpolatedSurfaceElevationAt(a[0], a[1])
+	// along reports whether a fraction of the way is clear of the ends,
+	// where a guest may already be on a closed run, or meet one.
+	along := func(f float32) bool { return f*length > routeTrailSlack && length-f*length > routeTrailSlack }
 	for i := 1; i <= n; i++ {
 		f := float32(i) / float32(n)
 		p := a.Add(d.Mul(f))
@@ -277,6 +283,9 @@ func lineClear(t *world.Terrain, a, b mgl32.Vec2, prof *routeProfile) bool {
 		}
 		if keepToPath && !pathCell(p) {
 			return false
+		}
+		if prof.skis && along(f) && prof.w.AvyClosedAt(cx, cz) {
+			return false // a straight line across a closed run: route round it
 		}
 		y := t.InterpolatedSurfaceElevationAt(p[0], p[1])
 		if prof.comfort > 0 && feltPitch(cell, prev, p, prevY, y) > prof.comfort*routeSteepClear {
@@ -315,6 +324,9 @@ func planSkiRoute(t *world.Terrain, a, b mgl32.Vec2, prof *routeProfile, sc *rou
 		c2 := 1 + routeTreeCost*cell.TreeCover()*prof.cover
 		if prof.offTrail(c[0], c[1]) {
 			c2 += routeOffTrailCost
+		}
+		if prof.skis && prof.w.AvyClosedAt(c[0], c[1]) {
+			c2 += routeClosedCost
 		}
 		if prof.skis {
 			if d := cell.VisibleSnowDepth(); d < world.ThinSnowDepth {

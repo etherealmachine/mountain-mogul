@@ -935,6 +935,7 @@ func (s *Scenario) buildRoomPopup(b *world.Building, cell [2]int, confirmRemove 
 			},
 			func() { b.Patrollers = max(b.Patrollers-1, 1); s.world.SyncFleet(b) },
 			func() { b.Patrollers++; s.world.SyncFleet(b) })
+		s.addAvyControls(w, b, reopen(false))
 		s.addFallReport(w)
 	case world.ServiceGarage:
 		w.AddLabel("Space", func() string {
@@ -1109,3 +1110,62 @@ func (s *Scenario) openLodge(b *world.Building, screenW, screenH int) {
 	}
 	s.buildLodgePopup(b, screenW, screenH)
 }
+
+// addAvyControls adds avalanche control to a patrol popup: the upgrade,
+// then the danger at which runs close, the danger now, and what's
+// closed (notes/next/Avalanche Control.md).
+func (s *Scenario) addAvyControls(w *ui.Window, b *world.Building, reopen func()) {
+	if edition.Demo {
+		return // the demo has no avalanche control
+	}
+	w.AddSection("Avalanche control")
+	if !b.AvyControl {
+		w.AddActionButton(fmt.Sprintf("Train for avalanche control (%s)", formatDollars(world.AvyControlCost)), func() {
+			if !s.world.CanAfford(world.AvyControlCost) {
+				s.setToast(fmt.Sprintf("Need %s for avalanche control: short by %s",
+					formatDollars(world.AvyControlCost), formatDollars(world.AvyControlCost-s.world.Available())))
+				return
+			}
+			s.world.Spend(world.AvyControlCost)
+			b.AvyControl = true
+			reopen()
+		})
+		w.AddLabel("Without it", func() string { return "no control work, and runs stay open whatever the danger" })
+		return
+	}
+	w.AddLabel("Trained", func() string {
+		return fmt.Sprintf("%s/day more a patroller", formatDollars(world.AvyPatrollerDailyCost))
+	})
+	w.AddIntStepperFn("Close runs at",
+		func() string { return s.world.AvyLimit.String() + " or worse" },
+		func() { s.world.AvyLimit = max(s.world.AvyLimit, 1) - 1 },
+		func() { s.world.AvyLimit = min(s.world.AvyLimit+1, world.DangerExtreme) })
+	w.AddLabel("Danger now", func() string {
+		var worst world.DangerLevel
+		near := 0
+		for _, p := range s.world.SlidePaths {
+			if len(p.Trails) == 0 {
+				continue
+			}
+			near++
+			worst = max(worst, p.Danger)
+		}
+		if near == 0 {
+			return "no slide paths cross the runs"
+		}
+		return fmt.Sprintf("%s at worst on %d paths over the runs", worst, near)
+	})
+	w.AddLabel("Closed", func() string {
+		var names []string
+		for _, t := range s.world.Trails {
+			if t.AvyClosed {
+				names = append(names, t.Name)
+			}
+		}
+		if len(names) == 0 {
+			return "none"
+		}
+		return strings.Join(names, ", ")
+	})
+}
+

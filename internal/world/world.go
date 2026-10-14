@@ -229,6 +229,14 @@ type World struct {
 	// never cleared by the sim. The UI reads it for the game-over screen.
 	Bankrupt bool
 
+	// avyClosedCells is the ground of the runs closed for avalanche
+	// danger (SetAvyClosedCells); nil when none are.
+	avyClosedCells map[[2]int]bool
+
+	// AvyLimit is the danger at which avalanche control closes the runs
+	// under a slide path (Danger by default).
+	AvyLimit DangerLevel
+
 	// SlidePaths is the avalanche paths (slide_paths.go), found by the
 	// sim from the ground; not saved.
 	SlidePaths []*SlidePath
@@ -394,6 +402,7 @@ func NewWorld(terrain *Terrain) *World {
 		Tickets:         DefaultTicketTiers(DefaultDayTicketPrice),
 		OpenHour:        DefaultOpenHour,
 		CloseHour:       DefaultCloseHour,
+		AvyLimit:        DangerDanger,
 		Rating:          InitialRating,
 	}
 }
@@ -481,6 +490,9 @@ func (w *World) OperatingCosts() CostBreakdown {
 			}
 			if b.Offers(ServicePatrol) {
 				c[CostBuildings] += b.Patrollers * PatrollerDailyCost
+				if b.AvyControl {
+					c[CostBuildings] += b.Patrollers * AvyPatrollerDailyCost
+				}
 			}
 		}
 	}

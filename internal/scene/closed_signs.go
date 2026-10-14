@@ -8,8 +8,9 @@ import (
 )
 
 // Closed signs: a red circle-slash floats over each closed lift's base
-// station, and over each ticket window while the resort is closed, so a
-// player who's built them sees what still has to be opened.
+// station, at the top of each run closed for avalanche danger, and over
+// each ticket window while the resort is closed, so a player who's built
+// them sees what still has to be opened.
 
 // closedSignRadius is the sign's size on screen, pixels.
 const closedSignRadius = float32(13)
@@ -29,6 +30,14 @@ func (s *Scenario) drawClosedSigns(r *render.Renderer) {
 		}
 		// Over the base station's roof (about 4.3 m).
 		sign(mgl32.Vec3{l.Base[0], t.InterpolatedSurfaceElevationAt(l.Base[0], l.Base[1]) + 7, l.Base[1]})
+	}
+	// Runs closed for avalanche danger: a sign at the top.
+	for _, tr := range w.Trails {
+		if !tr.AvyClosed || len(tr.Nodes) == 0 {
+			continue
+		}
+		p := tr.Nodes[0].Pos
+		sign(mgl32.Vec3{p[0], t.InterpolatedSurfaceElevationAt(p[0], p[1]) + 3, p[1]})
 	}
 	if w.ResortOpen {
 		return

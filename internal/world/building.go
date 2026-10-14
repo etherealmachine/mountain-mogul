@@ -104,8 +104,10 @@ type Building struct {
 	LessonPrice int
 	Instructors int
 	// Patrollers is how many patrollers its patrol room employs
-	// (SyncFleet keeps it within the room's places).
+	// (SyncFleet keeps it within the room's places); AvyControl is the
+	// room's avalanche-control upgrade (slide_paths.go).
 	Patrollers int
+	AvyControl bool
 	// LessonsToday counts the lessons the school gave on day LessonDay,
 	// and MovedUpToday the students who moved up a skill level in them.
 	// Not saved.

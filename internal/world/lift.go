@@ -249,6 +249,10 @@ type Lift struct {
 	TestUntil float64
 	Wind      float32
 
+	// AvyClosed is stopped because every run off its top is closed for
+	// avalanche danger (Trail.AvyClosed). Set by the sim; not saved.
+	AvyClosed bool
+
 	// Lit is lights along its line and at its stations: it runs after
 	// dark (lights.go).
 	Lit bool

@@ -140,6 +140,7 @@ func (s *Simulation) avalancheHour() {
 	s.ensureSlidePaths()
 	s.refreshPathTrails()
 	s.updateAvalancheDanger()
+	defer s.updateAvyClosures()
 	for _, p := range s.World.SlidePaths {
 		if rng.Global().Float32() < releasePerHour[p.Danger] {
 			if len(p.Trails) > 0 {
@@ -285,3 +286,86 @@ func (s *Simulation) catchInAvalanche() {
 		}
 	}
 }
+
+// updateAvyClosures closes, with avalanche control, the runs under a
+// slide path at or over the resort's limit, and opens those no longer
+// under one, saying which in the feed.
+func (s *Simulation) updateAvyClosures() {
+	w := s.World
+	control := w.AvyControlled()
+	closed := map[uint64]bool{}
+	if control {
+		for _, p := range w.SlidePaths {
+			if p.Danger >= w.AvyLimit {
+				for _, id := range p.Trails {
+					closed[id] = true
+				}
+			}
+		}
+	}
+	var shut, opened []string
+	for _, t := range w.Trails {
+		if closed[t.ID] == t.AvyClosed {
+			continue
+		}
+		t.AvyClosed = closed[t.ID]
+		name := t.Name
+		if name == "" {
+			name = "a run"
+		}
+		if t.AvyClosed {
+			shut = append(shut, name)
+		} else {
+			opened = append(opened, name)
+		}
+	}
+	if len(shut)+len(opened) > 0 {
+		w.RebuildTrailGraph()
+		w.SetAvyClosedCells()
+	}
+	// A lift with nothing open off its top stops with its runs.
+	for _, l := range w.Lifts {
+		any, open := false, false
+		if w.TrailGraph != nil {
+			for _, e := range w.TrailGraph.EdgesFrom(l.ID) {
+				if e.FromKind != world.KindLiftTop {
+					continue
+				}
+				if t := w.FindTrail(e.TrailID); t != nil {
+					any = true
+					open = open || !t.AvyClosed
+				}
+			}
+		}
+		was := l.AvyClosed
+		l.AvyClosed = any && !open
+		if l.AvyClosed && !was {
+			ejectQueue(l)
+			shut = append(shut, l.Name)
+		} else if was && !l.AvyClosed {
+			opened = append(opened, l.Name)
+		}
+	}
+	if len(shut) > 0 {
+		w.LogEvent(world.EventAvalanche, s.SimTime, "Closed for avalanche danger: "+listNames(shut))
+	}
+	if len(opened) > 0 {
+		w.LogEvent(world.EventAvalanche, s.SimTime, "Reopened after avalanche danger: "+listNames(opened))
+	}
+}
+
+// listNames joins names for the feed, at most four and how many more.
+func listNames(names []string) string {
+	out := ""
+	for i, n := range names {
+		if i == 4 {
+			return out + fmt.Sprintf(" and %d more", len(names)-4)
+		}
+		if i > 0 {
+			out += ", "
+		}
+		out += n
+	}
+	return out
+}
+

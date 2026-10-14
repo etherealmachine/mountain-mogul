@@ -350,7 +350,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 			buildings[i].Tiles = saveTiles(b)
 			buildings[i].FloorY, buildings[i].FloorSet = b.FloorY, b.FloorSet
 		}
-		buildings[i].Patrollers = b.Patrollers
+		buildings[i].Patrollers, buildings[i].AvyControl = b.Patrollers, b.AvyControl
 		if b.Offers(world.ServiceSkiSchool) {
 			buildings[i].Lesson, buildings[i].Instructors = b.LessonPrice, b.Instructors
 			if b.Instructors == 0 {
@@ -685,6 +685,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		SkiArea:      skiAreaData(w),
 		Cash:         &w.Cash,
 		DayTicket:    &w.DayTicketPrice,
+		AvyLimit:     int(w.AvyLimit) + 1,
 		Tickets:      (*TicketsData)(&w.Tickets),
 		SeasonPass:   &w.SeasonPassPrice,
 		CreditRate:   &w.CreditRate,
@@ -954,6 +955,9 @@ func dataToWorld(data ScenarioData) *world.World {
 	}
 	if data.Cash != nil {
 		w.Cash = *data.Cash
+	}
+	if data.AvyLimit > 0 {
+		w.AvyLimit = world.DangerLevel(data.AvyLimit - 1)
 	}
 	if data.DayTicket != nil {
 		w.DayTicketPrice = *data.DayTicket
@@ -1551,7 +1555,7 @@ func loadServiceBuilding(w *world.World, bd BuildingData) *world.Building {
 	if bd.Lesson > 0 {
 		b.LessonPrice = bd.Lesson
 	}
-	b.Patrollers = bd.Patrollers
+	b.Patrollers, b.AvyControl = bd.Patrollers, bd.AvyControl
 	switch {
 	case bd.Instructors > 0:
 		b.Instructors = bd.Instructors

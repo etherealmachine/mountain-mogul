@@ -36,6 +36,11 @@ type Trail struct {
 	// makes snow to (snowmaking.go).
 	Snowmaking   bool
 	SnowmakingOn bool
+	// AvyClosed is closed for avalanche danger: under a slide path at or
+	// over the resort's limit, with avalanche control. Set by the sim
+	// every clock hour; not saved.
+	AvyClosed bool
+
 	// Lit is lights bought along it: it can be skied after dark
 	// (lights.go).
 	Lit        bool

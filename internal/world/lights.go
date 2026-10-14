@@ -31,14 +31,16 @@ func RunLightsCost(t *Trail) int { return int(t.Length()+0.5) * RunLightsCostPer
 func LiftLightsCost(l *Lift) int { return int(l.cableLen()+0.5) * LiftLightsCostPerM }
 
 // InService reports whether guests can use lift l now: open, not held for
-// snow, and lit if it's dark.
+// snow or wind, not stopped because every run off its top is closed for
+// avalanche danger, and lit if it's dark.
 func (l *Lift) InService(w *World) bool {
-	return l.Open && !l.OnHold && (!w.Dark || l.Lit)
+	return l.Open && !l.OnHold && !l.AvyClosed && (!w.Dark || l.Lit)
 }
 
-// TrailInService reports whether guests choose run t now: any time by
-// day, only lit after dark (they can still ski an unlit one down).
-func (w *World) TrailInService(t *Trail) bool { return !w.Dark || t.Lit }
+// TrailInService reports whether guests choose run t now: not while it's
+// closed for avalanche danger, and only lit after dark (they can still
+// ski one down from where they are).
+func (w *World) TrailInService(t *Trail) bool { return !t.AvyClosed && (!w.Dark || t.Lit) }
 
 // LitLength is the metres of lit runs and lift lines, for the lights'
 // running cost.
