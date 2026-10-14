@@ -13,8 +13,7 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 
 In the order to work on them:
 
-1. [[Families]]: the [[Ski School]] is in (instructors lead classes, lessons raise skill for good); next kids who arrive and ski with their parents, then kids in lessons.
-2. [[Surface Lifts]]: the magic carpet, rope tow and T-bar are in (steps 1–5); next balance and placing them at Boreal and Kirkwood.
+1. [[Surface Lifts]]: the magic carpet, rope tow and T-bar are in (steps 1–5); next balance and placing them at Boreal and Kirkwood.
 
 ## Bugs
 
@@ -322,3 +321,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-13: [[Water Editing]] planned with the user (editable creek lines and lake outlines in the scenario editor); listed under Terrain.
 - 2026-10-13: [[Water Editing]] moved to priority 1 and steps 1–3 built.
 - 2026-10-13: [[SkiFree Mode]] steps 1–3 built (take control, chase camera, ride the lift up); timed runs and the yeti parked under Easter eggs. [[Water Editing]]'s shipped scenarios left to the user.
+- 2026-10-13: [[Families]] built: the [[Ski School]] (classes, lasting skill), kids in families, parents' stars, kids' lessons, family demand.

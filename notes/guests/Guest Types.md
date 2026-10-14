@@ -44,3 +44,4 @@ None need fixing now. Each one is where a new type would hit a wall:
 - 2026-10-07: Snowboarders and the other guest types are planned as DLC after early access ([[Release]]).
 - 2026-10-07: Dropped the snowboard roll: every new guest skis until the snowboarder DLC ([[Release]]). Saves with snowboarders keep them, riding as skiers.
 - 2026-10-13: Children planned in [[Families]] as an age on each guest (adult or child), in the base game.
+- 2026-10-13: Kids (`Guest.Child`): in families with their parents, two-thirds the size, slower and quicker to tire, never alone ([[Families]]).
