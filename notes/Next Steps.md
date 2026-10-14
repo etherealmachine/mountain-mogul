@@ -94,7 +94,6 @@ Nothing ranked.
 ## Campaign
 
 - **Campaign scenarios**: the rest of the [[Scenario Campaign]], each pulling in what its note needs.
-- **Two base areas**: separate parking, lodges and maybe ratings for each base. *For* [[Palisades Tahoe]].
 
 ## Look
 

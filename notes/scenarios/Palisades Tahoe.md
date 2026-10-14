@@ -12,18 +12,18 @@ Olympic Valley, California: the old Squaw Valley and Alpine Meadows, two resorts
 
 **Teaches.** Everything at once: two base areas, expensive land ([[Parcels]]), a long gondola over terrain chairs can't cross ([[Lifts]]), and the finances to pay for it ([[Finance]]). This is the gondola from the [[Vision]] story.
 
-**Goals (draft).** Connect the two base areas with a gondola; a high rating at both; the combined resort turning a profit.
+**Goals (draft).** Connect the two base areas with a gondola; a high rating; the combined resort turning a profit.
 
 **Rules.** None. Scale is the challenge.
 
 **Needs.**
 
 - Gondola rules for long spans with few towers ([[Vision]])
-- Two separate base areas with their own parking and lodges
-- Possibly a rating per base area
+- Two base areas, each with its own parking, lodges and ways in, built with the usual tools: one resort, one rating
 
 The real lift connects the two bases (Base to Base). If the finale should be a true peak-to-peak, Whistler Blackcomb is the alternative (see [[Scenario Campaign]]).
 
 ## Log
 
 - 2026-10-01: Idea.
+- 2026-10-14: Two base areas need nothing special (the user): it's one resort, whatever the bases and however guests reach them; no separate ratings.
