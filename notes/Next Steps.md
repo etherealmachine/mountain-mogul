@@ -15,7 +15,7 @@ Nothing ranked.
 
 ## Lifts
 
-- [[Lift Maintenance]]: breakdowns, paying for maintenance, and overriding wind holds at a risk (the UI to work out with the user).
+- [[Lift Maintenance]]: breakdowns, paying for maintenance, and overriding wind holds at a risk.
 - **Riding lifts down**: beginners stuck at a top, tired guests at the end of the day, a bare lower mountain in spring; gondolas and trams freely, chairs if the player allows it ([[Lift Operations]] step 4).
 
 ## Terrain and runs
@@ -26,7 +26,7 @@ Nothing ranked.
 - **Cat trails**: easy, narrow ways down for beginners that get crowded.
 - **Glades and bowls as areas**: outlined zones skied anywhere inside, not runs ([[Trail Network]]).
 - [[Land and Boundaries]]: a ski area boundary, buying land as a real decision, protected land and buildings. *For* [[Kirkwood]], [[Palisades Tahoe]].
-- **Trail steepness for the player** (held, the user 2026-10-08): a run's steepest pitch, "steeper than a green should be" marked on the map, and a fall's cause named.
+- **Trail steepness for the player**: a run's steepest pitch, "steeper than a green should be" marked on the map, and a fall's cause named.
 - **Rock in the sim** ([[Ground Materials]] step 5): avalanches starting above rock bands, guests keeping off rock, experts dropping small cliffs.
 - **Biomes**: forested, sub-alpine and alpine zones changing build cost, grooming quality and injury risk.
 
@@ -73,7 +73,7 @@ Nothing ranked.
 
 ## Getting there
 
-- [[Large Vehicles]]: buses (shuttles, clubs, school trips) and RVs staying overnight. Wanted (the user, 2026-10-14).
+- [[Large Vehicles]]: buses (shuttles, clubs, school trips) and RVs staying overnight.
 - **Trains**: a way in with no parking. *For* [[Zermatt]].
 - **Tunnels**: roads and paths through terrain.
 - [[Lot Surfaces]]: asphalt, gravel or dirt lots, each its own cost, capacity and look.
@@ -107,4 +107,4 @@ Things that happen on their own when conditions are right:
 - **Mogul show-off**: an expert bombing a mogul run under a lift, entertaining the riders above.
 - **Gaper Day**: on the last weekend of the season some guests turn up in retro outfits.
 - **Yeti sighting**: very rare, in alpine terrain with low traffic and heavy snow.
-- [[SkiFree Mode]], the rest: timed runs with a ghost, and the yeti past the boundary (parked).
+- [[SkiFree Mode]], the rest: timed runs with a ghost, and the yeti past the boundary
