@@ -19,9 +19,9 @@ Little Cottonwood Canyon, Utah. Huge snowfall, steep slide paths above the resor
 **Needs.**
 
 - Avalanche control, closures, and a risk overlay (in [[Next Steps]])
-- Trail closures (in [[Next Steps]])
 
 ## Log
 
 - 2026-10-01: Idea.
 - 2026-10-14: No road closures (the user).
+- 2026-10-14: No run closures (the user).

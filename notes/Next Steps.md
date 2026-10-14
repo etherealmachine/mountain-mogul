@@ -20,7 +20,7 @@ Nothing ranked.
 
 ## Terrain and runs
 
-- **Slow zones and run closures**: the player closes a run or paints a slow zone; guests mostly respect them, and patrollers stand at slow zones slowing fast skiers. *For* [[Alta]].
+- **Slow zones**: the player paints a slow zone; guests mostly respect it, and patrollers stand at slow zones slowing fast skiers. *For* [[Alta]].
 - **Backcountry**: gates through the boundary to terrain with no patrol or grooming, for experts only. *Needs* [[Land and Boundaries]].
 - **Cat skiing**: snowcats carry advanced guests to ungroomed terrain. *For* the Revelstoke idea in [[Scenario Campaign]].
 - **Cat trails**: easy, narrow ways down for beginners that get crowded.
