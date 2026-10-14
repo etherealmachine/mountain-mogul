@@ -66,7 +66,7 @@ Long term: likely after a playable demo (the user, 2026-10-07).
 
 **Evening services:** dinner at the [[Restaurant]], nightlife at the [[Bar]] (après carrying on), the [[Spa]] (a new need, sore, after a big day), [[Night Skiing]], [[Events]], and a [[Grocery]] for guests who cook.
 
-Ties into land ([[Parcels]], zoning in [[Next Steps]] Real estate), roads ([[Transit]]), and location value (slopeside, ski-in/ski-out, views).
+Ties into land ([[Parcels]]), roads ([[Transit]]), and location value (slopeside, ski-in/ski-out, views).
 
 ## Staff services
 
@@ -91,7 +91,7 @@ From the user's review, 2026-10-07, a likely order: snack stands and the food co
 
 - Snack stands mid-mountain need building anywhere: whether that comes first or stands start in the base area.
 - The food court's minimum size (2×2 is a guess).
-- Lodging as land the player zones and sells against buildings they run: mixed, decided; how zoning works isn't.
+- Lodging as land the player sells against buildings they run: mixed, decided; how selling land works isn't (no zoning: the user, 2026-10-14).
 - How a multi-night stay's ledger works day to day (scored per day for the rating, with the stay's services on it).
 
 ## Log

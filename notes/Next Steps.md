@@ -88,7 +88,6 @@ Nothing ranked.
 ## Real estate and attractions
 
 - **Lodging**: hotels for ongoing revenue, condos and houses sold for land, and a village; on-site beds raise demand. *For* Portillo in [[Scenario Campaign]].
-- **Zoning**: zone the base area for parking, lodging and retail.
 - **Attractions**: an ice rink, a sledding hill, snowmobile tours, nordic trails.
 
 ## Campaign
