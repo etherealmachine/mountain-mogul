@@ -24,6 +24,8 @@ type trailHooks struct {
 	spend func(cost int) bool
 	// snowStatus says what the run's snowmaking is doing now (the game).
 	snowStatus func() string
+	// lit is the run's lights put in (the game redraws its poles).
+	lit func()
 }
 
 // newTrailWindow builds the trail popup: name, difficulty, grooming,
@@ -57,6 +59,7 @@ func newTrailWindow(w *world.World, t *world.Trail, confirmClear bool, h trailHo
 		})
 	}
 	addSnowmakingRows(win, w, t, h)
+	addLightRows(win, w, t, h)
 	win.AddLabel("Shape", func() string { return runSummary(w, t) })
 	if !t.Kind.IsArea() {
 		win.AddLabel("From", func() string { return runEndLabel(w, t.Start) })

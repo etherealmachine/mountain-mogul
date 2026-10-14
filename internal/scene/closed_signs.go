@@ -24,7 +24,7 @@ func (s *Scenario) drawClosedSigns(r *render.Renderer) {
 		}
 	}
 	for _, l := range w.Lifts {
-		if l.Open && !l.OnHold {
+		if l.InService(w) {
 			continue
 		}
 		// Over the base station's roof (about 4.3 m).

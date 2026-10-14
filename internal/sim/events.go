@@ -85,7 +85,7 @@ func (s *Simulation) logLongLines() {
 		s.longLinesSaid = map[uint64]bool{}
 	}
 	for _, l := range s.World.Lifts {
-		if !l.Open || l.OnHold || s.longLinesSaid[l.ID] {
+		if !l.InService(s.World) || s.longLinesSaid[l.ID] {
 			continue
 		}
 		wait := l.LineWait()

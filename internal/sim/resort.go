@@ -51,7 +51,11 @@ func (s *Simulation) ClosedForDay() bool {
 		return true
 	}
 	h := float32(HourOfDay(s.SimTime))
-	return h >= w.CloseHour || h < w.OpenHour-preOpenArrivalHours
+	if h >= w.CloseHour || h < w.OpenHour-preOpenArrivalHours {
+		return true
+	}
+	// An evening with no lit lift running is over.
+	return w.Dark && h > 12 && !litLiftRunning(w)
 }
 
 // tickResortClosed tells the planner whether the mountain is closed for

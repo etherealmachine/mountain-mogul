@@ -70,6 +70,7 @@ const (
 	CostBuildings
 	CostSnowmaking
 	CostInterest // credit-line interest, charged at month end
+	CostLighting // night skiing's lights (lights.go)
 	CostKindCount
 )
 
@@ -86,6 +87,8 @@ func (k CostKind) Label() string {
 		if !edition.Demo {
 			return "Snowmaking"
 		}
+	case CostLighting:
+		return "Lights"
 	case CostInterest:
 		return "Interest"
 	}

@@ -312,13 +312,15 @@ type TrailData struct {
 	Groomed    bool   `json:"groomed,omitempty"`
 	// Snowmaking, SnowmakingOn and SnowTarget are the run's snowmaking
 	// (world.Trail).
-	Snowmaking   bool          `json:"snowmaking,omitempty"`
-	SnowmakingOn bool          `json:"snowmaking_on,omitempty"`
-	SnowTarget   float32       `json:"snow_target,omitempty"`
-	Nodes        [][3]float32  `json:"nodes,omitempty"`
-	Start        *TrailEndData `json:"start,omitempty"`
-	End          *TrailEndData `json:"end,omitempty"`
-	Outline      [][2]float32  `json:"outline,omitempty"`
+	Snowmaking   bool    `json:"snowmaking,omitempty"`
+	SnowmakingOn bool    `json:"snowmaking_on,omitempty"`
+	SnowTarget   float32 `json:"snow_target,omitempty"`
+	// Lit is the run's lights (world.Trail.Lit).
+	Lit     bool          `json:"lit,omitempty"`
+	Nodes   [][3]float32  `json:"nodes,omitempty"`
+	Start   *TrailEndData `json:"start,omitempty"`
+	End     *TrailEndData `json:"end,omitempty"`
+	Outline [][2]float32  `json:"outline,omitempty"`
 }
 
 // TrailEndData is what a run's end is attached to (world.TrailEnd).
@@ -577,6 +579,8 @@ type LiftData struct {
 	LineAttendant bool `json:"line_attendant,omitempty"`
 	// Bubble is Lift.Bubble: a 6-pack's or 8-pack's bubble covers.
 	Bubble bool `json:"bubble,omitempty"`
+	// Lit is Lift.Lit: lights for night skiing.
+	Lit bool `json:"lit,omitempty"`
 }
 
 // PlanActionData is one serialised step in a guest's L0 plan. Fields map

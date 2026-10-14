@@ -118,7 +118,7 @@ func (a *JoinQueue) Name() string {
 
 func (a *JoinQueue) Precondition(s *WorldSnapshot, w *world.World) bool {
 	l := findLift(w, a.LiftID)
-	if !(!s.Removed && s.AtLiftBase == a.LiftID && l != nil && l.Open && !l.OnHold) {
+	if !(!s.Removed && s.AtLiftBase == a.LiftID && l != nil && l.InService(w)) {
 		return false
 	}
 	if !liftAccessible(l, s.Skill, w) {

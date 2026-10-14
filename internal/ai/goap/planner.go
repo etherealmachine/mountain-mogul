@@ -223,7 +223,7 @@ func rideBlocker(s *WorldSnapshot, w *world.World) ai.ThoughtKind {
 func allLinesFull(s *WorldSnapshot, w *world.World) bool {
 	any := false
 	for _, l := range w.Lifts {
-		if !l.Open || l.OnHold || !liftAccessible(l, s.Skill, w) {
+		if !l.InService(w) || !liftAccessible(l, s.Skill, w) {
 			continue
 		}
 		any = true

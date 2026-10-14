@@ -235,6 +235,10 @@ type Lift struct {
 	// this first when guests won't ride.
 	Open bool
 
+	// Lit is lights along its line and at its stations: it runs after
+	// dark (lights.go).
+	Lit bool
+
 	// OnHold is set automatically when the lift base has too little snow
 	// (LiftHoldDepth).
 	// A held lift drains its chairs (unloading at the top as normal) but

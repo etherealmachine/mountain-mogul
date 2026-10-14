@@ -31,7 +31,8 @@ func (s *Simulation) tickSnowmaking(dt float64) {
 	cellArea := float32(world.CellSize * world.CellSize)
 	for _, tr := range w.Trails {
 		tr.MakingSnow = false
-		if !tr.Snowmaking || !tr.SnowmakingOn || !stopped {
+		// An unlit run makes snow through a night session too.
+		if !tr.Snowmaking || !tr.SnowmakingOn || !(stopped || (w.Dark && !tr.Lit)) {
 			continue
 		}
 		var water float32

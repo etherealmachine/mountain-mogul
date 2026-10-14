@@ -282,7 +282,7 @@ func LiftAccessible(l *world.Lift, skill float32, w *world.World) bool {
 // at skill would ride.
 func runningLiftFor(skill float32, w *world.World) bool {
 	for _, l := range w.Lifts {
-		if l.Open && !l.OnHold && liftAccessible(l, skill, w) {
+		if l.InService(w) && liftAccessible(l, skill, w) {
 			return true
 		}
 	}

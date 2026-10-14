@@ -47,6 +47,10 @@ type Simulation struct {
 	// found on first use by snowmaking.
 	baseElev      float32
 	baseElevKnown bool
+	// sunDay is the sim day sunRise and sunSet (clock hours) are for
+	// (tickDark).
+	sunDay          int
+	sunRise, sunSet float32
 	// snowmakingStopped is whether snowmaking could run last tick (the
 	// lifts stopped), to close each night when it ends.
 	snowmakingStopped bool
@@ -356,6 +360,7 @@ func (s *Simulation) subTick(dt float64) {
 	// still sees that day's weather.
 	s.tickHourly()
 	s.maybeSampleHistory()
+	s.tickDark(dt)
 	s.tickResortClosed()
 	s.tickLifts(dt)
 	s.tickGuests(dt)
@@ -381,6 +386,12 @@ func (s *Simulation) tickLifts(dt float64) {
 			continue
 		}
 		unloadAt := lift.UnloadProgress()
+		// After dusk an unlit lift stops like at closing; its line goes
+		// to find a lit one.
+		running := running && (!w.Dark || lift.Lit)
+		if !running && w.Dark && len(lift.Queue) > 0 && s.LiftsRunning() {
+			ejectQueue(lift)
+		}
 
 		// Hold: too little snow at the lift's base (under LiftHoldDepth,
 		// back from LiftResumeDepth) — drain chairs, don't board, then
@@ -994,7 +1005,7 @@ func (s *Simulation) liftTooHard(a *world.Guest) {
 	var near *world.Lift
 	best := float32(math.Inf(1))
 	for _, l := range s.World.Lifts {
-		if !l.Open || l.OnHold || !s.World.ServicesForLift(l.ID).Has(world.DiffGreen) {
+		if !l.InService(s.World) || !s.World.ServicesForLift(l.ID).Has(world.DiffGreen) {
 			continue
 		}
 		if d := (mgl32.Vec2{l.Base[0] - a.Pos[0], l.Base[1] - a.Pos[2]}).Len(); d < best {
@@ -1032,7 +1043,7 @@ func (s *Simulation) maybeSampleHistory() {
 		}
 		s.openToday = w.ResortOpen
 		w.Cash -= costs.Total()
-		w.SnowmakingToday = 0
+		w.SnowmakingToday, w.LightingToday = 0, 0
 		costs[world.CostInterest] = s.applyCredit(dayIdx)
 
 		// The rating is the average of the last few days' average
@@ -1875,7 +1886,7 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		// plan was built — don't queue on an inoperable lift. Clear the
 		// plan and return; tickPlanning will replan next tick (calling
 		// replan here would recurse: replan→onPlanStepStart→here→...).
-		if !lift.Open || lift.OnHold {
+		if !lift.InService(s.World) {
 			a.Plan.Steps = nil
 			return
 		}
@@ -2285,7 +2296,7 @@ func planActionPreconditionHolds(step ai.PlanAction, snap goap.WorldSnapshot, w 
 			// a chair for hours.
 			return false
 		}
-		return l != nil && l.Open && !l.OnHold
+		return l != nil && l.InService(w)
 	case ai.ActSkiToService, ai.ActSkiToParking, ai.ActWalkToParking,
 		ai.ActDepart, ai.ActWalkToTicketOffice, ai.ActWalkToService, ai.ActBuySeasonPass, ai.ActBuyDayTicket:
 		b := findBuildingByID(w, step.BldgID)

@@ -12,3 +12,7 @@ import (
 func addSnowmakingRows(*ui.Window, *world.World, *world.Trail, trailHooks) {}
 
 func (s *Scenario) snowmakingStatus(*world.Trail) string { return "" }
+
+func addLightRows(*ui.Window, *world.World, *world.Trail, trailHooks) {}
+
+func (s *Scenario) addLiftLightRows(*ui.Window, *world.Lift, int, int) {}

@@ -3173,6 +3173,7 @@ func (s *Scenario) buildTrailPopup(trail *world.Trail, confirmClear bool, screen
 			return true
 		},
 		snowStatus: func() string { return s.snowmakingStatus(t) },
+		lit:        s.lightsChanged,
 	})
 	w.Visible = true
 	s.placePopup(w, screenW, screenH)
@@ -3378,6 +3379,7 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 			s.openLiftPopup(l, screenW, screenH)
 		})
 	}
+	s.addLiftLightRows(w, l, screenW, screenH)
 	if l.Open && !l.OnHold {
 		s.skiItButton(w, l)
 	}

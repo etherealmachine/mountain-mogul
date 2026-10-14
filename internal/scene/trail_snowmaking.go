@@ -91,3 +91,58 @@ func (s *Scenario) snowmakingStatus(t *world.Trail) string {
 	return fmt.Sprintf("Too warm (%s at the base; needs %s)",
 		settings.FormatTemp(s.sim.TempNow()), settings.FormatTemp(world.SnowmakingMinTempC))
 }
+
+// addLightRows adds a run's lights to its popup: a button to put them
+// in, then what they do (world/lights.go).
+func addLightRows(win *ui.Window, w *world.World, t *world.Trail, h trailHooks) {
+	if !world.NightSkiingAvailable() || t.Kind.IsArea() {
+		return
+	}
+	if !t.Lit {
+		cost := world.RunLightsCost(t)
+		win.AddActionButton(fmt.Sprintf("Add lights (%s)", settings.FormatDollars(cost)), func() {
+			if h.spend != nil && !h.spend(cost) {
+				return
+			}
+			t.Lit = true
+			if h.lit != nil {
+				h.lit()
+			}
+			if h.reopen != nil {
+				h.reopen(false)
+			}
+		})
+		return
+	}
+	win.AddLabel("Lights", func() string {
+		return fmt.Sprintf("lit from sunset to closing, %s an hour", settings.FormatDollars(int(t.Length()*world.LightsCostPerMHour+0.5)))
+	})
+}
+
+// addLiftLightRows adds a lift's lights to its popup.
+func (s *Scenario) addLiftLightRows(win *ui.Window, l *world.Lift, screenW, screenH int) {
+	if !world.NightSkiingAvailable() || l.Cableless() {
+		return
+	}
+	if !l.Lit {
+		cost := world.LiftLightsCost(l)
+		win.AddActionButton(fmt.Sprintf("Add lights (%s)", settings.FormatDollars(cost)), func() {
+			if !s.world.CanAfford(cost) {
+				s.setToast(fmt.Sprintf("Need %s for lights: short by %s",
+					settings.FormatDollars(cost), settings.FormatDollars(cost-s.world.Available())))
+				return
+			}
+			s.world.Spend(cost)
+			l.Lit = true
+			s.lightsChanged()
+			s.openLiftPopup(l, screenW, screenH)
+		})
+		return
+	}
+	win.AddLabel("Lights", func() string {
+		if s.world.Dark {
+			return "on: runs till closing"
+		}
+		return "runs after dark till closing"
+	})
+}

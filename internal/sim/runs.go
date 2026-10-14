@@ -207,7 +207,7 @@ func (s *Simulation) checkBoredom(a *world.Guest) {
 	}
 	best, laps, any := float32(math.Inf(-1)), int32(0), false
 	for _, l := range w.Lifts {
-		if !l.Open || l.OnHold || (rideable != 0 && !w.ServicesForLift(l.ID).Has(rideable)) || !goap.LiftAccessible(l, a.Traits.Skill, w) {
+		if !l.InService(w) || (rideable != 0 && !w.ServicesForLift(l.ID).Has(rideable)) || !goap.LiftAccessible(l, a.Traits.Skill, w) {
 			continue
 		}
 		c, ok := w.LiftConditions(l.ID)

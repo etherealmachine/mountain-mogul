@@ -172,7 +172,7 @@ func Extract(a *world.Guest, w *world.World) WorldSnapshot {
 	// its back is within proximityRadius of the base.
 	const shortLine = int(proximityRadius / world.QueueSpacing)
 	for _, l := range w.Lifts {
-		if !l.Open || l.OnHold {
+		if !l.InService(w) {
 			continue
 		}
 		// Near the base counts only while the line is short: with a

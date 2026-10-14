@@ -254,7 +254,7 @@ func dist2D(a, b mgl32.Vec2) float32 {
 // AnyLiftRunning reports whether some lift is open and not on hold.
 func (w *World) AnyLiftRunning() bool {
 	for _, l := range w.Lifts {
-		if l.Open && !l.OnHold {
+		if l.InService(w) {
 			return true
 		}
 	}
@@ -266,7 +266,7 @@ func (w *World) AnyLiftRunning() bool {
 // anywhere) takes any running lift.
 func (w *World) RunningLiftFor(diff TerrainDifficulty) bool {
 	for _, l := range w.Lifts {
-		if l.Open && !l.OnHold && (diff == 0 || w.ServicesForLift(l.ID).Has(diff)) {
+		if l.InService(w) && (diff == 0 || w.ServicesForLift(l.ID).Has(diff)) {
 			return true
 		}
 	}
@@ -284,11 +284,14 @@ func (w *World) ReachableTrails() []*Trail {
 	}
 	seen := map[uint64]bool{}
 	for _, l := range w.Lifts {
-		if !l.Open || l.OnHold {
+		if !l.InService(w) {
 			continue
 		}
 		for _, e := range w.TrailGraph.EdgesFrom(l.ID) {
 			if e.FromKind != KindLiftTop {
+				continue
+			}
+			if t := w.FindTrail(e.TrailID); t != nil && !w.TrailInService(t) {
 				continue
 			}
 			seen[e.TrailID] = true
@@ -343,7 +346,7 @@ func (w *World) ServicesForLift(liftID uint64) TerrainDifficulty {
 	for _, e := range w.TrailGraph.Edges {
 		if e.FromID == liftID && e.FromKind == KindLiftTop {
 			t := w.FindTrail(e.TrailID)
-			if t != nil {
+			if t != nil && w.TrailInService(t) {
 				services |= t.Difficulty
 			}
 		}
@@ -367,7 +370,7 @@ func (w *World) TerrainForLift(liftID uint64) TerrainDifficulty {
 		if e.FromID != liftID || e.FromKind != KindLiftTop {
 			continue
 		}
-		if t := w.FindTrail(e.TrailID); t != nil {
+		if t := w.FindTrail(e.TrailID); t != nil && w.TrailInService(t) {
 			terrain |= t.Difficulty
 		}
 		if e.ToKind == KindTrail {

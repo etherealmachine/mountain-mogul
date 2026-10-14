@@ -447,6 +447,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 
 			LineAttendant: l.Staff.LineAttendant,
 			Bubble:        l.Bubble,
+			Lit:           l.Lit,
 		}
 		if l.Cableless() && !forScenario {
 			saveHeli(l, &ld)
@@ -602,6 +603,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 			Snowmaking:   tr.Snowmaking,
 			SnowmakingOn: tr.SnowmakingOn,
 			SnowTarget:   tr.SnowTarget,
+			Lit:          tr.Lit,
 			Start:        trailEndToData(tr.Start),
 			End:          trailEndToData(tr.End),
 		}
@@ -1153,6 +1155,7 @@ func dataToWorld(data ScenarioData) *world.World {
 		}
 		lift.Staff.LineAttendant = ld.LineAttendant
 		lift.Bubble = ld.Bubble
+		lift.Lit = ld.Lit
 	}
 
 	// Restore guests. Every row in data.Guests rehydrates into a *Guest in
@@ -1352,6 +1355,7 @@ func dataToWorld(data ScenarioData) *world.World {
 		t.Kind = world.TrailKind(td.Kind)
 		t.Groomed = td.Groomed && !t.Kind.IsArea()
 		t.Snowmaking = td.Snowmaking && !t.Kind.IsArea()
+		t.Lit = td.Lit
 		t.SnowmakingOn, t.SnowTarget = t.Snowmaking && td.SnowmakingOn, td.SnowTarget
 		if t.Snowmaking && t.SnowTarget <= 0 {
 			t.SnowTarget = world.DefaultSnowTarget

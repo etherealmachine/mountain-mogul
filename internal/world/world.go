@@ -229,6 +229,14 @@ type World struct {
 	// never cleared by the sim. The UI reads it for the game-over screen.
 	Bankrupt bool
 
+	// Dark is whether it's too dark to ski unlit (set by the sim each
+	// tick), and DuskHour the clock hour that happens today. Not saved.
+	Dark     bool
+	DuskHour float32
+	// LightingToday is what the lights have cost since the day's costs
+	// were last charged, dollars. Not saved.
+	LightingToday float64
+
 	// SnowmakingToday is what snowmaking has cost since the day's costs
 	// were last charged, dollars (sim/snowmaking.go). Not saved.
 	SnowmakingToday float64
@@ -447,7 +455,8 @@ func (w *World) DailyOperatingCost() int { return w.OperatingCosts().Total() }
 func (w *World) OperatingCosts() CostBreakdown {
 	var c CostBreakdown
 	for _, l := range w.Lifts {
-		c[CostLifts] += l.Headcount()*LiftStaffDailyCost + l.Type.RunningCostDay()
+		day := float32(l.Headcount()*LiftStaffDailyCost + l.Type.RunningCostDay())
+		c[CostLifts] += int(day*w.liftOpenHours(l)/DayHours + 0.5)
 	}
 	for _, cat := range w.Snowcats {
 		if cat.Status == CatActive {
@@ -466,6 +475,7 @@ func (w *World) OperatingCosts() CostBreakdown {
 		}
 	}
 	c[CostSnowmaking] = int(math.Round(w.SnowmakingToday))
+	c[CostLighting] = int(math.Round(w.LightingToday))
 	return c
 }
 
@@ -487,6 +497,7 @@ func (w *World) StandbyCosts() CostBreakdown {
 		}
 	}
 	c[CostSnowmaking] = int(math.Round(w.SnowmakingToday))
+	c[CostLighting] = int(math.Round(w.LightingToday))
 	return c
 }
 
