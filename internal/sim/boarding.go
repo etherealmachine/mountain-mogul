@@ -27,7 +27,7 @@ const fillSmoothing = 0.05
 func loadChair(lift *world.Lift, seats int) []*world.Guest {
 	var taken []*world.Guest
 	// A tram's cabin takes the line as it comes: everyone crowds in.
-	for len(lift.Queue) > 0 && len(taken) < seats && (lift.Staff.LineAttendant || lift.Type.Tram() || joins(taken, lift.Queue, seats)) {
+	for len(lift.Queue) > 0 && len(taken) < seats && (lift.Staff.LineAttendant || lift.Type.Shuttle() || joins(taken, lift.Queue, seats)) {
 		g := lift.Queue[0]
 		lift.LeaveLine(g)
 		taken = append(taken, g)

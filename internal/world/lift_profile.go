@@ -244,6 +244,10 @@ func (p *cableProfile) yAt(dist, yA, yB float32) float32 {
 // between them, on the laid-out profile for a lift with one, else
 // CableHeightAt over the snow.
 func (l *Lift) CableYAt(dist float32, at mgl32.Vec2, t *Terrain) float32 {
+	if tr := l.FunicularTrack(t); tr != nil {
+		_, y, _, _ := tr.At(dist) // a funicular's car on its rails
+		return y
+	}
 	p := l.profile(t)
 	length := l.cableLen()
 	flat := l.Station().Flat

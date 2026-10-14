@@ -43,6 +43,7 @@ var bigChairModels = []struct {
 	{"funitel_cabin", world.MeshFunitelCabin},
 	{"tri_cabin", world.MeshTriCabin},
 	{"tram_cabin", world.MeshTramCabin},
+	{"funicular_car", world.MeshFunicularCar},
 	{"tbar_hanger", world.MeshTBarHanger},
 	{"tbar_hanger_up", 0},
 	// The bubble hoods, drawn see-through by drawBubbleHoods.
@@ -190,6 +191,8 @@ func addBigLiftChair(r *Renderer, lift *world.Lift, progress float32, inst Dynam
 		name = "tri_cabin"
 	case world.LiftTram:
 		name = "tram_cabin"
+	case world.LiftFunicular:
+		name = "funicular_car"
 	case world.LiftTBar:
 		inst.Color = [3]float32{1, 1, 1}
 		name = "tbar_hanger_up"
@@ -296,4 +299,6 @@ func addBigLiftThumbs(specs map[ThumbID]thumbSpec) {
 	specs[ThumbChair8Pack] = chairThumb("chair_8pack")
 	specs[ThumbFunitel] = thumbSpec{parts: onePart("funitel_cabin", thumbWhite, 0.6).parts, yaw: 0.6, bottom: 0.7}
 	specs[ThumbTri] = thumbSpec{parts: onePart("tri_cabin", thumbWhite, 0.6).parts, yaw: 0.6, bottom: 0.6}
+	// The car on its design grade, its compartments level.
+	specs[ThumbFunicular] = thumbSpec{parts: []thumbPart{{"funicular_car", mgl32.HomogRotate3DZ(0.35), thumbWhite}}, yaw: 0.9}
 }

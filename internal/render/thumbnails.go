@@ -39,7 +39,8 @@ const (
 	ThumbChairSingle
 	ThumbChair8Pack
 	ThumbFunitel
-	ThumbTri // the 3S gondola
+	ThumbTri       // the 3S gondola
+	ThumbFunicular // the funicular
 	// ThumbShellBase + world.ShellKind is that kind's building.
 	ThumbShellBase
 )

@@ -43,6 +43,7 @@ const (
 	MeshChair8Pack   uint32 = 204      // 8-seat high-speed detachable chair
 	MeshFunitelCabin uint32 = 205      // funitel cabin (funitel_cabin.py)
 	MeshTriCabin     uint32 = 206      // tricable gondola cabin (tri_cabin.py)
+	MeshFunicularCar uint32 = 216      // a funicular's car (funicular_car.py)
 )
 
 // MeshSlot is an anchor point baked into a mesh by the model pipeline

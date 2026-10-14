@@ -62,6 +62,8 @@ const (
 	MeshPortalRail   uint32 = 213 // a railway tunnel's portal (tunnel_portal_rail.py)
 	MeshPortalRoad   uint32 = 214 // a road tunnel's (tunnel_portal_road.py)
 	MeshPortalPath   uint32 = 215 // a footpath tunnel's (tunnel_portal_path.py)
+	MeshFunicularCar uint32 = 216 // a funicular's car (funicular_car.py)
+	MeshFunicStation uint32 = 217 // its station: no model, drawn with its track (funicular.go)
 
 	// MeshLodgeTileBase + world.ShellMeshIndex(kind, tile) is the shell
 	// kits, one per building kind (models-src/{lodge,tent,shed}_*.py);

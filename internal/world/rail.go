@@ -90,6 +90,9 @@ type RailLine struct {
 	// in (sim/trains.go). Not saved.
 	Train Train
 	Bound [][]*Guest
+	// NoPlatform is a funicular's track (funicular.go): no station or
+	// platform drawn at its end.
+	NoPlatform bool
 }
 
 // Train is a line's one train: away off the map, coming in, standing at
@@ -379,50 +382,61 @@ const (
 	RailPlowFalloff = float32(6)
 )
 
-// PlowRails clears the snow off every railway's bed: run when it's
-// built and after each day's snow, as a plow train would.
+// PlowRails clears the snow off every railway's bed, and every
+// funicular's: run when it's built and after each day's snow, as a plow
+// train would.
 func (w *World) PlowRails() {
+	for _, l := range w.RailLines {
+		w.plowLine(l)
+	}
+	for _, l := range w.Lifts {
+		if tr := l.FunicularTrack(w.Terrain); tr != nil {
+			w.plowLine(tr)
+		}
+	}
+}
+
+// plowLine clears the snow off line l's bed.
+func (w *World) plowLine(l *RailLine) {
 	t := w.Terrain
 	reach := RailPlowInner + RailPlowFalloff
-	for _, l := range w.RailLines {
-		near := map[[2]int]float32{}
-		for n := 0; n+1 < len(l.Track); n++ {
-			a, b := l.Track[n], l.Track[n+1]
-			if a.Tunnel && b.Tunnel {
-				continue
-			}
-			ab := b.Pos.Sub(a.Pos)
-			ab2 := max(ab.LenSqr(), 1e-6)
-			x0, z0 := int((min(a.Pos[0], b.Pos[0])-reach)/CellSize), int((min(a.Pos[1], b.Pos[1])-reach)/CellSize)
-			x1, z1 := int((max(a.Pos[0], b.Pos[0])+reach)/CellSize), int((max(a.Pos[1], b.Pos[1])+reach)/CellSize)
-			for x := x0; x <= x1; x++ {
-				for z := z0; z <= z1; z++ {
-					q := mgl32.Vec2{(float32(x) + 0.5) * CellSize, (float32(z) + 0.5) * CellSize}
-					f := clamp01(q.Sub(a.Pos).Dot(ab) / ab2)
-					d := q.Sub(a.Pos.Add(ab.Mul(f))).Len()
-					k := [2]int{x, z}
-					if old, ok := near[k]; !ok || d < old {
-						near[k] = d
-					}
+	near := map[[2]int]float32{}
+	for n := 0; n+1 < len(l.Track); n++ {
+		a, b := l.Track[n], l.Track[n+1]
+		if a.Tunnel && b.Tunnel {
+			continue
+		}
+		ab := b.Pos.Sub(a.Pos)
+		ab2 := max(ab.LenSqr(), 1e-6)
+		x0, z0 := int((min(a.Pos[0], b.Pos[0])-reach)/CellSize), int((min(a.Pos[1], b.Pos[1])-reach)/CellSize)
+		x1, z1 := int((max(a.Pos[0], b.Pos[0])+reach)/CellSize), int((max(a.Pos[1], b.Pos[1])+reach)/CellSize)
+		for x := x0; x <= x1; x++ {
+			for z := z0; z <= z1; z++ {
+				q := mgl32.Vec2{(float32(x) + 0.5) * CellSize, (float32(z) + 0.5) * CellSize}
+				f := clamp01(q.Sub(a.Pos).Dot(ab) / ab2)
+				d := q.Sub(a.Pos.Add(ab.Mul(f))).Len()
+				k := [2]int{x, z}
+				if old, ok := near[k]; !ok || d < old {
+					near[k] = d
 				}
 			}
 		}
-		for k, d := range near {
-			if d >= reach || !t.InBounds(k[0], k[1]) {
-				continue
-			}
-			c := &t.Cells[k[0]][k[1]]
-			keep := clamp01((d - RailPlowInner) / RailPlowFalloff)
-			if c.Base == 0 && c.Top.Accumulation == 0 {
-				continue
-			}
-			c.Base *= keep
-			c.Top.Accumulation *= keep
-			if c.Top.Accumulation <= 0 {
-				c.Top = SnowLayer{}
-			}
-			t.MarkSnowDirty(k[0], k[1])
+	}
+	for k, d := range near {
+		if d >= reach || !t.InBounds(k[0], k[1]) {
+			continue
 		}
+		c := &t.Cells[k[0]][k[1]]
+		keep := clamp01((d - RailPlowInner) / RailPlowFalloff)
+		if c.Base == 0 && c.Top.Accumulation == 0 {
+			continue
+		}
+		c.Base *= keep
+		c.Top.Accumulation *= keep
+		if c.Top.Accumulation <= 0 {
+			c.Top = SnowLayer{}
+		}
+		t.MarkSnowDirty(k[0], k[1])
 	}
 }
 

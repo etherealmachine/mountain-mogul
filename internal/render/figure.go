@@ -547,6 +547,11 @@ func (f *figures) build(r *Renderer, w *world.World) {
 		if r.HiddenGuestID != 0 && g.ID == r.HiddenGuestID || g.Indoors() {
 			continue
 		}
+		if g.OnLiftID != 0 {
+			if l := w.LiftByID(g.OnLiftID); l != nil && l.Underground(mgl32.Vec2{g.Pos[0], g.Pos[2]}, t) {
+				continue // in a funicular's tunnel
+			}
+		}
 		// A patient lies where they fell while patrol loads them, rides
 		// out of sight on a snowmobile, and is towed a little behind a
 		// patroller's toboggan.

@@ -725,8 +725,8 @@ func (w *World) PlaceLift(typ LiftType, bx, bz, tx, tz float32) *Lift {
 		// Initialise chairs evenly spaced around the loop, each pre-sized
 		// to the lift type's per-chair capacity.
 		numChairs := int(lift.LoopLength() / typ.PlaceSpacing())
-		if numChairs < 2 || typ.Tram() {
-			numChairs = 2 // a tram's two cabins, half a round trip apart
+		if numChairs < 2 || typ.Shuttle() {
+			numChairs = 2 // a tram's two cabins (a funicular's cars), half a round trip apart
 		}
 		cap := typ.Capacity()
 		lift.Chairs = make([]Chair, numChairs)

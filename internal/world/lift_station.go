@@ -244,6 +244,8 @@ func stationFor(t LiftType) *StationGeom {
 		return &triStation
 	case t.Tram():
 		return &tramStation
+	case t.Funicular():
+		return &funicularStation
 	case t.Detachable():
 		return &detachStation
 	}
@@ -263,6 +265,9 @@ func MinLiftLength(t LiftType) float32 {
 	}
 	if t.Tram() {
 		return TramMinLength
+	}
+	if t.Funicular() {
+		return FunicularMinLength
 	}
 	return 2*stationFor(t).Flat + 10
 }
@@ -335,7 +340,7 @@ func (l *Lift) CableHeightAt(dist float32) float32 {
 // LoopLength returns the length of the chair loop in metres: both cables
 // and half way round each bullwheel.
 func (l *Lift) LoopLength() float32 {
-	if l.Type.Tram() {
+	if l.Type.Shuttle() {
 		return l.tramLoopLength()
 	}
 	return 2*l.cableLen() + 2*math.Pi*l.CableOffset()
@@ -347,7 +352,7 @@ func (l *Lift) LoopLength() float32 {
 // runs up the riders' cable, round the top wheel, down and round the
 // base wheel.
 func (l *Lift) loopAt(p float32) (pos mgl32.Vec2, heading, x float32) {
-	if l.Type.Tram() {
+	if l.Type.Shuttle() {
 		return l.tramAt(p, 1)
 	}
 	dir, perp := l.lineAxes()
@@ -390,7 +395,7 @@ func (l *Lift) ChairPos(progress float32, t *Terrain) (mgl32.Vec3, float32) {
 // ChairPos at its progress, but a tram's cabins each keep to their own
 // track (tram.go).
 func (l *Lift) PlacePos(i int, t *Terrain) (mgl32.Vec3, float32) {
-	if !l.Type.Tram() {
+	if !l.Type.Shuttle() {
 		return l.ChairPos(l.Chairs[i].Progress, t)
 	}
 	pos, heading, x := l.tramAt(l.Chairs[i].Progress, tramSide(i))
@@ -400,7 +405,7 @@ func (l *Lift) PlacePos(i int, t *Terrain) (mgl32.Vec3, float32) {
 // UnloadPos is where chair i stands at the top's unload point, and its
 // heading.
 func (l *Lift) UnloadPos(i int, t *Terrain) (mgl32.Vec3, float32) {
-	if !l.Type.Tram() {
+	if !l.Type.Shuttle() {
 		return l.ChairPos(l.UnloadProgress(), t)
 	}
 	pos, heading, x := l.tramAt(l.UnloadProgress(), tramSide(i))

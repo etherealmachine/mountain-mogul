@@ -48,7 +48,7 @@ func (l *Lift) HasCorral() bool { return l.CorralRows > 0 }
 
 // corralWidth is a row's places: the chair's seats.
 func (l *Lift) corralWidth() int {
-	if l.Type.Tram() {
+	if l.Type.Shuttle() {
 		return tramRowWidth
 	}
 	return max(l.Type.Capacity(), 1)

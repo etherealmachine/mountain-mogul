@@ -23,6 +23,8 @@ func (t LiftType) WindLimit() float32 {
 		return 30
 	case t.Tram():
 		return 24
+	case t.Funicular():
+		return 0 // on rails
 	case t == LiftGondola:
 		return 21
 	case t.Hangers():

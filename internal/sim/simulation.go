@@ -411,7 +411,8 @@ func (s *Simulation) tickLifts(dt float64) {
 			baseDepth = w.Terrain.Cells[baseCell[0]][baseCell[1]].VisibleSnowDepth()
 		}
 		wasHeld, wasSnowHeld := lift.OnHold, lift.SnowHold
-		lift.SnowHold = baseDepth < world.LiftHoldDepth || (wasSnowHeld && baseDepth < world.LiftResumeDepth)
+		lift.SnowHold = !lift.Type.Funicular() && // on rails, snow or none
+			(baseDepth < world.LiftHoldDepth || (wasSnowHeld && baseDepth < world.LiftResumeDepth))
 		if lift.SnowHold != wasSnowHeld && lift.Open {
 			s.logLiftHoldChanged(lift)
 		}
@@ -2843,7 +2844,7 @@ func (s *Simulation) tickRiding(agent *world.Guest, dt float64) {
 					continue
 				}
 				pos, heading := lift.PlacePos(ci, w.Terrain)
-				agent.Pos = seatWorldPos(pos, heading, slotIdx, slots)
+				agent.Pos = seatWorldPos(pos, heading, lift.PlacePitch(ci, w.Terrain), slotIdx, slots)
 				agent.Heading = heading
 				if slotIdx < len(slots) && slots[slotIdx].Back {
 					agent.Heading = heading + math.Pi // facing the back of the cabin
@@ -2857,15 +2858,21 @@ func (s *Simulation) tickRiding(agent *world.Guest, dt float64) {
 // seatWorldPos maps a passenger-slot index on a chair to its world-space
 // position. The chair-local slot anchor is rotated by `heading` (same
 // rotation the dynamic shader applies to the chair geometry) and offset
-// from the chair's cable-attachment point `chairPos`. If no slot
+// from the chair's cable-attachment point `chairPos`, after pitching it
+// nose up by `pitch` (a funicular's car on its grade). If no slot
 // metadata is registered for the chair mesh, the rider sits on the
 // cable anchor — visibly wrong, but a stable fallback that flags the
 // missing data rather than crashing.
-func seatWorldPos(chairPos mgl32.Vec3, heading float32, slotIdx int, slots []world.MeshSlot) mgl32.Vec3 {
+func seatWorldPos(chairPos mgl32.Vec3, heading, pitch float32, slotIdx int, slots []world.MeshSlot) mgl32.Vec3 {
 	if slotIdx >= len(slots) {
 		return chairPos
 	}
 	local := slots[slotIdx].Pos
+	if pitch != 0 {
+		// The dynamic shader's pitch about the model's lateral axis.
+		cp, sp := float32(math.Cos(float64(pitch))), float32(math.Sin(float64(pitch)))
+		local[0], local[1] = cp*local[0]-sp*local[1], sp*local[0]+cp*local[1]
+	}
 	c := float32(math.Cos(float64(heading)))
 	s := float32(math.Sin(float64(heading)))
 	// Match the dynamic shader's heading rotation around game Y:

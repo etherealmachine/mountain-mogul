@@ -39,6 +39,7 @@ const (
 	LiftHS8Pack                     // 8-seat high-speed detachable 8-pack, on wider-set cables
 	LiftFunitel                     // 24-person cabins on two haul ropes a way, steady in wind (cabin_lifts.go)
 	LiftTri                         // tricable (3S) gondola: 28-person cabins on two track ropes and a haul rope, huge spans (cabin_lifts.go)
+	LiftFunicular                   // two counterbalanced cars on a rail up the slope (funicular.go)
 )
 
 const (
@@ -65,6 +66,8 @@ func (t LiftType) Capacity() int {
 		return 1
 	case LiftTram:
 		return TramCapacity
+	case LiftFunicular:
+		return FunicularCapacity
 	case LiftSingle:
 		return 1
 	case LiftHS8Pack:
@@ -98,6 +101,8 @@ func (t LiftType) MeshID() uint32 {
 		return MeshTBarHanger
 	case LiftTram:
 		return MeshTramCabin
+	case LiftFunicular:
+		return MeshFunicularCar
 	case LiftSingle:
 		return MeshChairSingle
 	case LiftHS8Pack:
@@ -125,7 +130,7 @@ func (t LiftType) DefaultSpeed() float32 {
 		return 1.0
 	case LiftTBar:
 		return 3.0
-	case LiftTram:
+	case LiftTram, LiftFunicular:
 		return 10.0
 	case LiftHS8Pack, LiftFunitel:
 		return 6.0
@@ -163,6 +168,8 @@ func (t LiftType) Label() string {
 			return "T-Bar"
 		case LiftTram:
 			return "Aerial Tram"
+		case LiftFunicular:
+			return "Funicular"
 		case LiftSingle:
 			return "Single"
 		case LiftHS8Pack:
@@ -291,6 +298,8 @@ type Lift struct {
 	// stand, reused by the per-tick hazard sampler. Towers are fixed
 	// once placed.
 	profileCache *cableProfile
+	// funicTrack is a funicular's laid-out track (funicular.go).
+	funicTrack   *RailLine
 	towerCache   []TowerSpot
 	towerXZCache []mgl32.Vec2
 	// stationCache memoises StationXZs(), as towerCache does.
@@ -384,6 +393,7 @@ func (l *Lift) towersEven() []TowerSpot {
 // mutating Base or Top so the next TowerXZs() call recomputes.
 func (l *Lift) ResetTowerCache() {
 	l.profileCache = nil
+	l.funicTrack = nil
 	l.towerCache = nil
 	l.towerXZCache = nil
 	l.stationCache = nil
@@ -525,7 +535,7 @@ func (t LiftType) Hangers() bool { return !edition.Demo && t == LiftTBar }
 
 // HasTowers reports whether a lift of this type has towers along its
 // line (TowerXZs): a chairlift, a T-bar or a tram.
-func (t LiftType) HasTowers() bool { return !t.Surface() || t.Hangers() }
+func (t LiftType) HasTowers() bool { return (!t.Surface() && !t.Funicular()) || t.Hangers() }
 
 // TBarCableHeight is a T-bar's cable over the snow, the same all the way
 // (its hangers reach from it to the riders' hips).
@@ -586,7 +596,8 @@ func (t LiftType) MaxLength() float32 {
 }
 
 // MaxGrade is the steepest ground a lift of this type climbs, degrees,
-// over any MaxGradeSpan metres of its line; 0 for no limit.
+// over any MaxGradeSpan metres of its line (a funicular, its line end
+// to end); 0 for no limit.
 func (t LiftType) MaxGrade() float32 {
 	switch {
 	case t.Belt():
@@ -595,6 +606,8 @@ func (t LiftType) MaxGrade() float32 {
 		return 25
 	case t.Hangers():
 		return 30
+	case t.Funicular():
+		return 45
 	}
 	return 0
 }
@@ -685,6 +698,8 @@ func (t LiftType) StationCost() int {
 		return 250_000
 	case LiftTram:
 		return 7_000_000
+	case LiftFunicular:
+		return 2_500_000
 	case LiftSingle:
 		return 300_000
 	case LiftHS8Pack:
@@ -722,6 +737,8 @@ func (t LiftType) PerMeterCost() int {
 		return 140 // towers and cable
 	case LiftTram:
 		return 2_000 // track ropes, haul rope, a few big towers
+	case LiftFunicular:
+		return 3_000 // the track bed and rails
 	case LiftSingle:
 		return 120
 	case LiftHS8Pack:
@@ -761,6 +778,8 @@ func (t LiftType) RunningCostDay() int {
 		return 700
 	case LiftTram:
 		return 8_000
+	case LiftFunicular:
+		return 5_000
 	case LiftSingle:
 		return 700
 	case LiftHS8Pack:
@@ -938,7 +957,7 @@ func (l *Lift) StaffPosts() []LiftStaffPost {
 		dir, perp := l.lineAxes()
 		load := l.LoadXZ()
 		reach := float32(l.Type.Capacity())*0.3 + 0.7 // past the chair's end (0.6 m a seat), by the posts
-		if l.Type.Tram() {
+		if l.Type.Shuttle() {
 			reach = 1.0 // on the platform between the cabins, beside the line
 		}
 		post(StaffLineAttendant, load.Sub(dir.Mul(0.8)).Add(perp.Mul(reach)), load)

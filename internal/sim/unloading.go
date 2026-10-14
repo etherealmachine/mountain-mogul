@@ -66,7 +66,7 @@ func (s *Simulation) startUnloading(a *world.Guest, lift *world.Lift, chairIdx, 
 	w := s.World
 	chairPos, heading := lift.UnloadPos(chairIdx, w.Terrain)
 	slots := world.SlotsFor(lift.Type.MeshID())
-	seat := seatWorldPos(chairPos, heading, slotIdx, slots)
+	seat := seatWorldPos(chairPos, heading, 0, slotIdx, slots)
 	ground := w.Terrain.InterpolatedSurfaceElevationAt(seat[0], seat[2])
 	a.Pos = mgl32.Vec3{seat[0], ground, seat[2]}
 	a.Heading = heading

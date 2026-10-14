@@ -102,13 +102,20 @@ func applyLiftPlacementEffects(w *world.World, lift *world.Lift) {
 	// (downhill of the base), the top's along it (beyond the top). Each
 	// is levelled to the natural ground at its middle, read before either
 	// is carved.
-	claimed := claimedGround(w, nil, lift)
-	a := liftApron(lift)
-	mid := axis.Mul((a.depth - a.front) / 2)
-	topTarget := stationGroundElev(t, lift.Top.Add(mid))
-	baseTarget := stationGroundElev(t, lift.Base.Sub(mid))
-	carveStationApron(t, lift.Top, axis, +1, a, topTarget, claimed, true)
-	carveStationApron(t, lift.Base, axis, -1, a, baseTarget, claimed, true)
+	if tr := lift.FunicularTrack(t); tr != nil {
+		// A funicular's on the slope: its bed is graded, stations and
+		// all, and nothing's levelled.
+		t.GradeRailBed(tr)
+		w.PlowRails()
+	} else {
+		claimed := claimedGround(w, nil, lift)
+		a := liftApron(lift)
+		mid := axis.Mul((a.depth - a.front) / 2)
+		topTarget := stationGroundElev(t, lift.Top.Add(mid))
+		baseTarget := stationGroundElev(t, lift.Base.Sub(mid))
+		carveStationApron(t, lift.Top, axis, +1, a, topTarget, claimed, true)
+		carveStationApron(t, lift.Base, axis, -1, a, baseTarget, claimed, true)
+	}
 	// Stamp queue + top cells impassable so the structure-stamp path
 	// matches PlaceLift's blocking.
 	queue := lift.QueueCell()
@@ -423,8 +430,8 @@ func levelStationAprons(w *world.World) {
 	t := w.Terrain
 	changed := false
 	for _, l := range w.Lifts {
-		if l.Cableless() {
-			continue
+		if l.Cableless() || l.Type.Funicular() {
+			continue // a funicular's stations stand on the slope
 		}
 		axis := l.Top.Sub(l.Base)
 		if n := axis.Len(); n > 0 {

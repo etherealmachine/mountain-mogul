@@ -47,7 +47,7 @@ All along the track (+X, the A end), from the top of the rail (`models-src/lib/r
 - **Steam**: `steam_loco.py`, a green tank engine with a black boiler, tall chimney, brass dome and three red driving wheels a side (9.6 m); `steam_coach.py`, a maroon and cream clerestory coach with open end platforms (12.4 m).
 - **Electric**: `electric_loco.py`, a traffic-red DB class 146 with sloped cab fronts and two pantographs (18.9 m); `electric_coach.py`, a red double-decker with its lower deck dropped between the bogies (26.8 m).
 - **High-speed**: `hsr_power.py`, a white power car with a long tapering nose, wraparound windscreen and red stripe (20.5 m, one at each end); `hsr_coach.py`, a close-coupled coach with a continuous window band (24.8 m).
-- **Funicular**: `funicular_car.py`, four red and cream compartments stepped on an 11 m chassis, level on a 30° line (the renderer pitches it with its line).
+- **Funicular**: `funicular_car.py`, four red and cream compartments stepped on an 11 m chassis, level on a 20° line (the renderer pitches it with its line); each compartment pivots on its uphill floor corner, a red skirt under its raised downhill end; a hundred standing places, twenty-five a compartment.
 - **Portals**: `lib/portal_kit.py`, a stone face round an arched opening, dark inside, with wing walls: `tunnel_portal_rail.py` (5 × 6.8 m), `_road.py` (9 × 6), `_path.py` (3.2 × 3.2).
 - `tools/modelview/view.py` renders OBJs to a PNG sheet for a look without the game.
 
@@ -78,13 +78,21 @@ None are in the demo. The station waits for step 2, where its platform's length 
 - On the Goals Test a line from the north-east corner to the base runs 1,064 m in a tunnel under the mountain.
 - **Roads and footpaths** don't tunnel yet: they lie on the ground with no grade limit, so they'd first need a profile of their own (held to a grade, graded into the ground) for a tunnel to come from.
 
+## Built: the funicular
+
+- **The lift** (`LiftFunicular`, `world/funicular.go`): in the Lifts menu after the tram. Two 100-rider cars on the tram's shuttle (`Shuttle()` is the tram or the funicular: two places half a loop apart, a round trip with a 45 s dwell at each end, the whole line boarding at once), on one track: `tramAt` puts them on the line, swinging 1.8 m out each way on a passing loop in the middle (30 m either side of it, easing out over 20 m). 10 m/s; $2.5M for the stations, $3,000 a metre, $5,000 a day; at least 150 m; up to 45°, measured end to end (the ground between is cut, filled or tunnelled). No towers, no cable; it never holds for wind, nor for a bare base (it's on rails).
+- **The track** (`FunicularTrack`, not saved, laid out again from the ground): a straight line from the base to the top at one grade, ballast over the ground at each end, the stations on the slope too; graded like a railway's bed (`GradeRailBed`) instead of levelling station aprons, plowed with the railways (`PlowRails`), tunnelled where it runs more than 12 m under (portals at the mouths, cars and their riders hidden inside, `Underground`). The cars ride it (`CableYAt`) pitched with it (`PlacePitch`), riders' places pitched with them (`seatWorldPos`).
+- **Drawn** (`render/funicular.go`, a mesh a lift, rebuilt when its track is): ballast, sleepers and a pair of rails, two pairs on the loop; at each end the station: a platform beside the track on the riders' side stepping down the slope a metre at a time, its yellow edge, a roof on posts sloping with the track, buffers at the track's end. Riders board and leave on the line, at the car.
+- On the Goals Test, a 770 m funicular beside Lift1 climbs 145 m at 10.7°, its cars passing in the middle.
+- Fixed on the way: the railway's ballast, rails and tunnel dashes were wound facing down, so lit from below and dark.
+
 ## Steps
 
 1. Done: **The models**: steam engine and coaches, the electric unit, the high-speed set, the funicular car, a station, a tunnel portal; checked on screen.
 2. Done: **Rail lines and stations**: the Rail tool with grade limits, the graded rail bed and its look, stations.
 3. Done: **Trains running**: timetables, consists following the track with pitch, guests arriving and leaving by train, costs.
 4. Rail done; roads and footpaths left: **Tunnels**: on rail, roads and footpaths: deep cuts become tunnels, portals, hidden vehicles, the dashed course.
-5. **The funicular**: the lift type on the tram's shuttle, on rails, tunnelled.
+5. Done: **The funicular**: the lift type on the tram's shuttle, on rails, tunnelled.
 6. **Balance**, and a look at it all on Zermatt-like ground.
 
 ## Open questions
@@ -99,3 +107,4 @@ None are in the demo. The station waits for step 2, where its platform's length 
 - 2026-10-14: Step 2 built (the Rail tool, laying out, the bed, the look, stations). The first look had the ballast and rails buried in snow: the bed is now plowed.
 - 2026-10-14: Step 3 built (timetables, booking riders, arrivals and departures by the station, consists with pitch, the station popup).
 - 2026-10-14: Rail tunnels built (step 4's rail half); roads and footpaths need profiles first.
+- 2026-10-14: Step 5 built (the funicular: the lift type, its straight graded track with a passing loop, stepped platforms, pitched cars, tunnels). The car model restepped for 20° after the first look had its compartments hanging through the chassis.

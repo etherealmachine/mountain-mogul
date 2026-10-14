@@ -924,6 +924,13 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 				b.AddStatic(portalTransform(p), mgl32.Vec3{1, 1, 1})
 			}
 		}
+		for _, lift := range w.Lifts {
+			if tr := lift.FunicularTrack(w.Terrain); tr != nil {
+				for _, p := range tr.Portals() {
+					b.AddStatic(portalTransform(p), mgl32.Vec3{1, 1, 1})
+				}
+			}
+		}
 	}
 	r.RebuildRails(w)
 
@@ -1197,6 +1204,8 @@ func StationMesh(t world.LiftType) uint32 {
 		return MeshGondolaTerm
 	case t.Tram():
 		return MeshTramTerm
+	case t.Funicular():
+		return MeshFunicStation
 	case t == world.LiftHS8Pack:
 		return MeshLiftTerm8
 	case t == world.LiftFunitel:
@@ -1767,10 +1776,14 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 				if hasPax {
 					color = [3]float32{0.82, 0.88, 1}
 				}
+				if lift.PlaceHidden(ci, w.Terrain) {
+					continue // a funicular's car in a tunnel
+				}
 				inst := DynamicInstance{
 					Position: [3]float32{pos[0], pos[1], pos[2]},
 					Heading:  heading,
 					Color:    color,
+					Pitch:    lift.PlacePitch(ci, w.Terrain),
 				}
 				switch lift.Type {
 				case world.LiftFixedTriple:
@@ -2192,7 +2205,11 @@ func (r *Renderer) SetGhostCable(typ world.LiftType, base, top mgl32.Vec2, t *wo
 		r.scene.ghostDownCable.Delete()
 	}
 	tempLift := &world.Lift{Type: typ, Base: base, Top: top}
+	r.setFunicGhost(nil, nil, tint)
 	switch {
+	case typ.Funicular():
+		r.scene.ghostUpCable, r.scene.ghostDownCable = nil, nil
+		r.setFunicGhost(tempLift, t, tint)
 	case typ.Belt():
 		r.scene.ghostUpCable = generateBeltMesh(tempLift, t)
 		r.scene.ghostDownCable = nil
@@ -2243,6 +2260,7 @@ func (r *Renderer) ClearGhostCable() {
 		r.scene.ghostDownCable.Delete()
 		r.scene.ghostDownCable = nil
 	}
+	r.setFunicGhost(nil, nil, [3]float32{})
 	r.clearGhostTowers()
 }
 
@@ -2255,6 +2273,8 @@ func (r *Renderer) AddLiftMeshes(lift *world.Lift, t *world.Terrain) {
 	}
 	r.RemoveLiftMeshes(lift.ID)
 	switch {
+	case lift.Type.Funicular():
+		return // its track, not a cable (rebuildFunics)
 	case lift.Type.Belt():
 		r.scene.liftUpCables[lift.ID] = generateBeltMesh(lift, t)
 		return

@@ -102,7 +102,7 @@ func railLineMesh(l *world.RailLine, t *world.Terrain, tint [3]float32) *Mesh {
 			o0, o1 := x0.Mul(off), x1.Mul(off)
 			l0, r0 := p0.Add(o0).Add(x0.Mul(half)).Add(up.Mul(h)), p0.Add(o0).Sub(x0.Mul(half)).Add(up.Mul(h))
 			l1, r1 := p1.Add(o1).Add(x1.Mul(half)).Add(up.Mul(h)), p1.Add(o1).Sub(x1.Mul(half)).Add(up.Mul(h))
-			b.quad(r0, l0, l1, r1, col(c))
+			b.quad(l0, r0, r1, l1, col(c))
 		}
 	}
 	strip(0, 1.9, -0.18, ballastCol)
@@ -172,7 +172,14 @@ func railLineMesh(l *world.RailLine, t *world.Terrain, tint [3]float32) *Mesh {
 			b.quad(p0.Add(h).Sub(x0.Mul(0.03)), p0.Add(h).Add(x0.Mul(0.03)), p1.Add(h).Add(x1.Mul(0.03)), p1.Add(h).Sub(x1.Mul(0.03)), col(wireCol))
 		}
 	}
-	// A tunnel's course: a dashed line on the ground over it.
+	tunnelDashes(&b, l, t, col)
+	return b.mesh()
+}
+
+// tunnelDashes adds a tunnel's course: a dashed line on the ground over
+// it.
+func tunnelDashes(b *meshBuilder, l *world.RailLine, t *world.Terrain, col func([3]float32) [3]float32) {
+	tr := l.Track
 	for i := 0; i+1 < len(tr); i += 2 {
 		if !tr[i].Tunnel || !tr[i+1].Tunnel || (i/2)%2 == 1 {
 			continue
@@ -182,9 +189,8 @@ func railLineMesh(l *world.RailLine, t *world.Terrain, tint [3]float32) *Mesh {
 		yc := t.InterpolatedSurfaceElevationAt(c[0], c[1]) + 0.3
 		_, _, x0 := railFrame(l, i)
 		p0, p1 := mgl32.Vec3{a[0], ya, a[1]}, mgl32.Vec3{c[0], yc, c[1]}
-		b.quad(p0.Sub(x0.Mul(0.6)), p0.Add(x0.Mul(0.6)), p1.Add(x0.Mul(0.6)), p1.Sub(x0.Mul(0.6)), col([3]float32{0.30, 0.28, 0.26}))
+		b.quad(p0.Add(x0.Mul(0.6)), p0.Sub(x0.Mul(0.6)), p1.Sub(x0.Mul(0.6)), p1.Add(x0.Mul(0.6)), col([3]float32{0.30, 0.28, 0.26}))
 	}
-	return b.mesh()
 }
 
 // stationTransform places a line's station house beside its platform.

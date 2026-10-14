@@ -13,11 +13,17 @@ type railBatch struct {
 	key   [2]int // track samples and nodes it was built for
 	mesh  *Mesh
 	batch *Batch
+	// track is the funicular track it was built for (funicular.go).
+	track *world.RailLine
 }
 
 type railDrawing struct {
 	rails     map[uint64]*railBatch
 	railGhost *railBatch
+	// funics is the funiculars' tracks, by lift, and funicGhost one being
+	// placed.
+	funics     map[uint64]*railBatch
+	funicGhost *railBatch
 }
 
 func (rb *railBatch) delete() {
@@ -64,6 +70,48 @@ func (r *Renderer) RebuildRails(w *world.World) {
 			delete(r.scene.rails, id)
 		}
 	}
+	r.rebuildFunics(w)
+}
+
+// rebuildFunics brings the funiculars' track meshes up to date: rebuilt
+// when a lift's track is laid out afresh.
+func (r *Renderer) rebuildFunics(w *world.World) {
+	if r.scene.funics == nil {
+		r.scene.funics = map[uint64]*railBatch{}
+	}
+	live := map[uint64]bool{}
+	for _, lift := range w.Lifts {
+		tr := lift.FunicularTrack(w.Terrain)
+		if tr == nil {
+			continue
+		}
+		live[lift.ID] = true
+		if rb := r.scene.funics[lift.ID]; rb != nil && rb.track == tr {
+			continue
+		}
+		r.scene.funics[lift.ID].delete()
+		rb := newFunicBatch(r, lift, w.Terrain, [3]float32{1, 1, 1})
+		if rb != nil {
+			rb.track = tr
+		}
+		r.scene.funics[lift.ID] = rb
+	}
+	for id, rb := range r.scene.funics {
+		if !live[id] {
+			rb.delete()
+			delete(r.scene.funics, id)
+		}
+	}
+}
+
+// setFunicGhost shows funicular lift (nil for none) as a placement
+// preview, tinted.
+func (r *Renderer) setFunicGhost(lift *world.Lift, t *world.Terrain, tint [3]float32) {
+	r.scene.funicGhost.delete()
+	r.scene.funicGhost = nil
+	if lift != nil {
+		r.scene.funicGhost = newFunicBatch(r, lift, t, tint)
+	}
 }
 
 // SetRailGhost shows line l (nil for none) as a placement preview,
@@ -85,6 +133,14 @@ func (r *Renderer) drawRails() {
 		}
 	}
 	if rb := r.scene.railGhost; rb != nil {
+		rb.batch.Draw()
+	}
+	for _, rb := range r.scene.funics {
+		if rb != nil {
+			rb.batch.Draw()
+		}
+	}
+	if rb := r.scene.funicGhost; rb != nil {
 		rb.batch.Draw()
 	}
 }

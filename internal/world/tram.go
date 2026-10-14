@@ -107,7 +107,7 @@ func (l *Lift) RopeOffsets() []float32 {
 // riderGap is how far off the line riders get on and off: under the
 // riders' cable, or a tram's platform, on the line between its tracks.
 func (l *Lift) riderGap() float32 {
-	if l.Type.Tram() {
+	if l.Type.Shuttle() {
 		return 0
 	}
 	return l.CableOffset()
@@ -159,7 +159,11 @@ func (l *Lift) tramAt(p, side float32) (pos mgl32.Vec2, heading, x float32) {
 	default: // docked at the base
 		x = la
 	}
-	pos = l.Base.Add(dir.Mul(x)).Add(perp.Mul(side * TramGap))
+	off := side * TramGap
+	if l.Type.Funicular() {
+		off = l.FunicularLoopOffset(x, side) // one track, passing in the middle
+	}
+	pos = l.Base.Add(dir.Mul(x)).Add(perp.Mul(off))
 	return pos, float32(math.Atan2(float64(dir[0]), float64(dir[1]))), x
 }
 

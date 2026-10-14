@@ -3483,6 +3483,9 @@ func liftLineProblem(t *world.Terrain, typ world.LiftType, base, top mgl32.Vec2)
 		return t.InterpolatedSurfaceElevationAt(p[0], p[1])
 	}
 	span := min(float32(world.MaxGradeSpan), length)
+	if typ.Funicular() {
+		span = length // one grade end to end, cut, filled and tunnelled through the ground between
+	}
 	steepest := float32(0)
 	for d := float32(0); d+span <= length+0.01; d += 2 {
 		rise := float32(math.Abs(float64(elev(d+span) - elev(d))))
@@ -3518,6 +3521,7 @@ func liftMenu() []liftMenuEntry {
 			liftMenuEntry{world.LiftFunitel, "Funitel", render.ThumbFunitel},
 			liftMenuEntry{world.LiftTri, "3S Gondola", render.ThumbTri},
 			liftMenuEntry{world.LiftTram, "Tram", render.ThumbTram},
+			liftMenuEntry{world.LiftFunicular, "Funicular", render.ThumbFunicular},
 			liftMenuEntry{world.LiftSingle, "Single", render.ThumbChairSingle},
 			liftMenuEntry{world.LiftHeli, "Heli", render.ThumbHeli},
 			liftMenuEntry{world.LiftMagicCarpet, "Magic Carpet", render.ThumbBelt},
