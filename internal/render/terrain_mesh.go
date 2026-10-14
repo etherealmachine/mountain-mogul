@@ -420,7 +420,7 @@ func cornerSnow(t *world.Terrain, x0, z0, x1, z1 int, a, b []float32, scratch *[
 			c := &t.Cells[x][z]
 			cells[(z-cz0)*cw+(x-cx0)] = cellSnow{
 				g: c.Grooming, pk: c.SurfacePacked(), ic: c.SurfaceIce(),
-				mg: c.MogulSize, dp: c.VisibleSnowDepth(), is: c.InstabilityScore(),
+				mg: c.MogulSize, dp: c.VisibleSnowDepth(), is: t.AvyDangerShade(x, z),
 			}
 		}
 	}

@@ -490,7 +490,7 @@ var Testbeds = []Testbed{
 	},
 	{
 		// Steep V-shaped couloir feeding into a flat runout. The upper zone is
-		// loaded with a wind slab over a firm base; checkAvalanches fires at
+		// loaded with a wind slab over a firm base; TriggerAvalanche fires at
 		// t=5 s to trigger release. Watch the walls shed inward, debris funnel
 		// down the channel, and snow accumulate in the runout fan.
 		//
@@ -555,7 +555,7 @@ var Testbeds = []Testbed{
 			return func(s *Simulation) {
 				if !fired && s.SimTime >= 5.0 {
 					fired = true
-					s.checkAvalanches()
+					s.TriggerAvalanche()
 				}
 			}
 		}(),

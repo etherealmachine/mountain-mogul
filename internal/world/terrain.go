@@ -559,6 +559,9 @@ func (c Cell) Walkable() bool {
 
 // Terrain is the heightmap grid used for both simulation and rendering.
 type Terrain struct {
+	// avyDanger is each cell's worst slide-path danger + 1, 0 off every
+	// path, for the map view (SetAvyDanger). Not saved.
+	avyDanger     []uint8
 	Width, Height int
 	Cells         [][]Cell // [x][z]
 

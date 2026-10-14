@@ -31,9 +31,9 @@ func (s *Simulation) logAvalanches(n int, cell [2]int) {
 	if n <= 0 {
 		return
 	}
-	msg := "Avalanche released"
+	msg := "An avalanche ran away from the runs"
 	if n > 1 {
-		msg = fmt.Sprintf("%d avalanches released", n)
+		msg = fmt.Sprintf("%d avalanches ran away from the runs", n)
 	}
 	s.World.LogEventAt(world.EventAvalanche, s.SimTime, msg, cellCentre(cell), 0)
 }

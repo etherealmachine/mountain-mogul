@@ -1,7 +1,7 @@
 ---
 title: Avalanche Control
 kind: plan
-status: planned
+status: partial
 ---
 
 # Avalanche Control
@@ -40,9 +40,17 @@ From the user, 2026-10-14:
 - **Safety score.** A resort score, 0–100%, shown beside the stars. A burial takes off a lot (about 40 points), a near miss less; it recovers a few points a day. Demand is scaled by it, and while it's under 80% the stars shown can't be over a cap.
 - **Map view.** The overlay shows slide paths coloured by danger, closed runs, and mortar range from each avalanche-control building.
 
+## Built: slide paths and danger
+
+- **Paths** (`world.BuildSlidePaths`): start cells are over 29° with at most one tree; a start zone is the start cells joined to one facing within 40° of it, up to 160 cells (4 ha), at least 4. Each start cell is traced down the steepest descent until a hollow, a building, a stand of trees, or 8 cells under 0.18 slope; the cells it crosses, and the runs on them, are its path. Found once a game (0.2 s on Kirkwood: 1,715 paths; the Goals Test: 63, 11 across runs); which runs each crosses is worked out again when the runs change.
+- **Load and danger** (`sim/slide_paths.go`): a day's snowfall adds its water to every path, up to 2.2 times more on a slope facing downwind in a strong wind; a dry day over 7.5 m/s carries snow onto lee slopes; rain adds 30%; the load settles to 75% a day (60% on a thaw). Danger is the load against 3 cm of water, on a 38° slope at full, less off it (`DangerFor`: under 0.4 Low, 0.8 Moderate, 1.4 Danger, 2.2 High, then Extreme), raised in the afternoon on a sunny slope over freezing; worked out every clock hour.
+- **Releases**: each clock hour a path slides on its own with 0.05% a hour at Moderate, 0.3% at Danger, 2% at High, 8% at Extreme; it keeps 15% of its load. One across a run gets its own line in the feed; slides away from the runs are logged together every 4 hours. Anyone on foot or skis where the snow is running is caught (lift lines included: they leave the line), usually badly hurt. On the Goals Test a stormy game day brings 5–7 slides, a calm one none. The debug cheat releases the most dangerous path.
+- **Map view**: the Avy Risk overlay shows slide paths by danger on the scale's colours (green, yellow, orange, red, black), not the per-cell score.
+- The density bug in the wave's spread is fixed.
+
 ## Steps
 
-1. **Slide paths and danger.** Paths from the ground, danger from loading, hourly; natural releases through the day; lift riders and walkers in a runout caught too; the density bug. The overlay redone as paths by danger.
+1. Done: **Slide paths and danger.** Paths from the ground, danger from loading, hourly; natural releases through the day; lift riders and walkers in a runout caught too; the density bug. The overlay redone as paths by danger.
 2. **Patrol staffing.** Four places a patrol tile, cost per patroller, a staffing stepper in the popup.
 3. **Closures and the risk limit.** The avalanche-control upgrade (cost, trained patrollers' extra); the limit in its popup (Danger by default); runs closing under paths at or over it, with ropes and signs, and guests keeping off.
 4. **Control work.** Morning and post-storm control: mortars from the patrol building within range, ski cutting beyond; controlled releases; runs reopening.
@@ -58,3 +66,4 @@ From the user, 2026-10-14:
 ## Log
 
 - 2026-10-14: Surveyed and planned with the user, ranked first.
+- 2026-10-14: Step 1 built. Start zones split by the way they face and capped at 4 ha (the first try made 20,000-cell zones on Kirkwood); backcountry slides batched in the feed (a storm day logged one an hour).

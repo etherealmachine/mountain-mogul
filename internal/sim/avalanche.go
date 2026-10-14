@@ -1,12 +1,10 @@
 package sim
 
 import (
-	"mountain-mogul/internal/rng"
 	"mountain-mogul/internal/world"
 )
 
 const (
-	avyMaxChance     = float32(0.60)    // maximum stochastic release probability
 	avyRunoutSlope   = float32(0.25)    // threshold: above → gains momentum; below → deposits
 	avyTreeStop      = float32(0.70)    // wave halts when tree density exceeds this
 	avyHopsPerSec    = float32(2.0)     // front advances 2 cells/wall-second ≈ 10 m/s
@@ -19,34 +17,6 @@ const (
 
 // avySqrt2 is the distance multiplier for diagonal Moore-neighbourhood steps.
 const avySqrt2 = float32(1.4142136)
-
-// checkAvalanches identifies unstable cells and triggers releases. Called from
-// applyDailyWeather on heavy-snow and rain days.
-func (s *Simulation) checkAvalanches() {
-	t := s.World.Terrain
-	released := 0
-	var first [2]int
-	for x := range t.Cells {
-		for z := range t.Cells[x] {
-			c := &t.Cells[x][z]
-			score := c.InstabilityScore()
-			if score < 1.0 {
-				continue
-			}
-			chance := clamp32((score-1.0)*avyMaxChance, 0, avyMaxChance)
-			if rng.Global().Float32() > chance {
-				continue
-			}
-			if s.startAvalanche(t, x, z) {
-				if released == 0 {
-					first = [2]int{x, z}
-				}
-				released++
-			}
-		}
-	}
-	s.logAvalanches(released, first)
-}
 
 // startAvalanche lifts a fraction of the top snow layer into transit and adds
 // this cell to the active avalanche front. The wave spreads downhill each tick
@@ -71,11 +41,13 @@ func (s *Simulation) startAvalanche(t *world.Terrain, x, z int) bool {
 	return true
 }
 
-// tickAvalanche advances all in-flight avalanche fronts by dt seconds.
+// tickAvalanche advances all in-flight avalanche fronts by dt seconds,
+// and catches anyone the snow reaches.
 func (s *Simulation) tickAvalanche(dt float64) {
 	if len(s.avyFront) == 0 {
 		return
 	}
+	defer s.catchInAvalanche()
 	t := s.World.Terrain
 	s.avyBudget += float32(dt) * avyHopsPerSec
 	for s.avyBudget >= 1.0 && len(s.avyFront) > 0 {
@@ -187,7 +159,7 @@ func (s *Simulation) spreadAvyCell(t *world.Terrain, x, z int) {
 			nc := &t.Cells[cd.nx][cd.nz]
 			nc.Top.Accumulation += childSnow
 			nc.Top.SetKind(world.KindAvalancheDebris)
-			c.Top.Density = max(c.Top.Density, world.KindDensity(world.KindAvalancheDebris))
+			nc.Top.Density = max(nc.Top.Density, world.KindDensity(world.KindAvalancheDebris))
 			nc.Grooming = 0
 			nc.MogulSize = 0
 			t.MarkSnowDirty(cd.nx, cd.nz)

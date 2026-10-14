@@ -229,6 +229,10 @@ type World struct {
 	// never cleared by the sim. The UI reads it for the game-over screen.
 	Bankrupt bool
 
+	// SlidePaths is the avalanche paths (slide_paths.go), found by the
+	// sim from the ground; not saved.
+	SlidePaths []*SlidePath
+
 	// Dark is whether it's too dark to ski unlit (set by the sim each
 	// tick), and DuskHour the clock hour that happens today. Not saved.
 	Dark     bool

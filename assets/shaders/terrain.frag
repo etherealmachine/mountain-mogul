@@ -875,21 +875,20 @@ void main() {
         fragColor.rgb = mix(fragColor.rgb, col, 0.55 * snowness);
     }
 
-    // Avalanche risk — driven directly by Cell.InstabilityScore() passed from CPU.
-    // Score 0 = stable, 1.0 = at the natural release threshold (red).
-    // 0 → green, 0.5 → yellow, 1.0+ → red.
-    // Scores above 1.0 are clamped to red; below 1.0 the cell cannot
-    // naturally release but shows the loading trend.
-    if ((uOverlayMode & 16) != 0) {
-        float risk    = clamp(vInstabilityScore, 0.0, 1.0);
-        vec3 safe     = vec3(0.18, 0.78, 0.20);
-        vec3 moderate = vec3(0.93, 0.80, 0.08);
-        vec3 danger   = vec3(0.88, 0.15, 0.10);
-        // green→yellow over [0, 0.5], yellow→red over [0.5, 1.0]
-        float t2 = clamp(risk * 2.0, 0.0, 1.0);
-        float t3 = clamp(risk * 2.0 - 1.0, 0.0, 1.0);
-        vec3 riskCol  = mix(safe, mix(moderate, danger, t3), t2);
-        fragColor.rgb = mix(fragColor.rgb, riskCol, 0.70);
+    // Avalanche danger: slide paths by their danger level
+    // (world.Terrain.AvyDangerShade): 0 off any path, then Low 0.2,
+    // Moderate 0.4, Danger 0.6, High 0.8, Extreme 1.0, as the danger
+    // scale's colours: green, yellow, orange, red, black.
+    if ((uOverlayMode & 16) != 0 && vInstabilityScore > 0.05) {
+        float lv = clamp(vInstabilityScore * 5.0 - 1.0, 0.0, 4.0);
+        vec3 c0 = vec3(0.20, 0.70, 0.25);
+        vec3 c1 = vec3(0.95, 0.85, 0.15);
+        vec3 c2 = vec3(0.97, 0.55, 0.10);
+        vec3 c3 = vec3(0.88, 0.15, 0.10);
+        vec3 c4 = vec3(0.10, 0.08, 0.08);
+        vec3 riskCol = lv < 1.0 ? mix(c0, c1, lv) : lv < 2.0 ? mix(c1, c2, lv - 1.0)
+                     : lv < 3.0 ? mix(c2, c3, lv - 2.0) : mix(c3, c4, lv - 3.0);
+        fragColor.rgb = mix(fragColor.rgb, riskCol, 0.65);
     }
 
     // Bump-normal debug — render Nshading directly as RGB using the

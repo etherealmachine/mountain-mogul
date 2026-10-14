@@ -11,7 +11,7 @@ New features only, a line each, to say yes or no to. A feature big enough to nee
 
 ## Priority
 
-1. [[Avalanche Control]]: slide paths with a forecast danger, runs closing automatically past the player's limit, patrol control work (mortars from the patrol building, ski cutting), and a Safety score beside the stars.
+1. [[Avalanche Control]]: slide paths and their danger are in. Next: runs closing automatically past the player's limit, patrol control work (mortars from the patrol building, ski cutting), and a Safety score beside the stars.
 
 ## Lifts
 

@@ -49,7 +49,13 @@ type Simulation struct {
 	baseElevKnown bool
 	// sunDay is the sim day sunRise and sunSet (clock hours) are for
 	// (tickDark).
-	sunDay          int
+	sunDay int
+	// quietSlides counts slides away from the runs not yet logged, the
+	// first at quietSlideAt; pathTrailsKey is the runs the slide paths'
+	// crossings were worked out for (slide_paths.go).
+	quietSlides     int
+	quietSlideAt    [2]int
+	pathTrailsKey   int
 	sunRise, sunSet float32
 	// exposure is each lift's top's exposure to the wind (wind.go).
 	exposure map[uint64]float32
@@ -1192,41 +1198,19 @@ func (s *Simulation) TriggerStorm() {
 	})
 }
 
-// TriggerAvalanche picks a single random cell from those with the highest
-// instability and releases it. Used by the debug console cheat.
+// TriggerAvalanche releases the most dangerous slide path (the biggest
+// among equals). Used by the debug console cheat and a testbed.
 func (s *Simulation) TriggerAvalanche() {
-	t := s.World.Terrain
-
-	type candidate struct {
-		x, z  int
-		score float32
-	}
-	var best []candidate
-	bestScore := float32(0)
-	for x := range t.Cells {
-		for z := range t.Cells[x] {
-			c := &t.Cells[x][z]
-			score := c.InstabilityScore()
-			if score <= 0 {
-				continue
-			}
-			if score > bestScore+0.05 {
-				bestScore = score
-				best = best[:0]
-			}
-			if score >= bestScore-0.05 {
-				best = append(best, candidate{x, z, score})
-			}
+	s.ensureSlidePaths()
+	var best *world.SlidePath
+	for _, p := range s.World.SlidePaths {
+		if best == nil || p.Danger > best.Danger || (p.Danger == best.Danger && p.Load > best.Load) {
+			best = p
 		}
 	}
-	if len(best) == 0 {
-		return
+	if best != nil {
+		s.releasePath(best, false)
 	}
-	pick := best[rng.Global().Intn(len(best))]
-	if s.startAvalanche(t, pick.x, pick.z) {
-		s.logAvalanches(1, [2]int{pick.x, pick.z})
-	}
-	t.MarkAllSnowDirty()
 }
 
 // TriggerHeatwave immediately applies one warm sunny day to the terrain —
@@ -1288,10 +1272,8 @@ func (s *Simulation) applyDailyWeather(dw DayWeather) {
 		// Melt runs hourly through the day (tickHourly).
 	}
 
-	// Avalanche check: significant snowfall or rain can trigger slab release.
-	if dw.AccumSWE > 0.04 || dw.State == WeatherRain {
-		s.checkAvalanches()
-	}
+	// The day's snow and wind load the slide paths (slide_paths.go).
+	s.loadSlidePaths(dw)
 
 	// Lakes freeze, thicken, and thaw with the day's temperature.
 	s.stepLakes(dw)
@@ -1409,6 +1391,7 @@ func (s *Simulation) tickHourly() {
 		// Lift lines fold before lots and buildings built since.
 		s.World.UpdateLineLayouts()
 		defer s.refreshTrailConditions()
+		defer s.avalancheHour()
 		defer s.logGuestsSay()
 		defer s.logLongLines()
 		defer s.logRescues()

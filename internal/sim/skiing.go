@@ -419,25 +419,6 @@ func (s *Simulation) applySkier(a *world.Guest, target mgl32.Vec3, dist float32,
 		a.Thirst = 0
 	}
 
-	// Avalanche hit — if active debris is flowing through this cell, force a
-	// high-probability injury fall before the normal balance update.
-	{
-		xi := int(a.Pos[0] / CellSize)
-		zi := int(a.Pos[2] / CellSize)
-		if s.World.Terrain.InBounds(xi, zi) && s.World.Terrain.Cells[xi][zi].AvySnow > avyMinSnow && !a.Fallen {
-			s.applyEvent(a, ai.ThoughtCaughtInAvalanche)
-			s.knockDown(a, world.FallForward)
-			const avyInjuryChance = float32(0.70)
-			if rng.Global().Float32() < avyInjuryChance {
-				s.injure(a, true)
-			} else {
-				s.applyTrailEvent(a, ai.ThoughtFell)
-			}
-			recordFrame(s, a, target, dist, perc, dec)
-			return false
-		}
-	}
-
 	if !a.Fallen && hitsTrunk(s.World.Terrain, a) {
 		s.treeHit(a)
 		recordFrame(s, a, target, dist, perc, dec)

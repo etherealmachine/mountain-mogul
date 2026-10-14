@@ -14,7 +14,10 @@ Not built yet: avalanche control (explosives, closures, barriers), a risk overla
 
 Spec: [[Snow Spec]], the avalanche section. Code: `internal/sim/avalanche.go`.
 
+Slide paths (2026-10-14): avalanches now run down slide paths, each with a danger from Low to Extreme built up by storms and wind and settling away, worked out every hour, and they can slide on their own through the day; the overlay shows paths by danger ([[Avalanche Control]]). The per-cell `InstabilityScore` below is kept for the sim query tool only.
+
 ## Log
 
 - 2026-10-01: Release, the spreading front, debris, skier injuries, and the event entry are in. Mitigation and forecasting are not.
 - 2026-10-02: Tree anchoring and stopping read the stored trees per cell.
+- 2026-10-14: Slide paths, danger by the hour, releases through the day ([[Avalanche Control]] step 1).
