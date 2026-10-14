@@ -746,6 +746,7 @@ void main() {
     if (uLampCount > 0) {
         lit += base * lampLight(vWorldPos, Nshading) * vAO;
     }
+    lit += base * nightLight(vWorldPos) * vAO;
     // Open water mirrors the sky, more at grazing angles, and glints
     // where small ripples catch the sun.
     if (openW > 0.01) {

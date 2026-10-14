@@ -38,8 +38,8 @@ type Trail struct {
 	SnowmakingOn bool
 	// Lit is lights bought along it: it can be skied after dark
 	// (lights.go).
-	Lit bool
-	SnowTarget   float32
+	Lit        bool
+	SnowTarget float32
 	// MakingSnow is whether it's making snow right now: switched on, cold
 	// enough somewhere on it, its lifts stopped, below its target. Set by
 	// the sim; not saved.

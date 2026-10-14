@@ -33,13 +33,13 @@ From the user, 2026-10-14:
 - **Who comes.** A night ticket (on sale from 16:00, half price by default) and evening guests: locals arriving 16:30 to 19:00 for two or three hours, more with more lit terrain. Day guests with energy left stay on if their runs are lit.
 - **Costs by the hour.** A lift's running cost and staff are charged per open hour (today's day rates over a 9-to-4 day; to dusk for an unlit lift), so a late night costs what it should.
 - **Grooming.** Lit runs are groomed after the night close; the cats' midnight start already allows for it. A cat waits for a run to empty before it starts on it.
-- **Drawing it.** Poles along lit runs (a light pole model), their heads glowing. Their light goes into a light map over the terrain (a world-space texture each pole adds a pool to) that the terrain, static and dynamic shaders sample after dark, so any number of poles costs the same; figures, chairs and cars on a lit run are lit too. Lodges' windows glow at night, and lit lift stations get lamps.
+- **Drawing it.** Poles along lit runs every 30 m, alternating sides, each aimed across the run (`light_pole.py`, `world.LightSpots`), their lenses glowing while the lights are on; lamps on a lit lift's towers and at its load and unload points. Built: Their light goes into a light map over the terrain (a world-space texture each pole adds a pool to) that the terrain, static and dynamic shaders sample after dark, so any number of poles costs the same; figures, chairs and cars on a lit run are lit too. Each pole's pool reaches 40 m (a lift lamp's 24 m), centred a third of that out over the run, baked into a 2.5 m light map (`render/night_lights.go`) that `lighting.glsl`'s `nightLight` adds on the terrain, trees, buildings, figures and chairs, rebuilt only when what's lit changes. Left: lodges' windows glowing at night.
 
 ## Steps
 
 1. Done: **Sessions and costs**: the night close and dusk rule; guests planning only lit runs and lifts after dark; costs per open hour.
-2. Done, but for the poles (step 3): **Lights**: lighting runs and lifts in their popups, the cost, poles placed along them.
-3. **The light map**: lit snow and figures after dark, glowing pole heads, lit lodge windows and station lamps.
+2. Done: **Lights**: lighting runs and lifts in their popups, the cost, poles placed along them.
+3. Done, but for lodge windows: **The light map**: lit snow and figures after dark, glowing pole heads, lit lodge windows and station lamps.
 4. **Evening guests**: the night ticket, evening arrivals, day guests staying on.
 5. **Grooming and balance**: cats after the night close, waiting for empty runs; Boreal's night session checked headless and on screen.
 
@@ -52,3 +52,4 @@ From the user, 2026-10-14:
 
 - 2026-10-14: Surveyed and planned with the user, ranked second, after [[Snowmaking on Runs]].
 - 2026-10-14: Steps 1–2 built (poles left for step 3). Boreal Goals Test, closing at 21:00 with Lift3 and Sunset Blvd. lit (2 km): dusk at 17:00, then only Lift3 loads (about 44 riding, a line of 70); 411 guests still on the mountain at 21:00 and 6 by 23:00. Lights at $0.50 a metre an hour came to about $1,000 an hour, so cut to $0.15.
+- 2026-10-14: Step 3 built (poles, lift lamps, the light map). First pools of 26 m read as separate blobs; widened to 40 m at a lower peak they light the run evenly.

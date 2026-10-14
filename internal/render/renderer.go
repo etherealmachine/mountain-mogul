@@ -92,6 +92,7 @@ type Renderer struct {
 	// empty in the demo, which has none.
 	bigLifts
 	snowmakingRender
+	nightLights
 
 	uiVAO, uiVBO     uint32
 	whiteTexID       uint32             // 1×1 white texture; always bound to unit 0 during UI pass
@@ -493,6 +494,7 @@ func (r *Renderer) initStaticMeshes() {
 
 	loadBigLifts(r, modelDir)
 	loadSnowmaking(r, modelDir)
+	loadNightLights(r, modelDir)
 
 	// Snowcat — dynamic batch. Snowcats drive over the terrain every
 	// tick so they share the agent-style instance path rather than
@@ -1320,6 +1322,8 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		r.terrainShadow.update(w.Terrain, light.SunDir)
 	}
 	r.terrainShadow.bind()
+	r.updateNightLights(w)
+	r.bindNightLights()
 
 	// Terrain pass
 	if r.scene.terrainMesh != nil {
@@ -1327,6 +1331,7 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		light.apply(r.TerrainShader)
 		r.applyHaze(r.TerrainShader)
 		applyLamps(r.TerrainShader, lamps, light.Night)
+		r.applyNightLights(r.TerrainShader, w, light.Night)
 		r.terrainShadow.apply(r.TerrainShader, light.Shadows)
 		r.shadowMap.apply(r.TerrainShader, light.Shadows)
 		r.TerrainShader.SetMat4("uViewProj", vp)
@@ -1404,6 +1409,7 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	light.apply(r.StaticShader)
 	r.applyHaze(r.StaticShader)
 	applyLamps(r.StaticShader, lamps, light.Night)
+	r.applyNightLights(r.StaticShader, w, light.Night)
 	r.terrainShadow.apply(r.StaticShader, light.Shadows)
 	r.shadowMap.apply(r.StaticShader, light.Shadows)
 	r.StaticShader.SetMat4("uViewProj", vp)
@@ -1576,6 +1582,7 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	light.apply(r.DynamicShader)
 	r.applyHaze(r.DynamicShader)
 	r.DynamicShader.SetFloat("uEmissive", 0)
+	r.applyNightLights(r.DynamicShader, w, light.Night)
 	r.terrainShadow.apply(r.DynamicShader, light.Shadows)
 	r.shadowMap.apply(r.DynamicShader, light.Shadows)
 	r.DynamicShader.SetMat4("uViewProj", vp)
@@ -1589,6 +1596,7 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		light.apply(fs)
 		r.applyHaze(fs)
 		fs.SetFloat("uEmissive", 0)
+		r.applyNightLights(fs, w, light.Night)
 		r.terrainShadow.apply(fs, light.Shadows)
 		r.shadowMap.apply(fs, light.Shadows)
 		fs.SetMat4("uViewProj", vp)
@@ -1762,6 +1770,7 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		drawBigLiftChairs(r)
 	}
 	drawSnowGuns(r, w, time)
+	r.drawLightPoles(w, light.Night)
 
 	r.drawWater(w, vp, light, time)
 	drawBubbleHoods(r)

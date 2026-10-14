@@ -103,6 +103,21 @@ vec3 lampLight(vec3 p, vec3 n) {
     return sum;
 }
 
+// Night-skiing lights: the pools of light from the poles along lit runs
+// and the lamps on lit lifts, baked into a map over the ground
+// (render/night_lights.go), stored at half strength. uNightLightOn is 0
+// by day and while the lights are off.
+uniform sampler2D uNightLight;
+uniform float uNightLightOn;
+uniform vec2  uNightLightWorld; // the map's extent in metres
+
+vec3 nightLight(vec3 p) {
+    if (uNightLightOn <= 0.0) {
+        return vec3(0.0);
+    }
+    return texture(uNightLight, p.xz / uNightLightWorld).rgb * 2.0 * uNightLightOn;
+}
+
 // Atmospheric haze: thickens with distance beyond the camera's focus and
 // pools in the low valleys of the map. uHazeOn = 0 disables.
 uniform int  uHazeOn;

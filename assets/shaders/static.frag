@@ -69,6 +69,7 @@ void main() {
     if (uLampCount > 0) {
         lit += baseColor * lampLight(vWorldPos, normalize(vNormal));
     }
+    lit += baseColor * nightLight(vWorldPos);
 
     // Followed-skier perception highlight: warm yellow at ~50% mix.
     if (vPerceived > 0.5) {

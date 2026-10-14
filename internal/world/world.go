@@ -233,6 +233,9 @@ type World struct {
 	// tick), and DuskHour the clock hour that happens today. Not saved.
 	Dark     bool
 	DuskHour float32
+	// LightsOn is whether the night-skiing lights are on: from sunset
+	// while the lifts are running. Set by the sim; not saved.
+	LightsOn bool
 	// LightingToday is what the lights have cost since the day's costs
 	// were last charged, dollars. Not saved.
 	LightingToday float64

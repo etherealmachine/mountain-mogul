@@ -21,7 +21,8 @@ func (s *Simulation) tickDark(dt float64) {
 	}
 	h := float32(HourOfDay(s.SimTime))
 	w.Dark = h >= w.DuskHour || h < s.sunRise-world.DawnBeforeSunrise
-	if h >= s.sunSet && s.LiftsRunning() {
+	w.LightsOn = h >= s.sunSet && s.LiftsRunning()
+	if w.LightsOn {
 		if m := w.LitLength(); m > 0 {
 			w.LightingToday += float64(m) * world.LightsCostPerMHour * dt / simSecondsPerHour
 		}

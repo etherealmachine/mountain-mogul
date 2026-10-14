@@ -19,6 +19,6 @@ void main() {
         fragColor = vec4(vColor, 1.0);
         return;
     }
-    vec3 lit = computeLightingAt(vNormal, vColor, vWorldPos);
+    vec3 lit = computeLightingAt(vNormal, vColor, vWorldPos) + vColor * nightLight(vWorldPos);
     fragColor = vec4(toneMap(applyHaze(lit, vWorldPos)), 1.0 - uFade);
 }
