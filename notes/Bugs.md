@@ -1,0 +1,17 @@
+---
+title: Bugs
+kind: plan
+status: ongoing
+---
+
+# Bugs
+
+Known bugs, moved out of [[Next Steps]] on 2026-10-14. Diagnose each first, report the cause, then fix; a fix goes in the [[Changelog]] and the bug comes off this list.
+
+- **Skiers stall at run gaps and flats**: found 2026-10-12 testing [[Lift Lines]]. Skiers stall 10 minutes or more where a run ends short of the next (Sunset Blvd. into Road Island on the Goals Test, a 50 m gap) and on the flat short of Lift4's base, turning back and forth at walking pace; and at Lift4's top, where the Goals Test's Kiss A Bear is drawn bottom to top.
+- **Fallen skiers walk too far uphill**: the user, 2026-10-08, watching the game. After a fall guests walk much further back uphill than is realistic. Suspects: in a yard sale the skis stay near where the fall began (up to 0.5 + 0.2 × speed metres along the line) while the body slides on, so the guest climbs back up the whole slide for them (`knockDown`, `collectSki` in `sim/falls.go`); or the walk back up toward a route point or carrot uphill after getting up. Diagnose which before changing ([[Skiing]]).
+- **Point-placed services fail silently with no free cell**: found 2026-10-07 fixing tests. `PlaceBuildingType` for a lodge, bar, or ticket office (tests, testbeds, the editor's ticket office) converts to a service building only on free cells (`placePointService`); with none (say, inside a parking lot) it quietly stays an old-style building with no tiles or doors that serves nothing, and guests looking for it go home. It should fail visibly or find room. Belongs with footpaths and pathing work ([[Pathfinding]], [[Lodge Shell]]).
+- **Lift-station huts stand in the lift lines**: found 2026-10-08 measuring clearance round stations. The operator's hut in `lift_station.py` sits 3.4 m back and 5 m out on the empty-chair side, which at a base station is inside the lift-line rows (rows stack downhill in 2.5 m bands, places step out in 2 m slots: the hut is row 2, slot 3), so guests are sent to places inside it: about 1,850 one-second samples a day within 1 m of base huts on Boreal (250 guests). Walkers now sidestep station parts, but not one at the place they're walking to. Decide where the hut should go (beside the load point uphill of the rows, or further out) in the model and `world.StationXZs` together ([[Lifts]]).
+- **Novices get bored with one short green**: Boreal Goals Test, 2026-10-08, after the Sunset Blvd. fixes (falls 948 → 136, gave up 108 → 1 on the user's save). Novices (skill under 0.10) now only ride lifts whose terrain is all green, so on Boreal they keep to Lift4's Kiss A Bear, and with one short run they're soon bored: 83 bored departures a day against about 25. Partly gameplay (build them gentle terrain: the magic carpet, [[Demo]] step 1); check the boredom rate for a guest with one lift once there's a bunny area to compare with ([[Skiing]]).
+- **Storm lag**: lag was reported after a heavy storm at [[Boreal]]. The GPU half is fixed (fresh snow zoomed out: 10.6 → 7.2 ms), and snow changes no longer re-upload the whole terrain vertex buffer every frame ([[Terrain Realism]] step 1). The sim half is unchecked, because the tutorial save has no guests; play a busy game through a storm with `-cpuprofile` to see if deep powder or avalanche checks slow the sim ([[Debug Tools]]).
+- **Groomed edge artifacts**: some artifacts still show along the edge of groomed areas after [[Real Grooming]]; capture close-ups with `-groom-now` and clean up the edge in `terrain.frag` ([[Grooming]]).

@@ -55,6 +55,12 @@ Take before and after screenshots with the same flags. `-screenshot` prints the 
 
 Add `-clock-hour 8`, `16.3`, `17.2`, and `21` for dawn, dusk, twilight, and night.
 
+## Left over
+
+Moved from [[Next Steps]] on 2026-10-14, when it was cut down to new features.
+
+- [[Graphics Base]]: steps 1–6 shipped (anti-aliasing, light balance, snow breakup, trees, haze, map edge). Left: bough snow that lingers after a storm (now its own plan, [[Bough Snow]], below), gamma-correct lighting, and post-processing. The sim half of **Storm lag** below is also still unchecked.
+
 ## Log
 
 - 2026-10-05: Planned from screenshots of Boreal, Kirkwood, and the snowcat testbed, after the user asked for easy graphical wins as a base for later work.

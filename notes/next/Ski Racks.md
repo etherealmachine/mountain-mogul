@@ -46,6 +46,12 @@ Guests stop to take their skis off and put them on, leave them outside in a rack
 - Guests walk straight to a rack and back, round towers but not trees or buildings.
 - Groups don't wait for each other at the rack.
 
+## Left over
+
+Moved from [[Next Steps]] on 2026-10-14, when it was cut down to new features.
+
+- [[Ski Racks]] leftovers: skis in the snow slowing routes to the door, returning rental gear, and groups waiting at the rack. Racks and the ski change shipped 2026-10-10.
+
 ## Log
 
 - 2026-10-10: Noted with the user: guests should pause to take skis off and put them on, and leave them outside, which needs racks. Folds in the earlier "Ski racks" line and the rack part of the [[Rental Shop]] item.

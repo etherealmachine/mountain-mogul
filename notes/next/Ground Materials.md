@@ -47,6 +47,12 @@ Simulation over shader tricks: snow should really leave the faces, so the sim ag
 - Rock colours per scenario (Alta's pale granite) could tint the one rock texture rather than add rock materials.
 - `VisualElevationAt` (where objects and agents stand) still adds the cell's full snow on rock points. Fine while nothing stands on rock; revisit with step 5.
 
+## Left over
+
+Moved from [[Next Steps]] on 2026-10-14, when it was cut down to new features.
+
+- **Rock textures** ([[Ground Materials]] step 6): a finer rock texture, perhaps a normal map, for close views; and different textures for different rock types and terrains, chosen per scenario (Alta's granite and quartzite next to Kirkwood's volcanic breccia). A material brush in the editor goes with it.
+
 ## Log
 
 - 2026-10-06: Planned after looking at Kirkwood's cliffs. The user chose sim-side shedding over a shader trick, and a general material map (rock kinds, dirt, scree) over a rock mask.

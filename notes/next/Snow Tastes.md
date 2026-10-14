@@ -122,6 +122,12 @@ Each step builds with `go build` and `go vet` and is judged in a headless Boreal
 - A terrain park affinity once there is a terrain park.
 - Whether tastes drift with visits, as regulars get better.
 
+## Left over
+
+Moved from [[Next Steps]] on 2026-10-14, when it was cut down to new features.
+
+- **Guests react to trunks**: glade-loving and tree-shy guests respond to trunks nearby instead of the cell's tree cover ([[Stored Trees]]). The trees taste in [[Snow Tastes]] reads this once it exists. *For* [[Asahidake]].
+
 ## Log
 
 - 2026-10-07: Planned with the user: continuous affinities with archetype labels for the player. Ranked second, after [[Satisfaction Rework]].

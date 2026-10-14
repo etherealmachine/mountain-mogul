@@ -39,6 +39,12 @@ Water at [[Kirkwood]]: the creeks through the meadow and the valley floor, and l
 - Do guests and pathing need to know about creeks (crossings, bridges), or is the ground's slope enough?
 - Where should creeks come from where OpenStreetMap has none: flow accumulation, or nowhere?
 
+## Left over
+
+Moved from [[Next Steps]] on 2026-10-14, when it was cut down to new features.
+
+- [[Creeks and Lakes]] leftovers: tune creek channels and how much is snow-bridged by eye on Kirkwood and Boreal; creeks freezing over in hard cold (from the lake model's frost); guests and pathing treating open creeks and open lakes as obstacles (and deciding whether a frozen lake is walkable); a lighter colour over shallow lake water.
+
 ## Log
 
 - 2026-10-06: Planned as priority 0 after Ground Materials steps 1–4, from Terrain Realism step 5 (creeks and lakes, OpenStreetMap water).

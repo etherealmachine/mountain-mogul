@@ -47,6 +47,12 @@ Ropes the player puts up to guide skiers: they can't cross them, so the player s
 
 - Do ropes need gaps, so the player can leave a gate?
 
+## Left over
+
+Moved from [[Next Steps]] on 2026-10-14, when it was cut down to new features.
+
+- [[Rope Lines]] leftovers: ropes in the editor, hand-built mazes at lifts and doors, signs, slow zones and gates. The Rope tool and avoidance shipped 2026-10-10.
+
 ## Log
 
 - 2026-10-10: Noted with the user: rope lines to help guide skiers. Folds in "Ropes and signs at trail splits" (2026-10-08).

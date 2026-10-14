@@ -67,6 +67,12 @@ Each scenario introduces a feature or two the earlier ones didn't need, so the c
 - Whether bonus goals unlock anything (a sandbox mode, a skin, a harder variant), or are just a record.
 - How unlocking treats players who want to jump ahead: a "skip" option, or everything unlocked in the editor build only.
 
+## Left over
+
+Moved from [[Next Steps]] on 2026-10-14, when it was cut down to new features.
+
+- [[Scenario Goals and Rules]], tabled until gameplay improves. Done: goal and rule data with progress saved, the rating saved, the daily check with win and lose, the goals panel with win and lose panels, and the editor's Goals tab. Left, in order: Boreal's goals (decided: three lifts open; a best day of guests in the thousands; a 7-day 70% rating streak; bonus: all within season one; no deadline; numbers to confirm with the headless three-lift run once guests can be satisfied), the no-grooming rule (*for* [[Asahidake]]), and unlocking in campaign order.
+
 ## Log
 
 - 2026-10-01: Planned. Nothing implemented yet.

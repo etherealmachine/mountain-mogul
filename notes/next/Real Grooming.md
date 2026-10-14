@@ -69,6 +69,7 @@ All four steps, with these changes from the plan:
 
 - **Edge artifacts**: some artifacts still show along the edge of the groomed area. Listed under Rendering in [[Next Steps]].
 - **Grooming over existing tracks**: decide how a cat pass should treat skier tracks already in the snow (wipe them under the swath, fade them, or leave them for the shader to cut through as now). Listed under Rendering in [[Next Steps]].
+- **Grooming over tracks**: decide how a cat pass treats skier tracks already in the snow: wipe them under the swath, fade them, or keep cutting them through the corduroy in the shader as now ([[Grooming]], [[Real Grooming]]).
 
 ## Not in this
 

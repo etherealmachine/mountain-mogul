@@ -46,6 +46,12 @@ From the user, 2026-10-14:
 - Should breakdowns be pure chance weighted by wear, or tied to weather (cold starts, icing)?
 - Does a crossing with clearance need a costlier tower, or is it free if the cables are far enough apart?
 
+## Left over
+
+Moved from [[Next Steps]] on 2026-10-14, when it was cut down to new features.
+
+- [[Lift Operations]]: refuse overlapping lifts, then breakdowns and a maintenance contract, wind holds that spare the gondola, and guests riding down. Wind holds *need* wind that varies by day. Breakdowns are *for* the Turnaround idea in [[Scenario Campaign]].
+
 ## Log
 
 - 2026-10-05: Planned from the user's notes: lift breakdowns, wind holds, downloading, and overlapping lifts.

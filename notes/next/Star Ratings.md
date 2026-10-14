@@ -53,6 +53,12 @@ Each step builds with `go build` and `go vet` and is judged headless. No Go test
 - **The Boreal goal.** With quality, an average of 3★ no longer asks for every guest. Applying it to the measured days (1★ at 1.0, 2★ at 2.6, 3★ at 3.6): 2.87, 2.88, 2.92★, just under the goal; a rental shop would likely clear it.
 - **4★**: which activities, and whether they're judged by what the guest wanted ("I wanted a sit-down lunch") or by what the resort has.
 
+## Left over
+
+Moved from [[Next Steps]] on 2026-10-14, when it was cut down to new features.
+
+- [[Star Ratings]] and [[Scoreless Rating]]: each guest leaves 1–5 stars as levels (didn't ski, skied with a need unmet, every need met; 4★ and 5★ later), with no satisfaction score behind them: needs met set the star, unweighted good and bad moments explain it.
+
 ## Log
 
 - 2026-10-09: Written up with the user: stars per guest as levels, Boreal's goal at 3★, 4★ and 5★ later.

@@ -30,6 +30,12 @@ Order: the overlay shader change is the smallest and fixes the most surfaces at 
 - How much smoothing can the fence take before it visibly cuts across cells the player owns, or leaves out ones they do?
 - Should trail painting itself move off the grid later (a brushed shape that gets rasterised to cells), or is drawing the cells smoothly enough? See [[Gridless Drawing]], which goes further: shapes for lots, trails, and buildings.
 
+## Left over
+
+Moved from [[Next Steps]] on 2026-10-14, when it was cut down to new features.
+
+- [[Hiding the Grid]]: smooth the parcel fence and painted overlays so the 5 m cells don't show. Step 3 (grooming follows the cat) shipped with [[Real Grooming]].
+
 ## Log
 
 - 2026-10-01: Documented where the grid shows (fence, overlays, grooming) and planned smoothing each from cell data. Nothing implemented yet.

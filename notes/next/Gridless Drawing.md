@@ -35,6 +35,12 @@ Before deciding, list what each system gets from cells and whether a shape could
 - Navigation: keep A* on cells built from the shapes, or build a real navigation mesh? What would routes around buildings and lift lines ([[Lifts]]) gain?
 - Saves: shapes replace painted cells in the [[Save Format]]. Pre-release, older saves can break.
 
+## Left over
+
+Moved from [[Next Steps]] on 2026-10-14, when it was cut down to new features.
+
+- [[Gridless Drawing]]: draw parking lots, trails, and buildings as shapes instead of painting cells, keeping the grid only underneath for the sim and navigation. An idea for now: first work out what the grid buys each system.
+
 ## Log
 
 - 2026-10-06: Raised after drawing parking lots and trails next to the OpenStreetMap overlay: cell painting feels poor. Idea only; nothing decided.

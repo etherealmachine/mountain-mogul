@@ -38,6 +38,12 @@ In order. Each step builds with `go build` and `go vet`, and is checked headless
 
 - Do they close in heavy snow like the chairs (the snow hold at the base), or keep running?
 
+## Left over
+
+Moved from [[Next Steps]] on 2026-10-14, when it was cut down to new features.
+
+- [[Surface Lifts]] leftovers: place a magic carpet by Boreal's base, and Kirkwood's carpets and T-bar from OpenStreetMap; then measure novice boredom (see Bugs), falls on tows, and line waits. Their prices are under Economy.
+
 ## Log
 
 - 2026-10-13: Planned with the user: all three surface lifts, the carpet first and always open, anyone may ride.

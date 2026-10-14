@@ -26,6 +26,12 @@ Spec: [[Snow Spec]].
 
 Snow that varies with sun and aspect from the start, and looks less plastic, is planned in [[Terrain Realism]].
 
+## Left over
+
+Moved from [[Next Steps]] on 2026-10-14, when it was cut down to new features.
+
+- **Walkers leave tracks too**: the user, 2026-10-08. Guests walking (skis off, or shuffling on skis) should mark and pack powder like skiers do; today only skiing splats tracks (`splatSkierTrack`) and wears snow. Boot-packed holes in powder are a different mark from ski tracks.
+
 ## Log
 
 - 2026-10-01: Layers, kinds, weather transitions, sun-aware melt, traffic, moguls, and the 1 m track texture are in.

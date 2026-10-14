@@ -62,6 +62,13 @@ Measured with temporary knobs on the user's latest save: 250 guests, 9:30 to 15:
 - **Bigger steps stop paying at about 1.5×** because the remaining cost isn't per step. At 1/10 s, two thirds of the main thread is the walking pathfinder (`Pathfinder.FindPath`, a map-based A*, run at every plan step start and replan), then route planning round trees (on the worker pool). So the next levers are replanning less and a cheaper `FindPath` (arrays instead of maps), not the skiing itself.
 - **Two things that look wrong** (in Bugs, [[Next Steps]]): about 8,700 falls a day for 250 guests, some 35 each; and so much replanning that pathfinding dominates. They may be one problem (a fall or a full lift line sending guests back to the planner). Worth diagnosing before tuning speed further, since both are also fidelity.
 
+## Left over
+
+Moved from [[Next Steps]] on 2026-10-14, when it was cut down to new features.
+
+- [[Crowd Scale]]: measured 2026-10-08: a skiing guest costs ~3.3 µs per 1/30 s step, so 10,000 visitors a day would run at about 2× real time. The user wants one simpler sim, not coarse off-screen guests: a 1/10 s step is nearly free in fidelity (+44%), and the next costs are replanning and the walking pathfinder (see Bugs). To be ranked by the user.
+- **5,000 guests**: persistent buffers, culling the guest batch, lower-detail skier meshes. Big maps also lean on the terrain chunks from [[Terrain Realism]] step 1.
+
 ## Log
 
 - 2026-10-08: Measured with the user's latest save and written up; tile counts cached, building checks bounded, parallel steering's threshold raised.

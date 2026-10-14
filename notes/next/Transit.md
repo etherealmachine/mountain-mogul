@@ -54,6 +54,13 @@ Code: `internal/sim/traffic.go`, `internal/world/car.go`.
 - How many cars at once before performance matters: settled for now, about 4,000 cars cost about 0.4 ms a tick (step 2).
 - Throughput: one lot entrance takes about a car every 1.5 s when nothing leaves (about 2,400 an hour on Boreal); with cars leaving as fast as they arrive it drops to about one every 6 s. More entrances per lot, or turning lanes, may be needed for very big resorts.
 
+## Left over
+
+Moved from [[Next Steps]] on 2026-10-14, when it was cut down to new features.
+
+- **Parking choice**: guests pick lots weighted by distance to the lifts. Part of [[Transit]] step 5.
+- **Better traffic**: merging, turning lanes, signals, and more than one entrance per lot, for resorts past a couple of thousand cars a morning. Part of [[Transit]] step 5.
+
 ## Log
 
 - 2026-10-06: Planned with the user after looking at Boreal's lot and roads: simulated traffic up front, rectangular extendable lots, asphalt, gravel, and dirt, and editor-controlled entry and exit points tied to demand.

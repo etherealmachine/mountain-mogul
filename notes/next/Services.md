@@ -72,6 +72,13 @@ Ties into land ([[Parcels]], zoning in [[Next Steps]] Real estate), roads ([[Tra
 
 Staff aren't guests: they'll have their own code rather than guests' stats and services, though they may reuse the planner ([[GOAP]]) the way [[Transit]] and logistics might. [[Staff Housing]] is the first staff service: without it, a resort far from town can't hire enough people, which caps how many services and lifts can run. Staffing itself (instructors for the [[Ski School]], the [[Rental Shop]]'s morning rush, patrollers, lift operators) belongs here too.
 
+## Left over
+
+Moved from [[Next Steps]] on 2026-10-14, when it was cut down to new features.
+
+- **Lockers**: another base service ([[Lockers]]).
+- **Shops**: retail in the base area.
+
 ## Logistics
 
 On-mountain services need supplying: snowcats, lifts, and gondolas carry stock up, so a summit [[Snack Stand]] needs a way to be stocked, and a well-supplied service serves better. Simple at first; like staff, its own code, possibly reusing the planner as [[Transit]] does. Left for later.

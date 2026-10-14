@@ -16,7 +16,7 @@ The graph colors nodes by `status` (green shipped, amber partial, blue planned, 
 
 Link cards with wikilinks (`[[Hunger]]`). The graph is built from those links, so a connection that matters should appear in the prose. Add a dated line under `## Log` when the status changes.
 
-Planned work goes in [[Next Steps]], the ordered list of everything to do. What changed there goes in the [[Changelog]], a line a day. A step that needs a design gets its own `plan` note in `next/` (for example [[Stored Trees]]); the system card links to it and keeps describing how things work today.
+Planned work goes in [[Next Steps]], the ordered list of everything to do. It holds new features only; known bugs are in [[Bugs]], what's left over on a built feature is in that feature's note, and what changed goes in the [[Changelog]], a line a day. A step that needs a design gets its own `plan` note in `next/` (for example [[Stored Trees]]); the system card links to it and keeps describing how things work today.
 
 When a planned card gets built, keep it short and point at the spec. Detailed behavior that the code already implements belongs in the matching spec in `specs/`.
 

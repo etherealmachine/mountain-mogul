@@ -34,6 +34,12 @@ Getting to the line (2026-10-14). Guests head for where they'd join the line, re
 
 Code: `internal/world/lift.go`. Upgrades: `UpgradeLift` in `internal/world/world.go`.
 
+## Left over
+
+Moved from [[Next Steps]] on 2026-10-14, when it was cut down to new features.
+
+- **Riders on both sides of the line**: arriving riders spawn on both sides of the lift line, not one.
+
 ## Log
 
 - 2026-10-01: Lift types, upgrades, lanes, the queue cap, snow holds, and heli are in. Wear, wind holds, and attendants are not.

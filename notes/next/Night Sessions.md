@@ -48,6 +48,12 @@ From the user, 2026-10-14:
 - How the player sees what's lit by day (a Lights map view, or poles alone).
 - Whether night guests rate differently (a highlight for skiing under the lights, a letdown for a dark run they wanted).
 
+## Left over
+
+Moved from [[Next Steps]] on 2026-10-14, when it was cut down to new features.
+
+- [[Night Sessions]] leftovers: check grooming against a 23:00 close (cats start at midnight; with a 21:00 close the mountain is empty by about 23:00), a cat waiting for a run to empty, and lodge windows glowing at night. Balance is under Economy.
+
 ## Log
 
 - 2026-10-14: Surveyed and planned with the user, ranked second, after [[Snowmaking on Runs]].

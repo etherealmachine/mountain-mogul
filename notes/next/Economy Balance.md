@@ -127,6 +127,14 @@ Order from here: lots that fill; grooming and patrol effects; then prices, costs
 - Do upgrades (double to quad to high-speed) and expansions count as the content that fills later seasons, or does the game need more kinds of things to build?
 - Which money sinks for the sandbox: ageing and upkeep, staff wages, rising guest expectations?
 
+## Left over
+
+Moved from [[Next Steps]] on 2026-10-14, when it was cut down to new features.
+
+- **Balance lights, snowmaking and surface lifts** (the user, 2026-10-14): none of their prices have been tuned against the economy. Surface lifts: the magic carpet $90k plus $600 a metre ($200 a day and an operator), the rope tow $40k plus $120 a metre ($150 a day), the T-bar $250k plus $140 a metre ($700 a day and two operators), against chairs. Snowmaking costs $250 a metre to put in and $2 a cubic metre of water (about $43k for the whole Goals Test on one very cold night; $1–2.5k a night for a 300 m green); lights $120 a metre of run, $60 a metre of lift and $0.15 a lit metre an hour (about $1,300 an evening for one lit lift and its runs against about $23k of revenue after 16:00; $4,500 against $50k with everything lit); the night ticket at half price. Check them against a lift's day and the [[Boreal Tutorial]]'s money, ideally in a playtest ([[Snowmaking on Runs]] step 4, [[Night Sessions]] step 5, [[Economy Balance]]).
+- [[First Week Balance]]: starting cash buys a parking lot, a short lift, and a cat shed; the guest pool scales with the resort; a week of revenue buys about one lift. *Needs* the ticket-window bug fixed.
+- **Full cost rebalance**: build and operating costs across the board. *Needs* [[First Week Balance]].
+
 ## Log
 
 - 2026-10-10: Planned with the user: pacing targets in real minutes (1–3 days for the next purchase), payback days as the measure, lessons from other games, and the worry that a 50-day season holds more purchases than the game has content for.

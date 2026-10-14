@@ -98,6 +98,12 @@ Checked on the Goals Test save with a throwaway program: a three-node run attach
 - Can a run fork mid-way (a run that starts on another run's segment), or only meet at ends?
 - Does a zone overlapping a run take the run's cells (a glade beside a groomer), or do cells belong to both, as overlapping painted trails do today (hardest wins in `TrailAt`)?
 
+## Left over
+
+Moved from [[Next Steps]] on 2026-10-14, when it was cut down to new features.
+
+- [[Trail Network]]: trails drawn as lines of nodes snapped to lifts, buildings, and other runs, each node with its own width; glades, bowls, and backcountry outlined as polygon zones. Steps 1–3 done (runs, the run tool, grooming clear of trees); left: areas (glades, bowls, backcountry) and redrawing Boreal's and Kirkwood's trails by hand, which have none until then.
+
 ## Log
 
 - 2026-10-08: Planned with the user: node trails with widths per node, polygon zones, redraw Boreal and Kirkwood by hand. Unranked.

@@ -316,6 +316,12 @@ Normal speed is now a game day in 2,560 s (43 minutes, [[Season Calendar]]), so 
 - Which dates should the tutorial open on: Dec 1, so Christmas is day 6 and MLK Day day 9?
 - Settled (the user, 2026-10-10): no magic carpet in the demo; guest targets can move, but the rating goal (now a 1,000+ day at 3.0 stars) and three lifts stay, and it's fine if two lifts would meet the guest goal.
 
+## Left over
+
+Moved from [[Next Steps]] on 2026-10-14, when it was cut down to new features.
+
+- [[Boreal Tutorial]]: the tutorial's build order and day-by-day money; first, guests have to follow what's built, and the season's length decided.
+
 ## Log
 
 - 2026-10-10: Planned with the user: the build order. Each stage measured from the Goals Test save; guests barely follow what's built, and grooming, patrol and the second lot change nothing measurable. Target day-by-day timeline and the changes it needs.

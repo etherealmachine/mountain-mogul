@@ -40,6 +40,13 @@ The game already fans work out across cores in a few places (`world/horizon.go`,
 - **Run the sim on its own goroutine.** The sim would tick flat out on its own core while the main thread draws at a steady 60 fps, smoothing positions between sim updates. The frame rate would then stay steady at any speed, and the sim would fall behind rather than the screen stuttering. It's the biggest change. The renderer and UI read the world directly today (`DrawWorld`, panels, popups, the follow camera), and the player's tools change it, so it needs a snapshot of what's drawn (guests, chairs, cats, and snow regions to upload) handed over each frame, and player edits queued to the sim thread. GL calls stay on the main thread, but the snow textures' CPU half (`cornerSnow`) could move to the sim side. Worth doing only if turbo still drops frames after the above, or as part of the release build.
 - **Build the horizon map in the background.** Rebuilding it after placing a lift takes 3.9 s of CPU on Kirkwood (already noted under Rendering and engine in [[Next Steps]]). It's already spread across cores but blocks the frame; building it in the background and swapping it in when done removes the hitch.
 
+## Left over
+
+Moved from [[Next Steps]] on 2026-10-14, when it was cut down to new features.
+
+- **Fast-forward leftovers** from [[Fast-Forward Performance]]: a few 40–90 ms sim frames around midday at 50× and up, cause not traced; snow tile uploads cost about 0.4 ms a frame at 50× (one call per tile; could batch); parallel steering now only starts for 64+ skiers per core (waking threads every 1/30 s step cost more than it saved); the sim on its own goroutine if turbo still drops frames; `-profile`'s synthetic resort gets no guests any more, so it measures nothing.
+- **More performance**, if play shows it's needed: after coarse terrain levels by zoom (Kirkwood's whole map 13.7 → 8.6 ms GPU, 12 → 1.5 ms CPU), the measured leftovers are trees 2.0 ms (a simple far-away tree mesh), anti-aliasing 2.5 ms (already a setting), and the terrain fragment shader 3.4 ms; the horizon map rebuild (3.9 s of CPU on Kirkwood) after placing a lift may hitch.
+
 ## Log
 
 - 2026-10-08: Profiled the Boreal Goals Test save at 4×–100×; planned with the user and ranked first.

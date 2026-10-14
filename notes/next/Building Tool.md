@@ -49,6 +49,12 @@ Checked on the Goals Test save with a throwaway program: an empty 12-tile lodge 
 - Drag a rectangle for the shell, or paint tiles freely as today? A rectangle is simpler and matches lots; painting allows L shapes (extending from a wall covers most of that).
 - Keep a quick path (one click with a service on open ground) for experienced players?
 
+## Left over
+
+Moved from [[Next Steps]] on 2026-10-14, when it was cut down to new features.
+
+- [[Building Tool]] leftovers: presets (a one-tile ticket booth, a patrol shed with a garage), hints in the Services menu for what each service needs, and the open questions in its note (heated empty floor, rooms with no outside wall).
+
 ## Log
 
 - 2026-10-06: Written up after the user found the mixed Buildings menu confusing: shell first, then rooms in the building's panel.

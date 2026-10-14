@@ -22,6 +22,13 @@ Files open and save in `assets/scenarios/` in the [[Save Format]], with an unsav
 
 Code: `internal/scene/editor*.go` (`editor_layers.go` for the Layers panel, `editor_osm.go` for the OpenStreetMap overlay), `world_layers.go`, `snowgen.go`, `forestgen.go`, `autogen.go`.
 
+## Left over
+
+Moved from [[Next Steps]] on 2026-10-14, when it was cut down to new features.
+
+- **Editor glade tools**: a glade highlight and thinning slider in the [[Scenario Editor]], matching the play tool.
+- **Real-world features from OpenStreetMap**: pick real lifts, roads, and parking structures and build them into the scenario. The editor's OpenStreetMap overlay already draws the lifts, runs, and roads on the ground with labels ([[Scenario Editor]]); left are parking and buildings (not fetched yet) and picking a feature to build from it.
+
 ## Log
 
 - 2026-10-01: Editor scene, parcels, snow and forest generators, start date, and file handling are in.

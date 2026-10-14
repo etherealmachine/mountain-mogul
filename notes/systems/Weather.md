@@ -20,6 +20,12 @@ Spec: [[Weather Spec]]. Code: `internal/sim/weather.go`, `temperature.go`.
 
 Wind: each day has a mean wind at the base and a direction about the climate's prevailing one, by the day's weather; it peaks mid-afternoon and gusts hour to hour, and is stronger high up and on exposed tops. It holds lifts ([[Lift Operations]]) and, on a windy dry day, packs the surface into wind slab.
 
+## Left over
+
+Moved from [[Next Steps]] on 2026-10-14, when it was cut down to new features.
+
+- **Per-scenario weather**: imported scenarios already roll daily weather from their own monthly climate ([[Weather]]). Left: climate for hand-drawn scenarios and places outside the US, and rain or snow chosen by altitude rather than at the base. *For* [[Killington]], [[Asahidake]].
+
 ## Log
 
 - 2026-10-01: Chain, forecast, snow effects, hourly temperature, and skip-to-storm are in. Weather-driven demand and a daily wind field are listed as future work.

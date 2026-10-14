@@ -69,6 +69,12 @@ In this order:
 - Whistler-scale maps: a dense 1.25 m grid is about 100 MB of 16-bit heights; may need sparse tiles or a coarser grid away from cliffs and creeks.
 - A creek bed narrower than a cell is averaged away when cells are recomputed from the fine grid; does pathing need the creek mask too?
 
+## Left over
+
+Moved from [[Next Steps]] on 2026-10-14, when it was cut down to new features.
+
+- [[Terrain Realism]]: make imported mountains look and behave like the real place. Done: mesh subdivision, lidar import, the climate block, [[Terrain Layers]] (Boreal and Kirkwood re-imported with every layer), auto snow and trees from real data, and Kirkwood's cliffs ([[Ground Materials]]). Creeks and lakes are priority 0. Left, in order: editor brushes to smooth and flatten the ground (the road, smoothing, and erosion layers are done), thermal erosion for scree, and snow that doesn't look plastic.
+
 ## Log
 
 - 2026-10-04: Planned from the user's notes after building Kirkwood: cliffs, then creeks and water, then snow rendering, then auto-snow from real-world data.

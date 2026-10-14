@@ -22,6 +22,12 @@ Code: `internal/render/`, shaders in `assets/shaders/`.
 
 Cliffs, creeks, and finer terrain are planned in [[Terrain Realism]]. Gamma-correct lighting and a post-processing pass are left over from [[Graphics Base]].
 
+## Left over
+
+Moved from [[Next Steps]] on 2026-10-14, when it was cut down to new features.
+
+- **Animation approach**: choose between procedural in the shader (as now), glTF skinned meshes, baked keyframes, or blended poses.
+
 ## Log
 
 - 2026-10-01: Passes, snow shading, detail texture, overlays, sun and horizon shadows, object shadow map, night lamps, and weather overlay are in.

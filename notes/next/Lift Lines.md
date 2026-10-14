@@ -65,6 +65,17 @@ How guests wait for a lift. With no line attendant, a line is a loose crowd. Wit
 - Should the attendant's corral cost anything beyond the attendant's wage? Built as no: the ropes come with the attendant.
 - A line longer than the corral's room runs on straight behind it, unroped, into whatever is there (Lift1 on the Goals Test has room for 13 rows). Cap the line, fall back to one lane, or let the attendant choose a layout that fits?
 
+## Left over
+
+Moved from [[Next Steps]] on 2026-10-14, when it was cut down to new features.
+
+- [[Lift Lines]] extensions: good enough for now (the user, 2026-10-12): a crowd with no attendant, and with one a corral of two straight lanes merging into a short run to the load. Possible next steps, none planned yet:
+  - **The attendant picks the line**: from the lift's capacity and its attendance (how long the line has run at this hour, on days like today), choose one line a chair wide, two lanes into one, or more lanes merging.
+  - **Too long for the room**: a line longer than the corral's room runs on straight behind it, unroped, into whatever is there (a lot, a building): cap it, bend it round, or pick a layout that fits.
+  - **Singles lane**: solo guests, and groups willing to split and meet at the top ([[Groups]]), fill the seats a group leaves empty.
+  - **Patrol and ski school lane**: a short centre lane to the load; patrollers ride a real chair (their ride is hidden today), and the [[Ski School]]'s classes go through it (today they queue like any group).
+  - **Readouts**: lane counts and waits in the lift popup and the line tooltip.
+
 ## Log
 
 - 2026-10-12: Planned with the user from playtest item 9: a loose crowd with no attendant; with one, an automatic rope maze with groups, singles and patrol lanes, and the attendant filling each chair. The doubles' lane settings go away.

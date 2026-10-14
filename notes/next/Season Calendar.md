@@ -159,6 +159,12 @@ The "Boreal (Goals Test)" save starts closed with its lifts stopped, so headless
 - [Cities: Skylines II time scales (Steamah)](https://steamah.com/cities-skylines-ii-time-scales-guide/)
 - [Jurassic World Evolution 2 accessibility](https://www.jurassicworldevolution.com/en-US/2/accessibility)
 
+## Left over
+
+Moved from [[Next Steps]] on 2026-10-14, when it was cut down to new features.
+
+- [[Season Calendar]] leftovers: what happens in the off-season (skipped with a summary, or fast with building allowed), and how a day's place in the month is shown. The calendar itself shipped (6-day months, December to April, holidays, speeds as real time a day).
+
 ## Log
 
 - 2026-10-09: Comparisons gathered; a day of Boreal timed headless.

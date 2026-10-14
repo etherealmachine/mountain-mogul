@@ -93,6 +93,12 @@ Each step builds with `go build` and `go vet`, and is checked headless and on sc
 - The default group mix, and how a scenario describes it (sizes, skill makeup, lessons).
 - How the gain shifts with group size: a lesson of thirteen is one mind and twelve bodies; a resort of solo skiers gains nothing.
 
+## Left over
+
+Moved from [[Next Steps]] on 2026-10-14, when it was cut down to new features.
+
+- [[Groups]] leftovers: splitting up and meeting again (the strong skier skis alone and meets the others for lunch or at the car), group moments ("skied with friends", "lost the group"), and followers picking their own line within a run (undecided). Groups themselves shipped: leaders plan, followers ski their line, families and boarding together.
+
 ## Log
 
 - 2026-10-09: Written with the user after the [[Crowd Scale]] passes: one detailed sim for every guest, with followers sharing the leader's thinking; keep tracks, collisions, and terrain-grounded skiing per body.

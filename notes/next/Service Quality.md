@@ -74,6 +74,14 @@ Each step builds with `go build` and `go vet` and is judged headless. No Go test
 - **Who sets headcount**: the player directly (proposed), or pay attracting staff so a low wage leaves a room short whatever's set. The quits loop gives some of the second either way.
 - **Themes within a format**: whether two food courts should differ (a burger bar and a noodle place), or formats are enough until variety matters.
 
+## Left over
+
+Moved from [[Next Steps]] on 2026-10-14, when it was cut down to new features.
+
+- **Crowding**: guests notice crowded lodges, not only lift lines; crowded runs are in [[Snow Tastes]]. *For* [[Mad River Glen]].
+- [[Rental Shop]] staff: the shop is in ([[Service Improvements]]); staffing the morning rush is still story. Racks are in [[Ski Racks]].
+- **Staffing amenities**: staff for rental, food court, bar, tickets, patrol, and the snowcat garage, replacing the flat daily cost per tile ([[Building Services]]). Staff pools per room come first in [[Service Quality]]; people fill them later. *Needs* employees as people.
+
 ## Log
 
 - 2026-10-08: Written up with the user: formats at price points, staff as a pool per room (staffing for timeliness, pay for quality through morale), more meals, shopping; variety deferred to overnight visitors; employees as people later.

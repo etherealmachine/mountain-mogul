@@ -113,6 +113,13 @@ Each step builds with `go build` and `go vet` and is checked headless on the Bor
 - **Impatience.** Patience runs down mostly in lift lines. Whether running out of it is a letdown, or only "lines full" is.
 - **Taste.** Great runs are scaled by taste today (a powder lover's powder run counts for more). With classes, a taste can only decide whether a run is a highlight at all, or add its own moment (first tracks already does).
 
+## Left over
+
+Moved from [[Next Steps]] on 2026-10-14, when it was cut down to new features.
+
+- **Calibrate the satisfaction ledger** (tabled by the user, 2026-10-07): every event amount and condition rate in `ai.Effects` was set for the old drifting model. On Boreal, intermediate and advanced guests carry "too easy" all day and can end at 0, and a storm day on an ungroomed green drops Cruisers from 0.53 to 0.32. Tune with a resort that has blue and black runs. (Obsolete since stars replaced the ledger; kept for the numbers.)
+- **Named complaints**: rating feedback that lists the top complaints (long lines, wrong difficulty, falls, full parking).
+
 ## Log
 
 - 2026-10-09: Written up with the user: no satisfaction score; needs met set the star, unweighted moments explain it.

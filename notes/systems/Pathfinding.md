@@ -18,6 +18,12 @@ Not built yet: ski racks where paths meet the snow (see [[Parking and Roads]]), 
 
 Code: `internal/sim/pathfinder.go`.
 
+## Left over
+
+Moved from [[Next Steps]] on 2026-10-14, when it was cut down to new features.
+
+- **Footpath follow-ups** ([[Pathfinding]]): paths that avoid building footprints. Footpaths, their editing, and their snow clearing shipped 2026-10-10.
+
 ## Log
 
 - 2026-10-01: Grid A* walking to doors, lift bases, and parking is in. Footpaths are not.

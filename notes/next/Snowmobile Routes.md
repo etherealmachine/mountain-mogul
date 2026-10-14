@@ -45,6 +45,12 @@ Snowmobiles that find a way round things instead of driving straight at their ta
 - Should snowmobiles use the trail network ([[Trail Network]]) where they can, or search the open grid?
 - Do guests react to a snowmobile coming through, by stepping or steering aside?
 
+## Left over
+
+Moved from [[Next Steps]] on 2026-10-14, when it was cut down to new features.
+
+- [[Snowmobile Routes]] leftovers: creeks, snowcats' transits on the same search, and guests stepping aside. Routes, driving and dispatch shipped 2026-10-10.
+
 ## Log
 
 - 2026-10-10: Noted with the user: snowmobiles need pathfinding.
