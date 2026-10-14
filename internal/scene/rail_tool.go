@@ -177,4 +177,3 @@ func (s *Scenario) openStationPopup(l *world.RailLine, screenW, screenH int) {
 	s.placePopup(w, screenW, screenH)
 	s.popup = w
 }
-
