@@ -3308,7 +3308,15 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 		w.AddIntStepper("Fare per ride ($)", &l.TicketPrice, 5, 0, 200)
 	}
 	if l.OnHold {
-		w.AddLabel("Status", func() string { return "On Hold (no snow at base)" })
+		w.AddLabel("Status", func() string {
+			c := l.QueueCell()
+			var d float32
+			if s.world.Terrain.InBounds(c[0], c[1]) {
+				d = s.world.Terrain.Cells[c[0]][c[1]].VisibleSnowDepth()
+			}
+			return fmt.Sprintf("On hold: %s of snow at the base, needs %s",
+				settings.FormatDepth(d), settings.FormatDepth(world.LiftResumeDepth))
+		})
 	}
 	if l.Open {
 		w.AddActionButton("Close Lift", func() {

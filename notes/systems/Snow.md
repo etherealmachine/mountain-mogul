@@ -20,7 +20,7 @@ The pack changes through:
 
 Moguls build up at 1 m resolution where guests turn on steep ungroomed snow, and new snow, thaws, and the snowcat's tiller take them away again. They're drawn as a mogul field guests ride over, and cost unskilled guests their balance ([[Moguls]]).
 
-A lift whose base has no snow goes on hold (see [[Lifts]]).
+A lift whose base has under 30 cm goes on hold (see [[Lifts]]). Under 20 cm, rock shows through: skiers' searched routes weigh it (up to six cells a cell on bare ground), and skiing it they hit rocks now and then, more the thinner and faster, with a complaint ("hit rocks, the snow's too thin", at most every ten clock minutes) and sometimes a fall (`internal/sim/rocks.go`).
 
 Spec: [[Snow Spec]].
 
@@ -35,3 +35,4 @@ Snow that varies with sun and aspect from the start, and looks less plastic, is 
 - 2026-10-08: Skier tracks fade in the shader by the minutes since they were skied, instead of a whole-texture fade every 30 s ([[Fast-Forward Performance]]).
 - 2026-10-08: Snow changes mark their cells, and the renderer re-uploads only those 16-cell tiles instead of the whole map each time ([[Fast-Forward Performance]]).
 - 2026-10-14: Layers keep their own density and settle day by day; the base is no longer 0.75 (nearly ice), and grooming, sun and skiers no longer crush a whole layer at once. Fixes snow compacting far too fast: on the Boreal Goals Test, a groomed run's metre of fresh powder now grooms to 0.75 m (was 0.27), and an ungroomed cell keeps 0.94 m of its 1.15 m across a rollover with new snow (was 0.89 to 0.41). One headless day: 2.88★ and 647 falls against 2.90★ and 578 before (one seed).
+- 2026-10-14: Thin snow matters: lift holds under 30 cm, rock under 20 cm ([[Snowmaking on Runs]] step 2).

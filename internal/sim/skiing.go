@@ -443,6 +443,10 @@ func (s *Simulation) applySkier(a *world.Guest, target mgl32.Vec3, dist float32,
 		recordFrame(s, a, target, dist, perc, dec)
 		return false
 	}
+	if !a.Fallen && cell != nil && s.rockHit(a, cell, dt) {
+		recordFrame(s, a, target, dist, perc, dec)
+		return false
+	}
 
 	// Balance + fall.
 	a.Balance += stressDelta(a.Traits, perc, dec) * float32(dt)

@@ -235,10 +235,12 @@ type Lift struct {
 	// this first when guests won't ride.
 	Open bool
 
-	// OnHold is set automatically when the lift base cell has no snow.
+	// OnHold is set automatically when the lift base has too little snow
+	// (LiftHoldDepth).
 	// A held lift drains its chairs (unloading at the top as normal) but
 	// does not board new riders; once all chairs are empty it stops moving.
-	// Cleared automatically when snow returns to the base. Not persisted.
+	// Cleared automatically when the snow's back (LiftResumeDepth). Not
+	// persisted.
 	OnHold bool
 
 	// Staff is who works the lift beyond its two operators.

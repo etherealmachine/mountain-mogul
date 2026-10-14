@@ -326,6 +326,10 @@ type Guest struct {
 	// pivot rate; it costs balance (sim).
 	Skid float32
 
+	// LastRockHit is the sim time the guest last hit rock through thin
+	// snow (sim/rocks.go); 0 for never. Not saved.
+	LastRockHit float64
+
 	// Trunk is the tree trunk the guest last skied into, while they're
 	// still near it (sim.treeHit): they get up clear of it, and it can't
 	// knock them down again until they've skied away. Not saved.

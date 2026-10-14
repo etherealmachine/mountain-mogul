@@ -379,15 +379,16 @@ func (s *Simulation) tickLifts(dt float64) {
 		}
 		unloadAt := lift.UnloadProgress()
 
-		// Hold: lift base has no snow — drain chairs, don't board, then stop.
+		// Hold: too little snow at the lift's base (under LiftHoldDepth,
+		// back from LiftResumeDepth) — drain chairs, don't board, then
+		// stop.
 		baseCell := lift.QueueCell()
-		baseHasSnow := false
-		if baseCell[0] >= 0 && baseCell[0] < len(w.Terrain.Cells) &&
-			baseCell[1] >= 0 && baseCell[1] < len(w.Terrain.Cells[0]) {
-			baseHasSnow = w.Terrain.Cells[baseCell[0]][baseCell[1]].TotalSWE() > 0
+		var baseDepth float32
+		if w.Terrain.InBounds(baseCell[0], baseCell[1]) {
+			baseDepth = w.Terrain.Cells[baseCell[0]][baseCell[1]].VisibleSnowDepth()
 		}
 		wasHeld := lift.OnHold
-		lift.OnHold = !baseHasSnow
+		lift.OnHold = baseDepth < world.LiftHoldDepth || (wasHeld && baseDepth < world.LiftResumeDepth)
 		if lift.OnHold != wasHeld && lift.Open {
 			s.logLiftHoldChanged(lift)
 		}

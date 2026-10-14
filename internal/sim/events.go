@@ -18,7 +18,7 @@ import (
 func (s *Simulation) logLiftHoldChanged(l *world.Lift) {
 	if l.OnHold {
 		s.World.LogEventAt(world.EventLiftClosed, s.SimTime,
-			fmt.Sprintf("%s on hold: no snow at base", l.Name), l.Base, l.ID)
+			fmt.Sprintf("%s on hold: too little snow at its base", l.Name), l.Base, l.ID)
 	} else {
 		s.World.LogEventAt(world.EventLiftOpened, s.SimTime,
 			fmt.Sprintf("%s hold lifted", l.Name), l.Base, l.ID)

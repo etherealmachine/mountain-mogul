@@ -505,6 +505,7 @@ const (
 	ThoughtKidsRough    // a parent's review, capped by their worst-off kid's day
 	ThoughtWaitedKids   // a parent who waited for the kids at lift tops, again and again
 	ThoughtFamilyChair  // the whole family rode up on one chair
+	ThoughtHitRocks     // skied into rock showing through thin snow (sim/rocks.go)
 
 	thoughtKindSentinel // must stay last; equals the total count
 )
@@ -568,6 +569,7 @@ var Effects = [ThoughtKindCount]Effect{
 	ThoughtKidsRough:         {Class: Letdown},
 	ThoughtWaitedKids:        {Class: Annoyance},
 	ThoughtFamilyChair:       {Class: Highlight},
+	ThoughtHitRocks:          {Class: Annoyance},
 	ThoughtHurtGoingHome:     {Class: Letdown},
 	ThoughtHitTree:           {Class: Annoyance},
 	ThoughtCaughtInAvalanche: {Class: Dealbreaker},
@@ -701,6 +703,7 @@ var thoughtText = [ThoughtKindCount]string{
 	ThoughtKidsRough:         "the kids had a rough day",
 	ThoughtWaitedKids:        "waited for the kids at every turn",
 	ThoughtFamilyChair:       "the whole family on one chair",
+	ThoughtHitRocks:          "hit rocks, the snow's too thin",
 	ThoughtLongLine:          "this line is way too long",
 	ThoughtLineTooLong:       "that line will take forever",
 	ThoughtNeedsLodge:        "this place needs a lodge",
@@ -790,6 +793,7 @@ var ThoughtChartColor = [ThoughtKindCount][4]float32{
 	ThoughtKidsRough:         {0.85, 0.40, 0.40, 1},
 	ThoughtWaitedKids:        {0.80, 0.55, 0.45, 1},
 	ThoughtFamilyChair:       {0.55, 0.80, 0.90, 1},
+	ThoughtHitRocks:          {0.75, 0.55, 0.40, 1},
 	ThoughtLongLine:          {0.80, 0.45, 0.70, 1},
 	ThoughtLineTooLong:       {0.70, 0.30, 0.60, 1},
 	ThoughtNeedsLodge:        {0.60, 0.50, 0.80, 1},

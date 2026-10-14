@@ -70,6 +70,11 @@ const (
 	// metres, it may leave the guest's trails and still suit them: lift
 	// lines and doors sit just off the trail.
 	routeTrailSlack = float32(20)
+	// routeThinCost is the extra cost of a cell of bare ground on skis,
+	// in cells, falling to none at world.ThinSnowDepth: rock shows
+	// through (rocks.go). Only searched routes weigh it; a straight line
+	// that's otherwise clear is skied as it is.
+	routeThinCost = 6.0
 )
 
 // routeProfile is what a guest's route weighs besides distance.
@@ -79,6 +84,7 @@ type routeProfile struct {
 	comfort float32                 // tan of the comfort slope; 0 when pitch doesn't matter (on foot)
 	levels  world.TerrainDifficulty // trails they keep to; 0 for anywhere
 	paths   bool                    // on foot with footpaths about: they're quicker on them
+	skis    bool                    // on skis: they mind rock showing through thin snow
 }
 
 // routeProfileFor is a's routeProfile now.
@@ -88,6 +94,7 @@ func (s *Simulation) routeProfileFor(a *world.Guest) routeProfile {
 		p.paths = s.World.HasFootpaths()
 		return p
 	}
+	p.skis = true
 	if a.Traits.ComfortSlope > 0 {
 		p.comfort = float32(math.Tan(float64(a.Traits.ComfortSlope)))
 	}
@@ -308,6 +315,11 @@ func planSkiRoute(t *world.Terrain, a, b mgl32.Vec2, prof *routeProfile, sc *rou
 		c2 := 1 + routeTreeCost*cell.TreeCover()*prof.cover
 		if prof.offTrail(c[0], c[1]) {
 			c2 += routeOffTrailCost
+		}
+		if prof.skis {
+			if d := cell.VisibleSnowDepth(); d < world.ThinSnowDepth {
+				c2 += routeThinCost * (1 - d/world.ThinSnowDepth)
+			}
 		}
 		if prof.paths && prof.w.FootpathCell(c[0], c[1]) {
 			c2 /= world.FootpathSpeedup

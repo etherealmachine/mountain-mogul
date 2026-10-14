@@ -31,6 +31,14 @@ const (
 	// SnowmakingStopBeforeOpen is the clock hours before opening the
 	// guns stop, so the cats can groom over the last of it.
 	SnowmakingStopBeforeOpen = 2.0
+
+	// A lift goes on hold when the snow at its base is under
+	// LiftHoldDepth, and runs again from LiftResumeDepth.
+	LiftHoldDepth   = float32(0.30)
+	LiftResumeDepth = float32(0.35)
+	// ThinSnowDepth is the depth under which rock shows through: skiers
+	// route round it and hit rocks on it (sim/rocks.go).
+	ThinSnowDepth = float32(0.20)
 )
 
 // SnowmakingAvailable reports whether the edition has snowmaking (the
