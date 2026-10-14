@@ -49,3 +49,5 @@ Code: `internal/world/lift.go`. Upgrades: `UpgradeLift` in `internal/world/world
 - 2026-10-13: Station roofs replaced by a low housing that encloses the cable and bullwheel, underside 2.6 m, top about 4.3 m; the chairs hang out of slots (the user: still too tall).
 - 2026-10-13: Planned [[Surface Lifts]]: magic carpet, rope tow and T-bar on the chair loop at ground height.
 - 2026-10-13: The magic carpet: a belt of standing riders at ground height, one operator, up to 120 m and 12°; runs off a short lift's top count with half its rise in drop ([[Surface Lifts]]).
+- 2026-10-13: The rope tow: riders on the snow holding a rope on low posts, up to 300 m and 25°; novices won't ride it, others fall off by skill and pack the track ([[Surface Lifts]]).
+- 2026-10-13: The T-bar: hangers off a 4.5 m cable on towers pulling two riders on the snow, up to 1,500 m and 30°; novices won't ride it, others fall off by skill ([[Surface Lifts]]).
