@@ -95,3 +95,4 @@ From the user, 2026-10-14:
 - 2026-10-14: Step 4 built (mortars from the room, ski cutting beyond range, controlled releases reopening the runs).
 - 2026-10-14: Step 5 built (burials, dig-outs, the Safety score). Step 6, balance, left for a playtest.
 - 2026-10-14: Deaths (the user): buried guests by how long patrol takes, patrollers caught 20%. On the Goals Test a path set off across busy Ptarmigan at 11:00 killed a guest in two seeds of three (dug out after 30–40 minutes); either way Safety bottomed out (5% the next day, the stars capped at 1.25). Likely needs tuning in a playtest: a death leaves the resort crippled for about two weeks.
+- 2026-10-14: Off Priority; balance left for a playtest.

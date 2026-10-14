@@ -11,7 +11,7 @@ New features only, a line each, to say yes or no to. A feature big enough to nee
 
 ## Priority
 
-1. [[Avalanche Control]]: built (slide paths, danger, closures, control work, the Safety score); left: balance in a playtest.
+1. [[Trains and Tunnels]]: rail lines in three styles (steam, German electric, high-speed), stations and timetables, a funicular lift, and tunnels for rail, roads and paths.
 
 ## Lifts
 
@@ -74,8 +74,6 @@ New features only, a line each, to say yes or no to. A feature big enough to nee
 ## Getting there
 
 - [[Large Vehicles]]: buses (shuttles, clubs, school trips) and RVs staying overnight.
-- **Trains**: a way in with no parking. *For* [[Zermatt]].
-- **Tunnels**: roads and paths through terrain.
 - [[Lot Surfaces]]: asphalt, gravel or dirt lots, each its own cost, capacity and look.
 
 ## Money
