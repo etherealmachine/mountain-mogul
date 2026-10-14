@@ -85,7 +85,7 @@ Checked on the Goals Test save with a throwaway program: a three-node run attach
 
 - **Guests follow runs**: a guest on a run steers along its line instead of straight at the lift, keeping to the ribbon, with leaving it costing beginners more (what [[Trails]] claimed). The centre line makes this possible; it changes how guests ski, so it's its own plan ([[Skiing]]).
 - **Graph from attachments** instead of cell overlap, including junctions mid-run.
-- **Slow zones** become natural on a node line (mark a stretch slow). No run closures (the user, 2026-10-14).
+- **Slow zones** become natural on a node line (mark a stretch slow). Runs close only automatically, under avalanche danger ([[Avalanche Control]]).
 - **Backcountry gates** at the boundary, no patrol beyond ([[Land and Boundaries]]).
 - **Difficulty suggestion** from the run's steepest sustained pitch.
 - **Import from OpenStreetMap** as a starting point (not chosen for Boreal and Kirkwood, but cheap once runs are lines).

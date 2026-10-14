@@ -10,7 +10,7 @@ A run is drawn as a line of nodes, each with its own width, usually from a lift 
 
 [[GOAP]] plans runs along that graph. Guests don't follow a trail's cells once on it: they ski toward the run's destination, detouring round trees ([[Skiing]]); leaving the trails costs nothing extra yet. A lift serves the difficulties of the trails off its top, which is how [[Demand]] decides whether there is terrain for a guest's skill. Trails draw as smooth ribbons in their difficulty colour with their names.
 
-Not built yet, from [[Vision]]: slow zones ([[Next Steps]]). Run closures are out (the user, 2026-10-14).
+Not built yet, from [[Vision]]: slow zones ([[Next Steps]]). Runs close automatically under avalanche danger ([[Avalanche Control]]); the player doesn't close runs by hand.
 
 Spec: [[Trails Spec]].
 

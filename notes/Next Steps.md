@@ -11,7 +11,7 @@ New features only, a line each, to say yes or no to. A feature big enough to nee
 
 ## Priority
 
-Nothing ranked.
+1. [[Avalanche Control]]: slide paths with a forecast danger, runs closing automatically past the player's limit, patrol control work (mortars from the patrol building, ski cutting), and a Safety score beside the stars.
 
 ## Lifts
 
@@ -38,7 +38,6 @@ Nothing ranked.
 - **Weather and guests**: weather changes who comes and how they feel ([[Demand]], [[Moments]]).
 - **Drifts on lee slopes**: the day's wind moves snow off windward faces into lee slopes and gullies.
 - **Glaciers**: year-round snow at the top of high resorts. *For* [[Zermatt]].
-- **Avalanche control**: explosives, closures, barriers, and an overlay of loaded slopes. *For* [[Alta]].
 
 ## Safety
 
