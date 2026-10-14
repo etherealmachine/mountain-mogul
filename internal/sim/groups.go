@@ -174,8 +174,8 @@ func (s *Simulation) planFrom(a *world.Guest) world.PlanFrom {
 // their last after done of its steps, for followers (who may not be out
 // of the car yet). from is where it was made from.
 func (s *Simulation) share(a *world.Guest, from world.PlanFrom, p ai.Plan, done int) {
-	if a.GroupID == 0 || a.Party.Leader != nil || len(s.World.GroupOf(a)) < 2 {
-		return
+	if a.Party.Leader != nil || a.InstructorOf == 0 && (a.GroupID == 0 || len(s.World.GroupOf(a)) < 2) {
+		return // an instructor leads their class, whatever their group
 	}
 	s.planGen++
 	p.Step = 0
@@ -597,12 +597,29 @@ func (s *Simulation) waitsForGroup(a *world.Guest) bool {
 		a.Party.TopLift = 0
 		return false
 	}
-	if !leads(a) || a.Run.LiftID == 0 || a.Run.Distance > 1 || s.SimTime-a.Run.Start > leaderWaitSec {
+	// An instructor waits for their class still in the line below too,
+	// and as long as a follower waits for them.
+	wait := float64(leaderWaitSec)
+	if a.InstructorOf != 0 {
+		wait = followWaitSec
+	}
+	if !leads(a) || a.Run.LiftID == 0 || a.Run.Distance > 1 || s.SimTime-a.Run.Start > wait {
 		return false
+	}
+	var line *world.Lift
+	if a.InstructorOf != 0 {
+		line = findLiftByID(s.World, a.Run.LiftID)
 	}
 	for _, f := range a.Party.Followers {
 		if f.OnLiftID == a.Run.LiftID || f.Unload.LiftID == a.Run.LiftID {
 			return true
+		}
+		if line != nil && f.Queued {
+			for _, q := range line.Queue {
+				if q == f {
+					return true
+				}
+			}
 		}
 	}
 	return false
@@ -869,6 +886,9 @@ var freePace = followPace{scale: 1}
 func followTarget(t *world.Terrain, a, l *world.Guest, goal mgl32.Vec3) (mgl32.Vec3, followPace, int) {
 	c := l.Party.Crumbs
 	p := mgl32.Vec2{a.Pos[0], a.Pos[2]}
+	if c == nil || c.N < 2 {
+		return mgl32.Vec3{}, freePace, offNoLine // a fresh line since follows checked
+	}
 	if (mgl32.Vec2{goal[0], goal[2]}).Sub(p).Len() < followFinish {
 		return mgl32.Vec3{}, freePace, offFinish
 	}

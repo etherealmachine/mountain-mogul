@@ -103,6 +103,15 @@ type Building struct {
 	// quenches thirst and does nothing else.
 	FreeWater   bool
 	RentalPrice int
+	// LessonPrice is what a lesson at the ski school costs, and
+	// Instructors how many instructors it employs (each paid
+	// InstructorDailyCost a day and leading a class on the hill).
+	LessonPrice int
+	Instructors int
+	// LessonsToday counts the lessons the school gave on day LessonDay,
+	// and MovedUpToday the students who moved up a skill level in them.
+	// Not saved.
+	LessonsToday, MovedUpToday, LessonDay int
 	// Quality is how good the building is to visit, 0..1: it raises what
 	// guests will pay and scores each visit (Service Improvements).
 	// DefaultQuality until there's a way to raise it.

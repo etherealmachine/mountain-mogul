@@ -109,6 +109,20 @@ func outfit(id uint64, skill float32) [figureOutfitSlots]mgl32.Vec3 {
 	return o
 }
 
+// guestOutfit is g's outfit: their own, or a ski school instructor's.
+func guestOutfit(g *world.Guest) [figureOutfitSlots]mgl32.Vec3 {
+	if g.InstructorOf != 0 {
+		return instructorOutfit
+	}
+	return outfit(g.ID, g.Traits.Skill)
+}
+
+// instructorOutfit is the ski school's: a violet jacket, black pants, a
+// white helmet.
+var instructorOutfit = [figureOutfitSlots]mgl32.Vec3{
+	{0.45, 0.22, 0.75}, {0.08, 0.08, 0.09}, {0.92, 0.92, 0.90}, {0.85, 0.20, 0.15}, {0.90, 0.72, 0.58},
+}
+
 // patrolOutfit is ski patrol: red jacket, black pants, red helmet.
 var patrolOutfit = [figureOutfitSlots]mgl32.Vec3{
 	{0.80, 0.08, 0.06}, {0.08, 0.08, 0.09}, {0.80, 0.08, 0.06}, {0.10, 0.10, 0.12}, {0.90, 0.72, 0.58},
@@ -456,9 +470,24 @@ func (f *figures) build(r *Renderer, w *world.World) {
 		rescuers[p.ID] = p
 	}
 	var bones [figureBones]mgl32.Mat4
-	for _, g := range w.OnMountain {
+	// The guests, the player skiing, and instructors at their school
+	// (teaching, they're in OnMountain).
+	guests := w.OnMountain
+	var extra []*world.Guest
+	if w.Player != nil {
+		extra = append(extra, w.Player)
+	}
+	for _, in := range w.Instructors {
+		if in.Class == nil {
+			extra = append(extra, in)
+		}
+	}
+	if len(extra) > 0 {
+		guests = append(guests[:len(guests):len(guests)], extra...)
+	}
+	for _, g := range guests {
 		if g.Stash.Out {
-			o := outfit(g.ID, g.Traits.Skill)
+			o := guestOutfit(g)
 			if g.Stash.Lying {
 				// Dropped flat, the pair side by side.
 				for side := range 2 {
@@ -522,7 +551,7 @@ func (f *figures) build(r *Renderer, w *world.World) {
 			y = deckOrGround(w)(pos[0], pos[2]) + g.Unload.UnloadLift()
 		}
 		place := mgl32.Translate3D(pos[0], y, pos[2]).Mul4(headingBasis(a.heading))
-		o := outfit(g.ID, g.Traits.Skill)
+		o := guestOutfit(g)
 		tint := mgl32.Vec4{}
 		if r.ActivityTint {
 			c := guestColor(w, g)

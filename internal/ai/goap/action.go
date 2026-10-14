@@ -568,6 +568,9 @@ func (a *UseService) Precondition(s *WorldSnapshot, w *world.World) bool {
 	if b == nil || !b.OffersUse(a.Use) || !b.LineOpen(a.Use) {
 		return false
 	}
+	if a.Use == ai.OfferLesson && !hasTicket(s) {
+		return false // a class rides the lifts: a ticket first
+	}
 	return affordable(b, a.Use, s)
 }
 

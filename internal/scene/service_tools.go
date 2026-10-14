@@ -48,7 +48,8 @@ var serviceMenu = func() []serviceMenuEntry {
 		serviceMenuEntry{world.ServiceGarage, render.IconGarage},
 	)
 	if !edition.Demo {
-		m = append(m, serviceMenuEntry{world.ServiceRentals, render.IconStack})
+		m = append(m, serviceMenuEntry{world.ServiceRentals, render.IconStack},
+			serviceMenuEntry{world.ServiceSkiSchool, render.IconSki})
 	}
 	return m
 }()
@@ -907,6 +908,10 @@ func (s *Scenario) buildRoomPopup(b *world.Building, cell [2]int, confirmRemove 
 	case world.ServiceRentals:
 		if !edition.Demo {
 			w.AddIntStepper("Rental price ($)", &b.RentalPrice, 1, 0, 150)
+		}
+	case world.ServiceSkiSchool:
+		if !edition.Demo {
+			s.addSchoolControls(w, b)
 		}
 	case world.ServicePatrol:
 		w.AddLabel("Patrollers", func() string {

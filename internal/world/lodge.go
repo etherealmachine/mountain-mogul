@@ -22,14 +22,15 @@ import (
 type Service uint8
 
 const (
-	ServiceNone    Service = iota
-	ServiceLounge          // seating: guests rest here
-	ServiceFood            // food court: meals, and seating
-	ServiceBar             // drinks
-	ServiceTickets         // day tickets and season passes
-	ServicePatrol          // ski patrol: a patroller and snowmobile per tile
-	ServiceGarage          // snowcat garage: space for snowcats and snowmobiles (garage.go)
-	ServiceRentals         // rental shop: skis for guests who came without
+	ServiceNone      Service = iota
+	ServiceLounge            // seating: guests rest here
+	ServiceFood              // food court: meals, and seating
+	ServiceBar               // drinks
+	ServiceTickets           // day tickets and season passes
+	ServicePatrol            // ski patrol: a patroller and snowmobile per tile
+	ServiceGarage            // snowcat garage: space for snowcats and snowmobiles (garage.go)
+	ServiceRentals           // rental shop: skis for guests who came without
+	ServiceSkiSchool         // ski school: a desk where guests sign up for lessons, and the instructors' base
 	ServiceCount
 )
 
@@ -50,8 +51,8 @@ const (
 	PatrollersPerTile = 1
 )
 
-// serviceInfo is the registry. The demo leaves out the bar and the
-// rental shop: their entries stay empty there.
+// serviceInfo is the registry. The demo leaves out the bar, the rental
+// shop and the ski school: their entries stay empty there.
 var serviceInfo = func() [ServiceCount]ServiceInfo {
 	info := [ServiceCount]ServiceInfo{
 		ServiceNone: {Label: "None", Accent: mgl32.Vec3{1, 1, 1}},
@@ -71,15 +72,17 @@ var serviceInfo = func() [ServiceCount]ServiceInfo {
 			TileCost: 16_000, TileDailyCost: 270, ForGuests: true}
 		info[ServiceRentals] = ServiceInfo{Label: "Rental shop", Accent: mgl32.Vec3{0.75, 0.90, 0.70}, Overlay: [3]uint8{90, 170, 80},
 			TileCost: 16_000, TileDailyCost: 360, ForGuests: true} // fleet upkeep and a tech at the bench
+		info[ServiceSkiSchool] = ServiceInfo{Label: "Ski school", Accent: mgl32.Vec3{0.82, 0.74, 0.96}, Overlay: [3]uint8{140, 100, 210},
+			TileCost: 14_000, TileDailyCost: 150, ForGuests: true} // the desk; instructors are paid apiece (InstructorDailyCost)
 	}
 	return info
 }()
 
 // Available reports whether this edition has the service: the demo
-// leaves out the bar and the rental shop, so a building never offers
-// them there, even from a save that has their tiles.
+// leaves out the bar, the rental shop and the ski school, so a building
+// never offers them there, even from a save that has their tiles.
 func (s Service) Available() bool {
-	return !edition.Demo || (s != ServiceBar && s != ServiceRentals)
+	return !edition.Demo || (s != ServiceBar && s != ServiceRentals && s != ServiceSkiSchool)
 }
 
 // Info is the service's entry in the registry.
@@ -114,6 +117,11 @@ const (
 	DefaultMealPrice      = 27 // dollars per meal
 	DefaultDrinkPrice     = 12 // dollars per drink
 	DefaultRentalPrice    = 60 // dollars for a day's rental skis
+	DefaultLessonPrice    = 90 // dollars for a group lesson
+	// DefaultInstructors is a new ski school's instructors, and
+	// InstructorDailyCost what one costs a day.
+	DefaultInstructors  = 2
+	InstructorDailyCost = 280
 
 	// A lodge placed by a single point (testbeds, tests) is this many
 	// cells on a side.
@@ -374,6 +382,30 @@ func (b *Building) DoorStep(d Door) mgl32.Vec2 {
 	return b.TileCentre([2]int{d.Cell[0] + d.Dir[0], d.Cell[1] + d.Dir[1]})
 }
 
+// MeetingSpot is where a ski school's classes meet: a tile out from the
+// school's door, on the snow, and the way out from the door; ok false
+// when b has no school door.
+func (b *Building) MeetingSpot() (at, out mgl32.Vec2, ok bool) {
+	for _, d := range b.Doors {
+		if d.Service != ServiceSkiSchool {
+			continue
+		}
+		step := b.DoorStep(d)
+		next := b.TileCentre([2]int{d.Cell[0] + 2*d.Dir[0], d.Cell[1] + 2*d.Dir[1]})
+		out = next.Sub(step)
+		if out.Len() < 1e-3 {
+			return step, mgl32.Vec2{0, 1}, true
+		}
+		out = out.Normalize()
+		return step.Add(out.Mul(MeetingSpotOut)), out, true
+	}
+	return mgl32.Vec2{}, mgl32.Vec2{}, false
+}
+
+// MeetingSpotOut is how far past a ski school's door step its meeting
+// spot is, metres.
+const MeetingSpotOut = 6
+
 // Entrances returns the world XZ points guests walk to: each door's
 // step. Non-shell buildings have their anchor as the only entrance.
 func (b *Building) Entrances() []mgl32.Vec2 {
@@ -513,6 +545,8 @@ func (w *World) PlaceServiceBuilding(origin mgl32.Vec2, rot float32, tiles map[[
 		MealPrice:   DefaultMealPrice,
 		DrinkPrice:  DefaultDrinkPrice,
 		RentalPrice: DefaultRentalPrice,
+		LessonPrice: DefaultLessonPrice,
+		Instructors: DefaultInstructors,
 		Quality:     DefaultQuality,
 	}
 	w.Buildings = append(w.Buildings, b)
@@ -961,6 +995,7 @@ func (w *World) placePointService(b *Building) {
 	}
 	b.Type, b.Origin, b.Rotation = BuildingLodge, mgl32.Vec2{}, 0
 	b.MealPrice, b.DrinkPrice, b.RentalPrice = DefaultMealPrice, DefaultDrinkPrice, DefaultRentalPrice
+	b.LessonPrice, b.Instructors = DefaultLessonPrice, DefaultInstructors
 	b.Quality = DefaultQuality
 	if b.StyleSeed == 0 {
 		b.StyleSeed = uint32(b.ID)

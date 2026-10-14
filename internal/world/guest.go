@@ -72,8 +72,11 @@ type Guest struct {
 
 	VisitsThisSeason int
 	LifetimeVisits   int
-	LastVisit        time.Time
-	LastStars        float32 // the stars they left on their last visit (Review.Stars)
+	// Lessons is how many ski school lessons they've had, here, ever:
+	// each raises their skill less than the one before (sim/lessons.go).
+	Lessons   int
+	LastVisit time.Time
+	LastStars float32 // the stars they left on their last visit (Review.Stars)
 
 	// =====================================================================
 	// Visit lifecycle.
@@ -133,7 +136,15 @@ type Guest struct {
 	Stranded        bool    // with Injured: not hurt, gave up after falling over and over; waits for patrol the same way
 	InjuryWaitTimer float32 // counts down while Injured; on expiry guest gives up and crawls home
 	OnPatrollerID   uint64  // nonzero ⇒ being transported by this patroller; locomotion suspended
-	AtTrailEnd      uint64  // nonzero ⇒ arrived at a trail-to-trail junction (ID = destination trail)
+	// Player marks the skier the player skis (World.Player, SkiFree
+	// Mode): never injured, no patrol, no thoughts or reviews.
+	Player bool
+	// InstructorOf is the ski school an instructor works at (World
+	// .Instructors): staff, not a guest; 0 for guests. Class is the
+	// class they're teaching, or a student is in.
+	InstructorOf uint64
+	Class        *Class
+	AtTrailEnd   uint64 // nonzero ⇒ arrived at a trail-to-trail junction (ID = destination trail)
 
 	// AI state — populated by sim package.
 	Plan         ai.Plan
@@ -289,9 +300,13 @@ type Guest struct {
 	// they are, built up outdoors by the sim and cleared by warming up.
 	NeedsGear  bool
 	WantsApres bool
-	Apres      float32
-	ColdSense  float32
-	Chill      float32
+	// WantsLesson until they've had a lesson today; Lesson is where they
+	// are with it (signed up at a school, in a class).
+	WantsLesson bool
+	Lesson      Lesson
+	Apres       float32
+	ColdSense   float32
+	Chill       float32
 
 	// Route is the way around trees to where the guest is skiing or
 	// walking freely (sim's routeTarget). Not saved.
@@ -609,7 +624,7 @@ func (g *Guest) ResetForDeparture() {
 		g.Thoughts[i] = ai.Thought{}
 	}
 	g.ThoughtsHead = 0
-	g.Conditions = 0
+	g.Conditions = ai.ConditionMask{}
 	g.DepartReason = ai.DepartNone
 	g.RidenLifts = g.RidenLifts[:0]
 	g.DayTicketDue = 0
@@ -649,18 +664,48 @@ type Visit struct {
 var (
 	RentalShareByTier = [3]float32{0.25, 0.05, 0}
 	ApresShare        = float32(0.3)
+	// LessonShareByTier is the share of guests at each skill tier who
+	// come wanting a lesson: beginners, and a few intermediates.
+	LessonShareByTier = [3]float32{0.35, 0.05, 0}
 	ColdShare         = float32(0.4)
 )
 
 // RentalShare is the share of guests at skill who come without skis.
-func RentalShare(skill float32) float32 {
+func RentalShare(skill float32) float32 { return tierShare(RentalShareByTier, skill) }
+
+// tierShare is the share for skill's tier from shares by tier.
+func tierShare(shares [3]float32, skill float32) float32 {
 	switch {
 	case skill >= ai.SkillAdvancedThreshold:
-		return RentalShareByTier[2]
+		return shares[2]
 	case skill >= ai.SkillIntermediateThreshold:
-		return RentalShareByTier[1]
+		return shares[1]
 	}
-	return RentalShareByTier[0]
+	return shares[0]
+}
+
+// Class is a ski school class out on the hill: an instructor leading up
+// to ClassSize students as their group (sim/lessons.go), from Start, on
+// its way back to the school once Ending (since EndSince). Not saved.
+type Class struct {
+	SchoolID   uint64
+	Instructor *Guest
+	Students   []*Guest
+	Start      float64
+	Ending     bool
+	EndSince   float64
+}
+
+// ClassSize is the most students in a class.
+const ClassSize = 8
+
+// Lesson is where a guest is with a ski lesson: signed up at SchoolID
+// (since Since), waiting at its meeting spot until an instructor takes
+// them, then in a class (InClass) on the hill.
+type Lesson struct {
+	SchoolID uint64
+	Since    float64
+	InClass  bool
 }
 
 // NoRentalsStayHome is the share of guests who'd need to rent that stay
@@ -673,6 +718,8 @@ const NoRentalsStayHome = float32(0.5)
 func (g *Guest) RollVisitNeeds(r *rand.Rand) {
 	g.NeedsGear = !g.HasSeasonPass && r.Float32() < RentalShare(g.Traits.Skill)
 	g.WantsApres = r.Float32() < ApresShare
+	g.WantsLesson = r.Float32() < tierShare(LessonShareByTier, g.Traits.Skill)
+	g.Lesson = Lesson{}
 	g.Apres = 0
 	g.ColdSense = 0
 	if r.Float32() < ColdShare {

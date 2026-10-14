@@ -254,6 +254,9 @@ type Decision struct {
 	// Stop: no way past a hazard ahead, so the guest slows to
 	// skiCreepSpeed and edges on rather than skating at skiWalkSpeed.
 	Stop bool
+	// Push: the player poling along (they have no skiWalkSpeed floor,
+	// so can stand still; player.go).
+	Push bool
 	// TurnRate caps how fast apply turns the heading this tick: the carve
 	// rate, or the pivot rate for a swerve. CarveRate is the rate beyond
 	// which turning skids.
@@ -1378,9 +1381,15 @@ func apply(t *world.Terrain, a *world.Guest, dec Decision, perc Perception, dt f
 		float64(dec.Scrub) -
 		skidDecel*skid
 	a.Speed = float32(math.Max(0, speed+accel*dt))
-	if floor := float32(skiWalkSpeed); dec.Stop {
+	switch floor := float32(skiWalkSpeed); {
+	case a.Player:
+		// Free to stand still; poling keeps them going on the flat.
+		if dec.Push {
+			a.Speed = max(a.Speed, floor)
+		}
+	case dec.Stop:
 		a.Speed = max(a.Speed, skiCreepSpeed)
-	} else if a.Speed < floor {
+	case a.Speed < floor:
 		a.Speed = floor
 	}
 
@@ -1489,6 +1498,9 @@ func (s *Simulation) treeHit(a *world.Guest) {
 // lets them get up after the usual fall and head home on their own.
 // Either is a moment (ai.Effects): a minor one a letdown.
 func (s *Simulation) injure(a *world.Guest, serious bool) {
+	if a.Player || a.InstructorOf != 0 {
+		return // the player, and instructors, just get up
+	}
 	a.Events = append(a.Events, ai.GuestEvent{Kind: ai.EventInjury, Time: s.SimTime})
 	if !serious {
 		a.HurtGoHome = true
@@ -1564,6 +1576,9 @@ func plannedTrail(a *world.Guest) uint64 {
 // falls under the run they were skiing (their plan's, or the one
 // underfoot) or the lift they were getting off.
 func (s *Simulation) recordFall(a *world.Guest) {
+	if a.Player || a.InstructorOf != 0 {
+		return // not one of the resort's falls
+	}
 	a.Events = append(a.Events, ai.GuestEvent{Kind: ai.EventFall, Time: s.SimTime})
 	f := world.FallRecord{X: a.Pos[0], Z: a.Pos[2], LiftID: a.Unload.LiftID}
 	if f.LiftID == 0 {

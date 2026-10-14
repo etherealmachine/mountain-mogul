@@ -26,6 +26,7 @@ const (
 	RevenueFood
 	RevenueBar
 	RevenueRentals
+	RevenueLessons
 	RevenueKindCount
 )
 
@@ -51,6 +52,10 @@ func (k RevenueKind) Label() string {
 	case RevenueRentals:
 		if !edition.Demo {
 			return "Rentals"
+		}
+	case RevenueLessons:
+		if !edition.Demo {
+			return "Ski school"
 		}
 	}
 	return "Other"

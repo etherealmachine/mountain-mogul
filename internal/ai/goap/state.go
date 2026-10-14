@@ -36,6 +36,9 @@ type WorldSnapshot struct {
 	Skill  float32
 	Tastes ai.Tastes // what snow and terrain the guest enjoys, for choosing lifts
 	Bored  bool      // nothing left worth another run (sim.checkBoredom): time to go home
+	// Instructor is a ski school instructor teaching a class: staff, who
+	// never go home (sim/lessons.go takes them back to the school).
+	Instructor bool
 
 	AtLiftBase     uint64 // 0 or lift ID — at the base of this lift, not yet queued
 	AtLiftTop      uint64 // 0 or lift ID — just unloaded at the top
@@ -129,6 +132,7 @@ func Extract(a *world.Guest, w *world.World) WorldSnapshot {
 		AtTrailEnd:      a.AtTrailEnd,
 		RidenLifts:      a.RidenLifts,
 		CarLot:          a.CarLot,
+		Instructor:      a.InstructorOf != 0,
 	}
 	poolGroup(&snap, a)
 	if a.Queued {
@@ -268,10 +272,13 @@ func poolGroup(s *WorldSnapshot, a *world.Guest) {
 			continue
 		}
 		s.Skill = min(s.Skill, f.Traits.Skill)
+		if a.InstructorOf != 0 {
+			continue // a class skis at its weakest skier's level, and eats after
+		}
 		s.Patience = min(s.Patience, f.Patience)
 		s.Energy = min(s.Energy, f.Energy)
 		for k := ai.NeedKind(0); k < ai.NeedCount; k++ {
-			if k != ai.NeedRentals {
+			if k != ai.NeedRentals && k != ai.NeedLesson { // their own
 				s.Need[k] = max(s.Need[k], f.NeedUrgency(k))
 			}
 		}

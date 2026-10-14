@@ -351,6 +351,12 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 			buildings[i].Tiles = saveTiles(b)
 			buildings[i].FloorY, buildings[i].FloorSet = b.FloorY, b.FloorSet
 		}
+		if b.Offers(world.ServiceSkiSchool) {
+			buildings[i].Lesson, buildings[i].Instructors = b.LessonPrice, b.Instructors
+			if b.Instructors == 0 {
+				buildings[i].Instructors = -1
+			}
+		}
 	}
 
 	buildingByID := make(map[uint64]*world.Building, len(w.Buildings))
@@ -467,6 +473,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 			Group:            g.GroupID,
 			VisitsThisSeason: g.VisitsThisSeason,
 			LifetimeVisits:   g.LifetimeVisits,
+			Lessons:          g.Lessons,
 			LastStars:        g.LastStars,
 			State:            uint8(g.State),
 		}
@@ -498,6 +505,10 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 			gd.Hunger = g.Hunger
 			gd.Thirst = g.Thirst
 			gd.SkisOn, gd.NeedsGear = g.SkisOn, g.NeedsGear
+			gd.WantsLesson = g.WantsLesson
+			if !g.Lesson.InClass { // a class isn't saved: they sign up again
+				gd.LessonSchool, gd.LessonSince = g.Lesson.SchoolID, g.Lesson.Since
+			}
 			if g.Stash.Out {
 				gd.Skis = &SkisData{Rack: g.Stash.RackID, Slot: g.Stash.Slot, Pos: [2]float32{g.Stash.Pos[0], g.Stash.Pos[1]}, Yaw: g.Stash.Yaw, Lying: g.Stash.Lying}
 			}
@@ -1169,6 +1180,7 @@ func dataToWorld(data ScenarioData) *world.World {
 			GroupID:          gd.Group,
 			VisitsThisSeason: gd.VisitsThisSeason,
 			LifetimeVisits:   gd.LifetimeVisits,
+			Lessons:          gd.Lessons,
 			LastStars:        gd.LastStars,
 			State:            world.GuestState(gd.State),
 			CarID:            gd.CarID,
@@ -1213,6 +1225,8 @@ func dataToWorld(data ScenarioData) *world.World {
 			}
 			g.Thirst = thirst
 			g.SkisOn, g.NeedsGear = gd.SkisOn, gd.NeedsGear
+			g.WantsLesson = gd.WantsLesson
+			g.Lesson = world.Lesson{SchoolID: gd.LessonSchool, Since: gd.LessonSince}
 			if sk := gd.Skis; sk != nil {
 				g.Stash = world.SkiStash{Out: true, RackID: sk.Rack, Slot: sk.Slot, Pos: mgl32.Vec2{sk.Pos[0], sk.Pos[1]}, Yaw: sk.Yaw, Lying: sk.Lying}
 			}
@@ -1495,6 +1509,15 @@ func loadServiceBuilding(w *world.World, bd BuildingData) *world.Building {
 	}
 	if bd.Rental > 0 {
 		b.RentalPrice = bd.Rental
+	}
+	if bd.Lesson > 0 {
+		b.LessonPrice = bd.Lesson
+	}
+	switch {
+	case bd.Instructors > 0:
+		b.Instructors = bd.Instructors
+	case bd.Instructors < 0:
+		b.Instructors = 0
 	}
 	if bd.Quality != nil {
 		b.Quality = *bd.Quality

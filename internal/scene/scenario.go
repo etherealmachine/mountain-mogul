@@ -498,6 +498,7 @@ type Scenario struct {
 	hoverMouseScreen  mgl32.Vec2 // screen-space mouse position, updated with hoverValid
 	hoverValid        bool       // false when the mouse is off-terrain or over the menu bars
 	followGuestID     uint64     // 0 = free camera; >0 = ID of followed skier
+	ski               skiMode    // SkiFree Mode (skifree.go)
 	firstPerson       bool       // V: first-person camera at the followed skier's head
 
 	// fpsSmoothed is an EMA of the wall-clock frame rate, updated every
@@ -640,6 +641,10 @@ func (s *Scenario) tickSim(dt float64) {
 // updateTimeScale sets the sim's time scale for this frame from the
 // chosen pace, or a fixed scale from the command line.
 func (s *Scenario) updateTimeScale() {
+	if s.world.Player != nil {
+		s.sim.TimeScale = 1 // skiing: the game runs at 1× round them
+		return
+	}
 	if s.fixedScale > 0 {
 		s.sim.TimeScale = s.fixedScale
 		return
@@ -1518,7 +1523,8 @@ func (s *Scenario) Update(dt float64) {
 		return
 	}
 
-	if inp.Pressed[glfw.KeyEscape] {
+	skiing, usedEsc := s.skiInput(inp, typing)
+	if inp.Pressed[glfw.KeyEscape] && !usedEsc {
 		switch {
 		case s.settingsMenu.Visible():
 			s.settingsMenu.Hide()
@@ -1583,7 +1589,7 @@ func (s *Scenario) Update(dt float64) {
 	}
 
 	// Tab: cycle the followed skier (first press picks random, subsequent press advances).
-	if !typing && inp.Pressed[glfw.KeyTab] {
+	if !typing && !skiing && inp.Pressed[glfw.KeyTab] {
 		s.cycleFollow()
 	}
 
@@ -1650,7 +1656,7 @@ func (s *Scenario) Update(dt float64) {
 	if !inp.LeftHeld && !inp.RightClick {
 		// if no button held this frame reset
 	}
-	if s.rightDragging {
+	if s.rightDragging && !skiing {
 		if inp.MouseDelta.Len() > 0 {
 			s.setFollowGuest(0)
 			dx, dz := r.Camera.PanDelta(inp.MouseDelta)
@@ -1679,7 +1685,7 @@ func (s *Scenario) Update(dt float64) {
 	if inp.Held[glfw.KeyDown] {
 		keyDelta[1] -= keyPanSpeed * float32(dt)
 	}
-	if keyDelta[0] != 0 || keyDelta[1] != 0 {
+	if (keyDelta[0] != 0 || keyDelta[1] != 0) && !skiing { // skiing, they steer
 		s.setFollowGuest(0)
 		dx, dz := r.Camera.PanDelta(keyDelta)
 		r.Camera.Target[0] += dx
@@ -1687,8 +1693,11 @@ func (s *Scenario) Update(dt float64) {
 		r.Camera.Recalculate()
 	}
 
-	// Zoom with scroll
-	if inp.ScrollDelta != 0 {
+	// Zoom with scroll; skiing, it moves the chase camera instead.
+	s.ski.scroll = 0
+	if skiing {
+		s.ski.scroll = inp.ScrollDelta
+	} else if inp.ScrollDelta != 0 {
 		r.Camera.OrthoScale -= inp.ScrollDelta * 10
 		if r.Camera.OrthoScale < 10 {
 			r.Camera.OrthoScale = 10
@@ -2056,7 +2065,9 @@ func (s *Scenario) Update(dt float64) {
 	r.HiddenRadius = 0
 	if s.followGuestID != 0 {
 		if agent := s.findFollowedGuest(); agent != nil {
-			if s.firstPerson {
+			if agent.Player && !s.firstPerson {
+				s.chaseCamera(r.Camera, agent, dt, s.ski.scroll)
+			} else if s.firstPerson {
 				applyFirstPersonCamera(r.Camera, agent)
 				r.HiddenGuestID = agent.ID
 				// Lift queues stack all queuers at the same cell, so a
@@ -2905,6 +2916,9 @@ func (s *Scenario) Render(r *render.Renderer) {
 	}
 
 	r.HighlightGuestID = s.followGuestID
+	if p := s.world.Player; p != nil && p.ID == s.followGuestID {
+		r.HighlightGuestID = 0
+	}
 	if s.selectedCatID != 0 && s.popup != nil && s.popup.Visible {
 		r.HighlightCatID = s.selectedCatID
 	} else {
@@ -3386,6 +3400,9 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 			}
 			s.openLiftPopup(l, screenW, screenH)
 		})
+	}
+	if l.Open && !l.OnHold {
+		s.skiItButton(w, l)
 	}
 	w.Visible = true
 	s.placePopup(w, screenW, screenH)
@@ -4174,6 +4191,9 @@ func applyFirstPersonCamera(cam *render.Camera, a *world.Guest) {
 
 // findFollowedGuest returns the agent being followed, or nil if it no longer exists.
 func (s *Scenario) findFollowedGuest() *world.Guest {
+	if p := s.world.Player; p != nil && p.ID == s.followGuestID {
+		return p
+	}
 	for _, a := range s.world.OnMountain {
 		if a.ID == s.followGuestID {
 			return a
@@ -4193,7 +4213,7 @@ func (s *Scenario) applyPerceptionCone(r *render.Renderer) {
 		return
 	}
 	a := s.findFollowedGuest()
-	if a == nil {
+	if a == nil || a.Player { // the player sees for themselves
 		r.ClearPerceptionCone()
 		return
 	}

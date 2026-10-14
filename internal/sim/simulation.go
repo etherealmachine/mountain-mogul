@@ -43,6 +43,10 @@ const (
 
 // Simulation drives all agent and building behaviour.
 type Simulation struct {
+	// PlayerInput is the keys the player skiing (World.Player) is
+	// pressing, set by the scene each frame (player.go).
+	PlayerInput PlayerInput
+
 	World      *world.World
 	Pathfinder *Pathfinder
 	TimeScale  float64 // simulation speed multiplier (default 4 — ~1 hr per ski season)
@@ -334,6 +338,9 @@ func (s *Simulation) subTick(dt float64) {
 	// a frame at fast-forward holds dozens of steps, and a skier can
 	// cross several buckets in that time. O(guests).
 	s.spatial.rebuild(s.World.OnMountain)
+	if p := s.World.Player; p != nil {
+		s.spatial.insert(p) // the guests dodge the player too
+	}
 	s.SimTime += dt
 	s.World.SimTime = s.SimTime
 	s.Demand.maybePoll(s)
@@ -431,7 +438,9 @@ func (s *Simulation) tickLifts(dt float64) {
 					if agent.Party.Leader != nil {
 						agent.Party.TopLift, agent.Party.TopSince = lift.ID, s.SimTime
 					}
-					s.advancePlan(agent)
+					if !agent.Player { // the player has no plan
+						s.advancePlan(agent)
+					}
 					s.aimUnload(agent)
 				}
 			}
@@ -452,7 +461,9 @@ func (s *Simulation) tickLifts(dt float64) {
 						agent.Queued = false
 						clipInToRide(agent)
 						agent.UseService(world.LiftQuality)
-						s.boarders = append(s.boarders, boarder{agent, lift, s.SimTime})
+						if !agent.Player {
+							s.boarders = append(s.boarders, boarder{agent, lift, s.SimTime})
+						}
 					}
 				}
 			}
@@ -670,6 +681,7 @@ func (s *Simulation) tickGuests(dt float64) {
 			agent.SkiTransitionTimer = 0
 		}
 	}
+	s.tickSchools()
 	s.planRoutes()
 	s.checkPlans()
 	s.skiJobs = s.skiJobs[:0]
@@ -689,7 +701,16 @@ func (s *Simulation) tickGuests(dt float64) {
 			// Patroller is responsible for this guest's position and departure.
 			continue
 		}
-		if i >= len(s.planQuiet) || !s.planQuiet[i] {
+		if agent.Lesson.SchoolID != 0 && !agent.Lesson.InClass && agent.RestTimer <= 0 && !agent.Fallen {
+			// Signed up: at the meeting spot till a class takes them.
+			s.tickLessonWait(agent, dt)
+			continue
+		}
+		if c := agent.Class; c != nil && c.Instructor == agent && c.Ending && agent.Plan.GoalName != backToSchool &&
+			agent.OnLiftID == 0 && !agent.Queued && agent.Unload.LiftID == 0 && !agent.Fallen {
+			s.headBack(c) // off the lift, or up again: back to the school
+		}
+		if (i >= len(s.planQuiet) || !s.planQuiet[i]) && !(agent.Class != nil && agent.Class.Instructor == agent && agent.Class.Ending) {
 			s.tickPlanning(agent)
 		}
 		if agent.Removed {
@@ -772,6 +793,7 @@ func (s *Simulation) tickGuests(dt float64) {
 			j.a.SkiTransitionTimer = 0
 		}
 	}
+	s.tickPlayer(dt)
 	s.reapDeparted()
 }
 
@@ -807,6 +829,12 @@ func (s *Simulation) spawnGuestAt(lot *world.Building, g *world.Guest, pos mgl32
 	g.Thirst = 0.5 + rng.Global().Float32()*0.5
 	g.HasSeasonPass = hasValidPass(g, s.SimTime)
 	g.RollVisitNeeds(rng.Global())
+	noSchool := false
+	if g.WantsLesson && !anySchool(w) {
+		// Came for a lesson and there's no school (silently in an
+		// edition without one).
+		g.WantsLesson, noSchool = false, world.ServiceSkiSchool.Available()
+	}
 	rentedInTown := false
 	if g.NeedsGear && !anyRentals(w) {
 		// No rental shop here: they rented in town on the way, on their
@@ -837,6 +865,9 @@ func (s *Simulation) spawnGuestAt(lot *world.Building, g *world.Guest, pos mgl32
 	if rentedInTown {
 		s.applyEvent(g, ai.ThoughtRentedInTown)
 	}
+	if noSchool {
+		s.applyEvent(g, ai.ThoughtNoSchool)
+	}
 	head := g.Plan.Head()
 	bad := g.Plan.Done() ||
 		(head.Kind == ai.ActWalkToLift && len(g.Path) == 0)
@@ -859,6 +890,9 @@ func (s *Simulation) spawnGuestAt(lot *world.Building, g *world.Guest, pos mgl32
 // the thought reporting it, on the guest and in the day's tally, and
 // counts it as a moment.
 func (s *Simulation) applyEvent(a *world.Guest, kind ai.ThoughtKind, context ...uint64) {
+	if a.Player || a.InstructorOf != 0 {
+		return // the player and staff have no thoughts for the resort to count
+	}
 	s.recordThought(a, kind, context...)
 	var ctx uint64
 	if len(context) > 0 {
@@ -2026,6 +2060,9 @@ func (s *Simulation) onPlanStepStart(a *world.Guest) {
 		if step.Use == ai.OfferRentals && !a.NeedsGear {
 			return // in the group that's renting, with skis of their own
 		}
+		if step.Use == ai.OfferLesson && (!a.WantsLesson || a.Lesson.SchoolID != 0) {
+			return // in a group with someone signing up, or signed up already
+		}
 		s.stashOnEntry(a)
 		if !b.HasRoomFor(step.Use) {
 			// Full: line up at the door (serveLines lets them in).
@@ -2284,6 +2321,10 @@ func (s *Simulation) fulfilOffer(a *world.Guest, b *world.Building, o ai.Offer) 
 	case ai.OfferWarmUp:
 		a.Chill = 0
 		s.applyEvent(a, ai.ThoughtWarmedUp)
+	case ai.OfferLesson:
+		// Signed up: they wait at the meeting spot for a class (lessons.go).
+		a.Lesson = world.Lesson{SchoolID: b.ID, Since: s.SimTime}
+		s.applyEvent(a, ai.ThoughtSignedUp)
 	}
 	if b != nil {
 		a.UseService(b.Quality)
@@ -2401,6 +2442,8 @@ func useRevenue(b *world.Building, o ai.Offer) world.RevenueKind {
 	switch {
 	case o == ai.OfferRentals:
 		return world.RevenueRentals
+	case o == ai.OfferLesson:
+		return world.RevenueLessons
 	case o == ai.OfferApres, o == ai.OfferDrink && b.DrinkService() == world.ServiceBar:
 		return world.RevenueBar
 	}

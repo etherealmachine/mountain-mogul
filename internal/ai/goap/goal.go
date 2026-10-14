@@ -32,6 +32,7 @@ var AllGoals = []Goal{
 	FulfillNeed{ai.NeedRentals},
 	FulfillNeed{ai.NeedApres},
 	FulfillNeed{ai.NeedWarmth},
+	FulfillNeed{ai.NeedLesson},
 	Explore{},
 	GoHome{},
 }
@@ -153,6 +154,11 @@ var needSpecs = [ai.NeedCount]needSpec{
 	// Warmth presses like hunger once a guest is chilled, and they look
 	// for a lounge's fire.
 	ai.NeedWarmth: {from: 0.75, done: 0.1, weight: bodilyWeight, preempts: true, blocked: ai.ThoughtNoLounge},
+	// A lesson is what a guest who wants one came for: signing up comes
+	// ahead of skiing (after skis and a ticket), and the class takes it
+	// from there (the sim). With no school, the sim drops the want on
+	// arrival (ThoughtNoSchool).
+	ai.NeedLesson: {from: 0.5, done: 0.5, weight: func(float32, *WorldSnapshot) float32 { return 1.1 }},
 }
 
 func (g FulfillNeed) Name() string { return "Fulfill" + ai.NeedLabels[g.Kind] }
@@ -305,6 +311,9 @@ func (GoHome) IsSatisfied(s *WorldSnapshot, w *world.World) bool {
 }
 
 func (GoHome) Weight(s *WorldSnapshot, w *world.World) float32 {
+	if s.Instructor {
+		return 0 // staff: the school takes them back
+	}
 	// Closed for the day: home before anything else, even a rest.
 	if w.ClosedForDay {
 		return goHomeClosedWeight

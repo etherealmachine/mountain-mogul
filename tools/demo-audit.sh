@@ -59,6 +59,11 @@ High-Speed 6-Pack
 HS 6-Pack
 Rental shop
 Rental price
+ServiceSkiSchool
+Ski school
+Lesson price
+Instructors cost
+Waiting for a class
 Drink price
 Available for purchase
 Buy for $

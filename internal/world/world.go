@@ -179,6 +179,15 @@ type World struct {
 	// reapDeparted splices them out and flips State back to AtHome (the
 	// Guest itself stays in Guests).
 	OnMountain []*Guest
+	// Player is the skier the player is skiing (SkiFree Mode), or nil.
+	// Not one of OnMountain, so planning, departures, reviews and the
+	// resort's numbers never see them; not saved.
+	Player *Guest
+	// Instructors are the ski schools' instructors (sim/lessons.go): at
+	// their school's meeting spot, or out teaching a class, when they're
+	// in OnMountain too. Classes are the classes out. Neither is saved.
+	Instructors []*Guest
+	Classes     []*Class
 
 	Snowcats []*Snowcat
 	// Snowmobiles are the patrol snowmobiles, each housed in a garage.
@@ -429,6 +438,9 @@ func (w *World) OperatingCosts() CostBreakdown {
 		switch b.Type {
 		case BuildingLodge:
 			c[CostBuildings] += LodgeUpkeep(b)
+			if b.Offers(ServiceSkiSchool) {
+				c[CostBuildings] += b.Instructors * InstructorDailyCost
+			}
 		case BuildingSnowGun:
 			if b.On {
 				c[CostSnowGuns] += SnowGunActiveCostDay
@@ -532,6 +544,7 @@ func (w *World) PlaceBuildingType(typ BuildingType, x, z float32) *Building {
 		b.MealPrice = DefaultMealPrice
 		b.DrinkPrice = DefaultDrinkPrice
 		b.RentalPrice = DefaultRentalPrice
+		b.LessonPrice, b.Instructors = DefaultLessonPrice, DefaultInstructors
 		b.Quality = DefaultQuality
 	case BuildingSnowGun:
 		b.On = true

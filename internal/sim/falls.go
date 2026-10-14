@@ -173,7 +173,7 @@ func (s *Simulation) tickFallen(a *world.Guest, dt float64) {
 			return
 		}
 		a.Patience = max(a.Patience-fallPatienceDrain, 0)
-		if a.Run.Falls++; a.Run.Falls >= fallGiveUpCount && !a.HurtGoHome && a.OnLiftID == 0 && a.Unload.LiftID == 0 {
+		if a.Run.Falls++; a.Run.Falls >= fallGiveUpCount && !a.HurtGoHome && !a.Player && a.InstructorOf == 0 && a.OnLiftID == 0 && a.Unload.LiftID == 0 {
 			tb.SkisOff = [2]bool{}
 			s.giveUpRun(a)
 			return

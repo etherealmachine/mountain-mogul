@@ -265,11 +265,12 @@ const (
 	NeedRentals // came without skis: a hard gate on riding until they rent
 	NeedApres   // wants après-ski: grows late in the afternoon, faster after a good day
 	NeedWarmth  // feels the cold: chilled outdoors on cold days
+	NeedLesson  // came for a ski lesson: signs up at the ski school
 	NeedCount
 )
 
 // NeedLabels name the needs for goal names and the HUD.
-var NeedLabels = [NeedCount]string{"Hunger", "Thirst", "Rest", "Rentals", "Apres", "Warmth"}
+var NeedLabels = [NeedCount]string{"Hunger", "Thirst", "Rest", "Rentals", "Apres", "Warmth", "Lesson"}
 
 // NeedMask is a set of needs.
 type NeedMask uint8
@@ -294,11 +295,12 @@ const (
 	OfferApres         // après-ski at the bar: après
 	OfferWarmUp        // a seat by the fire in the lounge: warmth
 	OfferWater         // free water, where the player offers it: thirst, nothing else
+	OfferLesson        // sign up for a class at the ski school: lesson
 	OfferCount
 )
 
 // OfferLabels name the offers for plan steps on the HUD.
-var OfferLabels = [OfferCount]string{"None", "Rest", "Eat", "Drink", "Rent", "Apres", "WarmUp", "Water"}
+var OfferLabels = [OfferCount]string{"None", "Rest", "Eat", "Drink", "Rent", "Apres", "WarmUp", "Water", "SignUp"}
 
 // Done reports whether the plan is exhausted — no steps or the cursor has
 // advanced past the last one. The simulation re-plans when this is true.
@@ -495,6 +497,10 @@ const (
 	ThoughtNotGroomed   // a beginner who loves corduroy skied a mostly ungroomed run
 	ThoughtCutIn        // someone slipped in ahead of them in a lift's crowd
 	ThoughtCutOff       // open water between them and where they were going; waiting for patrol
+	ThoughtSignedUp     // signed up for a lesson at the ski school
+	ThoughtNoSchool     // came for a lesson and there's no ski school
+	ThoughtNoClass      // signed up for a lesson and waited, and no class came
+	ThoughtGoodLesson   // had a ski lesson
 
 	thoughtKindSentinel // must stay last; equals the total count
 )
@@ -504,7 +510,7 @@ const (
 const ThoughtKindCount = int(thoughtKindSentinel)
 
 // ConditionMask has one bit per ThoughtKind.
-const _ = uint(64 - ThoughtKindCount) // fails to compile past 64 kinds
+const _ = uint(128 - ThoughtKindCount) // fails to compile past 128 kinds
 
 // MomentClass is what a moment does to a guest's star rating
 // (notes/next/Scoreless Rating.md). A moment is a thought that happened:
@@ -550,6 +556,10 @@ var Effects = [ThoughtKindCount]Effect{
 	ThoughtNotGroomed:        {Class: Annoyance},
 	ThoughtCutIn:             {Class: Annoyance},
 	ThoughtCutOff:            {Class: Letdown},
+	ThoughtSignedUp:          {},
+	ThoughtNoSchool:          {Class: Annoyance},
+	ThoughtNoClass:           {Class: Letdown},
+	ThoughtGoodLesson:        {Class: Highlight},
 	ThoughtHurtGoingHome:     {Class: Letdown},
 	ThoughtHitTree:           {Class: Annoyance},
 	ThoughtCaughtInAvalanche: {Class: Dealbreaker},
@@ -644,17 +654,17 @@ var ConditionTag = [ThoughtKindCount]string{
 
 // ConditionMask is the set of condition thoughts currently holding for a
 // guest, one bit per ThoughtKind.
-type ConditionMask uint64
+type ConditionMask [2]uint64
 
 // Has reports whether condition k is active.
-func (m ConditionMask) Has(k ThoughtKind) bool { return m&(1<<k) != 0 }
+func (m ConditionMask) Has(k ThoughtKind) bool { return m[k/64]&(1<<(k%64)) != 0 }
 
 // Set turns condition k on or off.
 func (m *ConditionMask) Set(k ThoughtKind, on bool) {
 	if on {
-		*m |= 1 << k
+		m[k/64] |= 1 << (k % 64)
 	} else {
-		*m &^= 1 << k
+		m[k/64] &^= 1 << (k % 64)
 	}
 }
 
@@ -675,6 +685,10 @@ var thoughtText = [ThoughtKindCount]string{
 	ThoughtNotGroomed:        "I wish they'd groom the runs",
 	ThoughtCutIn:             "people keep cutting in",
 	ThoughtCutOff:            "I couldn't get across the water",
+	ThoughtSignedUp:          "signed up for a lesson",
+	ThoughtNoSchool:          "I wanted a lesson, but there's no ski school",
+	ThoughtNoClass:           "I waited ages for my lesson and no class came",
+	ThoughtGoodLesson:        "my lesson was great",
 	ThoughtLongLine:          "this line is way too long",
 	ThoughtLineTooLong:       "that line will take forever",
 	ThoughtNeedsLodge:        "this place needs a lodge",
@@ -756,6 +770,10 @@ var ThoughtChartColor = [ThoughtKindCount][4]float32{
 	ThoughtNotGroomed:        {0.75, 0.55, 0.45, 1},
 	ThoughtCutIn:             {0.80, 0.45, 0.70, 1},
 	ThoughtCutOff:            {0.85, 0.20, 0.20, 1},
+	ThoughtSignedUp:          {0.55, 0.75, 0.85, 1},
+	ThoughtNoSchool:          {0.85, 0.40, 0.30, 1},
+	ThoughtNoClass:           {0.85, 0.30, 0.30, 1},
+	ThoughtGoodLesson:        {0.45, 0.85, 0.55, 1},
 	ThoughtLongLine:          {0.80, 0.45, 0.70, 1},
 	ThoughtLineTooLong:       {0.70, 0.30, 0.60, 1},
 	ThoughtNeedsLodge:        {0.60, 0.50, 0.80, 1},

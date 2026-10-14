@@ -506,7 +506,11 @@ type BuildingData struct {
 	DrinkPrice int      `json:"drink,omitempty"`
 	FreeWater  bool     `json:"water,omitempty"`
 	Rental     int      `json:"rent,omitempty"`
-	Quality    *float32 `json:"q,omitempty"`
+	// Lesson is the ski school's lesson price, and Instructors its
+	// headcount (-1 for none, so 0 stays the default).
+	Lesson      int      `json:"lesson,omitempty"`
+	Instructors int      `json:"instructors,omitempty"`
+	Quality     *float32 `json:"q,omitempty"`
 }
 
 // SnowcatData is a saved cat. ShedID links it back to its shed; both
@@ -602,6 +606,7 @@ type GuestData struct {
 	// Career stats.
 	VisitsThisSeason int     `json:"vts,omitempty"`
 	LifetimeVisits   int     `json:"lv,omitempty"`
+	Lessons          int     `json:"lessons,omitempty"`
 	LastVisitUnix    int64   `json:"lvu,omitempty"` // 0 = never visited
 	LastStars        float32 `json:"lst,omitempty"`
 
@@ -643,9 +648,14 @@ type GuestData struct {
 	// Skis: whether they're on, whether the guest still needs to rent
 	// some, and where they're left while the guest is in a building
 	// (world.Guest.Stash; nil while carried or worn).
-	SkisOn    bool      `json:"skis_on,omitempty"`
-	NeedsGear bool      `json:"needs_gear,omitempty"`
-	Skis      *SkisData `json:"skis,omitempty"`
+	SkisOn    bool `json:"skis_on,omitempty"`
+	NeedsGear bool `json:"needs_gear,omitempty"`
+	// WantsLesson, and the school they've signed up at (LessonSchool,
+	// since LessonSince).
+	WantsLesson  bool      `json:"wants_lesson,omitempty"`
+	LessonSchool uint64    `json:"lesson_school,omitempty"`
+	LessonSince  float64   `json:"lesson_since,omitempty"`
+	Skis         *SkisData `json:"skis,omitempty"`
 	// Moments, the quality of the services used, and the runs so far,
 	// toward the review they'll leave (world.Guest.DayReview).
 	Moments     []MomentData   `json:"moments,omitempty"`

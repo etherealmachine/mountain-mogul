@@ -58,6 +58,7 @@ func main() {
 	groomNow := flag.Bool("groom-now", false, "-screenshot: give every snowcat's section a full grooming pass before capture")
 	detailFile := flag.String("detail-file", "", "-screenshot: draw the ground from a detail heights file (from tools/lidar)")
 	detailTest := flag.Bool("detail-test", false, "-screenshot: replace terrain detail with a synthetic bump-and-step pattern, for checking mesh seams")
+	skiLift := flag.Int("ski", 0, "-screenshot: ski from the top of this lift (1 = the first) with the chase camera, straight down the fall line")
 	followGuest := flag.String("follow-guest", "", "-screenshot: follow the first guest doing this (world.Activity, e.g. \"Fallen\" or \"Skiing\") with the camera")
 	figureGallery := flag.Bool("figure-gallery", false, "-screenshot: line up one guest figure in each pose at the camera target")
 	followRider := flag.Bool("follow-rider", false, "-screenshot: follow the first guest to board a chair with the camera (keeps the camera's yaw, pitch, and zoom)")
@@ -137,6 +138,7 @@ func main() {
 			showBuilding:   *showBuilding,
 			followRider:    *followRider,
 			followGuest:    *followGuest,
+			skiLift:        *skiLift,
 			figureGallery:  *figureGallery,
 			groomNow:       *groomNow,
 			lineAttendants: *lineAttendants,
@@ -302,6 +304,7 @@ type screenshotOpts struct {
 	showBuilding           string
 	followRider            bool
 	followGuest            string
+	skiLift                int
 	figureGallery          bool
 	groomNow               bool
 	lineAttendants         bool
@@ -480,6 +483,10 @@ func runScreenshot(opt screenshotOpts) {
 		}
 		if opt.followGuest != "" {
 			sc.FollowFirstDoing(opt.followGuest)
+		}
+		if opt.skiLift > 0 {
+			sc.SkiFrom(opt.skiLift - 1)
+			opt.skiLift = 0
 		}
 		t0 := time.Now()
 		sc.Update(dt)

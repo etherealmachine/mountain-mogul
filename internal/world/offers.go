@@ -16,6 +16,7 @@ var offerInfo = [ai.OfferCount]struct {
 	ai.OfferApres:   {ai.NeedApres.Mask() | ai.NeedThirst.Mask(), SimSecondsPerHour * 3 / 4}, // three-quarters of an hour at the bar
 	ai.OfferWarmUp:  {ai.NeedWarmth.Mask(), SimSecondsPerHour / 4},                           // a quarter hour by the fire
 	ai.OfferWater:   {ai.NeedThirst.Mask(), SimSecondsPerHour / 60},                          // a clock minute at the fountain
+	ai.OfferLesson:  {ai.NeedLesson.Mask(), SimSecondsPerHour / 12},                          // five clock minutes at the desk; the class follows
 }
 
 // OfferNeeds is the set of needs using o fulfils.
@@ -52,6 +53,8 @@ func (b *Building) OffersUse(o ai.Offer) bool {
 		return b.Offers(ServiceLounge)
 	case ai.OfferWater:
 		return b.FreeWater && b.ServesDrinks()
+	case ai.OfferLesson:
+		return ServiceSkiSchool.Available() && b.Offers(ServiceSkiSchool)
 	}
 	return false
 }
@@ -77,6 +80,8 @@ func (b *Building) UsePrice(o ai.Offer) int {
 		return 2 * b.DrinkPrice // a round or two
 	case ai.OfferRentals:
 		return b.RentalPrice
+	case ai.OfferLesson:
+		return b.LessonPrice
 	}
 	return 0
 }
@@ -95,6 +100,7 @@ const (
 	PoolCounter
 	PoolBarSeats
 	PoolRentals
+	PoolLessonDesk
 	PoolCount
 )
 
@@ -112,6 +118,9 @@ const (
 	BarSeatsPerCell = 8
 	// RentalsPerCell is how many guests a rental tile fits at once.
 	RentalsPerCell = 3
+	// LessonDeskPerCell is how many guests a ski school tile signs up at
+	// once.
+	LessonDeskPerCell = 2
 )
 
 // UsePool is the pool using o here takes from.
@@ -134,6 +143,8 @@ func (b *Building) UsePool(o ai.Offer) UsePool {
 		return PoolBarSeats
 	case ai.OfferRentals:
 		return PoolRentals
+	case ai.OfferLesson:
+		return PoolLessonDesk
 	}
 	return PoolNone
 }
@@ -154,6 +165,8 @@ func (b *Building) PoolCapacity(p UsePool) int {
 		return b.TileCount(ServiceBar) * BarSeatsPerCell * b.Floors()
 	case PoolRentals:
 		return b.TileCount(ServiceRentals) * RentalsPerCell
+	case PoolLessonDesk:
+		return b.TileCount(ServiceSkiSchool) * LessonDeskPerCell
 	}
 	return 0
 }
@@ -208,6 +221,7 @@ var offerRefPrice = [ai.OfferCount]float32{
 	ai.OfferDrink:   DefaultDrinkPrice,
 	ai.OfferApres:   2 * DefaultDrinkPrice,
 	ai.OfferRentals: DefaultRentalPrice,
+	ai.OfferLesson:  DefaultLessonPrice,
 }
 
 const (
@@ -257,6 +271,8 @@ func (b *Building) UseDoor(o ai.Offer) Service {
 		return b.DrinkService()
 	case ai.OfferRentals:
 		return ServiceRentals
+	case ai.OfferLesson:
+		return ServiceSkiSchool
 	case ai.OfferApres:
 		return ServiceBar
 	case ai.OfferWarmUp:
@@ -283,6 +299,10 @@ func (g *Guest) NeedUrgency(k ai.NeedKind) float32 {
 		return g.Apres
 	case ai.NeedWarmth:
 		return g.Chill
+	case ai.NeedLesson:
+		if g.WantsLesson && g.Lesson.SchoolID == 0 {
+			return 1 // till they've signed up; the class does the rest
+		}
 	}
 	return 0
 }

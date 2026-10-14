@@ -248,7 +248,7 @@ func wallKind(b *Building, cell, dir [2]int, along, pattern int, alt bool) Shell
 			return TileWallWindow
 		}
 		return TileWallWindowAlt
-	case ServiceTickets, ServicePatrol, ServiceRentals:
+	case ServiceTickets, ServicePatrol, ServiceRentals, ServiceSkiSchool:
 		return TileWallWindow
 	case ServiceGarage:
 		return TileWall // a garage's only opening is its door
