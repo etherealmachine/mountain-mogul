@@ -849,8 +849,6 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 		switch bldg.Type {
 		case world.BuildingParking:
 			meshID = MeshParkingPad
-		case world.BuildingSnowGun:
-			meshID = MeshSnowGun
 		case world.BuildingBar:
 			meshID = MeshBar
 		case world.BuildingTicketOffice:

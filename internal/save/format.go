@@ -305,15 +305,20 @@ type PatrollerData struct {
 // and the trail graph are derived on load. Trails saved as painted cells
 // (no nodes or outline) don't load.
 type TrailData struct {
-	ID         uint64        `json:"id,omitempty"`
-	Name       string        `json:"name,omitempty"`
-	Kind       uint8         `json:"kind,omitempty"`
-	Difficulty uint8         `json:"diff,omitempty"`
-	Groomed    bool          `json:"groomed,omitempty"`
-	Nodes      [][3]float32  `json:"nodes,omitempty"`
-	Start      *TrailEndData `json:"start,omitempty"`
-	End        *TrailEndData `json:"end,omitempty"`
-	Outline    [][2]float32  `json:"outline,omitempty"`
+	ID         uint64 `json:"id,omitempty"`
+	Name       string `json:"name,omitempty"`
+	Kind       uint8  `json:"kind,omitempty"`
+	Difficulty uint8  `json:"diff,omitempty"`
+	Groomed    bool   `json:"groomed,omitempty"`
+	// Snowmaking, SnowmakingOn and SnowTarget are the run's snowmaking
+	// (world.Trail).
+	Snowmaking   bool          `json:"snowmaking,omitempty"`
+	SnowmakingOn bool          `json:"snowmaking_on,omitempty"`
+	SnowTarget   float32       `json:"snow_target,omitempty"`
+	Nodes        [][3]float32  `json:"nodes,omitempty"`
+	Start        *TrailEndData `json:"start,omitempty"`
+	End          *TrailEndData `json:"end,omitempty"`
+	Outline      [][2]float32  `json:"outline,omitempty"`
 }
 
 // TrailEndData is what a run's end is attached to (world.TrailEnd).
@@ -492,9 +497,6 @@ type BuildingData struct {
 	DriveEdge       uint64     `json:"drive_edge,omitempty"`
 	MaxCars         int        `json:"max_cars,omitempty"`
 	DrivewayNodeIDs []uint64   `json:"driveway_ids,omitempty"` // road-network attach nodes, one per parking mesh slot
-
-	// On is Building.On.
-	On bool `json:"on,omitempty"`
 
 	// Service-building state. OriginX, OriginZ and Rotation place the
 	// building's own grid; Tiles is each shell cell in that grid with its

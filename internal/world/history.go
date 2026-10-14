@@ -68,7 +68,7 @@ const (
 	CostLifts CostKind = iota // staff and running costs
 	CostSnowcats
 	CostBuildings
-	CostSnowGuns
+	CostSnowmaking
 	CostInterest // credit-line interest, charged at month end
 	CostKindCount
 )
@@ -82,9 +82,9 @@ func (k CostKind) Label() string {
 		return "Snowcats"
 	case CostBuildings:
 		return "Buildings"
-	case CostSnowGuns:
+	case CostSnowmaking:
 		if !edition.Demo {
-			return "Snow guns"
+			return "Snowmaking"
 		}
 	case CostInterest:
 		return "Interest"

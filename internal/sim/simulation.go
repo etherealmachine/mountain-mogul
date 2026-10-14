@@ -43,6 +43,11 @@ const (
 
 // Simulation drives all agent and building behaviour.
 type Simulation struct {
+	// baseElev is the base area's ground height (terrainMinElevation),
+	// found on first use by snowmaking.
+	baseElev      float32
+	baseElevKnown bool
+
 	// PlayerInput is the keys the player skiing (World.Player) is
 	// pressing, set by the scene each frame (player.go).
 	PlayerInput PlayerInput
@@ -354,7 +359,7 @@ func (s *Simulation) subTick(dt float64) {
 	s.tickSnowcats(dt)
 	s.tickPatrollers(dt)
 	if !edition.Demo { // no snowmaking in the demo
-		tickSnowGuns(s, dt)
+		s.tickSnowmaking(dt)
 	}
 	s.tickAvalanche(dt)
 }
@@ -1023,6 +1028,7 @@ func (s *Simulation) maybeSampleHistory() {
 		}
 		s.openToday = w.ResortOpen
 		w.Cash -= costs.Total()
+		w.SnowmakingToday = 0
 		costs[world.CostInterest] = s.applyCredit(dayIdx)
 
 		// The rating is the average of the last few days' average
@@ -1124,8 +1130,8 @@ func kindTransition(current world.SnowKind, evt weatherEvent) world.SnowKind {
 			return world.KindPowder
 		case world.KindPackedPowder:
 			return world.KindCrust
-		case world.KindBase:
-			return world.KindBase // base doesn't ice up from cold alone
+		case world.KindBase, world.KindMachine:
+			return current // dense enough not to ice up from cold alone
 		case world.KindCement, world.KindSlush, world.KindCorn:
 			return world.KindFrozenGranular // first freeze of wet snow
 		default: // Crust, WindSlab, FrozenGranular
@@ -1139,7 +1145,7 @@ func kindTransition(current world.SnowKind, evt weatherEvent) world.SnowKind {
 			return world.KindPackedPowder
 		case world.KindPackedPowder:
 			return world.KindCement // first warm day wets packed surface; needs a second to slush
-		case world.KindFrozenGranular, world.KindBase:
+		case world.KindFrozenGranular, world.KindBase, world.KindMachine:
 			return world.KindCorn // freeze-thaw granulation; warm day activates base surface
 		case world.KindCorn:
 			return world.KindSlush // over-saturates with continued warmth
@@ -1148,7 +1154,7 @@ func kindTransition(current world.SnowKind, evt weatherEvent) world.SnowKind {
 		}
 	case weatherEventWind:
 		switch current {
-		case world.KindBoilerplate, world.KindBase:
+		case world.KindBoilerplate, world.KindBase, world.KindMachine:
 			return current // too dense to reorganise
 		default:
 			return world.KindWindSlab

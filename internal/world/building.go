@@ -21,7 +21,7 @@ const (
 	BuildingShed         BuildingType = 1 // retired: the equipment shed, now a garage service; kept so saved numbers hold
 	BuildingParking      BuildingType = 2
 	BuildingPatrolHut    BuildingType = 3 // retired: the patrol hut, now a patrol service
-	BuildingSnowGun      BuildingType = 4
+	BuildingSnowGun      BuildingType = 4 // retired: snow guns, now snowmaking on runs (snowmaking.go); dropped on load
 	BuildingTicketOffice BuildingType = 5
 	BuildingBar          BuildingType = 6 // bar/restaurant — relieve thirst/hunger
 	BuildingSkiRack      BuildingType = 7 // a rack for skis by the doors (ski_rack.go)
@@ -72,11 +72,6 @@ type Building struct {
 	// tileCountsOK (a building built without SetTiles) counts afresh.
 	tileCounts   [ServiceCount]int
 	tileCountsOK bool
-
-	// On is whether the player has it switched on (snow guns: on at
-	// placement, switched off from the popup to stop snow production and
-	// operating costs).
-	On bool
 
 	// Service-building state (see lodge.go). A service building has its
 	// own 5 m grid: Origin is the world XZ of its cell (0, 0)'s corner and
@@ -338,10 +333,6 @@ func (t BuildingType) Label() string {
 	switch t {
 	case BuildingParking:
 		return "Parking Lot"
-	case BuildingSnowGun:
-		if !edition.Demo {
-			return "Snow Gun"
-		}
 	case BuildingTicketOffice:
 		return "Ticket Office"
 	case BuildingBar:

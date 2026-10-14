@@ -21,6 +21,7 @@ const (
 	KindCorn                            // spring granular; buttery, fast, great grip
 	KindBase                            // compacted season base; firm, dense, not icy
 	KindAvalancheDebris                 // tumbled runout snow mixed with rock and soil
+	KindMachine                         // man-made: dense, firm, durable (snowmaking.go)
 )
 
 // KindName returns a display name for a snow kind.
@@ -48,6 +49,8 @@ func KindName(k SnowKind) string {
 		return "Base"
 	case KindAvalancheDebris:
 		return "Debris"
+	case KindMachine:
+		return "Machine Made"
 	default:
 		return "Snow"
 	}
@@ -79,6 +82,8 @@ func KindDensity(k SnowKind) float32 {
 		return 0.75
 	case KindAvalancheDebris:
 		return 0.65 // dense chunks, similar to cement
+	case KindMachine:
+		return 0.50 // small round grains, packed tight
 	default:
 		return 0.50
 	}
@@ -110,6 +115,8 @@ func KindShaderPacked(k SnowKind) float32 {
 		return 0.90
 	case KindAvalancheDebris:
 		return 0.20 // paired with ShaderIce=0.45; ice>packed is the debris shader signal
+	case KindMachine:
+		return 0.80
 	default:
 		return 0.50
 	}
@@ -133,6 +140,8 @@ func KindShaderIce(k SnowKind) float32 {
 		return 0.00
 	case KindAvalancheDebris:
 		return 0.45 // ice>packed flags debris in the shader (no other kind has this)
+	case KindMachine:
+		return 0.05
 	default:
 		return 0.00
 	}
@@ -165,6 +174,8 @@ func KindBaseMult(k SnowKind) float32 {
 		return 0.90
 	case KindAvalancheDebris:
 		return 1.20 // rough, chunky surface — more drag than groomed snow
+	case KindMachine:
+		return 0.95 // firm and fast, a touch grabby until it's groomed
 	default:
 		return 1.00
 	}
@@ -196,6 +207,8 @@ func KindEdgeMult(k SnowKind) float32 {
 		return 1.10
 	case KindAvalancheDebris:
 		return 0.75 // uneven chunks reduce edge control
+	case KindMachine:
+		return 1.05
 	default:
 		return 1.00
 	}

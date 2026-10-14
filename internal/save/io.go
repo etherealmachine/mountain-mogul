@@ -337,7 +337,6 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 			DrivewayNodeIDs: b.DrivewayNodeIDs,
 			DriveEdge:       b.DriveEdge,
 			LotSize:         [2]float32{b.LotSize[0], b.LotSize[1]},
-			On:              b.On,
 			StyleSeed:       b.StyleSeed,
 			MealPrice:       b.MealPrice,
 			Quality:         &b.Quality,
@@ -595,13 +594,16 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 	trails := make([]TrailData, len(w.Trails))
 	for i, tr := range w.Trails {
 		trails[i] = TrailData{
-			ID:         tr.ID,
-			Name:       tr.Name,
-			Kind:       uint8(tr.Kind),
-			Difficulty: uint8(tr.Difficulty),
-			Groomed:    tr.Groomed,
-			Start:      trailEndToData(tr.Start),
-			End:        trailEndToData(tr.End),
+			ID:           tr.ID,
+			Name:         tr.Name,
+			Kind:         uint8(tr.Kind),
+			Difficulty:   uint8(tr.Difficulty),
+			Groomed:      tr.Groomed,
+			Snowmaking:   tr.Snowmaking,
+			SnowmakingOn: tr.SnowmakingOn,
+			SnowTarget:   tr.SnowTarget,
+			Start:        trailEndToData(tr.Start),
+			End:          trailEndToData(tr.End),
 		}
 		for _, n := range tr.Nodes {
 			trails[i].Nodes = append(trails[i].Nodes, [3]float32{n.Pos[0], n.Pos[1], n.Width})
@@ -1009,6 +1011,8 @@ func dataToWorld(data ScenarioData) *world.World {
 		// are equipment sheds and patrol huts with their cats and
 		// patrollers.
 		switch world.BuildingType(bd.Type) {
+		case world.BuildingSnowGun:
+			continue // snowmaking is on runs now
 		case world.BuildingParking:
 			if bd.LotSize[0] <= 0 || bd.LotSize[1] <= 0 {
 				continue
@@ -1044,7 +1048,6 @@ func dataToWorld(data ScenarioData) *world.World {
 			b.DriveEdge = bd.DriveEdge
 			w.SetLotRect(b, world.FootprintRect{Center: mgl32.Vec2{bd.X, bd.Z}, HalfX: bd.LotSize[0] / 2, HalfZ: bd.LotSize[1] / 2, Rotation: bd.Rotation})
 		}
-		b.On = bd.On
 	}
 
 	// Restore snowcats, snowmobiles, and patrollers. Service buildings
@@ -1347,6 +1350,11 @@ func dataToWorld(data ScenarioData) *world.World {
 		}
 		t.Kind = world.TrailKind(td.Kind)
 		t.Groomed = td.Groomed && !t.Kind.IsArea()
+		t.Snowmaking = td.Snowmaking && !t.Kind.IsArea()
+		t.SnowmakingOn, t.SnowTarget = t.Snowmaking && td.SnowmakingOn, td.SnowTarget
+		if t.Snowmaking && t.SnowTarget <= 0 {
+			t.SnowTarget = world.DefaultSnowTarget
+		}
 		for _, n := range td.Nodes {
 			t.Nodes = append(t.Nodes, world.TrailNode{Pos: mgl32.Vec2{n[0], n[1]}, Width: n[2]})
 		}

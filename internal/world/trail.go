@@ -31,6 +31,17 @@ type Trail struct {
 	Difficulty TerrainDifficulty
 	Groomed    bool // true ⇒ a garage's cats groom it (runs only)
 
+	// Snowmaking is pipe and hydrants bought along a run, SnowmakingOn
+	// whether it's switched on, and SnowTarget the depth (metres) it
+	// makes snow to (snowmaking.go).
+	Snowmaking   bool
+	SnowmakingOn bool
+	SnowTarget   float32
+	// MakingSnow is whether it's making snow right now: switched on, cold
+	// enough somewhere on it, its lifts stopped, below its target. Set by
+	// the sim; not saved.
+	MakingSnow bool
+
 	Nodes      []TrailNode  // a run's centre line, two or more
 	Start, End TrailEnd     // what a run's first and last nodes are attached to
 	Outline    []mgl32.Vec2 // an area's outline

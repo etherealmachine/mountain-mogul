@@ -55,13 +55,8 @@ const (
 	ParkingReferencePrice = 30 // dollars per car
 
 	TicketOfficeCost       = 80_000
-	DefaultSeasonPassPrice = 225                          // one-time fee per guest per season; guests with sufficient budget buy it on arrival
-	HelipadCost            = 2_000_000                    // flat cost for a heli-ski operation (two pads + helicopter); the post-gondola unlock
-	SnowGunCost            = 40_000                       // snowmaking cannon; operating cost below
-	SnowGunActiveCostDay   = 1_200                        // dollars per game-day while enabled (water + power)
-	SnowGunRangeCells      = 3                            // spray radius in terrain cells
-	SnowGunRangeM          = SnowGunRangeCells * CellSize // = 15 metres
-	SnowGunMinTempC        = float32(-2.0)                // air must be at or below this to make snow
+	DefaultSeasonPassPrice = 225       // one-time fee per guest per season; guests with sufficient budget buy it on arrival
+	HelipadCost            = 2_000_000 // flat cost for a heli-ski operation (two pads + helicopter); the post-gondola unlock
 
 	// Daily operational costs, dollars per in-game day, charged at rollover
 	// (see DailyOperatingCost). Lift running costs are per LiftType
@@ -84,8 +79,6 @@ func BuildingCost(t BuildingType) int {
 	switch t {
 	case BuildingParking:
 		return ParkingCost
-	case BuildingSnowGun:
-		return SnowGunCost
 	case BuildingTicketOffice:
 		return TicketOfficeCost
 	case BuildingSkiRack:
@@ -235,6 +228,10 @@ type World struct {
 	// Bankrupt is set once DaysBelowFloor reaches BankruptcyGraceDays and
 	// never cleared by the sim. The UI reads it for the game-over screen.
 	Bankrupt bool
+
+	// SnowmakingToday is what snowmaking has cost since the day's costs
+	// were last charged, dollars (sim/snowmaking.go). Not saved.
+	SnowmakingToday float64
 
 	// Sandbox is the /sandbox cheat: building costs nothing and is never
 	// refused for money (see CanAfford, Spend, Refund), and the
@@ -445,8 +442,8 @@ func LiftCost(typ LiftType, base, top mgl32.Vec2) int {
 func (w *World) DailyOperatingCost() int { return w.OperatingCosts().Total() }
 
 // OperatingCosts is one open day's operating cost by category: lift
-// staff and running costs, cats by status, staffed buildings, and
-// enabled snow guns.
+// staff and running costs, cats by status, staffed buildings, and the
+// day's snowmaking.
 func (w *World) OperatingCosts() CostBreakdown {
 	var c CostBreakdown
 	for _, l := range w.Lifts {
@@ -466,12 +463,9 @@ func (w *World) OperatingCosts() CostBreakdown {
 			if b.Offers(ServiceSkiSchool) {
 				c[CostBuildings] += b.Instructors * InstructorDailyCost
 			}
-		case BuildingSnowGun:
-			if b.On {
-				c[CostSnowGuns] += SnowGunActiveCostDay
-			}
 		}
 	}
+	c[CostSnowmaking] = int(math.Round(w.SnowmakingToday))
 	return c
 }
 
@@ -480,9 +474,8 @@ func (w *World) OperatingCosts() CostBreakdown {
 func (w *World) DailyStandbyCost() int { return w.StandbyCosts().Total() }
 
 // StandbyCosts is one closed day's cost by category: idle lifts, every
-// cat parked, staffed buildings unstaffed. Snow guns still cost their
-// active rate when enabled, since snowmaking before opening is the point
-// of having them.
+// cat parked, staffed buildings unstaffed, and the day's snowmaking,
+// since making snow before opening is the point of it.
 func (w *World) StandbyCosts() CostBreakdown {
 	var c CostBreakdown
 	c[CostLifts] = len(w.Lifts) * LiftStandbyCostDay
@@ -491,12 +484,9 @@ func (w *World) StandbyCosts() CostBreakdown {
 		switch b.Type {
 		case BuildingLodge:
 			c[CostBuildings] += BuildingStandbyCostDay
-		case BuildingSnowGun:
-			if b.On {
-				c[CostSnowGuns] += SnowGunActiveCostDay
-			}
 		}
 	}
+	c[CostSnowmaking] = int(math.Round(w.SnowmakingToday))
 	return c
 }
 
@@ -571,8 +561,6 @@ func (w *World) PlaceBuildingType(typ BuildingType, x, z float32) *Building {
 		b.RentalPrice = DefaultRentalPrice
 		b.LessonPrice, b.Instructors = DefaultLessonPrice, DefaultInstructors
 		b.Quality = DefaultQuality
-	case BuildingSnowGun:
-		b.On = true
 	}
 	w.Buildings = append(w.Buildings, b)
 	if typ == BuildingLodge || typ == BuildingBar || typ == BuildingTicketOffice {
@@ -581,8 +569,8 @@ func (w *World) PlaceBuildingType(typ BuildingType, x, z float32) *Building {
 		w.placePointService(b)
 		return b
 	}
-	// Snow guns and ski racks are narrow — they don't block any cell.
-	if typ != BuildingSnowGun && typ != BuildingSkiRack {
+	// Ski racks are narrow: they don't block any cell.
+	if typ != BuildingSkiRack {
 		cell := b.DoorCell()
 		if w.Terrain.InBounds(cell[0], cell[1]) {
 			w.Terrain.Cells[cell[0]][cell[1]].Passable = false
@@ -630,7 +618,7 @@ func (w *World) RemoveBuilding(id uint64) {
 						w.Terrain.Cells[c[0]][c[1]].Passable = true
 					}
 				}
-			} else if b.Type != BuildingSnowGun && b.Type != BuildingSkiRack {
+			} else if b.Type != BuildingSkiRack {
 				cell := b.DoorCell()
 				if w.Terrain.InBounds(cell[0], cell[1]) {
 					w.Terrain.Cells[cell[0]][cell[1]].Passable = true

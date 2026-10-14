@@ -445,7 +445,6 @@ const (
 	toolRoadStart    toolMode = iota // waiting for first road click
 	toolRoadEnd      toolMode = iota // waiting for second road click
 	toolEdgeConnect  toolMode = iota // place a map-edge road connection node (editor only)
-	toolSnowGun      toolMode = iota // place a snowmaking cannon
 	toolGlade        toolMode = iota // remove trees (brush)
 	toolPlantTrees   toolMode = iota // plant trees (brush, editor only)
 	toolRemove       toolMode = iota // remove building at clicked cell
@@ -990,11 +989,6 @@ func (s *Scenario) Init(app *engine.App) error {
 	}
 
 	// Flat tools
-	if !edition.Demo { // no snowmaking in the demo
-		s.toolButtons[toolSnowGun] = s.toolBar.AddIconButton(render.IconSnowflake, "Snow Gun", func() { s.setTool(toolSnowGun) })
-		s.toolButtons[toolSnowGun].Image = thumb(render.ThumbSnowGun)
-		s.toolButtons[toolSnowGun].Price = settings.FormatDollarsShort(world.SnowGunCost)
-	}
 	s.toolButtons[toolGlade] = s.toolBar.AddIconButton(render.IconAxe, "Glade", func() { s.setTool(toolGlade) })
 	s.toolButtons[toolGlade].Image = thumb(render.ThumbTree)
 	s.toolButtons[toolGlade].Price = fmt.Sprintf("$%d/tree", world.GladeCostPerTree)
@@ -2537,26 +2531,6 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 	gx, gz := s.hoverCell[0], s.hoverCell[1]
 	wx, wz := s.hoverWorld[0], s.hoverWorld[2]
 	switch s.activeTool {
-	case toolSnowGun:
-		if edition.Demo {
-			return
-		}
-		if !w.Terrain.IsAccessible(gx, gz) {
-			s.setToast("Can't build on land you don't own")
-			return
-		}
-		if !w.CanAfford(world.SnowGunCost) {
-			s.setToast(fmt.Sprintf("Need $%d for a snow gun — short by $%d",
-				world.SnowGunCost, world.SnowGunCost-w.Available()))
-			return
-		}
-		if w.BuildingOverlap(world.BuildingSnowGun, wx, wz, s.placeRotation) {
-			s.setToast("Can't place a snow gun here — overlaps another building")
-			return
-		}
-		w.Spend(world.SnowGunCost)
-		placeBuilding(w, world.BuildingSnowGun, wx, wz, s.placeRotation)
-		r.RebuildStaticBatch(w)
 	case toolSkiRack:
 		if !w.Terrain.IsAccessible(gx, gz) {
 			s.setToast("Can't build on land you don't own")
@@ -2896,23 +2870,7 @@ func (s *Scenario) Render(r *render.Renderer) {
 		r.ClearBrush()
 	}
 
-	// Snow gun range ring — shown during placement hover and when the gun's popup is open.
-	rangeShown := false
-	if s.activeTool == toolSnowGun && s.hoverValid {
-		r.SetRange(mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]}, world.SnowGunRangeM)
-		rangeShown = true
-	} else if s.popup != nil && s.popup.Visible && s.selectedBuildingID != 0 {
-		for _, b := range s.world.Buildings {
-			if b.ID == s.selectedBuildingID && b.Type == world.BuildingSnowGun {
-				r.SetRange(b.Pos, world.SnowGunRangeM)
-				rangeShown = true
-				break
-			}
-		}
-	}
-	if !rangeShown {
-		r.ClearRange()
-	}
+	r.ClearRange()
 
 	r.HighlightGuestID = s.followGuestID
 	if p := s.world.Player; p != nil && p.ID == s.followGuestID {
@@ -3195,6 +3153,16 @@ func (s *Scenario) buildTrailPopup(trail *world.Trail, confirmClear bool, screen
 			}
 		},
 		reopen: func(confirm bool) { s.buildTrailPopup(t, confirm, screenW, screenH) },
+		spend: func(cost int) bool {
+			if !s.world.CanAfford(cost) {
+				s.setToast(fmt.Sprintf("Need %s for snowmaking: short by %s",
+					settings.FormatDollars(cost), settings.FormatDollars(cost-s.world.Available())))
+				return false
+			}
+			s.world.Spend(cost)
+			return true
+		},
+		snowStatus: func() string { return s.snowmakingStatus(t) },
 	})
 	w.Visible = true
 	s.placePopup(w, screenW, screenH)
@@ -3217,34 +3185,6 @@ func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 		w := ui.NewWindow("Ski Rack", 0, 0)
 		w.AddLabel("Skis", func() string {
 			return fmt.Sprintf("%d / %d pairs", s.sim.SkisInRack(bldg.ID), world.SkiRackPairs)
-		})
-		w.Visible = true
-		s.placePopup(w, screenW, screenH)
-		s.popup = w
-		return
-	case world.BuildingSnowGun:
-		if edition.Demo {
-			return
-		}
-		w := ui.NewWindow("Snow Gun", 0, 0)
-		w.AddBoolToggle("Active", func() bool { return bldg.On }, func(v bool) {
-			bldg.On = v
-		})
-		w.AddLabel("Daily cost", func() string {
-			if bldg.On {
-				return fmt.Sprintf("$%d/day", world.SnowGunActiveCostDay)
-			}
-			return "$0/day (off)"
-		})
-		w.AddLabel("Status", func() string {
-			if !bldg.On {
-				return "Off"
-			}
-			now := s.sim.TempNow()
-			if now <= world.SnowGunMinTempC {
-				return fmt.Sprintf("Producing snow (%s)", settings.FormatTemp(now))
-			}
-			return fmt.Sprintf("Too warm (%s; needs %s)", settings.FormatTemp(now), settings.FormatTemp(world.SnowGunMinTempC))
 		})
 		w.Visible = true
 		s.placePopup(w, screenW, screenH)
@@ -3947,11 +3887,6 @@ func updatePlacementGhost(r *render.Renderer, w *world.World, st placementGhostS
 			buildingInstance(st.hoverPos, st.rotation, t, st.tint),
 		})
 
-	case toolSnowGun:
-		r.SetGhosts(render.MeshSnowGun, []render.StaticInstance{
-			buildingInstance(st.hoverPos, st.rotation, t, st.tint),
-		})
-
 	case toolSkiRack:
 		r.SetGhosts(render.MeshSkiRack, []render.StaticInstance{
 			buildingInstance(st.hoverPos, st.rotation, t, st.tint),
@@ -4048,9 +3983,6 @@ func (s *Scenario) placementCost() (cost int, affordable, legal, valid bool) {
 	gx, gz := s.hoverCell[0], s.hoverCell[1]
 	cellOwned := s.world.Terrain.IsAccessible(gx, gz)
 	switch s.activeTool {
-	case toolSnowGun:
-		cost = world.SnowGunCost
-		legal = cellOwned && !s.world.BuildingOverlap(world.BuildingSnowGun, pos[0], pos[1], s.placeRotation)
 	case toolSkiRack:
 		cost = world.SkiRackCost
 		legal = cellOwned && !s.world.BuildingOverlap(world.BuildingSkiRack, pos[0], pos[1], s.placeRotation)

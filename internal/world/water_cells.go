@@ -78,9 +78,6 @@ func (w *World) RefreshOpenWater() {
 		}
 	}
 	for _, b := range w.Buildings {
-		if b.Type == BuildingSnowGun {
-			continue
-		}
 		if len(b.Ground) > 0 {
 			for _, c := range b.Ground {
 				open(c[0], c[1])

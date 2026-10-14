@@ -19,6 +19,11 @@ type trailHooks struct {
 	groomed func() // grooming switched (the game re-plans snowcat sections)
 	deleted func() // the trail is gone (after world.DeleteTrail)
 	reopen  func(confirm bool)
+	// spend pays for something bought in the popup (snowmaking), false
+	// if it can't be afforded; nil, as in the editor, is free.
+	spend func(cost int) bool
+	// snowStatus says what the run's snowmaking is doing now (the game).
+	snowStatus func() string
 }
 
 // newTrailWindow builds the trail popup: name, difficulty, grooming,
@@ -51,6 +56,7 @@ func newTrailWindow(w *world.World, t *world.Trail, confirmClear bool, h trailHo
 			call(h.changed)
 		})
 	}
+	addSnowmakingRows(win, w, t, h)
 	win.AddLabel("Shape", func() string { return runSummary(w, t) })
 	if !t.Kind.IsArea() {
 		win.AddLabel("From", func() string { return runEndLabel(w, t.Start) })

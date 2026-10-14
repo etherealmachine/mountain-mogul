@@ -123,8 +123,6 @@ func (t BuildingType) MeshID() uint32 {
 	switch t {
 	case BuildingParking:
 		return MeshParkingPad
-	case BuildingSnowGun:
-		return MeshSnowGun
 	case BuildingSkiRack:
 		return MeshSkiRack
 	case BuildingBar:

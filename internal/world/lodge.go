@@ -479,9 +479,6 @@ func (w *World) PaintedCellFree(c [2]int, selfID uint64) bool {
 			}
 			continue
 		}
-		if b.Type == BuildingSnowGun {
-			continue
-		}
 		if cell.Overlaps(b.Footprint()) {
 			return false
 		}
