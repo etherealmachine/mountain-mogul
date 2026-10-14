@@ -13,7 +13,7 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 
 In the order to work on them:
 
-1. [[Lift Operations]]: daily wind, wind holds and test runs are in. Next: breakdowns, overlapping lifts, downloading.
+1. [[Lift Operations]]: daily wind, wind holds and test runs are in. Next: breakdowns as [[Lift Maintenance]] (maintenance to pay for, wind holds to override at a risk; UI to work out with the user), overlapping lifts, downloading.
 
 ## Bugs
 
@@ -338,3 +338,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-14: [[Surface Lifts]] done (the user): placing them in the scenarios listed under Lifts, their prices with the balance item under Economy. Priority is empty.
 - 2026-10-14: [[Lift Operations]] ranked first: wind, wind holds and test runs first (the user).
 - 2026-10-14: [[Lift Operations]]: daily wind, wind holds and test runs built.
+- 2026-10-14: [[Lift Maintenance]] noted with the user, linked from the wind holds in [[Lift Operations]].
