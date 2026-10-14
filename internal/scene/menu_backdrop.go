@@ -237,20 +237,22 @@ func renderMenuBackdrop(r *render.Renderer) {
 func drawMenuSky(r *render.Renderer) {
 	sw := float32(r.ScreenWidth())
 	sh := float32(r.ScreenHeight())
-	const bands = 48
 	if menuBD == nil {
-		for i := range bands {
-			u := float32(i) / (bands - 1)
-			r.DrawColorRect(0, sh*float32(i)/bands, sw, sh/bands+1, menuSkyTop.Mul(1-u).Add(menuSkyLow.Mul(u)))
-		}
+		r.DrawGradientRect(0, 0, sw, sh, menuSkyTop, menuSkyLow)
 		return
 	}
-	// A shade down from the top, so the title reads over a bright sky.
-	for i := range bands / 2 {
-		u := float32(i) / (bands/2 - 1)
+	// A shade down from the top, so the title reads over a bright sky:
+	// its alpha easing out (quadratically) over the top 40%, in pieces
+	// that meet edge to edge, each blended smoothly.
+	const pieces = 12
+	shade := func(u float32) mgl32.Vec4 {
 		c := menuSkyTop
 		c[3] = 0.55 * (1 - u) * (1 - u)
-		r.DrawColorRect(0, sh*0.4*float32(i)/(bands/2), sw, sh*0.4/(bands/2)+1, c)
+		return c
+	}
+	for i := range pieces {
+		u0, u1 := float32(i)/pieces, float32(i+1)/pieces
+		r.DrawGradientRect(0, sh*0.4*u0, sw, sh*0.4*(u1-u0), shade(u0), shade(u1))
 	}
 	t := menuBD.shotT
 	if f := max(1-t/menuShotFade, 1-(menuShotLen-t)/menuShotFade); f > 0 {

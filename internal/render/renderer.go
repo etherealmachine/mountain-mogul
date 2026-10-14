@@ -1993,6 +1993,23 @@ func (r *Renderer) DrawColorRect(x, y, w, h float32, color mgl32.Vec4) {
 	r.appendUIQuad(x, y, w, h, 0, 0, 1, 1, color)
 }
 
+// DrawGradientRect draws a rectangle shading smoothly from top at its
+// top edge to bottom at its bottom edge (the GPU blends the vertex
+// colours: no bands).
+func (r *Renderer) DrawGradientRect(x, y, w, h float32, top, bottom mgl32.Vec4) {
+	r.useUITexture(r.whiteTexID)
+	x1, y1 := x+w, y+h
+	t, b := top, bottom
+	r.uiVerts = append(r.uiVerts,
+		x, y, 0, 0, t[0], t[1], t[2], t[3],
+		x1, y, 1, 0, t[0], t[1], t[2], t[3],
+		x1, y1, 1, 1, b[0], b[1], b[2], b[3],
+		x, y, 0, 0, t[0], t[1], t[2], t[3],
+		x1, y1, 1, 1, b[0], b[1], b[2], b[3],
+		x, y1, 0, 1, b[0], b[1], b[2], b[3],
+	)
+}
+
 // DrawColorRectOutline draws a 1-pixel border around a rectangle using
 // four thin filled rects — no fill, just the frame. Used for button
 // outlines and panel chrome.
