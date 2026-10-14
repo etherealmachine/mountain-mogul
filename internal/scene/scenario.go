@@ -1024,6 +1024,7 @@ func (s *Scenario) Init(app *engine.App) error {
 		_, ok := s.world.History.RecentRating()
 		return ok
 	}
+	s.topBar.GetSafety = func() float32 { return s.world.Safety }
 	s.topBar.GetRatingToday = func() (float32, bool) {
 		return s.world.History.DayRating()
 	}

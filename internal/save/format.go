@@ -111,6 +111,8 @@ type ScenarioData struct {
 	ResortOpen bool `json:"resort_open,omitempty"`
 	// Stars is World.Rating, in stars; nil loads as world.InitialRating.
 	Stars *float32 `json:"stars,omitempty"`
+	// Safety is World.Safety; nil loads as full.
+	Safety *float32 `json:"safety,omitempty"`
 	// Goals and Rules are what the scenario asks (world.Goal, world.Rules);
 	// GoalProgress is how each goal stands, player saves only.
 	Goals        []GoalData         `json:"goals,omitempty"`

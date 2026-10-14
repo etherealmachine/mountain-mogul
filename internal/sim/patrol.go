@@ -337,7 +337,7 @@ func (s *Simulation) patrollerToInjury(p *world.Patroller, base *world.Building,
 	if s.patrollerGlide(p, speed, dt) {
 		target.OnPatrollerID = p.ID
 		s.patrolReached(target)
-		p.ActionTimer = world.PatrollerOnSceneSeconds
+		p.ActionTimer = onSceneSeconds(target)
 		p.State = world.PatrollerOnScene
 	}
 }
@@ -425,7 +425,7 @@ func (s *Simulation) patrollerEnRoute(p *world.Patroller, base *world.Building, 
 	if s.patrollerDrive(p, dt) {
 		target.OnPatrollerID = p.ID
 		s.patrolReached(target)
-		p.ActionTimer = world.PatrollerOnSceneSeconds
+		p.ActionTimer = onSceneSeconds(target)
 		p.State = world.PatrollerOnScene
 	}
 }
@@ -494,7 +494,7 @@ func (s *Simulation) patrollerDropPatient(p *world.Patroller, base *world.Buildi
 	w := s.World
 	if g := s.patrollerTarget(p); g != nil {
 		g.OnPatrollerID = 0
-		g.Injured = false
+		g.Injured, g.Buried = false, false
 		g.Fallen = false
 		g.Tumble = world.Tumble{}
 		g.SkisOn = false
@@ -731,3 +731,14 @@ func intAbs(v int) int {
 	}
 	return v
 }
+
+// onSceneSeconds is how long a patroller is on scene with g: loading the
+// patient, or for someone buried in an avalanche, a beacon search and
+// digging them out first (about ten clock minutes).
+func onSceneSeconds(g *world.Guest) float32 {
+	if g.Buried {
+		return world.PatrollerOnSceneSeconds + float32(clockMinutes(10))
+	}
+	return world.PatrollerOnSceneSeconds
+}
+

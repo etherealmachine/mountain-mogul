@@ -240,7 +240,7 @@ func visitChance(s *Simulation, g *world.Guest, rating, busy, match float32, h0,
 		return 0
 	}
 	dailyRate := g.VisitsPerSeason * dailyVisitShare * busy
-	p := dailyRate * float32(arrivalShare(s.World, g, h0, h1)) * rating * match * occFactor * priceFactor
+	p := dailyRate * float32(arrivalShare(s.World, g, h0, h1)) * rating * match * occFactor * priceFactor * s.World.SafetyDemand()
 	if t := s.World.Tickets; t.Afternoon && h0 >= world.AfternoonFrom && s.World.DayTicketPrice > 0 && !hasValidPass(g, s.SimTime) {
 		// A cheaper afternoon brings half-day skiers who'd not have come.
 		off := 1 - min(max(float32(t.AfternoonPrice)/float32(s.World.DayTicketPrice), 0), 1)

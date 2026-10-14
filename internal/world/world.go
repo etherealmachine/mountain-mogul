@@ -328,6 +328,8 @@ type World struct {
 	// RatingDays days' average stars from the guests who left (Review),
 	// shown as the HUD's heart. RatingShare puts it on 0–1 for demand.
 	Rating float32
+	// Safety is the resort's Safety score, 0–1 (safety.go).
+	Safety float32
 
 	// Lakes are the map's lakes and ponds and their ice; their cells are
 	// in Terrain.LakeOf. Set by the Auto material terrain layer.
@@ -406,6 +408,7 @@ func NewWorld(terrain *Terrain) *World {
 		OpenHour:        DefaultOpenHour,
 		CloseHour:       DefaultCloseHour,
 		AvyLimit:        DangerDanger,
+		Safety:          1,
 		Rating:          InitialRating,
 	}
 }

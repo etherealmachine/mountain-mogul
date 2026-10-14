@@ -68,3 +68,4 @@ Moved from [[Next Steps]] on 2026-10-14, when it was cut down to new features.
 - 2026-10-09: Stars per guest and goals in stars built ([[Scoreless Rating]]). Boreal Goals Test: 3.02★ after one day, 3.12★ after two. The reviews panel is next.
 - 2026-10-09: The Reviews tab replaces "Why guests left".
 - 2026-10-12: The resort rating is the average of the last 3 days' average stars (days with reviews, each counting the same; `world.RatingDays`, `History.RecentRating`), the user: one quiet good day shouldn't meet the Boreal rating goal ([[Boreal Tutorial]]).
+- 2026-10-14: A Safety score beside the stars caps them while it's under 80%, and scales demand; avalanche burials knock it down ([[Avalanche Control]]).

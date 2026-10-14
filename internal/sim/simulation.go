@@ -1068,6 +1068,9 @@ func (s *Simulation) maybeSampleHistory() {
 		if _, today := w.History.DayRating(); today {
 			w.Rating, _ = w.History.RecentRating()
 		}
+		// Safety recovers by the day, and caps the stars while low.
+		w.Safety = min(w.Safety+world.SafetyRecoverPerDay, 1)
+		w.Rating = min(w.Rating, w.SafetyStarCap())
 		sample := world.DailySample{
 			Day:              s.DateAt(float64(dayIdx) * secondsPerSimDay),
 			GuestsOnMountain: len(w.OnMountain),
@@ -1202,6 +1205,7 @@ func (s *Simulation) TriggerStorm() {
 // among equals). Used by the debug console cheat and a testbed.
 func (s *Simulation) TriggerAvalanche() {
 	s.ensureSlidePaths()
+	s.updateAvalancheDanger()
 	var best *world.SlidePath
 	for _, p := range s.World.SlidePaths {
 		if best == nil || p.Danger > best.Danger || (p.Danger == best.Danger && p.Load > best.Load) {

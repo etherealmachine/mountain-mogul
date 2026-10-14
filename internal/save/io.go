@@ -692,6 +692,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		Parking:      w.ParkingPrice,
 		ResortOpen:   w.ResortOpen,
 		Stars:        &w.Rating,
+		Safety:       &w.Safety,
 		Goals:        goalsToData(w.Goals),
 		Rules:        w.Rules,
 		GoalProgress: progressToData(w.GoalProgress),
@@ -980,6 +981,10 @@ func dataToWorld(data ScenarioData) *world.World {
 	w.ResortOpen = data.ResortOpen
 	if data.Stars != nil {
 		w.Rating = *data.Stars
+	}
+	w.Safety = 1
+	if data.Safety != nil {
+		w.Safety = *data.Safety
 	}
 	w.Rules = data.Rules
 	for _, g := range data.Goals {

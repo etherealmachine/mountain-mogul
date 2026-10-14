@@ -64,13 +64,19 @@ From the user, 2026-10-14:
 - Either brings a Moderate or worse path down on purpose ("Control work brought down…"), keeping 15% of its load; the danger and closures are worked out again at once, so the runs reopen.
 - Forcing four paths over the Goals Test's runs to High at 05:00: at 06:00 three runs and Lift3 closed, two patrollers shelled all four paths by 06:10, and everything reopened before the lifts did, for $1,600.
 
+## Built: caught, and the Safety score
+
+- **Caught**: a guest caught is knocked down and hurt (badly 70% of the time) and marked buried (`Guest.Buried`): patrol's call on scene takes about ten clock minutes more, a beacon search and digging out. The feed says "A guest was caught in an avalanche", placed where.
+- **Safety score** (`World.Safety`, 0–1, saved, `world/safety.go`): a guest caught takes 25 points off it, a patroller caught 15; it gets 5 back a day. Demand is scaled by half plus half of it; under 80% it caps the stars at 1 + 4 × Safety / 0.8, applied when the rating's worked out each day. The top bar shows "safety N%" after the stars while it's below 100%.
+- On the Goals Test, a loaded path across Ptarmigan set off at 11:00 caught two guests: next day Safety 55%, the stars capped at 3.75 (the rating 2.94, from their reviews). The first numbers (40 a burial, 3 a day back) left it at 23% and four weeks to recover.
+
 ## Steps
 
 1. Done: **Slide paths and danger.** Paths from the ground, danger from loading, hourly; natural releases through the day; lift riders and walkers in a runout caught too; the density bug. The overlay redone as paths by danger.
 2. Done: **Patrol staffing.** Four places a patrol tile, cost per patroller, a staffing stepper in the popup.
 3. Done: **Closures and the risk limit.** The avalanche-control upgrade (cost, trained patrollers' extra); the limit in its popup (Danger by default); runs closing under paths at or over it, with ropes and signs, and guests keeping off.
 4. Done: **Control work.** Morning and post-storm control: mortars from the patrol building within range, ski cutting beyond; controlled releases; runs reopening.
-5. **Caught and Safety.** Burials, rescues, the event; the Safety score beside the stars, in demand and capping stars.
+5. Done: **Caught and Safety.** Burials, rescues, the event; the Safety score beside the stars, in demand and capping stars.
 6. **Balance**: on the Boreal Goals Test and Kirkwood, through a stormy stretch.
 
 ## Open questions
@@ -86,3 +92,4 @@ From the user, 2026-10-14:
 - 2026-10-14: Step 2 built: a patrol tile has room for 4 patrollers at $750 a day each (the room itself $100 a tile); the popup's Staffed stepper sets how many, at least one; older saves keep one a tile.
 - 2026-10-14: Step 3 built (the upgrade, the limit, closures, lifts stopping with their runs).
 - 2026-10-14: Step 4 built (mortars from the room, ski cutting beyond range, controlled releases reopening the runs).
+- 2026-10-14: Step 5 built (burials, dig-outs, the Safety score). Step 6, balance, left for a playtest.

@@ -174,5 +174,6 @@ func (s *Simulation) controlRelease(p *world.SlidePath) {
 func (s *Simulation) patrollerCaught(p *world.Patroller, path *world.SlidePath) {
 	s.World.LogEventAt(world.EventAvalanche, s.SimTime,
 		"A patroller was caught ski cutting a slide path", mgl32.Vec2{p.Pos[0], p.Pos[2]}, 0)
+	s.World.SafetyIncident(world.SafetyPatrollerCaught)
 	p.TaskUntil = s.SimTime + clockMinutes(30) // dug out by the crew
 }

@@ -33,6 +33,9 @@ type TopBar struct {
 	GetCash   func() int
 	GetGuests func() int
 	GetRating func() float32 // stars, 1–5
+	// GetSafety, when set, is the resort's Safety score (0–1), shown after
+	// the stars.
+	GetSafety func() float32
 	// GetRated, when set, reports whether any guest has reviewed the
 	// resort yet; until then the rating row says so instead of showing
 	// the starting rating.
@@ -468,8 +471,19 @@ func (t *TopBar) drawStats(r *render.Renderer) {
 		r.Font.DrawText(r, text, tx, textY(2), valCol)
 		tx += r.Font.TextWidth(text) + 9
 		r.DrawStar(tx, iconY(2)+iconSize/2, 8, mgl32.Vec4{1.00, 0.82, 0.25, 1})
+		tx += 12
 		if today {
-			r.Font.DrawText(r, "today", tx+12, textY(2), mgl32.Vec4{0.70, 0.78, 0.92, 1})
+			r.Font.DrawText(r, "today", tx, textY(2), mgl32.Vec4{0.70, 0.78, 0.92, 1})
+			tx += r.Font.TextWidth("today") + 10
+		}
+		if t.GetSafety != nil {
+			if sf := t.GetSafety(); sf < 0.995 {
+				col := mgl32.Vec4{0.96, 0.64, 0.18, 1}
+				if sf < 0.5 {
+					col = mgl32.Vec4{0.95, 0.35, 0.30, 1}
+				}
+				r.Font.DrawText(r, fmt.Sprintf("safety %.0f%%", sf*100), tx, textY(2), col)
+			}
 		}
 	}
 }

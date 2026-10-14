@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/go-gl/mathgl/mgl32"
+
 	"mountain-mogul/internal/ai"
 	"mountain-mogul/internal/rng"
 	"mountain-mogul/internal/world"
@@ -279,11 +281,11 @@ func (s *Simulation) catchInAvalanche() {
 		}
 		s.applyEvent(a, ai.ThoughtCaughtInAvalanche)
 		s.knockDown(a, world.FallForward)
-		if rng.Global().Float32() < avyCaughtInjury {
-			s.injure(a, true)
-		} else {
-			s.applyTrailEvent(a, ai.ThoughtFell)
-		}
+		s.injure(a, rng.Global().Float32() < avyCaughtInjury)
+		a.Buried = true // patrol digs them out: a longer call
+		s.World.SafetyIncident(world.SafetyBurial)
+		s.World.LogEventAt(world.EventAvalanche, s.SimTime,
+			"A guest was caught in an avalanche", mgl32.Vec2{a.Pos[0], a.Pos[2]}, a.ID)
 	}
 }
 

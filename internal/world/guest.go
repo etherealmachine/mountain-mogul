@@ -326,6 +326,10 @@ type Guest struct {
 	// pivot rate; it costs balance (sim).
 	Skid float32
 
+	// Buried is caught in an avalanche: patrol's call takes a beacon
+	// search and digging out (sim/patrol.go). Not saved.
+	Buried bool
+
 	// LastRockHit is the sim time the guest last hit rock through thin
 	// snow (sim/rocks.go); 0 for never. Not saved.
 	LastRockHit float64
