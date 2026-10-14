@@ -469,6 +469,10 @@ func (s *Simulation) patrollerOnScene(p *world.Patroller, base *world.Building, 
 	if p.ActionTimer > 0 {
 		return
 	}
+	if g := s.patrollerTarget(p); g != nil && g.Buried && !s.buriedSurvives(g) {
+		s.guestKilled(g)
+		p.TargetGuestID = 0 // back with no one
+	}
 	p.TargetPos = s.patrolParkingSpot(base)
 	if p.OnSkis {
 		p.State = world.PatrollerToboggan

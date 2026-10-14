@@ -1,6 +1,7 @@
 package sim
 
 import (
+	"mountain-mogul/internal/ai"
 	"mountain-mogul/internal/rng"
 	"mountain-mogul/internal/world"
 
@@ -149,10 +150,11 @@ func (s *Simulation) patrollerCutting(p *world.Patroller, base *world.Building) 
 		p.TaskUntil = s.SimTime + clockMinutes(cutMinutes)
 		return
 	}
-	if path.Danger >= world.DangerModerate && rng.Global().Float32() < cutCaughtChance {
-		s.patrollerCaught(p, path)
-	}
+	caught := path.Danger >= world.DangerModerate && rng.Global().Float32() < cutCaughtChance
 	s.controlRelease(path)
+	if caught && s.patrollerCaught(p, path) {
+		return // killed
+	}
 	p.AvyPathID = 0
 	p.TargetPos = s.World.PatrollerHutPos(base)
 	p.State = world.PatrollerSkiingBack
@@ -170,10 +172,69 @@ func (s *Simulation) controlRelease(p *world.SlidePath) {
 	s.updateAvyClosures()
 }
 
-// patrollerCaught is a patroller caught in their own ski cut.
-func (s *Simulation) patrollerCaught(p *world.Patroller, path *world.SlidePath) {
-	s.World.LogEventAt(world.EventAvalanche, s.SimTime,
-		"A patroller was caught ski cutting a slide path", mgl32.Vec2{p.Pos[0], p.Pos[2]}, 0)
+// patrollerCaught is a patroller caught in their own ski cut: dug out by
+// their crew, or killed; reports whether they died.
+func (s *Simulation) patrollerCaught(p *world.Patroller, path *world.SlidePath) bool {
 	s.World.SafetyIncident(world.SafetyPatrollerCaught)
-	p.TaskUntil = s.SimTime + clockMinutes(30) // dug out by the crew
+	if rng.Global().Float32() < patrollerDeathChance {
+		s.patrollerKilled(p)
+		return true
+	}
+	s.World.LogEventAt(world.EventAvalanche, s.SimTime,
+		"A patroller was caught ski cutting a slide path, and dug out alive", mgl32.Vec2{p.Pos[0], p.Pos[2]}, 0)
+	return false
+}
+
+// Deaths in avalanches. A buried guest's chance of being dug out alive
+// falls the longer patrol takes: buriedDeathBase if they're reached at
+// once, rising to buriedDeathBase + buriedDeathRise by buriedDeathMinutes
+// (the real survival curve falls off fast after a quarter of an hour).
+// Nobody coming at all is fatal. A patroller caught is dug out by their
+// crew at once, but dies patrollerDeathChance of the time.
+const (
+	buriedDeathBase      = float32(0.10)
+	buriedDeathRise      = float32(0.60)
+	buriedDeathMinutes   = 45.0
+	patrollerDeathChance = float32(0.20)
+)
+
+// buriedSurvives rolls whether buried guest g, dug out now, is alive.
+func (s *Simulation) buriedSurvives(g *world.Guest) bool {
+	waited := float32((s.SimTime - g.BuriedAt) / clockMinutes(buriedDeathMinutes))
+	return rng.Global().Float32() >= buriedDeathBase+buriedDeathRise*clamp32(waited, 0, 1)
+}
+
+// guestKilled is a guest killed in an avalanche: a dire line in the feed,
+// the Safety score, and the people they came with going home.
+func (s *Simulation) guestKilled(g *world.Guest) {
+	w := s.World
+	w.LogEventAt(world.EventAvalanche, s.SimTime, "A guest was killed in an avalanche", mgl32.Vec2{g.Pos[0], g.Pos[2]}, g.ID)
+	w.SafetyIncident(world.SafetyDeath)
+	g.Injured, g.Buried, g.Fallen, g.OnPatrollerID = false, false, false, 0
+	g.Tumble = world.Tumble{}
+	s.setDepartReason(g, ai.DepartDied)
+	g.Leaving = world.Leaving{Pending: true, Review: w.FamilyReview(g), Reason: g.DepartReason}
+	s.finishDeparture(g)
+	g.Removed = true
+	for _, m := range w.GroupOf(g) {
+		if m.Party.Leader == g {
+			m.Party.Leader = nil // they lead themselves home
+		}
+		if m == g || m.Removed || m.State != world.OnMountain {
+			continue
+		}
+		s.applyEvent(m, ai.ThoughtLostSomeone)
+		s.setDepartReason(m, ai.DepartHurt)
+		if !m.Injured {
+			s.directHomePlan(m)
+		}
+	}
+}
+
+// patrollerKilled is a patroller killed in their ski cut.
+func (s *Simulation) patrollerKilled(p *world.Patroller) {
+	w := s.World
+	w.LogEventAt(world.EventAvalanche, s.SimTime, "A patroller was killed in an avalanche", mgl32.Vec2{p.Pos[0], p.Pos[2]}, 0)
+	w.SafetyIncident(world.SafetyDeath)
+	w.RemovePatroller(p.ID)
 }

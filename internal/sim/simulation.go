@@ -1061,6 +1061,12 @@ func (s *Simulation) maybeSampleHistory() {
 		s.openToday = w.ResortOpen
 		w.Cash -= costs.Total()
 		w.SnowmakingToday, w.LightingToday, w.AvyToday = 0, 0, 0
+		// Patrol rooms hire anyone they've lost.
+		for _, b := range w.Buildings {
+			if b.Offers(world.ServicePatrol) {
+				w.SyncFleet(b)
+			}
+		}
 		costs[world.CostInterest] = s.applyCredit(dayIdx)
 
 		// The rating is the average of the last few days' average

@@ -282,7 +282,7 @@ func (s *Simulation) catchInAvalanche() {
 		s.applyEvent(a, ai.ThoughtCaughtInAvalanche)
 		s.knockDown(a, world.FallForward)
 		s.injure(a, rng.Global().Float32() < avyCaughtInjury)
-		a.Buried = true // patrol digs them out: a longer call
+		a.Buried, a.BuriedAt = true, s.SimTime // patrol digs them out: a longer call
 		s.World.SafetyIncident(world.SafetyBurial)
 		s.World.LogEventAt(world.EventAvalanche, s.SimTime,
 			"A guest was caught in an avalanche", mgl32.Vec2{a.Pos[0], a.Pos[2]}, a.ID)

@@ -67,6 +67,7 @@ From the user, 2026-10-14:
 ## Built: caught, and the Safety score
 
 - **Caught**: a guest caught is knocked down and hurt (badly 70% of the time) and marked buried (`Guest.Buried`): patrol's call on scene takes about ten clock minutes more, a beacon search and digging out. The feed says "A guest was caught in an avalanche", placed where.
+- **Deaths** (the user, 2026-10-14): a buried guest's chance of dying when dug out rises with how long patrol took, 10% at once to 70% by 45 clock minutes; nobody coming at all is fatal. A patroller caught ski cutting dies 20% of the time (the patrol room hires a replacement the next morning). A death is a dire feed line, takes 60 more points off Safety, and sends the dead guest's group home with "we lost someone in an avalanche", a dealbreaker; the dead guest leaves with the reason "Killed in an avalanche".
 - **Safety score** (`World.Safety`, 0–1, saved, `world/safety.go`): a guest caught takes 25 points off it, a patroller caught 15; it gets 5 back a day. Demand is scaled by half plus half of it; under 80% it caps the stars at 1 + 4 × Safety / 0.8, applied when the rating's worked out each day. The top bar shows "safety N%" after the stars while it's below 100%.
 - On the Goals Test, a loaded path across Ptarmigan set off at 11:00 caught two guests: next day Safety 55%, the stars capped at 3.75 (the rating 2.94, from their reviews). The first numbers (40 a burial, 3 a day back) left it at 23% and four weeks to recover.
 
@@ -93,3 +94,4 @@ From the user, 2026-10-14:
 - 2026-10-14: Step 3 built (the upgrade, the limit, closures, lifts stopping with their runs).
 - 2026-10-14: Step 4 built (mortars from the room, ski cutting beyond range, controlled releases reopening the runs).
 - 2026-10-14: Step 5 built (burials, dig-outs, the Safety score). Step 6, balance, left for a playtest.
+- 2026-10-14: Deaths (the user): buried guests by how long patrol takes, patrollers caught 20%. On the Goals Test a path set off across busy Ptarmigan at 11:00 killed a guest in two seeds of three (dug out after 30–40 minutes); either way Safety bottomed out (5% the next day, the stars capped at 1.25). Likely needs tuning in a playtest: a death leaves the resort crippled for about two weeks.

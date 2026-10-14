@@ -9,6 +9,8 @@ const (
 	// patroller, caught in an avalanche take off it.
 	SafetyBurial          = float32(0.25)
 	SafetyPatrollerCaught = float32(0.15)
+	// SafetyDeath is what a death in an avalanche takes off on top.
+	SafetyDeath = float32(0.60)
 	// SafetyRecoverPerDay is what it gets back each day.
 	SafetyRecoverPerDay = float32(0.05)
 	// SafetyCapFrom is the score under which it caps the stars.

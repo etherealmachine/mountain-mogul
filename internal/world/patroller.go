@@ -163,6 +163,10 @@ func (w *World) PatrollerHutPos(hut *Building) mgl32.Vec3 {
 	return w.ServiceHome(hut, ServicePatrol)
 }
 
+// RemovePatroller drops patroller id (killed in an avalanche); the
+// patrol room hires a replacement at the next SyncFleet.
+func (w *World) RemovePatroller(id uint64) { w.removePatroller(id) }
+
 // removePatroller drops one patroller, letting go of any patient.
 func (w *World) removePatroller(id uint64) {
 	for i, p := range w.Patrollers {

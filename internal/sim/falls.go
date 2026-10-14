@@ -219,6 +219,10 @@ func (s *Simulation) tickInjured(a *world.Guest, dt float64) {
 	if a.InjuryWaitTimer > 0 {
 		return
 	}
+	if a.Buried {
+		s.guestKilled(a) // nobody came to dig them out
+		return
+	}
 	stranded := a.Stranded
 	a.Injured, a.Stranded, a.Fallen = false, false, false
 	a.Tumble = world.Tumble{}

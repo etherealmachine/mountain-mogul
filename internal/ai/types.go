@@ -506,6 +506,7 @@ const (
 	ThoughtWaitedKids   // a parent who waited for the kids at lift tops, again and again
 	ThoughtFamilyChair  // the whole family rode up on one chair
 	ThoughtHitRocks     // skied into rock showing through thin snow (sim/rocks.go)
+	ThoughtLostSomeone  // someone they came with was killed in an avalanche
 
 	thoughtKindSentinel // must stay last; equals the total count
 )
@@ -570,6 +571,7 @@ var Effects = [ThoughtKindCount]Effect{
 	ThoughtWaitedKids:        {Class: Annoyance},
 	ThoughtFamilyChair:       {Class: Highlight},
 	ThoughtHitRocks:          {Class: Annoyance},
+	ThoughtLostSomeone:       {Class: Dealbreaker},
 	ThoughtHurtGoingHome:     {Class: Letdown},
 	ThoughtHitTree:           {Class: Annoyance},
 	ThoughtCaughtInAvalanche: {Class: Dealbreaker},
@@ -704,6 +706,7 @@ var thoughtText = [ThoughtKindCount]string{
 	ThoughtWaitedKids:        "waited for the kids at every turn",
 	ThoughtFamilyChair:       "the whole family on one chair",
 	ThoughtHitRocks:          "hit rocks, the snow's too thin",
+	ThoughtLostSomeone:       "we lost someone in an avalanche",
 	ThoughtLongLine:          "this line is way too long",
 	ThoughtLineTooLong:       "that line will take forever",
 	ThoughtNeedsLodge:        "this place needs a lodge",
@@ -794,6 +797,7 @@ var ThoughtChartColor = [ThoughtKindCount][4]float32{
 	ThoughtWaitedKids:        {0.80, 0.55, 0.45, 1},
 	ThoughtFamilyChair:       {0.55, 0.80, 0.90, 1},
 	ThoughtHitRocks:          {0.75, 0.55, 0.40, 1},
+	ThoughtLostSomeone:       {0.30, 0.30, 0.34, 1},
 	ThoughtLongLine:          {0.80, 0.45, 0.70, 1},
 	ThoughtLineTooLong:       {0.70, 0.30, 0.60, 1},
 	ThoughtNeedsLodge:        {0.60, 0.50, 0.80, 1},
@@ -871,6 +875,7 @@ const (
 	DepartNoRentals                 // came without skis and couldn't rent any
 	DepartGaveUp                    // kept falling on a descent and gave up
 	DepartFamily                    // a kid, going home with their family
+	DepartDied                      // killed in an avalanche
 	departReasonSentinel
 )
 
@@ -885,6 +890,7 @@ var DepartReasonLabel = [DepartReasonCount]string{
 	DepartThirsty:      "Too thirsty",
 	DepartClosing:      "Lifts closed for the day",
 	DepartHurt:         "Hurt",
+	DepartDied:         "Killed in an avalanche",
 	DepartAbandoned:    "Hurt, no one came to help",
 	DepartGaveUp:       "Kept falling, gave up",
 	DepartLines:        "Fed up with lines",
@@ -916,6 +922,7 @@ var DepartReasonColor = [DepartReasonCount][4]float32{
 	DepartThirsty:      {0.40, 0.75, 0.70, 1},
 	DepartClosing:      {0.45, 0.65, 0.85, 1},
 	DepartHurt:         {0.90, 0.45, 0.35, 1},
+	DepartDied:         {0.30, 0.30, 0.34, 1},
 	DepartAbandoned:    {0.60, 0.10, 0.80, 1},
 	DepartGaveUp:       {0.85, 0.20, 0.20, 1},
 	DepartFamily:       {0.50, 0.75, 0.55, 1},

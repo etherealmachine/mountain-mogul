@@ -329,6 +329,9 @@ type Guest struct {
 	// Buried is caught in an avalanche: patrol's call takes a beacon
 	// search and digging out (sim/patrol.go). Not saved.
 	Buried bool
+	// BuriedAt is when they were buried, sim seconds: the longer they
+	// wait, the less likely they live. Not saved.
+	BuriedAt float64
 
 	// LastRockHit is the sim time the guest last hit rock through thin
 	// snow (sim/rocks.go); 0 for never. Not saved.
