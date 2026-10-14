@@ -13,7 +13,7 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 
 In the order to work on them:
 
-Nothing ranked: pick the next with the user.
+1. [[Lift Operations]]: daily wind, wind holds and test runs are in. Next: breakdowns, overlapping lifts, downloading.
 
 ## Bugs
 
@@ -70,9 +70,8 @@ Diagnose each first, report the cause, then fix:
 
 - **Walkers leave tracks too**: the user, 2026-10-08. Guests walking (skis off, or shuffling on skis) should mark and pack powder like skiers do; today only skiing splats tracks (`splatSkierTrack`) and wears snow. Boot-packed holes in powder are a different mark from ski tracks.
 - **Per-scenario weather**: imported scenarios already roll daily weather from their own monthly climate ([[Weather]]). Left: climate for hand-drawn scenarios and places outside the US, and rain or snow chosen by altitude rather than at the base. *For* [[Killington]], [[Asahidake]].
-- **Daily wind**: a wind direction and strength each day instead of one per scenario. Wind holds in [[Lift Operations]] *need* it.
 - **Weather and guests**: weather changes arrivals and guest mood ([[Demand]], [[Moments]]).
-- **Drifts on lee slopes**: wind moves snow from windward faces into lee slopes and gullies. *Needs* daily wind.
+- **Drifts on lee slopes**: wind moves snow from windward faces into lee slopes and gullies. Daily wind is in ([[Weather]]), with a direction each day.
 - **Glaciers**: year-round snow at the top of high resorts. *For* [[Zermatt]].
 - **Avalanche control**: explosives, closures, and barriers. *For* [[Alta]].
 - **Avalanche risk overlay**: show where slopes are loaded before anything releases. *For* [[Alta]].
@@ -337,3 +336,5 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-14: [[Night Sessions]] step 4 built: evening guests and the night ticket.
 - 2026-10-14: [[Snowmaking on Runs]] and [[Night Sessions]] good for now (the user) and off Priority; balancing them noted under Economy, Night Sessions' leftovers under Lifts. [[Surface Lifts]] is priority 1 again.
 - 2026-10-14: [[Surface Lifts]] done (the user): placing them in the scenarios listed under Lifts, their prices with the balance item under Economy. Priority is empty.
+- 2026-10-14: [[Lift Operations]] ranked first: wind, wind holds and test runs first (the user).
+- 2026-10-14: [[Lift Operations]]: daily wind, wind holds and test runs built.

@@ -235,6 +235,20 @@ type Lift struct {
 	// this first when guests won't ride.
 	Open bool
 
+	// Testing is a test run by hand: it runs empty, nobody boarding, even
+	// with the resort closed (wind.go).
+	Testing bool
+	// WindHold is held for the wind; CalmSince is when the wind last
+	// dropped under its resume level (0 while it hasn't), TestUntil the
+	// end of the test run after one, and Wind the wind at its top now,
+	// m/s. Set by the sim; not saved.
+	WindHold bool
+	// SnowHold is held for too little snow at its base. OnHold is either.
+	SnowHold  bool
+	CalmSince float64
+	TestUntil float64
+	Wind      float32
+
 	// Lit is lights along its line and at its stations: it runs after
 	// dark (lights.go).
 	Lit bool

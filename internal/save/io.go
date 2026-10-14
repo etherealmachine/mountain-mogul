@@ -448,6 +448,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 			LineAttendant: l.Staff.LineAttendant,
 			Bubble:        l.Bubble,
 			Lit:           l.Lit,
+			Testing:       l.Testing,
 		}
 		if l.Cableless() && !forScenario {
 			saveHeli(l, &ld)
@@ -1160,6 +1161,7 @@ func dataToWorld(data ScenarioData) *world.World {
 		lift.Staff.LineAttendant = ld.LineAttendant
 		lift.Bubble = ld.Bubble
 		lift.Lit = ld.Lit
+		lift.Testing = ld.Testing
 	}
 
 	// Restore guests. Every row in data.Guests rehydrates into a *Guest in

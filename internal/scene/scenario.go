@@ -3317,7 +3317,11 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 		// Only heli charges per ride; cable lifts are covered by the day ticket.
 		w.AddIntStepper("Fare per ride ($)", &l.TicketPrice, 5, 0, 200)
 	}
-	if l.OnHold {
+	if l.WindHold {
+		w.AddLabel("Status", func() string {
+			return fmt.Sprintf("Wind hold: %.0f m/s at the top, holds over %.0f", l.Wind, l.Type.WindLimit())
+		})
+	} else if l.OnHold {
 		w.AddLabel("Status", func() string {
 			c := l.QueueCell()
 			var d float32
@@ -3327,6 +3331,17 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 			return fmt.Sprintf("On hold: %s of snow at the base, needs %s",
 				settings.FormatDepth(d), settings.FormatDepth(world.LiftResumeDepth))
 		})
+	}
+	if lim := l.Type.WindLimit(); lim > 0 && !l.Cableless() {
+		w.AddLabel("Wind at top", func() string {
+			if l.TestingNow(s.sim.SimTime) && !l.Testing {
+				return fmt.Sprintf("%.0f m/s, testing before it opens", l.Wind)
+			}
+			return fmt.Sprintf("%.0f m/s (holds over %.0f)", l.Wind, lim)
+		})
+	}
+	if !l.Cableless() {
+		w.AddBoolToggle("Test run", func() bool { return l.Testing }, func(v bool) { l.Testing = v })
 	}
 	if l.Open {
 		w.AddActionButton("Close Lift", func() {

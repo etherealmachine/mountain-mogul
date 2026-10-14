@@ -16,7 +16,7 @@ import (
 // logLiftHoldChanged records a sim-driven hold transition (no snow at the
 // base station). Call after updating l.OnHold.
 func (s *Simulation) logLiftHoldChanged(l *world.Lift) {
-	if l.OnHold {
+	if l.SnowHold {
 		s.World.LogEventAt(world.EventLiftClosed, s.SimTime,
 			fmt.Sprintf("%s on hold: too little snow at its base", l.Name), l.Base, l.ID)
 	} else {

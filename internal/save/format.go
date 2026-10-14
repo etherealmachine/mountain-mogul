@@ -581,6 +581,8 @@ type LiftData struct {
 	Bubble bool `json:"bubble,omitempty"`
 	// Lit is Lift.Lit: lights for night skiing.
 	Lit bool `json:"lit,omitempty"`
+	// Testing is Lift.Testing: a test run by hand.
+	Testing bool `json:"testing,omitempty"`
 }
 
 // PlanActionData is one serialised step in a guest's L0 plan. Fields map

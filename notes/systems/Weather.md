@@ -18,9 +18,12 @@ Weather does not yet affect [[Demand]] or [[Moments]], and wind direction is fix
 
 Spec: [[Weather Spec]]. Code: `internal/sim/weather.go`, `temperature.go`.
 
+Wind: each day has a mean wind at the base and a direction about the climate's prevailing one, by the day's weather; it peaks mid-afternoon and gusts hour to hour, and is stronger high up and on exposed tops. It holds lifts ([[Lift Operations]]) and, on a windy dry day, packs the surface into wind slab.
+
 ## Log
 
 - 2026-10-01: Chain, forecast, snow effects, hourly temperature, and skip-to-storm are in. Weather-driven demand and a daily wind field are listed as future work.
 - 2026-10-05: Per-scenario climate from Open-Meteo and SNOTEL, set at import. Kirkwood over 40 simulated years: monthly mean temperatures within 0.3 °C of the record, precipitation within about 15%.
 - 2026-10-07: Clear days no longer run 15–20 °C too warm (Boreal in December: highs p90 8.7 °C, max 14.9 °C over 30 years, was 10.5 and 21.6). The season's weather runs from 1 September to the start date, shared with the starting snow.
 - 2026-10-09: Skip-to-storm removed with turbo ([[Calendar]]).
+- 2026-10-14: Daily wind with hourly gusts; wind slab now follows it ([[Lift Operations]]).

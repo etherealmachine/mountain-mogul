@@ -51,6 +51,8 @@ type Simulation struct {
 	// (tickDark).
 	sunDay          int
 	sunRise, sunSet float32
+	// exposure is each lift's top's exposure to the wind (wind.go).
+	exposure map[uint64]float32
 	// snowmakingStopped is whether snowmaking could run last tick (the
 	// lifts stopped), to close each night when it ends.
 	snowmakingStopped bool
@@ -401,11 +403,13 @@ func (s *Simulation) tickLifts(dt float64) {
 		if w.Terrain.InBounds(baseCell[0], baseCell[1]) {
 			baseDepth = w.Terrain.Cells[baseCell[0]][baseCell[1]].VisibleSnowDepth()
 		}
-		wasHeld := lift.OnHold
-		lift.OnHold = baseDepth < world.LiftHoldDepth || (wasHeld && baseDepth < world.LiftResumeDepth)
-		if lift.OnHold != wasHeld && lift.Open {
+		wasHeld, wasSnowHeld := lift.OnHold, lift.SnowHold
+		lift.SnowHold = baseDepth < world.LiftHoldDepth || (wasSnowHeld && baseDepth < world.LiftResumeDepth)
+		if lift.SnowHold != wasSnowHeld && lift.Open {
 			s.logLiftHoldChanged(lift)
 		}
+		s.tickLiftWind(lift)
+		lift.OnHold = lift.SnowHold || lift.WindHold
 		if lift.OnHold && !wasHeld {
 			// Transition to hold: eject queued guests so they can re-plan.
 			ejectQueue(lift)
@@ -414,7 +418,11 @@ func (s *Simulation) tickLifts(dt float64) {
 		// Outside operating hours chairs stop once they've carried
 		// everyone up, and nobody boards.
 		passengers := lift.PassengerCount()
-		moving := (!lift.OnHold && lift.Open && (running || passengers > 0)) || (lift.OnHold && passengers > 0)
+		// A test run runs empty: by hand even with the resort closed, or
+		// before reopening after the wind.
+		testing := lift.TestingNow(s.SimTime) && !lift.OnHold
+		moving := (!lift.OnHold && lift.Open && (running || passengers > 0)) || (lift.OnHold && passengers > 0) ||
+			(testing && (lift.Testing || running))
 		for i := range lift.Chairs {
 			chair := &lift.Chairs[i]
 			prev := chair.Progress
@@ -469,7 +477,7 @@ func (s *Simulation) tickLifts(dt float64) {
 			// chair from the queue up to its capacity. Skip when on hold.
 			if chair.Progress >= 1.0 {
 				chair.Progress -= 1.0
-				if !lift.OnHold && running {
+				if !lift.OnHold && running && !testing {
 					boarders := loadChair(lift, len(chair.Passengers))
 					s.shuffleLine(lift)
 					for j, agent := range boarders {
@@ -1108,17 +1116,9 @@ func snowKindForTemp(tempC float32) world.SnowKind {
 	return world.KindCement
 }
 
-// windProbForTemp returns the probability that wind fires on a Clear or
-// Overcast day, driven by temperature as a proxy for winter storminess.
-func windProbForTemp(tempC float32) float32 {
-	if tempC < -5 {
-		return 0.20
-	}
-	if tempC < 0 {
-		return 0.12
-	}
-	return 0.05
-}
+// windSlabMS is the day's mean wind at the base, m/s, from which a dry
+// day packs the surface into wind slab (weatherEventWind).
+const windSlabMS = 7.5
 
 // weatherEvent classifies a non-precipitation day into the snow transition
 // events defined in SNOW_IMPROVEMENTS.md.
@@ -1251,10 +1251,7 @@ func (s *Simulation) applyDailyWeather(dw DayWeather) {
 	t := s.World.Terrain
 
 	// Stochastic wind roll for Clear and Overcast days.
-	windFired := false
-	if dw.State == WeatherClear || dw.State == WeatherOvercast {
-		windFired = rng.Global().Float32() < windProbForTemp(dw.TempC)
-	}
+	windFired := (dw.State == WeatherClear || dw.State == WeatherOvercast) && dw.WindMS >= windSlabMS
 
 	switch dw.State {
 	case WeatherLightSnow, WeatherHeavySnow:

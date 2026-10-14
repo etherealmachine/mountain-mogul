@@ -1,6 +1,7 @@
 package sim
 
 import (
+	"math"
 	"math/rand"
 	"time"
 
@@ -48,6 +49,11 @@ type DayWeather struct {
 	CloudCover float32      // 0..1; for sky rendering
 	AccumSWE   float32      // new snow, metres snow-water-equivalent (0 on non-snow days)
 	RainMM     float32      // rainfall, mm (0 on non-rain days; no game effect yet)
+	// WindMS is the day's mean wind at the base, m/s, and WindDeg the
+	// direction it blows towards, degrees clockwise from north. Gusts
+	// and height come on top (wind.go).
+	WindMS  float32
+	WindDeg float32
 }
 
 // IsSnowing reports whether the day has any snowfall.
@@ -65,6 +71,9 @@ type Chain struct {
 	state  WeatherState
 	today  DayWeather
 	months *[12]monthProfile // shared, never written after construction
+	// windDeg is the climate's prevailing wind, blowing towards (degrees
+	// clockwise from north); days stray around it.
+	windDeg float32
 }
 
 // NewChain returns a weather chain for the generic climate, starting in
@@ -84,6 +93,7 @@ func NewChainFor(c *world.Climate, baseAltitude float32) *Chain {
 	ch := NewChain()
 	if c != nil {
 		ch.months = climateProfiles(c, baseAltitude)
+		ch.windDeg = c.WindDeg
 	}
 	return ch
 }
@@ -372,6 +382,12 @@ func (c *Chain) sample(rng *rand.Rand, month time.Month) DayWeather {
 		}
 	}
 
+	// Wind, drawn last so it leaves every other draw as it was: the
+	// state's typical wind, more or less, and a direction about the
+	// prevailing one.
+	wind := stateWindMS[c.state] * float32(math.Exp(rng.NormFloat64()*windDaySpread))
+	windDeg := float32(math.Mod(float64(c.windDeg)+rng.NormFloat64()*40+360, 360))
+
 	return DayWeather{
 		State:      c.state,
 		TempC:      temp,
@@ -380,8 +396,17 @@ func (c *Chain) sample(rng *rand.Rand, month time.Month) DayWeather {
 		CloudCover: cloud,
 		AccumSWE:   accumSWE,
 		RainMM:     rainMM,
+		WindMS:     wind,
+		WindDeg:    windDeg,
 	}
 }
+
+// stateWindMS is each state's typical day's mean wind at the base, m/s,
+// and windDaySpread how far a day strays from it (log-normal, sigma):
+// one day in six or so blows half as hard again.
+var stateWindMS = [weatherStateCount]float32{3.5, 5, 6, 8.5, 6}
+
+const windDaySpread = 0.45
 
 // drawWeatherState samples a state from the given unnormalized weight vector.
 func drawWeatherState(rng *rand.Rand, weights [weatherStateCount]float32) WeatherState {
