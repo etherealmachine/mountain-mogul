@@ -2581,15 +2581,16 @@ func (s *Simulation) tickPath(agent *world.Guest, dt float64) {
 	targetPos := mgl32.Vec3{tx, ty, tz}
 	// The last stretch to a lift line heads for the line itself, not on
 	// through the cells under it (a crowd, or the station in the last).
-	toLine := false
-	if st := agent.Plan.Head(); st.Kind == ai.ActWalkToLift {
-		if l := findLiftByID(w, st.LiftID); l != nil {
-			p := liftApproachWorldPos(w, l, agent)
-			if d := (mgl32.Vec2{p[0] - agent.Pos[0], p[2] - agent.Pos[2]}).Len(); d < walkToLineNear ||
-				agent.PathIdx == len(agent.Path)-1 && d < walkToLineNear+5 {
-				targetPos, toLine = p, true
-			}
-		}
+	// Close to the line, or to the station in the way, the route's done
+	// with: it ends where the line's back was when it was laid, which a
+	// growing line has left behind, and its cells run straight through
+	// the station. From here they head for the line itself, or round the
+	// station first (lineApproach), and the arrival check can see them
+	// (goap.Extract: no arrival on a route).
+	if s.nearLine(agent, walkToLineNear) {
+		agent.Path, agent.PathIdx = nil, 0
+		s.tickLocomote(agent, dt)
+		return
 	}
 	s.recordWalkTick(agent, targetPos)
 
@@ -2601,9 +2602,6 @@ func (s *Simulation) tickPath(agent *world.Guest, dt float64) {
 	if dist <= step {
 		agent.Pos = targetPos
 		agent.PathIdx++
-		if toLine {
-			agent.PathIdx = len(agent.Path)
-		}
 		s.repathToMovedLine(agent)
 		if agent.PathIdx >= len(agent.Path) {
 			agent.Path = nil
@@ -3044,7 +3042,29 @@ func clipInToRide(a *world.Guest) {
 
 // walkToLineNear is how close to their place in a lift line a walker
 // leaves their route for it, metres.
-const walkToLineNear = float32(10)
+const walkToLineNear = float32(20)
+
+// nearLine reports whether a walker heading for a lift line is within
+// reach metres of where they'd join it, or by the station when they have
+// to go round it (lineApproach): close enough to leave their route and
+// head straight there (reach walkToLineNear), or not far enough off to
+// need a new one (repathToLine, further out, so the two don't take turns).
+func (s *Simulation) nearLine(a *world.Guest, reach float32) bool {
+	st := a.Plan.Head()
+	if st.Kind != ai.ActWalkToLift {
+		return false
+	}
+	l := findLiftByID(s.World, st.LiftID)
+	if l == nil {
+		return false
+	}
+	pos := mgl32.Vec2{a.Pos[0], a.Pos[2]}
+	if l.LineEndXZ(pos).Sub(pos).Len() < reach {
+		return true
+	}
+	_, round := lineApproach(s.World, l, a)
+	return round && pos.Sub(l.Base).Len() < world.StationExtent+reach
+}
 
 // repathToMovedLine re-routes a walker heading for a lift line whose
 // route no longer ends at it: a crowd has grown past the route's end, or
@@ -3083,7 +3103,7 @@ func (s *Simulation) repathToLine(a *world.Guest) bool {
 		return false
 	}
 	pos := mgl32.Vec2{a.Pos[0], a.Pos[2]}
-	if l.LineEndXZ(pos).Sub(pos).Len() < walkToLineNear+5 {
+	if s.nearLine(a, walkToLineNear+10) {
 		return false
 	}
 	cell := [2]int{int(math.Floor(float64(pos[0] / CellSize))), int(math.Floor(float64(pos[1] / CellSize)))}
@@ -3120,9 +3140,31 @@ func leaderInLine(a *world.Guest, l *world.Lift) bool {
 
 // liftApproachWorldPos is where a heads for lift l's line: the edge of a
 // crowd nearest them, or the back of a single file by way of round it
-// when it's in the way (QueueApproachXZ).
-// A point on the way round is kept until reached (Guest.LineWay).
+// when it's in the way (QueueApproachXZ), and round the base station
+// first when that's in the way (lineApproach).
 func liftApproachWorldPos(w *world.World, l *world.Lift, a *world.Guest) mgl32.Vec3 {
+	p, _ := lineApproach(w, l, a)
+	return p
+}
+
+// lineApproach is liftApproachWorldPos, and whether it's a way round the
+// base station rather than the line itself: the line runs back from under
+// the station (out of a station house's door), so a guest coming at it
+// from in front or beside goes round the outside to join it from behind,
+// not through the station (world.Lift.StationDetour).
+func lineApproach(w *world.World, l *world.Lift, a *world.Guest) (mgl32.Vec3, bool) {
+	p := lineEndApproach(w, l, a)
+	pos := mgl32.Vec2{a.Pos[0], a.Pos[2]}
+	if way, ok := l.StationDetour(pos, mgl32.Vec2{p[0], p[2]}); ok {
+		return mgl32.Vec3{way[0], w.Terrain.InterpolatedSurfaceElevationAt(way[0], way[1]), way[1]}, true
+	}
+	return p, false
+}
+
+// lineEndApproach is where a heads for lift l's line itself.
+// A point on the way round a single file is kept until reached
+// (Guest.LineWay).
+func lineEndApproach(w *world.World, l *world.Lift, a *world.Guest) mgl32.Vec3 {
 	pos := mgl32.Vec2{a.Pos[0], a.Pos[2]}
 	at := func(p mgl32.Vec2) mgl32.Vec3 {
 		return mgl32.Vec3{p[0], w.Terrain.InterpolatedSurfaceElevationAt(p[0], p[1]), p[1]}

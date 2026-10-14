@@ -181,7 +181,10 @@ func Extract(a *world.Guest, w *world.World) WorldSnapshot {
 		// crowd is compact, so short is by count, not by where its
 		// edge is.
 		qback := l.BackOfQueueWorldPos(mgl32.Vec2{a.Pos[0], a.Pos[2]}, w.Terrain)
-		if load := l.LoadXZ(); sqDistXZ(a.Pos, load[0], load[1]) < r2 && len(l.Queue) < shortLine {
+		// Not from outside a station house's walls, though: they go
+		// round to its door (sim: lineApproach).
+		if load := l.LoadXZ(); sqDistXZ(a.Pos, load[0], load[1]) < r2 && len(l.Queue) < shortLine &&
+			(!l.Station().Enclosed || l.InStation(mgl32.Vec2{a.Pos[0], a.Pos[2]})) {
 			snap.AtLiftBase = l.ID
 			return snap
 		}

@@ -520,3 +520,102 @@ func (l *Lift) StationXZs() []mgl32.Vec2 {
 }
 
 func clamp01(x float32) float32 { return max(0, min(x, 1)) }
+
+// InStation reports whether p is under the base station's roof or inside
+// its station house.
+func (l *Lift) InStation(p mgl32.Vec2) bool {
+	at, back, side, ok := l.StationFrame(false)
+	if !ok {
+		return false
+	}
+	d := p.Sub(at)
+	b, c := d.Dot(back), d.Dot(side)
+	for _, r := range l.Station().rects {
+		if !r.hut && b >= r.front && b <= r.rear && c >= r.in && c <= r.out {
+			return true
+		}
+	}
+	return false
+}
+
+// stationDetourOut is how far outside a station's walls (or roof) a guest
+// going round it keeps, metres.
+const stationDetourOut = 1.5
+
+// StationDetour is where a guest at from heading for to (the end of the
+// lift's line) should head first when the base station is in the way: the
+// line runs back from under it, out through its back (a station house's
+// door), so anyone coming at it from in front or beside goes round the
+// outside, by the near front corner and the back corner, to come in from
+// behind. ok is false when the way to to is clear: from inside or behind
+// the station, or not crossing it.
+func (l *Lift) StationDetour(from, to mgl32.Vec2) (way mgl32.Vec2, ok bool) {
+	at, back, side, okf := l.StationFrame(false)
+	if !okf || l.Type.Surface() {
+		return mgl32.Vec2{}, false
+	}
+	var r stationRect
+	for _, rr := range l.Station().rects {
+		if !rr.hut {
+			r = rr
+		}
+	}
+	if r == (stationRect{}) {
+		return mgl32.Vec2{}, false
+	}
+	frame := func(p mgl32.Vec2) (b, c float32) {
+		d := p.Sub(at)
+		return d.Dot(back), d.Dot(side)
+	}
+	inside := func(b, c float32) bool { return b >= r.front && b <= r.rear && c >= r.in && c <= r.out }
+	fb, fc := frame(from)
+	tb, tc := frame(to)
+	pt := func(b, c float32) mgl32.Vec2 { return at.Add(back.Mul(b)).Add(side.Mul(c)) }
+	if inside(fb, fc) {
+		return mgl32.Vec2{}, false // in the station: straight on
+	}
+	if fb >= r.rear-stationDetourOut {
+		// Behind it, or level with its back: straight on (under an open
+		// station's roof from behind is the way in), but into a station
+		// house only by its door.
+		if g := l.Station(); g.Enclosed && tb < r.rear {
+			door := g.DoorHalf - 0.6
+			if abs32(fc) > door+0.3 { // the margin: at the door point, they're through
+				return pt(r.rear+stationDetourOut, max(-door, min(tc, door))), true
+			}
+		}
+		return mgl32.Vec2{}, false
+	}
+	// Does the way there cross the station, padded out by most of the
+	// way round's margin so a guest going round beside it doesn't flicker
+	// between round and straight? Sampled every half metre; the last
+	// stretch into the station from behind its back doesn't count. Beside
+	// it with the line behind, it does whatever.
+	pad := float32(stationDetourOut * 0.8)
+	near := func(b, c float32) bool {
+		return b >= r.front-pad && b <= r.rear && c >= r.in-pad && c <= r.out+pad
+	}
+	crosses := near(fb, fc) && tb > fb
+	n := int(from.Sub(to).Len()/0.5) + 1
+	for k := 1; k <= n && !crosses; k++ {
+		t := float32(k) / float32(n)
+		b, c := fb+(tb-fb)*t, fc+(tc-fc)*t
+		crosses = near(b, c) && b < r.rear-1
+	}
+	if !crosses {
+		return mgl32.Vec2{}, false
+	}
+	s, edge := float32(1), r.out
+	if fc < (r.in+r.out)/2 {
+		s, edge = -1, r.in
+	}
+	wide := edge + s*stationDetourOut
+	switch {
+	case fb < r.front && (fc-wide)*s < 0:
+		// In front of it: out to the near front corner.
+		return pt(r.front-stationDetourOut, wide), true
+	default:
+		// Beside it: back to the near back corner.
+		return pt(r.rear+stationDetourOut, wide), true
+	}
+}
