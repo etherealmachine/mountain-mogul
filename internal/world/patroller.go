@@ -28,6 +28,9 @@ const (
 	PatrollerToboggan                          // skiing the guest down in a toboggan
 	PatrollerSkiingBack                        // skiing back to the patrol room after a call that fell through
 	PatrollerHiking                            // hiking up to an injured guest
+	PatrollerFiring                            // at the patrol room, shelling a slide path (avalanche control)
+	PatrollerToCut                             // heading up to a slide path's start zone to ski cut it
+	PatrollerCutting                           // ski cutting a start zone
 )
 
 // OnFoot reports whether the patroller is walking.
@@ -38,7 +41,13 @@ func (s PatrollerState) OnFoot() bool {
 
 // OnSkis reports whether the patroller is on a lift or skiing.
 func (s PatrollerState) OnSkis() bool {
-	return s == PatrollerRiding || s == PatrollerSkiing || s == PatrollerToboggan || s == PatrollerSkiingBack
+	return s == PatrollerRiding || s == PatrollerSkiing || s == PatrollerToboggan || s == PatrollerSkiingBack ||
+		s == PatrollerToCut || s == PatrollerCutting
+}
+
+// AvyWork reports whether the patroller is doing avalanche control.
+func (s PatrollerState) AvyWork() bool {
+	return s == PatrollerFiring || s == PatrollerToCut || s == PatrollerCutting
 }
 
 // Driving reports whether the patroller is on a snowmobile.
@@ -90,6 +99,12 @@ func (s PatrollerState) Label() string {
 		return "skiing back"
 	case PatrollerHiking:
 		return "hiking to an injury"
+	case PatrollerFiring:
+		return "shelling a slide path"
+	case PatrollerToCut:
+		return "heading up to ski cut a slope"
+	case PatrollerCutting:
+		return "ski cutting a slope"
 	}
 	return "off duty"
 }
@@ -122,6 +137,11 @@ type Patroller struct {
 	SledRoute []mgl32.Vec2
 	SledIdx   int
 	SledGoal  mgl32.Vec2
+	// AvyPathID is the slide path they're doing control work on (0 for
+	// none), and TaskUntil when the work in hand is done, sim seconds.
+	// Not saved: a save mid-task sends them back to the patrol room.
+	AvyPathID int
+	TaskUntil float64
 }
 
 // SpawnPatroller creates a new patroller parked at hut's patrol door

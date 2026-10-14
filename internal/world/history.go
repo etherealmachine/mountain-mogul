@@ -69,8 +69,9 @@ const (
 	CostSnowcats
 	CostBuildings
 	CostSnowmaking
-	CostInterest // credit-line interest, charged at month end
-	CostLighting // night skiing's lights (lights.go)
+	CostInterest  // credit-line interest, charged at month end
+	CostLighting  // night skiing's lights (lights.go)
+	CostAvalanche // avalanche control's rounds (slide_paths.go)
 	CostKindCount
 )
 
@@ -89,6 +90,8 @@ func (k CostKind) Label() string {
 		}
 	case CostLighting:
 		return "Lights"
+	case CostAvalanche:
+		return "Avalanche control"
 	case CostInterest:
 		return "Interest"
 	}

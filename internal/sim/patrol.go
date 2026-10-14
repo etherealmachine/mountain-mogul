@@ -84,6 +84,12 @@ func (s *Simulation) tickPatrollers(dt float64) {
 			s.patrollerToInjury(p, base, dt)
 		case world.PatrollerToboggan, world.PatrollerSkiingBack:
 			s.patrollerToboggan(p, base, dt)
+		case world.PatrollerFiring:
+			s.patrollerFiring(p)
+		case world.PatrollerToCut:
+			s.patrollerToCut(p, dt)
+		case world.PatrollerCutting:
+			s.patrollerCutting(p, base)
 		case world.PatrollerToGarage:
 			if s.patrollerWalk(p, dt) {
 				s.patrollerTakeSled(p, base)
@@ -186,6 +192,7 @@ func (s *Simulation) patrollerOnDuty(p *world.Patroller, base *world.Building, o
 	}
 	injured := s.injuredByDistance(p.Pos)
 	if len(injured) == 0 {
+		s.startAvyWork(p, base)
 		return
 	}
 	g := injured[0]

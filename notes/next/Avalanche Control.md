@@ -56,12 +56,20 @@ From the user, 2026-10-14:
 - **Slopes**: danger now falls off sharply under 35° and is nothing at 30° (it was 0.53 of full at 31°), so the Goals Test's gentle paths stay Low after a storm.
 - Forcing every path over the runs closed on the Goals Test (limit Low): 7 runs and both upper lifts closed, and skiers still crossed closed ground about 185 times in a day's 30-second samples, mostly near the base where nearly everything was closed.
 
+## Built: control work
+
+- A patroller at an avalanche-control room with no injury to answer takes the slide path over the runs most in need (`sim/avy_control.go`): at or over the limit any time, Moderate or worse before the lifts open, the most dangerous and then the nearest first, none Low, one patroller a path, and only once nobody's on it.
+- **Mortar**: a path whose start zone is within 1,500 m of the room is shelled from it, 4 clock minutes a round, $400 (the day's "Avalanche control" cost line).
+- **Ski cutting**: beyond mortar range the patroller goes up to the start zone (at their hiking and skiing pace), cuts it for 10 clock minutes, and skis back; on a Moderate or worse path, 3% of cuts catch them (a feed line and half an hour lost, for now).
+- Either brings a Moderate or worse path down on purpose ("Control work brought down…"), keeping 15% of its load; the danger and closures are worked out again at once, so the runs reopen.
+- Forcing four paths over the Goals Test's runs to High at 05:00: at 06:00 three runs and Lift3 closed, two patrollers shelled all four paths by 06:10, and everything reopened before the lifts did, for $1,600.
+
 ## Steps
 
 1. Done: **Slide paths and danger.** Paths from the ground, danger from loading, hourly; natural releases through the day; lift riders and walkers in a runout caught too; the density bug. The overlay redone as paths by danger.
 2. Done: **Patrol staffing.** Four places a patrol tile, cost per patroller, a staffing stepper in the popup.
 3. Done: **Closures and the risk limit.** The avalanche-control upgrade (cost, trained patrollers' extra); the limit in its popup (Danger by default); runs closing under paths at or over it, with ropes and signs, and guests keeping off.
-4. **Control work.** Morning and post-storm control: mortars from the patrol building within range, ski cutting beyond; controlled releases; runs reopening.
+4. Done: **Control work.** Morning and post-storm control: mortars from the patrol building within range, ski cutting beyond; controlled releases; runs reopening.
 5. **Caught and Safety.** Burials, rescues, the event; the Safety score beside the stars, in demand and capping stars.
 6. **Balance**: on the Boreal Goals Test and Kirkwood, through a stormy stretch.
 
@@ -77,3 +85,4 @@ From the user, 2026-10-14:
 - 2026-10-14: Step 1 built. Start zones split by the way they face and capped at 4 ha (the first try made 20,000-cell zones on Kirkwood); backcountry slides batched in the feed (a storm day logged one an hour).
 - 2026-10-14: Step 2 built: a patrol tile has room for 4 patrollers at $750 a day each (the room itself $100 a tile); the popup's Staffed stepper sets how many, at least one; older saves keep one a tile.
 - 2026-10-14: Step 3 built (the upgrade, the limit, closures, lifts stopping with their runs).
+- 2026-10-14: Step 4 built (mortars from the room, ski cutting beyond range, controlled releases reopening the runs).

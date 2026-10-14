@@ -300,7 +300,24 @@ func angleDiff(a, b float32) float32 {
 const (
 	AvyControlCost        = 80_000
 	AvyPatrollerDailyCost = 250 // on top of PatrollerDailyCost
+	// MortarRange is how far from an avalanche-control patrol room its
+	// mortar reaches a start zone, metres; MortarShotCost a round.
+	MortarRange    = 1500
+	MortarShotCost = 400
 )
+
+// SlidePathByID is the path with id, nil when there's none.
+func (w *World) SlidePathByID(id int) *SlidePath {
+	if id >= 1 && id <= len(w.SlidePaths) && w.SlidePaths[id-1].ID == id {
+		return w.SlidePaths[id-1]
+	}
+	for _, p := range w.SlidePaths {
+		if p.ID == id {
+			return p
+		}
+	}
+	return nil
+}
 
 // AvyControlled reports whether the resort has avalanche control: a
 // patrol room with the upgrade.
