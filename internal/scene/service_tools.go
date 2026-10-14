@@ -1168,4 +1168,3 @@ func (s *Scenario) addAvyControls(w *ui.Window, b *world.Building, reopen func()
 		return strings.Join(names, ", ")
 	})
 }
-

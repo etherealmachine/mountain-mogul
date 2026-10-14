@@ -346,4 +346,3 @@ func (w *World) SetAvyClosedCells() {
 func (w *World) AvyClosedAt(x, z int) bool {
 	return w.avyClosedCells != nil && w.avyClosedCells[[2]int{x, z}]
 }
-
