@@ -34,6 +34,7 @@ When the step is built, update the notes the way the repo does it (see `notes/RE
 
 - Plan note: mark the step "Done: ..." with a one-line summary, move settled facts into "How it works", resolve any answered open questions, and add a dated line under `## Log` (today's date, `YYYY-MM-DD`). Set `status` if it changed.
 - `notes/Next Steps.md`: shrink or delete the Priority line, renumber, and update any parent item that summarizes progress.
+- `notes/Changelog.md`: add the step to today's line (one line a day, newest first; start the day's line if it isn't there).
 - System cards and specs whose behavior changed: update the description and add a `## Log` line.
 
 ## 5. Hand off

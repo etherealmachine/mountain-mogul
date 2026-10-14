@@ -1,0 +1,24 @@
+---
+title: Changelog
+kind: log
+status: ongoing
+---
+
+# Changelog
+
+What changed in [[Next Steps]], a day to a line: what was planned, ranked, shipped or dropped. The detail is in each plan note's and system card's own log.
+
+- 2026-10-14: Kids' ages and cheaper tickets ([[Tickets]], [[Families]]). Aerial ropeways done ([[Lifts]]): station houses, the tram, single, 8-pack, bubbles, funitel and 3S; towers placed by the terrain with sagging spans; guests go round stations to the back of the line. [[Season Calendar]], [[Groups]] and [[Surface Lifts]] marked done. [[Snowmaking on Runs]] steps 1–3 (snowmaking bought for a run, machine snow, lift holds and rock by depth, guns and the map view) and the snow compaction fix ([[Snow]]: layers keep their own density). [[Night Sessions]] steps 1–4 (lights for runs and lifts, dusk, costs by the hour, the light map, evening guests and the night ticket). Both good for now; balancing them and surface lifts noted under Economy. [[Lift Operations]] ranked first: daily wind, wind holds and test runs built; [[Lift Maintenance]] noted. Buses and RVs wanted ([[Large Vehicles]]). This changelog split out of Next Steps.
+- 2026-10-13: The [[Demo]] ready enough and the [[Boreal Playtest]] closed. Planned [[SkiFree Mode]] (steps 1–3 built; timed runs and the yeti parked), [[Families]] (built, with the [[Ski School]]; kids in the base game), [[Surface Lifts]] and [[Water Editing]] (steps 1–3 built).
+- 2026-10-12: [[Lift Lines]] planned and built (one line per lift, a crowd with no attendant, a corral with one), then out of Priority. Fast and fastest speeds doubled. [[Boreal Tutorial]] played through headless, won on day 19.
+- 2026-10-11: The user's Boreal playtest filed as [[Boreal Playtest]] and ranked first; most of it shipped (games open paused, a live star rating, "Guests are saying", lift lines joined at the back, walkers on footpaths, overnight cars, grooming fixes). build123d noted for models.
+- 2026-10-10: Planned [[Economy Balance]], [[Snowmobile Routes]], [[Ski Racks]], [[Rope Lines]] and [[Boreal Tutorial]]. Shipped footpaths, lift staff, lines at service doors, ski racks, rope lines and snowmobile routes. Normal speed a day in 2,560 s. Season decided: 6-day months, a 30-day season; demand follows the terrain the running lifts serve. Magic carpet out of the [[Demo]].
+- 2026-10-09: Planned [[Star Ratings]], [[Scoreless Rating]], [[Season Calendar]], [[Readable Complaints]] and [[Groups]]. Turbo and the storm skip removed. Car kinds in [[Transit]]; [[Large Vehicles]] noted.
+- 2026-10-08: [[Fast-Forward Performance]] profiled and shipped; [[Building Tool]] shipped; [[Bough Snow]], [[Trail Network]] (steps 1–3 built), [[Crowd Scale]] and [[Service Quality]] planned. Falls diagnosed and cut (8,733 to about 760 a day on Boreal) with route costs, trail following and door fixes; fall tracking (pins, the Falls overlay); jointed skier figures with yard sales.
+- 2026-10-07: Planned and shipped [[Satisfaction Rework]], [[Lift Unloading]], [[Mood Baseline]], [[Snow Tastes]], [[Moguls]] and [[Service Improvements]]. Fixed closing zeroing patience, clear days too warm (Boreal re-dressed), the frozen ski swap, thirst; a clock hour is 900 sim seconds; satisfaction became a ledger (calibration tabled). Listed [[Services]]; planned the [[Demo]], ranked first; noted [[Release]].
+- 2026-10-06: Shipped [[Terrain Layers]] step 1, Auto trees and snow, [[Ground Materials]] steps 1–4, lake ice and most of [[Creeks and Lakes]], and a performance pass. Fixed the ticket-window bug (it was stopped lifts and lifts with no trail at the guest's level). [[Scenario Goals and Rules]] steps 1–4 shipped and tabled. [[Transit]] planned and steps 1–3 shipped ([[Lot Surfaces]] split out). [[Rotated Buildings]], [[Building Services]] and [[Patrol Day]] shipped; [[Building Tool]] planned.
+- 2026-10-05: Added [[Land and Boundaries]] and [[Lift Operations]]. Every item given a bold name with *Needs* and *For*, sections regrouped, scenario needs pulled in; the snowmaking water budget dropped. Shipped [[Graphics Base]] steps 1–6, [[Real Grooming]] and the fresh-snow GPU fix. [[Terrain Realism]] reordered after re-importing Boreal; [[Terrain Layers]] added.
+- 2026-10-04: Added [[Terrain Realism]], folding in cliffs, water and snow sparkle.
+- 2026-10-03: Added [[Money Feedback]] and the ticket-window bug.
+- 2026-10-02: Merged the user's Google Keep list. Shipped [[Stored Trees]] and [[Scenario Metadata]]; ranked the campaign: [[Scenario Goals and Rules]], then the scenarios.
+- 2026-10-01: Next Steps created from `NEXT.md`, `MVP.md`, `DESIGN.md` and the cards, which were then deleted; the Scenarios section added.
