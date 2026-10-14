@@ -145,6 +145,34 @@ func (app *App) ReplaceScene(s Scene) {
 	app.PushScene(s)
 }
 
+// Frame runs one frame of the top scene, dt seconds on, ready to read
+// back (the dev screenshots drive the menus with it): Run's frame, less
+// the swap.
+func (app *App) Frame(dt float64) {
+	app.drawFrame(dt)
+}
+
+// drawFrame polls input, then updates and renders the top scene dt
+// seconds on, and says how long each took.
+func (app *App) drawFrame(dt float64) (updateDur, renderDur time.Duration) {
+	app.Input.BeginFrame()
+	glfw.PollEvents()
+	gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+	if len(app.scenes) > 0 {
+		top := app.scenes[len(app.scenes)-1]
+		uStart := time.Now()
+		top.Update(dt)
+		updateDur = time.Since(uStart)
+		rStart := time.Now()
+		top.Render(app.Renderer)
+		renderDur = time.Since(rStart)
+	}
+	app.LastUpdateMs = float32(updateDur.Seconds() * 1000)
+	app.LastRenderMs = float32(renderDur.Seconds() * 1000)
+	app.Renderer.EndFrame()
+	return updateDur, renderDur
+}
+
 // Frame-tracing thresholds. slowFrameThreshold logs a stderr line each
 // time a frame exceeds it with an update/render split — useful for
 // finding which side is the bottleneck. stallDumpThreshold triggers a
@@ -174,25 +202,7 @@ func (app *App) Run() {
 		heartbeat.Store(now.UnixNano())
 
 		frameStart := time.Now()
-		app.Input.BeginFrame()
-		glfw.PollEvents()
-
-		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
-
-		var updateDur, renderDur time.Duration
-		if len(app.scenes) > 0 {
-			top := app.scenes[len(app.scenes)-1]
-			uStart := time.Now()
-			top.Update(dt)
-			updateDur = time.Since(uStart)
-			rStart := time.Now()
-			top.Render(app.Renderer)
-			renderDur = time.Since(rStart)
-		}
-		app.LastUpdateMs = float32(updateDur.Seconds() * 1000)
-		app.LastRenderMs = float32(renderDur.Seconds() * 1000)
-
-		app.Renderer.EndFrame()
+		updateDur, renderDur := app.drawFrame(dt)
 		app.Window.SwapBuffers()
 
 		if app.LogSlowFrames {

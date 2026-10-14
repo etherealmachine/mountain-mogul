@@ -88,13 +88,7 @@ func (s *IntroScene) draw(r *render.Renderer) {
 	sw, sh := float32(r.ScreenWidth()), float32(r.ScreenHeight())
 
 	// Mint sky: pale at the top, deeper toward the bottom.
-	const bands = 40
-	top := mgl32.Vec4{0.93, 0.98, 0.95, 1}
-	low := mgl32.Vec4{0.70, 0.88, 0.78, 1}
-	for i := range bands {
-		k := float32(i) / (bands - 1)
-		r.DrawColorRect(0, sh*float32(i)/bands, sw, sh/bands+1, top.Mul(1-k).Add(low.Mul(k)))
-	}
+	r.DrawGradientRect(0, 0, sw, sh, mgl32.Vec4{0.93, 0.98, 0.95, 1}, mgl32.Vec4{0.70, 0.88, 0.78, 1})
 
 	// The logo: up to 55% of the screen's height, rising into place.
 	in := easeOut(s.t / introRise)
@@ -106,10 +100,7 @@ func (s *IntroScene) draw(r *render.Renderer) {
 	y := cy - h/2 + (1-in)*40
 
 	// A soft glow behind it.
-	for i := 5; i >= 1; i-- {
-		rad := lh * 0.22 * float32(i)
-		r.DrawColorDisc(cx, cy, rad, mgl32.Vec4{1, 1, 1, 0.07 * in})
-	}
+	r.DrawRadialGlow(cx, cy, lh*1.1, mgl32.Vec4{1, 1, 1, 0.35 * in})
 	if s.logoID != 0 {
 		r.DrawTexturedRect(cx-w/2, y, w, h, s.logoID, mgl32.Vec4{1, 1, 1, in})
 	} else {

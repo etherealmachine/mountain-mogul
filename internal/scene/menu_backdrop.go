@@ -216,6 +216,10 @@ func (b *menuBackdrop) aim(c *render.Camera) {
 	c.Recalculate()
 }
 
+// MenuBackdropLoaded reports whether the menus' live backdrop is on
+// screen yet (for the dev screenshots).
+func MenuBackdropLoaded() bool { return menuBD != nil }
+
 // renderMenuBackdrop draws the backdrop's world, if it's loaded. Menu
 // screens call it from Render before their UI; drawMenuSky then lays the
 // sky or the shot's overlays in the UI pass.

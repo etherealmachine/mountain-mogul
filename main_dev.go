@@ -72,6 +72,8 @@ func main() {
 	editorLayers := flag.String("editor-layers", "", "-screenshot: open -load in the scenario editor with the Layers panel open, switch off these comma-separated terrain layers (\"-\" for none), and capture once the ground has rebuilt")
 	overlayMode := flag.Int("overlay-mode", 0, "-screenshot terrain overlay bitmask (render.Overlay*: contour=1, slope=2, snow-depth=4, grooming=8, packed=16, ice=32, mogul=64, bump-normal=128)")
 	skipIntro := flag.Bool("skip-intro", false, "skip the Minty Fresh splash and jump straight to the start menu")
+	menuShot := flag.Bool("menu", false, "-screenshot: capture the start menu, once its live backdrop has loaded and run -warmup frames (0 for the plain sky before it loads)")
+	introAt := flag.Float64("intro-at", math.NaN(), "-screenshot: capture the intro splash this many seconds in (it fades to the start menu from 2.4 s)")
 	profile := flag.Bool("profile", false, "run a headless 50× sim profile (representative resort, demand on) → cpu.prof + mem.prof")
 	profileSeconds := flag.Float64("profile-seconds", 10, "wall-clock seconds to run with -profile")
 	profileScale := flag.Float64("profile-scale", 50, "TimeScale to run with -profile")
@@ -100,6 +102,10 @@ func main() {
 	// the iterate-on-shader workflow — pick a testbed that exercises the
 	// surface you care about, dial in a camera angle, and re-render after
 	// every shader tweak without leaving the terminal.
+	if *screenshot != "" && (*menuShot || !math.IsNaN(*introAt)) {
+		runMenuScreenshot(*screenshot, *menuShot, *introAt, *warmupFrames)
+		return
+	}
 	if *screenshot != "" && *importPreview != "" {
 		runImportScreenshot(*screenshot, *importPreview)
 		return
@@ -594,6 +600,42 @@ func runImportScreenshot(outPath, at string) {
 		app.Window.SwapBuffers()
 		time.Sleep(16 * time.Millisecond)
 	}
+}
+
+// runMenuScreenshot captures the start menu (menu) or the intro splash
+// introAt seconds in, stepping frames at a steady 60 a second: the menu
+// once its live backdrop has loaded (or a minute passes) and warmup more
+// frames have run, or straight away with warmup 0, on the plain sky.
+func runMenuScreenshot(outPath string, menu bool, introAt float64, warmup int) {
+	app := engine.NewApp("Mountain Mogul (screenshot)", 1280, 720, "assets")
+	defer app.Destroy()
+	const dt = 1.0 / 60
+	if menu {
+		app.PushScene(scene.NewStartMenu())
+		deadline := time.Now().Add(time.Minute)
+		for warmup > 0 && !scene.MenuBackdropLoaded() && time.Now().Before(deadline) {
+			app.Frame(dt)
+			app.Window.SwapBuffers()
+		}
+		for range warmup {
+			app.Frame(dt)
+			app.Window.SwapBuffers()
+		}
+		fmt.Printf("screenshot: start menu, backdrop loaded %v\n", scene.MenuBackdropLoaded())
+	} else {
+		app.PushScene(scene.NewIntroScene())
+		for t := 0.0; t < introAt; t += dt {
+			app.Frame(dt)
+			app.Window.SwapBuffers()
+		}
+		fmt.Printf("screenshot: intro at %.2f s\n", introAt)
+	}
+	app.Frame(dt)
+	if err := app.Renderer.SaveScreenshot(outPath); err != nil {
+		fmt.Fprintln(os.Stderr, "screenshot: write failed:", err)
+		os.Exit(1)
+	}
+	fmt.Println("screenshot: wrote", outPath)
 }
 
 // runEditorScreenshot opens loadPath in the editor with the Layers panel

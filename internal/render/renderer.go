@@ -2010,6 +2010,40 @@ func (r *Renderer) DrawGradientRect(x, y, w, h float32, top, bottom mgl32.Vec4) 
 	)
 }
 
+// DrawRadialGlow draws a soft round glow of colour c at (cx, cy): its
+// alpha c[3] at the middle easing out (quadratically) to nothing at
+// radius, in rings whose vertex colours the GPU blends (no rings show).
+func (r *Renderer) DrawRadialGlow(cx, cy, radius float32, c mgl32.Vec4) {
+	const rings, segs = 10, 72
+	r.useUITexture(r.whiteTexID)
+	at := func(u float32, k int) (x, y float32, col mgl32.Vec4) {
+		a := 2 * math.Pi * float64(k) / segs
+		col = c
+		col[3] = c[3] * (1 - u) * (1 - u)
+		return cx + radius*u*float32(math.Cos(a)), cy + radius*u*float32(math.Sin(a)), col
+	}
+	vert := func(x, y float32, col mgl32.Vec4) {
+		r.uiVerts = append(r.uiVerts, x, y, 0.5, 0.5, col[0], col[1], col[2], col[3])
+	}
+	for i := range rings {
+		u0, u1 := float32(i)/rings, float32(i+1)/rings
+		for k := range segs {
+			x00, y00, c00 := at(u0, k)
+			x01, y01, c01 := at(u0, k+1)
+			x10, y10, c10 := at(u1, k)
+			x11, y11, c11 := at(u1, k+1)
+			vert(x00, y00, c00)
+			vert(x10, y10, c10)
+			vert(x11, y11, c11)
+			if i > 0 {
+				vert(x00, y00, c00)
+				vert(x11, y11, c11)
+				vert(x01, y01, c01)
+			}
+		}
+	}
+}
+
 // DrawColorRectOutline draws a 1-pixel border around a rectangle using
 // four thin filled rects — no fill, just the frame. Used for button
 // outlines and panel chrome.
