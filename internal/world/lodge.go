@@ -46,9 +46,11 @@ type ServiceInfo struct {
 }
 
 const (
-	// PatrollersPerTile is how many patrollers (each with a snowmobile)
-	// a patrol tile bases.
-	PatrollersPerTile = 1
+	// PatrollersPerTile is how many patrollers a patrol tile has room
+	// for; Building.Patrollers is how many it employs, each paid
+	// PatrollerDailyCost a day.
+	PatrollersPerTile  = 4
+	PatrollerDailyCost = 750
 )
 
 // serviceInfo is the registry. The demo leaves out the bar, the rental
@@ -63,7 +65,7 @@ var serviceInfo = func() [ServiceCount]ServiceInfo {
 		ServiceTickets: {Label: "Tickets", Accent: mgl32.Vec3{0.68, 0.80, 1.00}, Overlay: [3]uint8{80, 140, 230},
 			TileCost: 25_000, TileDailyCost: 450, ForGuests: true}, // a ticket window's clerk
 		ServicePatrol: {Label: "Ski patrol", Accent: mgl32.Vec3{1.00, 0.62, 0.58}, Overlay: [3]uint8{220, 60, 50},
-			TileCost: 40_000, TileDailyCost: 750}, // a patroller and their snowmobile
+			TileCost: 40_000, TileDailyCost: 100}, // the room; patrollers are paid each (PatrollerDailyCost)
 		ServiceGarage: {Label: "Snowcat garage", Accent: mgl32.Vec3{0.82, 0.84, 0.86}, Overlay: [3]uint8{120, 130, 140},
 			TileCost: 15_000, TileDailyCost: 90}, // the floor and doors; vehicles are bought into it
 	}
@@ -635,12 +637,21 @@ func (w *World) ServiceHome(b *Building, s Service) mgl32.Vec3 {
 	return mgl32.Vec3{p[0], y, p[1]}
 }
 
-// SyncFleet keeps the patrollers based at b in step with its patrol
-// tiles: PatrollersPerTile per patrol tile. New ones start at the door;
-// surplus ones go, idle ones first. (Snowcats and snowmobiles are bought
-// into a garage's space instead; see garage.go.)
+// SyncFleet keeps the patrollers based at b in step with its staffing:
+// Building.Patrollers, at least one and at most PatrollersPerTile a
+// patrol tile (one a tile for a building that hasn't set it). New ones
+// start at the door; surplus ones go, idle ones first. (Snowcats and
+// snowmobiles are bought into a garage's space instead; see garage.go.)
 func (w *World) SyncFleet(b *Building) {
-	wantP := b.TileCount(ServicePatrol) * PatrollersPerTile
+	tiles := b.TileCount(ServicePatrol)
+	if b.Patrollers <= 0 {
+		b.Patrollers = tiles
+	}
+	b.Patrollers = min(b.Patrollers, tiles*PatrollersPerTile)
+	if tiles > 0 {
+		b.Patrollers = max(b.Patrollers, 1)
+	}
+	wantP := b.Patrollers
 	var mine []*Patroller
 	for _, p := range w.Patrollers {
 		if p.HutID == b.ID {
@@ -944,7 +955,11 @@ func LodgeUpkeep(b *Building) int {
 // RoomUpkeep is one open day's staffing and upkeep for room r of b: its
 // share of LodgeUpkeep, less the building's base.
 func RoomUpkeep(b *Building, r Room) int {
-	return int(float32(r.Service.TileDailyCost()*len(r.Cells)*b.Floors()) * b.Kind.dailyScale())
+	cost := int(float32(r.Service.TileDailyCost()*len(r.Cells)*b.Floors()) * b.Kind.dailyScale())
+	if r.Service == ServicePatrol {
+		cost += b.Patrollers * PatrollerDailyCost
+	}
+	return cost
 }
 
 // RoomDoor returns room r's door, false when it has none.

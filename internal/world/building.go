@@ -103,6 +103,9 @@ type Building struct {
 	// InstructorDailyCost a day and leading a class on the hill).
 	LessonPrice int
 	Instructors int
+	// Patrollers is how many patrollers its patrol room employs
+	// (SyncFleet keeps it within the room's places).
+	Patrollers int
 	// LessonsToday counts the lessons the school gave on day LessonDay,
 	// and MovedUpToday the students who moved up a skill level in them.
 	// Not saved.

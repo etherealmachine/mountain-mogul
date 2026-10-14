@@ -479,6 +479,9 @@ func (w *World) OperatingCosts() CostBreakdown {
 			if b.Offers(ServiceSkiSchool) {
 				c[CostBuildings] += b.Instructors * InstructorDailyCost
 			}
+			if b.Offers(ServicePatrol) {
+				c[CostBuildings] += b.Patrollers * PatrollerDailyCost
+			}
 		}
 	}
 	c[CostSnowmaking] = int(math.Round(w.SnowmakingToday))

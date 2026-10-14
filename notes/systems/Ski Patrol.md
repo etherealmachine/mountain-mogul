@@ -14,6 +14,8 @@ The player tracks falls three ways: a pin over every guest who is down (red whil
 
 Code: `internal/sim/patrol.go`, `internal/world/patroller.go`.
 
+Staffing (2026-10-14): a patrol tile has room for 4 patrollers; the patrol popup's Staffed stepper sets how many the room employs, at $750 a day each, with the room itself $100 a tile ([[Avalanche Control]]).
+
 ## Log
 
 - 2026-10-01: Huts, one patroller each, the rescue cycle, and the event entry are in.
@@ -27,3 +29,4 @@ Code: `internal/sim/patrol.go`, `internal/world/patroller.go`.
 - 2026-10-06: The patient is drawn while being loaded and towed by toboggan, and walks to their car after first aid instead of vanishing ([[Patrol Day]] step 6).
 - 2026-10-08: Fall tracking: down-guest pins, the Falls heat-map overlay, and "Falls today" in the patrol popup.
 - 2026-10-10: Snowmobiles drive a route round obstacles and steep ground, and dispatch times them by it ([[Snowmobile Routes]]).
+- 2026-10-14: Four patrollers a tile, paid each; staffing set in the popup ([[Avalanche Control]] step 2).

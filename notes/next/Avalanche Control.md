@@ -51,7 +51,7 @@ From the user, 2026-10-14:
 ## Steps
 
 1. Done: **Slide paths and danger.** Paths from the ground, danger from loading, hourly; natural releases through the day; lift riders and walkers in a runout caught too; the density bug. The overlay redone as paths by danger.
-2. **Patrol staffing.** Four places a patrol tile, cost per patroller, a staffing stepper in the popup.
+2. Done: **Patrol staffing.** Four places a patrol tile, cost per patroller, a staffing stepper in the popup.
 3. **Closures and the risk limit.** The avalanche-control upgrade (cost, trained patrollers' extra); the limit in its popup (Danger by default); runs closing under paths at or over it, with ropes and signs, and guests keeping off.
 4. **Control work.** Morning and post-storm control: mortars from the patrol building within range, ski cutting beyond; controlled releases; runs reopening.
 5. **Caught and Safety.** Burials, rescues, the event; the Safety score beside the stars, in demand and capping stars.
@@ -67,3 +67,4 @@ From the user, 2026-10-14:
 
 - 2026-10-14: Surveyed and planned with the user, ranked first.
 - 2026-10-14: Step 1 built. Start zones split by the way they face and capped at 4 ha (the first try made 20,000-cell zones on Kirkwood); backcountry slides batched in the feed (a storm day logged one an hour).
+- 2026-10-14: Step 2 built: a patrol tile has room for 4 patrollers at $750 a day each (the room itself $100 a tile); the popup's Staffed stepper sets how many, at least one; older saves keep one a tile.

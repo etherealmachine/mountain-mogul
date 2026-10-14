@@ -350,6 +350,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 			buildings[i].Tiles = saveTiles(b)
 			buildings[i].FloorY, buildings[i].FloorSet = b.FloorY, b.FloorSet
 		}
+		buildings[i].Patrollers = b.Patrollers
 		if b.Offers(world.ServiceSkiSchool) {
 			buildings[i].Lesson, buildings[i].Instructors = b.LessonPrice, b.Instructors
 			if b.Instructors == 0 {
@@ -1550,6 +1551,7 @@ func loadServiceBuilding(w *world.World, bd BuildingData) *world.Building {
 	if bd.Lesson > 0 {
 		b.LessonPrice = bd.Lesson
 	}
+	b.Patrollers = bd.Patrollers
 	switch {
 	case bd.Instructors > 0:
 		b.Instructors = bd.Instructors

@@ -929,6 +929,12 @@ func (s *Scenario) buildRoomPopup(b *world.Building, cell [2]int, confirmRemove 
 			}
 			return fmt.Sprintf("%d (%d on a call, %d with a snowmobile)", n, out, sleds)
 		})
+		w.AddIntStepperFn("Staffed",
+			func() string {
+				return fmt.Sprintf("%d of %d places (%s/day each)", b.Patrollers, b.TileCount(world.ServicePatrol)*world.PatrollersPerTile, formatDollars(world.PatrollerDailyCost))
+			},
+			func() { b.Patrollers = max(b.Patrollers-1, 1); s.world.SyncFleet(b) },
+			func() { b.Patrollers++; s.world.SyncFleet(b) })
 		s.addFallReport(w)
 	case world.ServiceGarage:
 		w.AddLabel("Space", func() string {

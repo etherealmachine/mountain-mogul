@@ -519,9 +519,12 @@ type BuildingData struct {
 	Rental     int      `json:"rent,omitempty"`
 	// Lesson is the ski school's lesson price, and Instructors its
 	// headcount (-1 for none, so 0 stays the default).
-	Lesson      int      `json:"lesson,omitempty"`
-	Instructors int      `json:"instructors,omitempty"`
-	Quality     *float32 `json:"q,omitempty"`
+	Lesson      int `json:"lesson,omitempty"`
+	Instructors int `json:"instructors,omitempty"`
+	// Patrollers is the patrol room's staffing (0 in older saves: one a
+	// patrol tile).
+	Patrollers int      `json:"patrollers,omitempty"`
+	Quality    *float32 `json:"q,omitempty"`
 }
 
 // SnowcatData is a saved cat. ShedID links it back to its shed; both
