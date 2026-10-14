@@ -741,4 +741,3 @@ func onSceneSeconds(g *world.Guest) float32 {
 	}
 	return world.PatrollerOnSceneSeconds
 }
-
