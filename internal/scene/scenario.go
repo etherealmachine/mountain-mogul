@@ -2972,6 +2972,7 @@ func (s *Scenario) Render(r *render.Renderer) {
 		cell := s.world.Terrain.Cells[s.hoverCell[0]][s.hoverCell[1]]
 		drawables = append(drawables, &snowLayerTooltip{
 			base:    cell.Base,
+			baseD:   cell.BaseDensity,
 			top:     cell.Top,
 			mouseX:  s.hoverMouseScreen[0],
 			mouseY:  s.hoverMouseScreen[1],
@@ -4476,11 +4477,11 @@ func (p *terrainInspectPanel) Draw(r *render.Renderer) {
 	}
 	if c.Top.Accumulation > 0 {
 		rows = append(rows, fmt.Sprintf("  Top  %-13s %.2fm",
-			world.KindName(c.Top.Kind), c.Top.Accumulation/world.KindDensity(c.Top.Kind)))
+			world.KindName(c.Top.Kind), c.Top.Accumulation/c.Top.EffDensity()))
 	}
 	if c.Base > 0 {
 		rows = append(rows, fmt.Sprintf("  Base              %.2fm",
-			c.Base/world.KindDensity(world.KindBase)))
+			c.Base/c.BaseEffDensity()))
 	}
 	rows = append(rows, "",
 		fmt.Sprintf("Trees      = %d", c.TreeCount),
@@ -4492,7 +4493,8 @@ func (p *terrainInspectPanel) Draw(r *render.Renderer) {
 // snowLayerTooltip renders a hover tooltip showing the two-layer snow state for
 // the cell under the cursor when the Snow overlay is active.
 type snowLayerTooltip struct {
-	base    float32 // KindBase SWE (metres)
+	base    float32 // the season base's SWE (metres)
+	baseD   float32 // and its density
 	top     world.SnowLayer
 	mouseX  float32
 	mouseY  float32
@@ -4512,12 +4514,15 @@ func (t *snowLayerTooltip) Draw(r *render.Renderer) {
 	} else {
 		rows = append(rows, "Snow")
 		if t.top.Accumulation > 0 {
-			visD := t.top.Accumulation / world.KindDensity(t.top.Kind)
-			rows = append(rows, fmt.Sprintf("%-13s %s", world.KindName(t.top.Kind), settings.FormatDepth(visD)))
+			visD := t.top.Accumulation / t.top.EffDensity()
+			rows = append(rows, fmt.Sprintf("%-13s %s (%.2f)", world.KindName(t.top.Kind), settings.FormatDepth(visD), t.top.EffDensity()))
 		}
 		if t.base > 0 {
-			visD := t.base / world.KindDensity(world.KindBase)
-			rows = append(rows, fmt.Sprintf("Base          %s", settings.FormatDepth(visD)))
+			d := t.baseD
+			if d <= 0 {
+				d = world.BaseDensityDefault
+			}
+			rows = append(rows, fmt.Sprintf("Base          %s (%.2f)", settings.FormatDepth(t.base/d), d))
 		}
 	}
 

@@ -59,7 +59,8 @@ func (s *Simulation) startAvalanche(t *world.Terrain, x, z int) bool {
 	// Take half the top layer into transit; the rest stays as a debris marker.
 	released := c.Top.Accumulation * 0.5
 	c.Top.Accumulation -= released
-	c.Top.Kind = world.KindAvalancheDebris
+	c.Top.SetKind(world.KindAvalancheDebris)
+	c.Top.Density = max(c.Top.Density, world.KindDensity(world.KindAvalancheDebris))
 	c.Grooming = 0
 	c.MogulSize = 0
 	c.AvySnow = released
@@ -121,7 +122,8 @@ func (s *Simulation) spreadAvyCell(t *world.Terrain, x, z int) {
 	passing := snow - deposit
 
 	c.Top.Accumulation += deposit
-	c.Top.Kind = world.KindAvalancheDebris
+	c.Top.SetKind(world.KindAvalancheDebris)
+	c.Top.Density = max(c.Top.Density, world.KindDensity(world.KindAvalancheDebris))
 	c.Grooming = 0
 	c.MogulSize = 0
 	t.MarkSnowDirty(x, z)
@@ -184,7 +186,8 @@ func (s *Simulation) spreadAvyCell(t *world.Terrain, x, z int) {
 			// Too thin to keep propagating — deposit at destination for conservation.
 			nc := &t.Cells[cd.nx][cd.nz]
 			nc.Top.Accumulation += childSnow
-			nc.Top.Kind = world.KindAvalancheDebris
+			nc.Top.SetKind(world.KindAvalancheDebris)
+			c.Top.Density = max(c.Top.Density, world.KindDensity(world.KindAvalancheDebris))
 			nc.Grooming = 0
 			nc.MogulSize = 0
 			t.MarkSnowDirty(cd.nx, cd.nz)

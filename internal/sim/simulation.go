@@ -1287,10 +1287,13 @@ func (s *Simulation) applyDailyWeather(dw DayWeather) {
 		t.Surface.AgeTracks(world.TrackClock(s.SimTime), 1)
 	}
 
-	// Decay skier traffic on all cells once per day (~4 day half-life).
+	// Decay skier traffic on all cells once per day (~4 day half-life),
+	// and the snow settles a day's worth, faster on a day that thaws.
+	warm := dw.TempHigh > 0
 	for x := range t.Cells {
 		for z := range t.Cells[x] {
 			t.Cells[x][z].SkierTraffic *= 0.85
+			t.Cells[x][z].SettleSnow(warm)
 		}
 	}
 
@@ -1314,13 +1317,14 @@ func (s *Simulation) pushSnowLayer(dw DayWeather) {
 		for z := range t.Cells[x] {
 			c := &t.Cells[x][z]
 
+			fresh := world.KindDensity(kind)
 			if c.Top.Accumulation > 0 && c.Top.Kind == kind {
 				// Same kind — grow Top in place.
-				c.Top.Accumulation += accumSWE
+				c.Top.AddSnow(accumSWE, fresh)
 			} else {
 				// Different kind: fold current Top into Base, start new Top.
-				c.Base += c.Top.Accumulation
-				c.Top = world.SnowLayer{Kind: kind, Accumulation: accumSWE}
+				c.FoldTopIntoBase()
+				c.Top = world.SnowLayer{Kind: kind, Accumulation: accumSWE, Density: fresh}
 			}
 
 			t.Ungroom(x, z, 1-burialFactor)
@@ -1367,7 +1371,7 @@ func (s *Simulation) applyKindTransition(evt weatherEvent) {
 			if next == top.Kind {
 				continue
 			}
-			top.Kind = next
+			top.SetKind(next)
 			keep := float32(0)
 			if next == world.KindCrust {
 				keep = crustGroomKeep
@@ -1487,8 +1491,8 @@ func meltCell(c *world.Cell, melt float32) {
 			c.MogulSize = 0
 			// Promote Base to a KindBase Top so the invariant holds.
 			if c.Base > 0 {
-				c.Top = world.SnowLayer{Kind: world.KindBase, Accumulation: c.Base}
-				c.Base = 0
+				c.Top = world.SnowLayer{Kind: world.KindBase, Accumulation: c.Base, Density: c.BaseEffDensity()}
+				c.Base, c.BaseDensity = 0, 0
 			}
 		} else {
 			c.Top.Accumulation -= melt

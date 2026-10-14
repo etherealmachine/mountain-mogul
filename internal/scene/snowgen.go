@@ -74,10 +74,10 @@ func (f *elevFields) addSnowLayer(t *world.Terrain, kind world.SnowKind, maxDept
 	f.applySnowAccum(t, maxDepth, snowlineFrac, treelineFrac, windDeg, seed, func(x, z int, acc float32) {
 		c := &t.Cells[x][z]
 		if c.Top.Accumulation > 0 && c.Top.Kind == kind {
-			c.Top.Accumulation += acc
+			c.Top.AddSnow(acc, world.KindDensity(kind))
 		} else {
-			c.Base += c.Top.Accumulation
-			c.Top = world.SnowLayer{Accumulation: acc, Kind: kind}
+			c.FoldTopIntoBase()
+			c.Top = world.SnowLayer{Accumulation: acc, Kind: kind, Density: world.KindDensity(kind)}
 		}
 	})
 }

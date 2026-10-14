@@ -139,7 +139,7 @@ func (t *Terrain) ShedSnow() float32 {
 		k := int(k32)
 		x, z := k/H, k%H
 		c := &t.Cells[x][z]
-		c.Base += incoming[k]
+		c.AddToBase(incoming[k], sluffDensity)
 		var rf float32
 		if rockFrac != nil {
 			rf = rockFrac[k]
@@ -189,3 +189,7 @@ func (t *Terrain) ShedSnow() float32 {
 	}
 	return moved
 }
+
+// sluffDensity is the density of snow that's slid off steeper ground,
+// tumbled and packed on the way down.
+const sluffDensity = float32(0.40)

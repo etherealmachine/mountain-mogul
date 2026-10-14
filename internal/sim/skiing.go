@@ -560,7 +560,7 @@ func packUnderfoot(t *world.Terrain, pos mgl32.Vec3, dt float64) (xi, zi int, ok
 			thresh = trafficThreshCrust // skied in, machine snow packs down
 		}
 		if thresh > 0 && c.SkierTraffic >= thresh {
-			top.Kind = world.KindPackedPowder
+			top.SetKind(world.KindPackedPowder)
 			c.SkierTraffic = 0
 			dirty = true
 		}

@@ -33,7 +33,7 @@ From the user, 2026-10-14:
 - **Making snow.** When the air at a cell is cold enough (the base temperature corrected for altitude, 6.5 °C a kilometre), each snowmaking cell below its target gets machine snow at a rate rising from nothing at −2 °C to full at −10 °C: full is 8 mm of water an hour, so a cold twelve-hour night lays about 20 cm. Cells at their target stop, so a deep run costs nothing.
 - **When.** Only while the run's lifts are stopped (nights and closed days; not while it's lit for [[Night Sessions]]), stopping at OpenHour − 2 so the cats can groom over it.
 - **Cost.** By the water made: $2 a cubic metre (a kilometre run 25 m wide on a cold twelve-hour night: about 2,400 m³ of water, $4,800), as the "Snowmaking" cost line.
-- **Machine snow.** Its own layer kind (`KindMachine`, 0.50 density): firm and fast. It takes in the surface layer it's laid on rather than folding it into the base, which would pack it to base density and leave the run shallower than before. It clears the corduroy; skiers and cats pack it to packed powder; cold, clear and windy days leave it, a warm one turns it to corn.
+- **Machine snow.** Its own layer kind (`KindMachine`, 0.45 when laid, settling like any snow): firm and fast. It takes in the surface layer it's laid on rather than folding it into the base, which would pack it to base density and leave the run shallower than before. It clears the corduroy; skiers and cats pack it to packed powder; cold, clear and windy days leave it, a warm one turns it to corn.
 - **Guns you can see.** Fan guns drawn along a snowmaking run's edge every 40 m (reusing the snow gun model), blowing a plume of particles while they make snow.
 - **Depth that matters.** A lift holds when the base of its line has under 30 cm of snow (`LiftHoldDepth`). A run cell under 20 cm shows rock: route costs avoid it, and skiing it can bring "hit rocks on <run>" (a letdown) and a fall now and then.
 - **Feedback.** A Snowmaking map view (runs by depth against target, blowing now); the run popup shows depth, target, snow made and cost last night; the morning feed says what was made ("Snowmaking laid 18 cm on Kiss A Bear overnight, $2,700").
@@ -43,7 +43,7 @@ From the user, 2026-10-14:
 In order; each builds with `go build` and `go vet`, and is checked headless on the Boreal Goals Test and on screen.
 
 1. Done: **Snowmaking on runs**: the run's install, switch and target; snow by temperature and altitude to the target, while its lifts are stopped; cost by water made; the placed gun removed. Machine snow as its own kind.
-2. **Depth that matters**: lift holds under 30 cm; rock on thin runs (routes, letdown, falls). *Needs* the snow compaction bug fixed first ([[Next Steps]], Bugs): depth swings too much day to day for thresholds on it to mean anything.
+2. **Depth that matters**: lift holds under 30 cm; rock on thin runs (routes, letdown, falls).
 3. **Guns and feedback**: guns along the runs with plumes, the Snowmaking map view, the popup readouts and the morning feed line.
 4. **Balance**: an early-December Boreal opening on snowmaking alone; the cost per run per night against a lift's day; [[Boreal Tutorial]]'s money.
 
@@ -56,3 +56,4 @@ In order; each builds with `go build` and `go vet`, and is checked headless on t
 
 - 2026-10-14: Surveyed and planned with the user, ranked first, ahead of [[Night Sessions]].
 - 2026-10-14: Step 1 built. On the Boreal Goals Test (Dec 16, every run on, target 2 m, closed): the first cold night (−5 to −12 °C) made snow on all 11 runs, about 275,000 m², for $42,755; the next two milder nights $11,027 and $6,558. Runs gained 13–26 cm a night over the same days without snowmaking, but both lose about half their depth to the compaction bug (0.89 m to 0.41 m in a day without snowmaking), which step 2 waits on.
+- 2026-10-14: The compaction bug fixed ([[Snow]]): layers keep their own density, so step 2's depth thresholds hold still.

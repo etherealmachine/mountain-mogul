@@ -453,6 +453,7 @@ type CameraData struct {
 type LayerData struct {
 	A float32 `json:"a"`           // SWE metres (Accumulation)
 	K uint8   `json:"k,omitempty"` // SnowKind (0=Powder if omitted)
+	D float32 `json:"d,omitempty"` // density; 0 (older saves) for the kind's
 }
 
 // CellData is the serialisable representation of a terrain cell. Schema

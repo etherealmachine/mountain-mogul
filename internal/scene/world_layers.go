@@ -325,10 +325,11 @@ func runSnowLayer(w *world.World, c *layerCache) {
 			gx, gz := t.GradientAt(x, z)
 			swe, recent := pack.At(day, w.BaseAltitude+cell.GroundElevation, gx, gz, shade[x*t.Height+z])
 			d := min(drift.at(x, z, f.elevFrac(cell.GroundElevation)), maxDrift) * k
-			cell.Base = (swe - recent) * d
+			cell.Base, cell.BaseDensity = (swe-recent)*d, 0
 			cell.Top = world.SnowLayer{}
 			if recent > 0 {
-				cell.Top = world.SnowLayer{Accumulation: recent * d, Kind: world.KindPowder}
+				// The last few days' snow, part settled.
+				cell.Top = world.SnowLayer{Accumulation: recent * d, Kind: world.KindPowder, Density: recentSnowDensity}
 			}
 		}
 	}
@@ -374,3 +375,7 @@ func clearSnow(w *world.World) {
 	t.Groom.Clear()
 	t.MarkAllSnowDirty()
 }
+
+// recentSnowDensity is the density Auto snow gives the snow that fell in
+// the last few days (sim.SeasonSnowpack's recent), part way settled.
+const recentSnowDensity = float32(0.20)

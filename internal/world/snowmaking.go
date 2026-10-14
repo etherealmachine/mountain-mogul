@@ -51,21 +51,22 @@ func SnowmakingRate(tempC float32) float32 {
 
 // AddMachineSnow lays swe metres of machine snow on c, which buries the
 // corduroy. The surface becomes machine snow, taking in whatever was on
-// top: folding it into the season base instead would pack it to base
-// density, and a run would come out of a night's snowmaking shallower
-// than it went in. Bare base laid open by melt stays base under it.
+// top at its own density; bare base laid open by melt goes back under
+// it.
 func AddMachineSnow(c *Cell, swe float32) {
+	machine := KindDensity(KindMachine)
 	switch {
 	case c.Top.Accumulation <= 0:
-		c.Top = SnowLayer{Kind: KindMachine, Accumulation: swe}
+		c.Top = SnowLayer{Kind: KindMachine, Accumulation: swe, Density: machine}
 	case c.Top.Kind == KindMachine:
-		c.Top.Accumulation += swe
+		c.Top.AddSnow(swe, machine)
 		return
 	case c.Top.Kind == KindBase:
-		c.Base += c.Top.Accumulation
-		c.Top = SnowLayer{Kind: KindMachine, Accumulation: swe}
+		c.FoldTopIntoBase()
+		c.Top = SnowLayer{Kind: KindMachine, Accumulation: swe, Density: machine}
 	default:
-		c.Top = SnowLayer{Kind: KindMachine, Accumulation: c.Top.Accumulation + swe}
+		c.Top.SetKind(KindMachine)
+		c.Top.AddSnow(swe, machine)
 	}
 	c.Grooming = 0
 	c.SkierTraffic = 0

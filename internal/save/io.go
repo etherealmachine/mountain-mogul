@@ -295,10 +295,10 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 			c := t.Cells[x][z]
 			var layers []LayerData
 			if c.Base > 0 {
-				layers = append(layers, LayerData{A: c.Base, K: uint8(world.KindBase)})
+				layers = append(layers, LayerData{A: c.Base, K: uint8(world.KindBase), D: c.BaseDensity})
 			}
 			if c.Top.Accumulation > 0 {
-				layers = append(layers, LayerData{A: c.Top.Accumulation, K: uint8(c.Top.Kind)})
+				layers = append(layers, LayerData{A: c.Top.Accumulation, K: uint8(c.Top.Kind), D: c.Top.Density})
 			}
 			cells = append(cells, CellData{
 				Ground:       c.GroundElevation,
@@ -909,11 +909,12 @@ func dataToWorld(data ScenarioData) *world.World {
 					t.Cells[x][z].Top = world.SnowLayer{}
 				case 1:
 					t.Cells[x][z].Base = 0
-					t.Cells[x][z].Top = world.SnowLayer{Accumulation: c.Layers[0].A, Kind: world.SnowKind(c.Layers[0].K)}
+					t.Cells[x][z].Top = world.SnowLayer{Accumulation: c.Layers[0].A, Kind: world.SnowKind(c.Layers[0].K), Density: c.Layers[0].D}
 				default:
 					t.Cells[x][z].Base = c.Layers[n-2].A
+					t.Cells[x][z].BaseDensity = c.Layers[n-2].D
 					top := c.Layers[n-1]
-					t.Cells[x][z].Top = world.SnowLayer{Accumulation: top.A, Kind: world.SnowKind(top.K)}
+					t.Cells[x][z].Top = world.SnowLayer{Accumulation: top.A, Kind: world.SnowKind(top.K), Density: top.D}
 				}
 			}
 			idx++

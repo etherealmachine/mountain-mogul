@@ -56,37 +56,153 @@ func KindName(k SnowKind) string {
 	}
 }
 
-// KindDensity returns the relative density for a snow kind.
-// Used to convert SWE (accumulation) to visible depth: depth = acc / density.
+// KindDensity is the density snow of kind k is laid down at (fresh
+// snowfall, machine snow), and the guess for a layer saved before layers
+// stored their own. A layer's density after that is its own: it settles
+// day by day (SettleSnow) and cats pack it (GroomCompact), but changing
+// its kind (wind, sun, skiers) doesn't change it.
 func KindDensity(k SnowKind) float32 {
 	switch k {
 	case KindPowder:
-		return 0.15
+		return 0.12
 	case KindPackedPowder:
-		return 0.50
+		return 0.40
 	case KindCement:
-		return 0.65
+		return 0.40
 	case KindWindSlab:
-		return 0.55
+		return 0.35
 	case KindCrust:
-		return 0.60
+		return 0.35
 	case KindBoilerplate:
-		return 0.90
+		return 0.45
 	case KindSlush:
-		return 0.55
-	case KindFrozenGranular:
-		return 0.80
-	case KindCorn:
-		return 0.52
-	case KindBase:
-		return 0.75
-	case KindAvalancheDebris:
-		return 0.65 // dense chunks, similar to cement
-	case KindMachine:
-		return 0.50 // small round grains, packed tight
-	default:
 		return 0.50
+	case KindFrozenGranular:
+		return 0.45
+	case KindCorn:
+		return 0.45
+	case KindBase:
+		return BaseDensityDefault
+	case KindAvalancheDebris:
+		return 0.50 // tumbled chunks
+	case KindMachine:
+		return 0.45 // small round grains, packed tight
+	default:
+		return 0.40
 	}
+}
+
+// Snow settles under its own weight: each day a layer's density closes
+// a share of the gap to where it settles to, faster on a warm day. Fresh
+// powder at 0.12 is about 0.27 after a cold week; the season base
+// settles toward 0.45 (real midwinter snowpacks are 0.30 to 0.45).
+const (
+	BaseDensityDefault = float32(0.40) // a base with none stored
+	topSettledDensity  = float32(0.38)
+	baseSettledDensity = float32(0.45)
+	settleColdPerDay   = float32(0.12)
+	settleWarmPerDay   = float32(0.25)
+	// A cat packs the top GroomPackDepth metres of snow to
+	// GroomPackDensity.
+	GroomPackDepth   = float32(0.35)
+	GroomPackDensity = float32(0.45)
+)
+
+// EffDensity is the layer's density: its own, or for a layer with none
+// stored, its kind's (KindDensity).
+func (l SnowLayer) EffDensity() float32 {
+	if l.Density > 0 {
+		return l.Density
+	}
+	return KindDensity(l.Kind)
+}
+
+// SetKind changes the layer's kind, keeping its density.
+func (l *SnowLayer) SetKind(k SnowKind) {
+	l.Density = l.EffDensity()
+	l.Kind = k
+}
+
+// AddSnow lays swe metres of snow at density on the layer, the two
+// densities blending by water.
+func (l *SnowLayer) AddSnow(swe, density float32) {
+	l.Density = blendDensity(l.Accumulation, l.EffDensity(), swe, density)
+	l.Accumulation += swe
+}
+
+// blendDensity is the density of a metres of water at density da and b
+// at db together: total water over total depth.
+func blendDensity(a, da, b, db float32) float32 {
+	if a <= 0 {
+		return db
+	}
+	if b <= 0 {
+		return da
+	}
+	return (a + b) / (a/da + b/db)
+}
+
+// BaseEffDensity is the season base's density: its own, or
+// BaseDensityDefault for one with none stored.
+func (c *Cell) BaseEffDensity() float32 {
+	if c.BaseDensity > 0 {
+		return c.BaseDensity
+	}
+	return BaseDensityDefault
+}
+
+// AddToBase folds swe metres of snow at density into the season base.
+func (c *Cell) AddToBase(swe, density float32) {
+	c.BaseDensity = blendDensity(c.Base, c.BaseEffDensity(), swe, density)
+	c.Base += swe
+}
+
+// FoldTopIntoBase moves the whole top layer into the season base, which
+// takes its density as it is: snow isn't packed by being buried.
+func (c *Cell) FoldTopIntoBase() {
+	if c.Top.Accumulation > 0 {
+		c.AddToBase(c.Top.Accumulation, c.Top.EffDensity())
+	}
+	c.Top = SnowLayer{}
+}
+
+// SettleSnow is a day of settling: the top layer and the base close a
+// share of the gap to their settled densities (none for a layer already
+// denser: ice, slush and the like stay as they are).
+func (c *Cell) SettleSnow(warm bool) {
+	k := settleColdPerDay
+	if warm {
+		k = settleWarmPerDay
+	}
+	if c.Top.Accumulation > 0 {
+		if d := c.Top.EffDensity(); d < topSettledDensity {
+			c.Top.Density = d + (topSettledDensity-d)*k
+		} else {
+			c.Top.Density = d
+		}
+	}
+	if c.Base > 0 {
+		if d := c.BaseEffDensity(); d < baseSettledDensity {
+			c.BaseDensity = d + (baseSettledDensity-d)*k
+		} else {
+			c.BaseDensity = d
+		}
+	}
+}
+
+// GroomCompact is a cat's pass over the top layer: its top
+// GroomPackDepth metres packed to GroomPackDensity, the snow under that
+// as it was. A metre of fresh powder grooms down to about 70 cm.
+func (c *Cell) GroomCompact() {
+	l := &c.Top
+	d := l.EffDensity()
+	if l.Accumulation <= 0 || d >= GroomPackDensity {
+		return
+	}
+	depth := l.Accumulation / d
+	packed := min(depth, GroomPackDepth)
+	newDepth := depth - packed + packed*d/GroomPackDensity
+	l.Density = l.Accumulation / newDepth
 }
 
 // KindShaderPacked returns the value written into the terrain vertex's packed
@@ -214,10 +330,14 @@ func KindEdgeMult(k SnowKind) float32 {
 	}
 }
 
-// SnowLayer is the active surface snow stratum. Visible depth = Accumulation / KindDensity(Kind).
+// SnowLayer is the active surface snow stratum. Visible depth =
+// Accumulation / EffDensity.
 type SnowLayer struct {
 	Accumulation float32 // SWE metres, conserved under kind transitions
 	Kind         SnowKind
+	// Density is the layer's own (water over depth); 0 for its kind's
+	// (EffDensity).
+	Density float32
 }
 
 // Avalanche instability thresholds (rise/run, SWE metres).
@@ -246,11 +366,12 @@ func avyKindMult(k SnowKind) float32 {
 
 // Cell represents a single grid cell in the terrain.
 //
-// Snow has two components: Base is consolidated season-base SWE (always
-// KindBase density); Top is the active surface layer whose Kind varies with
+// Snow has two components: Base is consolidated season-base SWE, at
+// BaseDensity; Top is the active surface layer whose Kind varies with
 // weather, grooming, and skier traffic. When Top melts away, Base is
 // promoted to a new KindBase Top. When a new storm's kind differs from Top,
-// Top's SWE folds into Base and a new Top begins.
+// Top folds into Base (at its own density) and a new Top begins. Both
+// settle day by day (SettleSnow).
 //
 // Grooming and MogulSize are surface modifiers: Grooming is set by the
 // snowcat fleet and decays under skier traffic; MogulSize grows from
@@ -263,7 +384,8 @@ func avyKindMult(k SnowKind) float32 {
 // They are not persisted to save files and reset to zero on load.
 type Cell struct {
 	GroundElevation float32
-	Base            float32   // consolidated season-base SWE (metres); always KindBase density
+	Base            float32   // consolidated season-base SWE (metres)
+	BaseDensity     float32   // the base's density; 0 for BaseDensityDefault
 	Top             SnowLayer // active surface; weather and skiing act here
 	Grooming        float32   // 0..1; 1 = freshly groomed corduroy
 	MogulSize       float32   // 0..1; mogul amplitude (visual + physics roughness)
@@ -354,10 +476,10 @@ func (c Cell) TotalSWE() float32 {
 func (c Cell) VisibleSnowDepth() float32 {
 	var depth float32
 	if c.Top.Accumulation > 0 {
-		depth += c.Top.Accumulation / KindDensity(c.Top.Kind)
+		depth += c.Top.Accumulation / c.Top.EffDensity()
 	}
 	if c.Base > 0 {
-		depth += c.Base / KindDensity(KindBase)
+		depth += c.Base / c.BaseEffDensity()
 	}
 	return depth
 }

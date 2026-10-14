@@ -465,7 +465,8 @@ func groomCell(w *world.World, c [2]int) {
 	}
 	cell := &w.Terrain.Cells[c[0]][c[1]]
 	if top := cell.TopLayer(); top != nil {
-		top.Kind = world.KindPackedPowder
+		cell.GroomCompact()
+		top.SetKind(world.KindPackedPowder)
 	}
 	cell.Grooming = 1.0
 	cell.SkierTraffic = 0

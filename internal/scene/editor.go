@@ -2194,6 +2194,7 @@ func (e *Editor) Render(r *render.Renderer) {
 		cell := e.world.Terrain.Cells[e.hoverCell[0]][e.hoverCell[1]]
 		edDrawables = append(edDrawables, &snowLayerTooltip{
 			base:    cell.Base,
+			baseD:   cell.BaseDensity,
 			top:     cell.Top,
 			mouseX:  e.hoverMouseScreen[0],
 			mouseY:  e.hoverMouseScreen[1],
