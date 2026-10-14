@@ -1010,7 +1010,7 @@ func collectTowerXZs(w *world.World) []mgl32.Vec2 {
 	}
 	var out []mgl32.Vec2
 	for _, lift := range w.Lifts {
-		out = append(out, lift.TowerXZs()...)
+		out = append(out, lift.TowerXZs(w.Terrain)...)
 		out = append(out, lift.StationXZs()...)
 	}
 	return out

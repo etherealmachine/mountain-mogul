@@ -16,17 +16,17 @@ const (
 	// are 7.2 m apart, its ropes about 3 m.
 	FunitelGap        = 3.6
 	FunitelRopeSpread = 1.6
-	// FunitelLineHeight, FunitelRamp and FunitelTowerSpacing are a
-	// funitel's ropes' height over the ground between its terminals, the
-	// metres over which they climb to it, and its towers' spacing.
-	FunitelLineHeight   = 22.0
-	FunitelRamp         = 35.0
-	FunitelTowerSpacing = 150.0
+	// FunitelLineHeight and FunitelRamp are a funitel's ropes' height
+	// over the ground between its terminals, and the metres over which
+	// they climb to it, where it has no laid-out profile
+	// (lift_profile.go); its tower model is built for that height.
+	FunitelLineHeight = 22.0
+	FunitelRamp       = 35.0
 
 	// TriDockHeight is a 3S's ropes' height over its terminal's
 	// platform, where its cabins dock with their floors just over it.
 	// Between the terminals it runs as a tram does (TramLineHeight,
-	// TramRamp, TramTowerSpacing, the tram's towers).
+	// TramRamp, the tram's towers).
 	TriDockHeight = 5.2
 
 	// funitelPlatform and triPlatform are their station houses' platforms

@@ -302,10 +302,12 @@ func (l *Lift) UnloadXZ() mgl32.Vec2 {
 	return l.Top.Sub(dir.Mul(l.loadAhead())).Add(perp.Mul(l.riderGap()))
 }
 
-// CableHeightAt is the cable's height above the ground dist metres from
+// CableHeightAt is the cable's height above the snow dist metres from
 // the base bullwheel along the line: BullwheelHeight, loading height,
 // through each terminal, then up to TowerHeight over StationOffset. A
-// lift too short for towers stays at loading height.
+// lift too short for towers stays at loading height. Between the
+// terminals an aerial lift's cable is on its laid-out profile instead
+// (CableYAt).
 func (l *Lift) CableHeightAt(dist float32) float32 {
 	switch {
 	case l.Type.Belt():
@@ -340,11 +342,11 @@ func (l *Lift) LoopLength() float32 {
 }
 
 // loopAt finds progress p on the loop: the position on the ground, the
-// heading of travel, and how far it is from the nearer bullwheel along
-// the line (0 round a wheel). Progress 0 is the load point; the loop
+// heading of travel, and how far it is along the line from the base wheel
+// (0 round it, the line's length round the top one). Progress 0 is the load point; the loop
 // runs up the riders' cable, round the top wheel, down and round the
 // base wheel.
-func (l *Lift) loopAt(p float32) (pos mgl32.Vec2, heading, d float32) {
+func (l *Lift) loopAt(p float32) (pos mgl32.Vec2, heading, x float32) {
 	if l.Type.Tram() {
 		return l.tramAt(p, 1)
 	}
@@ -360,15 +362,15 @@ func (l *Lift) loopAt(p float32) (pos mgl32.Vec2, heading, d float32) {
 	headingOf := func(v mgl32.Vec2) float32 { return float32(math.Atan2(float64(v[0]), float64(v[1]))) }
 	switch {
 	case s < length: // up the riders' cable
-		return l.Base.Add(dir.Mul(s)).Add(perp.Mul(gap)), headingOf(dir), min(s, length-s)
+		return l.Base.Add(dir.Mul(s)).Add(perp.Mul(gap)), headingOf(dir), s
 	case s < length+arc: // round the top wheel
 		th := float64((s - length) / gap)
 		c, sn := float32(math.Cos(th)), float32(math.Sin(th))
 		pos = l.Top.Add(perp.Mul(gap * c)).Add(dir.Mul(gap * sn))
-		return pos, headingOf(perp.Mul(-sn).Add(dir.Mul(c))), 0
+		return pos, headingOf(perp.Mul(-sn).Add(dir.Mul(c))), length
 	case s < 2*length+arc: // down the empty cable
 		t := s - length - arc
-		return l.Top.Sub(dir.Mul(t)).Sub(perp.Mul(gap)), headingOf(dir.Mul(-1)), min(t, length-t)
+		return l.Top.Sub(dir.Mul(t)).Sub(perp.Mul(gap)), headingOf(dir.Mul(-1)), length - t
 	default: // round the base wheel
 		th := float64((s - 2*length - arc) / gap)
 		c, sn := float32(math.Cos(th)), float32(math.Sin(th))
@@ -380,9 +382,8 @@ func (l *Lift) loopAt(p float32) (pos mgl32.Vec2, heading, d float32) {
 // ChairPos returns the world position (on the cable) and heading of a
 // chair at progress on the loop. Used by both simulation and renderer.
 func (l *Lift) ChairPos(progress float32, t *Terrain) (mgl32.Vec3, float32) {
-	pos, heading, d := l.loopAt(progress)
-	h := l.CableHeightAt(d) // d is from the nearer wheel (0 round one); the profile is the same at both ends
-	return mgl32.Vec3{pos[0], t.InterpolatedSurfaceElevationAt(pos[0], pos[1]) + h, pos[1]}, heading
+	pos, heading, x := l.loopAt(progress)
+	return mgl32.Vec3{pos[0], l.CableYAt(x, pos, t), pos[1]}, heading
 }
 
 // PlacePos is the world position (on the cable) and heading of chair i:
@@ -392,9 +393,8 @@ func (l *Lift) PlacePos(i int, t *Terrain) (mgl32.Vec3, float32) {
 	if !l.Type.Tram() {
 		return l.ChairPos(l.Chairs[i].Progress, t)
 	}
-	pos, heading, d := l.tramAt(l.Chairs[i].Progress, tramSide(i))
-	h := l.CableHeightAt(d)
-	return mgl32.Vec3{pos[0], t.InterpolatedSurfaceElevationAt(pos[0], pos[1]) + h, pos[1]}, heading
+	pos, heading, x := l.tramAt(l.Chairs[i].Progress, tramSide(i))
+	return mgl32.Vec3{pos[0], l.CableYAt(x, pos, t), pos[1]}, heading
 }
 
 // UnloadPos is where chair i stands at the top's unload point, and its
@@ -403,9 +403,8 @@ func (l *Lift) UnloadPos(i int, t *Terrain) (mgl32.Vec3, float32) {
 	if !l.Type.Tram() {
 		return l.ChairPos(l.UnloadProgress(), t)
 	}
-	pos, heading, d := l.tramAt(l.UnloadProgress(), tramSide(i))
-	h := l.CableHeightAt(d)
-	return mgl32.Vec3{pos[0], t.InterpolatedSurfaceElevationAt(pos[0], pos[1]) + h, pos[1]}, heading
+	pos, heading, x := l.tramAt(l.UnloadProgress(), tramSide(i))
+	return mgl32.Vec3{pos[0], l.CableYAt(x, pos, t), pos[1]}, heading
 }
 
 // InTerminal reports whether a chair at progress is inside a
@@ -415,8 +414,8 @@ func (l *Lift) InTerminal(progress float32) bool {
 	if g.SlowSpeed <= 0 {
 		return false
 	}
-	_, _, d := l.loopAt(progress)
-	return d <= g.SlowZone
+	_, _, x := l.loopAt(progress)
+	return min(x, l.cableLen()-x) <= g.SlowZone
 }
 
 // UnloadProgress is the loop progress at the top's unload point.
@@ -431,7 +430,8 @@ func (l *Lift) SpeedAt(progress float32) float32 {
 	if g.SlowSpeed <= 0 {
 		return l.Speed
 	}
-	_, _, d := l.loopAt(progress)
+	_, _, x := l.loopAt(progress)
+	d := min(x, l.cableLen()-x)
 	slow := min(g.SlowSpeed, l.Speed)
 	k := clamp01((d - g.SlowZone) / slowRamp)
 	return slow + (l.Speed-slow)*k

@@ -37,13 +37,12 @@ Diagnose each first, report the cause, then fix:
 ## Lifts ([[Lifts]])
 
 - [[Lift Operations]]: refuse overlapping lifts, then breakdowns and a maintenance contract, wind holds that spare the gondola, and guests riding down. Wind holds *need* wind that varies by day. Breakdowns are *for* the Turnaround idea in [[Scenario Campaign]].
-- **Long gondola spans**: few, tall towers over terrain a chair can't cross ([[Vision]]). *For* [[Palisades Tahoe]], [[Zermatt]].
 - **Riders on both sides of the line**: arriving riders spawn on both sides of the lift line, not one.
 - [[Lift Lines]] extensions: good enough for now (the user, 2026-10-12): a crowd with no attendant, and with one a corral of two straight lanes merging into a short run to the load. Possible next steps, none planned yet:
   - **The attendant picks the line**: from the lift's capacity and its attendance (how long the line has run at this hour, on days like today), choose one line a chair wide, two lanes into one, or more lanes merging.
   - **Too long for the room**: a line longer than the corral's room runs on straight behind it, unroped, into whatever is there (a lot, a building): cap it, bend it round, or pick a layout that fits.
   - **Singles lane**: solo guests, and groups willing to split and meet at the top ([[Groups]]), fill the seats a group leaves empty.
-  - **Patrol and ski school lane**: a short centre lane to the load; patrollers ride a real chair (their ride is hidden today), and lessons go through once there's a ski school.
+  - **Patrol and ski school lane**: a short centre lane to the load; patrollers ride a real chair (their ride is hidden today), and the [[Ski School]]'s classes go through it (today they queue like any group).
   - **Readouts**: lane counts and waits in the lift popup and the line tooltip.
 
 ## Terrain, trails, and land ([[Terrain]], [[Trails]], [[Trees]], [[Parcels]])
@@ -109,7 +108,7 @@ Diagnose each first, report the cause, then fix:
 - [[Star Ratings]] and [[Scoreless Rating]]: each guest leaves 1–5 stars as levels (didn't ski, skied with a need unmet, every need met; 4★ and 5★ later), with no satisfaction score behind them: needs met set the star, unweighted good and bad moments explain it.
 - [[Service Quality]]: formats at different price points (food court, restaurant, snack stand, shop), staff as a pool per room (headcount for timeliness, wage for quality through morale), hungrier guests with a lunch rush, and shopping.
 - **Views**: better-sited buildings attract more guests ([[GOAP]]) and can charge more.
-- **Lockers and ski school**: more base services; ski school *needs* staff.
+- **Lockers**: another base service ([[Lockers]]).
 - **Footpath follow-ups** ([[Pathfinding]]): paths that avoid building footprints. Footpaths, their editing, and their snow clearing shipped 2026-10-10.
 - [[Ski Racks]] leftovers: skis in the snow slowing routes to the door, returning rental gear, and groups waiting at the rack. Racks and the ski change shipped 2026-10-10.
 - [[Building Tool]] leftovers: presets (a one-tile ticket booth, a patrol shed with a garage), hints in the Services menu for what each service needs, and the open questions in its note (heated empty floor, rooms with no outside wall).
@@ -322,3 +321,6 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-13: [[Water Editing]] moved to priority 1 and steps 1–3 built.
 - 2026-10-13: [[SkiFree Mode]] steps 1–3 built (take control, chase camera, ride the lift up); timed runs and the yeti parked under Easter eggs. [[Water Editing]]'s shipped scenarios left to the user.
 - 2026-10-13: [[Families]] built: the [[Ski School]] (classes, lasting skill), kids in families, parents' stars, kids' lessons, family demand.
+- 2026-10-14: Kids' ages and cheaper tickets (kids 0–4, child 5–12, afternoon) ([[Tickets]], [[Families]]).
+- 2026-10-14: Aerial ropeways done ([[Lifts]]): gondola station houses, the aerial tram, the single, the high-speed 8-pack, bubble covers, the funitel and the 3S gondola, none in the [[Demo]]. Long gondola spans became **Towers by terrain**, since the tram and 3S already cross on towers 350 m apart. Guests head for the back of a lift line and go round stations, not through them.
+- 2026-10-14: Towers by terrain shipped ([[Lifts]]): towers placed from the ground at the heights it needs, sagging spans between them, and the tram and 3S crossing hollows in spans of up to 1.5 km.

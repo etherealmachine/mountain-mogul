@@ -124,6 +124,8 @@ func applyLiftPlacementEffects(w *world.World, lift *world.Lift) {
 	// (smaller) tree set.
 	t.RestampTreeWells()
 	t.RecomputeSlopes()
+	// Its cable is laid out from the ground as it is now.
+	lift.ResetTowerCache()
 }
 
 // apronDist is how far the point d metres from a station (d in world
@@ -438,6 +440,7 @@ func levelStationAprons(w *world.World) {
 				continue
 			}
 			carveStationApron(t, end.at, axis, end.side, a, t.GroundHeightAt(end.at[0], end.at[1]), claimed, false)
+			l.ResetTowerCache()
 			changed = true
 		}
 	}

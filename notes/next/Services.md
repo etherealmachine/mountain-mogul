@@ -33,8 +33,8 @@ Skiing: [[Lifts]] are the skiing service, and their variety is breadth too: the 
 | | [[Demo Shop]] | demo skis (new want) | idea |
 | | [[Tune Shop]] | a tune (new, from ice and falls) | idea |
 | | [[Retail Shop]] | something forgotten (new) | idea |
-| Learning and family | [[Ski School]] | a lesson (new); raises skill | planned in [[Families]] |
-| | [[Childcare]] | families | idea; needs families |
+| Learning and family | [[Ski School]] | a lesson (new); raises skill | in ([[Families]]) |
+| | [[Childcare]] | families | idea; families are in |
 | Convenience | [[Guest Services]] | questions, lost property; the pass office serves pass holders faster | idea |
 | | [[Lockers]] | storing bags and shoes | idea |
 | | [[Shuttles and Parking]] | the walk from the car | idea; transit used as a service |
@@ -84,7 +84,6 @@ From the user's review, 2026-10-07, a likely order: snack stands and the food co
 
 - Snack stands mid-mountain need building anywhere: whether that comes first or stands start in the base area.
 - The food court's minimum size (2×2 is a guess).
-- Whether the [[Ski School]] gets a plan of its own.
 - Lodging as land the player zones and sells against buildings they run: mixed, decided; how zoning works isn't.
 - How a multi-night stay's ledger works day to day (scored per day for the rating, with the stay's services on it).
 
@@ -93,3 +92,4 @@ From the user's review, 2026-10-07, a likely order: snack stands and the food co
 - 2026-10-07: Listed with the user: day services by group, each with a card; building anywhere (cost and upkeep rising with elevation); logistics later; overnight services next.
 - 2026-10-07: Overnight (lodging mixed: hotels for ongoing revenue, land sold for houses, condos between; rating stays daily; on-site lodging raises demand, so a huge resort needs a village; long term, after a playable demo), staff services, and logistics sections, with cards.
 - 2026-10-09: Free water added (a toggle on food courts and bars); the user: it should have a running cost that scales with elevation.
+- 2026-10-14: The [[Ski School]] is in, planned and built in [[Families]]; childcare's families now exist.

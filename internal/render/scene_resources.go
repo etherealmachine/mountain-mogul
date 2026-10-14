@@ -116,10 +116,11 @@ type SceneResources struct {
 	parkingMesh        *Mesh
 	parkingStripesMesh *Mesh
 
-	ghostBatches   map[uint32]*Batch
-	ghostUpCable   *Mesh
-	ghostDownCable *Mesh
-	ghostCableTint [3]float32 // the placement tint; white when the line is fine
+	ghostBatches     map[uint32]*Batch
+	ghostUpCable     *Mesh
+	ghostDownCable   *Mesh
+	ghostCableTint   [3]float32 // the placement tint; white when the line is fine
+	ghostTowerMeshes []uint32   // the tower meshes (one a height) the placement preview draws on
 
 	water waterSurface // open water's sheet (water.go)
 }

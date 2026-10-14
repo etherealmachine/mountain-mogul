@@ -184,7 +184,7 @@ func (r *Renderer) renderThumbnails() {
 		for i, p := range spec.parts {
 			l, ok := models[p.model]
 			if !ok {
-				mesh, tex, err := loadOBJFile(modelDir + p.model + ".obj")
+				mesh, tex, err := loadOBJFile(modelDir+p.model+".obj", nil)
 				if err != nil {
 					fmt.Printf("thumbnails: %v\n", err)
 					mesh, tex = fallbackMesh()

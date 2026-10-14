@@ -6,13 +6,14 @@ status: partial
 
 # Guest Types
 
-A guest is anyone who comes to the resort, not only skiers. The code calls them guests on purpose, so snowboarders, children, non-skiers, and later staff can share one model. None of them behave differently yet. This card tracks what's in place and what would get in the way.
+A guest is anyone who comes to the resort, not only skiers. The code calls them guests on purpose, so snowboarders, children, non-skiers, and later staff can share one model. Kids are the first that behave differently ([[Families]]); the rest don't yet. This card tracks what's in place and what would get in the way.
 
 ## In place
 
 - **One guest record** in `internal/world/guest.go`, used both for the 10,000-person catchment and for guests on the mountain.
 - **Discipline**: the equipment a guest rides, either Ski or Snowboard. It's saved per guest. Everyone rolls Ski for now: the snowboard roll (about 20% of the catchment) was dropped until snowboarders come as DLC ([[Release]]); the field stays so they can.
 - **Skill** and the traits derived from it (comfort speed, comfort slope, aggression, daily budget).
+- **Age**: `Guest.Child` and `Guest.Age` (2–12 for kids, 0 for adults), saved. Kids are two-thirds size, slower and quicker to tire (`TraitsFor(skill, child)`), always with a parent, and pay their own ticket tier ([[Tickets]]).
 - **Tastes**: seven affinities (groomed, powder, moguls, trees, steep, ice, crowds) rolled around an archetype that's more or less common by skill: Cruiser, Powder Hound, Bump Skier, Glade Rat, Charger ([[Snow Tastes]]). The follow panel names the nearest archetype. Tastes steer their line, choose their lift, judge each run, and decide when they've had enough of a resort.
 
 ## Not wired up
@@ -24,8 +25,7 @@ Nothing reads Discipline outside the save. Snowboarders ski with ski physics, dr
 None need fixing now. Each one is where a new type would hit a wall:
 
 - **One goal set for everyone.** [[GOAP]] ranks the same global goal list for every guest. Non-skiers, children, and staff need different goals, so the goals a guest considers should come from their type.
-- **Traits come mostly from skill.** Tastes are separate, but children, snowboarders, and non-skiers need traits from more than one number (skill plus discipline plus age).
-- **"Children" isn't a discipline.** Age is its own axis: a child can ski or board. Families also arrive and move together, which suggests parties of guests.
+- **Traits come mostly from skill.** Age now adjusts them for kids; snowboarders and non-skiers will need discipline in there too.
 - **Non-skiers would be turned away.** Arrival assumes every guest needs a lift ticket ([[Tickets]], [[Demand]]). A non-skier needs a third discipline value, "none", and their own goals.
 - **Skiing words in sim state.** `SkisOn`, the ski-to-parking actions, the keep-skiing goal, `tickSkier`, and the skier mesh are all named for skiing. Renaming them to equipment-neutral names is mechanical and can wait until boarding behaves differently. Saves store these as numbers, so renaming doesn't break old saves.
 
@@ -45,3 +45,4 @@ None need fixing now. Each one is where a new type would hit a wall:
 - 2026-10-07: Dropped the snowboard roll: every new guest skis until the snowboarder DLC ([[Release]]). Saves with snowboarders keep them, riding as skiers.
 - 2026-10-13: Children planned in [[Families]] as an age on each guest (adult or child), in the base game.
 - 2026-10-13: Kids (`Guest.Child`): in families with their parents, two-thirds the size, slower and quicker to tire, never alone ([[Families]]).
+- 2026-10-14: Kids have an age, which sets their ticket ([[Tickets]]).

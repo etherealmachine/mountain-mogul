@@ -22,7 +22,7 @@ type objFace struct {
 // LoadOBJ loads an OBJ file and returns a Mesh and texture ID. Falls
 // back to a magenta marker cube if the file is missing — see fallbackMesh.
 func LoadOBJ(path string) (*Mesh, uint32) {
-	mesh, texID, err := loadOBJFile(path)
+	mesh, texID, err := loadOBJFile(path, nil)
 	if err != nil {
 		mesh, texID = fallbackMesh()
 	}
@@ -180,7 +180,9 @@ func fallbackMesh() (*Mesh, uint32) {
 	return NewBoxMesh(2, 2, 2), whiteTexture()
 }
 
-func loadOBJFile(path string) (*Mesh, uint32, error) {
+// loadOBJFile loads the OBJ at path, its positions first moved by xform
+// when it isn't nil (the faces' normals then recomputed from them).
+func loadOBJFile(path string, xform func([3]float32) [3]float32) (*Mesh, uint32, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, 0, err
@@ -267,6 +269,15 @@ func loadOBJFile(path string) (*Mesh, uint32, error) {
 	if len(faces) == 0 {
 		return nil, 0, fmt.Errorf("no faces in OBJ %q", path)
 	}
+	var given [][3]float32 // the file's positions, for the normals' sides
+	if xform != nil {
+		given = positions
+		moved := make([][3]float32, len(positions))
+		for i, p := range positions {
+			moved[i] = xform(p)
+		}
+		positions = moved
+	}
 
 	// Build flat-shaded vertex buffer. Vertex layout: pos(3) + normal(3) +
 	// uv(2) + color(3) = 11 floats. Color comes from the OBJ extension
@@ -281,7 +292,21 @@ func loadOBJFile(path string) (*Mesh, uint32, error) {
 	for fi, face := range faces {
 		// compute face normal from positions
 		var faceNormal [3]float32
-		if len(normals) > 0 && face.vnIdx[0] > 0 && face.vnIdx[0]-1 < len(normals) {
+		if xform != nil && len(positions) >= 3 {
+			// Recomputed from the moved positions, on the side the
+			// file's normal (or its own positions') faced.
+			vi0 := clampIdx(face.vIdx[0]-1, len(positions))
+			vi1 := clampIdx(face.vIdx[1]-1, len(positions))
+			vi2 := clampIdx(face.vIdx[2]-1, len(positions))
+			faceNormal = computeNormal(positions[vi0], positions[vi1], positions[vi2])
+			was := computeNormal(given[vi0], given[vi1], given[vi2])
+			if len(normals) > 0 && face.vnIdx[0] > 0 && face.vnIdx[0]-1 < len(normals) {
+				was = normals[face.vnIdx[0]-1]
+			}
+			if faceNormal[0]*was[0]+faceNormal[1]*was[1]+faceNormal[2]*was[2] < 0 {
+				faceNormal = [3]float32{-faceNormal[0], -faceNormal[1], -faceNormal[2]}
+			}
+		} else if len(normals) > 0 && face.vnIdx[0] > 0 && face.vnIdx[0]-1 < len(normals) {
 			n := normals[face.vnIdx[0]-1]
 			faceNormal = n
 		} else {

@@ -888,12 +888,11 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 
 	// Towers — cable lifts only.
 	for _, lift := range w.Lifts {
-		towerBatch, ok := r.staticBatches[TowerMesh(lift.Type)]
-		if !ok || lift.Cableless() {
+		if lift.Cableless() {
 			continue
 		}
-		for _, m := range TowerInstancesForLift(lift, w.Terrain) {
-			towerBatch.AddStatic(m, mgl32.Vec3{1, 1, 1})
+		for _, ti := range r.towerInstances(lift, w.Terrain) {
+			ti.batch.AddStatic(ti.m, mgl32.Vec3{1, 1, 1})
 		}
 	}
 
@@ -1213,26 +1212,6 @@ func TowerMesh(t world.LiftType) uint32 {
 	return MeshTower
 }
 
-// TowerInstancesForLift returns world transforms for the lift's towers,
-// at world.Lift.TowerXZs, each turned so its model-space +X (the cable
-// axis convention from models-src/tower.py) runs along the cable.
-func TowerInstancesForLift(lift *world.Lift, t *world.Terrain) []mgl32.Mat4 {
-	towers := lift.TowerXZs()
-	if len(towers) == 0 {
-		return nil
-	}
-	d := lift.Top.Sub(lift.Base)
-	// HomogRotate3DY(θ) takes (1,0,0) → (cos θ, 0, -sin θ); we want that
-	// to equal the cable direction (dx, 0, dz), so θ = atan2(-dz, dx).
-	rot := float32(math.Atan2(-float64(d[1]), float64(d[0])))
-	out := make([]mgl32.Mat4, 0, len(towers))
-	for _, p := range towers {
-		m := mgl32.Translate3D(p[0], VisualElevationAt(t, p[0], p[1]), p[1]).Mul4(mgl32.HomogRotate3DY(rot))
-		out = append(out, m)
-	}
-	return out
-}
-
 // generateCableMesh creates a quad strip for one cable at the given lateral offset.
 // perpOff > 0 = up cable side, perpOff < 0 = down cable side.
 func generateCableMesh(lift *world.Lift, t *world.Terrain, perpOff, cableWidth float32) *Mesh {
@@ -1267,10 +1246,18 @@ func generateCablesMesh(lift *world.Lift, t *world.Terrain, perpOffs []float32, 
 	perpZ := dx / length
 
 	// Sample a metre apart through the terminals and their ramps, where
-	// the cable's height changes, and every 5 m between.
+	// the cable's height changes, every 5 m between, and at each tower,
+	// where it bends over the sheaves.
 	ramp := lift.Station().Flat + lift.Ramp()
+	towers := lift.TowerDists(t)
 	var dists []float32
 	for d := float32(0); d < length; {
+		for len(towers) > 0 && towers[0] <= d {
+			if towers[0] < d {
+				dists = append(dists, towers[0])
+			}
+			towers = towers[1:]
+		}
 		dists = append(dists, d)
 		if d < ramp || d > length-ramp {
 			d++
@@ -1289,7 +1276,7 @@ func generateCablesMesh(lift *world.Lift, t *world.Terrain, perpOffs []float32, 
 			frac := d / length
 			cx := bx + dx*frac + perpX*perpOff
 			cz := bz + dz*frac + perpZ*perpOff
-			cy := t.InterpolatedSurfaceElevationAt(cx, cz) + lift.CableHeightAt(d)
+			cy := lift.CableYAt(d, mgl32.Vec2{cx, cz}, t)
 
 			for side := -1; side <= 1; side += 2 {
 				s := float32(side) * cableWidth * 0.5
@@ -2184,13 +2171,25 @@ func (r *Renderer) SetGhostCable(typ world.LiftType, base, top mgl32.Vec2, t *wo
 		r.scene.ghostDownCable = cableMesh(tempLift, t, -1, ghostLineWidth)
 	}
 
-	mats := TowerInstancesForLift(tempLift, t)
-	ghosts := make([]StaticInstance, len(mats))
-	for i, m := range mats {
-		ghosts[i].ColorTint = tint
-		copy(ghosts[i].Transform[:], m[:])
+	r.clearGhostTowers()
+	ghosts := map[uint32][]StaticInstance{}
+	for _, ti := range r.towerInstances(tempLift, t) {
+		inst := StaticInstance{ColorTint: tint}
+		copy(inst.Transform[:], ti.m[:])
+		ghosts[ti.mesh] = append(ghosts[ti.mesh], inst)
 	}
-	r.SetGhosts(TowerMesh(typ), ghosts)
+	for id, insts := range ghosts {
+		r.SetGhosts(id, insts)
+		r.scene.ghostTowerMeshes = append(r.scene.ghostTowerMeshes, id)
+	}
+}
+
+// clearGhostTowers removes the placement preview's towers.
+func (r *Renderer) clearGhostTowers() {
+	for _, id := range r.scene.ghostTowerMeshes {
+		r.SetGhosts(id, nil)
+	}
+	r.scene.ghostTowerMeshes = r.scene.ghostTowerMeshes[:0]
 }
 
 // ClearGhostCable removes the ghost cable meshes and tower previews.
@@ -2203,11 +2202,7 @@ func (r *Renderer) ClearGhostCable() {
 		r.scene.ghostDownCable.Delete()
 		r.scene.ghostDownCable = nil
 	}
-	r.SetGhosts(MeshTower, nil)
-	r.SetGhosts(MeshTBarTower, nil)
-	r.SetGhosts(MeshTramTower, nil)
-	r.SetGhosts(MeshTowerWide, nil)
-	r.SetGhosts(MeshFunitelTower, nil)
+	r.clearGhostTowers()
 }
 
 // AddLiftMeshes generates and stores cable and queue meshes for a lift.

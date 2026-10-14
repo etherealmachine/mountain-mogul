@@ -42,8 +42,6 @@ const (
 	// TramRamp is the metres beyond a terminal over which the track
 	// climbs to TramLineHeight (StationOffset a chairlift's).
 	TramRamp = 70.0
-	// TramTowerSpacing is the metres between a tram's towers.
-	TramTowerSpacing = 350.0
 	// TramDwell is the seconds a cabin waits docked at each end.
 	TramDwell = 45.0
 	// TramMinLength is the shortest tram, metres between its ends.
@@ -53,17 +51,6 @@ const (
 // Tram reports whether lifts of this type are an aerial tramway. Always
 // false in the demo, which has none.
 func (t LiftType) Tram() bool { return !edition.Demo && t == LiftTram }
-
-// towerSpacing is the target metres between adjacent towers.
-func (t LiftType) towerSpacing() float32 {
-	switch {
-	case t.Tram(), t == LiftTri:
-		return TramTowerSpacing
-	case t == LiftFunitel:
-		return FunitelTowerSpacing
-	}
-	return TowerSpacing
-}
 
 // lineHeight is the cable's height over the ground between the ramps.
 func (t LiftType) lineHeight() float32 {
@@ -151,8 +138,8 @@ func (l *Lift) tramLoopLength() float32 {
 
 // tramAt is where a tram cabin at progress p on track side is: its
 // position on the ground, its heading (always up the line: a cabin never
-// turns), and how far it is from the nearer end along the line.
-func (l *Lift) tramAt(p, side float32) (pos mgl32.Vec2, heading, d float32) {
+// turns), and how far it is along the line from the base end.
+func (l *Lift) tramAt(p, side float32) (pos mgl32.Vec2, heading, x float32) {
 	dir, perp := l.lineAxes()
 	length := l.cableLen()
 	la := l.loadAhead()
@@ -162,7 +149,6 @@ func (l *Lift) tramAt(p, side float32) (pos mgl32.Vec2, heading, d float32) {
 	if s < 0 {
 		s += loop
 	}
-	var x float32 // metres from the base end
 	switch {
 	case s < travel: // up
 		x = la + s
@@ -174,7 +160,7 @@ func (l *Lift) tramAt(p, side float32) (pos mgl32.Vec2, heading, d float32) {
 		x = la
 	}
 	pos = l.Base.Add(dir.Mul(x)).Add(perp.Mul(side * TramGap))
-	return pos, float32(math.Atan2(float64(dir[0]), float64(dir[1]))), min(x, length-x)
+	return pos, float32(math.Atan2(float64(dir[0]), float64(dir[1]))), x
 }
 
 // tramStation is a tram's station house (tram_terminal.py): an enclosed

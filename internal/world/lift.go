@@ -262,10 +262,13 @@ type Lift struct {
 	// flight (heli.go). Empty in the demo, which has no heli.
 	liftExtras
 
-	// towerCache memoises TowerXZs() — towers are immutable after
-	// placement, so the slice can be reused across the per-tick L1
-	// hazard sampler instead of rebuilt every call.
-	towerCache []mgl32.Vec2
+	// profileCache is the laid-out cable (lift_profile.go), and
+	// towerCache a T-bar's towers; towerXZCache is where either's towers
+	// stand, reused by the per-tick hazard sampler. Towers are fixed
+	// once placed.
+	profileCache *cableProfile
+	towerCache   []TowerSpot
+	towerXZCache []mgl32.Vec2
 	// stationCache memoises StationXZs(), as towerCache does.
 	stationCache []mgl32.Vec2
 	// loopTime and rideTime cache loopTimes for the speed and ends in
@@ -288,60 +291,77 @@ type Lift struct {
 	mergeTurn, mergeTaken int
 }
 
-// TowerSpacing is the target distance between adjacent towers along a
-// lift cable. Real chairlifts run with 40–60 m spacing; 50 m sits in
-// the middle. Kept package-level so render and sim agree on tower XZ
-// positions without re-deriving spacing.
+// TowerSpacing is the target distance between a T-bar's towers.
 const TowerSpacing = 50.0
 
-// TowerXZs returns the XZ positions of every tower along the lift, as
-// the renderer draws them. Returns nil for lifts too short to fit any.
-// The first and last sit StationOffset past each terminal's flat run
-// (StationGeom.Flat), where the cable reaches TowerHeight; the rest are
-// evenly spaced.
+// Towers returns every tower along the lift, as the renderer draws them:
+// laid out by the ground for an aerial lift (lift_profile.go), evenly
+// spaced for a T-bar (towersEven). Nil for lifts with none.
 //
-// The result is cached on the Lift after the first call — towers are
-// purely a function of Base / Top / StationOffset / TowerSpacing, all
-// of which are immutable after placement. Editing tools that mutate
-// Base or Top must call ResetTowerCache() to discard the stale slice
-// (or set towerCache = nil); none currently do because lifts aren't
-// movable post-placement.
-func (l *Lift) TowerXZs() []mgl32.Vec2 {
-	if l.towerCache != nil {
-		return l.towerCache
+// Cached on the Lift: towers are fixed once placed. Editing tools that
+// move Base or Top, or reshape the ground under a lift, must call
+// ResetTowerCache.
+func (l *Lift) Towers(t *Terrain) []TowerSpot {
+	if p := l.profile(t); p != nil {
+		return p.towers
 	}
+	if l.towerCache == nil {
+		l.towerCache = l.towersEven()
+	}
+	return l.towerCache
+}
+
+// TowerXZs is where Towers stand.
+func (l *Lift) TowerXZs(t *Terrain) []mgl32.Vec2 {
+	towers := l.Towers(t)
+	if len(towers) == 0 {
+		return nil
+	}
+	if l.towerXZCache == nil {
+		l.towerXZCache = make([]mgl32.Vec2, len(towers))
+		for i, tw := range towers {
+			l.towerXZCache[i] = tw.XZ
+		}
+	}
+	return l.towerXZCache
+}
+
+// towersEven spaces a T-bar's towers evenly: the first and last
+// StationOffset past each terminal's flat run (StationGeom.Flat), the
+// rest TowerSpacing apart or a little less, all carrying the cable
+// TBarCableHeight over the snow.
+func (l *Lift) towersEven() []TowerSpot {
 	bx, bz := l.Base[0], l.Base[1]
 	tx, tz := l.Top[0], l.Top[1]
 	dx := tx - bx
 	dz := tz - bz
 	length := float32(math.Sqrt(float64(dx*dx + dz*dz)))
-	// The first tower is where the cable reaches tower height, past the
-	// terminal's flat run.
 	stationOffset := l.Ramp() + l.Station().Flat
 	if length <= 2*stationOffset || !l.Type.HasTowers() {
 		return nil
 	}
 	innerLen := length - 2*stationOffset
-	intervals := int(innerLen / l.Type.towerSpacing())
+	intervals := int(innerLen / TowerSpacing)
 	if intervals < 1 {
 		intervals = 1
 	}
 	spacing := innerLen / float32(intervals)
 	dirX := dx / length
 	dirZ := dz / length
-	out := make([]mgl32.Vec2, 0, intervals+1)
+	out := make([]TowerSpot, 0, intervals+1)
 	for i := 0; i <= intervals; i++ {
 		d := stationOffset + float32(i)*spacing
-		out = append(out, mgl32.Vec2{bx + dirX*d, bz + dirZ*d})
+		out = append(out, TowerSpot{XZ: mgl32.Vec2{bx + dirX*d, bz + dirZ*d}, Height: TBarCableHeight})
 	}
-	l.towerCache = out
 	return out
 }
 
 // ResetTowerCache discards the cached tower-position slice. Call after
 // mutating Base or Top so the next TowerXZs() call recomputes.
 func (l *Lift) ResetTowerCache() {
+	l.profileCache = nil
 	l.towerCache = nil
+	l.towerXZCache = nil
 	l.stationCache = nil
 }
 

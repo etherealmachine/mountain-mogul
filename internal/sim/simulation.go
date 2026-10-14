@@ -324,7 +324,7 @@ func (s *Simulation) Tick(dt float64) {
 func (s *Simulation) refillTowersScratch() {
 	s.towersScratch = s.towersScratch[:0]
 	for _, lift := range s.World.Lifts {
-		s.towersScratch = append(s.towersScratch, lift.TowerXZs()...)
+		s.towersScratch = append(s.towersScratch, lift.TowerXZs(s.World.Terrain)...)
 		// Stations' legs and huts: steered round like towers.
 		s.towersScratch = append(s.towersScratch, lift.StationXZs()...)
 	}
