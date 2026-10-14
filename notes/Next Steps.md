@@ -13,9 +13,7 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 
 In the order to work on them:
 
-1. [[Snowmaking on Runs]]: step 1 is in (snowmaking bought for a run, made by temperature and altitude to a target depth, paid by the water; machine snow; the placed guns gone). Steps 2 and 3 are in too (lift holds under 30 cm, rock under 20 cm; guns, plumes, the map view and feed). Next: balance.
-2. [[Night Sessions]]: steps 1–2 in (lights bought for a run or lift, unlit lifts stopping at dusk, closing time as the night's close, lift costs by the hour, the lights' cost). Step 3 too (poles and the light map). Step 4 too (evening guests and the night ticket). Next: checking grooming against a 23:00 close, balance, and lodge windows glowing.
-3. [[Surface Lifts]]: the magic carpet, rope tow and T-bar are in (steps 1–5); next balance and placing them at Boreal and Kirkwood.
+1. [[Surface Lifts]]: the magic carpet, rope tow and T-bar are in (steps 1–5); next balance and placing them at Boreal and Kirkwood.
 
 ## Bugs
 
@@ -36,6 +34,8 @@ Diagnose each first, report the cause, then fix:
 - **Two base areas**: separate parking, lodges, and possibly ratings for each base on one map. *For* [[Palisades Tahoe]].
 
 ## Lifts ([[Lifts]])
+
+- [[Night Sessions]] leftovers: check grooming against a 23:00 close (cats start at midnight; with a 21:00 close the mountain is empty by about 23:00), a cat waiting for a run to empty, and lodge windows glowing at night. Balance is under Economy.
 
 - [[Lift Operations]]: refuse overlapping lifts, then breakdowns and a maintenance contract, wind holds that spare the gondola, and guests riding down. Wind holds *need* wind that varies by day. Breakdowns are *for* the Turnaround idea in [[Scenario Campaign]].
 - **Riders on both sides of the line**: arriving riders spawn on both sides of the lift line, not one.
@@ -136,6 +136,7 @@ Diagnose each first, report the cause, then fix:
 
 ## Economy ([[Finance]], [[Demand]])
 
+- **Balance lights and snowmaking** (the user, 2026-10-14): neither price has been tuned against the economy. Snowmaking costs $250 a metre to put in and $2 a cubic metre of water (about $43k for the whole Goals Test on one very cold night; $1–2.5k a night for a 300 m green); lights $120 a metre of run, $60 a metre of lift and $0.15 a lit metre an hour (about $1,300 an evening for one lit lift and its runs against about $23k of revenue after 16:00; $4,500 against $50k with everything lit); the night ticket at half price. Check them against a lift's day and the [[Boreal Tutorial]]'s money, ideally in a playtest ([[Snowmaking on Runs]] step 4, [[Night Sessions]] step 5, [[Economy Balance]]).
 - [[Money Feedback]]: a floating "-$600" when you spend, cost previews for every tool that costs money, and income and cost flashes on the cash display.
 - [[Boreal Tutorial]]: the tutorial's build order and day-by-day money; first, guests have to follow what's built, and the season's length decided.
 - [[Economy Balance]]: pacing in real minutes (something small every 1–3 days, a big project every week or two), payback days as the measure, a season economy report, then tuning running costs, build costs, and starting money. Open: how long a scenario should be, and whether the calendar changes.
@@ -333,3 +334,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-14: [[Night Sessions]] steps 1–2 built.
 - 2026-10-14: [[Night Sessions]] step 3 built: light poles and the light map.
 - 2026-10-14: [[Night Sessions]] step 4 built: evening guests and the night ticket.
+- 2026-10-14: [[Snowmaking on Runs]] and [[Night Sessions]] good for now (the user) and off Priority; balancing them noted under Economy, Night Sessions' leftovers under Lifts. [[Surface Lifts]] is priority 1 again.
