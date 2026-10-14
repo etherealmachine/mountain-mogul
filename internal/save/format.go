@@ -96,6 +96,7 @@ type ScenarioData struct {
 	AccruedInterest float64  `json:"accrued_interest,omitempty"`
 	DaysBelowFloor  int      `json:"days_below_floor,omitempty"`
 	Bankrupt        bool     `json:"bankrupt,omitempty"`
+	Sandbox         bool     `json:"sandbox,omitempty"`
 	DayTicket       *int     `json:"day_ticket,omitempty"`
 	// Tickets is World.Tickets; absent loads the defaults for the day
 	// ticket's price.

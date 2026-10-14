@@ -224,7 +224,7 @@ func (env pathEnv) commit(f *world.Footpath, before []world.TrailNode) {
 			env.toast(why)
 			return
 		}
-		w.Cash -= extra
+		w.Spend(extra)
 	}
 	w.RebuildFootpaths()
 	env.done()
@@ -273,7 +273,7 @@ func (env pathEnv) finish(st *pathTool) {
 	}
 	cost := env.w.FootpathPrice(st.nodes)
 	if !env.free {
-		env.w.Cash -= cost
+		env.w.Spend(cost)
 	}
 	f := env.w.PlaceFootpath(st.nodes)
 	st.nodes = nil

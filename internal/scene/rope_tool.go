@@ -186,7 +186,7 @@ func (env ropeEnv) commit(rp *world.Rope, before []mgl32.Vec2) {
 			env.toast(why)
 			return
 		}
-		w.Cash -= extra
+		w.Spend(extra)
 	}
 	w.RebuildRopes()
 }
@@ -230,7 +230,7 @@ func (env ropeEnv) finish(st *ropeTool) {
 	}
 	cost := world.RopeCost(st.nodes)
 	if !env.free {
-		env.w.Cash -= cost
+		env.w.Spend(cost)
 	}
 	env.w.PlaceRope(st.nodes)
 	length := world.RopeLength(st.nodes)

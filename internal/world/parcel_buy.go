@@ -19,7 +19,7 @@ func (w *World) BuyParcel(id uint16) bool {
 		if !w.CanAfford(p.Price) {
 			return false
 		}
-		w.Cash -= p.Price
+		w.Spend(p.Price)
 		p.State = ParcelOwned
 		// Update the accessibility grid for the purchased cells.
 		if w.Terrain.accessible != nil {

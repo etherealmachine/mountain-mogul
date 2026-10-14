@@ -236,6 +236,12 @@ type World struct {
 	// never cleared by the sim. The UI reads it for the game-over screen.
 	Bankrupt bool
 
+	// Sandbox is the /sandbox cheat: building costs nothing and is never
+	// refused for money (see CanAfford, Spend, Refund), and the
+	// bankruptcy clock doesn't run. Operating costs and revenue still move
+	// Cash, so the finances keep reading the resort's day-to-day.
+	Sandbox bool
+
 	// ResortOpen is the player's resort-wide open/closed switch, set from
 	// any ticket office popup. Closed: no arrivals, standby costs, lifts
 	// load only guests heading home. Snowcats and snow guns run either
@@ -399,7 +405,22 @@ func (w *World) Available() int {
 // CanAfford reports whether spending cost keeps Cash at or above the
 // credit floor (−CreditLimit).
 func (w *World) CanAfford(cost int) bool {
-	return cost <= w.Available()
+	return w.Sandbox || cost <= w.Available()
+}
+
+// Spend charges a purchase to Cash; free in Sandbox.
+func (w *World) Spend(cost int) {
+	if !w.Sandbox {
+		w.Cash -= cost
+	}
+}
+
+// Refund credits a sale back to Cash; nothing in Sandbox, where the
+// purchase was free.
+func (w *World) Refund(amount int) {
+	if !w.Sandbox {
+		w.Cash += amount
+	}
 }
 
 // CreditDrawn returns the drawn part of the credit line in dollars: the
@@ -733,7 +754,7 @@ func (w *World) UpgradeLift(l *Lift, target LiftType) bool {
 	if !w.CanAfford(cost) {
 		return false
 	}
-	w.Cash -= cost
+	w.Spend(cost)
 	l.Type = target
 	l.Speed = target.DefaultSpeed()
 	cap := target.Capacity()

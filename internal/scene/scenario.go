@@ -1519,7 +1519,7 @@ func (s *Scenario) Update(dt float64) {
 	// CSV logging.
 	typing := s.popup.WantsKeyboard()
 
-	if s.devConsoleInput(inp) {
+	if s.devConsoleInput(inp, typing) {
 		return
 	}
 
@@ -2554,7 +2554,7 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 			s.setToast("Can't place a snow gun here — overlaps another building")
 			return
 		}
-		w.Cash -= world.SnowGunCost
+		w.Spend(world.SnowGunCost)
 		placeBuilding(w, world.BuildingSnowGun, wx, wz, s.placeRotation)
 		r.RebuildStaticBatch(w)
 	case toolSkiRack:
@@ -2571,7 +2571,7 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 			s.setToast("Can't place a ski rack here — overlaps another building")
 			return
 		}
-		w.Cash -= world.SkiRackCost
+		w.Spend(world.SkiRackCost)
 		placeBuilding(w, world.BuildingSkiRack, wx, wz, s.placeRotation)
 		r.RebuildStaticBatch(w)
 	case toolGlade:
@@ -2587,7 +2587,7 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 			s.setToast(fmt.Sprintf("Need $%d to clear here — short by $%d", cost, cost-w.Available()))
 			return
 		}
-		w.Cash -= cost
+		w.Spend(cost)
 		removeTrees(w.Terrain, trees)
 		refreshTreesAround(r, w, gx, gz, s.gladeBrushRadius()+1)
 	case toolLiftBase:
@@ -2629,7 +2629,7 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 			s.setToast(fmt.Sprintf("Need $%d — short by $%d", cost, cost-w.Available()))
 			return
 		}
-		w.Cash -= cost
+		w.Spend(cost)
 		lift := w.PlaceLift(s.liftType, s.liftBase[0], s.liftBase[1], wx, wz)
 		if lift.Cableless() {
 			applyHelipadPlacementEffects(w.Terrain, lift)
@@ -2676,7 +2676,7 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 			s.setToast("Road endpoints snapped together — no segment placed")
 			return
 		}
-		w.Cash -= cost
+		w.Spend(cost)
 		applyRoadCellState(w)
 		r.FlushTerrainVerts(w.Terrain)
 		r.RebuildStaticBatch(w)
@@ -3741,7 +3741,7 @@ func (s *Scenario) buildLot() {
 		s.setToast(fmt.Sprintf("Need $%s for this parking — short by $%s", world.CommaInt(cost), world.CommaInt(cost-w.Available())))
 		return
 	}
-	w.Cash -= cost
+	w.Spend(cost)
 	commitLot(s.app.Renderer, w, t.lotID, t.rect)
 	t.reset(t.only)
 }

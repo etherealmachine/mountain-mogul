@@ -13,7 +13,8 @@ import (
 	"mountain-mogul/internal/world"
 )
 
-// DebugConsole is a tilde-toggled cheat-code console.
+// DebugConsole is the cheat-code console, toggled on ~ or opened by
+// typing /. Commands take an optional leading slash: /sandbox, moremoney.
 type DebugConsole struct {
 	visible      bool
 	input        *ui.TextInput
@@ -46,6 +47,9 @@ func newDebugConsole(w *world.World, toast func(string)) *DebugConsole {
 // Called each time a new simulation is started (new game, load, testbed).
 func (c *DebugConsole) SetSim(s *sim.Simulation, flushTerrain, flushStatic func()) {
 	c.sim = s
+	if s != nil {
+		c.world = s.World
+	}
 	c.flushTerrain = flushTerrain
 	c.flushStatic = flushStatic
 }
@@ -59,7 +63,15 @@ func (c *DebugConsole) HandleInput(inp *engine.Input) {
 }
 
 func (c *DebugConsole) exec(cmd string) {
-	switch strings.ToLower(cmd) {
+	switch strings.ToLower(strings.TrimPrefix(cmd, "/")) {
+	case "":
+	case "sandbox":
+		c.world.Sandbox = !c.world.Sandbox
+		if c.world.Sandbox {
+			c.toast("Sandbox on: building is free")
+		} else {
+			c.toast("Sandbox off")
+		}
 	case "moremoney":
 		c.world.Cash += 100_000
 		c.toast("+$100,000")
@@ -111,6 +123,8 @@ func (c *DebugConsole) exec(cmd string) {
 			c.flushStatic()
 		}
 		c.toast("Embankments regraded")
+	default:
+		c.toast("Unknown command: " + cmd)
 	}
 }
 

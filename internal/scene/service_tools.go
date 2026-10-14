@@ -507,7 +507,7 @@ func (env serviceEnv) buildRect(st *serviceTool) {
 			env.toast(fmt.Sprintf("Need %s to build that — short by %s", formatDollars(cost), formatDollars(cost-w.Available())))
 			return
 		}
-		w.Cash -= cost
+		w.Spend(cost)
 	}
 	cells := st.rect.cells(w)
 	svc := world.ServiceNone
@@ -553,7 +553,7 @@ func (env serviceEnv) fit(st *serviceTool) {
 				formatDollars(cost), strings.ToLower(st.svc.Label()), formatDollars(cost-w.Available())))
 			return
 		}
-		w.Cash -= cost
+		w.Spend(cost)
 	}
 	b := w.BuildingByID(p.bldg)
 	w.SetTileService(b, p.cell, st.svc)
@@ -729,7 +729,7 @@ func (s *Scenario) buyVehicle(b *world.Building, cat bool) {
 		s.setToast(fmt.Sprintf("Need %s for a %s — short by %s", formatDollars(price), name, formatDollars(price-w.Available())))
 		return
 	}
-	w.Cash -= price
+	w.Spend(price)
 	if cat {
 		w.SpawnSnowcat(b)
 		s.sim.InvalidateSections()
@@ -755,7 +755,7 @@ func (s *Scenario) sellVehicle(b *world.Building, cat bool) {
 			}
 		}
 		w.RemoveSnowcat(pick.ID)
-		w.Cash += world.CatPurchasePrice / 2
+		w.Refund(world.CatPurchasePrice / 2)
 		s.sim.InvalidateSections()
 		return
 	}
@@ -764,7 +764,7 @@ func (s *Scenario) sellVehicle(b *world.Building, cat bool) {
 		return
 	}
 	w.RemoveSnowmobile(ms[len(ms)-1].ID)
-	w.Cash += world.SnowmobilePrice / 2
+	w.Refund(world.SnowmobilePrice / 2)
 }
 
 // setCatsActive puts one of b's snowcats on standby (parked, cheaper) or
@@ -797,7 +797,7 @@ func (s *Scenario) setStoreys(b *world.Building, n int) {
 			s.setToast(fmt.Sprintf("Need %s for another storey — short by %s", formatDollars(cost), formatDollars(cost-w.Available())))
 			return
 		}
-		w.Cash -= cost
+		w.Spend(cost)
 	}
 	b.Storeys = n
 	s.app.Renderer.RebuildStaticBatch(w)

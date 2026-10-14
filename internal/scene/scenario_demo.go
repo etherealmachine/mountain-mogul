@@ -16,7 +16,7 @@ func (s *Scenario) initDev()                                         {}
 func (s *Scenario) installDev()                                      {}
 func (s *Scenario) devTick()                                         {}
 func (s *Scenario) devServeQueries()                                 {}
-func (s *Scenario) devConsoleInput(*engine.Input) bool               { return false }
+func (s *Scenario) devConsoleInput(*engine.Input, bool) bool         { return false }
 func (s *Scenario) devHotkeys(*engine.Input, *render.Renderer, bool) {}
 func (s *Scenario) devCaptureFrame(*render.Renderer)                 {}
 func (s *Scenario) devAfterUI()                                      {}

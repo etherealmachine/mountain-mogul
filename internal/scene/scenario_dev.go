@@ -149,12 +149,16 @@ func (s *Scenario) devServeQueries() {
 	}
 }
 
-// devConsoleInput toggles the debug console on ~ and, while it's open,
-// gives it the keyboard. Reports whether it took the input.
-func (s *Scenario) devConsoleInput(inp *engine.Input) bool {
+// devConsoleInput toggles the debug console on ~, opens it on / (unless
+// a popup field has the keyboard) with the / typed as the command's
+// start, and, while it's open, gives it the keyboard. Reports whether it
+// took the input.
+func (s *Scenario) devConsoleInput(inp *engine.Input, typing bool) bool {
 	if inp.Pressed[glfw.KeyGraveAccent] {
 		s.debugConsole.Toggle()
 		inp.CharInput = inp.CharInput[:0] // swallow the ~ so it isn't typed into the field
+	} else if !typing && !s.debugConsole.Visible() && inp.Pressed[glfw.KeySlash] {
+		s.debugConsole.Show()
 	}
 	if s.debugConsole.Visible() {
 		s.debugConsole.HandleInput(inp)

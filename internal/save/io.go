@@ -694,6 +694,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		AccruedInterest: w.AccruedInterest,
 		DaysBelowFloor:  w.DaysBelowFloor,
 		Bankrupt:        w.Bankrupt,
+		Sandbox:         w.Sandbox,
 		History:         historyToData(w.History),
 		Events:          eventsToData(&w.Events),
 	}
@@ -983,6 +984,7 @@ func dataToWorld(data ScenarioData) *world.World {
 	w.AccruedInterest = data.AccruedInterest
 	w.DaysBelowFloor = data.DaysBelowFloor
 	w.Bankrupt = data.Bankrupt
+	w.Sandbox = data.Sandbox
 
 	// Restore objects (no cross-references, fresh IDs are fine). Lone
 	// trees from older saves join the stored trees at their cell centre.

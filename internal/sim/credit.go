@@ -30,7 +30,7 @@ func (s *Simulation) applyCredit(dayIdx int) int {
 		}
 	}
 
-	if w.Bankrupt {
+	if w.Bankrupt || w.Sandbox {
 		return charged
 	}
 	if w.Cash < -w.CreditLimit {
