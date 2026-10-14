@@ -1,7 +1,7 @@
 ---
 title: SkiFree Mode
 kind: plan
-status: planned
+status: partial
 ---
 
 # SkiFree Mode
@@ -32,15 +32,21 @@ From the user, 2026-10-13:
 - **You just get up.** A fall is a fall like a guest's, but no patrol and no injury: you get up and carry on.
 - Not in the [[Demo]]: the mode's code sits behind `!demo` like the other left-out features.
 
+## How it works
+
+- **The player's skier** (`sim/player.go`) is `World.Player`, not one of `OnMountain`, so planning, departures, reviews, patrol and the resort's numbers never see them; the guests dodge them (they're in the skiers' spatial grid) and the renderer draws them with the guests. `StartPlayer` puts an advanced skier (skill 0.8) on the apron a run off the lift's top starts from (`Lift.TopRunEnd`), facing down the fall line. The keys (`PlayerInput`, set by the scene each frame) build the `Decision`: A/D or the arrows turn at the carve rate, Shift at the pivot rate (skidding); S or down brakes (3 m/s² past friction), space stops hard (7); W or up poles along at walking pace. They have no speed floor, so they can stand still. `applySkier` runs unchanged; `injure`, `recordFall` and `applyEvent` do nothing for them and they never give up after repeated falls, so a fall is just getting up again. Not saved.
+- **Riding** (`playerJoinLine`): stopping (under 1.5 m/s) within 6 m of the back of an open lift's line joins it (`Lift.JoinLine`), with no ticket check; from there the line, chair and unloading are the guests' own (`tickQueued`, `tickLifts`, `tickRiding`, `tickUnloading`), with the unload's fall chance, skipping their plans (`advancePlan`, the boarders' planning). Esc takes them out of any line or off any chair. Heli lifts aren't joined.
+- **The scene** (`scene/skifree.go`): "Ski it" in the popup of an open lift; the chase camera follows them (V for first person): a perspective view 9 m behind and a little above (40% of the distance, plus 1.5 m), looking at the snow 14 m down their line, swinging round behind them as they turn (eased, 0.45 s), kept 1.5 m over the ground; scroll moves it from 4 to 40 m. No steering fan or highlight on them. `-ski N` skis from lift N's top for a screenshot and the arrow keys, right-drag and Tab stop panning or switching; the game runs at 1× while they ski and unpaused; Esc takes them off and puts back the pause. All behind `!demo`.
+
 ## Steps
 
 In order. Each step builds with `go build` and `go vet` and is judged in the running game.
 
-1. **Take control.** A "Ski it" button in the lift popup puts a player skier (an advanced guest, skill 0.8) at the top station's apron and follows them. Player input builds the `Decision` in place of `decide()` (the special case goes in `decideRange`, `sim/ski_parallel.go`; `perceive` still runs): left and right (A/D or arrows) turn the `DesiredHeading` at the carve rate, held with Shift for the pivot rate from `turnRates`; down (S) brakes with `Scrub`; space stops, and the player may come to a full stop (today's 1 m/s creep floor is for guests). `applySkier` runs unchanged, so grip, skids, moguls, trees, balance and falls are the guests' own, except that the player is never injured and patrol never comes: after a fall they get up and carry on. The player guest skips planning (`tickPlanning`) and `tickLocomote`'s target, never goes home, and isn't counted in arrivals, reviews or the rating. Time is fixed at 1× while skiing (`SetTimeScale(1)`); Esc removes the skier and restores the pace.
-2. **Chase camera.** A perspective camera behind and above the skier, beside `applyFirstPersonCamera` (`scene/scenario.go`): looks along the heading and downhill, eased so turns don't whip it round, lifted to stay above the terrain. Scroll sets the distance.
-3. **Ride the lift up.** Stopping in a lift's line corral joins the line (`lift.JoinLine`, `Queued`); the chairs do the rest (`loadChair`, `tickRiding`, `startUnloading`). Guard `advancePlan` and `aimUnload` for the player, who has no plan; the unload peel-off and its fall chance stay. No ticket check: it's your resort.
-4. **Timed runs.** Leaving a marked run's top starts a clock and reaching its bottom stops it; a small HUD shows the time and the run's best. Bests are kept per run in the save. Then a ghost: record the best run's frames and replay them as a see-through skier on later attempts.
-5. **The yeti.** A few seconds past the ski-area boundary (`SkiAreaMask`, `world/ski_area.go`) the yeti appears uphill and chases you, faster than you; it gives up if you get back inside quickly enough. If it catches you: a yard sale, a short scene, and you're put back at the last lift top. With no boundary drawn there's no yeti. Needs a yeti model ([[Model Pipeline]]). The Yeti sighting under Easter eggs can reuse it.
+1. Done: **Take control.** A "Ski it" button in the lift popup puts a player skier (an advanced guest, skill 0.8) at the top station's apron and follows them. Player input builds the `Decision` in place of `decide()` (the special case goes in `decideRange`, `sim/ski_parallel.go`; `perceive` still runs): left and right (A/D or arrows) turn the `DesiredHeading` at the carve rate, held with Shift for the pivot rate from `turnRates`; down (S) brakes with `Scrub`; space stops, and the player may come to a full stop (today's 1 m/s creep floor is for guests). `applySkier` runs unchanged, so grip, skids, moguls, trees, balance and falls are the guests' own, except that the player is never injured and patrol never comes: after a fall they get up and carry on. The player guest skips planning (`tickPlanning`) and `tickLocomote`'s target, never goes home, and isn't counted in arrivals, reviews or the rating. Time is fixed at 1× while skiing (`SetTimeScale(1)`); Esc removes the skier and restores the pace.
+2. Done: **Chase camera.** A perspective camera behind and above the skier, beside `applyFirstPersonCamera` (`scene/scenario.go`): looks along the heading and downhill, eased so turns don't whip it round, lifted to stay above the terrain. Scroll sets the distance.
+3. Done: **Ride the lift up.** Stopping in a lift's line corral joins the line (`lift.JoinLine`, `Queued`); the chairs do the rest (`loadChair`, `tickRiding`, `startUnloading`). Guard `advancePlan` and `aimUnload` for the player, who has no plan; the unload peel-off and its fall chance stay. No ticket check: it's your resort.
+4. Parked (the user, 2026-10-13): **Timed runs.** Leaving a marked run's top starts a clock and reaching its bottom stops it; a small HUD shows the time and the run's best. Bests are kept per run in the save. Then a ghost: record the best run's frames and replay them as a see-through skier on later attempts.
+5. Parked (the user, 2026-10-13): **The yeti.** A few seconds past the ski-area boundary (`SkiAreaMask`, `world/ski_area.go`) the yeti appears uphill and chases you, faster than you; it gives up if you get back inside quickly enough. If it catches you: a yard sale, a short scene, and you're put back at the last lift top. With no boundary drawn there's no yeti. Needs a yeti model ([[Model Pipeline]]). The Yeti sighting under Easter eggs can reuse it.
 
 Later, not planned: a gamepad (GLFW has no gamepad polling in `engine/input.go` yet), picking your skill, the top-down SkiFree view, and race gates.
 
@@ -53,3 +59,7 @@ Later, not planned: a gamepad (GLFW has no gamepad polling in `engine/input.go` 
 - 2026-10-10: Idea from the user, unranked.
 - 2026-10-13: Picked as the next feature and planned with the user: in-game button, 1× clock, chase camera, the yeti, timed runs, riding lifts.
 - 2026-10-13: No boundary, no yeti; the player gets up after a fall, no patrol (the user).
+- 2026-10-13: Step 1 built. Checked headless on the Boreal Goals Test: down the fall line from Lift1's top, turns both ways, a hard stop to standing still, poling on, and a fall straight-lining for 15 s; no resort fall recorded, never in the guest list.
+- 2026-10-13: Step 2, the chase camera, after the user tried step 1: the overhead follow was too high to see down the slope and didn't turn with the skier.
+- 2026-10-13: Step 3 built. Headless on the Boreal Goals Test at 10:00: stopped by Lift1's line, the player joined behind two guests, boarded after 7 s, rode the high-speed quad 2 min 45 s, got off and skied on.
+- 2026-10-13: Steps 4 and 5 parked (the user); off the priority list.

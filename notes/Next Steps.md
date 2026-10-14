@@ -13,10 +13,8 @@ Each item is a **bold name**, then what it is. *Needs* lists what has to exist f
 
 In the order to work on them:
 
-1. [[Water Editing]]: steps 1–3 are in (the Water layer, local rebuild, the Water tool); next the shipped scenarios: seed Boreal and Kirkwood and fix their water by hand.
-2. [[SkiFree Mode]]: ski your own resort on the guests' physics. Steps: take control, chase camera, ride the lift up, timed runs with a ghost, the yeti.
-3. [[Families]]: kids who arrive and ski with their parents, and the [[Ski School]], whose instructors lead classes and whose lessons raise skill for good.
-4. [[Surface Lifts]]: the magic carpet, rope tow and T-bar are in (steps 1–5); next balance and placing them at Boreal and Kirkwood.
+1. [[Families]]: the [[Ski School]] is in (instructors lead classes, lessons raise skill for good); next kids who arrive and ski with their parents, then kids in lessons.
+2. [[Surface Lifts]]: the magic carpet, rope tow and T-bar are in (steps 1–5); next balance and placing them at Boreal and Kirkwood.
 
 ## Bugs
 
@@ -183,6 +181,7 @@ Things that happen on their own when conditions are right, not placed by the pla
 - **Bootpacking**: a rested pro hikes above the top lift to an untouched face, and other pros follow. Pairs with backcountry.
 - **Gaper Day**: on the last weekend of the season some guests turn up in retro outfits.
 - **Yeti sighting**: very rare, in alpine terrain with low traffic and heavy snow.
+- [[SkiFree Mode]], the rest: timed runs with a ghost, and the yeti past the boundary. Skiing it yourself, the chase camera and riding lifts are in; these are parked (the user, 2026-10-13).
 
 ## Log
 
@@ -322,3 +321,4 @@ Things that happen on their own when conditions are right, not placed by the pla
 - 2026-10-13: [[Surface Lifts]] planned and ranked third.
 - 2026-10-13: [[Water Editing]] planned with the user (editable creek lines and lake outlines in the scenario editor); listed under Terrain.
 - 2026-10-13: [[Water Editing]] moved to priority 1 and steps 1–3 built.
+- 2026-10-13: [[SkiFree Mode]] steps 1–3 built (take control, chase camera, ride the lift up); timed runs and the yeti parked under Easter eggs. [[Water Editing]]'s shipped scenarios left to the user.
