@@ -1097,6 +1097,10 @@ func (s *Scenario) Init(app *engine.App) error {
 	s.overlayPanel.Bottom = float32(app.Renderer.ScreenHeight()) - toolBarH
 	s.overlayPanel.AddRow(render.OverlayFalls, "Falls", render.IconArrowFatDown,
 		mgl32.Vec4{0.95, 0.25, 0.20, 1})
+	if world.SnowmakingAvailable() {
+		s.overlayPanel.AddRow(render.OverlaySnowmaking, "Snowmaking", render.IconSnowflake,
+			mgl32.Vec4{0.45, 0.75, 1.0, 1})
+	}
 	s.topBar.SetOverlayToggle(func() {
 		visible := s.overlayPanel.Toggle()
 		s.topBar.SetOverlayActive(visible)
@@ -2202,7 +2206,8 @@ func (s *Scenario) buildCellOverlay() (pixels []uint8, w, h int) {
 	hasLandOverlay := !edition.Demo && s.hoverParcel != nil // hover highlight when buying land
 	editedLodge := s.editedLodge()
 	fallsOn := s.overlayPanel != nil && s.overlayPanel.Mask()&render.OverlayFalls != 0
-	if !hasLandOverlay && editedLodge == nil && !fallsOn {
+	snowOn := s.overlayPanel != nil && s.overlayPanel.Mask()&render.OverlaySnowmaking != 0
+	if !hasLandOverlay && editedLodge == nil && !fallsOn && !snowOn {
 		return nil, 0, 0
 	}
 
@@ -2226,6 +2231,10 @@ func (s *Scenario) buildCellOverlay() (pixels []uint8, w, h int) {
 		pix[i+1] = uint8((float32(g)/255.0*srcA + float32(pix[i+1])/255.0*dstA*(1-srcA)) / outA * 255)
 		pix[i+2] = uint8((float32(b)/255.0*srcA + float32(pix[i+2])/255.0*dstA*(1-srcA)) / outA * 255)
 		pix[i+3] = uint8(outA * 255)
+	}
+
+	if snowOn {
+		s.snowmakingOverlay(set)
 	}
 
 	// Hover highlight for land-buy tool — brighter version of the parcel's

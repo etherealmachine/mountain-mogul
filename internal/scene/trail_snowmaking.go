@@ -45,6 +45,12 @@ func addSnowmakingRows(win *ui.Window, w *world.World, t *world.Trail, h trailHo
 	if h.snowStatus != nil {
 		win.AddLabel("Now", h.snowStatus)
 	}
+	win.AddLabel("Last night", func() string {
+		if t.LastSnowCost <= 0 {
+			return "—"
+		}
+		return fmt.Sprintf("%s laid, %s", settings.FormatDepth(t.LastSnowDepth), settings.FormatDollars(int(t.LastSnowCost+0.5)))
+	})
 }
 
 // runSnowDepth is a run's average snow depth (metres) and the share of

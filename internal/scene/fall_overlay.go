@@ -19,15 +19,23 @@ const fallHeatFloor = 5 * (6.0 / 16) * (6.0 / 16)
 // cellOverlayContent identifies what the cell overlay should show, so
 // it's uploaded only when that changes: 0 when it can't tell (the land
 // hover or a lodge's floor plan, which follow the mouse), 1 when it shows
-// nothing, else 2 plus the number of falls the falls overlay shows.
+// nothing, else a key from the falls the falls overlay shows and the
+// Snowmaking view's state (snowmakingOverlayKey).
 func (s *Scenario) cellOverlayContent() int {
 	if s.hoverParcel != nil || s.editedLodge() != nil {
 		return 0
 	}
-	if s.overlayPanel == nil || s.overlayPanel.Mask()&render.OverlayFalls == 0 {
+	if s.overlayPanel == nil {
 		return 1
 	}
-	return 2 + len(s.world.History.FallsToday)
+	key := 1
+	if s.overlayPanel.Mask()&render.OverlayFalls != 0 {
+		key = 2 + len(s.world.History.FallsToday)
+	}
+	if s.overlayPanel.Mask()&render.OverlaySnowmaking != 0 {
+		key = key*1_000_003 + s.snowmakingOverlayKey()
+	}
+	return key
 }
 
 // fallHeatPixels is the falls overlay as cell-overlay pixels: today's

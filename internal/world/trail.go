@@ -41,6 +41,13 @@ type Trail struct {
 	// enough somewhere on it, its lifts stopped, below its target. Set by
 	// the sim; not saved.
 	MakingSnow bool
+	// SnowWater is the water (cubic metres) made into snow on it since
+	// snowmaking last stopped for the lifts, and SnowCost what it cost;
+	// LastSnowDepth and LastSnowCost are the last such night's depth laid
+	// (metres, averaged over the run) and cost. Not saved.
+	SnowWater                   float32
+	SnowCost                    float64
+	LastSnowDepth, LastSnowCost float32
 
 	Nodes      []TrailNode  // a run's centre line, two or more
 	Start, End TrailEnd     // what a run's first and last nodes are attached to

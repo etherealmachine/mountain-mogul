@@ -44,7 +44,7 @@ In order; each builds with `go build` and `go vet`, and is checked headless on t
 
 1. Done: **Snowmaking on runs**: the run's install, switch and target; snow by temperature and altitude to the target, while its lifts are stopped; cost by water made; the placed gun removed. Machine snow as its own kind.
 2. Done: **Depth that matters**: lift holds under 30 cm; rock on thin runs (routes, letdown, falls).
-3. **Guns and feedback**: guns along the runs with plumes, the Snowmaking map view, the popup readouts and the morning feed line.
+3. Done: **Guns and feedback**: guns along the runs with plumes, the Snowmaking map view, the popup readouts and the morning feed line.
 4. **Balance**: an early-December Boreal opening on snowmaking alone; the cost per run per night against a lift's day; [[Boreal Tutorial]]'s money.
 
 ## Open questions
@@ -58,3 +58,4 @@ In order; each builds with `go build` and `go vet`, and is checked headless on t
 - 2026-10-14: Step 1 built. On the Boreal Goals Test (Dec 16, every run on, target 2 m, closed): the first cold night (−5 to −12 °C) made snow on all 11 runs, about 275,000 m², for $42,755; the next two milder nights $11,027 and $6,558. Runs gained 13–26 cm a night over the same days without snowmaking, but both lose about half their depth to the compaction bug (0.89 m to 0.41 m in a day without snowmaking), which step 2 waits on.
 - 2026-10-14: The compaction bug fixed ([[Snow]]): layers keep their own density, so step 2's depth thresholds hold still.
 - 2026-10-14: Step 2 built. Lifts hold under 30 cm at the base, back from 35 cm; rock under 20 cm: route cost, "hit rocks, the snow's too thin" (an annoyance), and falls (a fifth of hits, less for good skiers). The shipped scenarios: the Goals Test's lift bases are at 1.1–1.2 m and Boreal's ground about a metre everywhere, but Kirkwood's lowest tenth is mostly under 30 cm on its Dec 10 start, so lifts based there wait for storms or snowmaking. The Goals Test with every run cut to 10 cm (lift bases left deep): 334 rock complaints, falls 624 → 3,493 and 2.90★ → 2.56★ at a 30% fall share, since cut to 20%.
+- 2026-10-14: Step 3 built: guns every 40 m on a run's right-hand edge with see-through plumes while making snow, the Snowmaking map view, the popup's last night, and the morning feed line.

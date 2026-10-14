@@ -35,6 +35,7 @@ const (
 	OverlayParcels       = 1 << 10 // editor: show parcel tints and price labels (CPU-side, not in shader)
 	OverlayGround        = 1 << 11 // what the ground is made of (Terrain.Material), snow or not
 	OverlayFalls         = 1 << 12 // where guests fell today, as a heat map (CPU-side cell overlay)
+	OverlaySnowmaking    = 1 << 13 // snowmaking runs by depth against target, and thin snow (CPU-side cell overlay)
 )
 
 // DebugLine is a single world-space line segment for tuning overlays.
@@ -90,6 +91,7 @@ type Renderer struct {
 	// bigLifts holds the 6-pack, gondola and heli models (big_lifts.go);
 	// empty in the demo, which has none.
 	bigLifts
+	snowmakingRender
 
 	uiVAO, uiVBO     uint32
 	whiteTexID       uint32             // 1×1 white texture; always bound to unit 0 during UI pass
@@ -490,6 +492,7 @@ func (r *Renderer) initStaticMeshes() {
 	world.RegisterMeshSlots(world.MeshChairQuad, LoadOBJSlots(chairQuadPath))
 
 	loadBigLifts(r, modelDir)
+	loadSnowmaking(r, modelDir)
 
 	// Snowcat — dynamic batch. Snowcats drive over the terrain every
 	// tick so they share the agent-style instance path rather than
@@ -1758,9 +1761,11 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		}
 		drawBigLiftChairs(r)
 	}
+	drawSnowGuns(r, w, time)
 
 	r.drawWater(w, vp, light, time)
 	drawBubbleHoods(r)
+	drawSnowPlumes(r)
 	r.drawWeatherOverlay(time, light)
 }
 

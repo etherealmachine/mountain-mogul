@@ -10,6 +10,8 @@ Snowmaking is bought for a run: pipe and hydrants along it, $250 a metre, from t
 
 Machine snow is its own kind ([[Snow]]): laid at 0.45 density, firm and fast, grippy. It takes in the surface layer it's laid on (so a night's snowmaking never leaves a run shallower), clears the corduroy, packs down to packed powder under skiers or a cat, stays put through cold, clear and windy days, and turns to corn on a warm one. The season story it carries is in [[Vision]]: opening before natural snow and staying open after it melts.
 
+Guns stand along a snowmaking run's right-hand edge every 40 m, facing across it, and blow a see-through plume (`snow_plume.py`), swinging slowly, while the run makes snow (`internal/render/snowmaking.go`). The run's popup shows the depth against the target, what it's doing now, and last night's depth laid and cost. When the lifts start, the feed says what the night made ("Snowmaking laid 12–19 cm on 4 runs overnight ($9,800)"). The Snowmaking map view colours each snowmaking run from red (bare) through orange to blue (at its target), brighter while it's making snow, and marks thin snow (under 20 cm) on runs without it in red.
+
 Not in the demo. The placed snow guns are gone; saves drop theirs.
 
 Code: `internal/world/snowmaking.go`, `internal/sim/snowmaking.go`, the popup rows in `internal/scene/trail_snowmaking.go`.

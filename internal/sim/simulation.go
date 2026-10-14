@@ -47,6 +47,9 @@ type Simulation struct {
 	// found on first use by snowmaking.
 	baseElev      float32
 	baseElevKnown bool
+	// snowmakingStopped is whether snowmaking could run last tick (the
+	// lifts stopped), to close each night when it ends.
+	snowmakingStopped bool
 
 	// PlayerInput is the keys the player skiing (World.Player) is
 	// pressing, set by the scene each frame (player.go).
