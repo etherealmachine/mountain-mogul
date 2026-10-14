@@ -22,6 +22,7 @@ Nothing ranked.
 
 - **Slow zones**: the player paints a slow zone; guests mostly respect it, and patrollers stand at slow zones slowing fast skiers. *For* [[Alta]].
 - **Backcountry**: gates through the boundary to terrain with no patrol or grooming, for experts only. *Needs* [[Land and Boundaries]].
+- **Heli skiing that works**: the heli lift is there (a helipad, a drop zone, a fare a ride) but was never made to work in play; revisit it as terrain: drops onto real untracked faces with runs or zones down from them, who books it and at what price, and wind and weather grounding it.
 - **Cat skiing**: snowcats carry advanced guests to ungroomed terrain. *For* the Revelstoke idea in [[Scenario Campaign]].
 - **Cat trails**: easy, narrow ways down for beginners that get crowded.
 - **Glades and bowls as areas**: outlined zones skied anywhere inside, not runs ([[Trail Network]]).

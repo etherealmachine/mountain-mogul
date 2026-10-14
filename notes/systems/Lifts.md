@@ -75,3 +75,4 @@ Moved from [[Next Steps]] on 2026-10-14, when it was cut down to new features.
 - 2026-10-14: Towers placed by the ground with heights to match, spans that sag between them, and towers of every height from one model each (Towers and spans).
 - 2026-10-14: Lifts hold under 30 cm of snow at their base (back from 35 cm), not only on bare ground ([[Snowmaking on Runs]] step 2).
 - 2026-10-14: Wind holds by lift type and exposure, test runs after them and by hand ([[Lift Operations]]).
+- 2026-10-14: Heli skiing to be revisited as terrain and runs (the user): it exists but was never made to work in play ([[Next Steps]]).
