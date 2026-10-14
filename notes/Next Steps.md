@@ -11,10 +11,11 @@ New features only, a line each, to say yes or no to. A feature big enough to nee
 
 ## Priority
 
-1. [[Lift Operations]]: next [[Lift Maintenance]] (breakdowns, paying for maintenance, overriding wind holds at a risk; the UI to work out with the user), then refusing overlapping lifts.
+Nothing ranked.
 
 ## Lifts
 
+- [[Lift Maintenance]]: breakdowns, paying for maintenance, and overriding wind holds at a risk (the UI to work out with the user).
 - **Riding lifts down**: beginners stuck at a top, tired guests at the end of the day, a bare lower mountain in spring; gondolas and trams freely, chairs if the player allows it ([[Lift Operations]] step 4).
 
 ## Terrain and runs
