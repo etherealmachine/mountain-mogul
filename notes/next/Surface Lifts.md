@@ -1,7 +1,7 @@
 ---
 title: Surface Lifts
 kind: plan
-status: in progress
+status: shipped
 ---
 
 # Surface Lifts
@@ -47,3 +47,4 @@ In order. Each step builds with `go build` and `go vet`, and is checked headless
 - 2026-10-13: A control post with stop and start buttons at each end (the user). The top end was the base model turned to face down the line, which put its plate on the far side from the belt; it's now its own mirrored model.
 - 2026-10-13: Step 4 built: the rope tow. On its testbed beginners fall off about one ride in four and come back to the line; the novice never rides. Every guest there goes home bored after about one run, as on the carpet's testbed: one short run doesn't hold their tastes for long. Left for step 6 with the novice boredom check.
 - 2026-10-13: Step 5 built: the T-bar. Falls changed from a chance per 100 m to a chance per ride spread along the track, since on a 400 m T-bar the per-metre chance had beginners coming off most rides. Headless (no renderer) riders sit at the cable, as chair riders do: seat slots come from the models.
+- 2026-10-14: Done (the user). Step 6's balance and placement moved to [[Next Steps]]: balance with the economy's, placing them in Boreal and Kirkwood under Lifts.
