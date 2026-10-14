@@ -198,7 +198,8 @@ func (t *goalsTab) layout(x, y, w float32) {
 			r.bonusBtn.Label = "Required"
 		}
 	}
-	ay := y + 30 + float32(len(t.rows))*goalRowH + 10
+	// With no goals, a row's room for saying so.
+	ay := y + 30 + float32(max(len(t.rows), 1))*goalRowH + 10
 	t.addBtn.X, t.addBtn.Y = x, ay
 	t.groomBtn.X, t.groomBtn.Y = x, ay+detailsRowH+80
 	if t.hasRule(world.RuleNoGrooming) {
@@ -265,7 +266,6 @@ func (t *goalsTab) draw(r *render.Renderer, x, y float32) {
 	if len(t.goals) == 0 {
 		f.DrawText(r, "No goals: the scenario plays as a sandbox.", x, y+30+textOff, dim)
 	}
-	f.DrawText(r, "Season is a deadline: the goal must be met by the end of that season. \"-\" is none.", x, t.addBtn.Y+detailsRowH+4, dim)
 	f.DrawText(r, "Rules", x, t.groomBtn.Y-float32(render.GlyphH)-4, label)
 }
 

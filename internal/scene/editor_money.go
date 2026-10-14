@@ -123,16 +123,4 @@ func (t *moneyTab) draw(r *render.Renderer, x float32) {
 		r.Font.DrawText(r, row.name, x, row.down.Y+textOff, label)
 		r.Font.DrawText(r, v, row.down.X+26+(moneyValueW-r.Font.TextWidth(v))/2, row.down.Y+textOff, white)
 	}
-	y := t.rows[len(t.rows)-1].down.Y + detailsRowH + 24
-	for _, line := range []string{
-		fmt.Sprintf("The player can spend %s at the start: cash plus the credit line.",
-			formatDollars(t.m.Cash+t.m.CreditLimit)),
-		"Negative cash starts the resort in debt, drawn on the credit line.",
-		fmt.Sprintf("Interest is charged monthly; %d days past the credit line is bankruptcy.",
-			world.BankruptcyGraceDays),
-		"Prices are where they start; the player can change them.",
-	} {
-		r.Font.DrawText(r, line, x, y, label)
-		y += float32(render.GlyphH) + 8
-	}
 }

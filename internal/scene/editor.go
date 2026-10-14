@@ -841,8 +841,7 @@ func (e *Editor) handleToolNoneMouse(r *render.Renderer, leftClick, leftHeld boo
 	// a player who drags onto the menu bar can still get a clean commit.
 	if !leftHeld {
 		if e.roadEdit.dragging {
-			commitRoadDrag(r, e.world)
-			e.roadEdit.dragging = false
+			commitRoadDrag(r, e.world, &e.roadEdit)
 			e.layerCache.fields = nil
 			e.markDirty()
 		}

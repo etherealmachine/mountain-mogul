@@ -1860,8 +1860,7 @@ func (s *Scenario) Update(dt float64) {
 					dragRoadNode(r, s.world, &s.roadEdit, mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]})
 				}
 			} else {
-				commitRoadDrag(r, s.world)
-				s.roadEdit.dragging = false
+				commitRoadDrag(r, s.world, &s.roadEdit)
 			}
 		}
 		if s.structureEdit.dragging {

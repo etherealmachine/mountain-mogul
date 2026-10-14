@@ -267,8 +267,7 @@ func (p *scenarioDetailsPrompt) Draw(r *render.Renderer) {
 	r.Font.DrawText(r, "Description", lx, p.fields[2].Y-float32(render.GlyphH)-8, label)
 }
 
-// drawMix draws the Guests tab: the group mix's steppers, and what
-// they mean.
+// drawMix draws the Guests tab: the group mix's steppers.
 func (p *scenarioDetailsPrompt) drawMix(r *render.Renderer) {
 	label := mgl32.Vec4{0.8, 0.86, 0.95, 1}
 	white := mgl32.Vec4{1, 1, 1, 1}
@@ -283,15 +282,5 @@ func (p *scenarioDetailsPrompt) drawMix(r *render.Renderer) {
 		b := p.mixBtn[2*i]
 		r.Font.DrawText(r, row.name, lx, b.Y+textOff, label)
 		r.Font.DrawText(r, row.value, b.X+26+(mixValueW-r.Font.TextWidth(row.value))/2, b.Y+textOff, white)
-	}
-	y := p.mixBtn[4].Y + detailsRowH + 24
-	for _, line := range []string{
-		"Guests come in groups of 1 to 13 that ski together. A group skis",
-		"where its weakest skier can, and eats and goes home together.",
-		"Groups that aren't mixed share one skill level. Lessons are beginners.",
-		"Guests are regrouped when you press OK.",
-	} {
-		r.Font.DrawText(r, line, lx, y, label)
-		y += float32(render.GlyphH) + 8
 	}
 }

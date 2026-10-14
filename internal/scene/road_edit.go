@@ -9,22 +9,39 @@ import (
 
 // roadEditSelection is the state of the click-to-edit road tool. Active
 // whenever node or edge is non-nil; mutually exclusive (at most one is
-// set at a time). dragging means the user is mid-drag on a node — the
-// node's Pos is being updated each frame as the cursor moves.
+// set at a time). dragging means the button is held after picking: on a
+// node, its Pos follows the cursor; on an edge, the edge is split where
+// it was pressed (pressAt) once the cursor moves off it, and the new
+// node dragged from there.
+//
+// While a node drags it snaps onto a node (into) or road (onto, at
+// ontoPos) within roadMergeRadius, and joins it when let go.
 type roadEditSelection struct {
 	node     *world.RoadNode
 	edge     *world.RoadEdge
 	dragging bool
+	pressAt  mgl32.Vec2
+
+	into    *world.RoadNode
+	onto    *world.RoadEdge
+	ontoPos mgl32.Vec2
 }
+
+// roadMergeRadius is how near, in metres, a dragged road node snaps onto
+// another node or road; roadSplitDrag is how far the cursor moves from
+// where a road was pressed before the press becomes a drag that adds a
+// node there.
+const (
+	roadMergeRadius = float32(8)
+	roadSplitDrag   = float32(3)
+)
 
 func (s *roadEditSelection) active() bool {
 	return s.node != nil || s.edge != nil
 }
 
 func (s *roadEditSelection) clear() {
-	s.node = nil
-	s.edge = nil
-	s.dragging = false
+	*s = roadEditSelection{}
 }
 
 // tryStartRoadEdit hit-tests a click against the road graph and updates
@@ -34,19 +51,15 @@ func (s *roadEditSelection) clear() {
 // road tool; the lot itself owns their lifecycle.
 //
 // Returns true when something was selected (caller should consume the
-// click). On a node hit, sel.dragging is set so the next LeftHeld frame
-// moves the node.
+// click). Either way sel.dragging is set so the next LeftHeld frames
+// move the node, or split the edge where it was pressed and move that.
 func tryStartRoadEdit(w *world.World, raw mgl32.Vec2, sel *roadEditSelection) bool {
 	if n := nearestEditableNode(w, raw, world.RoadSnapRadius); n != nil {
-		sel.node = n
-		sel.edge = nil
-		sel.dragging = true
+		*sel = roadEditSelection{node: n, dragging: true}
 		return true
 	}
-	if e, _, ok := w.SnapToRoadEdge(raw, world.RoadSnapRadius); ok {
-		sel.node = nil
-		sel.edge = e
-		sel.dragging = false
+	if e, cp, ok := w.SnapToRoadEdge(raw, world.RoadSnapRadius); ok {
+		*sel = roadEditSelection{edge: e, dragging: true, pressAt: cp}
 		return true
 	}
 	return false
@@ -74,15 +87,32 @@ func nearestEditableNode(w *world.World, pos mgl32.Vec2, radius float32) *world.
 	return best
 }
 
-// dragRoadNode moves the selected node to pos (grid-snapped) and re-
-// rebuilds road meshes and terrain stamping so the carriageway visibly
-// follows the cursor. RebuildStaticBatch is deferred to release —
-// re-uploading tree instances every frame stalls the drag.
+// dragRoadNode moves the selected node to pos (grid-snapped), or onto
+// the node or road it snaps to there (roadMergeTarget), and re-rebuilds
+// road meshes and terrain stamping so the carriageway visibly follows
+// the cursor. A pressed edge splits once the cursor leaves the press.
+// RebuildStaticBatch is deferred to release — re-uploading tree
+// instances every frame stalls the drag.
 func dragRoadNode(r *render.Renderer, w *world.World, sel *roadEditSelection, pos mgl32.Vec2) {
+	if sel.edge != nil {
+		if pos.Sub(sel.pressAt).Len() < roadSplitDrag {
+			return
+		}
+		sel.node, sel.edge = w.SplitRoadEdge(sel.edge, snapToCellGrid(sel.pressAt)), nil
+	}
 	if sel.node == nil {
 		return
 	}
+	sel.into, sel.onto = roadMergeTarget(w, sel.node, pos)
 	snapped := snapToCellGrid(pos)
+	switch {
+	case sel.into != nil:
+		snapped = sel.into.Pos
+	case sel.onto != nil:
+		_, cp, _ := w.SnapToRoadEdge(pos, roadMergeRadius)
+		sel.ontoPos = snapToCellGrid(cp)
+		snapped = sel.ontoPos
+	}
 	if snapped == sel.node.Pos {
 		return
 	}
@@ -92,10 +122,86 @@ func dragRoadNode(r *render.Renderer, w *world.World, sel *roadEditSelection, po
 	r.RebuildRoads(w)
 }
 
-// commitRoadDrag finalises a drag: pushes the cleared-cell tree state
-// to the GPU. Called once on mouse release rather than per frame.
-func commitRoadDrag(r *render.Renderer, w *world.World) {
+// roadMergeTarget is the node (else the road) dragged node n would join
+// if let go at pos: the nearest within roadMergeRadius, not n itself or
+// a road from it. Only plain nodes join others; an entry stays apart.
+func roadMergeTarget(w *world.World, n *world.RoadNode, pos mgl32.Vec2) (*world.RoadNode, *world.RoadEdge) {
+	if n.Kind != world.RoadNodeFreestanding && n.Kind != world.RoadNodeIntersection {
+		return nil, nil
+	}
+	var into *world.RoadNode
+	best := roadMergeRadius
+	for _, m := range w.RoadNodes {
+		if d := m.Pos.Sub(pos).Len(); m != n && d <= best {
+			into, best = m, d
+		}
+	}
+	if into != nil {
+		return into, nil
+	}
+	var onto *world.RoadEdge
+	best = roadMergeRadius
+	for _, e := range w.RoadEdges {
+		if e.A == n.ID || e.B == n.ID {
+			continue
+		}
+		a, b := w.RoadNodeByID(e.A), w.RoadNodeByID(e.B)
+		if a == nil || b == nil {
+			continue
+		}
+		if d := world.ClosestPointOnRoadSegment(pos, a.Pos, b.Pos).Sub(pos).Len(); d <= best {
+			onto, best = e, d
+		}
+	}
+	return nil, onto
+}
+
+// commitRoadDrag finalises a drag: joins the node to what it snapped to,
+// keeping that one selected, and pushes the cleared-cell tree state to
+// the GPU. Called once on mouse release rather than per frame; a press
+// on an edge that never moved just leaves the edge selected.
+func commitRoadDrag(r *render.Renderer, w *world.World, sel *roadEditSelection) {
+	into := sel.into
+	if sel.onto != nil {
+		into = w.SplitRoadEdge(sel.onto, sel.ontoPos)
+	}
+	if into != nil && sel.node != nil {
+		mergeRoadNode(w, sel.node, into)
+		sel.node = into
+	}
+	sel.dragging, sel.into, sel.onto = false, nil, nil
+	if sel.edge != nil {
+		return
+	}
+	applyRoadCellState(w)
+	r.FlushTerrainVerts(w.Terrain)
+	r.RebuildRoads(w)
 	r.RebuildStaticBatch(w)
+}
+
+// mergeRoadNode joins node n into node into: n's roads end at into
+// instead, a road between the two or one into already has goes, and n
+// is removed.
+func mergeRoadNode(w *world.World, n, into *world.RoadNode) {
+	linked := map[uint64]bool{}
+	for _, e := range w.RoadEdges {
+		if e.A == into.ID || e.B == into.ID {
+			linked[otherEnd(e, into.ID)] = true
+		}
+	}
+	var others []uint64
+	for _, e := range w.RoadEdges {
+		if e.A == n.ID || e.B == n.ID {
+			others = append(others, otherEnd(e, n.ID))
+		}
+	}
+	w.RemoveRoadNode(n.ID)
+	for _, o := range others {
+		if o != into.ID && !linked[o] {
+			w.AddRoadEdge(into.ID, o)
+			linked[o] = true
+		}
+	}
 }
 
 // deleteSelectedRoad removes whatever is currently selected and clears
@@ -226,19 +332,33 @@ func emitRoadEditMarkers(r *render.Renderer, w *world.World, sel *roadEditSelect
 		hotA = sel.edge.A
 		hotB = sel.edge.B
 	}
+	// What a dragged node would join shows in the snap colour, a
+	// driveway too; a road's join point gets a marker of its own.
+	var into uint64
+	if sel.into != nil {
+		into = sel.into.ID
+	}
 
-	instances := make([]render.StaticInstance, 0, len(w.RoadNodes))
+	instances := make([]render.StaticInstance, 0, len(w.RoadNodes)+1)
 	for _, n := range w.RoadNodes {
-		if n.Kind == world.RoadNodeParkingDriveway {
+		if n.Kind == world.RoadNodeParkingDriveway && n.ID != into {
 			continue
 		}
 		tint := roadNodeMarkerTint
 		rs, hs := roadEditMarkerRadiusScale, roadEditMarkerHeightScale
-		if n.ID == hotA || n.ID == hotB {
+		switch n.ID {
+		case into:
+			tint = roadNodeMarkerSnapTint
+			rs, hs = roadEditSelectionRadiusScale*1.5, roadEditMarkerHeightScale
+		case hotA, hotB:
 			tint = roadEditSelectionTint
 			rs, hs = roadEditSelectionRadiusScale, roadEditSelectionHeightScale
 		}
 		instances = append(instances, roadEditMarkerInstance(n.Pos, w.Terrain, tint, rs, hs))
+	}
+	if sel.onto != nil {
+		instances = append(instances, roadEditMarkerInstance(sel.ontoPos, w.Terrain, roadNodeMarkerSnapTint,
+			roadEditSelectionRadiusScale*1.5, roadEditMarkerHeightScale))
 	}
 	r.SetGhosts(render.MeshRoadNode, instances)
 }

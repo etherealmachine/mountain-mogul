@@ -342,7 +342,7 @@ func (env runEnv) edit(st *runTool, in runInput, rightTap bool) bool {
 		st.drag, st.dragging = st.hover, true
 		return true
 	case in.leftClick && onRun:
-		env.insertNode(t, st.cursor)
+		st.drag, st.dragging = runHandle{node: env.insertNode(t, st.cursor), ok: true}, true
 		return true
 	case rightTap && st.hover.ok && !st.hover.width:
 		if len(t.Nodes) <= 2 {
@@ -356,8 +356,8 @@ func (env runEnv) edit(st *runTool, in runInput, rightTap bool) bool {
 	return false
 }
 
-// dragTo moves the dragged handle to the cursor; letting go settles it,
-// re-attaching an end node to whatever it was dropped on.
+// dragTo moves the dragged handle to the cursor; an end node snaps onto
+// what it would attach to there (st.snap), and letting go attaches it.
 func (env runEnv) dragTo(st *runTool, in runInput) {
 	w := env.w
 	t := w.FindTrail(st.focus)
@@ -366,18 +366,23 @@ func (env runEnv) dragTo(st *runTool, in runInput) {
 		return
 	}
 	n := &t.Nodes[st.drag.node]
+	end := !st.drag.width && (st.drag.node == 0 || st.drag.node == len(t.Nodes)-1)
 	if in.groundValid {
 		p := mgl32.Vec2{in.ground[0], in.ground[2]}
-		if st.drag.width {
+		switch {
+		case st.drag.width:
 			n.Width = clampWidth(2 * p.Sub(n.Pos).Len())
-		} else {
-			n.Pos = p
+		case end:
+			st.snap = snapRun(w, p, t.ID, false)
+			n.Pos = st.snap.pos
 			// Moving an end node frees it until it's dropped.
 			if st.drag.node == 0 {
 				t.Start = world.TrailEnd{}
-			} else if st.drag.node == len(t.Nodes)-1 {
+			} else {
 				t.End = world.TrailEnd{}
 			}
+		default:
+			n.Pos = p
 		}
 		w.ShapeTrail(t)
 	}
@@ -385,26 +390,25 @@ func (env runEnv) dragTo(st *runTool, in runInput) {
 		return
 	}
 	st.dragging = false
-	if !st.drag.width {
-		last := len(t.Nodes) - 1
-		if st.drag.node == 0 || st.drag.node == last {
-			s := snapRun(w, n.Pos, t.ID, false)
-			n.Pos = s.pos
-			if st.drag.node == 0 {
-				t.Start = s.end
-			} else {
-				t.End = s.end
-			}
-			if s.end.Set {
-				env.toast("Attached to " + s.what)
-			}
+	if end {
+		s := snapRun(w, n.Pos, t.ID, false)
+		n.Pos = s.pos
+		if st.drag.node == 0 {
+			t.Start = s.end
+		} else {
+			t.End = s.end
+		}
+		if s.end.Set {
+			env.toast("Attached to " + s.what)
 		}
 	}
+	st.snap = runSnap{}
 	env.reshaped(t)
 }
 
-// insertNode adds a node to run t where the cursor is on it.
-func (env runEnv) insertNode(t *world.Trail, p mgl32.Vec2) {
+// insertNode adds a node to run t where the cursor is on it, and returns
+// its index.
+func (env runEnv) insertNode(t *world.Trail, p mgl32.Vec2) int {
 	best, at := float32(math.Inf(1)), 1
 	for i := 1; i < len(t.Nodes); i++ {
 		a, b := t.Nodes[i-1].Pos, t.Nodes[i].Pos
@@ -420,6 +424,7 @@ func (env runEnv) insertNode(t *world.Trail, p mgl32.Vec2) {
 	width := (t.Nodes[at-1].Width + t.Nodes[at].Width) / 2
 	t.Nodes = append(t.Nodes[:at], append([]world.TrailNode{{Pos: p, Width: width}}, t.Nodes[at:]...)...)
 	env.reshaped(t)
+	return at
 }
 
 // fixEnds drops attachments that no longer sit on the end nodes after
@@ -809,7 +814,7 @@ func buildLiveTrails(w *world.World, st *runTool) (fill, lines []float32) {
 			d.square(n.Pos, runHandleSize, handle)
 		}
 	}
-	if st.cursorOK && !st.dragging && (st.drawing || !st.hover.ok) && st.snap.end.Set {
+	if st.cursorOK && (st.dragging || st.drawing || !st.hover.ok) && st.snap.end.Set {
 		d.square(st.snap.pos, runHandleSize*1.6, hot)
 	}
 	return d.fill, d.lines
