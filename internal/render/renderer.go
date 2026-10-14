@@ -932,6 +932,18 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 			}
 		}
 	}
+	// Roads' and paths' tunnels: their surfaces are the ground's.
+	for _, tn := range w.Tunnels {
+		mesh := MeshPortalPath
+		if tn.Course.Road {
+			mesh = MeshPortalRoad
+		}
+		if b, ok := r.staticBatches[mesh]; ok {
+			for _, p := range tn.Mouths {
+				b.AddStatic(portalAt(p, p.Y), mgl32.Vec3{1, 1, 1})
+			}
+		}
+	}
 	r.RebuildRails(w)
 
 	// Road edge-connection markers — one yellow-flag post per node with
@@ -1127,6 +1139,9 @@ func carInstancesFor(w *world.World, cars *[world.CarKindCount][]DynamicInstance
 			// z-fighting with the paint.
 			y = parkingSurfaceY(w.Terrain, c.Pos[0], c.Pos[1]) + parkingHoverOffset + parkingStripeHover + 0.02
 		} else {
+			if w.InTunnel(c.Pos, true) {
+				continue // under the hill
+			}
 			y = deckOrGround(w)(c.Pos[0], c.Pos[1]) + roadHoverOffset + 0.02
 		}
 		// The paint, and the roof box's colour, from the car's ID.
@@ -2335,7 +2350,8 @@ func (r *Renderer) SetGhostRoad(w *world.World, a, b mgl32.Vec2, tint [3]float32
 	r.ClearGhostRoad()
 	line := []world.TrailSample{{Pos: a, Width: 2 * world.RoadHalfWidth}, {Pos: b, Width: 2 * world.RoadHalfWidth}}
 	bridges := w.BridgesFor(line, true)
-	r.scene.roadGhostMesh = generateRoadEdgeMesh(a, b, deckOrGroundWith(w, bridges))
+	track := w.RoadLine(a, b)
+	r.scene.roadGhostMesh = generateRoadEdgeMesh(a, b, deckOrGroundWith(w, bridges), roadTunnels(world.TunnelsAlong(track, world.RoadHalfWidth, true)))
 	r.scene.roadGhostBridge = ghostBridgeMesh(w.Terrain, bridges)
 	_ = tint // see doc comment — reserved for future use
 }

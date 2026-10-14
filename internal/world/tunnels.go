@@ -21,32 +21,36 @@ const (
 )
 
 // markTunnels marks the track samples of line l that run under the hill.
-func (l *RailLine) markTunnels(t *Terrain) {
-	n := len(l.Track)
-	deep := make([]bool, n)
-	for i, s := range l.Track {
+func (l *RailLine) markTunnels(t *Terrain) { markTunnelsIn(l.Track, t, TunnelDepth) }
+
+// markTunnelsIn marks the samples of track more than depth under the
+// ground: runs within TunnelJoin of each other joined, and any shorter
+// than TunnelMinLength left to be cut instead.
+func markTunnelsIn(track []RailSample, t *Terrain, depth float32) {
+	deep := make([]bool, len(track))
+	for i, s := range track {
 		g := t.InterpolatedGroundElevationAt(s.Pos[0], s.Pos[1])
-		deep[i] = g-s.Y > TunnelDepth
+		deep[i] = g-s.Y > depth
 	}
 	// Join near runs, then drop short ones.
 	runs := runsOf(deep)
 	var joined [][2]int
 	for _, r := range runs {
-		if k := len(joined); k > 0 && l.Track[r[0]].Dist-l.Track[joined[k-1][1]].Dist < TunnelJoin {
+		if k := len(joined); k > 0 && track[r[0]].Dist-track[joined[k-1][1]].Dist < TunnelJoin {
 			joined[k-1][1] = r[1]
 			continue
 		}
 		joined = append(joined, r)
 	}
-	for i := range l.Track {
-		l.Track[i].Tunnel = false
+	for i := range track {
+		track[i].Tunnel = false
 	}
 	for _, r := range joined {
-		if l.Track[r[1]].Dist-l.Track[r[0]].Dist < TunnelMinLength {
+		if track[r[1]].Dist-track[r[0]].Dist < TunnelMinLength {
 			continue
 		}
 		for i := r[0]; i <= r[1]; i++ {
-			l.Track[i].Tunnel = true
+			track[i].Tunnel = true
 		}
 	}
 }
@@ -77,17 +81,20 @@ type TunnelPortal struct {
 }
 
 // Portals is line l's tunnel mouths.
-func (l *RailLine) Portals() []TunnelPortal {
+func (l *RailLine) Portals() []TunnelPortal { return portalsOf(l.Track) }
+
+// portalsOf is track's tunnel mouths, each facing into its tunnel.
+func portalsOf(track []RailSample) []TunnelPortal {
 	var out []TunnelPortal
-	for i := 1; i < len(l.Track); i++ {
-		a, b := l.Track[i-1], l.Track[i]
+	for i := 1; i < len(track); i++ {
+		a, b := track[i-1], track[i]
 		if a.Tunnel == b.Tunnel {
 			continue
 		}
 		// Facing into the tunnel: along the line where it starts, back
 		// where it ends.
 		d := (a.Dist + b.Dist) / 2
-		pos, y, heading, _ := l.At(d)
+		pos, y, heading, _ := trackAt(track, d)
 		if a.Tunnel {
 			heading += 3.14159265
 		}

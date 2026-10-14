@@ -26,7 +26,7 @@ func generateFootpathMesh(w *world.World) *Mesh {
 	var idx []uint32
 	height := deckOrGround(w)
 	for _, f := range w.Footpaths {
-		verts, idx = appendFootpath(verts, idx, height, f.Centerline())
+		verts, idx = appendFootpath(verts, idx, height, pathTunnels(w.Tunnels), f.Centerline())
 	}
 	if len(idx) == 0 {
 		return nil
@@ -34,8 +34,9 @@ func generateFootpathMesh(w *world.World) *Mesh {
 	return NewMesh(verts, idx, []int{3, 3, 2}, nil)
 }
 
-// appendFootpath adds one path's strip and end caps along line.
-func appendFootpath(verts []float32, idx []uint32, height heightFunc, line []world.TrailSample) ([]float32, []uint32) {
+// appendFootpath adds one path's strip and end caps along line, leaving
+// out what hidden says is in a tunnel (nil for none).
+func appendFootpath(verts []float32, idx []uint32, height heightFunc, hidden func(mgl32.Vec2) bool, line []world.TrailSample) ([]float32, []uint32) {
 	if len(line) < 2 {
 		return verts, idx
 	}
@@ -55,7 +56,7 @@ func appendFootpath(verts []float32, idx []uint32, height heightFunc, line []wor
 		d := dirAt(i)
 		n := mgl32.Vec2{-d[1], d[0]}.Mul(s.Width / 2)
 		l, r := vert(s.Pos.Add(n)), vert(s.Pos.Sub(n))
-		if i > 0 {
+		if i > 0 && (hidden == nil || !hidden(s.Pos.Add(line[i-1].Pos).Mul(0.5))) {
 			idx = append(idx, prevL, prevR, l, prevR, r, l)
 		}
 		prevL, prevR = l, r
@@ -97,7 +98,8 @@ func (r *Renderer) SetFootpathGhost(w *world.World, nodes []world.TrailNode, ok 
 	line := f.Centerline()
 	bridges := w.BridgesFor(line, false)
 	r.scene.footpathGhostBridge = ghostBridgeMesh(w.Terrain, bridges)
-	verts, idx := appendFootpath(nil, nil, deckOrGroundWith(w, bridges), line)
+	hidden := pathTunnels(world.TunnelsAlong(w.FootpathLine(nodes), f.HalfWidth(), false))
+	verts, idx := appendFootpath(nil, nil, deckOrGroundWith(w, bridges), hidden, line)
 	if len(idx) > 0 {
 		r.scene.footpathGhost = NewMesh(verts, idx, []int{3, 3, 2}, nil)
 		r.scene.footpathGhostOK = ok

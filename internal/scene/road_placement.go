@@ -213,7 +213,28 @@ func placeRoadSegment(w *world.World, a, b roadEndpoint) *world.RoadEdge {
 	if na.ID == nb.ID {
 		return nil
 	}
-	return w.AddRoadEdge(na.ID, nb.ID)
+	e := w.AddRoadEdge(na.ID, nb.ID)
+	gradeRoadEdges(w, e)
+	return e
+}
+
+// gradeRoadEdges lays road edges es out on their grade and grades the
+// ground to them (world/road_grade.go), leaving buildings', lots' and
+// lifts' ground be.
+func gradeRoadEdges(w *world.World, es ...*world.RoadEdge) {
+	keep := keepClaimed(w)
+	for _, e := range es {
+		w.GradeRoadEdge(e, keep)
+	}
+	w.Terrain.RestampTreeWells()
+	w.Terrain.RecomputeSlopes()
+}
+
+// keepClaimed is a grading's keep: the cells buildings, lots and lift
+// stations stand on.
+func keepClaimed(w *world.World) func(x, z int) bool {
+	claimed := claimedGround(w, nil, nil)
+	return func(x, z int) bool { return claimed[[2]int{x, z}] }
 }
 
 // edgeConnectTolerance is how close to a map edge a click has to land

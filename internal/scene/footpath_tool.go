@@ -216,6 +216,12 @@ func (env pathEnv) dragTo(st *pathTool, in pathInput, raw mgl32.Vec2) {
 // game the extra area is charged, or the change undone if it can't be.
 func (env pathEnv) commit(f *world.Footpath, before []world.TrailNode) {
 	w := env.w
+	if why := w.FootpathGradeProblem(f.Nodes); why != "" {
+		f.Nodes = before
+		w.RebuildFootpaths()
+		env.toast(why)
+		return
+	}
 	extra := w.FootpathPrice(f.Nodes) - w.FootpathPrice(before)
 	if !env.free && extra > 0 {
 		if ok, why := env.check(f.Nodes, extra); !ok {
@@ -226,8 +232,17 @@ func (env pathEnv) commit(f *world.Footpath, before []world.TrailNode) {
 		}
 		w.Spend(extra)
 	}
+	gradeFootpath(w, f)
 	w.RebuildFootpaths()
 	env.done()
+}
+
+// gradeFootpath lays path f out on its grade and grades the ground to it
+// (world/road_grade.go), leaving buildings', lots' and lifts' ground be.
+func gradeFootpath(w *world.World, f *world.Footpath) {
+	w.GradeFootpath(f, keepClaimed(w))
+	w.Terrain.RestampTreeWells()
+	w.Terrain.RecomputeSlopes()
 }
 
 // done runs the changed hook after paths are laid or reshaped.
@@ -241,7 +256,13 @@ func (env pathEnv) done() {
 // owned land, and (costing cost, or the whole path's price when cost is
 // 0) affordable, in the game.
 func (env pathEnv) check(nodes []world.TrailNode, cost int) (bool, string) {
-	if len(nodes) < 2 || env.free {
+	if len(nodes) < 2 {
+		return true, ""
+	}
+	if why := env.w.FootpathGradeProblem(nodes); why != "" {
+		return false, why
+	}
+	if env.free {
 		return true, ""
 	}
 	t := env.w.Terrain
@@ -276,6 +297,7 @@ func (env pathEnv) finish(st *pathTool) {
 		env.w.Spend(cost)
 	}
 	f := env.w.PlaceFootpath(st.nodes)
+	gradeFootpath(env.w, f)
 	st.nodes = nil
 	env.r.SetFootpathGhost(env.w, nil, false)
 	var length float32

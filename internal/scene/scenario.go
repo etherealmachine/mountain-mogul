@@ -2667,6 +2667,10 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 			s.setToast("Click somewhere else to finish the road")
 			return
 		}
+		if why := w.RoadGradeProblem(start.pos, end.pos); why != "" {
+			s.setToast(why)
+			return
+		}
 		cost := w.RoadPrice(start.pos, end.pos)
 		if !w.CanAfford(cost) {
 			s.setToast(fmt.Sprintf("Need $%d for this road — short by $%d",
@@ -4075,6 +4079,7 @@ func (s *Scenario) placementCost() (cost int, affordable, legal, valid bool) {
 	case toolRoadEnd:
 		end := resolveRoadEndpoint(s.world, pos)
 		cost = s.world.RoadPrice(s.roadStart, end.pos)
+		legal = s.world.RoadGradeProblem(s.roadStart, end.pos) == ""
 	case toolGlade:
 		if len(s.gladePreview) == 0 {
 			return 0, false, true, false

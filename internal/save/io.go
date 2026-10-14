@@ -576,6 +576,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 			A:  e.A,
 			B:  e.B,
 		}
+		roadEdges[i].Heights, roadEdges[i].Tunnels = world.Profile(w.EdgeTrack(e))
 	}
 
 	var footpaths []FootpathData
@@ -584,6 +585,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		for _, n := range f.Nodes {
 			fd.Nodes = append(fd.Nodes, [3]float32{n.Pos[0], n.Pos[1], n.Width})
 		}
+		fd.Heights, fd.Tunnels = world.Profile(w.PathTrack(f))
 		footpaths = append(footpaths, fd)
 	}
 	var ropes []RopeData
@@ -1345,6 +1347,7 @@ func dataToWorld(data ScenarioData) *world.World {
 		if ed.ID != 0 {
 			e.ID = ed.ID
 		}
+		w.SetEdgeProfile(e, ed.Heights, ed.Tunnels)
 	}
 
 	// Restore parcels and derive the terrain accessibility grid.
@@ -1395,6 +1398,7 @@ func dataToWorld(data ScenarioData) *world.World {
 		}
 		if len(f.Nodes) >= 2 {
 			w.SetMinNextID(f.ID)
+			w.SetPathProfile(f, fd.Heights, fd.Tunnels)
 			w.Footpaths = append(w.Footpaths, f)
 		}
 	}

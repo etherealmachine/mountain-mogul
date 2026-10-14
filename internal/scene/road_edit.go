@@ -173,6 +173,14 @@ func commitRoadDrag(r *render.Renderer, w *world.World, sel *roadEditSelection) 
 	if sel.edge != nil {
 		return
 	}
+	// Its roads are laid on their grade again from where they now run.
+	var moved []*world.RoadEdge
+	for _, e := range w.RoadEdges {
+		if sel.node != nil && (e.A == sel.node.ID || e.B == sel.node.ID) && w.EdgeMoved(e) {
+			moved = append(moved, e)
+		}
+	}
+	gradeRoadEdges(w, moved...)
 	applyRoadCellState(w)
 	r.FlushTerrainVerts(w.Terrain)
 	r.RebuildRoads(w)
@@ -244,7 +252,7 @@ func deleteRoadNodeWithDissolve(w *world.World, n *world.RoadNode) {
 		b := otherEnd(incident[1], n.ID)
 		w.RemoveRoadNode(n.ID)
 		if a != b {
-			w.AddRoadEdge(a, b)
+			gradeRoadEdges(w, w.AddRoadEdge(a, b))
 		}
 		return
 	}

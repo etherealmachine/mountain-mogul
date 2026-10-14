@@ -24,6 +24,8 @@ type railDrawing struct {
 	// placed.
 	funics     map[uint64]*railBatch
 	funicGhost *railBatch
+	// tunnelCourse is the dashes over the roads' and paths' tunnels.
+	tunnelCourse *railBatch
 }
 
 func (rb *railBatch) delete() {
@@ -71,6 +73,13 @@ func (r *Renderer) RebuildRails(w *world.World) {
 		}
 	}
 	r.rebuildFunics(w)
+	r.scene.tunnelCourse.delete()
+	r.scene.tunnelCourse = nil
+	if m := tunnelCourseMesh(w.Tunnels, w.Terrain); m != nil {
+		b := NewStaticBatch(m, r.whiteTexID)
+		b.AddStatic(mgl32.Ident4(), mgl32.Vec3{1, 1, 1})
+		r.scene.tunnelCourse = &railBatch{mesh: m, batch: b}
+	}
 }
 
 // rebuildFunics brings the funiculars' track meshes up to date: rebuilt
@@ -141,6 +150,9 @@ func (r *Renderer) drawRails() {
 		}
 	}
 	if rb := r.scene.funicGhost; rb != nil {
+		rb.batch.Draw()
+	}
+	if rb := r.scene.tunnelCourse; rb != nil {
 		rb.batch.Draw()
 	}
 }

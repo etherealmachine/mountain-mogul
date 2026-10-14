@@ -143,6 +143,7 @@ func (w *World) RebuildBridges() {
 	}
 	w.Bridges = out
 	w.BridgesRev++
+	w.RebuildTunnels()
 }
 
 // BridgesFor is the bridges a footpath (or, with road, a road) along
@@ -247,15 +248,23 @@ func bridgesAlong(m *TerrainMaterial, line []TrailSample, road bool) []Bridge {
 }
 
 // FootpathPrice is what laying a path through nodes costs, with the
-// footbridges it needs over water.
+// footbridges it needs over water and the tunnels under hills.
 func (w *World) FootpathPrice(nodes []TrailNode) int {
 	f := Footpath{Nodes: nodes}
-	return FootpathCost(nodes) + w.BridgeCostAlong(f.Centerline(), false)
+	cost := FootpathCost(nodes) + w.BridgeCostAlong(f.Centerline(), false)
+	if w.Terrain != nil && len(nodes) >= 2 {
+		cost += TunnelCost(w.FootpathLine(nodes), false)
+	}
+	return cost
 }
 
 // RoadPrice is what a road from a to b costs, with the bridge it needs
-// over water.
+// over water and the tunnels under hills.
 func (w *World) RoadPrice(a, b mgl32.Vec2) int {
 	line := []TrailSample{{Pos: a, Width: 2 * RoadHalfWidth}, {Pos: b, Width: 2 * RoadHalfWidth}}
-	return RoadCost(a, b) + w.BridgeCostAlong(line, true)
+	cost := RoadCost(a, b) + w.BridgeCostAlong(line, true)
+	if w.Terrain != nil {
+		cost += TunnelCost(w.RoadLine(a, b), true)
+	}
+	return cost
 }

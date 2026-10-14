@@ -135,6 +135,10 @@ type World struct {
 	// from them by RebuildBridges; BridgesRev counts changes.
 	Bridges    []Bridge
 	BridgesRev int
+	// Tunnels take roads and paths under the hills (road_grade.go), made
+	// from their profiles by RebuildTunnels; TunnelsRev counts changes.
+	Tunnels    []Tunnel
+	TunnelsRev int
 
 	// Ropes are rope lines guests try not to cross (rope.go); RopesRev
 	// moves on every change, for the renderer.

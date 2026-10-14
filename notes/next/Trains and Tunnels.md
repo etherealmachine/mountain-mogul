@@ -1,7 +1,7 @@
 ---
 title: Trains and Tunnels
 kind: plan
-status: partial
+status: done
 ---
 
 # Trains and Tunnels
@@ -76,7 +76,7 @@ None are in the demo. The station waits for step 2, where its platform's length 
 - The bed is graded to the nearest point on the track's segments, not its sample points (the banks were toothed), and plowed like the roads: bare within 6 m of the track, the snow back over the next 6 m (cell-by-cell clearing left a sawtooth).
 - Each line's track heights and tunnel spans are saved: laying a line out again over the ground it graded moved its tunnels (a portal ended up 25 m inside the uncut hill).
 - On the Goals Test a line from the north-east corner to the base runs 1,064 m in a tunnel under the mountain.
-- **Roads and footpaths** don't tunnel yet: they lie on the ground with no grade limit, so they'd first need a profile of their own (held to a grade, graded into the ground) for a tunnel to come from.
+- **Roads and footpaths** came after (below): they first needed a profile of their own.
 
 ## Built: the funicular
 
@@ -86,14 +86,23 @@ None are in the demo. The station waits for step 2, where its platform's length 
 - On the Goals Test, a 770 m funicular beside Lift1 climbs 145 m at 10.7°, its cars passing in the middle.
 - Fixed on the way: the railway's ballast, rails and tunnel dashes were wound facing down, so lit from below and dark.
 
+## Built: road and footpath tunnels
+
+- **Grades** (`world/grade.go`, shared with the railways and the funicular now: sampling, holding a grade, grading a bed, marking tunnels, mouths): a road edge laid with the Road tool, or a footpath with the Footpath tool, is laid out like a railway, held to 12% (a road) or 25% (a path) between its ends, which stay at their ground, and the ground cut and filled to it: a road's bed 3.5 m either side, a path's its half width and 0.3 m, banked 1.5 to 1 out to the ground (20 m at most beside a road, 10 m beside a path), the ground of buildings, lots and lift stations left be (`GradeBed`'s keep).
+- **Too steep**: a road whose ends are more than 12% apart in height (a path's nodes, 25%) is refused with the grade and a hint to wind it across the slope; the road ghost's cost shows it illegal.
+- **Tunnels**: where the cut would be deeper than 12 m (a path 8 m), it tunnels, as a railway does: the hill stays, the road or path isn't drawn in it (nor its lane dashes), cars and walkers in it are hidden, the plowing and tree clearing skip it, portals (`tunnel_portal_road.py`, `_path.py`) stand at the mouths and a dashed line marks the course. $8,000 a metre of road tunnel, $3,000 of path tunnel, in the price and its preview; the ghost leaves the tunnelled stretch out. `w.Tunnels` is remade from the profiles with the bridges (`RebuildTunnels`), each course mouth to mouth.
+- **Profiles** (`RoadEdge.Track`, `Footpath.Track`, `world/road_grade.go`): kept, and saved when they tunnel (heights and tunnel spans, as a railway's). An edge or path with none lies on the ground as it is: old saves, a lot's driveway, an editor stub. Splitting an edge keeps each half's piece of the profile; dragging a node regrades only the edges whose ends moved; dissolving a node regrades the new edge; reshaping a path regrades it.
+- **The demo** has no tunnels: its roads and paths lie on the ground as before (no grading, no grade limit).
+- On the Goals Test, a 495 m road through the hill east of the base tunnels 278 m, and a 230 m path north of it 124 m, both kept through a save and load.
+
 ## Steps
 
 1. Done: **The models**: steam engine and coaches, the electric unit, the high-speed set, the funicular car, a station, a tunnel portal; checked on screen.
 2. Done: **Rail lines and stations**: the Rail tool with grade limits, the graded rail bed and its look, stations.
 3. Done: **Trains running**: timetables, consists following the track with pitch, guests arriving and leaving by train, costs.
-4. Rail done; roads and footpaths left: **Tunnels**: on rail, roads and footpaths: deep cuts become tunnels, portals, hidden vehicles, the dashed course.
+4. Done: **Tunnels**: on rail, roads and footpaths: deep cuts become tunnels, portals, hidden vehicles, the dashed course.
 5. Done: **The funicular**: the lift type on the tram's shuttle, on rails, tunnelled.
-6. **Balance**, and a look at it all on Zermatt-like ground.
+6. Moved to [[Economy Balance]]'s leftovers (the user, 2026-10-14: its own QA pass): **Balance**, and a look at it all on Zermatt-like ground.
 
 ## Open questions
 
@@ -108,3 +117,4 @@ None are in the demo. The station waits for step 2, where its platform's length 
 - 2026-10-14: Step 3 built (timetables, booking riders, arrivals and departures by the station, consists with pitch, the station popup).
 - 2026-10-14: Rail tunnels built (step 4's rail half); roads and footpaths need profiles first.
 - 2026-10-14: Step 5 built (the funicular: the lift type, its straight graded track with a passing loop, stepped platforms, pitched cars, tunnels). The car model restepped for 20° after the first look had its compartments hanging through the chassis.
+- 2026-10-14: Balance moved to [[Economy Balance]] (the user: its own QA pass). Road and footpath tunnels built, on profiles held to a grade and graded into the ground; plan done.

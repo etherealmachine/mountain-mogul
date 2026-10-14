@@ -43,7 +43,12 @@ const (
 func applyRoadCellState(w *world.World) {
 	t := w.Terrain
 	for _, chain := range w.FindRoadChains() {
-		samples := world.SampleRoadChain(chain, t, world.RoadChainSamplesPerSegment)
+		var samples []mgl32.Vec2
+		for _, p := range world.SampleRoadChain(chain, t, world.RoadChainSamplesPerSegment) {
+			if !w.InTunnel(p, true) { // the hill over a tunnel keeps its snow and trees
+				samples = append(samples, p)
+			}
+		}
 		if len(samples) < 2 {
 			continue
 		}
@@ -88,6 +93,9 @@ func applyFootpathCellState(w *world.World) {
 		edgeDist := func(p mgl32.Vec2) float32 {
 			best := float32(math.MaxFloat32)
 			for i := 1; i < len(line); i++ {
+				if w.InTunnel(line[i-1].Pos.Add(line[i].Pos).Mul(0.5), false) {
+					continue // the hill over a tunnel keeps its snow and trees
+				}
 				cp := world.ClosestPointOnRoadSegment(p, line[i-1].Pos, line[i].Pos)
 				hw := (line[i-1].Width + line[i].Width) / 4
 				best = min(best, p.Sub(cp).Len()-hw)

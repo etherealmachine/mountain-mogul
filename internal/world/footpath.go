@@ -16,6 +16,10 @@ import (
 type Footpath struct {
 	ID    uint64
 	Nodes []TrailNode
+	// Track is its profile on its grade, with its tunnels (road_grade.go,
+	// PathTrack), laid out through its nodes as trackNodes.
+	Track      []RailSample
+	trackNodes []TrailNode
 }
 
 // Footpath widths, metres, and price.

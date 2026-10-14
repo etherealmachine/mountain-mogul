@@ -181,22 +181,11 @@ func (l *RailLine) LayOut(t *Terrain) {
 		nodes[i] = TrailNode{Pos: p}
 	}
 	curve := smoothLine(nodes)
-	// Resample evenly.
-	var dist float32
-	next := float32(0)
-	for i := 1; i < len(curve); i++ {
-		a, b := curve[i-1].Pos, curve[i].Pos
-		seg := b.Sub(a).Len()
-		for next <= dist+seg {
-			p := a.Add(b.Sub(a).Mul((next - dist) / max(seg, 1e-6)))
-			l.Track = append(l.Track, RailSample{Pos: p, Dist: next})
-			next += RailSampleStep
-		}
-		dist += seg
+	pts := make([]mgl32.Vec2, len(curve))
+	for i, c := range curve {
+		pts[i] = c.Pos
 	}
-	if last := curve[len(curve)-1].Pos; len(l.Track) == 0 || l.Track[len(l.Track)-1].Pos != last {
-		l.Track = append(l.Track, RailSample{Pos: last, Dist: dist})
-	}
+	l.Track = sampleLine(pts)
 	n := len(l.Track)
 	g := make([]float32, n)
 	for i, s := range l.Track {
@@ -212,34 +201,12 @@ func (l *RailLine) LayOut(t *Terrain) {
 		platY += g[i]
 	}
 	platY /= float32(max(plat, 1))
-	y := append([]float32(nil), g...)
 	for i := n - plat; i < n; i++ {
-		y[i] = platY
+		g[i] = platY
 	}
-	// Hold the grade: relax toward the ground, then clamp each step to
-	// the grade from its neighbours, forward and back, a few times.
-	step := spec.MaxGrade * RailSampleStep
-	for pass := 0; pass < 8; pass++ {
-		for i := 1; i < n; i++ {
-			if i >= n-plat {
-				continue
-			}
-			y[i] = min(max(y[i], y[i-1]-step), y[i-1]+step)
-		}
-		for i := n - 2; i >= 0; i-- {
-			if i >= n-plat {
-				continue
-			}
-			y[i] = min(max(y[i], y[i+1]-step), y[i+1]+step)
-		}
-		if pass < 7 {
-			for i := 1; i < n-plat-1; i++ {
-				y[i] = 0.5*y[i] + 0.25*(y[i-1]+y[i+1])
-			}
-		}
-	}
+	holdGrade(g, func(i int) bool { return i >= n-plat }, spec.MaxGrade*RailSampleStep)
 	for i := range l.Track {
-		l.Track[i].Y = y[i]
+		l.Track[i].Y = g[i]
 	}
 	l.markTunnels(t)
 }
@@ -247,23 +214,7 @@ func (l *RailLine) LayOut(t *Terrain) {
 // At is where the track is d metres along the line: its position, height
 // and heading (as Guest.Heading) and pitch (radians, up positive).
 func (l *RailLine) At(d float32) (pos mgl32.Vec2, y, heading, pitch float32) {
-	n := len(l.Track)
-	if n == 0 {
-		return
-	}
-	d = min(max(d, 0), l.Track[n-1].Dist)
-	i := min(int(d/RailSampleStep), n-2)
-	if n == 1 {
-		return l.Track[0].Pos, l.Track[0].Y, 0, 0
-	}
-	a, b := l.Track[i], l.Track[i+1]
-	f := (d - a.Dist) / max(b.Dist-a.Dist, 1e-6)
-	pos = a.Pos.Add(b.Pos.Sub(a.Pos).Mul(f))
-	y = a.Y + (b.Y-a.Y)*f
-	dir := b.Pos.Sub(a.Pos)
-	heading = float32(math.Atan2(float64(dir[0]), float64(dir[1])))
-	pitch = float32(math.Atan2(float64(b.Y-a.Y), float64(max(dir.Len(), 1e-6))))
-	return
+	return trackAt(l.Track, d)
 }
 
 // Station is the line's station: the middle of its platform, its
@@ -277,71 +228,12 @@ func (l *RailLine) Station() (pos mgl32.Vec2, y, heading float32) {
 // GradeRailBed cuts and fills the ground under line l to its track: the
 // bed level with the ballast's foot, and shoulders banked out to the
 // natural ground; trees in the way go.
-func (t *Terrain) GradeRailBed(l *RailLine) {
-	if len(l.Track) < 2 {
-		return
-	}
-	reach := RailBedHalf + RailShoulderMax
-	minX, minZ := float32(math.MaxFloat32), float32(math.MaxFloat32)
-	maxX, maxZ := float32(-math.MaxFloat32), float32(-math.MaxFloat32)
-	for _, s := range l.Track {
-		minX, maxX = min(minX, s.Pos[0]), max(maxX, s.Pos[0])
-		minZ, maxZ = min(minZ, s.Pos[1]), max(maxZ, s.Pos[1])
-	}
-	x0, z0 := int((minX-reach)/CellSize), int((minZ-reach)/CellSize)
-	x1, z1 := int((maxX+reach)/CellSize)+1, int((maxZ+reach)/CellSize)+1
-	p := t.GroundPatch(x0, z0, x1, z1, 0)
-	best := make([]float32, len(p.After))
-	for i := range best {
-		best[i] = math.MaxFloat32
-	}
-	bedY := make([]float32, len(p.After))
-	// Each sample's ground takes the nearest point on the track's
-	// segments (not its sample points, which leave the banks toothed).
-	for n := 0; n+1 < len(l.Track); n++ {
-		a, b := l.Track[n], l.Track[n+1]
-		if a.Tunnel && b.Tunnel {
-			continue // the hill stays
-		}
-		ci, cj := p.index(a.Pos)
-		r := int(reach/p.Spacing) + 2
-		ab := b.Pos.Sub(a.Pos)
-		ab2 := max(ab.LenSqr(), 1e-6)
-		for j := max(cj-r, 0); j <= min(cj+r, p.H-1); j++ {
-			for i := max(ci-r, 0); i <= min(ci+r, p.W-1); i++ {
-				wx, wz := p.Pos(i, j)
-				q := mgl32.Vec2{wx, wz}
-				f := clamp01(q.Sub(a.Pos).Dot(ab) / ab2)
-				d := q.Sub(a.Pos.Add(ab.Mul(f))).Len()
-				if k := j*p.W + i; d < best[k] {
-					best[k], bedY[k] = d, a.Y+(b.Y-a.Y)*f-RailBallast
-				}
-			}
-		}
-	}
-	for k, d := range best {
-		if d > reach {
-			continue
-		}
-		before := p.Before[k]
-		if d <= RailBedHalf {
-			p.After[k] = bedY[k]
-			continue
-		}
-		allowed := (d - RailBedHalf) / RailBank
-		p.After[k] = bedY[k] + min(max(before-bedY[k], -allowed), allowed)
-	}
-	p.Commit(nil)
-	hw2 := (RailBedHalf + 6) * (RailBedHalf + 6) // and a clear strip either side
-	t.RemoveTreesIn(x0, z0, x1, z1, func(tr Tree) bool {
-		for _, s := range l.Track {
-			if !s.Tunnel && (mgl32.Vec2{tr.X - s.Pos[0], tr.Z - s.Pos[1]}).LenSqr() <= hw2 {
-				return true
-			}
-		}
-		return false
-	})
-}
+func (t *Terrain) GradeRailBed(l *RailLine) { t.GradeBed(l.Track, railBed, nil) }
+
+// railBed is a railway's bed: RailBedHalf either side, the ballast
+// under the rail's top, banked RailBank out to RailShoulderMax, and trees
+// cleared 6 m past the bed.
+var railBed = BedSpec{Half: RailBedHalf, Base: RailBallast, Bank: RailBank, ShoulderMax: RailShoulderMax, Clear: 6}
 
 // index is the patch sample nearest world position w.
 func (p *GroundPatch) index(w mgl32.Vec2) (int, int) {
@@ -464,15 +356,5 @@ func (w *World) AddTrainCost(c int) { w.TrainsToday += float64(c) }
 // SetProfile puts back a saved line's track heights and tunnel spans
 // (sample indices) over its laid-out curve; ignored if they don't fit.
 func (l *RailLine) SetProfile(heights []float32, tunnels [][2]int) {
-	if len(heights) != len(l.Track) {
-		return
-	}
-	for i := range l.Track {
-		l.Track[i].Y, l.Track[i].Tunnel = heights[i], false
-	}
-	for _, r := range tunnels {
-		for i := max(r[0], 0); i <= min(r[1], len(l.Track)-1); i++ {
-			l.Track[i].Tunnel = true
-		}
-	}
+	setProfile(l.Track, heights, tunnels)
 }

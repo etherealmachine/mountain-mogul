@@ -551,6 +551,8 @@ func (f *figures) build(r *Renderer, w *world.World) {
 			if l := w.LiftByID(g.OnLiftID); l != nil && l.Underground(mgl32.Vec2{g.Pos[0], g.Pos[2]}, t) {
 				continue // in a funicular's tunnel
 			}
+		} else if !g.SkisOn && w.InTunnel(mgl32.Vec2{g.Pos[0], g.Pos[2]}, false) {
+			continue // walking through a path's tunnel
 		}
 		// A patient lies where they fell while patrol loads them, rides
 		// out of sight on a snowmobile, and is towed a little behind a

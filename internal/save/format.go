@@ -443,6 +443,10 @@ type RoadEdgeData struct {
 	ID uint64 `json:"id,omitempty"`
 	A  uint64 `json:"a"`
 	B  uint64 `json:"b"`
+	// Heights and Tunnels are its profile when it tunnels (as RailData's;
+	// world.Profile): none, and it's on the ground.
+	Heights []float32 `json:"heights,omitempty"`
+	Tunnels [][2]int  `json:"tunnels,omitempty"`
 }
 
 // CameraData is the saved orthographic-camera state: where it's
@@ -725,6 +729,10 @@ type CarData struct {
 type FootpathData struct {
 	ID    uint64       `json:"id"`
 	Nodes [][3]float32 `json:"nodes"`
+	// Heights and Tunnels are its profile when it tunnels, as a road
+	// edge's.
+	Heights []float32 `json:"heights,omitempty"`
+	Tunnels [][2]int  `json:"tunnels,omitempty"`
 }
 
 // RopeData is one world.Rope.

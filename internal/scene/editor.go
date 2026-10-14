@@ -952,7 +952,9 @@ func (e *Editor) applyPlacement(r *render.Renderer, shiftHeld bool) {
 	case toolRoadEnd:
 		start := resolveRoadEndpoint(w, e.roadStart)
 		end := resolveRoadEndpoint(w, mgl32.Vec2{wx, wz})
-		if placeRoadSegment(w, start, end) != nil {
+		if why := w.RoadGradeProblem(start.pos, end.pos); why != "" {
+			e.setToast(why)
+		} else if placeRoadSegment(w, start, end) != nil {
 			applyRoadCellState(w)
 			r.FlushTerrainVerts(w.Terrain)
 			r.RebuildStaticBatch(w)

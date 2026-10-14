@@ -65,6 +65,10 @@ func (w *World) EntryFraction(n *RoadNode) float32 {
 type RoadEdge struct {
 	ID   uint64
 	A, B uint64 // node IDs
+	// Track is its profile on its grade, with its tunnels (road_grade.go,
+	// EdgeTrack), laid out between its ends at trackFrom.
+	Track     []RailSample
+	trackFrom [2]mgl32.Vec2
 }
 
 // Road dimensions and costs. A single two-lane road type — width is
@@ -475,7 +479,12 @@ func (w *World) SplitRoadEdge(edge *RoadEdge, pos mgl32.Vec2) *RoadNode {
 		}
 	}
 	n := w.AddRoadNode(pos, RoadNodeIntersection)
-	w.AddRoadEdge(a, n.ID)
-	w.AddRoadEdge(n.ID, b)
+	e1, e2 := w.AddRoadEdge(a, n.ID), w.AddRoadEdge(n.ID, b)
+	// Each half keeps its piece of the edge's grade and tunnels.
+	if track, na, nb := w.EdgeTrack(edge), w.RoadNodeByID(a), w.RoadNodeByID(b); track != nil && na != nil && nb != nil {
+		at := pos.Sub(na.Pos).Len()
+		e1.Track, e1.trackFrom = splitTrack(track, na.Pos, pos, 0), [2]mgl32.Vec2{na.Pos, pos}
+		e2.Track, e2.trackFrom = splitTrack(track, pos, nb.Pos, at), [2]mgl32.Vec2{pos, nb.Pos}
+	}
 	return n
 }

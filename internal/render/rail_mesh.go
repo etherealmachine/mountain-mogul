@@ -208,7 +208,37 @@ func stationTransform(l *world.RailLine) mgl32.Mat4 {
 // portalTransform places a tunnel portal: its face at the mouth, facing
 // out, the opening's foot at the line's level.
 func portalTransform(p world.TunnelPortal) mgl32.Mat4 {
+	return portalAt(p, p.Y-world.RailBallast)
+}
+
+// portalAt places a tunnel portal with the opening's foot at foot.
+func portalAt(p world.TunnelPortal, foot float32) mgl32.Mat4 {
 	s, c := float32(math.Sin(float64(p.Heading))), float32(math.Cos(float64(p.Heading)))
 	rot := float32(math.Atan2(-float64(c), float64(s)))
-	return mgl32.Translate3D(p.Pos[0], p.Y-world.RailBallast, p.Pos[1]).Mul4(mgl32.HomogRotate3DY(rot))
+	return mgl32.Translate3D(p.Pos[0], foot, p.Pos[1]).Mul4(mgl32.HomogRotate3DY(rot))
+}
+
+// tunnelCourseMesh is the dashed lines on the ground over the roads' and
+// paths' tunnels (a railway's are in its own mesh).
+func tunnelCourseMesh(tunnels []world.Tunnel, t *world.Terrain) *Mesh {
+	var b meshBuilder
+	for _, tn := range tunnels {
+		c := tn.Course
+		half := min(c.Half/3, 0.6)
+		for i := 0; i+1 < len(c.Points); i += 2 {
+			if (i/2)%2 == 1 {
+				continue
+			}
+			a, e := c.Points[i], c.Points[i+1]
+			d := e.Sub(a)
+			if d.Len() < 1e-4 {
+				continue
+			}
+			x := mgl32.Vec3{d[1], 0, -d[0]}.Normalize().Mul(half) // left of along
+			p0 := mgl32.Vec3{a[0], t.InterpolatedSurfaceElevationAt(a[0], a[1]) + 0.3, a[1]}
+			p1 := mgl32.Vec3{e[0], t.InterpolatedSurfaceElevationAt(e[0], e[1]) + 0.3, e[1]}
+			b.quad(p0.Add(x), p0.Sub(x), p1.Sub(x), p1.Add(x), [3]float32{0.30, 0.28, 0.26})
+		}
+	}
+	return b.mesh()
 }

@@ -53,7 +53,7 @@ func generateRoadsMesh(w *world.World, t *world.Terrain) *Mesh {
 	indices := make([]uint32, 0, 256)
 	var baseIdx uint32
 	for _, samples := range lay.samples {
-		v, idx := buildRoadStripFromSamples(samples, deckOrGround(w), baseIdx)
+		v, idx := buildRoadStripFromSamples(samples, deckOrGround(w), roadTunnels(w.Tunnels), baseIdx)
 		verts = append(verts, v...)
 		indices = append(indices, idx...)
 		baseIdx += uint32(len(v) / 8)
@@ -72,9 +72,9 @@ func generateRoadsMesh(w *world.World, t *world.Terrain) *Mesh {
 // the ghost preview path. Stays linear by design: the placement ghost
 // is cheap-and-cheerful, and the final committed mesh re-curves through
 // the chain on the next RebuildRoads.
-func generateRoadEdgeMesh(a, b mgl32.Vec2, height heightFunc) *Mesh {
+func generateRoadEdgeMesh(a, b mgl32.Vec2, height heightFunc, hidden func(mgl32.Vec2) bool) *Mesh {
 	samples := []mgl32.Vec2{a, b}
-	v, idx := buildRoadStripFromSamples(samples, height, 0)
+	v, idx := buildRoadStripFromSamples(samples, height, hidden, 0)
 	if len(idx) == 0 {
 		return nil
 	}
@@ -93,7 +93,7 @@ func generateRoadLanesMesh(w *world.World, t *world.Terrain) *Mesh {
 	indices := make([]uint32, 0, 256)
 	var baseIdx uint32
 	for _, samples := range lay.samples {
-		v, idx := buildRoadDashes(samples, deckOrGround(w), baseIdx)
+		v, idx := buildRoadDashes(samples, deckOrGround(w), roadTunnels(w.Tunnels), baseIdx)
 		verts = append(verts, v...)
 		indices = append(indices, idx...)
 		baseIdx += uint32(len(v) / 8)
@@ -112,8 +112,9 @@ func generateRoadLanesMesh(w *world.World, t *world.Terrain) *Mesh {
 // Y is sampled at each edge vertex independently, from the drawn terrain
 // mesh (VisualElevationAt), so the strip always sits roadHoverOffset
 // above it — interpolating cell centres instead sinks the road's edges
-// under the mesh beside a fresh cut.
-func buildRoadStripFromSamples(samples []mgl32.Vec2, height heightFunc, baseIdx uint32) ([]float32, []uint32) {
+// under the mesh beside a fresh cut. Quads hidden says are in a tunnel
+// are left out (nil for none).
+func buildRoadStripFromSamples(samples []mgl32.Vec2, height heightFunc, hidden func(mgl32.Vec2) bool, baseIdx uint32) ([]float32, []uint32) {
 	if len(samples) < 2 {
 		return nil, nil
 	}
@@ -131,6 +132,7 @@ func buildRoadStripFromSamples(samples []mgl32.Vec2, height heightFunc, baseIdx 
 	// degenerate (back-to-back coincident points) so we don't emit a
 	// zero-length perpendicular.
 	emittedPairs := 0
+	var centres []mgl32.Vec2
 	for i := 0; i < len(samples); i++ {
 		tx, tz := sampleTangent(samples, i)
 		tlen := float32(math.Sqrt(float64(tx*tx + tz*tz)))
@@ -156,6 +158,7 @@ func buildRoadStripFromSamples(samples []mgl32.Vec2, height heightFunc, baseIdx 
 			lx, ly, lz, 0, 1, 0, frac, 0,
 			rx, ry, rz, 0, 1, 0, frac, 1,
 		)
+		centres = append(centres, samples[i])
 		emittedPairs++
 	}
 	if emittedPairs < 2 {
@@ -164,6 +167,9 @@ func buildRoadStripFromSamples(samples []mgl32.Vec2, height heightFunc, baseIdx 
 
 	indices := make([]uint32, 0, (emittedPairs-1)*6)
 	for i := 0; i < emittedPairs-1; i++ {
+		if hidden != nil && hidden(centres[i].Add(centres[i+1]).Mul(0.5)) {
+			continue
+		}
 		base := baseIdx + uint32(i*2)
 		indices = append(indices,
 			base, base+1, base+2,
@@ -218,7 +224,7 @@ func sampleTangent(samples []mgl32.Vec2, i int) (tx, tz float32) {
 // so curve length, not Euclidean distance between nodes, drives the
 // pattern. Each dash quad is small enough that its endpoints can share
 // the closest sample's tangent without visible bending.
-func buildRoadDashes(samples []mgl32.Vec2, height heightFunc, baseIdx uint32) ([]float32, []uint32) {
+func buildRoadDashes(samples []mgl32.Vec2, height heightFunc, hidden func(mgl32.Vec2) bool, baseIdx uint32) ([]float32, []uint32) {
 	if len(samples) < 2 {
 		return nil, nil
 	}
@@ -247,6 +253,9 @@ func buildRoadDashes(samples []mgl32.Vec2, height heightFunc, baseIdx uint32) ([
 	for s := startOff; s+roadLaneDashLength <= totalLen; s += period {
 		p0 := pointAlongChain(samples, cumDist, s)
 		p1 := pointAlongChain(samples, cumDist, s+roadLaneDashLength)
+		if hidden != nil && (hidden(p0) || hidden(p1)) {
+			continue
+		}
 		tan0 := tangentAlongChain(samples, cumDist, s)
 		tan1 := tangentAlongChain(samples, cumDist, s+roadLaneDashLength)
 
@@ -339,4 +348,20 @@ func tangentAlongChain(samples []mgl32.Vec2, cumDist []float32, dist float32) mg
 		return mgl32.Vec2{1, 0}
 	}
 	return mgl32.Vec2{dx / l, dz / l}
+}
+
+// roadTunnels is a hidden test for the stretches of road in tunnels.
+func roadTunnels(tunnels []world.Tunnel) func(mgl32.Vec2) bool {
+	if len(tunnels) == 0 {
+		return nil
+	}
+	return func(p mgl32.Vec2) bool { return world.InTunnelAmong(tunnels, p, true) }
+}
+
+// pathTunnels is the same for paths.
+func pathTunnels(tunnels []world.Tunnel) func(mgl32.Vec2) bool {
+	if len(tunnels) == 0 {
+		return nil
+	}
+	return func(p mgl32.Vec2) bool { return world.InTunnelAmong(tunnels, p, false) }
 }
