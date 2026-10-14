@@ -53,6 +53,9 @@ type StationGeom struct {
 	// ApronFront is how far in front of the wheel the ground is levelled
 	// (behind it, the apron's own depth).
 	ApronFront float32
+	// operator is where the base's operator stands at a station with no
+	// hut (back, across, as points): at the control post.
+	operator [2]float32
 
 	rects  []stationRect
 	points [][2]float32 // ground points skiers steer round: back, across
@@ -121,11 +124,43 @@ var detachWideStation = func() StationGeom {
 // runs from a low end plate at the "bullwheel", riders' side only (the
 // return run is under it), and riders step on just past the plate at the
 // base and off over it at the top, so nothing stands across the line.
-// No booth: the operator stands on the snow beside the belt (StaffPosts).
+// No booth: the operator stands on the snow beside the belt, at the
+// control post behind the end plate (carpet_kit.py).
 var beltStation = StationGeom{
 	LoadAhead:  0.8,
 	Flat:       1,
 	ApronFront: 3,
+	operator:   [2]float32{0.6, -0.15},
+}
+
+// ropeStation is a rope tow's end (rope_tow_base.py, rope_tow_top.py): a
+// bullwheel lying flat on a low frame, the rope round it RopeGap off the
+// line each side, so riders, CableGap off, take hold and let go just
+// past it. No hut: the base's operator stands at the control post,
+// outside the riders by where they take hold (rope_tow_kit.py).
+var ropeStation = StationGeom{
+	LoadAhead:  2,
+	Flat:       1,
+	ApronFront: 3,
+	operator:   [2]float32{-1.2, -2.6},
+	points: [][2]float32{
+		{0, 0}, {0.8, 0}, {0, 0.8}, {0, -0.8}, // the bullwheel's frame
+	},
+}
+
+// tbarStation is a T-bar's end (tbar_base.py, tbar_top.py): the
+// bullwheel lying flat TBarCableHeight up at the end of a boom off a mast
+// behind it, so the ground in front, where riders take a bar and let it
+// go, is open. No hut: an operator at each end stands at a control post
+// outside the riders.
+var tbarStation = StationGeom{
+	LoadAhead:  4,
+	Flat:       1,
+	ApronFront: 6,
+	operator:   [2]float32{-2.5, -3.2},
+	points: [][2]float32{
+		{2.2, 0}, {2.2, 0.6}, {2.2, -0.6}, // the mast
+	},
 }
 
 // Station is the shape of l's terminals.
@@ -133,8 +168,12 @@ func (l *Lift) Station() *StationGeom { return stationFor(l.Type) }
 
 func stationFor(t LiftType) *StationGeom {
 	switch {
-	case t.Surface():
+	case t.Belt():
 		return &beltStation
+	case t.Rope():
+		return &ropeStation
+	case t.Hangers():
+		return &tbarStation
 	case t == LiftHS6Pack:
 		return &detachWideStation
 	case t.Detachable():
@@ -197,8 +236,13 @@ func (l *Lift) UnloadXZ() mgl32.Vec2 {
 // through each terminal, then up to TowerHeight over StationOffset. A
 // lift too short for towers stays at loading height.
 func (l *Lift) CableHeightAt(dist float32) float32 {
-	if l.Type.Surface() {
+	switch {
+	case l.Type.Belt():
 		return BeltHeight
+	case l.Type.Rope():
+		return 0 // riders on the snow; the rope is RopeHeight up
+	case l.Type.Hangers():
+		return TBarCableHeight
 	}
 	g := l.Station()
 	length := l.cableLen()

@@ -457,9 +457,12 @@ type Terrain struct {
 	// nil when nothing has set it. See material.go.
 	Material *TerrainMaterial
 
-	// LakeOf is each cell's lake, indexed x*Height+z: 1 + its index in
-	// World.Lakes, or 0 for none. LakeDepth is its water depth, metres,
-	// estimated from the shore. Both nil when there are no lakes.
+	// LakeOf is each grid point's lake, indexed x*Height+z: 1 + its index
+	// in World.Lakes, or 0 for none. Like a cell's elevation and snow, it's
+	// the value at the cell's corner, world (x, z) × CellSize, so the snow
+	// a lake clears is the snow on its water. LakeDepth is the water's
+	// depth there, metres, estimated from the shore. Both nil when there
+	// are no lakes. LakeNear finds a material sample's lake.
 	LakeOf    []uint8
 	LakeDepth []float32
 

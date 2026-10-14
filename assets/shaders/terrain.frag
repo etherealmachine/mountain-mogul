@@ -119,6 +119,59 @@ int materialAt(ivec2 p) {
     return int(texelFetch(uMaterial, p, 0).r * 255.0 + 0.5);
 }
 
+// isLakeMat reports whether material m is a lake's or creek's water.
+bool isLakeMat(int m) { return m == MAT_ICE || m == MAT_THIN_ICE || m == MAT_OPEN_WATER; }
+
+// shoreSnow keeps the snow at a lake's edge to its own side: the corners
+// (5 m apart) carry less snow on the water than on the land, and blended
+// across a corner square the edge of the snow would follow the squares
+// in a sawtooth. So where the corners round xz differ, the snow there is
+// blended from only the corners on xz's side of the shore, the side
+// from the 1.25 m material map, and the snow's edge follows the water's.
+void shoreSnow(vec2 xz, inout vec4 a, inout float depth) {
+    vec2  g  = xz / 5.0;
+    ivec2 c  = ivec2(floor(g));
+    vec2  f  = fract(g);
+    ivec2 hi = textureSize(uCornerSnowA, 0) - 1;
+    ivec2 cs[4] = ivec2[4](c, c + ivec2(1, 0), c + ivec2(0, 1), c + ivec2(1, 1));
+    float ws[4] = float[4]((1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y), (1.0 - f.x) * f.y, f.x * f.y);
+    bool  lake[4];
+    int   n = 0;
+    for (int k = 0; k < 4; k++) {
+        lake[k] = isLakeMat(materialAt(clamp(cs[k], ivec2(0), hi) * 4));
+        n += lake[k] ? 1 : 0;
+    }
+    if (n == 0 || n == 4) {
+        return;
+    }
+    // Which side xz is on: the four material samples round it, blended
+    // and roughened a little, as the open water's edge is.
+    vec2  m  = xz / 1.25;
+    ivec2 p  = ivec2(floor(m));
+    vec2  fm = fract(m);
+    float l00 = isLakeMat(materialAt(p)) ? 1.0 : 0.0;
+    float l10 = isLakeMat(materialAt(p + ivec2(1, 0))) ? 1.0 : 0.0;
+    float l01 = isLakeMat(materialAt(p + ivec2(0, 1))) ? 1.0 : 0.0;
+    float l11 = isLakeMat(materialAt(p + ivec2(1, 1))) ? 1.0 : 0.0;
+    float lw  = mix(mix(l00, l10, fm.x), mix(l01, l11, fm.x), fm.y);
+    bool  onLake = lw + 0.25 * (valueNoise(xz / 0.9) - 0.5) > 0.5;
+    vec4  sa = vec4(0.0);
+    float sd = 0.0, sw = 0.0;
+    for (int k = 0; k < 4; k++) {
+        if (lake[k] != onLake) {
+            continue;
+        }
+        ivec2 cc = clamp(cs[k], ivec2(0), hi);
+        sa += texelFetch(uCornerSnowA, cc, 0) * ws[k];
+        sd += texelFetch(uCornerSnowB, cc, 0).r * ws[k];
+        sw += ws[k];
+    }
+    if (sw > 1e-4) {
+        a = sa / sw;
+        depth = sd / sw;
+    }
+}
+
 // Bare ground colour for a material that isn't rock; grain (0–1)
 // breaks up flat fills. Rock is drawn by rockField and rockAlbedo.
 vec3 materialColor(int m, vec3 meadow, float grain) {
@@ -126,7 +179,7 @@ vec3 materialColor(int m, vec3 meadow, float grain) {
     if (m == MAT_SCREE) return vec3(0.55, 0.52, 0.48) * (0.80 + 0.35 * grain);
     if (m == MAT_ICE)        return vec3(0.30, 0.40, 0.46) * (0.92 + 0.12 * grain); // lake ice
     if (m == MAT_THIN_ICE)   return vec3(0.17, 0.23, 0.27) * (0.92 + 0.12 * grain); // dark new ice
-    if (m == MAT_OPEN_WATER) return vec3(0.03, 0.07, 0.10);                           // deep water
+    if (m == MAT_OPEN_WATER) return vec3(0.08, 0.15, 0.17);                           // under the water sheet (render/water.go)
     return meadow;
 }
 
@@ -301,6 +354,9 @@ void main() {
     if (uFragDetail > 0.5 && vInstabilityScore > -0.5) {
         cornerSnow(vWorldPos.xz, snowState, snowDepth);
     }
+    if (uMaterialOn > 0.5 && vInstabilityScore > -0.5) {
+        shoreSnow(vWorldPos.xz, snowState, snowDepth);
+    }
     float grooming = clamp(snowState.x, 0.0, 1.0);
     float packed   = clamp(snowState.y, 0.0, 1.0);
     float ice      = clamp(snowState.z, 0.0, 1.0);
@@ -459,28 +515,51 @@ void main() {
     // snow, scoured in broad patches down to grey-blue ice where it's
     // thin; thin ice is dark with only patches of snow; open water takes
     // no snow at all.
-    int lakeSurf = uMaterialOn > 0.5 ? materialAt(ivec2(floor(vWorldPos.xz / 1.25 + 0.5))) : -1;
-    if (lakeSurf == MAT_ICE) {
-        float scour = smoothstep(0.45, 0.7, fbmNoise(vWorldPos.xz / 30.0 + vec2(13.1, 4.7)));
-        float thin  = 1.0 - smoothstep(0.1, 0.4, effDepth);
-        snowness    = min(snowness, 1.0 - 0.9 * scour * thin);
-    } else if (lakeSurf == MAT_THIN_ICE) {
-        snowness = min(snowness, 0.6 * smoothstep(0.55, 0.75, fbmNoise(vWorldPos.xz / 12.0 + vec2(3.3, 9.1))));
-    }
-    // Open water (lakes and creeks) blends across the four material
-    // samples around the point, with a little noise, so its edge follows
-    // a smooth, slightly ragged line rather than the 1.25 m lattice.
-    float openW = 0.0;
+    // Each look is weighted by how much of the four material samples
+    // round the point it covers, roughened a little, so the ice's edge
+    // follows a smooth line rather than the 1.25 m lattice (as the open
+    // water's does below).
     if (uMaterialOn > 0.5) {
         vec2  g = vWorldPos.xz / 1.25;
         ivec2 p = ivec2(floor(g));
         vec2  f = fract(g);
-        float o00 = materialAt(p) == MAT_OPEN_WATER ? 1.0 : 0.0;
-        float o10 = materialAt(p + ivec2(1, 0)) == MAT_OPEN_WATER ? 1.0 : 0.0;
-        float o01 = materialAt(p + ivec2(0, 1)) == MAT_OPEN_WATER ? 1.0 : 0.0;
-        float o11 = materialAt(p + ivec2(1, 1)) == MAT_OPEN_WATER ? 1.0 : 0.0;
-        openW = mix(mix(o00, o10, f.x), mix(o01, o11, f.x), f.y);
-        openW = smoothstep(0.35, 0.65, openW + 0.25 * (valueNoise(vWorldPos.xz / 0.9) - 0.5));
+        vec2  iw = vec2(0.0); // (ice, thin ice)
+        for (int k = 0; k < 4; k++) {
+            ivec2 o = ivec2(k & 1, k >> 1);
+            float w = (o.x == 1 ? f.x : 1.0 - f.x) * (o.y == 1 ? f.y : 1.0 - f.y);
+            int   m = materialAt(p + o);
+            iw += w * vec2(m == MAT_ICE ? 1.0 : 0.0, m == MAT_THIN_ICE ? 1.0 : 0.0);
+        }
+        float rough = 0.25 * (valueNoise(vWorldPos.xz / 0.9) - 0.5);
+        iw = smoothstep(vec2(0.35), vec2(0.65), iw + rough);
+        float scour = smoothstep(0.45, 0.7, fbmNoise(vWorldPos.xz / 30.0 + vec2(13.1, 4.7)));
+        float thin  = 1.0 - smoothstep(0.1, 0.4, effDepth);
+        snowness = mix(snowness, min(snowness, 1.0 - 0.9 * scour * thin), iw.x);
+        snowness = mix(snowness, min(snowness, 0.6 * smoothstep(0.55, 0.75, fbmNoise(vWorldPos.xz / 12.0 + vec2(3.3, 9.1)))), iw.y);
+    }
+    // Open water (lakes and creeks) blends across the four material
+    // samples around the point, with a little noise, so its edge follows
+    // a smooth, slightly ragged line rather than the 1.25 m lattice.
+    // Averaged over a few metres as the snow's depth is (terrain.tese
+    // openWaterAt), so the snow's edge along a creek slanting across the
+    // lattice is a smooth bank, not a staircase.
+    float openW = 0.0;
+    if (uMaterialOn > 0.5) {
+        vec2  g   = vWorldPos.xz / 1.25;
+        float sum = 0.0;
+        for (int j = -1; j <= 1; j++) {
+            for (int i = -1; i <= 1; i++) {
+                vec2  q = g + vec2(i, j);
+                ivec2 p = ivec2(floor(q));
+                vec2  f = fract(q);
+                float o00 = materialAt(p) == MAT_OPEN_WATER ? 1.0 : 0.0;
+                float o10 = materialAt(p + ivec2(1, 0)) == MAT_OPEN_WATER ? 1.0 : 0.0;
+                float o01 = materialAt(p + ivec2(0, 1)) == MAT_OPEN_WATER ? 1.0 : 0.0;
+                float o11 = materialAt(p + ivec2(1, 1)) == MAT_OPEN_WATER ? 1.0 : 0.0;
+                sum += mix(mix(o00, o10, f.x), mix(o01, o11, f.x), f.y);
+            }
+        }
+        openW = smoothstep(0.15, 0.55, sum / 9.0 + 0.12 * (valueNoise(vWorldPos.xz / 0.9) - 0.5));
     }
     snowness *= 1.0 - openW;
 

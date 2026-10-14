@@ -641,6 +641,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		Detail:       detailBytes(t),
 		Material:     materialBytes(t),
 		LakeOf:       t.LakeOf,
+		Water:        waterToData(w.Water),
 		LakeDepth:    lakeDepthBytes(t.LakeDepth),
 		Lakes:        lakesToData(w.Lakes),
 		Geo:          geoToData(w.Geo),
@@ -926,7 +927,7 @@ func dataToWorld(data ScenarioData) *world.World {
 	w := world.NewWorld(t)
 	w.Seed = data.Seed
 	for _, l := range data.Lakes {
-		w.Lakes = append(w.Lakes, world.Lake{Name: l.Name, Altitude: l.Altitude, AreaHa: l.AreaHa, MaxDepth: l.MaxDepth, Frost: l.Frost, Thaw: l.Thaw})
+		w.Lakes = append(w.Lakes, world.Lake{Name: l.Name, Altitude: l.Altitude, AreaHa: l.AreaHa, MaxDepth: l.MaxDepth, Frost: l.Frost, Thaw: l.Thaw, Cover: world.WaterCover(l.Cover)})
 	}
 	if data.Cash != nil {
 		w.Cash = *data.Cash
@@ -1444,6 +1445,10 @@ func dataToWorld(data ScenarioData) *world.World {
 	w.TimeZone = data.TimeZone
 	w.Climate = climateFromData(data.Climate)
 	w.TerrainBase = terrainBaseFromData(data.TerrainBase)
+	w.Water = waterFromData(data.Water)
+	if w.Water == nil && w.TerrainBase != nil {
+		w.Water = &world.Water{} // fitted on the Water layer's next run, or from the drawn ground
+	}
 	if data.OpenHour > 0 || data.CloseHour > 0 {
 		w.OpenHour, w.CloseHour = data.OpenHour, data.CloseHour
 	}
@@ -1596,6 +1601,62 @@ func terrainBaseToData(b *world.TerrainBase) *TerrainBaseData {
 	return d
 }
 
+// waterToData is world.Water for saving; nil for none.
+func waterToData(w *world.Water) *WaterData {
+	if w == nil {
+		return nil
+	}
+	d := &WaterData{Fitted: w.Fitted}
+	for _, c := range w.Creeks {
+		d.Creeks = append(d.Creeks, WaterCreekData{Name: c.Name, Kind: c.Kind, Points: flatXZ(c.Points), Cover: uint8(c.Cover)})
+	}
+	for _, l := range w.Lakes {
+		ld := WaterLakeData{Name: l.Name, Kind: l.Kind, AreaHa: l.AreaHa, Cover: uint8(l.Cover)}
+		for _, r := range l.Rings {
+			ld.Rings = append(ld.Rings, flatXZ(r))
+		}
+		d.Lakes = append(d.Lakes, ld)
+	}
+	return d
+}
+
+// waterFromData is waterToData's inverse; nil for none.
+func waterFromData(d *WaterData) *world.Water {
+	if d == nil {
+		return nil
+	}
+	w := &world.Water{Fitted: d.Fitted}
+	for _, c := range d.Creeks {
+		w.Creeks = append(w.Creeks, world.WaterCreek{Name: c.Name, Kind: c.Kind, Points: pairXZ(c.Points), Cover: world.WaterCover(c.Cover)})
+	}
+	for _, l := range d.Lakes {
+		wl := world.WaterLake{Name: l.Name, Kind: l.Kind, AreaHa: l.AreaHa, Cover: world.WaterCover(l.Cover)}
+		for _, r := range l.Rings {
+			wl.Rings = append(wl.Rings, pairXZ(r))
+		}
+		w.Lakes = append(w.Lakes, wl)
+	}
+	return w
+}
+
+// flatXZ is a line of world (x, z) points as flat x, z pairs.
+func flatXZ(ps [][2]float32) []float32 {
+	out := make([]float32, 0, 2*len(ps))
+	for _, p := range ps {
+		out = append(out, p[0], p[1])
+	}
+	return out
+}
+
+// pairXZ is flatXZ's inverse.
+func pairXZ(f []float32) [][2]float32 {
+	out := make([][2]float32, 0, len(f)/2)
+	for i := 0; i+1 < len(f); i += 2 {
+		out = append(out, [2]float32{f[i], f[i+1]})
+	}
+	return out
+}
+
 // flatPath is a (lat, lon) path as flat lat, lon pairs.
 func flatPath(ps [][2]float64) []float64 {
 	out := make([]float64, 0, 2*len(ps))
@@ -1680,7 +1741,7 @@ func lakeDepthBytes(d []float32) []byte {
 func lakesToData(ls []world.Lake) []LakeData {
 	var out []LakeData
 	for _, l := range ls {
-		out = append(out, LakeData{Name: l.Name, Altitude: l.Altitude, AreaHa: l.AreaHa, MaxDepth: l.MaxDepth, Frost: l.Frost, Thaw: l.Thaw})
+		out = append(out, LakeData{Name: l.Name, Altitude: l.Altitude, AreaHa: l.AreaHa, MaxDepth: l.MaxDepth, Frost: l.Frost, Thaw: l.Thaw, Cover: uint8(l.Cover)})
 	}
 	return out
 }

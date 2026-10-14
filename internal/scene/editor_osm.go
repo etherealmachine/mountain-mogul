@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/go-gl/mathgl/mgl32"
-	"mountain-mogul/internal/geo"
 	"mountain-mogul/internal/render"
 	"mountain-mogul/internal/world"
 )
@@ -36,31 +35,25 @@ type osmLabel struct {
 // The overlay's look: ribbon widths in metres, how far above the snow
 // they float, and how often they're sampled along a path.
 const (
-	osmLift       = 0.8 // metres above the snow
-	osmStep       = 4.0
-	osmLiftWidth  = 3.0
-	osmRunWidth   = 3.0
-	osmAreaWidth  = 3.0
-	osmMinRoad    = 3.0
-	osmStationBox = 12.0
+	osmLift        = 0.8 // metres above the snow
+	osmStep        = 4.0
+	osmLiftWidth   = 3.0
+	osmRunWidth    = 3.0
+	osmAreaWidth   = 3.0
+	osmStreamWidth = 2.5
+	osmMinRoad     = 3.0
+	osmStationBox  = 12.0
 	// osmRedrape is how often the ribbons are draped again while shown,
 	// so they follow the ground and snow as layers and brushes change it.
 	osmRedrape = 500 * time.Millisecond
 )
 
 var (
-	osmWaterCol = mgl32.Vec3{0.05, 0.85, 0.9}  // cyan, apart from blue runs
-	osmDryCol   = mgl32.Vec3{0.42, 0.52, 0.66} // dry gullies above where a stream starts
+	osmWaterCol = mgl32.Vec3{0.05, 0.85, 0.9} // cyan, apart from blue runs
 	osmRoadCol  = mgl32.Vec3{1.0, 0.78, 0.25}
 	osmLiftCol  = mgl32.Vec3{0.95, 0.15, 0.2}
 	osmAreaCol  = mgl32.Vec3{0.75, 0.4, 1.0}
 )
-
-// osmFlowWidth is how wide a flowing stream draws, in metres, by the
-// catchment that drains through it: 2 m where it starts, wider downstream.
-func osmFlowWidth(catchment float32) float32 {
-	return min(2+1.5*float32(math.Sqrt(float64(catchment)/1e6)), 10)
-}
 
 // osmRunCol is a run's colour by piste:difficulty, as on a trail map.
 func osmRunCol(difficulty string) mgl32.Vec3 {
@@ -151,7 +144,7 @@ func (e *Editor) updateOSMOverlay(r *render.Renderer) {
 		return
 	}
 	o.built = time.Now()
-	verts, labels := buildOSMOverlay(e.world.Terrain, base, e.layerCache.streamsFor(e.world))
+	verts, labels := buildOSMOverlay(e.world.Terrain, base)
 	r.SetOverlayVerts(verts)
 	o.labels = labels
 }
@@ -166,7 +159,7 @@ type osmDraper struct {
 	labelledName map[string]bool
 }
 
-func buildOSMOverlay(t *world.Terrain, base *world.TerrainBase, streams []geo.Stream) ([]float32, []osmLabel) {
+func buildOSMOverlay(t *world.Terrain, base *world.TerrainBase) ([]float32, []osmLabel) {
 	d := &osmDraper{
 		t: t, b: base.Geo,
 		maxX:         float32(t.Width-1) * world.CellSize,
@@ -198,40 +191,13 @@ func buildOSMOverlay(t *world.Terrain, base *world.TerrainBase, streams []geo.St
 			d.label(l.Paths[longest], l.Name, osmWaterCol, 2)
 		}
 	}
-	// Streams as traced onto their channels: solid where enough ground
-	// drains through them to flow, thin and pale above that, where the
-	// mapped line runs up a dry gully. Each named stream is labelled once,
-	// at the middle of its longest flowing stretch.
-	type run struct {
-		name   string
-		mid    [2]float32
-		length float32
-	}
-	best := map[string]run{}
-	for _, s := range streams {
-		var runLen float32
-		runStart := -1
-		for i := 1; i < len(s.Points); i++ {
-			a, b := s.Points[i-1], s.Points[i]
-			if s.Flowing(i) {
-				d.segment(a[0], a[1], b[0], b[1], osmFlowWidth(s.Catchment[i]), osmWaterCol)
-				if runStart < 0 {
-					runStart, runLen = i-1, 0
-				}
-				runLen += float32(math.Hypot(float64(b[0]-a[0]), float64(b[1]-a[1])))
-			} else {
-				d.segment(a[0], a[1], b[0], b[1], 1.5, osmDryCol)
-				runStart = -1
-			}
-			if runStart >= 0 && s.Name != "" && runLen > best[s.Name].length {
-				m := s.Points[(runStart+i)/2]
-				best[s.Name] = run{s.Name, m, runLen}
-			}
+	// Streams as OpenStreetMap maps them (the water the ground is built
+	// from is the Water layer's, shown by the editor's Water tool).
+	for _, st := range base.Streams {
+		d.ribbon(st.Path, osmStreamWidth, osmWaterCol)
+		if st.Name != "" {
+			d.label(st.Path, st.Name, osmWaterCol, 3)
 		}
-	}
-	for _, r := range best {
-		d.labels = append(d.labels, osmLabel{x: r.mid[0], z: r.mid[1], text: r.name,
-			col: mgl32.Vec4{osmWaterCol[0], osmWaterCol[1], osmWaterCol[2], 1}, rank: 3})
 	}
 	// Roads: one label per name, on its longest piece in the map.
 	longestRoad := map[string]int{}

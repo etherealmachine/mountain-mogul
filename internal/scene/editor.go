@@ -83,6 +83,7 @@ type Editor struct {
 	skiRightDown              mgl32.Vec2 // where the right button went down, to tell a click from a pan
 	skiHover, skiDrag         skiHandle  // the outline handle under the cursor, and the one being dragged
 	skiSel                    int        // the selected outline's index, -1 for none
+	water                     waterTool  // the Water tool's session (editor_water.go)
 	entryPopup                *ui.Window // road entry opened by clicking its post
 	lotTool                   lotTool
 	serviceTool               serviceTool                    // the building tool's session
@@ -232,6 +233,7 @@ func (e *Editor) Init(app *engine.App) error {
 	// Land: single button to start drawing a new parcel rectangle
 	e.toolButtons[toolTrailPaint] = e.menuBar.AddIconButton(render.IconFlag, "Trail", func() { e.activateTrailTool() })
 	e.toolButtons[toolSkiArea] = e.menuBar.AddIconButton(render.IconTriangle, "Ski Area", func() { e.activateSkiAreaTool() })
+	e.toolButtons[toolWater] = e.menuBar.AddIconButton(render.IconDrop, "Water", func() { e.activateWaterTool() })
 
 	e.toolButtons[toolParcelRect] = e.menuBar.AddIconButton(render.IconGlobe, "Add Parcel", func() {
 		e.parcelRectIntent = parcelIntentNew
@@ -253,6 +255,8 @@ func (e *Editor) Init(app *engine.App) error {
 	e.layers.reloadBtn = ui.NewButton(0, 0, 28, 28, "", e.requestReload)
 	e.layers.osmBtn = ui.NewButton(0, 0, 24, 24, "", e.requestOSMRefresh)
 	e.layers.osmBtn.Icon = render.IconArrowClockwise
+	e.layers.waterBtn = ui.NewButton(0, 0, 24, 24, "", e.requestWaterRefit)
+	e.layers.waterBtn.Icon = render.IconArrowClockwise
 	e.layers.reloadBtn.Icon = render.IconArrowClockwise
 	e.menuBar.AddIconButton(render.IconFloppyDisk, "Save", e.saveCurrent)
 	e.menuBar.AddIconButton(render.IconFloppyDisk, "Save As", e.openSaveAsPrompt)
@@ -408,6 +412,9 @@ func (e *Editor) Update(dt float64) {
 			e.skiDraft = nil // drop the outline in progress, keep the tool
 		case e.activeTool == toolSkiArea && e.skiSel >= 0:
 			e.skiSel = -1 // let go of the selected outline, keep the tool
+		case e.activeTool == toolWater && e.water.sel.ok:
+			e.water.sel = waterSel{} // let go of the creek or lake, keep the tool
+			e.water.version++
 		case e.trailPopup != nil && e.trailPopup.Visible:
 			e.trailPopup.Visible = false
 			e.trail.id = 0
@@ -434,6 +441,8 @@ func (e *Editor) Update(dt float64) {
 			e.markDirty()
 		case e.activeTool == toolSkiArea:
 			e.deleteSelectedSkiArea()
+		case e.activeTool == toolWater:
+			e.deleteSelectedWater()
 		}
 	}
 	// R / Shift+R: turn the building about to be placed, or the selected one.
@@ -669,8 +678,8 @@ func (e *Editor) Update(dt float64) {
 			e.entryPopup.ContainsPoint(inp.MousePos[0], inp.MousePos[1]) ||
 		e.trailPopup != nil && e.trailPopup.Visible &&
 			e.trailPopup.ContainsPoint(inp.MousePos[0], inp.MousePos[1])
-	overChrome := e.menuBar.ContainsY(inp.MousePos[1]) ||
-		e.topBar.ContainsY(inp.MousePos[1]) ||
+	overChrome := e.menuBar.ContainsXY(inp.MousePos[0], inp.MousePos[1]) ||
+		e.topBar.ContainsXY(inp.MousePos[0], inp.MousePos[1]) ||
 		e.startDate.Contains(inp.MousePos[0], inp.MousePos[1]) ||
 		e.layers.contains(inp.MousePos[0], inp.MousePos[1]) ||
 		e.overlayPanel.ContainsXY(inp.MousePos[0], inp.MousePos[1], float32(r.ScreenWidth())) ||
@@ -696,7 +705,9 @@ func (e *Editor) Update(dt float64) {
 	updatePlacementGhost(r, e.world.Terrain, placementGhostState{
 		activeTool: e.activeTool,
 		hoverPos:   mgl32.Vec2{e.hoverWorld[0], e.hoverWorld[2]},
-		hoverValid: e.hoverValid,
+		// The lift-top preview holds at the last point on the ground
+		// while the cursor crosses the chrome (as the scenario's does).
+		hoverValid: e.hoverValid || e.activeTool == toolLiftTop,
 		liftBase:   e.liftBase,
 		liftType:   e.liftType,
 		roadStart:  e.roadStart,
@@ -705,6 +716,7 @@ func (e *Editor) Update(dt float64) {
 	})
 	e.updateServiceTool(inp, overChrome)
 	e.updateRunTool(r, inp, overChrome)
+	e.updateWaterTool(r, inp, overChrome)
 	e.updatePathTool(r, inp, overChrome)
 	// Editor mirrors the scenario's node-highlight behaviour while a
 	// road tool is active — same snap rules, same visual cue. While
@@ -740,6 +752,7 @@ func (e *Editor) Update(dt float64) {
 		e.suppressBrushUntilRelease = false
 		e.endTerrainStroke(r)
 		e.skiAreaRelease()
+		e.waterRelease()
 		if e.activeTool == toolParking && e.lotTool.dragging() {
 			e.lotTool.release(mgl32.Vec2{e.hoverWorld[0], e.hoverWorld[2]})
 			if e.lotTool.mode == lotPending {
@@ -763,6 +776,8 @@ func (e *Editor) Update(dt float64) {
 		if !overSlider {
 			if e.activeTool == toolSkiArea {
 				e.skiAreaMouse(r, inp)
+			} else if e.activeTool == toolWater {
+				e.waterMouse(r, inp)
 			} else if e.isPlacementTool() {
 				shiftHeld := inp.Held[glfw.KeyLeftShift] || inp.Held[glfw.KeyRightShift]
 				// toolParcelRect can fire off-terrain (first or second click):
@@ -1039,6 +1054,9 @@ func (e *Editor) setTool(t toolMode) {
 		e.endParkingSession(e.app.Renderer)
 		if prev == toolTrailPaint {
 			e.endRunTool()
+		}
+		if prev == toolWater && t != toolWater {
+			e.endWaterTool()
 		}
 		if prev == toolFootpath {
 			e.pathTool = pathTool{}
@@ -2091,6 +2109,9 @@ func (e *Editor) Render(r *render.Renderer) {
 	edDrawables := []render.UIDrawable{uiDrawFunc(e.drawOSMLabels), e.topBar, e.startDate, e.menuBar, e.overlayPanel}
 	if e.activeTool == toolSkiArea && len(e.skiDraft) == 0 {
 		edDrawables = append(edDrawables, uiDrawFunc(e.drawSkiHandles))
+	}
+	if e.activeTool == toolWater && e.waterUsable() && e.water.sel.ok {
+		edDrawables = append(edDrawables, uiDrawFunc(e.drawWaterHandles), uiDrawFunc(e.drawCoverPanel))
 	}
 	if e.layers.open {
 		edDrawables = append(edDrawables, uiDrawFunc(func(r *render.Renderer) { e.drawLayersPanel(r, e.startDate.y+e.startDate.h) }))

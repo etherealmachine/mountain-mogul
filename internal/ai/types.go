@@ -445,6 +445,7 @@ const (
 	ThoughtTooHard       // a run above their level, or much of it past their comfort slope
 	ThoughtCrowdedRun    // a run with other skiers close around them much of the way
 	ThoughtFellUnloading // fell getting off a chair at the top
+	ThoughtFellOffTow    // fell off a rope tow on the way up
 	ThoughtLinesFull     // every lift line they'd use is longer than they'll join
 
 	// Snow underfoot against the guest's tastes (sim/underfoot.go). They
@@ -559,6 +560,7 @@ var Effects = [ThoughtKindCount]Effect{
 	ThoughtTooHard:           {Class: Annoyance},
 	ThoughtCrowdedRun:        {Class: Annoyance},
 	ThoughtFellUnloading:     {Class: Annoyance},
+	ThoughtFellOffTow:        {Class: Annoyance},
 	ThoughtGoodMeal:          {},
 	ThoughtGoodDrink:         {},
 	ThoughtRested:            {},
@@ -690,6 +692,7 @@ var thoughtText = [ThoughtKindCount]string{
 	ThoughtTooHard:           "that run was too much for me",
 	ThoughtCrowdedRun:        "way too crowded on that run",
 	ThoughtFellUnloading:     "I fell getting off the lift!",
+	ThoughtFellOffTow:        "I fell off the rope tow!",
 	ThoughtLinesFull:         "every lift line is way too long",
 	ThoughtLovingPowder:      "this powder is unreal",
 	ThoughtDeepSnow:          "this deep snow is wearing me out",
@@ -769,6 +772,7 @@ var ThoughtChartColor = [ThoughtKindCount][4]float32{
 	ThoughtTooHard:           {0.90, 0.50, 0.25, 1},
 	ThoughtCrowdedRun:        {0.70, 0.45, 0.50, 1},
 	ThoughtFellUnloading:     {0.90, 0.55, 0.40, 1},
+	ThoughtFellOffTow:        {0.90, 0.55, 0.40, 1},
 	ThoughtLinesFull:         {0.75, 0.35, 0.65, 1},
 	ThoughtLovingPowder:      {0.70, 0.90, 1.00, 1},
 	ThoughtDeepSnow:          {0.55, 0.65, 0.80, 1},

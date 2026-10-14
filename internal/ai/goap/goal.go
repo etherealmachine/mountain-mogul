@@ -251,6 +251,9 @@ func (Explore) Weight(s *WorldSnapshot, w *world.World) float32 {
 // Advanced guests ride any lift; beginners/intermediates need a matching
 // difficulty service on the lift.
 func liftAccessible(l *world.Lift, skill float32, w *world.World) bool {
+	if l.Type.Tow() && ai.Novice(skill) {
+		return false // novices won't ride a tow
+	}
 	diff := skillDiff(skill)
 	if diff == 0 {
 		return true // Advanced: no filter

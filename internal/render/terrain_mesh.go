@@ -455,10 +455,9 @@ func cornerSnow(t *world.Terrain, x0, z0, x1, z1 int, a, b []float32, scratch *[
 	return maxDepth
 }
 
-// cornerSurfaceY is the drawn surface height at corner (cx, cz) before
-// detail: ground plus visible snow, each averaged over the corner's
-// cells exactly as the vertex buffer and snow textures do.
-func cornerSurfaceY(t *world.Terrain, cx, cz int) float32 {
+// cornerSnowDepth is the visible snow depth at corner (cx, cz): the mean
+// of the cells round it, as the corner snow texture holds it.
+func cornerSnowDepth(t *world.Terrain, cx, cz int) float32 {
 	var dp, n float32
 	for x := max(cx-1, 0); x <= min(cx, t.Width-1); x++ {
 		for z := max(cz-1, 0); z <= min(cz, t.Height-1); z++ {
@@ -469,7 +468,7 @@ func cornerSurfaceY(t *world.Terrain, cx, cz int) float32 {
 	if n == 0 {
 		return 0
 	}
-	return t.CornerGroundY(cx, cz) + dp*(1/n)
+	return dp * (1 / n)
 }
 
 // VisualElevationAt returns the terrain surface height at world position
@@ -526,13 +525,20 @@ func VisualElevationAt(t *world.Terrain, wx, wz float32) float32 {
 
 	var y, gx, gz float32
 	for k := 0; k < 3; k++ {
-		y += bestW[k] * cornerSurfaceY(t, best[k][0], best[k][1])
+		y += bestW[k] * t.CornerGroundY(best[k][0], best[k][1])
 		gx += bestW[k] * float32(best[k][0])
 		gz += bestW[k] * float32(best[k][1])
 	}
 	if t.Detail != nil {
 		y += t.Detail.At(gx, gz)
 	}
+	// Snow blends between the four corners round the grid point, as the
+	// tessellation stage does (terrain.tese cornerSnowAt).
+	x0, z0 := min(int(gx), t.Width-2), min(int(gz), t.Height-2)
+	fx, fz := gx-float32(x0), gz-float32(z0)
+	a := cornerSnowDepth(t, x0, z0)*(1-fx) + cornerSnowDepth(t, x0+1, z0)*fx
+	b := cornerSnowDepth(t, x0, z0+1)*(1-fx) + cornerSnowDepth(t, x0+1, z0+1)*fx
+	y += a*(1-fz) + b*fz
 	return y + t.MogulHeightAt(wx, wz)
 }
 
@@ -571,6 +577,7 @@ func barycentric2(ps [3][2]float32, px, pz float32) [3]float32 {
 // BuildTerrainMesh creates the terrain mesh, snow textures, and detail
 // texture for t.
 func (r *Renderer) BuildTerrainMesh(t *world.Terrain) {
+	r.MarkWaterDirty()
 	r.scene.terrainWidth = t.Width
 	r.scene.terrainHeight = t.Height
 	if r.scene.terrainMesh != nil {
@@ -622,6 +629,7 @@ func (r *Renderer) uploadTerrainGeometry(t *world.Terrain) {
 // FlushTerrainVerts rebuilds the terrain after ground elevation changes:
 // geometry, AO, smoothed elevation, snow, and detail.
 func (r *Renderer) FlushTerrainVerts(t *world.Terrain) {
+	r.MarkWaterDirty()
 	if r.scene.terrainMesh == nil {
 		return
 	}

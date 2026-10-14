@@ -22,7 +22,8 @@ type Layer struct {
 	Fixed bool
 	// Run changes the w × ht heights, spacing metres apart, in place, at
 	// strength s (0–1, world.DefaultLayerStrength the standard pass).
-	Run func(h []float32, w, ht int, spacing float64, base *world.TerrainBase, s float32)
+	// water is the map's creeks and lakes (world.World.Water).
+	Run func(h []float32, w, ht int, spacing float64, base *world.TerrainBase, water *world.Water, s float32)
 }
 
 // Layers is every terrain layer, in the order they run.
@@ -31,7 +32,7 @@ var Layers = []Layer{
 		ID: "roads", Name: "Smooth roads", MovesGround: true,
 		// Stronger: a corridor up to twice as wide, with a quarter of the
 		// bumps put back.
-		Run: func(h []float32, w, ht int, spacing float64, base *world.TerrainBase, s float32) {
+		Run: func(h []float32, w, ht int, spacing float64, base *world.TerrainBase, _ *world.Water, s float32) {
 			SmoothRoads(h, w, ht, boundsOf(base.Geo), spacing, roadsOf(base.Roads), RoadSmoothing{
 				Width:  world.LayerScale(s, 0.5, 2),
 				Rough:  world.LayerScale(s, 1, 0.25),
@@ -43,7 +44,7 @@ var Layers = []Layer{
 		ID: "smooth", Name: "Smooth ground", MovesGround: true, DetailOnly: true,
 		// Stronger: a blur radius up to three times as wide, enough to
 		// round off moguls and small knolls.
-		Run: func(h []float32, w, ht int, spacing float64, _ *world.TerrainBase, s float32) {
+		Run: func(h []float32, w, ht int, spacing float64, _ *world.TerrainBase, _ *world.Water, s float32) {
 			SmoothGround(h, w, ht, spacing, world.LayerScale(s, 0.5, 3), world.LayerScale(s, 0, 1))
 		},
 	},
@@ -51,24 +52,41 @@ var Layers = []Layer{
 		ID: "erode", Name: "Erode", MovesGround: true, DetailOnly: true,
 		// Stronger: up to three times the drops, each carrying up to twice
 		// as much, so gullies cut deeper and reach further up.
-		Run: func(h []float32, w, ht int, spacing float64, base *world.TerrainBase, s float32) {
+		Run: func(h []float32, w, ht int, spacing float64, base *world.TerrainBase, _ *world.Water, s float32) {
 			g := base.Geo
 			Erode(h, w, ht, spacing, world.LayerScale(s, 0, 3), world.LayerScale(s, 0.6, 2),
 				int64(math.Float64bits(g.MinLat)^math.Float64bits(g.MinLon)))
 		},
 	},
 	{
+		// The map's water: OpenStreetMap's streams and lakes fitted to
+		// the ground (geo.FitWater) the first time it runs, and kept in
+		// the world (world.Water) for the editor's Water tool to change.
+		// The ground stays as it is; the Creeks and Lakes layers build
+		// the water.
+		ID: "water", Name: "Water", Fixed: true,
+		Run: func(h []float32, w, ht int, spacing float64, base *world.TerrainBase, water *world.Water, _ float32) {
+			if water != nil && !water.Fitted {
+				FitWater(h, w, ht, spacing, base, water)
+			}
+		},
+	},
+	{
 		// After erosion, so the channels it cuts stay crisp.
 		ID: "creeks", Name: "Creeks", MovesGround: true, Fixed: true,
-		Run: func(h []float32, w, ht int, spacing float64, base *world.TerrainBase, _ float32) {
-			CarveCreeks(h, w, ht, spacing, CreekStreams(h, w, ht, spacing, base))
+		Run: func(h []float32, w, ht int, spacing float64, base *world.TerrainBase, water *world.Water, _ float32) {
+			if water != nil {
+				CarveCreeks(h, w, ht, spacing, WaterCreekStreams(h, w, ht, spacing, base, water))
+			}
 		},
 	},
 	{
 		// Last, so nothing roughens the levelled water afterwards.
 		ID: "lakes", Name: "Lakes", MovesGround: true, Fixed: true,
-		Run: func(h []float32, w, ht int, _ float64, base *world.TerrainBase, _ float32) {
-			FlattenLakes(h, w, ht, boundsOf(base.Geo), base.Lakes)
+		Run: func(h []float32, w, ht int, spacing float64, _ *world.TerrainBase, water *world.Water, _ float32) {
+			if water != nil {
+				LevelLakes(h, w, ht, spacing, water.Lakes)
+			}
 		},
 	},
 }
@@ -81,12 +99,28 @@ func Applies(i int, base *world.TerrainBase) bool {
 		return false
 	case l.ID == "roads" && len(base.Roads) == 0:
 		return false
+	case l.ID == "water" && len(base.Streams) == 0 && len(base.Lakes) == 0:
+		return false
 	case l.ID == "lakes" && len(base.Lakes) == 0:
 		return false
 	case l.ID == "creeks" && len(base.Streams) == 0:
 		return false
 	}
 	return true
+}
+
+// Invalidate drops the kept output of layer id and the layers after it,
+// so the next Run reruns them: for a change to what they read besides
+// the heights (the water, for the Water, Creeks and Lakes layers).
+func (s *LayerStack) Invalidate(id string) {
+	for i, l := range Layers {
+		if l.ID == id {
+			if i < len(s.set) {
+				s.set, s.out = s.set[:i], s.out[:i]
+			}
+			return
+		}
+	}
 }
 
 // Setting is how a ground layer is set: on or off, and its strength.
@@ -108,15 +142,20 @@ func Settings(base *world.TerrainBase) []Setting {
 // so switching one layer only reruns it and the layers after it. Not
 // safe for concurrent use.
 type LayerStack struct {
-	base *world.TerrainBase
-	set  []Setting   // what each kept output was made with
-	out  [][]float32 // heights after each layer; shared with the one before when it was skipped
+	base  *world.TerrainBase
+	water *world.Water
+	set   []Setting   // what each kept output was made with
+	out   [][]float32 // heights after each layer; shared with the one before when it was skipped
 }
 
-// NewLayerStack makes a stack for base.
-func NewLayerStack(base *world.TerrainBase) *LayerStack {
-	return &LayerStack{base: base}
+// NewLayerStack makes a stack for base, building water's creeks and
+// lakes (the Water layer fitting it first if it hasn't been).
+func NewLayerStack(base *world.TerrainBase, water *world.Water) *LayerStack {
+	return &LayerStack{base: base, water: water}
 }
+
+// Water is the water the stack builds.
+func (s *LayerStack) Water() *world.Water { return s.water }
 
 // Base is the base the stack runs on.
 func (s *LayerStack) Base() *world.TerrainBase { return s.base }
@@ -151,7 +190,7 @@ func (s *LayerStack) Run(set []Setting, progress func(name string)) []float32 {
 				progress(Layers[i].Name)
 			}
 			next := append([]float32(nil), cur...)
-			Layers[i].Run(next, s.base.W, s.base.H, spacing, s.base, set[i].Strength)
+			Layers[i].Run(next, s.base.W, s.base.H, spacing, s.base, s.water, set[i].Strength)
 			cur = next
 		}
 		s.set = append(s.set, set[i])

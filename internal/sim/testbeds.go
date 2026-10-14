@@ -318,6 +318,66 @@ var Testbeds = []Testbed{
 		},
 	},
 	{
+		// A rope tow up a 10° slope with a green run beside it: two
+		// intermediates (0.45) and two beginners (0.2), who ride it, the
+		// beginners falling off now and then, and a novice (0.05), who
+		// won't. Rested and fed, with day tickets.
+		//
+		// World: 30×50 cells (150 m × 250 m). Tow base (15,40), top
+		// (15,8), 160 m, rising about 28 m. Run from the top round the
+		// west side to the base.
+		Name: "Rope tow, intermediate and beginner skiers",
+		Seed: 1,
+		Build: func() *world.World {
+			waypoints := [][2]int{{15, 7}, {10, 12}, {8, 24}, {9, 36}, {15, 42}}
+			w := scene(30, 50).slope(10).
+				parkingAt(15, 46).
+				liftOfType(world.LiftRopeTow, 15, 40, 15, 8).
+				groomedRun(world.DiffGreen, waypoints, 20).
+				goapSkierAt(12, 44, 0.45, 0.5).
+				goapSkierAt(14, 44, 0.45, 0.5).
+				goapSkierAt(16, 44, 0.2, 0.5).
+				goapSkierAt(18, 44, 0.2, 0.5).
+				goapSkierAt(20, 44, 0.05, 0.5).
+				build()
+			for _, g := range w.OnMountain {
+				g.HasDayTicket = true // no ticket office here
+				g.Energy, g.Hunger, g.Thirst = 1, 1, 1
+			}
+			return w
+		},
+	},
+	{
+		// A T-bar up a 12° slope, 400 m, with a green run beside it: two
+		// intermediates (0.45) and two beginners (0.2), who ride it two
+		// to a bar, the beginners falling off now and then, and a novice
+		// (0.05), who won't. Rested and fed, with day tickets.
+		//
+		// World: 30×100 cells (150 m × 500 m). T-bar base (15,90), top
+		// (15,10), rising about 85 m. Run from the top round the west
+		// side to the base.
+		Name: "T-bar, intermediate and beginner skiers",
+		Seed: 1,
+		Build: func() *world.World {
+			waypoints := [][2]int{{15, 9}, {9, 20}, {7, 50}, {8, 80}, {15, 92}}
+			w := scene(30, 100).slope(12).
+				parkingAt(15, 96).
+				liftOfType(world.LiftTBar, 15, 90, 15, 10).
+				groomedRun(world.DiffGreen, waypoints, 20).
+				goapSkierAt(12, 94, 0.45, 0.5).
+				goapSkierAt(14, 94, 0.45, 0.5).
+				goapSkierAt(16, 94, 0.2, 0.5).
+				goapSkierAt(18, 94, 0.2, 0.5).
+				goapSkierAt(20, 94, 0.05, 0.5).
+				build()
+			for _, g := range w.OnMountain {
+				g.HasDayTicket = true // no ticket office here
+				g.Energy, g.Hunger, g.Thirst = 1, 1, 1
+			}
+			return w
+		},
+	},
+	{
 		// Trail divergence: side walls channel the skier, a center patch
 		// blocks the straight line, and the skier spawns 1 cell east of
 		// the corridor centerline. The patch sits well below the spawn so

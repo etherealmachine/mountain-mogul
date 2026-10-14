@@ -21,6 +21,12 @@ sg_on
 HS6Pack
 Carpet
 carpet
+RopeTow
+Rope Tow
+rope_tow
+TBar
+T-Bar
+tbar_
 6Pack
 6-Pack
 6pack

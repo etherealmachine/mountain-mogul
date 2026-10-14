@@ -385,7 +385,11 @@ func (s *Simulation) tickLifts(dt float64) {
 			prev := chair.Progress
 			if moving {
 				// Detachables' chairs slow in the stations (SpeedAt).
-				chair.Progress += lift.SpeedAt(chair.Progress) / loopLen * float32(dt)
+				metres := lift.SpeedAt(chair.Progress) * float32(dt)
+				chair.Progress += metres / loopLen
+				if lift.Type.Tow() {
+					s.tickTowRiders(lift, chair, metres, dt)
+				}
 			}
 
 			// At the top's unload point: unload passengers.

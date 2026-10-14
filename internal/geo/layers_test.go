@@ -21,7 +21,7 @@ func testBase() *world.TerrainBase {
 
 func TestLayerStackReusesAndRepeats(t *testing.T) {
 	base := testBase()
-	s := NewLayerStack(base)
+	s := NewLayerStack(base, &world.Water{})
 	var ran []string
 	record := func(name string) { ran = append(ran, name) }
 	off := func(ids ...string) []Setting { return Settings(&world.TerrainBase{LayersOff: ids}) }

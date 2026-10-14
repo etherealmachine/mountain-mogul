@@ -24,6 +24,10 @@ type TopBar struct {
 
 	Y, H float32
 
+	// pods are the panels Draw last drew (x, y, w, h): what ContainsXY
+	// tests, so the world shows through between them.
+	pods [][4]float32
+
 	// Stats — pure read-only callbacks. The bar pulls fresh values every
 	// frame so the simulation can mutate the underlying state freely.
 	GetCash   func() int
@@ -222,6 +226,17 @@ func (t *TopBar) ContainsY(y float32) bool {
 	return y >= t.Y && y <= t.Y+t.H
 }
 
+// ContainsXY reports whether screen point (x, y) is on one of the bar's
+// pods, as last drawn; between them is the world.
+func (t *TopBar) ContainsXY(x, y float32) bool {
+	for _, p := range t.pods {
+		if x >= p[0] && x <= p[0]+p[2] && y >= p[1] && y <= p[1]+p[3] {
+			return true
+		}
+	}
+	return false
+}
+
 // Draw renders the bar background and all three regions.
 func (t *TopBar) Draw(r *render.Renderer) {
 	screenW := float32(r.ScreenWidth())
@@ -229,15 +244,21 @@ func (t *TopBar) Draw(r *render.Renderer) {
 
 	// Three floating pods over the world: stats, date and weather,
 	// and the controls.
+	t.pods = t.pods[:0]
+	pod := func(x, w float32) {
+		p := [4]float32{x, t.Y + topPodInset, w, t.H - topPodInset*2}
+		DrawPanel(r, p[0], p[1], p[2], p[3])
+		t.pods = append(t.pods, p)
+	}
 	if t.GetCash != nil || t.GetGuests != nil || t.GetRating != nil {
-		DrawPanel(r, topPodInset, t.Y+topPodInset, t.statsWidth(r), t.H-topPodInset*2)
+		pod(topPodInset, t.statsWidth(r))
 	}
 	if w := t.centerWidth(r); w > 0 {
-		DrawPanel(r, (screenW-w)/2, t.Y+topPodInset, w, t.H-topPodInset*2)
+		pod((screenW-w)/2, w)
 	}
 	if btns := t.iconButtons(); len(btns) > 0 {
 		x := btns[0].x - 6
-		DrawPanel(r, x, t.Y+topPodInset, screenW-topPodInset-x, t.H-topPodInset*2)
+		pod(x, screenW-topPodInset-x)
 	}
 
 	t.drawStats(r)

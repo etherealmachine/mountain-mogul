@@ -161,6 +161,7 @@ func (h *cellHeap) Pop() any {
 type Stream struct {
 	Name      string
 	Kind      string
+	Cover     world.WaterCover // the creek's (world.WaterCreek.Cover)
 	Points    [][2]float32
 	Catchment []float32
 }
@@ -169,9 +170,9 @@ type Stream struct {
 func (s *Stream) Flowing(i int) bool { return s.Catchment[i] >= StreamStartArea }
 
 // TraceStreams moves each OpenStreetMap stream onto the cell grid's
-// channels: every 2.5 m along the line, to the cell with the most
-// catchment within streamSnap cells. h is the ground on the w × ht
-// cells, area its Catchment, b the map's bounds, and lake marks the cells
+// channels: every 2.5 m along the line, to the grid point with the most
+// catchment within streamSnap cells. h is the ground at the w × ht grid
+// points (cell corners, CellSize apart), area its Catchment, b the map's bounds, and lake marks the cells
 // of lakes (nil for none). Water runs downhill, so a line is turned to
 // start at its higher end (by catchment it could look backwards: snapping
 // at a junction picks up the bigger stream's catchment). Water doesn't vanish, so catchment only grows
@@ -189,7 +190,7 @@ func TraceStreams(streams []world.BaseStream, b Bounds, w, ht int, h, area []flo
 		s := Stream{Name: bs.Name, Kind: bs.Kind}
 		last := -1
 		add := func(x, z float64) {
-			ci, cj := int(x/world.CellSize), int(z/world.CellSize)
+			ci, cj := int(math.Round(x/world.CellSize)), int(math.Round(z/world.CellSize))
 			if ci < 0 || cj < 0 || ci >= w || cj >= ht {
 				return
 			}
@@ -209,7 +210,7 @@ func TraceStreams(streams []world.BaseStream, b Bounds, w, ht int, h, area []flo
 				return
 			}
 			last = best
-			s.Points = append(s.Points, [2]float32{(float32(best%w) + 0.5) * world.CellSize, (float32(best/w) + 0.5) * world.CellSize})
+			s.Points = append(s.Points, [2]float32{float32(best%w) * world.CellSize, float32(best/w) * world.CellSize})
 			s.Catchment = append(s.Catchment, bestA)
 		}
 		for k := 1; k < len(bs.Path); k++ {
@@ -225,7 +226,7 @@ func TraceStreams(streams []world.BaseStream, b Bounds, w, ht int, h, area []flo
 			continue
 		}
 		elev := func(p [2]float32) float32 {
-			return h[int(p[1]/world.CellSize)*w+int(p[0]/world.CellSize)]
+			return h[int(math.Round(float64(p[1]/world.CellSize)))*w+int(math.Round(float64(p[0]/world.CellSize)))]
 		}
 		if elev(s.Points[0]) < elev(s.Points[len(s.Points)-1]) {
 			for i, j := 0, len(s.Points)-1; i < j; i, j = i+1, j-1 {
@@ -233,16 +234,85 @@ func TraceStreams(streams []world.BaseStream, b Bounds, w, ht int, h, area []flo
 				s.Catchment[i], s.Catchment[j] = s.Catchment[j], s.Catchment[i]
 			}
 		}
-		p0 := s.Points[0]
-		ci, cj := int(p0[0]/world.CellSize), int(p0[1]/world.CellSize)
-		if ci <= streamSnap || cj <= streamSnap || ci >= w-1-streamSnap || cj >= ht-1-streamSnap || nearLake(lake, w, ht, ci, cj) {
-			s.Catchment[0] = max(s.Catchment[0], StreamStartArea)
-		}
-		for i := 1; i < len(s.Catchment); i++ {
-			s.Catchment[i] = max(s.Catchment[i], s.Catchment[i-1])
-		}
+		finishStream(&s, w, ht, lake)
 		s.Points = smoothPath(s.Points)
 		out = append(out, s)
 	}
 	return out
+}
+
+// finishStream gives s, running from its source down, water from its
+// start when it enters across the map's edge or leaves a lake (what
+// drains into it lies off the map or behind the lake), and catchment
+// that only grows downstream: water doesn't vanish.
+func finishStream(s *Stream, w, ht int, lake []bool) {
+	p0 := s.Points[0]
+	ci, cj := int(math.Round(float64(p0[0]/world.CellSize))), int(math.Round(float64(p0[1]/world.CellSize)))
+	if ci <= streamSnap || cj <= streamSnap || ci >= w-1-streamSnap || cj >= ht-1-streamSnap || nearLake(lake, w, ht, ci, cj) {
+		s.Catchment[0] = max(s.Catchment[0], StreamStartArea)
+	}
+	for i := 1; i < len(s.Catchment); i++ {
+		s.Catchment[i] = max(s.Catchment[i], s.Catchment[i-1])
+	}
+}
+
+// The cell grid only finds a channel to within a few metres, and a
+// creek's channel is a metre or two wide. RefineStreams moves each point
+// of each stream across the stream, up to channelReach metres either
+// side, to the bottom of the channel on the fine ground: the lowest
+// point once the cross-section's tilt from side to side is taken out
+// (on a side slope the lowest point is just downhill), less
+// channelStay metres per metre moved so a point keeps to its own
+// channel over a parallel one. The line is smoothed between passes.
+const (
+	channelReach = 6.0
+	channelStay  = 0.03
+	channelStep  = 0.25
+)
+
+// RefineStreams moves streams' points onto their channels in the w × ht
+// ground h, spacing metres apart, in place.
+func RefineStreams(streams []Stream, h []float32, w, ht int, spacing float64) {
+	at := func(x, z float32) float32 {
+		gx, gz := float64(x)/spacing, float64(z)/spacing
+		i0 := min(max(int(gx), 0), w-2)
+		j0 := min(max(int(gz), 0), ht-2)
+		fx, fz := float32(gx-float64(i0)), float32(gz-float64(j0))
+		a := h[j0*w+i0]*(1-fx) + h[j0*w+i0+1]*fx
+		b := h[(j0+1)*w+i0]*(1-fx) + h[(j0+1)*w+i0+1]*fx
+		return a*(1-fz) + b*fz
+	}
+	for si := range streams {
+		ps := streams[si].Points
+		for pass := 0; pass < 2; pass++ {
+			moved := make([][2]float32, len(ps))
+			copy(moved, ps)
+			for i := range ps {
+				a, b := ps[max(i-2, 0)], ps[min(i+2, len(ps)-1)]
+				dx, dz := b[0]-a[0], b[1]-a[1]
+				l := float32(math.Hypot(float64(dx), float64(dz)))
+				if l == 0 {
+					continue
+				}
+				px, pz := -dz/l, dx/l
+				p := ps[i]
+				lo := at(p[0]-px*channelReach, p[1]-pz*channelReach)
+				hi := at(p[0]+px*channelReach, p[1]+pz*channelReach)
+				best, bo := float32(math.Inf(1)), float32(0)
+				for o := float32(-channelReach); o <= channelReach; o += channelStep {
+					tilt := lo + (hi-lo)*(o+channelReach)/(2*channelReach)
+					v := at(p[0]+px*o, p[1]+pz*o) - tilt + channelStay*float32(math.Abs(float64(o)))
+					if v < best {
+						best, bo = v, o
+					}
+				}
+				moved[i] = [2]float32{p[0] + px*bo, p[1] + pz*bo}
+			}
+			ps = moved
+			if pass == 0 {
+				ps = smoothPath(ps)
+			}
+		}
+		streams[si].Points = ps
+	}
 }

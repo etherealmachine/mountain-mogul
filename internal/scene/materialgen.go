@@ -92,11 +92,16 @@ func setUpLakes(w *world.World, h []float32) {
 	t, m := w.Terrain, w.Terrain.Material
 	w.Lakes, t.LakeOf, t.LakeDepth = nil, nil, nil
 	base := w.TerrainBase
-	if base == nil || !base.LayerOn("lakes") || len(base.Lakes) == 0 {
+	if base == nil || !base.LayerOn("lakes") {
 		return
 	}
-	mask := geo.LakeMask(m.W, m.H, geo.BoundsOf(base.Geo), base.Lakes)
-	index := map[int32]uint8{} // base lake → 1 + index in w.Lakes
+	water := fittedWater(w)
+	if water == nil || len(water.Lakes) == 0 {
+		return
+	}
+	// The outlines the Lakes layer levelled.
+	mask := geo.ShapeMask(m.W, m.H, world.CellSize/world.DetailPerCell, water.Lakes)
+	index := map[int32]uint8{} // lake shape → 1 + index in w.Lakes
 	sum := map[int32]float64{}
 	n := map[int32]int{}
 	for k, li := range mask {
@@ -105,18 +110,33 @@ func setUpLakes(w *world.World, h []float32) {
 			n[li]++
 		}
 	}
-	for li := int32(1); li <= int32(len(base.Lakes)); li++ {
+	for li := int32(1); li <= int32(len(water.Lakes)); li++ {
 		if n[li] == 0 || len(w.Lakes) == 255 {
 			continue
 		}
-		bl := base.Lakes[li-1]
+		ls := water.Lakes[li-1]
 		w.Lakes = append(w.Lakes, world.Lake{
-			Name:     bl.Name,
+			Name:     ls.Name,
 			Altitude: w.BaseAltitude + float32(sum[li]/float64(n[li])),
-			AreaHa:   float32(geo.LakeAreaHa(bl)),
+			AreaHa:   ls.AreaHa,
+			Cover:    ls.Cover,
 		})
 		index[li] = uint8(len(w.Lakes))
 	}
+	for k, li := range mask {
+		if _, ok := index[li]; ok {
+			m.M[k] = world.MatIce
+		}
+	}
+	lakeGrid(w, mask, index)
+}
+
+// lakeGrid records the lakes' grid points in Terrain.LakeOf, from mask
+// (geo.LakeMask on the material lattice) and index (base lake → 1 + its
+// index in World.Lakes), and their estimated depths in Terrain.LakeDepth
+// and each lake's MaxDepth.
+func lakeGrid(w *world.World, mask []int32, index map[int32]uint8) {
+	t, m := w.Terrain, w.Terrain.Material
 	W, H := t.Width, t.Height
 	t.LakeOf = make([]uint8, W*H)
 	for k, li := range mask {
@@ -124,9 +144,14 @@ func setUpLakes(w *world.World, h []float32) {
 		if !ok {
 			continue
 		}
-		m.M[k] = world.MatIce
-		x, z := min(k%m.W/world.DetailPerCell, W-1), min(k/m.W/world.DetailPerCell, H-1)
-		t.LakeOf[x*H+z] = id
+		// A grid point is the lake's where the sample on it is: the
+		// levelled ground's points, so the snow on them is the snow on
+		// the water.
+		i, j := k%m.W, k/m.W
+		if i%world.DetailPerCell == 0 && j%world.DetailPerCell == 0 {
+			x, z := min(i/world.DetailPerCell, W-1), min(j/world.DetailPerCell, H-1)
+			t.LakeOf[x*H+z] = id
+		}
 	}
 
 	// Distance from shore, in cells, by a two-pass chamfer from the land
@@ -189,6 +214,9 @@ func setUpLakes(w *world.World, h []float32) {
 		}
 	}
 	t.LakeDepth = make([]float32, W*H)
+	for i := range w.Lakes {
+		w.Lakes[i].MaxDepth = 0
+	}
 	for k, id := range t.LakeOf {
 		if id == 0 {
 			continue
@@ -238,8 +266,13 @@ func markCreeks(w *world.World, c *layerCache) {
 			open := smoothstep32(creekOpenFrom, creekOpenTo, s.Catchment[i])
 			gap := valueNoise2D(along/creekBridgeM, float32(si)*7.3, seed+47)
 			surface := world.MatIce
-			if gap < open*0.9+0.05 {
+			switch s.Cover {
+			case world.WaterOpen:
 				surface = world.MatOpenWater
+			case world.WaterAuto:
+				if gap < open*0.9+0.05 {
+					surface = world.MatOpenWater
+				}
 			}
 			half, _ := geo.CreekShape(s.Catchment[i])
 			half *= 0.8 // the water, inside the banks

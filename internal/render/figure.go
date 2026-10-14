@@ -248,10 +248,49 @@ func (a *figureAnim) walk(t *world.Terrain, pos mgl32.Vec3, speed, dt float32, c
 	return walkPose(a.stride, speed, pitch, roll, carry)
 }
 
-// onBelt reports whether lift id is a surface lift, whose riders stand.
-func onBelt(w *world.World, id uint64) bool {
+// surfaceLift is lift id's type if it's a surface lift, whose riders
+// stand on their skis, and false if not.
+func surfaceLift(w *world.World, id uint64) (world.LiftType, bool) {
 	l := w.LiftByID(id)
-	return l != nil && l.Type.Surface()
+	if l == nil || !l.Type.Surface() {
+		return 0, false
+	}
+	return l.Type, true
+}
+
+// tbarPose is a rider pulled up by a T-bar: on their skis, the bar
+// behind their thighs, sitting back a little against it, one hand on the
+// bar's shank between the two riders and the other with both poles.
+// Their side of the shank isn't known here, so both arms come in toward
+// the middle.
+func tbarPose(p figPose) figPose {
+	p.pelvis[0] -= 0.06
+	for s := range 2 {
+		p.armPitch[s] = 0.55
+		p.armOut[s] = -0.2
+		p.elbow[s] = 0.6
+	}
+	return p
+}
+
+// onSurface reports whether lift id is a surface lift.
+func onSurface(w *world.World, id uint64) bool {
+	_, ok := surfaceLift(w, id)
+	return ok
+}
+
+// towPose is a rider holding a rope tow's rope, which runs at hip height
+// on their left (the figure's -Z: riders ride on ChairPos's +perp, the
+// rope inside them): standing on their skis, the chest turned toward it,
+// the left hand out on the rope and the right reaching across to it.
+// Poles hidden (tucked under an arm).
+func towPose(p figPose) figPose {
+	p.chestRot = p.chestRot.Mul(qy(0.45))
+	p.headRot = p.headRot.Mul(qy(-0.3)) // still looking up the track
+	p.armPitch[0], p.armOut[0], p.elbow[0] = 0.45, 0.3, 0.35
+	p.armPitch[1], p.armOut[1], p.elbow[1] = 0.85, -0.45, 0.5
+	p.hide |= 1<<bonePoleL | 1<<bonePoleR
+	return p
 }
 
 // guestPose poses a guest from their sim state.
@@ -267,9 +306,17 @@ func (f *figures) guestPose(w *world.World, g *world.Guest, a *figureAnim, dt fl
 		if id == 0 {
 			id = g.Unload.LiftID
 		}
-		if onBelt(w, id) {
-			// Standing on the belt, and gliding off it.
-			return a.skiPose(t, g.Pos, 0, g.Traits.Skill, 0, dt)
+		if typ, ok := surfaceLift(w, id); ok {
+			// Standing on the belt or holding the rope, and gliding off.
+			p := a.skiPose(t, g.Pos, 0, g.Traits.Skill, 0, dt)
+			switch {
+			case g.OnLiftID == 0:
+			case typ.Rope():
+				p = towPose(p)
+			case typ.Hangers():
+				p = tbarPose(p)
+			}
+			return p
 		}
 		if g.OnLiftID != 0 {
 			return chairPose()
@@ -463,8 +510,9 @@ func (f *figures) build(r *Renderer, w *world.World) {
 		pose.solve(&bones)
 		y := pos[1]
 		switch {
-		case g.OnLiftID != 0 && onBelt(w, g.OnLiftID):
-			y = VisualElevationAt(t, pos[0], pos[2]) + world.BeltHeight
+		case g.OnLiftID != 0 && onSurface(w, g.OnLiftID):
+			// On the belt (BeltHeight up) or the snow (a tow).
+			y = VisualElevationAt(t, pos[0], pos[2]) + w.LiftByID(g.OnLiftID).RideHeight()
 		case g.OnLiftID != 0:
 		case g.OnPatrollerID != 0:
 			y = VisualElevationAt(t, pos[0], pos[2]) + 0.1

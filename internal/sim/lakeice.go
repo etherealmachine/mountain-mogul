@@ -30,6 +30,12 @@ type LakeSeason struct {
 // FrozeOn is the day the spot depth metres deep in lake i last froze,
 // and false when it's open on the last day.
 func (s *LakeSeason) FrozeOn(w *world.World, i int, depth float32) (time.Time, bool) {
+	switch w.Lakes[i].Cover {
+	case world.WaterOpen:
+		return time.Time{}, false
+	case world.WaterCovered:
+		return s.Start, true // snowed over all season
+	}
 	need := world.FreezeFrostPerM * depth
 	f := s.Frost[i]
 	if len(f) == 0 || f[len(f)-1] < need {
@@ -108,9 +114,7 @@ func ApplyLakes(w *world.World) {
 			continue
 		}
 		i, j := k%m.W, k/m.W
-		x := min(i/world.DetailPerCell, t.Width-1)
-		z := min(j/world.DetailPerCell, t.Height-1)
-		id := t.LakeOf[x*t.Height+z]
+		id := t.LakeNear(i, j)
 		if id == 0 {
 			continue
 		}
@@ -129,7 +133,7 @@ func ApplyLakes(w *world.World) {
 			if id == 0 {
 				continue
 			}
-			cx, cz := (float32(x)+0.5)*world.CellSize, (float32(z)+0.5)*world.CellSize
+			cx, cz := float32(x)*world.CellSize, float32(z)*world.CellSize
 			if w.Lakes[id-1].IceAt(spotDepth(t, cx, cz)) > 0 {
 				continue
 			}

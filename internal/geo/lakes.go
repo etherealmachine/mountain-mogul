@@ -77,9 +77,29 @@ func LakeAreaHa(l world.BaseLake) float64 {
 	return best / 10000
 }
 
-// FlattenLakes levels the w × ht heights h inside each lake to its
-// water surface, in place.
-func FlattenLakes(h []float32, w, ht int, b Bounds, lakes []world.BaseLake) {
+// An OpenStreetMap outline is drawn by hand over imagery: a few metres
+// off, with straight cuts across the bends. WaterMask fits it to the
+// ground, where lidar over water is flat at the surface: it trims the
+// outline's edge where it takes in ground more than lakeShoreAbove over
+// the level (up to lakeTrimM in), then grows it over connected ground
+// within the water's surface (lakeFlatBelow under the level to
+// lakeFlatAbove over) up to lakeGrowM out. Ground well under the level,
+// past a rim where an outlet falls away, stays dry.
+const (
+	lakeShoreAbove = 0.5
+	lakeFlatAbove  = 0.3
+	lakeFlatBelow  = 0.4
+	lakeTrimM      = 6.0
+	lakeGrowM      = 15.0
+)
+
+// WaterMask is LakeMask fitted to the ground (see lakeShoreAbove): the
+// samples of the w × ht heights h, spacing metres apart, that are each
+// lake's water, and each lake's level, a low percentile of the heights
+// inside its outline (lakeLevelPercentile). The Lakes layer levels these
+// samples, and the lake setup reads them off the levelled ground, so the
+// two agree.
+func WaterMask(h []float32, w, ht int, spacing float64, b Bounds, lakes []world.BaseLake) ([]int32, []float32) {
 	mask := LakeMask(w, ht, b, lakes)
 	inside := make([][]float32, len(lakes))
 	for k, li := range mask {
@@ -95,9 +115,68 @@ func FlattenLakes(h []float32, w, ht int, b Bounds, lakes []world.BaseLake) {
 		slices.Sort(hs)
 		level[li] = hs[int(float64(len(hs)-1)*lakeLevelPercentile)]
 	}
-	for k, li := range mask {
-		if li > 0 {
-			h[k] = level[li-1]
+	neighbours := func(k int, f func(n int)) {
+		i, j := k%w, k/w
+		if i > 0 {
+			f(k - 1)
+		}
+		if i < w-1 {
+			f(k + 1)
+		}
+		if j > 0 {
+			f(k - w)
+		}
+		if j < ht-1 {
+			f(k + w)
 		}
 	}
+	// Trim the shore off the outline's edge, a sample deeper each pass.
+	var cut []int
+	for pass := 0; pass < max(int(lakeTrimM/spacing+0.5), 1); pass++ {
+		cut = cut[:0]
+		for k, li := range mask {
+			if li == 0 || h[k] <= level[li-1]+lakeShoreAbove {
+				continue
+			}
+			edge := false
+			neighbours(k, func(n int) { edge = edge || mask[n] != li })
+			if edge {
+				cut = append(cut, k)
+			}
+		}
+		if len(cut) == 0 {
+			break
+		}
+		for _, k := range cut {
+			mask[k] = 0
+		}
+	}
+	// Grow over the flat water the outline missed, breadth first.
+	steps := max(int(lakeGrowM/spacing+0.5), 1)
+	dist := make([]int32, len(mask))
+	var queue []int
+	for k, li := range mask {
+		if li > 0 {
+			queue = append(queue, k)
+		}
+	}
+	for len(queue) > 0 {
+		k := queue[0]
+		queue = queue[1:]
+		li := mask[k]
+		if int(dist[k]) >= steps {
+			continue
+		}
+		neighbours(k, func(n int) {
+			if mask[n] != 0 {
+				return
+			}
+			if d := h[n] - level[li-1]; d < -lakeFlatBelow || d > lakeFlatAbove {
+				return
+			}
+			mask[n], dist[n] = li, dist[k]+1
+			queue = append(queue, n)
+		})
+	}
+	return mask, level
 }

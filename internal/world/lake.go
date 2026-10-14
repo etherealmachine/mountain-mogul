@@ -20,7 +20,15 @@ type Lake struct {
 	MaxDepth float32 // metres, its deepest cell
 	Frost    float32 // °C·days
 	Thaw     float32 // °C·days
+	// Cover is the editor's setting (WaterLake.Cover): Auto runs the ice
+	// as above; an Open lake never freezes, a Covered one is frozen (at
+	// least CoveredIce thick) all winter.
+	Cover WaterCover
 }
+
+// CoveredIce is the least ice on a lake set to stay Covered, metres:
+// enough to hold snow everywhere.
+const CoveredIce = 0.3
 
 const (
 	// FreezeFrostPerM is the frost, °C·days, a metre of water depth needs
@@ -38,12 +46,12 @@ const (
 )
 
 // LakeDepthAt is the water depth, metres, at world (wx, wz), bilinear
-// between cell centres; 0 off the lakes.
+// between grid points; 0 off the lakes.
 func (t *Terrain) LakeDepthAt(wx, wz float32) float32 {
 	if t.LakeDepth == nil {
 		return 0
 	}
-	gx, gz := wx/CellSize-0.5, wz/CellSize-0.5
+	gx, gz := wx/CellSize, wz/CellSize
 	x0, z0 := int(math.Floor(float64(gx))), int(math.Floor(float64(gz)))
 	fx, fz := gx-float32(x0), gz-float32(z0)
 	at := func(x, z int) float32 {
@@ -55,8 +63,43 @@ func (t *Terrain) LakeDepthAt(wx, wz float32) float32 {
 	return a*(1-fz) + b*fz
 }
 
+// LakeNear is the lake (1 + its index in World.Lakes) of material sample
+// (i, j) on a lake's water: its nearest grid point's, else any of the
+// grid points round it (a sample on the rim, where the nearest point is
+// shore); 0 for none.
+func (t *Terrain) LakeNear(i, j int) uint8 {
+	if t.LakeOf == nil {
+		return 0
+	}
+	at := func(x, z int) uint8 {
+		x, z = min(max(x, 0), t.Width-1), min(max(z, 0), t.Height-1)
+		return t.LakeOf[x*t.Height+z]
+	}
+	if id := at((i+DetailPerCell/2)/DetailPerCell, (j+DetailPerCell/2)/DetailPerCell); id != 0 {
+		return id
+	}
+	x, z := i/DetailPerCell, j/DetailPerCell
+	for _, d := range [4][2]int{{0, 0}, {1, 0}, {0, 1}, {1, 1}} {
+		if id := at(x+d[0], z+d[1]); id != 0 {
+			return id
+		}
+	}
+	return 0
+}
+
 // IceAt is the ice thickness, metres, where the lake is depth metres deep.
 func (l *Lake) IceAt(depth float32) float32 {
+	switch l.Cover {
+	case WaterOpen:
+		return 0
+	case WaterCovered:
+		return max(l.autoIceAt(depth), CoveredIce)
+	}
+	return l.autoIceAt(depth)
+}
+
+// autoIceAt is IceAt as the season makes it.
+func (l *Lake) autoIceAt(depth float32) float32 {
 	grown := l.Frost - FreezeFrostPerM*depth
 	if grown <= 0 {
 		return 0

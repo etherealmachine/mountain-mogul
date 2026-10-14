@@ -64,7 +64,8 @@ func BuildWorld(res *ImportResult, off []string, strengths map[string]float32, p
 			t.Cells[x][z].Top = world.SnowLayer{}
 		}
 	}
-	stack := NewLayerStack(base)
+	water := &world.Water{}
+	stack := NewLayerStack(base, water)
 	if err := ApplyHeights(t, base, stack.Run(Settings(base), progress)); err != nil {
 		return nil, nil, err
 	}
@@ -75,5 +76,6 @@ func BuildWorld(res *ImportResult, off []string, strengths map[string]float32, p
 	w.TimeZone = res.TimeZone
 	w.Climate = res.Climate
 	w.TerrainBase = base
+	w.Water = water
 	return w, stack, nil
 }

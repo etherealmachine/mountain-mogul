@@ -15,7 +15,7 @@ import (
 // catchment square metres drain through it.
 func CreekShape(catchment float32) (half, depth float32) {
 	k := float32(math.Sqrt(float64(catchment) / 1e6))
-	return 0.75 + 1.0*k, 0.4 + 0.4*k
+	return 0.75 + 1.0*k, 0.6 + 0.5*k
 }
 
 // CreekStreams traces base's streams on the w × ht lattice h (spacing
@@ -23,14 +23,7 @@ func CreekShape(catchment float32) (half, depth float32) {
 // sample when the lattice is the detail), streams moved onto its
 // channels, lakes counted as sources.
 func CreekStreams(h []float32, w, ht int, spacing float64, base *world.TerrainBase) []Stream {
-	step := max(int(math.Round(world.CellSize/spacing)), 1)
-	cw, ch := (w-1)/step+1, (ht-1)/step+1
-	coarse := make([]float32, cw*ch)
-	for j := 0; j < ch; j++ {
-		for i := 0; i < cw; i++ {
-			coarse[j*cw+i] = h[j*step*w+i*step]
-		}
-	}
+	coarse, cw, ch := coarseGround(h, w, ht, spacing)
 	area := Catchment(coarse, cw, ch, world.CellSize)
 	var lake []bool
 	if len(base.Lakes) > 0 {
@@ -39,7 +32,9 @@ func CreekStreams(h []float32, w, ht int, spacing float64, base *world.TerrainBa
 			lake[k] = li > 0
 		}
 	}
-	return TraceStreams(base.Streams, boundsOf(base.Geo), cw, ch, coarse, area, lake)
+	streams := TraceStreams(base.Streams, boundsOf(base.Geo), cw, ch, coarse, area, lake)
+	RefineStreams(streams, h, w, ht, spacing)
+	return streams
 }
 
 // CarveCreeks cuts each stream's flowing stretches into the w × ht

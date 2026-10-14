@@ -32,6 +32,8 @@ const (
 	LiftHeli                        // helicopter heli-ski "lift" (no cable)
 	LiftFixedTriple                 // 3-seat fixed grip
 	LiftMagicCarpet                 // conveyor belt for beginners, riders standing on it (a surface lift)
+	LiftRopeTow                     // a moving rope riders hold, sliding up on their skis (a surface lift)
+	LiftTBar                        // T-shaped bars off an overhead cable pulling two riders up on their skis (a surface lift)
 )
 
 const (
@@ -54,10 +56,10 @@ func (t LiftType) Capacity() int {
 		return 8
 	case LiftHeli:
 		return HeliCapacity
-	case LiftMagicCarpet:
+	case LiftMagicCarpet, LiftRopeTow:
 		return 1
 	}
-	return 2
+	return 2 // a T-bar too
 }
 
 // MeshID returns the chair-mesh ID the renderer should draw for this
@@ -75,8 +77,10 @@ func (t LiftType) MeshID() uint32 {
 		return MeshGondolaCabin
 	case LiftHeli:
 		return MeshHelicopter
-	case LiftMagicCarpet:
+	case LiftMagicCarpet, LiftRopeTow:
 		return MeshBeltPlace
+	case LiftTBar:
+		return MeshTBarHanger
 	}
 	return MeshChair
 }
@@ -94,8 +98,10 @@ func (t LiftType) DefaultSpeed() float32 {
 		return HeliAirspeedMs
 	case LiftMagicCarpet:
 		return 1.0
+	case LiftTBar:
+		return 3.0
 	}
-	return 2.5
+	return 2.5 // a rope tow too
 }
 
 // Label returns a short human-readable name for HUD / popup display.
@@ -118,6 +124,10 @@ func (t LiftType) Label() string {
 			return "Helicopter"
 		case LiftMagicCarpet:
 			return "Magic Carpet"
+		case LiftRopeTow:
+			return "Rope Tow"
+		case LiftTBar:
+			return "T-Bar"
 		}
 	}
 	return "Double"
@@ -262,7 +272,7 @@ func (l *Lift) TowerXZs() []mgl32.Vec2 {
 	// The first tower is where the cable reaches tower height, past the
 	// terminal's flat run.
 	stationOffset := float32(StationOffset) + l.Station().Flat
-	if length <= 2*stationOffset || l.Type.Surface() {
+	if length <= 2*stationOffset || !l.Type.HasTowers() {
 		return nil
 	}
 	innerLen := length - 2*stationOffset
@@ -395,23 +405,74 @@ func (t LiftType) Cableless() bool {
 }
 
 // Surface reports whether riders of this type keep their skis on the
-// snow: they stand on a belt (the magic carpet) instead of sitting on a
-// chair under a cable. A surface lift's places ride at ground height
-// (BeltHeight), it has no towers or cable, and riders step straight off
-// at the top. Always false in the demo, which has none.
+// snow instead of sitting on a chair under a cable: standing on a belt
+// (the magic carpet, Belt) or pulled up on a rope (the rope tow, Tow). A
+// surface lift's places ride at ground height, it has no towers or
+// overhead cable, and riders go straight off at the top. Always false in
+// the demo, which has none.
 func (t LiftType) Surface() bool {
-	return !edition.Demo && t == LiftMagicCarpet
+	return !edition.Demo && (t == LiftMagicCarpet || t == LiftRopeTow || t == LiftTBar)
+}
+
+// Belt reports whether riders of this type stand on a moving belt (the
+// magic carpet), BeltHeight over the snow.
+func (t LiftType) Belt() bool { return !edition.Demo && t == LiftMagicCarpet }
+
+// Tow reports whether riders of this type are pulled up on their skis
+// (the rope tow, the T-bar). Novices won't ride one, and riders can fall
+// off.
+func (t LiftType) Tow() bool { return t.Rope() || t.Hangers() }
+
+// Rope reports whether riders of this type hold a rope at their side (the
+// rope tow), on low posts (RopePostXZs).
+func (t LiftType) Rope() bool { return !edition.Demo && t == LiftRopeTow }
+
+// Hangers reports whether riders of this type are pulled by bars hanging
+// off an overhead cable on towers (the T-bar), two to a bar. Each place
+// on the loop is a hanger: the cable runs TBarCableHeight over the snow
+// all the way, so riders' feet, the hanger's seat slots, are on it.
+func (t LiftType) Hangers() bool { return !edition.Demo && t == LiftTBar }
+
+// HasTowers reports whether a lift of this type has towers along its
+// line (TowerXZs): a chairlift or a T-bar.
+func (t LiftType) HasTowers() bool { return !t.Surface() || t.Hangers() }
+
+// TBarCableHeight is a T-bar's cable over the snow, the same all the way
+// (its hangers reach from it to the riders' hips).
+const TBarCableHeight = 4.5
+
+// RideHeight is how far over the snow a surface lift's riders stand: on
+// the belt, else on the snow.
+func (l *Lift) RideHeight() float32 {
+	if l.Type.Belt() {
+		return BeltHeight
+	}
+	return 0
 }
 
 // BeltHeight is how far a magic carpet's belt sits above the ground,
 // where its riders stand.
 const BeltHeight = 0.12
 
+// A rope tow's rope runs RopeHeight over the snow, RopeGap off the line
+// on each side (the up run inside its riders, who ride CableGap off),
+// held up by posts every RopePostSpacing.
+const (
+	RopeHeight      = 0.95
+	RopeGap         = CableGap - 0.45
+	RopePostSpacing = 25.0
+)
+
 // PlaceSpacing is the metres between places on the loop: a chair every
-// ChairSpacingM, a rider every few metres on a belt.
+// ChairSpacingM, a rider every few metres on a belt or a rope.
 func (t LiftType) PlaceSpacing() float32 {
-	if t.Surface() {
+	switch {
+	case t.Belt():
 		return 2.5
+	case t.Rope():
+		return 8
+	case t.Hangers():
+		return 15
 	}
 	return ChairSpacingM
 }
@@ -419,8 +480,13 @@ func (t LiftType) PlaceSpacing() float32 {
 // MaxLength is the longest lift of this type, metres between its ends;
 // 0 for no limit.
 func (t LiftType) MaxLength() float32 {
-	if t.Surface() {
+	switch {
+	case t.Belt():
 		return 120
+	case t.Rope():
+		return 300
+	case t.Hangers():
+		return 1500
 	}
 	return 0
 }
@@ -428,19 +494,44 @@ func (t LiftType) MaxLength() float32 {
 // MaxGrade is the steepest ground a lift of this type climbs, degrees,
 // over any MaxGradeSpan metres of its line; 0 for no limit.
 func (t LiftType) MaxGrade() float32 {
-	if t.Surface() {
+	switch {
+	case t.Belt():
 		return 12
+	case t.Rope():
+		return 25
+	case t.Hangers():
+		return 30
 	}
 	return 0
+}
+
+// RopePostXZs is where a rope tow's posts stand, on the line between its
+// ends, about RopePostSpacing apart; nil for any other lift or a tow too
+// short to need one.
+func (l *Lift) RopePostXZs() []mgl32.Vec2 {
+	if !l.Type.Rope() {
+		return nil
+	}
+	length := l.cableLen()
+	n := int(length / RopePostSpacing)
+	if n < 2 {
+		return nil
+	}
+	dir := l.Top.Sub(l.Base).Mul(1 / length)
+	out := make([]mgl32.Vec2, 0, n-1)
+	for i := 1; i < n; i++ {
+		out = append(out, l.Base.Add(dir.Mul(length*float32(i)/float32(n))))
+	}
+	return out
 }
 
 // MaxGradeSpan is the stretch of line MaxGrade is measured over.
 const MaxGradeSpan = 10.0
 
 // Operators is how many operators run a lift of this type: one at each
-// station, or one at the base of a magic carpet.
+// station, or one at the base of a magic carpet or rope tow.
 func (t LiftType) Operators() int {
-	if t.Surface() {
+	if t.Belt() || t.Rope() {
 		return 1
 	}
 	return LiftOperators
@@ -494,6 +585,10 @@ func (t LiftType) StationCost() int {
 		return 4_000_000
 	case LiftMagicCarpet:
 		return 90_000
+	case LiftRopeTow:
+		return 40_000
+	case LiftTBar:
+		return 250_000
 	}
 	return 0
 }
@@ -517,6 +612,10 @@ func (t LiftType) PerMeterCost() int {
 		return 2_400
 	case LiftMagicCarpet:
 		return 600 // the belt itself
+	case LiftRopeTow:
+		return 120
+	case LiftTBar:
+		return 140 // towers and cable
 	}
 	return 0
 }
@@ -542,6 +641,10 @@ func (t LiftType) RunningCostDay() int {
 		return 9_000 // pilot + fuel
 	case LiftMagicCarpet:
 		return 200
+	case LiftRopeTow:
+		return 150
+	case LiftTBar:
+		return 700
 	}
 	return 0
 }
@@ -668,11 +771,16 @@ func (l *Lift) StaffPosts() []LiftStaffPost {
 			return nil
 		}
 		// At the window on the line side of the hut, half a metre out;
-		// with no hut (a magic carpet), at the control post behind the
-		// end plate (carpet_kit.py), on its side away from the belt.
+		// with no hut (a surface lift), at the station's operator spot.
 		p := at.Add(back.Mul((hut.front + hut.rear) / 2)).Add(side.Mul(hut.in - 0.6))
 		if hut == (stationRect{}) {
-			p = at.Add(back.Mul(0.6)).Add(side.Mul(-0.15))
+			// The frame turns end for end at the top, so the riders'
+			// side is the other way across it.
+			op := l.Station().operator
+			if top {
+				op[1] = -op[1]
+			}
+			p = at.Add(back.Mul(op[0])).Add(side.Mul(op[1]))
 		}
 		role, look := StaffBottomOperator, l.LoadXZ()
 		if top {

@@ -331,6 +331,10 @@ type World struct {
 	// TerrainBase is the imported ground before terrain layers, for the
 	// editor; nil for drawn maps, older imports, and player games.
 	TerrainBase *TerrainBase
+	// Water is the creeks and lakes the Creeks and Lakes terrain layers
+	// build: the Water layer's fit of TerrainBase's OpenStreetMap water,
+	// as the scenario editor has changed it. Nil without a TerrainBase.
+	Water *Water
 
 	// FocusedGuestID is the ID of the guest currently being followed by the
 	// camera (0 = none). Written by the scene layer; exposed to the query

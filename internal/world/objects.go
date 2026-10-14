@@ -36,7 +36,8 @@ const (
 	MeshTicketOffice uint32 = 24       // ticket booth with service windows
 	MeshChairTriple  uint32 = 25       // 3-seat fixed grip chair
 	MeshSkiRack      uint32 = 26       // A-frame ski rack
-	MeshBeltPlace    uint32 = 30       // a rider's place on a magic carpet's belt: nothing drawn, no seat slots
+	MeshBeltPlace    uint32 = 30       // a rider's place on a magic carpet's belt or a rope tow's rope: nothing drawn, no seat slots
+	MeshTBarHanger   uint32 = 35       // a T-bar's hanger, let down to two riders (tbar_hanger.py; its slots are their feet)
 )
 
 // MeshSlot is an anchor point baked into a mesh by the model pipeline

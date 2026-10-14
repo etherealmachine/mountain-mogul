@@ -18,6 +18,8 @@ type bigLifts struct {
 	gondolaBatch          *Batch
 	helicopterBodyBatch   *Batch      // rigid fuselage, tail, skids
 	helicopterPartBatches []partBatch // spinning rotor parts (loaded from # part metadata)
+	tbarBatch             *Batch      // T-bar hangers let down to riders
+	tbarUpBatch           *Batch      // and empty ones, reeled in
 }
 
 // loadBigLifts loads the 6-pack chair, gondola cabin, helipad and
@@ -32,6 +34,13 @@ func loadBigLifts(r *Renderer, modelDir string) {
 	gondolaCabinMesh, gondolaCabinTexID := LoadOBJ(gondolaCabinPath)
 	r.gondolaBatch = NewDynamicBatch(gondolaCabinMesh, gondolaCabinTexID)
 	world.RegisterMeshSlots(world.MeshGondolaCabin, LoadOBJSlots(gondolaCabinPath))
+
+	tbarPath := modelDir + "tbar_hanger.obj"
+	tbarMesh, tbarTexID := LoadOBJ(tbarPath)
+	r.tbarBatch = NewDynamicBatch(tbarMesh, tbarTexID)
+	world.RegisterMeshSlots(world.MeshTBarHanger, LoadOBJSlots(tbarPath))
+	tbarUpMesh, tbarUpTexID := LoadOBJ(modelDir + "tbar_hanger_up.obj")
+	r.tbarUpBatch = NewDynamicBatch(tbarUpMesh, tbarUpTexID)
 
 	// Helipad — static-batch mesh placed at Base and Top of each HeliLift.
 	helipadMesh, helipadTexID := LoadOBJ(modelDir + "helipad.obj")
@@ -122,7 +131,13 @@ func drawHelicopters(r *Renderer, w *world.World) {
 }
 
 // drawBigLiftChairs draws the 6-pack chairs and gondola cabins.
-func drawBigLiftChairs(r *Renderer, sixPacks, gondolas []DynamicInstance) {
+func drawBigLiftChairs(r *Renderer, sixPacks, gondolas, tbars, tbarsUp []DynamicInstance) {
+	if r.tbarBatch != nil {
+		r.tbarBatch.SetDynamic(tbars)
+		r.tbarBatch.Draw()
+		r.tbarUpBatch.SetDynamic(tbarsUp)
+		r.tbarUpBatch.Draw()
+	}
 	if r.chair6PackBatch != nil {
 		r.chair6PackBatch.SetDynamic(sixPacks)
 		r.chair6PackBatch.Draw()
@@ -135,7 +150,7 @@ func drawBigLiftChairs(r *Renderer, sixPacks, gondolas []DynamicInstance) {
 
 // bigLiftShadowBatches is the batches that cast shadows.
 func bigLiftShadowBatches(r *Renderer) []*Batch {
-	return []*Batch{r.chair6PackBatch, r.gondolaBatch, r.helicopterBodyBatch}
+	return []*Batch{r.chair6PackBatch, r.gondolaBatch, r.helicopterBodyBatch, r.tbarBatch, r.tbarUpBatch}
 }
 
 // HelipadTransform builds the world-space transform for a helipad placed at
@@ -160,4 +175,6 @@ func addBigLiftThumbs(specs map[ThumbID]thumbSpec) {
 	specs[ThumbGondola] = thumbSpec{parts: specs[ThumbGondola].parts, yaw: 0.6, bottom: 0.7}
 	specs[ThumbHeli] = onePart("helicopter_body", thumbWhite, 0.6)
 	specs[ThumbBelt] = onePart("magic_carpet_end", thumbWhite, 0.4)
+	specs[ThumbRope] = onePart("rope_tow_base", thumbWhite, 0.5)
+	specs[ThumbTBar] = onePart("tbar_base", thumbWhite, 0.5)
 }

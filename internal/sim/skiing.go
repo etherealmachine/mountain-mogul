@@ -513,11 +513,19 @@ func splatSkierTrack(t *world.Terrain, a *world.Guest, prevPos mgl32.Vec3, now u
 // traffic and groomer treads. Moguls grow along the skier's line
 // (growMoguls).
 func wearSnowUnderfoot(t *world.Terrain, a *world.Guest, dt float64) {
-	pos := a.Pos
-	xi := int(pos[0] / world.CellSize)
-	zi := int(pos[2] / world.CellSize)
+	if xi, zi, ok := packUnderfoot(t, a.Pos, dt); ok {
+		growMoguls(t, a, xi, zi, dt)
+	}
+}
+
+// packUnderfoot is wearSnowUnderfoot's grooming wear and packing, without
+// the moguls: skis sliding straight up a rope tow's track pack it. Reports
+// the cell, and false off the terrain.
+func packUnderfoot(t *world.Terrain, pos mgl32.Vec3, dt float64) (xi, zi int, ok bool) {
+	xi = int(pos[0] / world.CellSize)
+	zi = int(pos[2] / world.CellSize)
 	if !t.InBounds(xi, zi) {
-		return
+		return 0, 0, false
 	}
 	c := &t.Cells[xi][zi]
 	dirty := false
@@ -546,10 +554,10 @@ func wearSnowUnderfoot(t *world.Terrain, a *world.Guest, dt float64) {
 			dirty = true
 		}
 	}
-	growMoguls(t, a, xi, zi, dt)
 	if dirty {
 		t.MarkSnowDirty(xi, zi)
 	}
+	return xi, zi, true
 }
 
 // =============================================================================

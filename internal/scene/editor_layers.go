@@ -34,6 +34,7 @@ type layersPanel struct {
 	changeBtn *ui.Button
 	reloadBtn *ui.Button // imports the base's square again
 	osmBtn    *ui.Button // fetches the OpenStreetMap features again
+	waterBtn  *ui.Button // refits the Water layer from OpenStreetMap
 	// osmRefresh is a running OpenStreetMap refresh (editor_osm_refresh.go).
 	osmRefresh *osmRefreshJob
 	reload     *reloadJob
@@ -76,6 +77,9 @@ func (j *reloadJob) status() (stage string, imp *ImportedTerrain, err error, don
 type layerJob struct {
 	stack *geo.LayerStack
 	set   []geo.Setting // what it ran with
+	// warm marks a run that only fills the stack's kept layers (and seeds
+	// the water) for the Water tool, leaving the ground as it is.
+	warm bool
 
 	mu      sync.Mutex
 	stage   string
@@ -121,12 +125,28 @@ func (p *layersPanel) layout(top float32, base *world.TerrainBase) {
 		p.reloadBtn.X = p.changeBtn.X - 6 - p.reloadBtn.W
 		p.reloadBtn.Y = p.changeBtn.Y
 	}
+	if p.waterBtn != nil {
+		// On the Water row, at the right.
+		p.waterBtn.W, p.waterBtn.H = 24, 24
+		p.waterBtn.X = p.x + p.w - layersPad - p.waterBtn.W
+		p.waterBtn.Y = p.rowsY + float32(waterRow())*layersRowH + (layersRowH-p.waterBtn.H)/2
+	}
 	if p.osmBtn != nil {
 		// On the OpenStreetMap row, last, at the right.
 		p.osmBtn.W, p.osmBtn.H = 24, 24
 		p.osmBtn.X = p.x + p.w - layersPad - p.osmBtn.W
 		p.osmBtn.Y = p.rowsY + float32(rows-1)*layersRowH + (layersRowH-p.osmBtn.H)/2
 	}
+}
+
+// waterRow is the Water layer's row.
+func waterRow() int {
+	for i, l := range geo.Layers {
+		if l.ID == "water" {
+			return i
+		}
+	}
+	return -1
 }
 
 // rowLayer is the layer in panel row i: its ID, and its index in
@@ -241,6 +261,7 @@ func (e *Editor) handleLayersInput(inp *engine.Input, top float32) {
 	p.changeBtn.SetHovered(p.changeBtn.Contains(mx, my))
 	p.reloadBtn.SetHovered(base != nil && p.reload == nil && p.reloadBtn.Contains(mx, my))
 	p.osmBtn.SetHovered(base != nil && p.osmRefresh == nil && p.osmBtn.Contains(mx, my))
+	p.waterBtn.SetHovered(base != nil && p.job == nil && p.waterBtn.Contains(mx, my))
 	if !inp.LeftClick || inp.LeftClickConsumed || !p.contains(mx, my) {
 		return
 	}
@@ -255,6 +276,10 @@ func (e *Editor) handleLayersInput(inp *engine.Input, top float32) {
 	}
 	if base != nil && p.osmRefresh == nil && p.osmBtn.Contains(mx, my) {
 		p.osmBtn.Click()
+		return
+	}
+	if base != nil && p.job == nil && geo.Applies(waterRow(), base) && p.waterBtn.Contains(mx, my) {
+		p.waterBtn.Click()
 		return
 	}
 	if base == nil || my < p.rowsY {
@@ -503,15 +528,32 @@ func layerSkipReason(i int, base *world.TerrainBase) string {
 // layer switches and strengths, unless a rebuild is already running;
 // that one starts another when it finishes if they've changed since.
 func (e *Editor) startLayerRebuild() {
+	e.startLayerJob(false)
+}
+
+// layerStack is the stack the Layers panel and the Water tool rebuild
+// with, made afresh for a new map or water.
+func (e *Editor) layerStack() *geo.LayerStack {
+	p := &e.layers
+	w := e.world
+	if w.Water == nil {
+		w.Water = &world.Water{}
+	}
+	if p.stack == nil || p.stack.Base() != w.TerrainBase || p.stack.Water() != w.Water {
+		p.stack = geo.NewLayerStack(w.TerrainBase, w.Water)
+	}
+	return p.stack
+}
+
+// startLayerJob runs the layer stack in the background: a rebuild of the
+// ground, or with warm only the stack's kept layers.
+func (e *Editor) startLayerJob(warm bool) {
 	p := &e.layers
 	base := e.world.TerrainBase
 	if base == nil || p.job != nil {
 		return
 	}
-	if p.stack == nil || p.stack.Base() != base {
-		p.stack = geo.NewLayerStack(base)
-	}
-	j := &layerJob{stack: p.stack, set: geo.Settings(base), stage: "Starting"}
+	j := &layerJob{stack: e.layerStack(), set: geo.Settings(base), stage: "Starting", warm: warm}
 	p.job = j
 	go func() {
 		h := j.stack.Run(j.set, func(name string) {
@@ -540,6 +582,10 @@ func (e *Editor) pollLayerJob() {
 	base := e.world.TerrainBase
 	if base == nil || j.stack != p.stack {
 		return // the map was replaced while it ran
+	}
+	if j.warm {
+		e.waterWarmed()
+		return
 	}
 	e.applyLayerHeights(base, j.heights)
 	if !slices.Equal(j.set, geo.Settings(base)) {
@@ -609,6 +655,9 @@ func (e *Editor) drawLayersPanel(r *render.Renderer, top float32) {
 	if base != nil {
 		p.reloadBtn.Draw(r)
 		p.osmBtn.Draw(r)
+		if geo.Applies(waterRow(), base) {
+			p.waterBtn.Draw(r)
+		}
 	}
 
 	stage := ""
@@ -660,6 +709,8 @@ func (e *Editor) drawLayersPanel(r *render.Renderer, top float32) {
 				note = layerSkipNote(i, base)
 			case p.job != nil && stage == l.Name:
 				note = "running"
+			case l.ID == "water":
+				note = waterNote(e.world)
 			}
 			row(i, l.Name, base.LayerOn(l.ID), applies, note)
 		}
@@ -689,6 +740,14 @@ func (e *Editor) drawLayersPanel(r *render.Renderer, top float32) {
 		status = "Running..."
 	}
 	f.DrawText(r, status, p.x+layersPad, p.y+p.h-lineH-layersPad/2+3, dim)
+}
+
+// waterNote is what the Water layer holds, beside its row.
+func waterNote(w *world.World) string {
+	if w.Water == nil || !w.Water.Fitted {
+		return "fitted on the next rebuild"
+	}
+	return fmt.Sprintf("%d creeks, %d lakes", len(w.Water.Creeks), len(w.Water.Lakes))
 }
 
 // layerSkipNote is layerSkipReason cut to fit beside a row's name.

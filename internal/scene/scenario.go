@@ -1702,7 +1702,7 @@ func (s *Scenario) Update(dt float64) {
 	// Track terrain hit under mouse — both as a continuous Vec3 for
 	// placement and as a grid cell for the cell-based tools (glade brush,
 	// remove). hoverValid gates both.
-	if !s.barsContain(inp.MousePos[1]) {
+	if !s.barsContain(inp.MousePos[0], inp.MousePos[1]) {
 		if pos, ok := screenToWorld(r.Camera, s.world.Terrain, inp.MousePos); ok {
 			s.hoverWorld = pos
 			s.hoverMouseScreen = inp.MousePos
@@ -1711,11 +1711,11 @@ func (s *Scenario) Update(dt float64) {
 			s.hoverCell = [2]int{int(pos[0] / cellSize), int(pos[2] / cellSize)}
 		} else {
 			s.hoverValid = false
-			s.hoverCell = [2]int{-1, -1}
+			s.dropHover()
 		}
 	} else {
 		s.hoverValid = false
-		s.hoverCell = [2]int{-1, -1}
+		s.dropHover()
 	}
 
 	// Track hovered parcel for the land-buy tool.
@@ -1740,7 +1740,7 @@ func (s *Scenario) Update(dt float64) {
 	updatePlacementGhost(r, s.world.Terrain, placementGhostState{
 		activeTool: s.activeTool,
 		hoverPos:   mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]},
-		hoverValid: s.hoverValid,
+		hoverValid: s.hoverValid || s.holdingLiftTop(),
 		liftBase:   s.liftBase,
 		liftType:   s.liftType,
 		roadStart:  s.roadStart,
@@ -1922,7 +1922,7 @@ func (s *Scenario) Update(dt float64) {
 	// The run tool: draw runs node by node, edit their shape
 	// (run_tool.go).
 	if s.activeTool == toolTrailPaint {
-		covered := s.barsContain(inp.MousePos[1]) || s.uiCovers(inp.MousePos[0], inp.MousePos[1], float32(r.ScreenWidth()))
+		covered := s.barsContain(inp.MousePos[0], inp.MousePos[1]) || s.uiCovers(inp.MousePos[0], inp.MousePos[1], float32(r.ScreenWidth()))
 		used := s.runEnv().input(&s.runTool, runInput{
 			toolInput: toolInput{
 				mouse: inp.MousePos, covered: covered,
@@ -1941,7 +1941,7 @@ func (s *Scenario) Update(dt float64) {
 	}
 	// The footpath tool: lay paths node by node (footpath_tool.go).
 	if s.activeTool == toolFootpath {
-		covered := s.barsContain(inp.MousePos[1]) || s.uiCovers(inp.MousePos[0], inp.MousePos[1], float32(r.ScreenWidth()))
+		covered := s.barsContain(inp.MousePos[0], inp.MousePos[1]) || s.uiCovers(inp.MousePos[0], inp.MousePos[1], float32(r.ScreenWidth()))
 		s.pathEnv().input(&s.pathTool, pathInput{
 			toolInput: toolInput{
 				mouse: inp.MousePos, covered: covered,
@@ -1957,7 +1957,7 @@ func (s *Scenario) Update(dt float64) {
 	}
 	// The rope tool: string rope lines pole by pole (rope_tool.go).
 	if s.activeTool == toolRope {
-		covered := s.barsContain(inp.MousePos[1]) || s.uiCovers(inp.MousePos[0], inp.MousePos[1], float32(r.ScreenWidth()))
+		covered := s.barsContain(inp.MousePos[0], inp.MousePos[1]) || s.uiCovers(inp.MousePos[0], inp.MousePos[1], float32(r.ScreenWidth()))
 		s.ropeEnv().input(&s.ropeTool, ropeInput{
 			toolInput: toolInput{
 				mouse: inp.MousePos, covered: covered,
@@ -1972,7 +1972,7 @@ func (s *Scenario) Update(dt float64) {
 	// The building and service tools: drag out floor, put services in
 	// tiles, right-click to remove (service_tools.go).
 	if s.activeTool == toolService {
-		covered := s.barsContain(inp.MousePos[1]) || s.uiCovers(inp.MousePos[0], inp.MousePos[1], float32(r.ScreenWidth()))
+		covered := s.barsContain(inp.MousePos[0], inp.MousePos[1]) || s.uiCovers(inp.MousePos[0], inp.MousePos[1], float32(r.ScreenWidth()))
 		s.serviceEnv().input(&s.serviceTool, toolInput{
 			mouse: inp.MousePos, covered: covered,
 			ground: s.hoverWorld, groundValid: s.hoverValid,
@@ -2753,7 +2753,7 @@ func (s *Scenario) editSelectedTrail(r *render.Renderer, inp *engine.Input, typi
 		return
 	}
 	s.trailEdit.editing = s.activeTrailID
-	covered := s.barsContain(inp.MousePos[1]) || s.uiCovers(inp.MousePos[0], inp.MousePos[1], float32(r.ScreenWidth()))
+	covered := s.barsContain(inp.MousePos[0], inp.MousePos[1]) || s.uiCovers(inp.MousePos[0], inp.MousePos[1], float32(r.ScreenWidth()))
 	used := s.runEnv().input(&s.trailEdit, runInput{
 		toolInput: toolInput{
 			mouse: inp.MousePos, covered: covered,
@@ -2966,14 +2966,14 @@ func (s *Scenario) Render(r *render.Renderer) {
 	}
 	if s.activeTool == toolLiftTop {
 		hint := "Click to set lift top"
-		if s.hoverValid {
+		if s.hoverValid || s.holdingLiftTop() {
 			hover := mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]}
 			if p := liftLineProblem(s.world.Terrain, s.liftType, s.liftBase, hover); p != "" {
 				hint = p
 			}
 		}
 		drawables = append(drawables, &hintLabel{text: hint})
-		if s.hoverValid {
+		if s.hoverValid || s.holdingLiftTop() {
 			drawables = append(drawables, &liftDropLabel{
 				terrain: s.world.Terrain,
 				base:    s.liftBase,
@@ -3479,6 +3479,8 @@ func liftMenu() []liftMenuEntry {
 			liftMenuEntry{world.LiftGondola, "Gondola", render.ThumbGondola},
 			liftMenuEntry{world.LiftHeli, "Heli", render.ThumbHeli},
 			liftMenuEntry{world.LiftMagicCarpet, "Magic Carpet", render.ThumbBelt},
+			liftMenuEntry{world.LiftRopeTow, "Rope Tow", render.ThumbRope},
+			liftMenuEntry{world.LiftTBar, "T-Bar", render.ThumbTBar},
 		)
 	}
 	return m
@@ -3758,13 +3760,30 @@ var labelFill = mgl32.Vec4{0.04, 0.06, 0.11, 0.86}
 // scenarioToolBarH is the height of the bottom dock's band.
 const scenarioToolBarH = float32(84)
 
-// barsContain reports whether a screen Y is inside either the top HUD bar
-// or the bottom tool bar — i.e. should be excluded from world hit-testing.
-func (s *Scenario) barsContain(y float32) bool {
-	if s.topBar != nil && s.topBar.ContainsY(y) {
+// dropHover forgets the hover cell once the cursor leaves the ground, but
+// while a lift's top is being placed keeps the last point on it (and so
+// the preview, holdingLiftTop) for when the cursor crosses the HUD or
+// runs off the map.
+func (s *Scenario) dropHover() {
+	if s.activeTool != toolLiftTop {
+		s.hoverCell = [2]int{-1, -1}
+	}
+}
+
+// holdingLiftTop reports whether the lift-top preview is held at the last
+// point on the ground, the cursor being off it (dropHover).
+func (s *Scenario) holdingLiftTop() bool {
+	return s.activeTool == toolLiftTop && !s.hoverValid
+}
+
+// barsContain reports whether a screen point is on the top HUD bar's pods
+// or the bottom tool bar's dock — i.e. should be excluded from world
+// hit-testing. Beside them, in the bars' bands, is the world.
+func (s *Scenario) barsContain(x, y float32) bool {
+	if s.topBar != nil && s.topBar.ContainsXY(x, y) {
 		return true
 	}
-	if s.toolBar != nil && s.toolBar.ContainsY(y) {
+	if s.toolBar != nil && s.toolBar.ContainsXY(x, y) {
 		return true
 	}
 	return false
@@ -3779,7 +3798,7 @@ func (s *Scenario) uiCovers(x, y float32, screenW float32) bool {
 	if ui.Dragging() {
 		return true // a panel being dragged has the mouse
 	}
-	if s.barsContain(y) {
+	if s.barsContain(x, y) {
 		return true
 	}
 	if s.overlayPanel != nil && s.overlayPanel.ContainsXY(x, y, screenW) {
@@ -3978,7 +3997,7 @@ func roadConnectInstance(pos mgl32.Vec2, t *world.Terrain, tint [3]float32) rend
 // (0, false, true, false) if no cost-bearing tool is active or the
 // hover is off-terrain.
 func (s *Scenario) placementCost() (cost int, affordable, legal, valid bool) {
-	if !s.hoverValid {
+	if !s.hoverValid && !s.holdingLiftTop() {
 		return 0, false, true, false
 	}
 	pos := mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]}

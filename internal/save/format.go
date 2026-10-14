@@ -53,7 +53,9 @@ type ScenarioData struct {
 	Material []byte `json:"material,omitempty"`
 	// LakeOf is world.Terrain.LakeOf, one byte per cell; Lakes are the
 	// lakes it indexes, with their ice.
-	LakeOf    []byte     `json:"lake_of,omitempty"`
+	LakeOf []byte `json:"lake_of,omitempty"`
+	// Water is world.Water: the creeks and lakes the ground is built from.
+	Water     *WaterData `json:"water,omitempty"`
 	LakeDepth []byte     `json:"lake_depth,omitempty"` // decimetres per cell
 	Lakes     []LakeData `json:"lakes,omitempty"`
 	// Geo is [minLat, maxLat, minLon, maxLon] of an imported terrain.
@@ -159,6 +161,30 @@ type TerrainBaseData struct {
 	Lakes         []BaseLakeData     `json:"lakes,omitempty"`
 }
 
+// WaterData is world.Water.
+type WaterData struct {
+	Creeks []WaterCreekData `json:"creeks,omitempty"`
+	Lakes  []WaterLakeData  `json:"lakes,omitempty"`
+	Fitted bool             `json:"fitted,omitempty"`
+}
+
+// WaterCreekData is world.WaterCreek, its points as flat x, z pairs.
+type WaterCreekData struct {
+	Name   string    `json:"name,omitempty"`
+	Kind   string    `json:"kind,omitempty"`
+	Points []float32 `json:"points"`
+	Cover  uint8     `json:"cover,omitempty"`
+}
+
+// WaterLakeData is world.WaterLake, each ring as flat x, z pairs.
+type WaterLakeData struct {
+	Name   string      `json:"name,omitempty"`
+	Kind   string      `json:"kind,omitempty"`
+	AreaHa float32     `json:"area,omitempty"`
+	Rings  [][]float32 `json:"rings"`
+	Cover  uint8       `json:"cover,omitempty"`
+}
+
 // BaseStreamData is world.BaseStream, its path as flat lat, lon pairs.
 type BaseStreamData struct {
 	Name         string    `json:"name,omitempty"`
@@ -182,6 +208,7 @@ type LakeData struct {
 	MaxDepth float32 `json:"max_depth"`
 	Frost    float32 `json:"frost"`
 	Thaw     float32 `json:"thaw"`
+	Cover    uint8   `json:"cover,omitempty"` // world.WaterCover
 }
 
 // BaseRoadData is world.BaseRoad, its path as flat lat, lon pairs.

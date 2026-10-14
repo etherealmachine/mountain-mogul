@@ -111,6 +111,8 @@ type SceneResources struct {
 	ghostUpCable   *Mesh
 	ghostDownCable *Mesh
 	ghostCableTint [3]float32 // the placement tint; white when the line is fine
+
+	water waterSurface // open water's sheet (water.go)
 }
 
 func newSceneResources() *SceneResources {

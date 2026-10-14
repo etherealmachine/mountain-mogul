@@ -262,3 +262,15 @@ func (m *MenuBar) drawDock(r *render.Renderer, screenW float32) {
 func (m *MenuBar) ContainsY(y float32) bool {
 	return y >= m.Y && y <= m.Y+m.H
 }
+
+// ContainsXY reports whether screen point (x, y) is on the bar: across
+// the whole band for a full-width bar, on its panel for a dock (beside
+// it is the world).
+func (m *MenuBar) ContainsXY(x, y float32) bool {
+	if !m.Dock || len(m.Buttons) == 0 {
+		return m.ContainsY(y)
+	}
+	const pad = float32(6) // as drawDock
+	first, last := m.Buttons[0], m.Buttons[len(m.Buttons)-1]
+	return x >= first.X-pad && x <= last.X+last.W+pad && y >= m.Y+dockTop && y <= m.Y+m.H-dockBottom
+}

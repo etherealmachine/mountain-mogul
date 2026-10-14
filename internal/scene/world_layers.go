@@ -57,30 +57,60 @@ func (c *layerCache) catchmentFor(t *world.Terrain) []float32 {
 	return c.catchment
 }
 
-// streamsFor is w's OpenStreetMap streams traced onto the ground's
-// channels, from the cache when the ground hasn't changed.
+// streamsFor is w's creeks (World.Water) as streams on the ground, from
+// the cache when the ground hasn't changed.
 func (c *layerCache) streamsFor(w *world.World) []geo.Stream {
 	if c.traced {
 		return c.streams
 	}
 	c.traced = true
-	base, t := w.TerrainBase, w.Terrain
-	if base == nil || len(base.Streams) == 0 {
+	t := w.Terrain
+	water := fittedWater(w)
+	if water == nil || len(water.Creeks) == 0 {
 		return nil
 	}
-	h := groundRows(t)
 	area := c.catchmentFor(t)
 	var lake []bool
 	if t.LakeOf != nil {
-		lake = make([]bool, len(h))
+		lake = make([]bool, t.Width*t.Height)
 		for x := 0; x < t.Width; x++ {
 			for z := 0; z < t.Height; z++ {
 				lake[z*t.Width+x] = t.LakeOf[x*t.Height+z] != 0
 			}
 		}
 	}
-	c.streams = geo.TraceStreams(base.Streams, geo.BoundsOf(base.Geo), t.Width, t.Height, h, area, lake)
+	c.streams = geo.CreekLines(water.Creeks, t.Width, t.Height, area, lake)
 	return c.streams
+}
+
+// fittedWater is w's water (World.Water), fitted first from the drawn
+// ground if it hasn't been (a map saved before the water was kept, whose
+// Water layer hasn't run since): the ground's creeks and lakes are where
+// the Creeks and Lakes layers made them. Nil when w has no base or no
+// detail to fit on.
+func fittedWater(w *world.World) *world.Water {
+	base, t := w.TerrainBase, w.Terrain
+	if base == nil {
+		return nil
+	}
+	if w.Water == nil {
+		w.Water = &world.Water{}
+	}
+	if !w.Water.Fitted {
+		d := t.Detail
+		if d == nil || !base.LayerOn("water") {
+			return w.Water
+		}
+		fine := make([]float32, d.W*d.H)
+		eachRow(d.H, func(j int) {
+			for i := 0; i < d.W; i++ {
+				k := j*d.W + i
+				fine[k] = t.MeshGroundAt(float32(i)/world.DetailPerCell, float32(j)/world.DetailPerCell) + d.Off[k]
+			}
+		})
+		geo.FitWater(fine, d.W, d.H, world.CellSize/world.DetailPerCell, base, w.Water)
+	}
+	return w.Water
 }
 
 func (c *layerCache) fieldsFor(t *world.Terrain) *elevFields {

@@ -17,12 +17,22 @@ uniform sampler2D uMaterial;
 uniform float     uMaterialOn;
 uniform vec2      uMaterialSize;
 
-// rockTexel is 1 where material sample p holds no snow depth: rock
-// (world.MatRock, 3) and open water (world.MatOpenWater, 6).
-float rockTexel(ivec2 p) {
+// materialTexel is material sample p's world.Material.
+float materialTexel(ivec2 p) {
     ivec2 hi = ivec2(uMaterialSize) - 1;
-    float m  = texelFetch(uMaterial, clamp(p, ivec2(0), hi), 0).r * 255.0;
-    return (abs(m - 3.0) < 0.5 || abs(m - 6.0) < 0.5) ? 1.0 : 0.0;
+    return texelFetch(uMaterial, clamp(p, ivec2(0), hi), 0).r * 255.0;
+}
+
+// rockTexel is 1 where material sample p is rock (world.MatRock, 3),
+// which holds no snow depth.
+float rockTexel(ivec2 p) {
+    return abs(materialTexel(p) - 3.0) < 0.5 ? 1.0 : 0.0;
+}
+
+// waterTexel is 1 where material sample p is open water
+// (world.MatOpenWater, 6), which holds no snow either.
+float waterTexel(ivec2 p) {
+    return abs(materialTexel(p) - 6.0) < 0.5 ? 1.0 : 0.0;
 }
 
 // rockAt is how much of the ground around world xz is rock, blending the
@@ -33,6 +43,50 @@ float rockAt(vec2 xz) {
     vec2  f = fract(g);
     return mix(mix(rockTexel(p),               rockTexel(p + ivec2(1, 0)), f.x),
                mix(rockTexel(p + ivec2(0, 1)), rockTexel(p + ivec2(1, 1)), f.x), f.y);
+}
+
+float waterBilinear(vec2 g) {
+    ivec2 p = ivec2(floor(g));
+    vec2  f = fract(g);
+    return mix(mix(waterTexel(p),               waterTexel(p + ivec2(1, 0)), f.x),
+               mix(waterTexel(p + ivec2(0, 1)), waterTexel(p + ivec2(1, 1)), f.x), f.y);
+}
+
+// openWaterAt is how much the snow round world xz gives way to open
+// water: the water samples averaged over a few metres, eased. Taken
+// sample by sample, a creek running at a slant to the 1.25 m lattice
+// has a staircase edge, and a deep snowpack cut off along it stands in a
+// sawtooth wall; averaged, the snow slopes down into the water as a
+// bank, and over the water itself (the average high) it's gone.
+float openWaterAt(vec2 xz) {
+    vec2  g = xz / 1.25;
+    float sum = 0.0;
+    for (int j = -1; j <= 1; j++) {
+        for (int i = -1; i <= 1; i++) {
+            sum += waterBilinear(g + vec2(i, j));
+        }
+    }
+    return smoothstep(0.15, 0.55, sum / 9.0);
+}
+
+// Per-corner snow state (terrain.vert): blended between the four
+// corners round a point by its grid position, not across the coarse
+// triangle, so the edge of the snow along a narrow sharp feature (a
+// creek's bank) is smooth instead of following the triangles' diagonals
+// in a sawtooth. VisualElevationAt blends the same.
+uniform sampler2D uCornerSnowA;
+uniform sampler2D uCornerSnowB;
+
+void cornerSnowAt(vec2 g, out vec4 a, out float depth) {
+    ivec2 c  = ivec2(floor(g));
+    vec2  f  = fract(g);
+    ivec2 hi = textureSize(uCornerSnowA, 0) - 1;
+    ivec2 c00 = clamp(c, ivec2(0), hi), c10 = clamp(c + ivec2(1, 0), ivec2(0), hi);
+    ivec2 c01 = clamp(c + ivec2(0, 1), ivec2(0), hi), c11 = clamp(c + ivec2(1, 1), ivec2(0), hi);
+    a = mix(mix(texelFetch(uCornerSnowA, c00, 0), texelFetch(uCornerSnowA, c10, 0), f.x),
+            mix(texelFetch(uCornerSnowA, c01, 0), texelFetch(uCornerSnowA, c11, 0), f.x), f.y);
+    depth = mix(mix(texelFetch(uCornerSnowB, c00, 0).r, texelFetch(uCornerSnowB, c10, 0).r, f.x),
+                mix(texelFetch(uCornerSnowB, c01, 0).r, texelFetch(uCornerSnowB, c11, 0).r, f.x), f.y);
 }
 
 patch in vec3  tcNormal;
@@ -97,6 +151,9 @@ void main() {
     vec3  faceN     = tcNormal;
 
     vec2 kind = BARY(tcKind);
+    if (kind.y < 0.5) {
+        cornerSnowAt(BARY(tcGrid), snow, snowDepth);
+    }
     if (uDetailOn > 0.5 && kind.x > 0.0) {
         vec2  texel = 1.0 / uDetailSize;
         vec2  uv    = (BARY(tcGrid) * 4.0 + 0.5) * texel;
@@ -119,7 +176,7 @@ void main() {
     // lies on its ground and ledges, not its rock, so rock faces and the
     // lips above them stay sharp instead of blanketed.
     if (uMaterialOn > 0.5) {
-        snowDepth *= 1.0 - rockAt(pos.xz);
+        snowDepth *= (1.0 - rockAt(pos.xz)) * (1.0 - openWaterAt(pos.xz));
     }
     pos.y += snowDepth;
 

@@ -48,8 +48,13 @@ func liftApron(l *world.Lift) apronShape {
 	switch {
 	case l.Type.Detachable():
 		a.half = 6.5 // the roof, its posts and the hut
+	case l.Type.Hangers():
+		// The mast behind the wheel, the control post, and room to take
+		// a bar and let it go.
+		a = apronShape{front: l.Station().ApronFront, depth: 5, half: 4.5}
 	case l.Type.Surface():
-		// The belt's end and the booth beside it, and room to step off.
+		// The belt's end or the rope's bullwheel and motor, the control
+		// post, and room to step off.
 		a = apronShape{front: l.Station().ApronFront, depth: 5, half: 3.5}
 	}
 	return a
@@ -75,7 +80,10 @@ func applyLiftPlacementEffects(w *world.World, lift *world.Lift) {
 	t := w.Terrain
 	corridor := liftCorridorHalfWidth
 	if lift.Type.Surface() {
-		corridor = 4 // no towers to service: the belt and a lane beside it
+		corridor = 4 // no towers to service: the belt or rope and a lane beside it
+		if lift.Type.Hangers() {
+			corridor = 5 // its towers, the track and the return
+		}
 	}
 	clearLiftCorridor(t, lift.Base, lift.Top, corridor)
 	axis := mgl32.Vec2{
