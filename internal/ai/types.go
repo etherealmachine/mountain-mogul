@@ -507,6 +507,9 @@ const (
 	ThoughtFamilyChair  // the whole family rode up on one chair
 	ThoughtHitRocks     // skied into rock showing through thin snow (sim/rocks.go)
 	ThoughtLostSomeone  // someone they came with was killed in an avalanche
+	ThoughtCrashedInto  // another skier ran into them (sim/contacts.go)
+	ThoughtRanInto      // they ran into another skier
+	ThoughtCloseCall    // another skier brushed past them
 
 	thoughtKindSentinel // must stay last; equals the total count
 )
@@ -574,6 +577,9 @@ var Effects = [ThoughtKindCount]Effect{
 	ThoughtLostSomeone:       {Class: Dealbreaker},
 	ThoughtHurtGoingHome:     {Class: Letdown},
 	ThoughtHitTree:           {Class: Annoyance},
+	ThoughtCrashedInto:       {Class: Annoyance},
+	ThoughtRanInto:           {Class: Annoyance},
+	ThoughtCloseCall:         {Class: Annoyance},
 	ThoughtCaughtInAvalanche: {Class: Dealbreaker},
 	ThoughtLongLine:          {Class: Annoyance},
 	ThoughtLineTooLong:       {Class: Annoyance},
@@ -718,6 +724,9 @@ var thoughtText = [ThoughtKindCount]string{
 	ThoughtTooExpensive:      "I can't afford this",
 	ThoughtNoTicketWindow:    "couldn't find where to buy a ticket",
 	ThoughtHitTree:           "I hit a tree!",
+	ThoughtCrashedInto:       "someone crashed into me!",
+	ThoughtRanInto:           "I ran into someone",
+	ThoughtCloseCall:         "that was close, watch where you're going",
 	ThoughtLiftsClosed:       "the lifts are all closed",
 	ThoughtNothingForMe:      "there's nothing here I can ski",
 	ThoughtHurtGoingHome:     "I tweaked something, calling it a day",
@@ -809,6 +818,9 @@ var ThoughtChartColor = [ThoughtKindCount][4]float32{
 	ThoughtTooExpensive:      {0.95, 0.85, 0.20, 1},
 	ThoughtNoTicketWindow:    {0.85, 0.40, 0.30, 1},
 	ThoughtHitTree:           {0.55, 0.35, 0.15, 1},
+	ThoughtCrashedInto:       {0.90, 0.35, 0.25, 1},
+	ThoughtRanInto:           {0.70, 0.40, 0.30, 1},
+	ThoughtCloseCall:         {0.80, 0.60, 0.35, 1},
 	ThoughtLiftsClosed:       {0.50, 0.55, 0.65, 1},
 	ThoughtNothingForMe:      {0.75, 0.55, 0.45, 1},
 	ThoughtHurtGoingHome:     {0.90, 0.45, 0.35, 1},

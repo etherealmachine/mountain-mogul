@@ -114,6 +114,10 @@ func RunHeadless(out io.Writer, name string, opts HeadlessOptions) error {
 		rec.writeSummary()
 	}
 
+	if c := sim.TakeContactStats(); len(w.OnMountain) > 1 || c.N > 0 {
+		c.Write(out, w)
+	}
+
 	if opts.Query != "" {
 		ts := BuildTableSet(w, sim)
 		result, err := RunQuery(ts, opts.Query)

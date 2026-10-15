@@ -438,7 +438,7 @@ func (s *Simulation) applySkier(a *world.Guest, target mgl32.Vec3, dist float32,
 		speedFactor := clamp32(a.Speed/injuryMaxSpeed, 0, 1)
 		slopeFactor := clamp32(perc.SlopeAngle/injuryMaxSlope, 0, 1)
 		injuryChance := (speedFactor + slopeFactor) / 2 * fallInjuryChanceMax
-		s.knockDown(a, fallDirection(a.Traits, perc, dec))
+		s.knockDown(a, fallDirection(a.Traits, perc, dec), world.FallLostBalance)
 		if rng.Global().Float32() < injuryChance {
 			s.injure(a, rng.Global().Float32() < fallSeriousShare)
 		} else {
@@ -1479,7 +1479,7 @@ func (s *Simulation) treeHit(a *world.Guest) {
 	if tr, ok := trunkAhead(s.World.Terrain, a); ok {
 		a.Trunk, a.HasTrunk = [2]float32{tr.X, tr.Z}, true
 	}
-	s.knockDown(a, world.FallThrown)
+	s.knockDown(a, world.FallThrown, world.FallTree)
 	s.applyEvent(a, ai.ThoughtHitTree)
 	if rng.Global().Float32() < injuryChance {
 		s.injure(a, rng.Global().Float32() < trunkSeriousShare)
@@ -1568,12 +1568,12 @@ func plannedTrail(a *world.Guest) uint64 {
 // recordFall logs a guest going down: on the guest, and in the day's
 // falls under the run they were skiing (their plan's, or the one
 // underfoot) or the lift they were getting off.
-func (s *Simulation) recordFall(a *world.Guest) {
+func (s *Simulation) recordFall(a *world.Guest, cause world.FallCause) {
 	if a.Player || a.InstructorOf != 0 {
 		return // not one of the resort's falls
 	}
 	a.Events = append(a.Events, ai.GuestEvent{Kind: ai.EventFall, Time: s.SimTime})
-	f := world.FallRecord{X: a.Pos[0], Z: a.Pos[2], LiftID: a.Unload.LiftID}
+	f := world.FallRecord{X: a.Pos[0], Z: a.Pos[2], LiftID: a.Unload.LiftID, Cause: cause}
 	if f.LiftID == 0 {
 		f.TrailID = plannedTrail(a)
 		if f.TrailID == 0 {

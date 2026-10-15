@@ -151,10 +151,24 @@ type ReviewTally struct {
 // FallRecord is one guest going down, for the patrol report and the falls
 // overlay.
 type FallRecord struct {
-	X, Z    float32 // where, in world metres
-	TrailID uint64  // the run they were skiing; 0 off any run
-	LiftID  uint64  // the lift they were getting off, for a fall unloading
+	X, Z    float32   // where, in world metres
+	TrailID uint64    // the run they were skiing; 0 off any run
+	LiftID  uint64    // the lift they were getting off, for a fall unloading
+	Cause   FallCause // what put them down
 }
+
+// FallCause is what put a guest down.
+type FallCause uint8
+
+const (
+	FallLostBalance FallCause = iota // too fast, too steep, bumps, a skid
+	FallTree                         // skied into a trunk
+	FallRock                         // hit rock through thin snow
+	FallCollision                    // ran into someone, or was run into
+	FallAvalanche                    // knocked over by a slide
+	FallLift                         // getting off a lift, or off a tow
+	FallCauseCount
+)
 
 // History is a per-world ring of DailySamples plus the day-in-progress
 // counters. Lives off World via a *History pointer so a fresh World (no
@@ -308,6 +322,7 @@ type FallReport struct {
 	OffRun    int        // off any run
 	Unloading int        // getting off a lift
 	Runs      []RunFalls // per run, most first
+	ByCause   [FallCauseCount]int
 }
 
 // RunFalls is one run's falls.
@@ -325,6 +340,7 @@ func (h *History) FallReport() FallReport {
 	r.Total = len(h.FallsToday)
 	byRun := map[uint64]int{}
 	for _, f := range h.FallsToday {
+		r.ByCause[f.Cause]++
 		switch {
 		case f.LiftID != 0:
 			r.Unloading++

@@ -70,6 +70,11 @@ type Simulation struct {
 	World      *world.World
 	Pathfinder *Pathfinder
 	TimeScale  float64 // simulation speed multiplier (default 4 — ~1 hr per ski season)
+	// StepBudget caps the real time one Tick spends stepping (0: no
+	// cap). When a busy day needs more, the rest of the frame's game
+	// time is dropped and the day runs slower than its pace, instead of
+	// every frame taking as long as the sim needs.
+	StepBudget time.Duration
 	SimTime    float64 // accumulated sim seconds (post-TimeScale)
 	// lastSampledDay is the most recent in-game day index whose end has
 	// been written to World.History. Initialised to int(SimTime /
@@ -165,6 +170,13 @@ type Simulation struct {
 	// from (spawnGuestAt), for planFrom; 0 otherwise.
 	arriving   uint64
 	groupStats GroupStats
+	// Skier contacts (contacts.go): where each skier started this step's
+	// move (by guest, and in order), the pairs touching now and last
+	// step, and the tally.
+	skierFrom             map[*world.Guest]mgl32.Vec3
+	skierMoves            []skierMove
+	touching, wasTouching map[contactPair]bool
+	contacts              ContactStats
 	// planGen numbers group leaders' plans (groups.go).
 	planGen uint32
 
@@ -323,7 +335,11 @@ func (s *Simulation) Tick(dt float64) {
 	s.World.RefreshOpenWater()
 
 	remaining := dt * s.TimeScale
-	simulated := remaining
+	simulated := 0.0
+	var start time.Time
+	if s.StepBudget > 0 {
+		start = time.Now()
+	}
 	for remaining > 0 {
 		sub := remaining
 		if sub > maxSubstepSec {
@@ -331,6 +347,10 @@ func (s *Simulation) Tick(dt float64) {
 		}
 		s.subTick(sub)
 		remaining -= sub
+		simulated += sub
+		if s.StepBudget > 0 && time.Since(start) > s.StepBudget {
+			break // out of time this frame: the day runs slow
+		}
 	}
 	// Cars step once per frame, in steps of up to trafficStep: thousands
 	// of them can't afford the guests' substeps.
@@ -829,6 +849,7 @@ func (s *Simulation) tickGuests(dt float64) {
 		case j.arrived:
 			j.a.Pos = j.target
 		default:
+			s.noteSkierFrom(j.a)
 			s.applySkier(j.a, j.target, j.dist, j.perc, j.dec, dt)
 		}
 		if j.a.SkisOn && noSnowUnderfoot(s.World.Terrain, j.a.Pos[0], j.a.Pos[2]) {
@@ -836,6 +857,7 @@ func (s *Simulation) tickGuests(dt float64) {
 			j.a.SkiTransitionTimer = 0
 		}
 	}
+	s.stepContacts(dt)
 	s.tickPlayer(dt)
 	s.reapDeparted()
 }

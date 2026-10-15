@@ -125,13 +125,23 @@ func (s *Scenario) toggleGoals() {
 	s.topBar.SetGoalsActive(p.open)
 }
 
-// retryScenario starts the scenario this game came from again.
+// retryScenario starts the scenario this game came from again, as the
+// same game, after asking.
 func (s *Scenario) retryScenario() {
 	f := s.world.Scenario.File
 	if f == "" {
 		return
 	}
-	s.app.ReplaceScene(NewGameFromScenario(filepath.Join(s.app.AssetDir, "scenarios", f)))
+	retry := func() {
+		s.confirmPrompt = nil
+		s.app.ReplaceScene(NewGameFromScenario(filepath.Join(s.app.AssetDir, "scenarios", f), s.gameName))
+	}
+	if s.gameName == "" {
+		retry()
+		return
+	}
+	s.confirmPrompt = newConfirmPrompt("Start "+s.gameName+" again from the beginning?", "Start again",
+		retry, func() { s.confirmPrompt = nil })
 }
 
 // pollGoalsOutcome opens the result panel the first time the scenario is

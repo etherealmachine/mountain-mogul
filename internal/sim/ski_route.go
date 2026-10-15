@@ -358,9 +358,10 @@ func planSkiRoute(t *world.Terrain, a, b mgl32.Vec2, prof *routeProfile, sc *rou
 	dirs := [8][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1}}
 	for len(sc.open) > 0 {
 		cur := sc.open.pop()
-		if cur.g > sc.gAt(cur.k) {
+		if cur.g > sc.gAt(cur.k) || sc.closed[cur.k] == sc.gen {
 			continue
 		}
+		sc.closed[cur.k] = sc.gen // never reopened: weighted A* keeps its bound
 		pos := posOf(cur.k)
 		if pos == goal {
 			found = true
@@ -392,7 +393,7 @@ func planSkiRoute(t *world.Terrain, a, b mgl32.Vec2, prof *routeProfile, sc *rou
 					step += routeSteepCost * over
 				}
 			}
-			if ng, k := cur.g+step, idx(nb); ng < sc.gAt(k) {
+			if ng, k := cur.g+step, idx(nb); ng < sc.gAt(k) && sc.closed[k] != sc.gen {
 				sc.setG(k, ng, cur.k)
 				sc.open.push(skiOpenNode{k: k, g: ng, f: ng + heur(nb)})
 			}
@@ -546,9 +547,15 @@ type routeScratch struct {
 	g     []float32
 	came  []int32
 	stamp []uint32
-	gen   uint32
-	open  skiOpenList
-	cells []mgl32.Vec2
+	// closed[k] == gen once cell k is expanded. Only the ski route's
+	// weighted search keeps to it: its estimate overshoots, so without
+	// it a cell is reached again more cheaply and expanded again, about
+	// ten times over on a long route round trees (40-80 ms a search on
+	// the Boreal Goals Test, a hitch in the game every few seconds).
+	closed []uint32
+	gen    uint32
+	open   skiOpenList
+	cells  []mgl32.Vec2
 }
 
 // begin readies the scratch for a search over n cells.
@@ -557,11 +564,13 @@ func (sc *routeScratch) begin(n int) {
 		sc.g = make([]float32, n)
 		sc.came = make([]int32, n)
 		sc.stamp = make([]uint32, n)
+		sc.closed = make([]uint32, n)
 		sc.gen = 0
 	}
 	sc.gen++
 	if sc.gen == 0 { // wrapped: old stamps could match again
 		clear(sc.stamp)
+		clear(sc.closed)
 		sc.gen = 1
 	}
 	sc.open = sc.open[:0]

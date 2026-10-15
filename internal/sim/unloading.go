@@ -321,7 +321,7 @@ func (s *Simulation) walkOutUnloading(a *world.Guest, g *world.StationGeom, at, 
 func (s *Simulation) fallUnloading(a *world.Guest) {
 	a.Unload.FallAt = 0
 	a.Speed = 0
-	s.knockDown(a, world.FallSide)
+	s.knockDown(a, world.FallSide, world.FallLift)
 	s.applyEvent(a, ai.ThoughtFellUnloading, a.Unload.LiftID)
 }
 

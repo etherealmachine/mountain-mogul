@@ -13,6 +13,9 @@ type ScenarioData struct {
 	Tutorial    bool   `json:"tutorial,omitempty"`
 	// ScenarioFile is world.ScenarioInfo.File.
 	ScenarioFile string `json:"scenario_file,omitempty"`
+	// Game is how a player's game stands, for the games list; read from
+	// the header like the fields above. Absent in scenario files.
+	Game *GameData `json:"game,omitempty"`
 
 	Width   int     `json:"width"`
 	Height  int     `json:"height"`
@@ -404,6 +407,7 @@ type FallData struct {
 	Z       float32 `json:"z"`
 	TrailID uint64  `json:"t,omitempty"`
 	LiftID  uint64  `json:"l,omitempty"`
+	Cause   uint8   `json:"c,omitempty"`
 }
 
 // DailySampleData mirrors world.DailySample with msgpack-compact field
@@ -804,4 +808,11 @@ type RailStationData struct {
 	Z        float32 `json:"z"`
 	Side     float32 `json:"side"`
 	Interval float32 `json:"interval,omitempty"`
+}
+
+// GameData is what the games list shows of a game without loading it.
+type GameData struct {
+	Date    string  `json:"date"`              // the game day's real date, "2006-01-02" (world.FormatGameDate shows it)
+	Stars   float32 `json:"stars"`             // World.Rating
+	Outcome uint8   `json:"outcome,omitempty"` // World.Outcome
 }

@@ -280,7 +280,7 @@ func (s *Simulation) catchInAvalanche() {
 			a.Queued = false
 		}
 		s.applyEvent(a, ai.ThoughtCaughtInAvalanche)
-		s.knockDown(a, world.FallForward)
+		s.knockDown(a, world.FallForward, world.FallAvalanche)
 		s.injure(a, rng.Global().Float32() < avyCaughtInjury)
 		a.Buried, a.BuriedAt = true, s.SimTime // patrol digs them out: a longer call
 		s.World.SafetyIncident(world.SafetyBurial)

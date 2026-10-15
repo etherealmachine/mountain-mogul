@@ -57,14 +57,14 @@ const (
 	clipInUnskilled = float32(2)
 )
 
-// knockDown puts a guest down: the fall itself, before the caller rolls
-// any injury. Their speed goes into the slide (Tumble.Vel), and a fast
+// knockDown puts a guest down for cause: the fall itself, before the
+// caller rolls any injury. Their speed goes into the slide (Tumble.Vel), and a fast
 // fall may knock their skis off.
-func (s *Simulation) knockDown(a *world.Guest, dir world.FallDir) {
+func (s *Simulation) knockDown(a *world.Guest, dir world.FallDir, cause world.FallCause) {
 	a.Balance = 0
 	a.Fallen = true
 	a.Energy = clamp32(a.Energy-energyFallDrain, 0, 1)
-	s.recordFall(a)
+	s.recordFall(a, cause)
 
 	f := mgl32.Vec2{float32(math.Sin(float64(a.Heading))), float32(math.Cos(float64(a.Heading)))}
 	left := mgl32.Vec2{f[1], -f[0]}

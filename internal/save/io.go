@@ -92,22 +92,6 @@ func MostRecentSave() (string, bool) {
 	return saves[0].Path, true
 }
 
-// SaveAs writes the world to a file inside SavesDir named after `name`. Any
-// path separators in `name` are stripped so the write can't escape the dir.
-// Returns the final path written. cam is optional — pass nil to skip
-// camera persistence.
-func SaveAs(name string, w *world.World, cam *CameraData) (string, error) {
-	clean := SanitizeSaveName(name)
-	if clean == "" {
-		clean = "save"
-	}
-	path := filepath.Join(SavesDir(), clean+SaveExt)
-	if err := SaveScenario(path, w, cam); err != nil {
-		return "", err
-	}
-	return path, nil
-}
-
 // SanitizeSaveName strips path separators, leading dots, and trims spaces so
 // `name` resolves to a single file inside SavesDir. Empty result is allowed
 // (the caller decides whether that's an error).
@@ -117,12 +101,6 @@ func SanitizeSaveName(name string) string {
 	name = strings.ReplaceAll(name, "\\", "")
 	name = strings.TrimLeft(name, ".")
 	return name
-}
-
-// DefaultSaveName returns a timestamp-based default like "save-2026-05-06-1530"
-// suitable for pre-filling the save-name prompt.
-func DefaultSaveName() string {
-	return "save-" + time.Now().Format("2006-01-02-1504")
 }
 
 // SaveScenario marshals the world and writes it to path. cam is
@@ -175,7 +153,19 @@ func WriteScenarioData(path string, data ScenarioData) error {
 	if err := gz.Close(); err != nil {
 		return err
 	}
-	return os.WriteFile(path, buf.Bytes(), 0644)
+	return writeAtomic(path, buf.Bytes())
+}
+
+// writeAtomic writes b to a temporary file beside path and renames it
+// over path, so a crash or a full disk mid-write leaves the old file
+// whole.
+func writeAtomic(path string, b []byte) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // LoadScenario reads and parses a `.save` file, returning a World
@@ -234,26 +224,37 @@ func scenarioInfoOf(data ScenarioData) world.ScenarioInfo {
 // campaign placing from a save, without decoding the terrain. Lists of
 // saves and scenarios call it once per file.
 func ReadScenarioInfo(path string) (world.ScenarioInfo, error) {
-	f, err := os.Open(path)
+	data, err := readHeader(path)
 	if err != nil {
 		return world.ScenarioInfo{}, err
+	}
+	return scenarioInfoOf(data), nil
+}
+
+// readHeader decodes the fields written before the cells: the scenario's
+// info and the game's summary.
+func readHeader(path string) (ScenarioData, error) {
+	var data ScenarioData
+	f, err := os.Open(path)
+	if err != nil {
+		return data, err
 	}
 	defer f.Close()
 	gz, err := gzip.NewReader(f)
 	if err != nil {
-		return world.ScenarioInfo{}, fmt.Errorf("save %q: %w", path, err)
+		return data, fmt.Errorf("save %q: %w", path, err)
 	}
 	defer gz.Close()
 	dec := msgpack.NewDecoder(gz)
+	dec.SetCustomStructTag("json")
 	n, err := dec.DecodeMapLen()
 	if err != nil {
-		return world.ScenarioInfo{}, fmt.Errorf("save %q: %w", path, err)
+		return data, fmt.Errorf("save %q: %w", path, err)
 	}
-	var data ScenarioData
 	for i := 0; i < n; i++ {
 		key, err := dec.DecodeString()
 		if err != nil {
-			return world.ScenarioInfo{}, fmt.Errorf("save %q: %w", path, err)
+			return data, fmt.Errorf("save %q: %w", path, err)
 		}
 		var dst any
 		switch key {
@@ -269,9 +270,13 @@ func ReadScenarioInfo(path string) (world.ScenarioInfo, error) {
 			dst = &data.Order
 		case "tutorial":
 			dst = &data.Tutorial
+		case "scenario_file":
+			dst = &data.ScenarioFile
+		case "game":
+			dst = &data.Game
 		case "cells":
-			// The info fields are written before the cells.
-			return scenarioInfoOf(data), nil
+			// The header fields are written before the cells.
+			return data, nil
 		}
 		if dst == nil {
 			err = dec.Skip()
@@ -279,10 +284,10 @@ func ReadScenarioInfo(path string) (world.ScenarioInfo, error) {
 			err = dec.Decode(dst)
 		}
 		if err != nil {
-			return world.ScenarioInfo{}, fmt.Errorf("save %q: %w", path, err)
+			return data, fmt.Errorf("save %q: %w", path, err)
 		}
 	}
-	return scenarioInfoOf(data), nil
+	return data, nil
 }
 
 // worldToData snapshots w. forScenario drops today's in-flight state
@@ -809,7 +814,7 @@ func historyFromData(hd *HistoryData) *world.History {
 	copy(h.DepartReasonsToday[:], hd.DepartReasons)
 	h.ReviewsToday = reviewTallyFromData(hd.Reviews)
 	for _, f := range hd.Falls {
-		h.FallsToday = append(h.FallsToday, world.FallRecord{X: f.X, Z: f.Z, TrailID: f.TrailID, LiftID: f.LiftID})
+		h.FallsToday = append(h.FallsToday, world.FallRecord{X: f.X, Z: f.Z, TrailID: f.TrailID, LiftID: f.LiftID, Cause: world.FallCause(f.Cause)})
 	}
 	return h
 }
@@ -823,7 +828,7 @@ func historyToData(h *world.History) *HistoryData {
 	}
 	var falls []FallData
 	for _, f := range h.FallsToday {
-		falls = append(falls, FallData{X: f.X, Z: f.Z, TrailID: f.TrailID, LiftID: f.LiftID})
+		falls = append(falls, FallData{X: f.X, Z: f.Z, TrailID: f.TrailID, LiftID: f.LiftID, Cause: uint8(f.Cause)})
 	}
 	ordered := h.Ordered()
 	samples := make([]DailySampleData, len(ordered))

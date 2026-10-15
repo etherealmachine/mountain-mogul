@@ -92,7 +92,7 @@ func (s *Simulation) fallOffTow(a *world.Guest, lift *world.Lift, chair *world.C
 	a.Speed = lift.Speed
 	a.TurnSide = 0
 	a.Plan.Steps = nil
-	s.knockDown(a, world.FallSide)
+	s.knockDown(a, world.FallSide, world.FallLift)
 	s.applyEvent(a, ai.ThoughtFellOffTow, lift.ID)
 }
 

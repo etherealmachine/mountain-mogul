@@ -1,6 +1,7 @@
 package scene
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"math/rand"
@@ -515,7 +516,13 @@ type Scenario struct {
 	fixedScale    float64 // a fixed time scale from the command line; 0 uses the pace
 	popup         *ui.Window
 	saveAllowed   bool   // false in testbed mode; gates the Save prompt
-	saveName      string // last name used for Save; pre-fills the prompt next time
+	// gameName is the game this is, saved as {SavesDir}/{gameName}.save
+	// (Saved Games): set for a game loaded from the saves, or named
+	// after its scenario when a new one starts; "" until then.
+	gameName    string
+	newGame     bool // started from a scenario: named and saved on the first frame
+	noAutosave  bool // the dev screenshot harness: never write the player's games
+	autosaveDue bool // save at the end of this frame (start, each midnight)
 	savePrompt    *savePrompt
 	confirmPrompt *confirmPrompt // Save as Scenario overwrite check
 	prebuiltWorld *world.World
@@ -638,9 +645,22 @@ func paceScale(pace float64) float64 {
 	return 24 * world.SimSecondsPerHour / pace
 }
 
+// simStepBudget is the most real time a frame spends stepping the sim
+// at a speed button. A busy day at fast or fastest needs more than that
+// (about 10 s of stepping a game hour with 900 guests on the mountain,
+// against the 3 s a game hour fast allows), and without a cap every
+// frame waited on the whole step: the game crawled at a few frames a
+// second. With it the frame rate holds and the day runs slower than the
+// button asks.
+const simStepBudget = 10 * time.Millisecond
+
 // tickSim runs the sim for a frame of dt real seconds.
 func (s *Scenario) tickSim(dt float64) {
 	s.updateTimeScale()
+	s.sim.StepBudget = simStepBudget
+	if s.fixedScale > 0 {
+		s.sim.StepBudget = 0 // -time-scale runs exactly as asked
+	}
 	s.sim.Tick(dt)
 }
 
@@ -664,12 +684,19 @@ func (s *Scenario) updateTimeScale() {
 // loaded path lives inside the user's saves directory, that name is used as
 // the default for subsequent saves so re-saving overwrites the same file.
 // NewGameFromScenario starts a new game of the scenario at path, opening
-// on its goals.
-func NewGameFromScenario(path string) *Scenario {
+// on its goals. It's saved as name, or "" for a new name after the
+// scenario ("Boreal", "Boreal 2").
+func NewGameFromScenario(path, name string) *Scenario {
 	s := NewScenarioFromFile(path)
 	s.goalsOnStart = true
+	s.newGame = true
+	s.gameName = name
 	return s
 }
+
+// NoAutosave keeps this scenario from saving the game on its own: the dev
+// screenshot harness loads the player's saves and mustn't write them.
+func (s *Scenario) NoAutosave() { s.noAutosave = true }
 
 func NewScenarioFromFile(path string) *Scenario {
 	s := &Scenario{
@@ -680,12 +707,11 @@ func NewScenarioFromFile(path string) *Scenario {
 		paused:     true,
 		nightPause: true,
 	}
-	// If the file came from the user's saves directory, seed saveName with
-	// its basename so Save defaults to overwriting the same slot.
+	// A file in the saves directory is a game, saved back to itself.
 	dir, file := filepath.Split(path)
 	cleanDir := filepath.Clean(dir)
 	if cleanDir == filepath.Clean(save.SavesDir()) && strings.HasSuffix(file, save.SaveExt) {
-		s.saveName = strings.TrimSuffix(file, save.SaveExt)
+		s.gameName = strings.TrimSuffix(file, save.SaveExt)
 	}
 	return s
 }
@@ -916,6 +942,8 @@ func (s *Scenario) Init(app *engine.App) error {
 	// What's already in a save's notifications counts as read.
 	s.eventsSeen = w.Events.Seq
 	s.installWorld(w)
+	// A new game is in the games list straight away.
+	s.autosaveDue = s.newGame && s.saveAllowed
 	if cam != nil {
 		applyCameraSnapshot(app.Renderer.Camera, cam)
 	}
@@ -926,9 +954,10 @@ func (s *Scenario) Init(app *engine.App) error {
 		s.settingsMenu.Show()
 	}
 	if s.saveAllowed {
-		s.escapeMenu = NewEscapeMenu(app, s.openSavePrompt, s.gotoLoadMenu, openSettings)
+		s.escapeMenu = NewEscapeMenu(app, s.saveNow, s.gotoLoadMenu, openSettings)
+		s.escapeMenu.InsertButton(3, "Rename...", s.openRenamePrompt)
 		if !edition.Demo {
-			s.escapeMenu.InsertButton(3, "Save as Scenario...", s.openScenarioSavePrompt)
+			s.escapeMenu.InsertButton(4, "Save as Scenario...", s.openScenarioSavePrompt)
 		}
 	} else {
 		s.escapeMenu = NewEscapeMenu(app, nil, nil, openSettings)
@@ -1392,44 +1421,104 @@ func (s *Scenario) installWorld(w *world.World) {
 	s.parcelBoundaryDirty = true
 }
 
-// openSavePrompt is hooked into the escape menu's Save button. Pops up a
-// modal text-input pre-filled with the current saveName (or a fresh
-// timestamp when the session has not saved yet). Disabled in testbed mode.
-func (s *Scenario) openSavePrompt() {
+// gameTitle is what a new game of this scenario is named after: the
+// scenario's name, or its file's.
+func (s *Scenario) gameTitle() string {
+	if n := s.world.Scenario.Name; n != "" {
+		return n
+	}
+	if f := s.world.Scenario.File; f != "" {
+		return strings.TrimSuffix(f, save.SaveExt)
+	}
+	return strings.TrimSuffix(filepath.Base(s.scenarioPath), save.SaveExt)
+}
+
+// saveGame writes the game to its file, naming it first if it has no
+// name yet.
+func (s *Scenario) saveGame() error {
+	if s.gameName == "" {
+		s.gameName = save.NewGameName(s.gameTitle())
+	}
+	return save.SaveGame(s.gameName, s.world, s.cameraSnapshot())
+}
+
+// autosave saves the game on its own (a new game's first frame, each
+// midnight, leaving it): only a game, and never for the dev harness.
+func (s *Scenario) autosave() {
+	if !s.saveAllowed || s.noAutosave || s.world == nil || (s.gameName == "" && !s.newGame) {
+		return
+	}
+	if err := s.saveGame(); err != nil {
+		s.setToast("Couldn't save: " + err.Error())
+		fmt.Fprintln(os.Stderr, "autosave:", err)
+	}
+}
+
+// saveNow is the escape menu's Save: the game saved to its own file.
+func (s *Scenario) saveNow() {
 	if !s.saveAllowed {
 		s.setToast("Saving is off here")
 		return
 	}
-	initial := s.saveName
+	if err := s.saveGame(); err != nil {
+		s.setToast("Couldn't save: " + err.Error())
+		return
+	}
+	s.setToast("Saved " + s.gameName)
+}
+
+// openRenamePrompt is the escape menu's Rename: a new name for the game,
+// refused if another game has it.
+func (s *Scenario) openRenamePrompt() {
+	if !s.saveAllowed {
+		return
+	}
+	initial := s.gameName
 	if initial == "" {
-		initial = save.DefaultSaveName()
+		initial = save.NewGameName(s.gameTitle())
 	}
 	s.savePrompt = newSavePrompt(initial,
 		func(name string) {
+			if err := s.renameGame(name); err != nil {
+				s.setToast(err.Error())
+				return
+			}
 			s.savePrompt = nil
-			s.commitSave(name)
+			s.setToast("Renamed to " + s.gameName)
 		},
-		func() {
-			s.savePrompt = nil
-		},
+		func() { s.savePrompt = nil },
 	)
+	s.savePrompt.title = "Rename game"
+	s.savePrompt.okBtn.Label = "Rename"
 }
 
-// commitSave writes the world to {SavesDir}/{name}.save and updates
-// saveName so the next prompt defaults to the same slot.
-func (s *Scenario) commitSave(name string) {
+// renameGame renames the game to name, saving it there if it was never
+// saved.
+func (s *Scenario) renameGame(name string) error {
 	clean := save.SanitizeSaveName(name)
 	if clean == "" {
-		s.setToast("Save name cannot be empty")
-		return
+		return fmt.Errorf("A game needs a name")
 	}
-	path, err := save.SaveAs(clean, s.world, s.cameraSnapshot())
-	if err != nil {
-		s.setToast("Save error: " + err.Error())
-		return
+	if s.gameName != "" && save.GameExists(s.gameName) {
+		if err := save.RenameGame(s.gameName, clean); err != nil {
+			return gameNameError(clean, err)
+		}
+		s.gameName = clean
+		return nil
 	}
-	s.saveName = clean
-	s.setToast("Saved to " + filepath.Base(path))
+	if save.GameExists(clean) {
+		return gameNameError(clean, save.ErrGameExists)
+	}
+	s.gameName = clean
+	return s.saveGame()
+}
+
+// gameNameError words a rename's error for the player.
+func gameNameError(name string, err error) error {
+	if errors.Is(err, save.ErrGameExists) {
+		return fmt.Errorf("There's already a game called %s", name)
+	}
+	return err
 }
 
 // openScenarioSavePrompt is hooked into the escape menu's Save as
@@ -1439,7 +1528,7 @@ func (s *Scenario) openScenarioSavePrompt() {
 	if !s.saveAllowed {
 		return
 	}
-	s.savePrompt = newSavePrompt(s.saveName,
+	s.savePrompt = newSavePrompt(s.gameName,
 		func(name string) {
 			s.savePrompt = nil
 			s.commitScenarioSave(name)
@@ -2076,6 +2165,10 @@ func (s *Scenario) Update(dt float64) {
 	if !s.paused {
 		s.devTick()
 		s.tickSim(dt)
+	}
+	if s.autosaveDue {
+		s.autosaveDue = false
+		s.autosave()
 	}
 	s.devServeQueries()
 
@@ -3124,6 +3217,9 @@ func (s *Scenario) Render(r *render.Renderer) {
 }
 
 func (s *Scenario) Destroy() {
+	// Leaving (Main Menu, Load, Retry, Exit Game, closing the window)
+	// saves the game.
+	s.autosave()
 	if s.app != nil && s.app.Renderer != nil {
 		s.app.Renderer.ResetSceneState()
 	}

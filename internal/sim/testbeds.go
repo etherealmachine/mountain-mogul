@@ -403,6 +403,65 @@ var Testbeds = []Testbed{
 		},
 	},
 	{
+		// Two runs off one chair merging into a shared runout above the
+		// base: ten intermediates (0.5) and ten advanced (0.8), rested
+		// and fed, with day tickets, all cruisers on corduroy. For skier
+		// contacts at a merge (notes/next/Skier Collisions.md).
+		//
+		// World: 90×110 cells (450 m × 550 m), 15° slope. Single chair,
+		// base (56,100), top (56,8). West (blue) swings wide west, East
+		// (black) a shorter way east; both meet at (52,68), where Runout
+		// (blue) takes them down beside the lift line to the base.
+		// Intermediates keep to the blues, so West; the advanced, East.
+		//
+		// The layout follows the planner's trail graph (World.
+		// BuildTrailGraph), which costs a descent by straight lines
+		// between trail centroids:
+		//   - each run covers the lift cell it starts or ends at
+		//     (TopCell / QueueCell);
+		//   - Runout's centroid sits 20 m (MinRunDrop) above the base, or
+		//     there's no edge from it to the lift and nobody plans a lap;
+		//   - Runout's centroid lies nearer the lift line than East's, or
+		//     the advanced plan "West to where it touches East (at the
+		//     top), then Runout from East" and stall by the top station;
+		//   - top → Runout costs the same via West or East, and the
+		//     planner takes the first trail placed, so East goes first.
+		// All three are groomed (no cats here): on powder cruisers are
+		// bored after a run and go home. A single chair because headless
+		// has no chair seat slots (the renderer registers them): riders
+		// sharing a chair unload on the same spot and stall there as a
+		// pair. Run at 4 m/s, a chair every 7.5 s, so twenty don't wait
+		// their patience away.
+		Name: "Trail merge, intermediate and advanced skiers",
+		Seed: 1,
+		Build: func() *world.World {
+			b := scene(90, 110).slope(15).
+				parkingAt(50, 106).
+				liftOfType(world.LiftSingle, 56, 100, 56, 8)
+			b.namedRun(world.DiffBlack, "East", [][2]int{{56, 7}, {64, 16}, {70, 28}, {70, 42}, {64, 54}, {56, 62}, {52, 68}, {53, 72}}, 25)
+			b.namedRun(world.DiffBlue, "West", [][2]int{{56, 7}, {44, 16}, {32, 28}, {26, 40}, {32, 52}, {42, 60}, {52, 68}, {53, 72}}, 25)
+			b.namedRun(world.DiffBlue, "Runout", [][2]int{{52, 64}, {52, 68}, {50, 80}, {50, 90}, {56, 101}}, 25)
+			for i := 0; i < 10; i++ {
+				b.goapSkierAt(51+i, 104, 0.5, 1).goapSkierAt(51+i, 106, 0.8, 1)
+			}
+			w := b.build()
+			w.Lifts[0].Speed = 4
+			for _, t := range w.Trails {
+				for _, c := range t.Cells {
+					w.Terrain.GroomCell(c[0], c[1])
+				}
+			}
+			for _, g := range w.OnMountain {
+				g.HasDayTicket = true // no ticket office here
+				g.Energy, g.Hunger, g.Thirst = 1, 1, 1
+				// Advanced skiers have no tastes by default, so laps
+				// alone bore them after four runs.
+				g.Traits.Tastes = ai.Archetypes[ai.ArchetypeCruiser].Centre
+			}
+			return w
+		},
+	},
+	{
 		// Trail divergence: side walls channel the skier, a center patch
 		// blocks the straight line, and the skier spawns 1 cell east of
 		// the corridor centerline. The patch sits well below the spawn so
@@ -1117,6 +1176,13 @@ func (b *builder) groomedRect(diff world.TerrainDifficulty, x0, z0, nx, nz int) 
 // groomedRun is runTrail for a run the cats groom.
 func (b *builder) groomedRun(diff world.TerrainDifficulty, waypoints [][2]int, width float32) *builder {
 	b.placeRun(diff, waypoints, width).Groomed = true
+	return b
+}
+
+// namedRun is groomedRun with a name, for testbeds that report by run.
+func (b *builder) namedRun(diff world.TerrainDifficulty, name string, waypoints [][2]int, width float32) *builder {
+	t := b.placeRun(diff, waypoints, width)
+	t.Name, t.Groomed = name, true
 	return b
 }
 

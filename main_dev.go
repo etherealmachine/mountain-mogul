@@ -77,6 +77,7 @@ func main() {
 	overlayMode := flag.Int("overlay-mode", 0, "-screenshot terrain overlay bitmask (render.Overlay*: contour=1, slope=2, snow-depth=4, grooming=8, packed=16, ice=32, mogul=64, bump-normal=128)")
 	skipIntro := flag.Bool("skip-intro", false, "skip the Minty Fresh splash and jump straight to the start menu")
 	menuShot := flag.Bool("menu", false, "-screenshot: capture the start menu, once its live backdrop has loaded and run -warmup frames (0 for the plain sky before it loads)")
+	menuScreen := flag.String("menu-screen", "", "with -menu: open a screen over the start menu first: games (the games list) or scenarios (the scenario picker)")
 	introAt := flag.Float64("intro-at", math.NaN(), "-screenshot: capture the intro splash this many seconds in (it fades to the start menu from 2.4 s)")
 	profile := flag.Bool("profile", false, "run a headless 50× sim profile (representative resort, demand on) → cpu.prof + mem.prof")
 	profileSeconds := flag.Float64("profile-seconds", 10, "wall-clock seconds to run with -profile")
@@ -107,7 +108,7 @@ func main() {
 	// surface you care about, dial in a camera angle, and re-render after
 	// every shader tweak without leaving the terminal.
 	if *screenshot != "" && (*menuShot || !math.IsNaN(*introAt)) {
-		runMenuScreenshot(*screenshot, *menuShot, *introAt, *warmupFrames)
+		runMenuScreenshot(*screenshot, *menuShot, *menuScreen, *introAt, *warmupFrames)
 		return
 	}
 	if *screenshot != "" && *importPreview != "" {
@@ -369,6 +370,7 @@ func runScreenshot(opt screenshotOpts) {
 			path, opt.warmupFrames, opt.outPath)
 		sc = scene.NewScenarioFromFile(path)
 	}
+	sc.NoAutosave() // it may have loaded the player's latest game
 	app.PushScene(sc)
 	sc.KeepRunning()
 
@@ -651,7 +653,7 @@ func runImportScreenshot(outPath, at string) {
 // introAt seconds in, stepping frames at a steady 60 a second: the menu
 // once its live backdrop has loaded (or a minute passes) and warmup more
 // frames have run, or straight away with warmup 0, on the plain sky.
-func runMenuScreenshot(outPath string, menu bool, introAt float64, warmup int) {
+func runMenuScreenshot(outPath string, menu bool, screen string, introAt float64, warmup int) {
 	app := engine.NewApp("Mountain Mogul (screenshot)", 1280, 720, "assets")
 	defer app.Destroy()
 	const dt = 1.0 / 60
@@ -666,6 +668,13 @@ func runMenuScreenshot(outPath string, menu bool, introAt float64, warmup int) {
 			app.Frame(dt)
 			app.Window.SwapBuffers()
 		}
+		switch screen {
+		case "games":
+			app.PushScene(scene.NewSaveList())
+		case "scenarios":
+			app.PushScene(scene.NewScenarioPicker())
+		}
+		app.Frame(dt) // lay the screen out
 		fmt.Printf("screenshot: start menu, backdrop loaded %v\n", scene.MenuBackdropLoaded())
 	} else {
 		app.PushScene(scene.NewIntroScene())

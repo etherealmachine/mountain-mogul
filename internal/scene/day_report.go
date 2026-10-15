@@ -20,6 +20,7 @@ var (
 // and opens the profit/loss report for the day just closed, replacing
 // any earlier one still on screen (only the latest is shown).
 func (s *Scenario) onDayRollover() {
+	s.autosaveDue = true // a game is saved each night
 	if s.nightPause && !settings.Get().NoNightPause && !s.paused {
 		s.paused = true
 		s.syncSpeedButtons()

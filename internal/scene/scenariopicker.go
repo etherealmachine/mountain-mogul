@@ -43,6 +43,12 @@ type scenarioCard struct {
 	entry      scenarioEntry
 	x, y, w, h float32
 	hovered    bool
+	// game is the most recently played game of this scenario, if any
+	// (games counts them): the card then offers Continue or New game.
+	game    *save.GameInfo
+	games   int
+	cont    *ui.Button
+	newGame *ui.Button
 }
 
 func NewScenarioPicker() *ScenarioPicker { return &ScenarioPicker{} }
@@ -125,10 +131,30 @@ func (s *ScenarioPicker) Init(app *engine.App) error {
 		btn := ui.NewButton(0, 0, pickerBtnW, pickerBtnH, label, fn)
 		s.buttons = append(s.buttons, btn)
 	}
+	var games []save.GameInfo
+	if s.open == nil {
+		games = save.ListGames()
+	}
 	for _, entry := range listScenarios(dir) {
 		entry := entry
 		if s.open == nil {
-			s.cards = append(s.cards, &scenarioCard{entry: entry})
+			c := &scenarioCard{entry: entry}
+			for i := range games {
+				if games[i].Scenario.File == entry.file+save.SaveExt {
+					if c.game == nil {
+						c.game = &games[i]
+					}
+					c.games++
+				}
+			}
+			if c.game != nil {
+				path := c.game.Path
+				c.cont = ui.NewButton(0, 0, 110, 28, "Continue", func() {
+					s.app.ReplaceScene(NewScenarioFromFile(path))
+				})
+				c.newGame = ui.NewButton(0, 0, 110, 28, "New game", func() { s.play(c) })
+			}
+			s.cards = append(s.cards, c)
 			continue
 		}
 		label := entry.label()
@@ -153,7 +179,7 @@ const (
 
 // play starts a new game of the card's scenario.
 func (s *ScenarioPicker) play(c *scenarioCard) {
-	s.app.ReplaceScene(NewGameFromScenario(c.entry.path))
+	s.app.ReplaceScene(NewGameFromScenario(c.entry.path, ""))
 }
 
 // layout places the cards (or the editor's buttons) as a column centred on
@@ -166,6 +192,9 @@ func (s *ScenarioPicker) layout() {
 	for _, c := range s.cards {
 		c.w = cardW
 		c.h = cardPad*2 + lineH*2
+		if c.game != nil {
+			c.h += lineH + 36
+		}
 		total += c.h + pickerSpacing
 	}
 	total += float32(len(s.buttons)) * (pickerBtnH + pickerSpacing)
@@ -175,6 +204,10 @@ func (s *ScenarioPicker) layout() {
 	y := max((sh-total)/2, 120) - s.scroll
 	for _, c := range s.cards {
 		c.x, c.y = (sw-c.w)/2, y
+		if c.game != nil {
+			c.newGame.X, c.newGame.Y = c.x+c.w-cardPad-c.newGame.W, c.y+c.h-cardPad-c.newGame.H
+			c.cont.X, c.cont.Y = c.newGame.X-10-c.cont.W, c.newGame.Y
+		}
 		y += c.h + pickerSpacing
 	}
 	for _, b := range s.buttons {
@@ -206,6 +239,21 @@ func (s *ScenarioPicker) Update(dt float64) {
 	}
 	for _, c := range s.cards {
 		c.hovered = mx >= c.x && mx <= c.x+c.w && my >= c.y && my <= c.y+c.h
+		if c.game != nil {
+			// Continue or New game; a click elsewhere on the card continues.
+			for _, b := range []*ui.Button{c.cont, c.newGame} {
+				b.SetHovered(b.Contains(mx, my))
+				if inp.LeftClick && b.Contains(mx, my) {
+					b.Click()
+					return
+				}
+			}
+			if inp.LeftClick && c.hovered {
+				c.cont.Click()
+				return
+			}
+			continue
+		}
 		if inp.LeftClick && c.hovered {
 			s.play(c)
 			return
@@ -264,11 +312,29 @@ func (c *scenarioCard) Draw(r *render.Renderer) {
 	lineH := float32(render.GlyphH) + 4
 	tx, ty := c.x+cardPad, c.y+cardPad
 	r.Font.DrawText(r, c.entry.label(), tx, ty, mgl32.Vec4{1, 0.95, 0.8, 1})
-	if c.hovered {
+	if c.hovered && c.game == nil {
 		play := "Play"
 		r.Font.DrawText(r, play, c.x+c.w-cardPad-r.Font.TextWidth(play), ty, mgl32.Vec4{0.6, 0.95, 0.65, 1})
 	}
 	r.Font.DrawText(r, scenarioSubtitle(c.entry.info), tx, ty+lineH, mgl32.Vec4{0.65, 0.75, 0.9, 1})
+	if g := c.game; g != nil {
+		r.Font.DrawText(r, inProgressLine(g, c.games), tx, ty+2*lineH, mgl32.Vec4{0.6, 0.95, 0.65, 1})
+		c.cont.Draw(r)
+		c.newGame.Draw(r)
+	}
+}
+
+// inProgressLine is a card's line for its game in progress: "In
+// progress: Boreal, Dec 14", with how many more games there are.
+func inProgressLine(g *save.GameInfo, games int) string {
+	line := "In progress: " + g.Name
+	if !g.Date.IsZero() {
+		line += ", " + world.FormatGameDate(g.Date, false)
+	}
+	if games > 1 {
+		line += fmt.Sprintf(" (and %d more)", games-1)
+	}
+	return line
 }
 
 // scenarioSubtitle is the line under a scenario's name: where it is and

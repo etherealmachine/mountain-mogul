@@ -6,7 +6,8 @@
 //
 //	go run ./tools/days <save> [days]
 //
-// SEED=n runs with another random seed (1 by default).
+// SEED=n runs with another random seed (1 by default). PROFILE=path
+// writes a CPU profile.
 //
 // STOP_HOUR=h SAVE_TO=path instead runs to hour h of the first day and
 // saves there, for a starting point to look at in the game.
@@ -15,6 +16,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"runtime/pprof"
 	"sort"
 	"time"
 
@@ -26,6 +28,14 @@ import (
 )
 
 func main() {
+	if p := os.Getenv("PROFILE"); p != "" {
+		f, err := os.Create(p)
+		if err != nil {
+			panic(err)
+		}
+		pprof.StartCPUProfile(f)
+		defer pprof.StopCPUProfile()
+	}
 	w, _, err := save.LoadScenario(os.Args[1])
 	if err != nil {
 		panic(err)
@@ -97,6 +107,8 @@ func main() {
 		fmt.Printf("%-7s %-15s visitors %4d  %.2f★ (1★ %d 2★ %d 3★ %d)  falls %5d  rides/guest %.1f  peak %4d  wall %.0fs (open %.0fs)\n",
 			world.FormatGameDate(date, false), name, smp.ArrivalsToday, avg, r.Levels[1], r.Levels[2], r.Levels[3],
 			smp.Falls, float64(total)/float64(max(len(rides), 1)), peak, time.Since(start).Seconds(), openWall)
+		fmt.Print("        ")
+		s.TakeContactStats().Write(os.Stdout, w)
 		if gs := s.GroupStats(); gs.Led > 0 {
 			fmt.Printf("        groups: follower steps %d, on the line %.0f%%; plans copied %d, own %d, led %d; wait steps %d\n",
 				gs.Steps, 100*float64(gs.OnLine)/float64(max(gs.Steps, 1)), gs.Copied, gs.Own, gs.Led, gs.Waits)

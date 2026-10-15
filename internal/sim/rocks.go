@@ -38,7 +38,7 @@ func (s *Simulation) rockHit(a *world.Guest, cell *world.Cell, dt float64) bool 
 	}
 	a.LastRockHit = s.SimTime
 	if rng.Global().Float32() < rockFallShare*(1-0.7*clamp32(a.Traits.Skill, 0, 1)) {
-		s.knockDown(a, world.FallForward)
+		s.knockDown(a, world.FallForward, world.FallRock)
 		return true
 	}
 	return false
