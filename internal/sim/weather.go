@@ -194,7 +194,13 @@ func climateProfiles(c *world.Climate, baseAltitude float32) *[12]monthProfile {
 		cm := c.Months[m]
 		temp := c.TempAt(m, baseAltitude)
 		wet := clamp32(cm.WetDays, 0, 1)
-		rain := wet * clamp32((temp+1)/5, 0, 1)
+		// Rain's share of the wet days by the month's mean: none at
+		// −0.5 °C, all at +4.5. Storms come colder than the month's mean,
+		// so a +2 °C month at the base is about half snow. (It was −1 to
+		// +4, which, with rain days 3 °C over the mean, rained above the
+		// freezing level often enough that Palisades' 2,441 m station got
+		// 20–40 mm of rain a month in midwinter that it doesn't.)
+		rain := wet * clamp32((temp+0.5)/5, 0, 1)
 		snow := wet - rain
 		dry := 1 - wet
 		overcast := dry * clamp32((cm.Cloud-0.15)/0.6, 0.1, 0.9)
@@ -216,7 +222,9 @@ func climateProfiles(c *world.Climate, baseAltitude float32) *[12]monthProfile {
 		if cm.TempRange > 0 && diurnal > 0 {
 			p.diurnalScale = cm.TempRange / 2 / diurnal
 		}
-		p.wetMM = cm.WetMM
+		// The climate's precipitation is at its station's altitude; the
+		// chain's is the base's (PrecipAt adds the rest with height).
+		p.wetMM = cm.WetMM * orographic(baseAltitude-c.RefAltitude)
 	}
 	return &out
 }
@@ -274,7 +282,7 @@ var stateTempOffset = [weatherStateCount]float32{
 	0,    // Overcast
 	-1.5, // LightSnow
 	-3,   // HeavySnow
-	+3,   // Rain — requires above-freezing air mass
+	+1.5, // Rain — an above-freezing air mass, but storms run cold (was +3 until 2026-10-15)
 }
 
 // stateTempNoise[s] is the standard deviation of the daily temperature sample.

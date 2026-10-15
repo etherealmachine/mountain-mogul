@@ -56,6 +56,7 @@ func NewSeasonSnowpack(c *world.Climate, latDeg float64, year int, baseAlt, minA
 	// Per day: the weather at the base and each slope class's sun.
 	type dayInputs struct {
 		wx       DayWeather
+		season   float32 // meltSeason
 		exposure [packGradSteps * packGradSteps]float32
 	}
 	inputs := make([]dayInputs, s.days)
@@ -64,6 +65,7 @@ func NewSeasonSnowpack(c *world.Climate, latDeg float64, year int, baseAlt, minA
 		date := s.Start.AddDate(0, 0, d)
 		in := &inputs[d]
 		in.wx = chain.Advance(date)
+		in.season = meltSeason(date)
 		sun := newDaySun(latDeg, date, in.wx.CloudCover)
 		for gj := 0; gj < packGradSteps; gj++ {
 			for gi := 0; gi < packGradSteps; gi++ {
@@ -90,8 +92,8 @@ func NewSeasonSnowpack(c *world.Climate, latDeg float64, year int, baseAlt, minA
 						in := &inputs[d]
 						mean := (in.wx.TempHigh+in.wx.TempLow)/2 - lapse
 						half := (in.wx.TempHigh - in.wx.TempLow) / 2
-						snow := in.wx.AccumSWE
-						melt := meltFactor(in.exposure[g]*shade)*positiveDegreeDays(mean, half) + in.wx.RainMM*rainMeltPerMM
+						snow, rain := PrecipAt(in.wx, alt-baseAlt)
+						melt := meltFactor(in.exposure[g]*shade)*in.season*positiveDegreeDays(mean, half) + rain*rainMeltPerMM
 						swe = max(swe+snow-melt, 0)
 						recent += snow - fell[d%packRecentDays]
 						fell[d%packRecentDays] = snow

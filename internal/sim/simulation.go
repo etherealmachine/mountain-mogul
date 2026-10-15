@@ -1275,12 +1275,19 @@ func (s *Simulation) applyDailyWeather(dw DayWeather) {
 	case WeatherLightSnow, WeatherHeavySnow:
 		s.pushSnowLayer(dw)
 		s.World.ClearLodgeFloors()
+	case WeatherRain:
+		// Rain at the base can be snow higher up (precip.go): that falls
+		// first, and the rain wets only the snow where it mostly rained.
+		s.pushSnowLayer(dw)
+		base := terrainMinElevation(t)
+		s.applyKindTransitionWhere(weatherEventRain, func(c *world.Cell) bool {
+			return snowShareAt(dw, c.GroundElevation-base) < 0.5
+		})
+		t.ScaleMoguls(1 - mogulRainRound)
 	default:
 		// Determine the non-precipitation event type.
 		var evt weatherEvent
 		switch dw.State {
-		case WeatherRain:
-			evt = weatherEventRain
 		case WeatherClear:
 			if windFired {
 				evt = weatherEventWind
@@ -1297,11 +1304,8 @@ func (s *Simulation) applyDailyWeather(dw DayWeather) {
 		if evt != weatherEventNone {
 			s.applyKindTransition(evt)
 		}
-		switch evt {
-		case weatherEventWarmClear:
+		if evt == weatherEventWarmClear {
 			t.ScaleMoguls(1 - mogulThawRound)
-		case weatherEventRain:
-			t.ScaleMoguls(1 - mogulRainRound)
 		}
 		// Melt runs hourly through the day (tickHourly).
 	}
@@ -1337,17 +1341,26 @@ func (s *Simulation) applyDailyWeather(dw DayWeather) {
 // and gone (stamps and all) once it's buried.
 func (s *Simulation) pushSnowLayer(dw DayWeather) {
 	t := s.World.Terrain
-	kind := snowKindForTemp(dw.TempC)
-	accumSWE := dw.AccumSWE
+	base := terrainMinElevation(t)
 
 	// Grooming burial factor: 2 cm SWE fully covers fresh corduroy.
 	const fullBurialSWE = float32(0.02)
-	burialFactor := clamp01(accumSWE / fullBurialSWE)
 
+	// Each cell gets the day's snow at its altitude (precip.go): more
+	// higher up, and none where a rain day stays rain.
+	var total float32
+	var cells int
 	for x := range t.Cells {
 		for z := range t.Cells[x] {
 			c := &t.Cells[x][z]
-
+			rise := c.GroundElevation - base
+			accumSWE, _ := PrecipAt(dw, rise)
+			cells++
+			if accumSWE <= 0 {
+				continue
+			}
+			total += accumSWE
+			kind := snowKindForTemp(dw.TempC - lapseRate*rise)
 			fresh := world.KindDensity(kind)
 			if c.Top.Accumulation > 0 && c.Top.Kind == kind {
 				// Same kind — grow Top in place.
@@ -1358,17 +1371,22 @@ func (s *Simulation) pushSnowLayer(dw DayWeather) {
 				c.Top = world.SnowLayer{Kind: kind, Accumulation: accumSWE, Density: fresh}
 			}
 
+			burialFactor := clamp01(accumSWE / fullBurialSWE)
 			t.Ungroom(x, z, 1-burialFactor)
 			// Fresh snow buries the old tracks: untracked again.
 			c.SkierTraffic *= 1 - burialFactor
 		}
 	}
+	if total <= 0 {
+		return
+	}
 	// What steep ground can't hold sluffs down to where it can.
 	t.ShedSnow()
 
-	// Bury skier tracks. 2 cm SWE fully covers any track.
-	t.Surface.AgeTracks(world.TrackClock(s.SimTime), 1-burialFactor)
-	t.ScaleMoguls(1 - clamp01(accumSWE/mogulFillSWE))
+	// Bury skier tracks and fill moguls by the mountain's mean snowfall.
+	mean := total / float32(max(cells, 1))
+	t.Surface.AgeTracks(world.TrackClock(s.SimTime), 1-clamp01(mean/fullBurialSWE))
+	t.ScaleMoguls(1 - clamp01(mean/mogulFillSWE))
 }
 
 // Moguls are deeper than tracks, so they take more snow to fill: a day's
@@ -1390,12 +1408,18 @@ const (
 // keeps a trace of it in the crust (crustGroomKeep), anything else
 // (wind slab, wet snow) wipes it.
 func (s *Simulation) applyKindTransition(evt weatherEvent) {
+	s.applyKindTransitionWhere(evt, nil)
+}
+
+// applyKindTransitionWhere is applyKindTransition on the cells where
+// (nil for all).
+func (s *Simulation) applyKindTransitionWhere(evt weatherEvent, where func(c *world.Cell) bool) {
 	t := s.World.Terrain
 	for x := range t.Cells {
 		for z := range t.Cells[x] {
 			c := &t.Cells[x][z]
 			top := c.TopLayer()
-			if top == nil {
+			if top == nil || (where != nil && !where(c)) {
 				continue
 			}
 			next := kindTransition(top.Kind, evt)
@@ -1459,11 +1483,11 @@ func (s *Simulation) applyDayMelt(dw DayWeather, date time.Time) {
 // surrounding terrain hides the sun (world.HorizonMap).
 func (s *Simulation) meltHour(dw DayWeather, date time.Time, hour float64, tempC, frac float32) {
 	t := s.World.Terrain
-	rainMelt := dw.RainMM * rainMeltPerMM * frac
-	if rainMelt <= 0 && tempC <= 0 {
+	if dw.RainMM <= 0 && tempC <= 0 {
 		return // even the base area is below freezing, and it's dry
 	}
 	baseElev := terrainMinElevation(t)
+	season := meltSeason(date)
 	sun := s.Site.SunAt(date, hour)
 	beam := newInstantSun(sun, dw.CloudCover)
 	var horizon *world.HorizonMap
@@ -1478,14 +1502,19 @@ func (s *Simulation) meltHour(dw DayWeather, date time.Time, hour float64, tempC
 			if c.Top.Accumulation == 0 && c.Base == 0 {
 				continue
 			}
-			melt := rainMelt
-			if temp := tempC - lapseRate*(c.GroundElevation-baseElev); temp > 0 {
+			rise := c.GroundElevation - baseElev
+			var melt float32
+			if dw.RainMM > 0 {
+				_, rain := PrecipAt(dw, rise)
+				melt = rain * rainMeltPerMM * frac
+			}
+			if temp := tempC - lapseRate*rise; temp > 0 {
 				gx, gz := t.GradientAt(x, z)
 				exposure := beam.exposure(gx, gz)
 				if exposure > 0 {
 					exposure *= horizon.SunVisibility(x, z, sunDir)
 				}
-				melt += meltFactor(exposure) * temp * frac
+				melt += meltFactor(exposure) * season * temp * frac
 			}
 			if melt > 0 {
 				meltCell(c, melt)
