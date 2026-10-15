@@ -311,9 +311,15 @@ func (env railEnv) updateGhost() {
 	hover := resolveRailEnd(w, env.hover)
 	points := append([]mgl32.Vec2(nil), rt.points...)
 	end := railEnd{pos: points[len(points)-1]}
+	// finishing is whether a click now finishes the track (at a joint, a
+	// track, the map's edge, or its last point again): only then is it
+	// red for being too short or too steep end to end, since a point
+	// added on the way can still be laid longer.
+	finishing := true
 	if hover.pos.Sub(end.pos).Len() > railFinishReach || hover.joint != nil || hover.track != nil || hover.edge {
 		points = append(points, hover.pos)
 		end = hover
+		finishing = hover.joint != nil || hover.track != nil || hover.edge
 	}
 	if len(points) == rt.ghostN && hover.pos.Sub(rt.ghostAt).Len() < 1 {
 		return
@@ -327,8 +333,9 @@ func (env railEnv) updateGhost() {
 	ya, yb := rt.start.height(w), end.height(w)
 	tr := w.PreviewTrack(rt.style, points, ya, yb)
 	rt.ghostCost = world.TrackCost(tr)
-	rt.ghost, rt.ghostOK = tr, env.canAfford(rt.ghostCost) && world.TrackProblem(rt.style, points, ya, yb) == ""
-	r.SetRailGhost(tr, w.Terrain, ghostTint(env.canAfford(rt.ghostCost), world.TrackProblem(rt.style, points, ya, yb) == ""))
+	legal := !finishing || world.TrackProblem(rt.style, points, ya, yb) == ""
+	rt.ghost, rt.ghostOK = tr, env.canAfford(rt.ghostCost) && legal
+	r.SetRailGhost(tr, w.Terrain, ghostTint(env.canAfford(rt.ghostCost), legal))
 }
 
 // ---- Stations ----

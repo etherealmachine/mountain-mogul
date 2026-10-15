@@ -66,3 +66,4 @@ All three steps together (they share the routing and the stations).
 - 2026-10-14: Tunnel mouths: the hill was dug down to the rail behind the portal (the bank radiated round the last open sample); now it meets the headwall's top, and cuts are steeper. Tall fills ending in cliffs noted in [[Bugs]].
 - 2026-10-14: The raised hill sloped from the face across the grid, into the opening and over the track; now it rises only behind the portal's dark inside, and the ground stays at the bed across the opening and between the wing walls.
 - 2026-10-14: Stations level their ground.
+- 2026-10-14: The ghost went red for a point on the way (judged as if the track ended there: too short, too steep end to end) though the click only adds a point; now it's red only when the click would finish the track and that can't be built.
