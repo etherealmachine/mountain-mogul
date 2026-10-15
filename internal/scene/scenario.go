@@ -1975,7 +1975,15 @@ func (s *Scenario) Update(dt float64) {
 		}
 	}
 	if s.activeTool == toolRail {
-		s.railEnv().updateGhost()
+		env := s.railEnv()
+		if !s.barsContain(inp.MousePos[0], inp.MousePos[1]) && !s.uiCovers(inp.MousePos[0], inp.MousePos[1], float32(r.ScreenWidth())) {
+			env.offMap(inp.MousePos)
+		}
+		env.updateGhost()
+		if !s.hoverValid && env.hoverValid && inp.LeftClick && !inp.LeftClickConsumed {
+			env.click(env.hover) // off the map: finish at its edge
+			inp.LeftClickConsumed = true
+		}
 	}
 	if s.activeTool == toolStation {
 		s.railEnv().updateStationGhost()

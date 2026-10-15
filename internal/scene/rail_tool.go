@@ -47,12 +47,14 @@ type railTool struct {
 }
 
 // railEnd is what one end of track being laid is on: a joint, a track
-// (at its sample i), or nothing (a new joint at pos).
+// (at its sample i), or nothing (a new joint at pos, an entry if edge:
+// on the map's edge).
 type railEnd struct {
 	joint *world.RailJoint
 	track *world.RailTrack
 	i     int
 	pos   mgl32.Vec2
+	edge  bool
 }
 
 // height is the rail's height at e: its joint's, its track's there, or
@@ -76,7 +78,7 @@ func resolveRailEnd(w *world.World, p mgl32.Vec2) railEnd {
 		return railEnd{track: tr, i: i, pos: tr.Track[i].Pos}
 	}
 	if q, ok := w.EdgeSnap(p); ok {
-		p = q
+		return railEnd{pos: q, edge: true}
 	}
 	return railEnd{pos: p}
 }
@@ -116,6 +118,46 @@ func (s *Scenario) railEnv() railEnv {
 		},
 		up: func(win *ui.Window) bool { return s.popup == win },
 	}
+}
+
+// offMap points the Rail tool at the map's edge when the mouse (at
+// screen point mouse, not over the scene's chrome) is off the map with
+// track being laid: where the line from the last point toward the mouse
+// leaves the map. A click there finishes the track at the edge.
+func (env *railEnv) offMap(mouse mgl32.Vec2) {
+	rt := env.tool
+	if env.hoverValid || env.active != toolRail || len(rt.points) == 0 {
+		return
+	}
+	t := env.w.Terrain
+	last := rt.points[len(rt.points)-1]
+	mx, mz := float32(t.Width-1)*world.CellSize, float32(t.Height-1)*world.CellSize
+	// The mouse's ray meets the ground's height at the edge: start from
+	// the last point's and settle.
+	y := t.InterpolatedSurfaceElevationAt(last[0], last[1])
+	var edge mgl32.Vec2
+	for range 3 {
+		p3 := env.r.Camera.ScreenToTerrain(mouse, y)
+		p := mgl32.Vec2{p3[0], p3[2]}
+		if p[0] >= 0 && p[0] <= mx && p[1] >= 0 && p[1] <= mz {
+			return // over the map after all
+		}
+		// Where the line from last to p crosses the map's border.
+		d := p.Sub(last)
+		f := float32(1)
+		for k, hi := range [2]float32{mx, mz} {
+			switch {
+			case d[k] > 0 && last[k]+d[k] > hi:
+				f = min(f, (hi-last[k])/d[k])
+			case d[k] < 0 && last[k]+d[k] < 0:
+				f = min(f, -last[k]/d[k])
+			}
+		}
+		edge = last.Add(d.Mul(max(f, 0)))
+		edge = mgl32.Vec2{min(max(edge[0], 0), mx), min(max(edge[1], 0), mz)}
+		y = t.InterpolatedSurfaceElevationAt(edge[0], edge[1])
+	}
+	env.hover, env.hoverValid = edge, true
 }
 
 // afford is whether cost can be paid, toasting what's short for what if
@@ -163,7 +205,7 @@ func (s *Scenario) startRailTool(style world.RailStyle) {
 	if s.activeTool != toolRail {
 		s.setTool(toolRail)
 	}
-	s.setToast("Click to lay track; finish on a joint or another track, or click the last point again. At the map's edge it comes in from beyond.")
+	s.setToast("Click to lay track; finish on a joint or another track, at the map's edge (click off the map), or click the last point again.")
 }
 
 // click handles a click with the Rail tool at p.
@@ -176,7 +218,9 @@ func (env railEnv) click(p mgl32.Vec2) {
 		return
 	}
 	last := rt.points[len(rt.points)-1]
-	onNetwork := e.joint != nil || e.track != nil
+	// On a joint, a track or the map's edge (an entry, always an end), it
+	// finishes there.
+	onNetwork := e.joint != nil || e.track != nil || e.edge
 	if !onNetwork && (e.pos.Sub(last).Len() > railFinishReach || len(rt.points) < 2) {
 		rt.points = append(rt.points, e.pos)
 		return
@@ -262,7 +306,7 @@ func (env railEnv) updateGhost() {
 	hover := resolveRailEnd(w, env.hover)
 	points := append([]mgl32.Vec2(nil), rt.points...)
 	end := railEnd{pos: points[len(points)-1]}
-	if hover.pos.Sub(end.pos).Len() > railFinishReach || hover.joint != nil || hover.track != nil {
+	if hover.pos.Sub(end.pos).Len() > railFinishReach || hover.joint != nil || hover.track != nil || hover.edge {
 		points = append(points, hover.pos)
 		end = hover
 	}

@@ -55,7 +55,7 @@ func (e *Editor) startRailTool(style world.RailStyle) {
 	}
 	e.railTool = railTool{style: style}
 	e.syncToolButtons()
-	e.setToast("Click to lay track; finish on a joint or another track, or click the last point again. At the map's edge it comes in from beyond.")
+	e.setToast("Click to lay track; finish on a joint or another track, at the map's edge (click off the map), or click the last point again.")
 }
 
 // updateRailTools runs a frame of the railway tools: the ghosts, clicks
@@ -65,8 +65,11 @@ func (e *Editor) updateRailTools(inp *engine.Input, overChrome bool) bool {
 	env := e.railEnv()
 	switch e.activeTool {
 	case toolRail:
+		if !overChrome {
+			env.offMap(inp.MousePos) // off the map: at its edge
+		}
 		env.updateGhost()
-		if inp.LeftClick && !inp.LeftClickConsumed && e.hoverValid && !overChrome {
+		if inp.LeftClick && !inp.LeftClickConsumed && env.hoverValid && !overChrome {
 			env.click(env.hover)
 			inp.LeftClickConsumed = true
 		}
