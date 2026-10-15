@@ -1,7 +1,7 @@
 ---
 title: Skier Collisions
 kind: plan
-status: in progress
+status: done
 ---
 
 # Skier Collisions
@@ -56,8 +56,8 @@ Read on 2026-10-14:
 1. Done: **Count contact as it is today.** `sim/contacts.go` counts contacts with no consequences, printed by `tools/days` each day and by headless testbeds; new testbed **Trail merge, intermediate and advanced skiers**. Findings below.
 2. Done: **Consequences.** A contact closing faster than a body's `collideAt` (3 m/s for a novice up to 8 for an expert) knocks that body down; slower, from 1 m/s, it costs balance (up to 0.5). Group members don't collide, and slow contacts near a lift's base or top cost nothing. The hitter falls forward, the one hit is thrown along the impact; injury rolls grow with closing speed (1.5× for the one hit). Thoughts "someone crashed into me!", "I ran into someone", and "that was close" for the one brushed past at 2 m/s or more. Every fall records its cause (`world.FallCause`, saved). Boreal Goals Test, Dec 4, seeds 1–3: 28–39 knocked down against 511–579 falls (5.5–7%), 2–4 hurt.
 3. *Not needed for the target (step 2 lands at 5.5–7%).* **Imperfect avoidance.** Forward cone and reaction time by skill. Measure collisions per 1,000 skier-runs on Boreal and the testbed before and after. The aim is for collisions to cluster at merges and on crowded runs and to be rare on an empty one. Target (the user, 2026-10-14): on a busy Boreal day, collisions are about 5–10% of falls, and a quiet run sees almost none.
-4. **Readable.** Collision markers on the falls overlay, falls by cause in the trail popup and History, "Collided with" in the guest popup. Check with screenshots on Boreal at a merge.
-5. **Tune by eye** in the running build: contact radius, brush threshold, injury chances, cone, reaction times.
+4. *Left over (collisions called done, 2026-10-15).* **Readable.** Collision markers on the falls overlay, falls by cause in the trail popup and History, "Collided with" in the guest popup. Check with screenshots on Boreal at a merge.
+5. *Left over.* **Tune by eye** in the running build: contact radius, brush threshold, injury chances, cone, reaction times.
 
 ## Step 1 findings
 
@@ -93,3 +93,4 @@ The user, 2026-10-14:
 - 2026-10-14: Planned with the user; step 1 built and measured (findings above). The merge testbed turned up three bugs, filed in [[Bugs]].
 - 2026-10-14: Step 2 built. The user: get to 5–10% of falls, ideally by better skiing, else by easing slow contacts, some areas, and skilled skiers. Skill-scaled knockdown speed, no collisions within a group, and no cost for slow contacts at stations put it at 5.5–7% on Boreal with today's steering; better avoidance (skiers anticipating others' motion) is the next lever if the user wants fewer.
 - 2026-10-15: Knockdown speeds raised to 5–12 m/s closing (from 3–8) when skiing physics sped guests up ([[Skiing]]: edges no longer brake a traverse); collisions back to 6–10% of falls on Boreal.
+- 2026-10-15: Called done by the user. Steps 4 (readable: markers, falls by cause in the popups and History, "Collided with") and 5 (tuning by eye) left over; falls already record their cause (`world.FallCause`), nothing shows it yet.

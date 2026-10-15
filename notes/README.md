@@ -18,6 +18,8 @@ Link cards with wikilinks (`[[Hunger]]`). The graph is built from those links, s
 
 Planned work goes in [[Next Steps]], the ordered list of everything to do. It holds new features only; known bugs are in [[Bugs]], what's left over on a built feature is in that feature's note, and what changed goes in the [[Changelog]], a line a day. A step that needs a design gets its own `plan` note in `next/` (for example [[Stored Trees]]); the system card links to it and keeps describing how things work today.
 
+Update the notes in the same change as the work, not afterwards. When a step ships, or the user calls a feature done, set the plan note's `status`, mark its steps done or left over, and add a `## Log` line; take it off [[Next Steps]] (Priority especially) or rewrite its line there; add the sentence to today's [[Changelog]] line. When the code comes to work differently from what a note says it built, fix the note. A stale Priority entry (Skier Collisions, still first and "in progress" after it was done) is what this rule is for.
+
 When a planned card gets built, keep it short and point at the spec. Detailed behavior that the code already implements belongs in the matching spec in `specs/`.
 
 ## Map

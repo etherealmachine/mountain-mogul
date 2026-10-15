@@ -11,7 +11,6 @@ New features only, a line each, to say yes or no to. A feature big enough to nee
 
 ## Priority
 
-1. [[Skier Collisions]] (steps 1–2 built; step 4, readable, next): skiers who fail to avoid each other collide and fall, sometimes hurt; more when fast, unskilled or crowded, so merges and crowded runs show up as a problem ([[Skiing]]).
 
 ## Lifts
 
