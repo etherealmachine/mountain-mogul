@@ -79,9 +79,10 @@ func railFrame(l *world.RailLine, i int) (pos mgl32.Vec3, along, across mgl32.Ve
 	return mgl32.Vec3{s.Pos[0], s.Y, s.Pos[1]}, along, across
 }
 
-// railLineMesh builds line l's mesh: tint multiplies every colour (white
-// for the built line, a placement tint for the ghost).
-func railLineMesh(l *world.RailLine, t *world.Terrain, tint [3]float32) *Mesh {
+// railLineMesh builds line l's mesh, with overhead wire if wired: tint
+// multiplies every colour (white for built track, a placement tint for
+// the ghost).
+func railLineMesh(l *world.RailLine, wired bool, t *world.Terrain, tint [3]float32) *Mesh {
 	tr := l.Track
 	if len(tr) < 2 {
 		return nil
@@ -89,7 +90,6 @@ func railLineMesh(l *world.RailLine, t *world.Terrain, tint [3]float32) *Mesh {
 	col := func(c [3]float32) [3]float32 { return [3]float32{c[0] * tint[0], c[1] * tint[1], c[2] * tint[2]} }
 	up := mgl32.Vec3{0, 1, 0}
 	var b meshBuilder
-	spec := l.Style.Spec()
 	// Ballast and rails: strips along the track.
 	open := func(i int) bool { return !tr[i].Tunnel && !tr[i+1].Tunnel }
 	strip := func(off, half, h float32, c [3]float32) {
@@ -137,19 +137,8 @@ func railLineMesh(l *world.RailLine, t *world.Terrain, tint [3]float32) *Mesh {
 	for _, s := range [2]float32{-0.75, 0.75} {
 		strip(s, 0.04, 0, railCol)
 	}
-	// The platform: along the last PlatformLength metres, on the left.
-	platLen := spec.PlatformLength()
-	start := l.Length() - platLen
-	for d := max(start, 0); d < l.Length(); d += world.RailSampleStep {
-		pos, y, _, _ := l.At(d)
-		i := min(int(d/world.RailSampleStep), len(tr)-1)
-		_, along, across := railFrame(l, i)
-		c := mgl32.Vec3{pos[0], y, pos[1]}.Add(across.Mul(3.45))
-		b.box(c.Add(up.Mul(-0.6)), across, up, along, 1.75, 1.15, world.RailSampleStep/2+0.02, col(platformCol))
-		b.box(c.Add(across.Mul(-1.6)).Add(up.Mul(0.56)), across, up, along, 0.15, 0.01, world.RailSampleStep/2+0.02, col(edgeCol))
-	}
 	// Masts and the wire for an electric or high-speed line.
-	if spec.Wired {
+	if wired {
 		const mastEvery, wireH, mastOff = 45.0, 5.6, 3.3
 		for d := float32(10); d < l.Length(); d += mastEvery {
 			if l.InTunnel(d) {
@@ -193,16 +182,48 @@ func tunnelDashes(b *meshBuilder, l *world.RailLine, t *world.Terrain, col func(
 	}
 }
 
-// stationTransform places a line's station house beside its platform.
-func stationTransform(l *world.RailLine) mgl32.Mat4 {
-	pos, y, heading := l.Station()
+// stationsMesh is every station's platform: beside its track, as long as
+// its network's train, with a yellow edge.
+func stationsMesh(w *world.World) *Mesh {
+	_, of := w.RailNetworks()
+	var b meshBuilder
+	up := mgl32.Vec3{0, 1, 0}
+	for _, st := range w.RailStations {
+		tr := w.RailTrackByID(st.TrackID)
+		if tr == nil || len(tr.Track) < 2 {
+			continue
+		}
+		half := of[tr.ID].Train.Spec().PlatformLength() / 2
+		for d := max(st.Dist-half, 0); d < min(st.Dist+half, tr.Length()); d += world.RailSampleStep {
+			pos, y, _, _ := tr.At(d)
+			i := min(int(d/world.RailSampleStep), len(tr.Track)-1)
+			_, along, across := railFrame(&tr.RailLine, i)
+			side := across.Mul(st.Side)
+			c := mgl32.Vec3{pos[0], y, pos[1]}.Add(side.Mul(world.StationPlatformSide))
+			b.box(c.Add(up.Mul(-0.6)), across, up, along, 1.75, 1.15, world.RailSampleStep/2+0.02, platformCol)
+			b.box(c.Sub(side.Mul(1.6)).Add(up.Mul(0.56)), across, up, along, 0.15, 0.01, world.RailSampleStep/2+0.02, edgeCol)
+		}
+	}
+	return b.mesh()
+}
+
+// StationTransform places station st's house beside its platform's
+// middle; ok false if it's off any track.
+func StationTransform(w *world.World, st *world.RailStation) (mgl32.Mat4, bool) {
+	pos, y, heading, side, ok := w.StationFrame(st)
+	if !ok {
+		return mgl32.Mat4{}, false
+	}
 	s, c := float32(math.Sin(float64(heading))), float32(math.Cos(float64(heading)))
 	along := mgl32.Vec2{s, c}
-	left := mgl32.Vec2{c, -s}
-	at := pos.Add(left.Mul(3.45 + 1.75 + 5.6))
-	// Model +X along the track; HomogRotate3DY(θ) takes +X to (cos θ, -sin θ).
+	at := pos.Add(side.Mul(world.StationPlatformSide + 1.75 + 5.6))
+	// Model +X along the track, its front (-Z) toward the platform:
+	// HomogRotate3DY(θ) takes +X to (cos θ, -sin θ).
 	rot := float32(math.Atan2(-float64(along[1]), float64(along[0])))
-	return mgl32.Translate3D(at[0], y-0.6, at[1]).Mul4(mgl32.HomogRotate3DY(rot))
+	if st.Side < 0 {
+		rot += math.Pi
+	}
+	return mgl32.Translate3D(at[0], y-0.6, at[1]).Mul4(mgl32.HomogRotate3DY(rot)), true
 }
 
 // portalTransform places a tunnel portal: its face at the mouth, facing

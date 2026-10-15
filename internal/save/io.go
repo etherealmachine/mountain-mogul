@@ -676,7 +676,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		Trails:       trails,
 		Footpaths:    footpaths,
 		Ropes:        ropes,
-		Rails:        railsToData(w),
+		Railway:      railwayToData(w),
 		Guests:       guests,
 		Snowcats:     snowcats,
 		Snowmobiles:  snowmobiles,
@@ -1422,21 +1422,7 @@ func dataToWorld(data ScenarioData) *world.World {
 			}
 		}
 	}()
-	for _, rd := range data.Rails {
-		l := &world.RailLine{ID: rd.ID, Style: world.RailStyle(rd.Style), StationID: rd.Station, Interval: rd.Interval}
-		if l.Interval <= 0 {
-			l.Interval = world.DefaultRailInterval
-		}
-		for _, n := range rd.Nodes {
-			l.Nodes = append(l.Nodes, mgl32.Vec2{n[0], n[1]})
-		}
-		if len(l.Nodes) >= 2 {
-			w.SetMinNextID(l.ID)
-			l.LayOut(w.Terrain)
-			l.SetProfile(rd.Heights, rd.Tunnels)
-			w.RailLines = append(w.RailLines, l)
-		}
-	}
+	railwayFromData(w, data.Railway)
 
 	// Validate parking driveways now that road nodes are in place.
 	// EnsureParkingDriveway is idempotent — a parking lot whose
@@ -2010,24 +1996,70 @@ func kidAge(gd GuestData) uint8 {
 	return gd.Age
 }
 
-// railsToData is the world's railways for saving.
-func railsToData(w *world.World) []RailData {
-	var out []RailData
-	for _, l := range w.RailLines {
-		d := RailData{ID: l.ID, Style: uint8(l.Style), Station: l.StationID, Interval: l.Interval}
-		for i, s := range l.Track {
-			d.Heights = append(d.Heights, s.Y)
-			if s.Tunnel && (i == 0 || !l.Track[i-1].Tunnel) {
-				d.Tunnels = append(d.Tunnels, [2]int{i, i})
-			}
-			if s.Tunnel {
-				d.Tunnels[len(d.Tunnels)-1][1] = i
-			}
-		}
-		for _, n := range l.Nodes {
-			d.Nodes = append(d.Nodes, [2]float32{n[0], n[1]})
-		}
-		out = append(out, d)
+// railwayToData is the world's railway for saving.
+func railwayToData(w *world.World) *RailwayData {
+	if len(w.RailTracks) == 0 && len(w.RailStations) == 0 {
+		return nil
 	}
-	return out
+	d := &RailwayData{}
+	for _, tr := range w.RailTracks {
+		td := RailTrackData{ID: tr.ID, Style: uint8(tr.Style), Ends: tr.Ends}
+		td.Heights, td.Tunnels = tr.TrackProfile()
+		for _, p := range tr.Points {
+			td.Points = append(td.Points, [2]float32{p[0], p[1]})
+		}
+		d.Tracks = append(d.Tracks, td)
+	}
+	for _, j := range w.RailJoints {
+		d.Joints = append(d.Joints, RailJointData{ID: j.ID, X: j.Pos[0], Z: j.Pos[1], Y: j.Y, Entry: j.Entry})
+	}
+	for _, st := range w.RailStations {
+		d.Stations = append(d.Stations, RailStationData{ID: st.ID, X: st.Pos[0], Z: st.Pos[1], Side: st.Side, Interval: st.Interval})
+	}
+	return d
+}
+
+// railwayFromData puts a saved railway back: joints, then tracks (their
+// saved profiles, or laid out afresh), then stations, whose buildings are
+// already loaded; a station building with no station (an old save's) goes.
+func railwayFromData(w *world.World, d *RailwayData) {
+	if d != nil {
+		for _, jd := range d.Joints {
+			w.SetMinNextID(jd.ID)
+			w.RailJoints = append(w.RailJoints, &world.RailJoint{ID: jd.ID, Pos: mgl32.Vec2{jd.X, jd.Z}, Y: jd.Y, Entry: jd.Entry})
+		}
+		for _, td := range d.Tracks {
+			tr := &world.RailTrack{ID: td.ID, Style: world.RailStyle(td.Style), Ends: td.Ends}
+			for _, p := range td.Points {
+				tr.Points = append(tr.Points, mgl32.Vec2{p[0], p[1]})
+			}
+			if len(tr.Points) < 2 || w.RailJointByID(td.Ends[0]) == nil || w.RailJointByID(td.Ends[1]) == nil {
+				continue
+			}
+			w.SetMinNextID(tr.ID)
+			if !tr.SetTrackProfile(td.Heights, td.Tunnels) {
+				w.LayOutTrack(tr)
+			}
+			w.RailTracks = append(w.RailTracks, tr)
+		}
+		for _, sd := range d.Stations {
+			st := &world.RailStation{ID: sd.ID, Pos: mgl32.Vec2{sd.X, sd.Z}, Side: sd.Side, Interval: sd.Interval}
+			if st.Interval <= 0 {
+				st.Interval = world.DefaultRailInterval
+			}
+			if st.Side == 0 {
+				st.Side = 1
+			}
+			w.RailStations = append(w.RailStations, st)
+		}
+	}
+	kept := w.Buildings[:0]
+	for _, b := range w.Buildings {
+		if b.Type != world.BuildingStation || w.RailStationByID(b.ID) != nil {
+			kept = append(kept, b)
+		}
+	}
+	w.Buildings = kept
+	w.PlaceStations()
+	w.RailRev++
 }

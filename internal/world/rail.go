@@ -1,17 +1,15 @@
 package world
 
 import (
-	"math"
-
 	"github.com/go-gl/mathgl/mgl32"
 )
 
-// Rail lines (notes/next/Trains and Tunnels.md): a line from the map's
-// edge to a station, in one of three styles that differ in cost, speed
-// and how many they carry. The player lays it point by point like a
-// road; it's smoothed into a curve, held to its style's grade limit by
-// cutting and filling the ground, and ends at a platform as long as its
-// train.
+// Railways (notes/next/Rail Network.md): track laid by the player,
+// joined at joints into a network that comes in from the map's edge at
+// entries (rail_track.go), each stretch in one of three styles that differ
+// in cost, speed and how many their trains carry. This file has the
+// styles, a laid-out line's samples (RailLine, also a funicular's track),
+// grading and plowing.
 
 // RailStyle is a line's kind of train.
 type RailStyle uint8
@@ -70,53 +68,14 @@ func (r *RailSpec) TrainLength() float32 {
 // some to spare.
 func (r *RailSpec) PlatformLength() float32 { return r.TrainLength() + 10 }
 
-// RailLine is one line.
+// RailLine is a laid-out line: its samples every RailSampleStep, with
+// the rail's height and its tunnels. A track's (RailTrack) and a
+// funicular's (FunicularTrack).
 type RailLine struct {
-	ID    uint64
-	Style RailStyle
-	// Nodes is the points it was laid through, from the map edge to the
-	// station's far end.
-	Nodes []mgl32.Vec2
-
-	// StationID is its station's building (BuildingStation), where its
-	// guests arrive and leave; Interval the clock minutes between trains.
-	StationID uint64
-	Interval  float32
-
-	// Track is the laid-out line (LayOut): every RailSampleStep along
-	// it, with the track's height. Not saved.
 	Track []RailSample
-	// Train is its train, and Bound the guests booked on the next one
-	// in (sim/trains.go). Not saved.
-	Train Train
-	Bound [][]*Guest
-	// NoPlatform is a funicular's track (funicular.go): no station or
-	// platform drawn at its end.
-	NoPlatform bool
 }
 
-// Train is a line's one train: away off the map, coming in, standing at
-// the platform, or going out again; Front is how far along the line its
-// front is, metres, and Speed its speed.
-type Train struct {
-	State      TrainState
-	Front      float32
-	Speed      float32
-	DwellUntil float64 // sim time it leaves the platform
-	NextAt     float64 // sim time the next one sets off for the resort
-}
-
-// TrainState is where a line's train is.
-type TrainState uint8
-
-const (
-	TrainAway TrainState = iota
-	TrainInbound
-	TrainDwelling
-	TrainOutbound
-)
-
-// DefaultRailInterval is a new line's clock minutes between trains.
+// DefaultRailInterval is a new station's clock minutes between trains.
 const DefaultRailInterval = 60
 
 // RailSample is a point on a line's track.
@@ -152,77 +111,10 @@ func (l *RailLine) Length() float32 {
 	return l.Track[len(l.Track)-1].Dist
 }
 
-// RailLineCost is what laying line l (laid out) costs: its track, its
-// tunnels, and its station.
-func RailLineCost(l *RailLine) int {
-	s := l.Style.Spec()
-	var track, tunnel float32
-	for i := 1; i < len(l.Track); i++ {
-		d := l.Track[i].Dist - l.Track[i-1].Dist
-		if l.Track[i].Tunnel {
-			tunnel += d
-		} else {
-			track += d
-		}
-	}
-	return int(track)*s.CostPerM + int(tunnel)*TunnelCostPerM + s.StationCost
-}
-
-// LayOut smooths the line through its nodes and works out the track's
-// height: as near the ground as its grade limit allows, level along the
-// platform at the station end.
-func (l *RailLine) LayOut(t *Terrain) {
-	l.Track = l.Track[:0]
-	if len(l.Nodes) < 2 {
-		return
-	}
-	nodes := make([]TrailNode, len(l.Nodes))
-	for i, p := range l.Nodes {
-		nodes[i] = TrailNode{Pos: p}
-	}
-	curve := smoothLine(nodes)
-	pts := make([]mgl32.Vec2, len(curve))
-	for i, c := range curve {
-		pts[i] = c.Pos
-	}
-	l.Track = sampleLine(pts)
-	n := len(l.Track)
-	g := make([]float32, n)
-	for i, s := range l.Track {
-		g[i] = t.InterpolatedGroundElevationAt(s.Pos[0], s.Pos[1]) + RailBallast
-	}
-	// The platform: the last PlatformLength metres level, at their
-	// ground's average.
-	spec := l.Style.Spec()
-	plat := 0
-	var platY float32
-	for i := n - 1; i >= 0 && l.Track[n-1].Dist-l.Track[i].Dist <= spec.PlatformLength(); i-- {
-		plat++
-		platY += g[i]
-	}
-	platY /= float32(max(plat, 1))
-	for i := n - plat; i < n; i++ {
-		g[i] = platY
-	}
-	holdGrade(g, func(i int) bool { return i >= n-plat }, spec.MaxGrade*RailSampleStep)
-	for i := range l.Track {
-		l.Track[i].Y = g[i]
-	}
-	l.markTunnels(t)
-}
-
 // At is where the track is d metres along the line: its position, height
 // and heading (as Guest.Heading) and pitch (radians, up positive).
 func (l *RailLine) At(d float32) (pos mgl32.Vec2, y, heading, pitch float32) {
 	return trackAt(l.Track, d)
-}
-
-// Station is the line's station: the middle of its platform, its
-// heading along the track, and its height.
-func (l *RailLine) Station() (pos mgl32.Vec2, y, heading float32) {
-	d := l.Length() - l.Style.Spec().PlatformLength()/2
-	pos, y, heading, _ = l.At(d)
-	return
 }
 
 // GradeRailBed cuts and fills the ground under line l to its track: the
@@ -241,21 +133,6 @@ func (p *GroundPatch) index(w mgl32.Vec2) (int, int) {
 		return int(w[0]/p.Spacing+0.5) - p.I0, int(w[1]/p.Spacing+0.5) - p.J0
 	}
 	return int(w[0]/CellSize) - p.I0, int(w[1]/CellSize) - p.J0
-}
-
-// PlaceRailLine lays a new line of style through nodes: laid out, the
-// ground graded under it.
-func (w *World) PlaceRailLine(style RailStyle, nodes []mgl32.Vec2) *RailLine {
-	l := &RailLine{ID: w.NextID(), Style: style, Nodes: append([]mgl32.Vec2(nil), nodes...), Interval: DefaultRailInterval}
-	l.LayOut(w.Terrain)
-	w.Terrain.GradeRailBed(l)
-	w.Terrain.RecomputeSlopes()
-	w.RailLines = append(w.RailLines, l)
-	w.PlowRails()
-	st := &Building{ID: w.NextID(), Type: BuildingStation, Pos: l.PlatformSpot()}
-	w.Buildings = append(w.Buildings, st)
-	l.StationID = st.ID
-	return l
 }
 
 // NearMapEdge reports whether p is within RailEdgeReach of the map's
@@ -278,8 +155,8 @@ const (
 // funicular's: run when it's built and after each day's snow, as a plow
 // train would.
 func (w *World) PlowRails() {
-	for _, l := range w.RailLines {
-		w.plowLine(l)
+	for _, tr := range w.RailTracks {
+		w.plowLine(&tr.RailLine)
 	}
 	for _, l := range w.Lifts {
 		if tr := l.FunicularTrack(w.Terrain); tr != nil {
@@ -332,29 +209,5 @@ func (w *World) plowLine(l *RailLine) {
 	}
 }
 
-// PlatformSpot is where on line l's platform guests get off and wait:
-// its middle, on the platform beside the track.
-func (l *RailLine) PlatformSpot() mgl32.Vec2 {
-	pos, _, heading := l.Station()
-	s, c := float32(math.Sin(float64(heading))), float32(math.Cos(float64(heading)))
-	return pos.Add(mgl32.Vec2{c, -s}.Mul(3.45))
-}
-
-// RailLineByStation is the line whose station is building id.
-func (w *World) RailLineByStation(id uint64) *RailLine {
-	for _, l := range w.RailLines {
-		if l.StationID == id {
-			return l
-		}
-	}
-	return nil
-}
-
 // AddTrainCost charges a train's trip to the day's costs.
 func (w *World) AddTrainCost(c int) { w.TrainsToday += float64(c) }
-
-// SetProfile puts back a saved line's track heights and tunnel spans
-// (sample indices) over its laid-out curve; ignored if they don't fit.
-func (l *RailLine) SetProfile(heights []float32, tunnels [][2]int) {
-	setProfile(l.Track, heights, tunnels)
-}

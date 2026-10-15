@@ -8,10 +8,9 @@ import (
 	"mountain-mogul/internal/world"
 )
 
-// Trains drawn (world.RailLine.Train): each line's train, while it's on
-// the map, as its engine and coaches along the track, pitched with the
-// grade, the engine leading whichever way it's going (a high-speed set
-// has a power car at each end). Not in the demo (trains_demo.go).
+// Trains drawn (world.Train): each train on its way, while it's on the
+// map, as its engine and coaches along its route, pitched with the grade,
+// the engine leading (a high-speed set has a power car at each end). Not in the demo (trains_demo.go).
 
 type trainDrawing struct {
 	trainBatches map[string]*Batch
@@ -43,11 +42,8 @@ func drawTrains(r *Renderer, w *world.World) {
 	for k := range r.trainInsts {
 		r.trainInsts[k] = r.trainInsts[k][:0]
 	}
-	for _, l := range w.RailLines {
-		if l.Train.State == world.TrainAway || len(l.Track) < 2 {
-			continue
-		}
-		spec := l.Style.Spec()
+	for _, tr := range w.Trains {
+		spec := tr.Style.Spec()
 		// The cars from the leading end back: engine, coaches, and a
 		// second power car at a high-speed set's tail.
 		type car struct {
@@ -62,28 +58,19 @@ func drawTrains(r *Renderer, w *world.World) {
 		if spec.BothEnds {
 			cars = append(cars, car{spec.Engine, spec.EngineLen, true})
 		}
-		// Inbound the train runs toward the station (along the line),
-		// trailing back toward the edge; outbound it runs back, trailing
-		// toward the station.
-		dir := float32(-1)
-		if l.Train.State == world.TrainOutbound {
-			dir = 1
-		}
-		at := l.Train.Front
+		// Running along its route, trailing back along it.
+		at := tr.Front
 		for _, c := range cars {
-			mid := at + dir*c.len/2
-			at += dir * c.len
-			if mid < 0 || mid > l.Length() || l.InTunnel(mid) {
-				continue // still off the map, past the buffers, or in a tunnel
+			mid := at - c.len/2
+			at -= c.len
+			if mid < 0 || mid > tr.Route.Length {
+				continue // beyond the map
 			}
-			pos, y, heading, pitch := l.At(mid)
-			// Facing back along the line when running out (and a tail
-			// power car the other way).
-			back := dir > 0
+			pos, y, heading, pitch, tunnel := tr.Route.At(mid)
+			if tunnel {
+				continue
+			}
 			if c.flip {
-				back = !back
-			}
-			if back {
 				heading += math.Pi
 				pitch = -pitch
 			}

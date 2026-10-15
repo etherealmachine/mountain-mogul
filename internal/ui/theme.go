@@ -158,3 +158,32 @@ func DrawClosedSign(r *render.Renderer, cx, cy, radius float32) {
 	a := (radius - t) * 0.72
 	r.DrawColorLine(cx-a, cy-a, cx+a, cy+a, t, red)
 }
+
+// DrawWarningSign draws a warning sign centred at (cx, cy): a yellow
+// triangle, black-edged, with an exclamation mark (a railway's
+// unelectrified track, notes/next/Rail Network.md).
+func DrawWarningSign(r *render.Renderer, cx, cy, radius float32) {
+	tri := func(rad float32, col mgl32.Vec4, dx, dy float32) {
+		h := rad * 0.866
+		r.DrawColorTriangle(cx+dx, cy-rad+dy, cx+h+dx, cy+rad/2+dy, cx-h+dx, cy+rad/2+dy, col)
+	}
+	tri(radius+2, mgl32.Vec4{0, 0, 0, 0.3}, 1, 2)
+	tri(radius+1.5, mgl32.Vec4{0.08, 0.08, 0.08, 1}, 0, 0)
+	tri(radius-1, mgl32.Vec4{1, 0.82, 0.12, 1}, 0, 0)
+	t := radius * 0.16
+	r.DrawColorLine(cx, cy-radius*0.45, cx, cy+radius*0.05, t, mgl32.Vec4{0.08, 0.08, 0.08, 1})
+	r.DrawColorDisc(cx, cy+radius*0.27, t*0.6, mgl32.Vec4{0.08, 0.08, 0.08, 1})
+}
+
+// DrawSpeedSign draws a speed-limit sign centred at (cx, cy): a white
+// disc in a red ring with the limit in it (a railway's slower track).
+func DrawSpeedSign(r *render.Renderer, cx, cy, radius float32, limit string) {
+	red := mgl32.Vec4{0.86, 0.16, 0.14, 1}
+	r.DrawColorDisc(cx+1, cy+2, radius+1, mgl32.Vec4{0, 0, 0, 0.3})
+	r.DrawColorDisc(cx, cy, radius, mgl32.Vec4{1, 1, 1, 0.97})
+	r.DrawRing(cx, cy, radius, radius*0.2, red)
+	if r.Font != nil {
+		_, h := r.Font.CharSize()
+		r.Font.DrawText(r, limit, cx-r.Font.TextWidth(limit)/2, cy-float32(h)/2, mgl32.Vec4{0.08, 0.08, 0.08, 1})
+	}
+}

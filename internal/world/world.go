@@ -143,10 +143,17 @@ type World struct {
 	// Ropes are rope lines guests try not to cross (rope.go); RopesRev
 	// moves on every change, for the renderer.
 	Ropes []*Rope
-	// RailLines is the railways (rail.go).
-	RailLines []*RailLine
-	RopesRev  int
-	ropes     ropeIndex
+	// RailTracks and RailJoints are the railways' track and where it
+	// joins and enters the map (rail_track.go); RailRev counts changes.
+	RailTracks []*RailTrack
+	RailJoints []*RailJoint
+	RailRev    int
+	// RailStations is the stations (rail_trains.go), each also a
+	// BuildingStation; Trains the trains on their way (not saved).
+	RailStations []*RailStation
+	Trains       []*Train
+	RopesRev     int
+	ropes        ropeIndex
 
 	// TrailGraph is the derived connectivity graph built from trail cell data.
 	// Rebuilt by RebuildTrailGraph whenever trails are added, removed, or edited.
@@ -641,6 +648,7 @@ func (w *World) PlaceBuildingType(typ BuildingType, x, z float32) *Building {
 func (w *World) ClearBuilt() {
 	w.Buildings, w.Lifts = nil, nil
 	w.RoadNodes, w.RoadEdges = nil, nil
+	w.RailTracks, w.RailJoints, w.RailStations, w.Trains = nil, nil, nil, nil
 	w.Snowcats, w.Patrollers = nil, nil
 	for x := range w.Terrain.Cells {
 		for z := range w.Terrain.Cells[x] {
@@ -658,6 +666,10 @@ func (w *World) ClearBuilt() {
 func (w *World) RemoveBuilding(id uint64) {
 	for i, b := range w.Buildings {
 		if b.ID == id {
+			if b.Type == BuildingStation {
+				w.RemoveStation(id) // and its railway station
+				return
+			}
 			if b.Type == BuildingSkiRack {
 				w.dropRackSkis(b.ID)
 			}

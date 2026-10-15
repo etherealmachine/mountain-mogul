@@ -118,3 +118,4 @@ None are in the demo. The station waits for step 2, where its platform's length 
 - 2026-10-14: Rail tunnels built (step 4's rail half); roads and footpaths need profiles first.
 - 2026-10-14: Step 5 built (the funicular: the lift type, its straight graded track with a passing loop, stepped platforms, pitched cars, tunnels). The car model restepped for 20° after the first look had its compartments hanging through the chassis.
 - 2026-10-14: Balance moved to [[Economy Balance]] (the user: its own QA pass). Road and footpath tunnels built, on profiles held to a grade and graded into the ground; plan done.
+- 2026-10-14: The one-line railways and their tool replaced by [[Rail Network]].

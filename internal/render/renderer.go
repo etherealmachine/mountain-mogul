@@ -912,15 +912,15 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 
 	// Railway stations.
 	if b, ok := r.staticBatches[MeshRailStation]; ok {
-		for _, l := range w.RailLines {
-			if len(l.Track) >= 2 {
-				b.AddStatic(stationTransform(l), mgl32.Vec3{1, 1, 1})
+		for _, st := range w.RailStations {
+			if m, ok := StationTransform(w, st); ok {
+				b.AddStatic(m, mgl32.Vec3{1, 1, 1})
 			}
 		}
 	}
 	if b, ok := r.staticBatches[MeshPortalRail]; ok {
-		for _, l := range w.RailLines {
-			for _, p := range l.Portals() {
+		for _, tr := range w.RailTracks {
+			for _, p := range tr.Portals() {
 				b.AddStatic(portalTransform(p), mgl32.Vec3{1, 1, 1})
 			}
 		}
@@ -956,6 +956,12 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 				continue
 			}
 			connectBatch.AddStatic(RoadConnectTransform(n.Pos, w.Terrain), mgl32.Vec3{1, 1, 1})
+		}
+		// The railway's entries too.
+		for _, j := range w.RailJoints {
+			if j.Entry {
+				connectBatch.AddStatic(RoadConnectTransform(j.Pos, w.Terrain), mgl32.Vec3{1, 1, 1})
+			}
 		}
 	}
 

@@ -455,6 +455,7 @@ const (
 	toolRail         toolMode = iota // lay a railway point by point (rail_tool.go)
 	toolSkiRack      toolMode = iota // place a ski rack
 	toolRope         toolMode = iota // string rope lines pole by pole
+	toolStation      toolMode = iota // put a railway station beside a track (rail_tool.go)
 )
 
 // Scenario is the main gameplay scene.
@@ -552,6 +553,7 @@ type Scenario struct {
 	runTool runTool
 	// railTool is the Rail tool's session (rail_tool.go).
 	railTool railTool
+	railEdit railEdit // the selected railway track, with no tool (rail_tool.go)
 	// pathTool is the footpath tool's session while toolFootpath is
 	// active (footpath_tool.go).
 	pathTool pathTool
@@ -980,6 +982,8 @@ func (s *Scenario) Init(app *engine.App) error {
 			b := s.transportSubmenu.AddChild(render.IconTrain, spec.Label, func() { s.startRailTool(st) })
 			b.Price = fmt.Sprintf("$%d/m", spec.CostPerM)
 		}
+		s.toolButtons[toolStation] = s.transportSubmenu.AddChild(render.IconTrain, "Station", func() { s.setTool(toolStation) })
+		s.toolButtons[toolStation].Price = settings.FormatDollarsShort(world.RailSteam.Spec().StationCost) + "+"
 	}
 	s.toolButtons[toolSkiRack] = s.transportSubmenu.AddChild(render.IconSki, "Ski Rack", func() { s.setTool(toolSkiRack) })
 	s.toolButtons[toolSkiRack].Image = thumb(render.ThumbSkiRack)
@@ -1550,7 +1554,7 @@ func (s *Scenario) Update(dt float64) {
 			s.runTool.drawing, s.runTool.nodes = false, nil // drop the run, keep the tool
 		case s.activeTool == toolFootpath && s.pathTool.drawing():
 			s.pathTool.nodes = nil // drop the path, keep the tool
-		case s.activeTool == toolRail && len(s.railTool.nodes) > 0:
+		case s.activeTool == toolRail && len(s.railTool.points) > 0:
 			s.railTool = railTool{style: s.railTool.style} // drop the line, keep the tool
 			s.app.Renderer.SetRailGhost(nil, nil, [3]float32{})
 		case s.activeTool == toolRope && s.ropeTool.drawing():
@@ -1824,6 +1828,11 @@ func (s *Scenario) Update(dt float64) {
 	// World click / drag — glade supports held-down; placement tools use click-only.
 	screenW := float32(r.ScreenWidth())
 	s.editSelectedTrail(r, inp, typing)
+	// The selected railway track's handles come before anything under
+	// them (rail_tool.go).
+	if s.activeTool == toolNone && s.hoverValid && !s.uiCovers(inp.MousePos[0], inp.MousePos[1], screenW) {
+		s.railEditInput(r, inp)
+	}
 	if !inp.LeftClickConsumed && inp.LeftClick && s.activeTool == toolNone && !s.uiCovers(inp.MousePos[0], inp.MousePos[1], screenW) {
 		// Skier pick takes priority over toolNone-level edits and popups.
 		if a := s.pickGuest(r.Camera, inp.MousePos); a != nil {
@@ -1853,6 +1862,11 @@ func (s *Scenario) Update(dt float64) {
 				// Let the existing popup flow still open for buildings
 				// and lifts — structure edit overlays drag-to-move and
 				// Delete on top of the informational popup.
+			} else if tr := s.trackAt(pos); tr != nil {
+				s.roadEdit.clear()
+				s.structureEdit.clear()
+				s.openTrackPopup(tr, r.ScreenWidth(), r.ScreenHeight())
+				inp.LeftClickConsumed = true
 			} else {
 				if s.roadEdit.active() {
 					s.roadEdit.clear()
@@ -1962,6 +1976,9 @@ func (s *Scenario) Update(dt float64) {
 	}
 	if s.activeTool == toolRail {
 		s.updateRailGhost(r)
+	}
+	if s.activeTool == toolStation {
+		s.updateStationGhost(r)
 	}
 	// The footpath tool: lay paths node by node (footpath_tool.go).
 	if s.activeTool == toolFootpath {
@@ -2560,6 +2577,8 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 	switch s.activeTool {
 	case toolRail:
 		s.railClick(r, wx, wz)
+	case toolStation:
+		s.stationClick(r, mgl32.Vec2{wx, wz})
 	case toolSkiRack:
 		if !w.Terrain.IsAccessible(gx, gz) {
 			s.setToast("Can't build on land you don't own")
@@ -2860,6 +2879,11 @@ func (s *Scenario) removeAt(clickPos mgl32.Vec3, r *render.Renderer) {
 			continue
 		}
 		if b.Pos.Sub(pick).Len() <= buildingPickRadius {
+			if b.Type == world.BuildingStation {
+				w.RemoveStation(b.ID)
+				r.RebuildStaticBatch(w)
+				return
+			}
 			// Parking lots own a driveway road node + possibly incident
 			// edges; RemoveBuilding drops both, so the road mesh has to
 			// be regenerated when one comes out.
@@ -2888,6 +2912,11 @@ func (s *Scenario) removeAt(clickPos mgl32.Vec3, r *render.Renderer) {
 	}
 	if f := w.FootpathAt(pick, 1); f != nil {
 		w.RemoveFootpath(f.ID) // no refund, like the other tools
+		return
+	}
+	if tr := s.trackAt(pick); tr != nil {
+		w.RemoveTrack(tr) // no refund, like the other tools; its stations go too
+		r.RebuildStaticBatch(w)
 	}
 }
 
@@ -2931,7 +2960,7 @@ func (s *Scenario) Render(r *render.Renderer) {
 	if s.eventPanel != nil {
 		s.eventPanel.Bottom = float32(r.ScreenHeight()) - s.toolBar.H
 	}
-	drawables := []render.UIDrawable{&fallenMarkers{world: s.world}, uiDrawFunc(s.drawClosedSigns), s.topBar, s.toolBar, s.overlayPanel, s.eventPanel}
+	drawables := []render.UIDrawable{&fallenMarkers{world: s.world}, uiDrawFunc(s.drawClosedSigns), uiDrawFunc(s.drawRailMarks), uiDrawFunc(s.drawRailHandles), s.topBar, s.toolBar, s.overlayPanel, s.eventPanel}
 
 	// Parcel price labels — shown when the land-buy tool is active so the
 	// player can see what each purchasable parcel costs before clicking.
@@ -3217,8 +3246,8 @@ func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 		s.buildParkingPopup(bldg, false, screenW, screenH)
 		return
 	case world.BuildingStation:
-		if l := s.world.RailLineByStation(bldg.ID); l != nil {
-			s.openStationPopup(l, screenW, screenH)
+		if st := s.world.RailStationByID(bldg.ID); st != nil {
+			s.openStationPopup(st, screenW, screenH)
 		}
 		return
 	case world.BuildingSkiRack:
@@ -4070,10 +4099,16 @@ func (s *Scenario) placementCost() (cost int, affordable, legal, valid bool) {
 		}
 		legal = cellOwned && liftLineProblem(s.world.Terrain, s.liftType, s.liftBase, pos) == ""
 	case toolRail:
-		if len(s.railTool.nodes) == 0 {
+		if len(s.railTool.points) == 0 {
 			return 0, false, true, false
 		}
 		cost = s.railCost()
+	case toolStation:
+		sp := s.stationSpotAt(pos)
+		if sp.st.TrackID == 0 {
+			return 0, false, true, false
+		}
+		cost, legal = sp.cost, sp.ok
 	case toolRoadStart:
 		cost = world.RoadBaseCost
 	case toolRoadEnd:

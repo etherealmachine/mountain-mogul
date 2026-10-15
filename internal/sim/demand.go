@@ -169,7 +169,7 @@ func (d *DemandSystem) maybePoll(s *Simulation) {
 	hasOffice := hasTicketOffice(s.World)
 	hasRentals := anyRentals(s.World)
 	parking := hasParking(s.World)
-	if !parking && len(s.World.RailLines) == 0 {
+	if !parking && !s.anyServedStation() {
 		return // no lots and no trains → no arrivals
 	}
 	winners := map[uint64][][]*world.Guest{} // groups, by home entry

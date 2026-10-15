@@ -60,7 +60,7 @@ func (l *Lift) FunicularTrack(t *Terrain) *RailLine {
 	if l.funicTrack != nil {
 		return l.funicTrack
 	}
-	tr := &RailLine{Style: RailSteam, Nodes: []mgl32.Vec2{l.Base, l.Top}, NoPlatform: true}
+	tr := &RailLine{}
 	span := l.Top.Sub(l.Base)
 	length := span.Len()
 	dir := span.Mul(1 / max(length, 1e-6))

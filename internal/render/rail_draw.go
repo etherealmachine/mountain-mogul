@@ -6,11 +6,11 @@ import (
 	"mountain-mogul/internal/world"
 )
 
-// Railways' meshes and their batches (rail_mesh.go): one per line, kept
-// until the line changes, and a placement ghost.
+// Railways' meshes and their batches (rail_mesh.go): one per track and
+// one of the stations' platforms, rebuilt when the railway changes
+// (World.RailRev), and a placement ghost.
 
 type railBatch struct {
-	key   [2]int // track samples and nodes it was built for
 	mesh  *Mesh
 	batch *Batch
 	// track is the funicular track it was built for (funicular.go).
@@ -20,6 +20,11 @@ type railBatch struct {
 type railDrawing struct {
 	rails     map[uint64]*railBatch
 	railGhost *railBatch
+	// stations is the platforms; railRev the World.RailRev they and
+	// rails were built for (railBuilt once they have been).
+	stations  *railBatch
+	railRev   int
+	railBuilt bool
 	// funics is the funiculars' tracks, by lift, and funicGhost one being
 	// placed.
 	funics     map[uint64]*railBatch
@@ -40,37 +45,35 @@ func (rb *railBatch) delete() {
 	}
 }
 
-func newRailBatch(r *Renderer, l *world.RailLine, t *world.Terrain, tint [3]float32) *railBatch {
-	m := railLineMesh(l, t, tint)
+func newRailBatch(r *Renderer, l *world.RailLine, wired bool, t *world.Terrain, tint [3]float32) *railBatch {
+	return meshBatch(r, railLineMesh(l, wired, t, tint))
+}
+
+// meshBatch is a static batch of mesh m drawn once where it is; nil for
+// no mesh.
+func meshBatch(r *Renderer, m *Mesh) *railBatch {
 	if m == nil {
 		return nil
 	}
 	b := NewStaticBatch(m, r.whiteTexID)
 	b.AddStatic(mgl32.Ident4(), mgl32.Vec3{1, 1, 1})
-	return &railBatch{key: [2]int{len(l.Track), len(l.Nodes)}, mesh: m, batch: b}
+	return &railBatch{mesh: m, batch: b}
 }
 
 // RebuildRails brings the railway meshes up to date with the world's
-// lines.
+// track and stations.
 func (r *Renderer) RebuildRails(w *world.World) {
-	if r.scene.rails == nil {
-		r.scene.rails = map[uint64]*railBatch{}
-	}
-	live := map[uint64]bool{}
-	for _, l := range w.RailLines {
-		live[l.ID] = true
-		rb := r.scene.rails[l.ID]
-		if rb != nil && rb.key == [2]int{len(l.Track), len(l.Nodes)} {
-			continue
-		}
-		rb.delete()
-		r.scene.rails[l.ID] = newRailBatch(r, l, w.Terrain, [3]float32{1, 1, 1})
-	}
-	for id, rb := range r.scene.rails {
-		if !live[id] {
+	if !r.scene.railBuilt || r.scene.railRev != w.RailRev {
+		for _, rb := range r.scene.rails {
 			rb.delete()
-			delete(r.scene.rails, id)
 		}
+		r.scene.rails = map[uint64]*railBatch{}
+		for _, tr := range w.RailTracks {
+			r.scene.rails[tr.ID] = newRailBatch(r, &tr.RailLine, tr.Style.Spec().Wired, w.Terrain, [3]float32{1, 1, 1})
+		}
+		r.scene.stations.delete()
+		r.scene.stations = meshBatch(r, stationsMesh(w))
+		r.scene.railRev, r.scene.railBuilt = w.RailRev, true
 	}
 	r.rebuildFunics(w)
 	r.scene.tunnelCourse.delete()
@@ -123,13 +126,13 @@ func (r *Renderer) setFunicGhost(lift *world.Lift, t *world.Terrain, tint [3]flo
 	}
 }
 
-// SetRailGhost shows line l (nil for none) as a placement preview,
+// SetRailGhost shows track tr (nil for none) as a placement preview,
 // tinted.
-func (r *Renderer) SetRailGhost(l *world.RailLine, t *world.Terrain, tint [3]float32) {
+func (r *Renderer) SetRailGhost(tr *world.RailTrack, t *world.Terrain, tint [3]float32) {
 	r.scene.railGhost.delete()
 	r.scene.railGhost = nil
-	if l != nil && len(l.Track) >= 2 {
-		r.scene.railGhost = newRailBatch(r, l, t, tint)
+	if tr != nil && len(tr.Track) >= 2 {
+		r.scene.railGhost = newRailBatch(r, &tr.RailLine, tr.Style.Spec().Wired, t, tint)
 	}
 }
 
@@ -142,6 +145,9 @@ func (r *Renderer) drawRails() {
 		}
 	}
 	if rb := r.scene.railGhost; rb != nil {
+		rb.batch.Draw()
+	}
+	if rb := r.scene.stations; rb != nil {
 		rb.batch.Draw()
 	}
 	for _, rb := range r.scene.funics {

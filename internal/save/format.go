@@ -78,8 +78,9 @@ type ScenarioData struct {
 	Footpaths []FootpathData `json:"footpaths,omitempty"`
 	// Ropes are world.Ropes: each rope's ID and its nodes as (x, z).
 	Ropes []RopeData `json:"ropes,omitempty"`
-	// Rails are world.RailLines: each line's ID, style and nodes.
-	Rails       []RailData       `json:"rails,omitempty"`
+	// Railway is the track, its joints and the stations
+	// (world.RailTracks, RailJoints, RailStations).
+	Railway     *RailwayData     `json:"railway,omitempty"`
 	Guests      []GuestData      `json:"guests"`
 	Snowcats    []SnowcatData    `json:"snowcats,omitempty"`
 	Snowmobiles []SnowmobileData `json:"snowmobiles,omitempty"`
@@ -765,18 +766,42 @@ type TicketsData struct {
 	NightPrice     int  `json:"night_price,omitempty"`
 }
 
-// RailData is a saved railway (world.RailLine): laid out again on load.
-type RailData struct {
-	ID    uint64       `json:"id"`
-	Style uint8        `json:"style,omitempty"`
-	Nodes [][2]float32 `json:"nodes"`
-	// Station is its station building's ID; Interval its clock minutes
-	// between trains.
-	Station  uint64  `json:"station,omitempty"`
-	Interval float32 `json:"interval,omitempty"`
-	// Heights is the track's height at each sample (world.RailSample.Y)
-	// and Tunnels its tunnels' sample spans: kept, since laying the line
+// RailwayData is the saved railway (notes/next/Rail Network.md).
+type RailwayData struct {
+	Tracks   []RailTrackData   `json:"tracks,omitempty"`
+	Joints   []RailJointData   `json:"joints,omitempty"`
+	Stations []RailStationData `json:"stations,omitempty"`
+}
+
+// RailTrackData is a track: its style, points, and joints at its ends.
+type RailTrackData struct {
+	ID     uint64       `json:"id"`
+	Style  uint8        `json:"style,omitempty"`
+	Points [][2]float32 `json:"points"`
+	Ends   [2]uint64    `json:"ends"`
+	// Heights is the rail's height at each sample (world.RailSample.Y)
+	// and Tunnels its tunnels' sample spans: kept, since laying the track
 	// out again over the ground it graded would move them.
 	Heights []float32 `json:"heights,omitempty"`
 	Tunnels [][2]int  `json:"tunnels,omitempty"`
+}
+
+// RailJointData is a joint: where it is, its rail's height, and whether
+// it's an entry.
+type RailJointData struct {
+	ID    uint64  `json:"id"`
+	X     float32 `json:"x"`
+	Z     float32 `json:"z"`
+	Y     float32 `json:"y"`
+	Entry bool    `json:"entry,omitempty"`
+}
+
+// RailStationData is a station (its building is saved with the others):
+// its platform's middle and side, and its interval.
+type RailStationData struct {
+	ID       uint64  `json:"id"`
+	X        float32 `json:"x"`
+	Z        float32 `json:"z"`
+	Side     float32 `json:"side"`
+	Interval float32 `json:"interval,omitempty"`
 }
