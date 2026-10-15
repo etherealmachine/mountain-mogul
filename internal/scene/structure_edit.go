@@ -226,7 +226,15 @@ func turnedText(b *world.Building) string {
 
 // commitStructureDrag finalises a drag — pushes the static-batch +
 // roads rebuilds that were deferred during the move for cost reasons.
-func commitStructureDrag(r *render.Renderer, w *world.World) {
+func commitStructureDrag(r *render.Renderer, w *world.World, sel *structureEditSelection) {
+	if b := sel.building; b != nil && b.Type == world.BuildingStation {
+		// Its pad where it's been dropped (not along the way).
+		if st := w.RailStationByID(b.ID); st != nil {
+			w.GradeStation(st, keepClaimed(w))
+			w.Terrain.RestampTreeWells()
+			r.FlushTerrainVerts(w.Terrain)
+		}
+	}
 	r.RebuildStaticBatch(w)
 }
 

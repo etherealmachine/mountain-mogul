@@ -87,8 +87,8 @@ func claimedGround(w *world.World, skipBuilding *world.Building, skipLift *world
 	const cellSize = float32(5.0)
 	out := map[[2]int]bool{}
 	for _, b := range w.Buildings {
-		if b == skipBuilding {
-			continue
+		if b == skipBuilding || b.Type == world.BuildingStation {
+			continue // a station's ground is its pad (world.GradeStation)
 		}
 		if b.IsPainted() {
 			for c := range parkingPadCells(w.Terrain, b) {

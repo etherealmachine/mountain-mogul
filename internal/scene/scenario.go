@@ -1896,7 +1896,7 @@ func (s *Scenario) Update(dt float64) {
 					dragStructure(r, s.world, &s.structureEdit, mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]})
 				}
 			} else {
-				commitStructureDrag(r, s.world)
+				commitStructureDrag(r, s.world, &s.structureEdit)
 				s.structureEdit.dragging = false
 			}
 		}

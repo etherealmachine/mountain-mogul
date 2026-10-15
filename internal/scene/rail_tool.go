@@ -288,6 +288,7 @@ func railJoint(w *world.World, e railEnd) *world.RailJoint {
 // railChanged redraws the ground and the railway after it changes.
 func (env railEnv) railChanged() {
 	w := env.w
+	w.GradeStations(keepClaimed(w)) // a platform may have moved or grown
 	w.Terrain.RestampTreeWells()
 	env.r.FlushTerrainVerts(w.Terrain)
 	env.r.RebuildStaticBatch(w)
@@ -423,8 +424,7 @@ func (env railEnv) stationClick(p mgl32.Vec2) {
 	w.RailStations = append(w.RailStations, &st)
 	b.Pos = w.PlatformSpot(&st)
 	w.RailRev++
-	env.r.RebuildStaticBatch(w)
-	env.changed()
+	env.railChanged()
 	env.toast(env.priced("Station built", sp.cost))
 }
 

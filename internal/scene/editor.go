@@ -907,7 +907,7 @@ func (e *Editor) handleToolNoneMouse(r *render.Renderer, leftClick, leftHeld boo
 			e.markDirty()
 		}
 		if e.structureEdit.dragging {
-			commitStructureDrag(r, e.world)
+			commitStructureDrag(r, e.world, &e.structureEdit)
 			e.structureEdit.dragging = false
 			e.layerCache.fields = nil
 			e.markDirty()
