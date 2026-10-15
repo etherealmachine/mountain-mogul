@@ -155,11 +155,17 @@ func setProfile(track []RailSample, heights []float32, tunnels [][2]int) bool {
 }
 
 // BedSpec is how a line's bed is graded: Half either side of it level
-// with its surface less Base, shoulders banked Bank (run over rise) out
-// to the natural ground at most ShoulderMax wide, and trees cleared
-// Clear past the bed (0 for none).
+// with its surface less Base, shoulders banked out to the natural ground
+// at most ShoulderMax wide, Bank (run over rise) where filled and CutBank
+// where cut (steeper: a rock cut, so a cut into a sidehill meets the hill
+// instead of running out of shoulder and leaving a cliff), and trees
+// cleared Clear past the bed (0 for none). PortalTop is a tunnel portal's
+// headwall top over the line's surface and PortalHalf half its width:
+// behind a mouth, the hill over the tunnel isn't cut below it, so it
+// meets the portal.
 type BedSpec struct {
-	Half, Base, Bank, ShoulderMax, Clear float32
+	Half, Base, Bank, CutBank, ShoulderMax, Clear float32
+	PortalTop, PortalHalf                         float32
 }
 
 // GradeBed cuts and fills the ground under track to its bed (b), except
@@ -216,15 +222,56 @@ func (t *Terrain) GradeBed(track []RailSample, b BedSpec, keep func(x, z int) bo
 			p.After[k] = bedY[k]
 			continue
 		}
-		allowed := (d - b.Half) / b.Bank
-		p.After[k] = bedY[k] + min(max(before-bedY[k], -allowed), allowed)
+		cut := b.CutBank
+		if cut <= 0 {
+			cut = b.Bank
+		}
+		if rise := before - bedY[k]; rise > 0 {
+			p.After[k] = bedY[k] + min(rise, (d-b.Half)/cut)
+		} else {
+			p.After[k] = bedY[k] + max(rise, -(d-b.Half)/b.Bank)
+		}
+	}
+	if b.PortalTop > 0 {
+		// Behind each mouth, as wide as its portal, the hill comes down no
+		// lower than the headwall's top.
+		for _, m := range portalsOf(track) {
+			s, c := float32(math.Sin(float64(m.Heading))), float32(math.Cos(float64(m.Heading)))
+			dir, left := mgl32.Vec2{s, c}, mgl32.Vec2{c, -s}
+			top := m.Y + b.PortalTop
+			for j := 0; j < p.H; j++ {
+				for i := 0; i < p.W; i++ {
+					wx, wz := p.Pos(i, j)
+					q := mgl32.Vec2{wx, wz}.Sub(m.Pos)
+					if q.Dot(dir) <= 0 || float32(math.Abs(float64(q.Dot(left)))) > b.PortalHalf || q.Dot(dir) > reach {
+						continue
+					}
+					k := j*p.W + i
+					p.After[k] = max(p.After[k], min(p.Before[k], top))
+				}
+			}
+		}
 	}
 	p.Commit(keep)
+	// Trees go wherever the ground was cut or filled (not standing on a
+	// bank, or buried in one).
+	moved := func(tr Tree) bool {
+		i, j := p.index(mgl32.Vec2{tr.X, tr.Z})
+		if i < 0 || j < 0 || i >= p.W || j >= p.H {
+			return false
+		}
+		k := j*p.W + i
+		return float32(math.Abs(float64(p.After[k]-p.Before[k]))) > 0.3
+	}
 	if b.Clear <= 0 {
+		t.RemoveTreesIn(x0, z0, x1, z1, moved)
 		return
 	}
 	hw2 := (b.Half + b.Clear) * (b.Half + b.Clear) // and a clear strip either side
 	t.RemoveTreesIn(x0, z0, x1, z1, func(tr Tree) bool {
+		if moved(tr) {
+			return true
+		}
 		for _, s := range track {
 			if !s.Tunnel && (mgl32.Vec2{tr.X - s.Pos[0], tr.Z - s.Pos[1]}).LenSqr() <= hw2 {
 				return true

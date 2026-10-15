@@ -125,7 +125,8 @@ func (t *Terrain) GradeRailBed(l *RailLine) { t.GradeBed(l.Track, railBed, nil) 
 // railBed is a railway's bed: RailBedHalf either side, the ballast
 // under the rail's top, banked RailBank out to RailShoulderMax, and trees
 // cleared 6 m past the bed.
-var railBed = BedSpec{Half: RailBedHalf, Base: RailBallast, Bank: RailBank, ShoulderMax: RailShoulderMax, Clear: 6}
+var railBed = BedSpec{Half: RailBedHalf, Base: RailBallast, Bank: RailBank, CutBank: 0.6, ShoulderMax: RailShoulderMax, Clear: 6,
+	PortalTop: 8.6, PortalHalf: 7.5} // the portal (tunnel_portal_rail) stands 9.55 m from RailBallast under the rail
 
 // index is the patch sample nearest world position w.
 func (p *GroundPatch) index(w mgl32.Vec2) (int, int) {

@@ -46,6 +46,7 @@ All three steps together (they share the routing and the stations).
 - **In the editor** (`scene/editor_rail.go`): the Transport menu has the three Rail buttons and Station; the tools and editing are the game's (`railEnv`, shared), free; a track's popup has a button for each other style instead of the upgrade; a station's popup sets its interval; Remove and Delete take track out.
 - **Finishing at the edge**: with track being laid, the mouse off the map points the ghost at the map's edge where the line from the last point toward the mouse leaves it; a click there, or anywhere within 25 m of the edge, finishes the track on an entry (an entry is always an end).
 - **The course over the ground**: while laying track (and roads and paths), the line as it'll be laid is drawn over everything (`drawCourse`), along the ground or the line where it's higher, dashed through tunnels, red where it can't be built: the mesh preview sinks into the cuts it would make.
+- **Tunnel mouths and cuts** (`GradeBed`, every graded line): cuts bank at a rock cut's slope (rail 0.6, roads 0.75, paths 1 run over rise; fills stay 1.5), so a cut into a sidehill meets the hill; behind each mouth, as wide as its portal, the hill isn't cut below the portal's headwall, so it comes down onto the portal instead of being dug out behind it; and trees go wherever the ground was cut or filled.
 - **Moving a station**: dragging a station (structure edit, game and editor) slides it to the spot on the track nearest the cursor where a station can stand, platform and house together; R turns its platform to the other side of the track.
 
 ## Steps
@@ -61,3 +62,4 @@ All three steps together (they share the routing and the stations).
 - 2026-10-14: Track and platforms drawn in their style; railways in the editor; stations move along their track. Mouse use in the editor untried too.
 - 2026-10-14: Clicking off the map (or at its edge) finishes track there, on an entry.
 - 2026-10-14: Station placement put the platform on the side away from the mouse (and a dragged station flipped): fixed. Laying track, roads and paths draws the course over the ground.
+- 2026-10-14: Tunnel mouths: the hill was dug down to the rail behind the portal (the bank radiated round the last open sample); now it meets the headwall's top, and cuts are steeper. Tall fills ending in cliffs noted in [[Bugs]].
