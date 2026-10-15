@@ -30,3 +30,4 @@ Code: `internal/save/`.
 - 2026-10-06: The scenario outcome (`outcome`, `outcome_day`) and the scenario file a game started from (`scenario_file`).
 - 2026-10-06: Road nodes carry an entry's `name` and guest `pool`; guests carry their home entry (`entry`).
 - 2026-10-15: Games ([[Saved Games]]): the `game` header (date, stars, outcome), the `.bak`, atomic writes; `SaveAs` and timestamp names gone.
+- 2026-10-15: The terrain base keeps OpenStreetMap railways, stations and peaks (`rails`, `stops`, `peaks`); the world's map labels are saved in every game (`labels`: ID, kind, name, height, world x and z).
