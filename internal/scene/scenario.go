@@ -23,10 +23,9 @@ import (
 	"mountain-mogul/internal/world"
 )
 
-// screenToCell projects a screen position to a terrain grid cell using DDA
-// ray-marching. Steps half a cell at a time from above max terrain until the
-// ray drops below the terrain surface. Used for the editor's terrain
-// brushes (Plant, Glade, Raise, Lower) which are inherently per-cell.
+// screenToCell projects a screen position to the terrain grid cell the
+// mouse is over (screenToWorld). Used for the editor's terrain brushes
+// (Plant, Glade, Raise, Lower), which are per cell.
 func screenToCell(cam *render.Camera, terrain *world.Terrain, mousePos mgl32.Vec2) (gx, gz int) {
 	const cellSize = float32(5.0)
 	pos, ok := screenToWorld(cam, terrain, mousePos)
@@ -36,61 +35,64 @@ func screenToCell(cam *render.Camera, terrain *world.Terrain, mousePos mgl32.Vec
 	return int(pos[0] / cellSize), int(pos[2] / cellSize)
 }
 
-// screenToWorld projects a screen position to a continuous point on the
-// terrain mesh. Returns the refined intersection plus ok=true on success.
+// screenToWorld projects a screen position onto the ground as it's
+// drawn (render.VisualElevationAt: detail, cuts and fills, snow), ok
+// false if the mouse is off the map.
 //
-// The DDA marches in half-cell steps to find the *cell* where the ray
-// drops below terrain (~5 m quantisation). For freeform placement that
-// quantisation is visible — so we follow up with a few iterations of
-// bisection between the last "above terrain" and first "below terrain"
-// sample, refining against `InterpolatedElevationAt` to get a sub-metre
-// hit suitable for placing buildings or lift endpoints anywhere.
+// The mouse's ray, clipped to the map (and in front of the camera), is
+// marched down in steps that shrink as it nears the ground (half the gap,
+// over the ray's fall plus a 1-in-1 slope's rise, at least pickMinStep),
+// so it can't step over a slope, then bisected to the crossing; already
+// under the ground where it comes onto the map, it's there. Marching against each cell's flat height and refining
+// against a smoother surface than the one drawn made the point jump
+// metres as the cursor moved and sit off the ground (found in Golf
+// Mogul, which has the same code).
 func screenToWorld(cam *render.Camera, terrain *world.Terrain, mousePos mgl32.Vec2) (mgl32.Vec3, bool) {
-	const cellSize = float32(5.0)
-	const maxElev = float32(1500.0)
-
+	const pickMinStep = float32(0.25)
 	origin, dir := cam.ScreenToWorldRay(mousePos)
-	if dir[1] >= 0 {
+	if dir[1] >= 0 || terrain.Width < 2 || terrain.Height < 2 {
 		return mgl32.Vec3{}, false
 	}
-
-	// Start t so the ray is above the maximum terrain elevation.
-	tCur := (maxElev - origin[1]) / dir[1]
-	xzLen := float32(math.Sqrt(float64(dir[0]*dir[0] + dir[2]*dir[2])))
-	if xzLen < 1e-6 {
+	// The ray's stretch over the map.
+	lo, hi := float32(math.Inf(-1)), float32(math.Inf(1))
+	for k, size := range [2]float32{float32(terrain.Width-1) * world.CellSize, float32(terrain.Height-1) * world.CellSize} {
+		a := [2]int{0, 2}[k]
+		if math.Abs(float64(dir[a])) < 1e-9 {
+			if origin[a] < 0 || origin[a] > size {
+				return mgl32.Vec3{}, false
+			}
+			continue
+		}
+		t0, t1 := (0-origin[a])/dir[a], (size-origin[a])/dir[a]
+		lo, hi = max(lo, min(t0, t1)), min(hi, max(t0, t1))
+	}
+	lo = max(lo, 0)
+	if lo > hi {
 		return mgl32.Vec3{}, false
 	}
-	dt := (cellSize * 0.5) / xzLen
-
-	// Iteration cap is sized so we can descend the full maxElev range
-	// at half-cell steps (with safety margin). Tied to cellSize so
-	// changing cell resolution doesn't break the picker.
-	maxSteps := int(maxElev/(cellSize*0.5)) + 200
-
-	tPrev := tCur
-	for i := 0; i < maxSteps; i++ {
-		pos := origin.Add(dir.Mul(tCur))
-		cx := int(pos[0] / cellSize)
-		cz := int(pos[2] / cellSize)
-		if terrain.InBounds(cx, cz) && pos[1] <= terrain.SurfaceElevationAt(cx, cz) {
-			// Bisect between tPrev (above terrain) and tCur (below terrain)
-			// using the smooth surface elevation so the returned point
-			// sits within ~cm of the actual terrain mesh — small enough to
-			// be invisible at game scale.
-			lo, hi := tPrev, tCur
-			for k := 0; k < 6; k++ {
-				mid := (lo + hi) * 0.5
-				p := origin.Add(dir.Mul(mid))
-				if p[1] > terrain.InterpolatedSurfaceElevationAt(p[0], p[2]) {
-					lo = mid
+	ground := func(t float32) float32 {
+		p := origin.Add(dir.Mul(t))
+		return p[1] - render.VisualElevationAt(terrain, p[0], p[2])
+	}
+	fall := -dir[1]
+	rise := float32(math.Hypot(float64(dir[0]), float64(dir[2]))) // a 1-in-1 slope's
+	prev := lo
+	for t, i := lo, 0; t <= hi && i < 4000; i++ {
+		gap := ground(t)
+		if gap <= 0 {
+			a, b := prev, t
+			for k := 0; k < 16; k++ {
+				mid := (a + b) / 2
+				if ground(mid) > 0 {
+					a = mid
 				} else {
-					hi = mid
+					b = mid
 				}
 			}
-			return origin.Add(dir.Mul(hi)), true
+			return origin.Add(dir.Mul(b)), true
 		}
-		tPrev = tCur
-		tCur += dt
+		prev = t
+		t += max(pickMinStep, 0.5*gap/(fall+rise))
 	}
 	return mgl32.Vec3{}, false
 }
