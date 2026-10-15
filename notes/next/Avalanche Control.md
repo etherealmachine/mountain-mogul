@@ -51,14 +51,16 @@ From the user, 2026-10-14:
 ## Built: closures and the limit
 
 - **The upgrade**: "Train for avalanche control" in a patrol room's popup, $80,000 (`Building.AvyControl`, saved); its patrollers cost $250 a day more each. Without it nothing closes, whatever the danger. Not in the demo.
-- **The limit** (`World.AvyLimit`, saved, Danger by default): a "Close runs at" stepper in any avalanche-control room's popup, with the worst danger over the runs now and what's closed.
+- **The limit** (`World.AvyLimit`, saved, Danger by default): a "Close and control at" stepper in any avalanche-control room's popup, with the worst danger over the runs now and what's closed. It sets both what closes and what patrol controls, so a higher limit is fewer rounds and more risk.
+- **Control work on/off** (`World.AvyWorkPaused`, saved): a "Control work" switch in the same popup, and the day's spend on control so far. Paused, patrol fires no rounds and cuts nothing; runs still close at the limit.
+- **Saved loads**: each slide path's load is saved by its centre (`slide_loads`) and given back on load; it used to be rebuilt from the loose surface snow, so continuing a game reset the danger nearly to safe.
 - **Closures** (`sim.updateAvyClosures`, every clock hour): a run crossed by a path at or over the limit closes (`Trail.AvyClosed`), and a lift with every run off its top closed stops with them (`Lift.AvyClosed`, its line sent away); the feed lists what closed and reopened; a closed sign stands at each closed run's top. Guests plan closed runs only as the way down from where they are (50 times the cost), routes cost 15 cells a cell of closed run ground, and a straight line across one routes round it.
 - **Slopes**: danger now falls off sharply under 35° and is nothing at 30° (it was 0.53 of full at 31°), so the Goals Test's gentle paths stay Low after a storm.
 - Forcing every path over the runs closed on the Goals Test (limit Low): 7 runs and both upper lifts closed, and skiers still crossed closed ground about 185 times in a day's 30-second samples, mostly near the base where nearly everything was closed.
 
 ## Built: control work
 
-- A patroller at an avalanche-control room with no injury to answer takes the slide path over the runs most in need (`sim/avy_control.go`): at or over the limit any time, Moderate or worse before the lifts open, the most dangerous and then the nearest first, none Low, one patroller a path, and only once nobody's on it.
+- A patroller at an avalanche-control room with no injury to answer takes the slide path over the runs most in need (`sim/avy_control.go`): at or over the limit (it was also anything Moderate or worse before the lifts opened, whatever the limit, so the limit saved nothing on rounds), the most dangerous and then the nearest first, none Low, one patroller a path, and only once nobody's on it.
 - **Mortar**: a path whose start zone is within 1,500 m of the room is shelled from it, 4 clock minutes a round, $400 (the day's "Avalanche control" cost line).
 - **Ski cutting**: beyond mortar range the patroller goes up to the start zone (at their hiking and skiing pace), cuts it for 10 clock minutes, and skis back; on a Moderate or worse path, 3% of cuts catch them (a feed line and half an hour lost, for now).
 - Either brings a Moderate or worse path down on purpose ("Control work brought down…"), keeping 15% of its load; the danger and closures are worked out again at once, so the runs reopen.
@@ -96,3 +98,4 @@ From the user, 2026-10-14:
 - 2026-10-14: Step 5 built (burials, dig-outs, the Safety score). Step 6, balance, left for a playtest.
 - 2026-10-14: Deaths (the user): buried guests by how long patrol takes, patrollers caught 20%. On the Goals Test a path set off across busy Ptarmigan at 11:00 killed a guest in two seeds of three (dug out after 30–40 minutes); either way Safety bottomed out (5% the next day, the stars capped at 1.25). Likely needs tuning in a playtest: a death leaves the resort crippled for about two weeks.
 - 2026-10-14: Off Priority; balance left for a playtest.
+- 2026-10-15: Control work only at or over the limit, a switch to pause it, and slide path loads saved. Forty game days of Kirkwood with patrol controlling Moderate+ every dawn had no natural slide across a run, and danger over the runs reached High once.
