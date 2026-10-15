@@ -1743,9 +1743,27 @@ func (s *Scenario) Update(dt float64) {
 	// it handles input — so its hit-tests use the live Y.
 	s.pollGoalsOutcome()
 	s.handleGoalsInput(inp)
+	// Popup windows are drawn over the bars, so they take a click first:
+	// a window's close button over the top bar closes the window (the bar
+	// used to take it). Their buttons mark inp.LeftClickConsumed, which
+	// keeps the click from the bars and the world.
+	if s.chartWindow != nil && s.chartWindow.Visible {
+		s.chartWindow.HandleInput(inp)
+		s.topBar.SetChartsActive(s.chartWindow.Visible)
+	}
+	if s.dayReport != nil && s.dayReport.Visible {
+		s.dayReport.HandleInput(inp)
+	}
+	if s.popup != nil && s.popup.Visible && !inp.LeftClickConsumed {
+		s.popup.HandleInput(inp)
+	}
+	// The bars don't look at LeftClickConsumed: hide a taken click from them.
+	click := inp.LeftClick
+	inp.LeftClick = click && !inp.LeftClickConsumed
 	s.toolBar.Y = float32(r.ScreenHeight()) - s.toolBar.H
 	s.toolBar.HandleInput(inp, float32(r.ScreenWidth()), float32(r.ScreenHeight()))
 	s.topBar.HandleInput(inp, float32(r.ScreenWidth()))
+	inp.LeftClick = click
 
 	// Overlay panel — keep its Bottom in sync with the live screen height
 	// in case of resize, then route input. The panel owns the bitmask;
@@ -1901,19 +1919,6 @@ func (s *Scenario) Update(dt float64) {
 		emitRoadEditMarkers(r, s.world, &s.roadEdit)
 	} else if s.activeTool == toolNone && s.structureEdit.active() {
 		emitStructureEditMarkers(r, s.world, &s.structureEdit)
-	}
-
-	// Popup window input — handle before world clicks so its buttons can
-	// mark inp.LeftClickConsumed.
-	if s.chartWindow != nil && s.chartWindow.Visible {
-		s.chartWindow.HandleInput(inp)
-		s.topBar.SetChartsActive(s.chartWindow.Visible)
-	}
-	if s.dayReport != nil && s.dayReport.Visible {
-		s.dayReport.HandleInput(inp)
-	}
-	if s.popup != nil && s.popup.Visible && !inp.LeftClickConsumed {
-		s.popup.HandleInput(inp)
 	}
 
 	// World click / drag — glade supports held-down; placement tools use click-only.
