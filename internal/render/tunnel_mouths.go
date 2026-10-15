@@ -104,3 +104,18 @@ func mouthGround(ground heightFunc, mouths []tunnelMouth) heightFunc {
 		return y
 	}
 }
+
+// chunkHasMouth reports whether terrain chunk c holds any of mouths'
+// cut-outs (the skirt never does).
+func chunkHasMouth(c *terrainChunk, mouths []tunnelMouth) bool {
+	if c.always {
+		return false
+	}
+	for _, m := range mouths {
+		r := max(m.b[0], m.b[3], mouthFront) + 1
+		if m.a[0]+r >= c.min[0] && m.a[0]-r <= c.max[0] && m.a[1]+r >= c.min[2] && m.a[1]-r <= c.max[2] {
+			return true
+		}
+	}
+	return false
+}

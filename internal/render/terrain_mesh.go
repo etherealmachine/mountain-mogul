@@ -823,8 +823,9 @@ func newDataTexture(internal int32, w, h int) uint32 {
 }
 
 // drawTerrain binds the terrain's textures and tessellation uniforms on
-// the already-active terrain shader and draws the chunks in view.
-func (r *Renderer) drawTerrain(sh *Shader, vp mgl32.Mat4) {
+// the already-active terrain shader and draws the chunks in view that
+// which says to (nil for all).
+func (r *Renderer) drawTerrain(sh *Shader, vp mgl32.Mat4, which func(*terrainChunk) bool) {
 	s := r.scene
 	sh.SetInt("uCornerSnowA", cornerSnowATexUnit)
 	sh.SetInt("uCornerSnowB", cornerSnowBTexUnit)
@@ -882,7 +883,11 @@ func (r *Renderer) drawTerrain(sh *Shader, vp mgl32.Mat4) {
 	gl.BindVertexArray(s.terrainMesh.VAO)
 	padHi := s.terrainSnowPad + s.detailPad
 	drawn := 0
-	for _, c := range s.terrainChunks {
+	for i := range s.terrainChunks {
+		c := &s.terrainChunks[i]
+		if which != nil && !which(c) {
+			continue
+		}
 		if !c.always && !boxInView(vp, c.min.Sub(mgl32.Vec3{0, s.detailPad, 0}), c.max.Add(mgl32.Vec3{0, padHi, 0})) {
 			continue
 		}
@@ -894,7 +899,7 @@ func (r *Renderer) drawTerrain(sh *Shader, vp mgl32.Mat4) {
 		drawn++
 	}
 	gl.BindVertexArray(0)
-	r.terrainChunksDrawn = drawn
+	r.terrainChunksDrawn += drawn
 }
 
 // strideOf is the cells per triangle edge at level l: 1 for the full

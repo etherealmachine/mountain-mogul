@@ -68,6 +68,7 @@ func main() {
 	storm := flag.Bool("storm", false, "-screenshot: drop a heavy-snow day on the terrain and make today a heavy-snow day before capture")
 	importPreview := flag.String("import-preview", "", "-screenshot: capture the terrain import map at \"lat,lon,zoom\" (e.g. 38.68,-120.07,14) once the map and the OpenStreetMap overlay have loaded")
 	editorGoals := flag.Bool("editor-goals", false, "with -editor-layers: open the Scenario details dialog on its Goals tab")
+	editorPan := flag.Int("editor-pan", 0, "with -editor-layers: before capture, pan the camera this many frames (2 m a frame) and print the frame times; -cpuprofile covers them")
 	editorTest := flag.Float64("editor-test", 0, "with -editor-layers: start the test run (lifts and trains running empty) and run it this many seconds ahead before capture")
 	editorOSM := flag.Bool("editor-osm", false, "with -editor-layers: show the OpenStreetMap overlay, with the Layers panel closed")
 	editorLayers := flag.String("editor-layers", "", "-screenshot: open -load in the scenario editor with the Layers panel open, switch off these comma-separated terrain layers (\"-\" for none), and capture once the ground has rebuilt")
@@ -112,7 +113,9 @@ func main() {
 		return
 	}
 	if *screenshot != "" && *editorLayers != "" {
-		runEditorScreenshot(*screenshot, *loadPath, *editorLayers, *editorOSM, *editorGoals, *editorTest, cameraOverrides{
+		stopProfile := startInteractiveProfiles(*cpuProfile, *memProfile)
+		defer stopProfile()
+		runEditorScreenshot(*screenshot, *loadPath, *editorLayers, *editorOSM, *editorGoals, *editorTest, *editorPan, cameraOverrides{
 			targetX: *camTargetX, targetZ: *camTargetZ, yaw: *camYaw, pitch: *camPitch, zoom: *camZoom,
 		})
 		return
@@ -643,7 +646,7 @@ func runMenuScreenshot(outPath string, menu bool, introAt float64, warmup int) {
 // open and the layers in offSpec switched off, and the OpenStreetMap
 // overlay on when osm is set, runs frames until the ground has rebuilt
 // (or a minute passes), and writes the frame.
-func runEditorScreenshot(outPath, loadPath, offSpec string, osm, goals bool, test float64, ov cameraOverrides) {
+func runEditorScreenshot(outPath, loadPath, offSpec string, osm, goals bool, test float64, pan int, ov cameraOverrides) {
 	var off []string
 	if offSpec != "-" {
 		off = strings.Split(offSpec, ",")
@@ -689,6 +692,9 @@ func runEditorScreenshot(outPath, loadPath, offSpec string, osm, goals bool, tes
 		ed.Render(app.Renderer)
 		if ed.LayersSettled() || now.After(deadline) {
 			settledFrames++
+		}
+		if settledFrames == 9 && pan > 0 {
+			benchEditorPan(app, ed, pan)
 		}
 		if settledFrames == 10 {
 			if err := app.Renderer.SaveScreenshot(outPath); err != nil {
@@ -932,4 +938,35 @@ func runHeadlessAggregate(name string, simSeconds float64, seed int64, runs int)
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
+}
+
+// benchEditorPan pans the editor's camera frames frames, 2 m a frame,
+// and prints the frame times (Update and Render on the CPU, and the
+// whole frame with the swap).
+func benchEditorPan(app *engine.App, ed *scene.Editor, frames int) {
+	cam := app.Renderer.Camera
+	var update, render, whole []float64
+	prev := time.Now()
+	for i := 0; i < frames; i++ {
+		cam.Target[0] += 2
+		cam.Recalculate()
+		app.Input.BeginFrame()
+		glfw.PollEvents()
+		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+		t0 := time.Now()
+		ed.Update(t0.Sub(prev).Seconds())
+		t1 := time.Now()
+		ed.Render(app.Renderer)
+		t2 := time.Now()
+		app.Window.SwapBuffers()
+		t3 := time.Now()
+		update = append(update, t1.Sub(t0).Seconds()*1000)
+		render = append(render, t2.Sub(t1).Seconds()*1000)
+		whole = append(whole, t3.Sub(prev).Seconds()*1000)
+		prev = t3
+	}
+	med := func(v []float64) float64 { sort.Float64s(v); return v[len(v)/2] }
+	p90 := func(v []float64) float64 { sort.Float64s(v); return v[len(v)*9/10] }
+	fmt.Printf("pan: %d frames: update median %.2f p90 %.2f ms; render median %.2f p90 %.2f ms; frame median %.2f p90 %.2f ms\n",
+		frames, med(update), p90(update), med(render), p90(render), med(whole), p90(whole))
 }

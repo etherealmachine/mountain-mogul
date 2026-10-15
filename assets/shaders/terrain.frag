@@ -80,6 +80,7 @@ const int MAT_MEADOW = 0, MAT_DIRT = 1, MAT_SCREE = 2, MAT_ROCK = 3,
 
 out vec4 fragColor;
 
+#ifdef TUNNEL_MOUTHS
 // Tunnel mouths (render/tunnel_mouths.go): the ground's grid slopes from
 // the bed in front of a portal's face to the hill behind it, so the
 // terrain isn't drawn there: in front of the face, above the bed; and
@@ -106,6 +107,10 @@ bool inMouth(vec3 p) {
     }
     return false;
 }
+// Only the chunks with a mouth are drawn with this (TerrainMouthShader):
+// a shader that can discard turns off the GPU's hidden-surface removal
+// for everything it draws.
+#endif
 
 // Cell-hash for the sparkle and mogul passes — cheap integer mixing in float space.
 float hash3(vec3 p) {
@@ -376,7 +381,9 @@ float trackAt(vec2 uv) {
 }
 
 void main() {
-    if (uMouthCount > 0 && inMouth(vWorldPos)) discard;
+#ifdef TUNNEL_MOUTHS
+    if (inMouth(vWorldPos)) discard;
+#endif
     vec4  snowState = vSnow;
     float snowDepth = vSnowDepth;
     if (uFragDetail > 0.5 && vInstabilityScore > -0.5) {

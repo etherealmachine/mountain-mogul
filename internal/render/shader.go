@@ -75,7 +75,14 @@ func LoadShader(vertPath, fragPath string, sharedPaths ...string) (*Shader, erro
 // LoadShaderTess compiles a 4-stage tessellation shader program
 // (vertex → tesc → tese → fragment). sharedPaths are prepended to all stages.
 func LoadShaderTess(vertPath, tescPath, tesePath, fragPath string, sharedPaths ...string) (*Shader, error) {
+	return LoadShaderTessDefs("", vertPath, tescPath, tesePath, fragPath, sharedPaths...)
+}
+
+// LoadShaderTessDefs is LoadShaderTess with defines (e.g. "#define X\n")
+// put before every stage's source.
+func LoadShaderTessDefs(defines, vertPath, tescPath, tesePath, fragPath string, sharedPaths ...string) (*Shader, error) {
 	var shared strings.Builder
+	shared.WriteString(defines)
 	for _, sp := range sharedPaths {
 		data, err := os.ReadFile(sp)
 		if err != nil {

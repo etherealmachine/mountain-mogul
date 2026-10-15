@@ -56,15 +56,18 @@ type partBatch struct {
 type Renderer struct {
 	beltFrame     int // frames since belts were last rebuilt (syncBelts)
 	TerrainShader *Shader
-	StaticShader  *Shader
-	DynamicShader *Shader
-	UIShader      *Shader
-	DebugShader   *Shader
-	waterShader   *Shader // open water's sheet (water.go)
-	WeatherShader *Shader
-	Camera        *Camera
-	Font          *Font // may be nil; gracefully skip text
-	TitleFont     *Font // large face for menu titles; may be nil
+	// TerrainMouthShader is the terrain shader with tunnel mouths' cut-
+	// outs, for the chunks with one (tunnel_mouths.go).
+	TerrainMouthShader *Shader
+	StaticShader       *Shader
+	DynamicShader      *Shader
+	UIShader           *Shader
+	DebugShader        *Shader
+	waterShader        *Shader // open water's sheet (water.go)
+	WeatherShader      *Shader
+	Camera             *Camera
+	Font               *Font // may be nil; gracefully skip text
+	TitleFont          *Font // large face for menu titles; may be nil
 
 	// scene owns all GPU state coupled to the current World. Replaced wholesale
 	// by ResetSceneState on every scene transition.
@@ -235,6 +238,10 @@ func NewRenderer(w, h int, assetDir string) (*Renderer, error) {
 	r.TerrainShader, err = LoadShaderTess(shaderDir+"terrain.vert", shaderDir+"terrain.tesc", shaderDir+"terrain.tese", shaderDir+"terrain.frag", lightingPath, shaderDir+"mogul.glsl")
 	if err != nil {
 		return nil, fmt.Errorf("terrain shader: %w", err)
+	}
+	r.TerrainMouthShader, err = LoadShaderTessDefs("#define TUNNEL_MOUTHS\n", shaderDir+"terrain.vert", shaderDir+"terrain.tesc", shaderDir+"terrain.tese", shaderDir+"terrain.frag", lightingPath, shaderDir+"mogul.glsl")
+	if err != nil {
+		return nil, fmt.Errorf("terrain shader (tunnel mouths): %w", err)
 	}
 
 	r.StaticShader, err = LoadShader(shaderDir+"static.vert", shaderDir+"static.frag", lightingPath)
@@ -1381,68 +1388,18 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	r.updateNightLights(w)
 	r.bindNightLights()
 
-	// Terrain pass
+	// Terrain pass: the chunks with a tunnel mouth drawn with the shader
+	// that cuts them out, the rest without (tunnel_mouths.go).
 	if r.scene.terrainMesh != nil {
-		r.TerrainShader.Use()
-		light.apply(r.TerrainShader)
-		r.applyHaze(r.TerrainShader)
-		applyLamps(r.TerrainShader, lamps, light.Night)
-		r.applyNightLights(r.TerrainShader, w, light.Night)
-		r.terrainShadow.apply(r.TerrainShader, light.Shadows)
-		r.shadowMap.apply(r.TerrainShader, light.Shadows)
-		r.TerrainShader.SetMat4("uViewProj", vp)
-		r.TerrainShader.SetVec2("uBrushCenter", r.brushCenter)
-		r.TerrainShader.SetFloat("uBrushRadius", r.brushRadius)
-		r.TerrainShader.SetVec2("uRangeCenter", r.rangeCenter)
-		r.TerrainShader.SetFloat("uRangeRadius", r.rangeRadius)
-		applyMouths(r.TerrainShader, collectMouths(w))
-		r.TerrainShader.SetInt("uOverlayMode", r.TerrainOverlayMode)
-		r.TerrainShader.SetVec3("uCameraPos", r.Camera.WorldPos())
-		r.TerrainShader.SetFloat("uTime", time)
-		r.TerrainShader.SetFloat("uTerrainMinY", r.scene.terrainMinY)
-		r.TerrainShader.SetFloat("uTerrainMaxY", r.scene.terrainMaxY)
-
-		// Sub-cell surface-detail texture (skier tracks, tree wells,
-		// groom edges). Bound on unit 1 to leave unit 0 for the
-		// static / UI passes that follow. The texture lives in world
-		// metres × metres so the FS samples by vWorldPos.xz / uWorldSize.
-		// uWorldSize is the terrain extent in metres = cells × 5.
-		const cellSize = float32(5.0)
-		r.TerrainShader.SetInt("uSnowSurface", 1)
-		// Tracks fade in the shader by the minutes since their clock.
-		r.TerrainShader.SetFloat("uTrackClock", float32(math.Mod(w.SimTime/60, 65536)))
-		r.TerrainShader.SetVec2("uWorldSize", mgl32.Vec2{
-			float32(r.scene.terrainWidth) * cellSize,
-			float32(r.scene.terrainHeight) * cellSize,
-		})
-		gl.ActiveTexture(gl.TEXTURE1)
-		gl.BindTexture(gl.TEXTURE_2D, r.scene.snowSurfaceTex)
-		r.TerrainShader.SetInt("uCellOverlay", 2)
-		gl.ActiveTexture(gl.TEXTURE2)
-		if r.scene.cellOverlayTex != 0 {
-			gl.BindTexture(gl.TEXTURE_2D, r.scene.cellOverlayTex)
-		} else {
-			gl.BindTexture(gl.TEXTURE_2D, r.transparentTexID)
+		mouths := collectMouths(w)
+		r.terrainChunksDrawn = 0
+		r.setupTerrain(r.TerrainShader, w, light, lamps, vp, time)
+		r.drawTerrain(r.TerrainShader, vp, func(c *terrainChunk) bool { return !chunkHasMouth(c, mouths) })
+		if len(mouths) > 0 {
+			r.setupTerrain(r.TerrainMouthShader, w, light, lamps, vp, time)
+			applyMouths(r.TerrainMouthShader, mouths)
+			r.drawTerrain(r.TerrainMouthShader, vp, func(c *terrainChunk) bool { return chunkHasMouth(c, mouths) })
 		}
-		r.TerrainShader.SetInt("uGroomMap", groomTexUnit)
-		gl.ActiveTexture(gl.TEXTURE0 + groomTexUnit)
-		if r.scene.groomTex != 0 {
-			gl.BindTexture(gl.TEXTURE_2D, r.scene.groomTex)
-		} else {
-			gl.BindTexture(gl.TEXTURE_2D, r.transparentTexID)
-		}
-		r.TerrainShader.SetInt("uMogulMap", mogulTexUnit)
-		r.TerrainShader.SetInt("uMogulDir", mogulDirTexUnit)
-		for unit, tex := range map[int]uint32{mogulTexUnit: r.scene.mogulTex, mogulDirTexUnit: r.scene.mogulDirTex} {
-			gl.ActiveTexture(gl.TEXTURE0 + uint32(unit))
-			if tex == 0 {
-				tex = r.transparentTexID
-			}
-			gl.BindTexture(gl.TEXTURE_2D, tex)
-		}
-		gl.ActiveTexture(gl.TEXTURE0)
-
-		r.drawTerrain(r.TerrainShader, vp)
 	}
 
 	// Map overlay — right on the terrain, tested against its depth but
@@ -2852,4 +2809,67 @@ func (r *Renderer) syncBelts(w *world.World) {
 			r.AddLiftMeshes(l, w.Terrain)
 		}
 	}
+}
+
+// setupTerrain binds terrain shader sh and sets its uniforms and
+// textures for the frame (drawTerrain sets the rest).
+func (r *Renderer) setupTerrain(sh *Shader, w *world.World, light Lighting, lamps []Lamp, vp mgl32.Mat4, time float32) {
+	sh.Use()
+	light.apply(sh)
+	r.applyHaze(sh)
+	applyLamps(sh, lamps, light.Night)
+	r.applyNightLights(sh, w, light.Night)
+	r.terrainShadow.apply(sh, light.Shadows)
+	r.shadowMap.apply(sh, light.Shadows)
+	sh.SetMat4("uViewProj", vp)
+	sh.SetVec2("uBrushCenter", r.brushCenter)
+	sh.SetFloat("uBrushRadius", r.brushRadius)
+	sh.SetVec2("uRangeCenter", r.rangeCenter)
+	sh.SetFloat("uRangeRadius", r.rangeRadius)
+	sh.SetInt("uOverlayMode", r.TerrainOverlayMode)
+	sh.SetVec3("uCameraPos", r.Camera.WorldPos())
+	sh.SetFloat("uTime", time)
+	sh.SetFloat("uTerrainMinY", r.scene.terrainMinY)
+	sh.SetFloat("uTerrainMaxY", r.scene.terrainMaxY)
+
+	// Sub-cell surface-detail texture (skier tracks, tree wells,
+	// groom edges). Bound on unit 1 to leave unit 0 for the
+	// static / UI passes that follow. The texture lives in world
+	// metres × metres so the FS samples by vWorldPos.xz / uWorldSize.
+	// uWorldSize is the terrain extent in metres = cells × 5.
+	const cellSize = float32(5.0)
+	sh.SetInt("uSnowSurface", 1)
+	// Tracks fade in the shader by the minutes since their clock.
+	sh.SetFloat("uTrackClock", float32(math.Mod(w.SimTime/60, 65536)))
+	sh.SetVec2("uWorldSize", mgl32.Vec2{
+		float32(r.scene.terrainWidth) * cellSize,
+		float32(r.scene.terrainHeight) * cellSize,
+	})
+	gl.ActiveTexture(gl.TEXTURE1)
+	gl.BindTexture(gl.TEXTURE_2D, r.scene.snowSurfaceTex)
+	sh.SetInt("uCellOverlay", 2)
+	gl.ActiveTexture(gl.TEXTURE2)
+	if r.scene.cellOverlayTex != 0 {
+		gl.BindTexture(gl.TEXTURE_2D, r.scene.cellOverlayTex)
+	} else {
+		gl.BindTexture(gl.TEXTURE_2D, r.transparentTexID)
+	}
+	sh.SetInt("uGroomMap", groomTexUnit)
+	gl.ActiveTexture(gl.TEXTURE0 + groomTexUnit)
+	if r.scene.groomTex != 0 {
+		gl.BindTexture(gl.TEXTURE_2D, r.scene.groomTex)
+	} else {
+		gl.BindTexture(gl.TEXTURE_2D, r.transparentTexID)
+	}
+	sh.SetInt("uMogulMap", mogulTexUnit)
+	sh.SetInt("uMogulDir", mogulDirTexUnit)
+	for unit, tex := range map[int]uint32{mogulTexUnit: r.scene.mogulTex, mogulDirTexUnit: r.scene.mogulDirTex} {
+		gl.ActiveTexture(gl.TEXTURE0 + uint32(unit))
+		if tex == 0 {
+			tex = r.transparentTexID
+		}
+		gl.BindTexture(gl.TEXTURE_2D, tex)
+	}
+	gl.ActiveTexture(gl.TEXTURE0)
+
 }
