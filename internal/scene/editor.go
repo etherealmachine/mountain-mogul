@@ -2216,7 +2216,9 @@ func (e *Editor) Render(r *render.Renderer) {
 	e.menuBar.Y = float32(r.ScreenHeight()) - e.menuBar.H
 	e.overlayPanel.Bottom = float32(r.ScreenHeight()) - e.menuBar.H
 	rail := e.railEnv()
-	edDrawables := []render.UIDrawable{uiDrawFunc(e.drawOSMLabels), uiDrawFunc(rail.drawMarks), uiDrawFunc(rail.drawHandles), e.topBar, e.title, e.startDate, e.menuBar, e.overlayPanel}
+	edDrawables := []render.UIDrawable{uiDrawFunc(e.drawOSMLabels), uiDrawFunc(rail.drawMarks), uiDrawFunc(func(r *render.Renderer) {
+		drawLayingCourse(r, e.world, e.activeTool, e.roadStart, mgl32.Vec2{e.hoverWorld[0], e.hoverWorld[2]}, e.hoverValid, &e.pathTool)
+	}), uiDrawFunc(rail.drawHandles), e.topBar, e.title, e.startDate, e.menuBar, e.overlayPanel}
 	if e.activeTool == toolSkiArea && len(e.skiDraft) == 0 {
 		edDrawables = append(edDrawables, uiDrawFunc(e.drawSkiHandles))
 	}

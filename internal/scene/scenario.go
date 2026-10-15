@@ -2968,7 +2968,9 @@ func (s *Scenario) Render(r *render.Renderer) {
 	if s.eventPanel != nil {
 		s.eventPanel.Bottom = float32(r.ScreenHeight()) - s.toolBar.H
 	}
-	drawables := []render.UIDrawable{&fallenMarkers{world: s.world}, uiDrawFunc(s.drawClosedSigns), uiDrawFunc(func(r *render.Renderer) { s.railEnv().drawMarks(r) }), uiDrawFunc(func(r *render.Renderer) { s.railEnv().drawHandles(r) }), s.topBar, s.toolBar, s.overlayPanel, s.eventPanel}
+	drawables := []render.UIDrawable{&fallenMarkers{world: s.world}, uiDrawFunc(s.drawClosedSigns), uiDrawFunc(func(r *render.Renderer) { s.railEnv().drawMarks(r) }), uiDrawFunc(func(r *render.Renderer) {
+		drawLayingCourse(r, s.world, s.activeTool, s.roadStart, mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]}, s.hoverValid, &s.pathTool)
+	}), uiDrawFunc(func(r *render.Renderer) { s.railEnv().drawHandles(r) }), s.topBar, s.toolBar, s.overlayPanel, s.eventPanel}
 
 	// Parcel price labels — shown when the land-buy tool is active so the
 	// player can see what each purchasable parcel costs before clicking.

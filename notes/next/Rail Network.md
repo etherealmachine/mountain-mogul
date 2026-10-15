@@ -45,6 +45,7 @@ All three steps together (they share the routing and the stations).
 - **Styles drawn** (`railLooks`, `render/rail_mesh.go`): steam track on brown ballast with wooden sleepers and rusty rails; electric on grey ballast with concrete sleepers and masts with arms; high-speed slab track (concrete slab and twin blocks on a gravel shoulder) with cable troughs, gantries over both sides and a messenger wire with droppers. Platforms by the network's train: gravel and white edge for steam, concrete with a short green canopy for electric, pale paving with a long canopy for high-speed. Only tracks laid out afresh or restyled get new meshes, so a drag no longer rebuilds them all.
 - **In the editor** (`scene/editor_rail.go`): the Transport menu has the three Rail buttons and Station; the tools and editing are the game's (`railEnv`, shared), free; a track's popup has a button for each other style instead of the upgrade; a station's popup sets its interval; Remove and Delete take track out.
 - **Finishing at the edge**: with track being laid, the mouse off the map points the ghost at the map's edge where the line from the last point toward the mouse leaves it; a click there, or anywhere within 25 m of the edge, finishes the track on an entry (an entry is always an end).
+- **The course over the ground**: while laying track (and roads and paths), the line as it'll be laid is drawn over everything (`drawCourse`), along the ground or the line where it's higher, dashed through tunnels, red where it can't be built: the mesh preview sinks into the cuts it would make.
 - **Moving a station**: dragging a station (structure edit, game and editor) slides it to the spot on the track nearest the cursor where a station can stand, platform and house together; R turns its platform to the other side of the track.
 
 ## Steps
@@ -59,3 +60,4 @@ All three steps together (they share the routing and the stations).
 - 2026-10-14: Steps 1–3 built together; mouse laying and editing still to be tried in play.
 - 2026-10-14: Track and platforms drawn in their style; railways in the editor; stations move along their track. Mouse use in the editor untried too.
 - 2026-10-14: Clicking off the map (or at its edge) finishes track there, on an entry.
+- 2026-10-14: Station placement put the platform on the side away from the mouse (and a dragged station flipped): fixed. Laying track, roads and paths draws the course over the ground.

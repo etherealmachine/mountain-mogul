@@ -41,6 +41,9 @@ type pathTool struct {
 	nodes    []world.TrailNode
 	cursor   mgl32.Vec2
 	cursorOK bool
+	// previewOK is whether the path as previewed (its nodes and the
+	// cursor) can be laid.
+	previewOK bool
 
 	// Editing: the path whose handles show, the handle under the
 	// cursor, and the one being dragged with the path's nodes before.
@@ -106,6 +109,7 @@ func (env pathEnv) input(st *pathTool, in pathInput) {
 		preview = append(append([]world.TrailNode(nil), st.nodes...), world.TrailNode{Pos: st.cursor, Width: st.width})
 	}
 	ok, _ := env.check(preview, 0)
+	st.previewOK = ok
 	env.r.SetFootpathGhost(env.w, preview, ok)
 
 	switch {
@@ -431,4 +435,24 @@ func clearForPaths(r *render.Renderer, w *world.World) {
 	applyFootpathCellState(w)
 	r.FlushTerrainVerts(w.Terrain)
 	r.RebuildStaticBatch(w)
+}
+
+// drawLayingCourse draws the course of the road or path being laid over
+// everything (drawCourse), so it shows where it's cut into the ground:
+// the road from start to the mouse at hover, or the path's nodes and
+// the cursor.
+func drawLayingCourse(r *render.Renderer, w *world.World, active toolMode, roadStart mgl32.Vec2, hover mgl32.Vec2, hoverValid bool, path *pathTool) {
+	switch {
+	case active == toolRoadEnd && hoverValid:
+		end := resolveRoadEndpoint(w, hover).pos
+		drawCourse(r, w.Terrain, w.RoadLine(roadStart, end), w.RoadGradeProblem(roadStart, end) == "")
+	case active == toolFootpath && path.drawing():
+		nodes := path.nodes
+		if path.cursorOK {
+			nodes = append(append([]world.TrailNode(nil), nodes...), world.TrailNode{Pos: path.cursor, Width: path.width})
+		}
+		if len(nodes) >= 2 {
+			drawCourse(r, w.Terrain, w.FootpathLine(nodes), path.previewOK)
+		}
+	}
 }

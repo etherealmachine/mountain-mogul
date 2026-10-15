@@ -44,6 +44,10 @@ type railTool struct {
 	ghostAt   mgl32.Vec2
 	ghostN    int
 	ghostCost int
+	// ghost is the track as it would be laid, ghostOK whether it can
+	// be (its course is drawn over the ground: drawCourse).
+	ghost   *world.RailTrack
+	ghostOK bool
 }
 
 // railEnd is what one end of track being laid is on: a joint, a track
@@ -299,7 +303,7 @@ func (env railEnv) updateGhost() {
 	if len(rt.points) == 0 || !env.hoverValid {
 		if rt.ghostN != 0 {
 			r.SetRailGhost(nil, nil, [3]float32{})
-			rt.ghostN = 0
+			rt.ghostN, rt.ghost = 0, nil
 		}
 		return
 	}
@@ -316,11 +320,13 @@ func (env railEnv) updateGhost() {
 	rt.ghostAt, rt.ghostN = hover.pos, len(points)
 	if len(points) < 2 {
 		r.SetRailGhost(nil, nil, [3]float32{})
+		rt.ghost = nil
 		return
 	}
 	ya, yb := rt.start.height(w), end.height(w)
 	tr := w.PreviewTrack(rt.style, points, ya, yb)
 	rt.ghostCost = world.TrackCost(tr)
+	rt.ghost, rt.ghostOK = tr, env.canAfford(rt.ghostCost) && world.TrackProblem(rt.style, points, ya, yb) == ""
 	r.SetRailGhost(tr, w.Terrain, ghostTint(env.canAfford(rt.ghostCost), world.TrackProblem(rt.style, points, ya, yb) == ""))
 }
 
@@ -348,8 +354,10 @@ func stationSpotAt(w *world.World, p mgl32.Vec2, except uint64) stationSpot {
 	sample := tr.Track[i]
 	_, _, heading, _ := tr.At(sample.Dist)
 	dir := mgl32.Vec2{float32(math.Sin(float64(heading))), float32(math.Cos(float64(heading)))}
+	// +1 is left of the track's way (world.StationFrame): the side the
+	// mouse is on.
 	side := float32(1)
-	if off := p.Sub(sample.Pos); dir[0]*off[1]-dir[1]*off[0] < 0 {
+	if left := (mgl32.Vec2{dir[1], -dir[0]}); p.Sub(sample.Pos).Dot(left) < 0 {
 		side = -1
 	}
 	sp := stationSpot{st: world.RailStation{TrackID: tr.ID, Dist: sample.Dist, Pos: sample.Pos, Side: side, Interval: world.DefaultRailInterval}, train: train}
@@ -835,9 +843,6 @@ func (env railEnv) drawHandles(r *render.Renderer) {
 // slows them; and, while laying track, its joints as snap targets.
 func (env railEnv) drawMarks(r *render.Renderer) {
 	w := env.w
-	if len(w.RailTracks) == 0 {
-		return
-	}
 	for id, sign := range w.TrackSigns() {
 		tr := w.RailTrackByID(id)
 		if tr == nil || len(tr.Track) == 0 {
@@ -854,6 +859,9 @@ func (env railEnv) drawMarks(r *render.Renderer) {
 			ui.DrawSpeedSign(r, sx, sy, 14, fmt.Sprintf("%.0f", tr.Style.Spec().Speed*3.6))
 		}
 	}
+	if env.active == toolRail && env.tool.ghost != nil {
+		drawCourse(r, w.Terrain, env.tool.ghost.Track, env.tool.ghostOK)
+	}
 	if env.active == toolRail {
 		for _, j := range w.RailJoints {
 			if sx, sy, ok := r.WorldToScreen(env.handlePos(j.Pos)); ok {
@@ -863,6 +871,39 @@ func (env railEnv) drawMarks(r *render.Renderer) {
 				}
 				r.DrawColorDisc(sx, sy, 6.5, mgl32.Vec4{0.05, 0.1, 0.15, 0.9})
 				r.DrawColorDisc(sx, sy, 5, fill)
+			}
+		}
+	}
+}
+
+// drawCourse draws a line laid out on its grade (track, a road, a path)
+// as a line over everything, along the ground or the line if it's
+// higher, so it shows where it runs even where it's cut into the ground:
+// dashed through tunnels, red if it can't be built (ok false).
+func drawCourse(r *render.Renderer, t *world.Terrain, line []world.RailSample, ok bool) {
+	col := mgl32.Vec4{0.35, 0.85, 1, 0.95}
+	if !ok {
+		col = mgl32.Vec4{1, 0.3, 0.25, 0.95}
+	}
+	shade := mgl32.Vec4{0.05, 0.1, 0.15, 0.7}
+	screen := func(s world.RailSample) (mgl32.Vec2, bool) {
+		y := max(s.Y, render.VisualElevationAt(t, s.Pos[0], s.Pos[1])) + 0.3
+		x, z, ok := r.WorldToScreen(mgl32.Vec3{s.Pos[0], y, s.Pos[1]})
+		return mgl32.Vec2{x, z}, ok
+	}
+	for pass, c := range [2]mgl32.Vec4{shade, col} {
+		width := float32(5)
+		if pass == 1 {
+			width = 2.5
+		}
+		for i := 0; i+1 < len(line); i++ {
+			if line[i].Tunnel && (i/2)%2 == 1 {
+				continue // dashed in a tunnel
+			}
+			a, okA := screen(line[i])
+			b, okB := screen(line[i+1])
+			if okA && okB {
+				r.DrawColorLine(a[0], a[1], b[0], b[1], width, c)
 			}
 		}
 	}
