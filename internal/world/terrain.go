@@ -400,18 +400,29 @@ type Cell struct {
 	AvyTick     int     // generation index when this cell entered the active front
 }
 
-// Baseline friction coefficients for an ideally groomed packed-powder surface.
-// EffectiveFriction scales these by snow kind, grooming state, and mogul size.
+// Friction coefficients. MuKineticBase is the glide of ungroomed packed
+// snow; fresh corduroy glides groomGlide of it. MuKineticEdge is the edge's
+// bite, which costs speed only in a skid. EffectiveFriction scales these by
+// snow kind, grooming, fresh powder and moguls.
 const (
-	MuKineticBase = float64(0.04) // base kinetic friction
-	MuKineticEdge = float64(0.20) // perpendicular (carving) friction
+	MuKineticBase = float64(0.05) // ungroomed packed snow
+	MuKineticEdge = float64(0.20)
+	// groomGlide is fresh corduroy's glide against ungroomed snow: about
+	// 0.03 against 0.05.
+	groomGlide = 0.6
+	// powderSink is the glide friction fresh powder adds at powderDeep
+	// metres deep and more, rising with its depth: skis sink and plough.
+	// Deep powder then holds a skier back on anything gentler than about
+	// 13°.
+	powderSink = 0.18
+	powderDeep = 0.5
 )
 
 // EffectiveFriction returns the (base, edge) kinetic friction coefficients for
-// this cell, modulated by snow kind, grooming level, powder depth, and mogul
-// size. base is the along-fall-line drag term; edge is the cross-fall brake.
+// this cell, modulated by snow kind, grooming level, fresh powder depth, and
+// mogul size. base is the glide along the skis; edge is the edges' bite,
+// paid only by a skid.
 func (c Cell) EffectiveFriction() (base, edge float64) {
-	depth := c.VisibleSnowDepth()
 	kind := KindPowder
 	if top := c.TopLayer(); top != nil {
 		kind = top.Kind
@@ -420,21 +431,21 @@ func (c Cell) EffectiveFriction() (base, edge float64) {
 	edge = MuKineticEdge
 
 	// Grooming: lowers base (glide), raises edge (clean carve).
-	base *= 1 - 0.30*float64(c.Grooming)
+	base *= 1 - (1-groomGlide)*float64(c.Grooming)
 	edge *= 1 + 0.20*float64(c.Grooming)
 
 	// Kind-based multipliers.
 	base *= float64(KindBaseMult(kind))
 	edge *= float64(KindEdgeMult(kind))
 
-	// Powder: depth-dependent extra drag.
-	if kind == KindPowder && depth > 0.5 {
-		depthFactor := float64(depth / 2.5)
-		if depthFactor > 1 {
-			depthFactor = 1
-		}
-		base *= 1 + 0.80*depthFactor
-		edge *= 1 - 0.50*depthFactor
+	// Fresh powder drags by its own depth (the top layer's, not the base
+	// under it: until 2026-10-15 the whole snowpack counted, so a deep
+	// base read as deep powder), less where it's been groomed in.
+	if kind == KindPowder && c.Top.Accumulation > 0 {
+		fresh := float64(c.Top.Accumulation / c.Top.EffDensity())
+		sink := powderSink * min(fresh/powderDeep, 1) * (1 - float64(c.Grooming))
+		base += sink
+		edge *= 1 - 0.5*min(fresh/powderDeep, 1)
 	}
 
 	// Moguls bleed energy on every bump.

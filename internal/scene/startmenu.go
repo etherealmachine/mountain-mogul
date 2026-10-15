@@ -73,7 +73,7 @@ func (s *StartMenu) rebuildButtons() {
 		}})
 	}
 	defs = append(defs,
-		btnDef{"Games", func() {
+		btnDef{"Load Save", func() {
 			s.app.PushScene(NewSaveList())
 		}},
 	)

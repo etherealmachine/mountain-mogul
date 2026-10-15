@@ -43,7 +43,24 @@ import (
 const (
 	// Slope physics
 	gravity = 9.81
-	kDrag   = 0.01 // air drag per unit mass
+	// kDrag is air drag per unit mass, per (m/s)²: ½ρC_dA/m for a skier
+	// standing up (about 0.5 × 1.0 kg/m³ at altitude × 0.6 m² / 80 kg).
+	// It was 0.01, about three times that, until 2026-10-15: top speed
+	// straight down an 8° groomer was 10 m/s; now about 16.
+	kDrag = 0.004
+
+	// speedCheckFrom is the overspeed (over target, as a share of it) a
+	// guest starts scrubbing at, speedCheckGain the m/s² a unit of
+	// overspeed past it adds, up to speedCheckMax.
+	speedCheckFrom = 0.1
+	speedCheckGain = 6.0
+	speedCheckMax  = 6.0
+
+	// lowSpeedGrip is the glide friction added at a standstill, fading
+	// out by lowSpeedV m/s: enough to hold a stopped skier on a run of
+	// about 9° (on groomed snow).
+	lowSpeedGrip = 0.13
+	lowSpeedV    = 1.5
 
 	// Motion floors / arrival
 	skiWalkSpeed     = 2.0 // m/s; minimum forward motion (skating/poling)
@@ -836,13 +853,17 @@ func decide(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, a *world.Gue
 		}
 	}
 
-	// Overspeed skids the turns round faster: a speed check.
-	turnRate := carveRate + (pivotRate-carveRate)*clamp32(overspeed/skidTurnOver, 0, 1)
+	// Overspeed skids the turns round faster: a speed check, as the
+	// skilled do it. A beginner snowploughs instead (the scrub below),
+	// which doesn't cost their balance as skidding does.
+	turnRate := carveRate + (pivotRate-carveRate)*clamp32(overspeed/skidTurnOver, 0, 1)*clamp32(a.Traits.Skill, 0, 1)
 
-	// Active scrub: a skidded speed check when way overspeed.
+	// Active scrub: a skidded speed check, from a little over target
+	// speed. Since edges stopped braking a traverse (2026-10-15) this and
+	// the skidded turns are what hold a guest to their speed.
 	var scrub float32
-	if overspeed > 0.6 {
-		scrub = min(4.0*(overspeed-0.6), 6.0)
+	if overspeed > speedCheckFrom {
+		scrub = min(speedCheckGain*(overspeed-speedCheckFrom), speedCheckMax)
 	}
 
 	// Anything on the line within the next second and a half: swerve
@@ -1335,9 +1356,14 @@ func apply(t *world.Terrain, a *world.Guest, dec Decision, perc Perception, dt f
 	cosTheta := float64(perc.Normal[1])
 	sinTheta := math.Sqrt(math.Max(0, 1-cosTheta*cosTheta))
 
+	// Gravity pulls along the true fall line, however gentle: until
+	// 2026-10-15 it was taken as straight ahead below flatSlopeL (about
+	// 3°, where steering ignores the fall line as noise), so on gentle
+	// groomed ground, whose pull beats the glide friction, a skier sped
+	// up whichever way they pointed, uphill too.
 	cosOff := 1.0
 	sinOffAbs := 0.0
-	if perc.FallScale > 0 {
+	if perc.FallDir != (mgl32.Vec2{}) {
 		cosOff = float64(hx*perc.FallDir[0] + hz*perc.FallDir[1])
 		sinOffAbs = math.Abs(float64(hx*perc.FallDir[1] - hz*perc.FallDir[0]))
 	}
@@ -1367,11 +1393,22 @@ func apply(t *world.Terrain, a *world.Guest, dec Decision, perc Perception, dt f
 	} else if zi >= t.Height {
 		zi = t.Height - 1
 	}
+	// Edges hold the skis against sliding sideways; they cost speed only
+	// as far as the skis skid. A clean carve across the hill loses
+	// nothing to its edges, only the pull along the skis falls away
+	// (cosOff). Until 2026-10-15 the edge friction braked every traverse
+	// in full (muE × the cross-slope share), so a turn on a gentle run
+	// stopped a skier dead.
 	muB, muE := t.Cells[xi][zi].EffectiveFriction()
 	speed := float64(a.Speed)
+	// Nearly stopped, skis bite: snow grips harder at a crawl than in a
+	// glide, and the edges hold. Without it a stopped skier kept creeping
+	// downhill (the user, 2026-10-15). Guests rarely go this slow (their
+	// floor is skiWalkSpeed); it's the player, and a creep past a hazard.
+	muB += lowSpeedGrip * math.Max(0, 1-speed/lowSpeedV)
 	accel := gravity*sinTheta*cosOff -
 		muB*gravity*cosTheta -
-		muE*gravity*cosTheta*sinOffAbs -
+		muE*gravity*cosTheta*sinOffAbs*skid -
 		kDrag*speed*speed -
 		float64(dec.Scrub) -
 		skidDecel*skid

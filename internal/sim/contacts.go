@@ -33,9 +33,11 @@ const (
 	contactMaxSpeed = float32(30)
 
 	// collideBase + collideSkill × skill is the closing speed, m/s, that
-	// knocks a skier down: 3 for a novice, 8 for an expert.
-	collideBase  = float32(3)
-	collideSkill = float32(5)
+	// knocks a skier down: 5 for a novice, 12 for an expert. It was 3 to
+	// 8 until 2026-10-15, when skiers sped up (edges stopped braking a
+	// traverse) and collisions went from about 7% of falls to over 25%.
+	collideBase  = float32(5)
+	collideSkill = float32(7)
 	// A brush costs up to brushBalance (just short of collideAt), from
 	// brushMin m/s.
 	brushBalance = float32(0.5)
