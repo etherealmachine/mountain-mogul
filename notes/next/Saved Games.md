@@ -35,7 +35,7 @@ Save in the escape menu saves to the game's own file at once, with no prompt ("S
 
 **Renaming.** In the escape menu (Rename, a prompt with the current name) and in the games list. A name already taken is refused ("There's already a game called Boreal"). Renaming writes nothing but the file name.
 
-**The games list** (the start menu's Load Game, now Games), newest played first. Each row shows the game's name, its scenario when the name doesn't start with it, the date in the game ("Dec 14"), the star rating, won or lost when decided, and how long ago it was played. Clicking the row continues it; Rename, Copy ("Boreal copy", keeping the original's time so Continue doesn't jump to it) and Delete (asking first) sit beside it. Continue on the start menu loads the most recently played game, as before.
+**The games list** (the start menu's Load Save, once Load Game), newest played first. Each row shows the game's name, its scenario when the name doesn't start with it, the date in the game ("Dec 14"), the star rating, won or lost when decided, and how long ago it was played. Clicking the row continues it; Rename, Copy ("Boreal copy", keeping the original's time so Continue doesn't jump to it) and Delete (asking first) sit beside it. Continue on the start menu loads the most recently played game, as before.
 
 **Starting a scenario that already has a game.** The scenario picker marks a scenario with a game in progress ("In progress: Boreal, Dec 14 (and 1 more)", the most recently played) and offers Continue and New game; a click elsewhere on the card continues. New game makes "Boreal 2"; it doesn't overwrite. Retry, after a lost scenario, restarts the same game under its name, after asking.
 
@@ -63,3 +63,4 @@ Defaults taken unless the user says otherwise:
 
 - 2026-10-15: Planned. The user: named saved games, mostly auto-named after the scenario, with renaming; aimed at playing several scenarios at once, and less often, several copies of one.
 - 2026-10-15: Built, steps 1–4 (`save/games.go`, `scene/savelist.go`, the scenario picker's cards, the escape menu's Rename). Checked headless: names, the backup, refusing a taken name, rename, copy, delete and reloading; and screenshots of the games list and the picker (`-menu -menu-screen games|scenarios`). Not yet played through in the running build.
+- 2026-10-15: The start menu's entry renamed Load Save (the user).

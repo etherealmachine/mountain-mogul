@@ -92,3 +92,4 @@ The user, 2026-10-14:
 
 - 2026-10-14: Planned with the user; step 1 built and measured (findings above). The merge testbed turned up three bugs, filed in [[Bugs]].
 - 2026-10-14: Step 2 built. The user: get to 5–10% of falls, ideally by better skiing, else by easing slow contacts, some areas, and skilled skiers. Skill-scaled knockdown speed, no collisions within a group, and no cost for slow contacts at stations put it at 5.5–7% on Boreal with today's steering; better avoidance (skiers anticipating others' motion) is the next lever if the user wants fewer.
+- 2026-10-15: Knockdown speeds raised to 5–12 m/s closing (from 3–8) when skiing physics sped guests up ([[Skiing]]: edges no longer brake a traverse); collisions back to 6–10% of falls on Boreal.
