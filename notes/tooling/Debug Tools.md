@@ -45,4 +45,4 @@ Spec: [[Debug Spec]]. Console: `internal/scene/debugconsole.go`.
 - 2026-10-08: F6 activity colours (guests now wear outfits); `-follow-guest <activity>` (or `any`) points the `-screenshot` camera at the first guest doing that; `-figure-gallery` lines up one guest figure in every pose at the camera target.
 - 2026-10-12: Added `-line-attendants`.
 - 2026-10-14: `-gpu-passes`, `MM_TERRAIN_B`, `MM_AB_AA`, `-editor-pan`. Priced the terrain shader with them: the lake-ice noise everywhere 14%, the snow's patchiness 8%, drifts 6%, sparkle 9%, powder bump 11% of a frame; anti-aliasing nothing measurable.
-- 2026-10-14: `-pan-keys`. It showed the loop's frame times jittering (4–13 ms at 120 Hz, swap interval 2 ignored); the main loop now paces frames to a 1/60 s schedule and steps game time in whole frames.
+- 2026-10-14: `-pan-keys`. It showed the loop's frame times jittering (4–13 ms at 120 Hz, swap interval 2 ignored); the main loop steps game time in whole refreshes (a 1/60 s frame schedule was tried and dropped: jumpier on the 120 Hz screen).

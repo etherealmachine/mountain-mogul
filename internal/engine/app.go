@@ -197,22 +197,9 @@ func (app *App) Run() {
 
 	prev := time.Now()
 	var pace framePacer
-	next := time.Now()
 	for !app.Window.ShouldClose() {
-		// Each frame starts on a schedule of whole frame periods (a
-		// faster display's vsync alone would run on): the swap after it
-		// lands on the same refresh every time.
-		period := FramePeriod()
-		if period > 0 {
-			next = next.Add(time.Duration(period * float64(time.Second)))
-			if wait := time.Until(next); wait > 0 {
-				time.Sleep(wait)
-			} else if wait < -time.Duration(period*float64(time.Second)) {
-				next = time.Now() // fell behind: start the schedule again
-			}
-		}
 		now := time.Now()
-		dt := pace.step(now.Sub(prev).Seconds(), period)
+		dt := pace.step(now.Sub(prev).Seconds(), FramePeriod())
 		prev = now
 		heartbeat.Store(now.UnixNano())
 
