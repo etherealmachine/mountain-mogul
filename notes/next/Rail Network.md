@@ -42,6 +42,10 @@ All three steps together (they share the routing and the stations).
 - **Saves**: tracks (with their profiles), joints and stations; old saves' railways and their station buildings are dropped.
 - **Checked** (headless and on screen, Goals Test): electric track from the west edge to a junction, steam track on to the south edge, electric track to a dead end; a station near the junction got an out-and-back electric service from the west (the steam stretch blocking the south, its warning up) and 278 of about 960 guests by 13:00. Upgrading the steam stretch to high-speed turned it into a through service west to south with slow signs over the electric track. Laying and editing by mouse are untested in play.
 
+- **Styles drawn** (`railLooks`, `render/rail_mesh.go`): steam track on brown ballast with wooden sleepers and rusty rails; electric on grey ballast with concrete sleepers and masts with arms; high-speed slab track (concrete slab and twin blocks on a gravel shoulder) with cable troughs, gantries over both sides and a messenger wire with droppers. Platforms by the network's train: gravel and white edge for steam, concrete with a short green canopy for electric, pale paving with a long canopy for high-speed. Only tracks laid out afresh or restyled get new meshes, so a drag no longer rebuilds them all.
+- **In the editor** (`scene/editor_rail.go`): the Transport menu has the three Rail buttons and Station; the tools and editing are the game's (`railEnv`, shared), free; a track's popup has a button for each other style instead of the upgrade; a station's popup sets its interval; Remove and Delete take track out.
+- **Moving a station**: dragging a station (structure edit, game and editor) slides it to the spot on the track nearest the cursor where a station can stand, platform and house together; R turns its platform to the other side of the track.
+
 ## Steps
 
 1. Done: **Track and joints**: the model (tracks, joints, entries), laying out and grading per track with pinned ends, save and load; the Rail tool laying track with snapping, joining and splitting; editing points and midpoints; removal; drawing (as railways now, entry posts); the stretch popup with upgrades. The old `RailLine`, its tool and its trains go (trains come back in step 3).
@@ -52,3 +56,4 @@ All three steps together (they share the routing and the stations).
 
 - 2026-10-14: Planned from the user's notes and two answers (through services, speed limits by stretch with warning and slow signs).
 - 2026-10-14: Steps 1–3 built together; mouse laying and editing still to be tried in play.
+- 2026-10-14: Track and platforms drawn in their style; railways in the editor; stations move along their track. Mouse use in the editor untried too.

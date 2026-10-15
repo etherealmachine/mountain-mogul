@@ -98,6 +98,10 @@ func tryStartStructureEdit(w *world.World, pos mgl32.Vec2, sel *structureEditSel
 func dragStructure(r *render.Renderer, w *world.World, sel *structureEditSelection, cursor mgl32.Vec2) {
 	target := cursor.Add(sel.dragOffset)
 	switch {
+	case sel.building != nil && sel.building.Type == world.BuildingStation:
+		// A station slides along the track to the spot nearest the
+		// cursor, its platform and house with it.
+		moveStation(r, w, sel.building, target)
 	case sel.building != nil:
 		newPos := target
 		if w.BuildingOverlapExcept(sel.building.Type, newPos[0], newPos[1], sel.building.Rotation, sel.building.ID) {
@@ -193,6 +197,10 @@ func rotateSelectedBuilding(r *render.Renderer, w *world.World, sel *structureEd
 	if b == nil || b.IsPainted() {
 		return false
 	}
+	if b.Type == world.BuildingStation {
+		flipStation(r, w, b) // its platform to the track's other side
+		return true
+	}
 	rot := stepRotation(b.Rotation, delta)
 	if w.BuildingOverlapExcept(b.Type, b.Pos[0], b.Pos[1], rot, b.ID) {
 		return false
@@ -206,6 +214,14 @@ func rotateSelectedBuilding(r *render.Renderer, w *world.World, sel *structureEd
 	r.FlushTerrainVerts(w.Terrain)
 	r.RebuildStaticBatch(w)
 	return true
+}
+
+// turnedText is the toast for building b turned.
+func turnedText(b *world.Building) string {
+	if b.Type == world.BuildingStation {
+		return "Platform moved to the other side"
+	}
+	return "Rotation " + rotationDegrees(b.Rotation)
 }
 
 // commitStructureDrag finalises a drag — pushes the static-batch +

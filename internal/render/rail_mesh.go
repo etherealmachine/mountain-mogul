@@ -8,10 +8,10 @@ import (
 	"mountain-mogul/internal/world"
 )
 
-// Rail lines drawn (world/rail.go): along each line's laid-out track, a
-// ballast bed, sleepers and two rails, the station's platform beside its
-// end, and for an electric or high-speed line, masts and the contact
-// wire. One mesh a line with per-vertex colours, drawn by the static
+// Rail lines drawn (world/rail.go): along each line's laid-out track, its
+// style's bed, sleepers and two rails (railLooks), and for an electric or
+// high-speed line, masts and the contact wire; stations' platforms in
+// their network's train's style. One mesh a line with per-vertex colours, drawn by the static
 // shader so it's lit, shadowed and lit at night like the rest; rebuilt
 // when the line changes (RebuildRails).
 
@@ -79,90 +79,199 @@ func railFrame(l *world.RailLine, i int) (pos mgl32.Vec3, along, across mgl32.Ve
 	return mgl32.Vec3{s.Pos[0], s.Y, s.Pos[1]}, along, across
 }
 
-// railLineMesh builds line l's mesh, with overhead wire if wired: tint
-// multiplies every colour (white for built track, a placement tint for
-// the ghost).
-func railLineMesh(l *world.RailLine, wired bool, t *world.Terrain, tint [3]float32) *Mesh {
+// railLook is how a style's track is built.
+type railLook struct {
+	// The bed: its top's half-width and its foot's, and its colour. A
+	// slab is a concrete slab with straight sides on a gravel shoulder
+	// (high-speed) instead of a ballast bank.
+	bedTop, bedFoot float32
+	bed             [3]float32
+	slab            bool
+	shoulder        [3]float32
+	// Sleepers: every so far, their half-length and colour; twin blocks
+	// (one under each rail) on a slab.
+	sleeperEvery, sleeperHalf float32
+	sleeper                   [3]float32
+	rail                      [3]float32
+	// Masts: none, one side with an arm over the track (cantilever), or a
+	// gantry over both (portal), every mastEvery; a messenger wire over
+	// the contact wire on a portal line. Troughs are the cable troughs
+	// along both sides.
+	masts     int
+	mastEvery float32
+	mast      [3]float32
+	troughs   bool
+}
+
+const (
+	mastsNone = iota
+	mastsCantilever
+	mastsPortal
+)
+
+var railLooks = [world.RailStyles]railLook{
+	// An old branch line: brown ballast, wooden sleepers, rusty rails.
+	world.RailSteam: {bedTop: 1.6, bedFoot: 2.3, bed: [3]float32{0.45, 0.40, 0.34},
+		sleeperEvery: 0.8, sleeperHalf: 1.25, sleeper: [3]float32{0.27, 0.19, 0.12}, rail: [3]float32{0.42, 0.35, 0.30}},
+	// A main line: grey ballast, concrete sleepers, masts with arms.
+	world.RailElectric: {bedTop: 1.9, bedFoot: 2.6, bed: [3]float32{0.52, 0.51, 0.49},
+		sleeperEvery: 0.6, sleeperHalf: 1.3, sleeper: [3]float32{0.68, 0.67, 0.64}, rail: [3]float32{0.58, 0.58, 0.62},
+		masts: mastsCantilever, mastEvery: 45, mast: [3]float32{0.36, 0.42, 0.38}},
+	// A high-speed line: slab track, gantries, cable troughs.
+	world.RailHighSpeed: {bedTop: 1.7, bedFoot: 2.9, bed: [3]float32{0.76, 0.75, 0.72}, slab: true, shoulder: [3]float32{0.50, 0.49, 0.48},
+		sleeperEvery: 0.65, sleeperHalf: 0.35, sleeper: [3]float32{0.62, 0.61, 0.59}, rail: [3]float32{0.74, 0.75, 0.79},
+		masts: mastsPortal, mastEvery: 55, mast: [3]float32{0.62, 0.64, 0.66}, troughs: true},
+}
+
+// railLineMesh builds line l's mesh as style's track: tint multiplies
+// every colour (white for built track, a placement tint for the ghost).
+func railLineMesh(l *world.RailLine, style world.RailStyle, t *world.Terrain, tint [3]float32) *Mesh {
 	tr := l.Track
 	if len(tr) < 2 {
 		return nil
 	}
+	lk := &railLooks[min(style, world.RailStyles-1)]
 	col := func(c [3]float32) [3]float32 { return [3]float32{c[0] * tint[0], c[1] * tint[1], c[2] * tint[2]} }
 	up := mgl32.Vec3{0, 1, 0}
 	var b meshBuilder
-	// Ballast and rails: strips along the track.
 	open := func(i int) bool { return !tr[i].Tunnel && !tr[i+1].Tunnel }
-	strip := func(off, half, h float32, c [3]float32) {
+	// along runs f over each open stretch between samples, with their
+	// frames.
+	along := func(f func(p0, x0, p1, x1 mgl32.Vec3)) {
 		for i := 0; i+1 < len(tr); i++ {
 			if !open(i) {
 				continue
 			}
 			p0, _, x0 := railFrame(l, i)
 			p1, _, x1 := railFrame(l, i+1)
+			f(p0, x0, p1, x1)
+		}
+	}
+	// strip is a flat strip along the track, off across it, half wide, h
+	// up.
+	strip := func(off, half, h float32, c [3]float32) {
+		along(func(p0, x0, p1, x1 mgl32.Vec3) {
 			o0, o1 := x0.Mul(off), x1.Mul(off)
 			l0, r0 := p0.Add(o0).Add(x0.Mul(half)).Add(up.Mul(h)), p0.Add(o0).Sub(x0.Mul(half)).Add(up.Mul(h))
 			l1, r1 := p1.Add(o1).Add(x1.Mul(half)).Add(up.Mul(h)), p1.Add(o1).Sub(x1.Mul(half)).Add(up.Mul(h))
 			b.quad(l0, r0, r1, l1, col(c))
-		}
+		})
 	}
-	strip(0, 1.9, -0.18, ballastCol)
-	// The ballast's sloping sides down to the bed.
-	for _, s := range [2]float32{-1, 1} {
-		for i := 0; i+1 < len(tr); i++ {
-			if !open(i) {
-				continue
-			}
-			p0, _, x0 := railFrame(l, i)
-			p1, _, x1 := railFrame(l, i+1)
-			t0, t1 := p0.Add(x0.Mul(s*1.9)).Add(up.Mul(-0.18)), p1.Add(x1.Mul(s*1.9)).Add(up.Mul(-0.18))
-			f0, f1 := p0.Add(x0.Mul(s*2.6)).Add(up.Mul(-world.RailBallast)), p1.Add(x1.Mul(s*2.6)).Add(up.Mul(-world.RailBallast))
+	// side is a face along the track from (off0, h0) to (off1, h1) across
+	// and up, facing out on side s.
+	side := func(s, off0, h0, off1, h1 float32, c [3]float32) {
+		along(func(p0, x0, p1, x1 mgl32.Vec3) {
+			t0, t1 := p0.Add(x0.Mul(s*off0)).Add(up.Mul(h0)), p1.Add(x1.Mul(s*off0)).Add(up.Mul(h0))
+			f0, f1 := p0.Add(x0.Mul(s*off1)).Add(up.Mul(h1)), p1.Add(x1.Mul(s*off1)).Add(up.Mul(h1))
 			if s > 0 {
-				b.quad(f0, t0, t1, f1, col(ballastCol))
+				b.quad(f0, t0, t1, f1, col(c))
 			} else {
-				b.quad(t0, f0, f1, t1, col(ballastCol))
+				b.quad(t0, f0, f1, t1, col(c))
 			}
+		})
+	}
+	// The bed: ballast sloping to the ground, or a slab on a shoulder.
+	strip(0, lk.bedTop, -0.18, lk.bed)
+	for _, s := range [2]float32{-1, 1} {
+		if lk.slab {
+			side(s, lk.bedTop, -0.18, lk.bedTop, -0.42, lk.bed)
+			strip(s*(lk.bedTop+lk.bedFoot)/2, (lk.bedFoot-lk.bedTop)/2, -0.42, lk.shoulder)
+			side(s, lk.bedFoot, -0.42, lk.bedFoot+0.5, -world.RailBallast, lk.shoulder)
+		} else {
+			side(s, lk.bedTop, -0.18, lk.bedFoot, -world.RailBallast, lk.bed)
 		}
 	}
-	// Sleepers every 0.7 m.
-	for d := float32(0.35); d < l.Length(); d += 0.7 {
+	// Cable troughs along both sides.
+	if lk.troughs {
+		for _, s := range [2]float32{-1, 1} {
+			strip(s*2.55, 0.22, -0.26, [3]float32{0.80, 0.79, 0.76})
+			side(s, 2.77, -0.26, 2.77, -0.42, [3]float32{0.80, 0.79, 0.76})
+		}
+	}
+	// Sleepers (twin blocks on a slab).
+	for d := lk.sleeperEvery / 2; d < l.Length(); d += lk.sleeperEvery {
+		if l.InTunnel(d) {
+			continue
+		}
+		pos, y, _, _ := l.At(d)
+		i := min(int(d/world.RailSampleStep), len(tr)-1)
+		_, al, across := railFrame(l, i)
+		c := mgl32.Vec3{pos[0], y - 0.11, pos[1]}
+		if lk.slab {
+			for _, s := range [2]float32{-0.75, 0.75} {
+				b.box(c.Add(across.Mul(s)), across, up, al, lk.sleeperHalf, 0.06, 0.13, col(lk.sleeper))
+			}
+		} else {
+			b.box(c, across, up, al, lk.sleeperHalf, 0.07, 0.12, col(lk.sleeper))
+		}
+	}
+	// The two rails: a web and a brighter head.
+	for _, s := range [2]float32{-0.75, 0.75} {
+		side(1, s+0.04, 0, s+0.04, -0.12, lk.rail)
+		side(-1, -s+0.04, 0, -s+0.04, -0.12, lk.rail)
+		strip(s, 0.04, 0, lk.rail)
+	}
+	if lk.masts != mastsNone {
+		railMasts(&b, l, lk, col)
+	}
+	tunnelDashes(&b, l, t, col)
+	return b.mesh()
+}
+
+// railMasts adds an electrified line's masts and wires.
+func railMasts(b *meshBuilder, l *world.RailLine, lk *railLook, col func([3]float32) [3]float32) {
+	tr := l.Track
+	up := mgl32.Vec3{0, 1, 0}
+	const wireH, messengerH, mastOff = 5.6, 6.7, 3.3
+	for d := float32(10); d < l.Length(); d += lk.mastEvery {
 		if l.InTunnel(d) {
 			continue
 		}
 		pos, y, _, _ := l.At(d)
 		i := min(int(d/world.RailSampleStep), len(tr)-1)
 		_, along, across := railFrame(l, i)
-		b.box(mgl32.Vec3{pos[0], y - 0.11, pos[1]}, across, up, along, 1.3, 0.07, 0.12, col(sleeperCol))
+		at := mgl32.Vec3{pos[0], y, pos[1]}
+		switch lk.masts {
+		case mastsCantilever:
+			foot := at.Add(across.Mul(-mastOff))
+			b.box(foot.Add(up.Mul(3.2)), across, up, along, 0.15, 3.6, 0.15, col(lk.mast))
+			b.box(foot.Add(up.Mul(wireH+0.4)).Add(across.Mul(mastOff/2)), across, up, along, mastOff/2+0.2, 0.06, 0.06, col(lk.mast))
+		case mastsPortal:
+			off := float32(mastOff + 0.3)
+			for _, s := range [2]float32{-1, 1} {
+				foot := at.Add(across.Mul(s * off))
+				b.box(foot.Add(up.Mul(0.15)), across, up, along, 0.35, 0.35, 0.35, col([3]float32{0.70, 0.69, 0.66}))
+				b.box(foot.Add(up.Mul(3.9)), across, up, along, 0.18, 3.9, 0.18, col(lk.mast))
+			}
+			b.box(at.Add(up.Mul(7.6)), across, up, along, off+0.25, 0.22, 0.12, col(lk.mast))
+			b.box(at.Add(up.Mul((messengerH+7.4)/2)), across, up, along, 0.03, (7.4-messengerH)/2, 0.03, col(wireCol))
+		}
 	}
-	// The two rails.
-	for _, s := range [2]float32{-0.75, 0.75} {
-		strip(s, 0.04, 0, railCol)
+	wire := func(h, half float32) {
+		for i := 0; i+1 < len(tr); i++ {
+			if tr[i].Tunnel || tr[i+1].Tunnel {
+				continue
+			}
+			p0, _, x0 := railFrame(l, i)
+			p1, _, x1 := railFrame(l, i+1)
+			u := up.Mul(h)
+			b.quad(p0.Add(u).Sub(x0.Mul(half)), p0.Add(u).Add(x0.Mul(half)), p1.Add(u).Add(x1.Mul(half)), p1.Add(u).Sub(x1.Mul(half)), col(wireCol))
+		}
 	}
-	// Masts and the wire for an electric or high-speed line.
-	if wired {
-		const mastEvery, wireH, mastOff = 45.0, 5.6, 3.3
-		for d := float32(10); d < l.Length(); d += mastEvery {
+	wire(wireH, 0.03)
+	if lk.masts == mastsPortal {
+		wire(messengerH, 0.025)
+		// Droppers between the two, every few metres.
+		for d := float32(4); d < l.Length(); d += 8 {
 			if l.InTunnel(d) {
 				continue
 			}
 			pos, y, _, _ := l.At(d)
 			i := min(int(d/world.RailSampleStep), len(tr)-1)
 			_, along, across := railFrame(l, i)
-			foot := mgl32.Vec3{pos[0], y, pos[1]}.Add(across.Mul(-mastOff))
-			b.box(foot.Add(up.Mul(3.2)), across, up, along, 0.15, 3.6, 0.15, col(mastCol))
-			b.box(foot.Add(up.Mul(wireH+0.4)).Add(across.Mul(mastOff/2)), across, up, along, mastOff/2+0.2, 0.06, 0.06, col(mastCol))
-		}
-		for i := 0; i+1 < len(tr); i++ {
-			if !open(i) {
-				continue
-			}
-			p0, _, x0 := railFrame(l, i)
-			p1, _, x1 := railFrame(l, i+1)
-			h := up.Mul(wireH)
-			b.quad(p0.Add(h).Sub(x0.Mul(0.03)), p0.Add(h).Add(x0.Mul(0.03)), p1.Add(h).Add(x1.Mul(0.03)), p1.Add(h).Sub(x1.Mul(0.03)), col(wireCol))
+			b.box(mgl32.Vec3{pos[0], y + (wireH+messengerH)/2, pos[1]}, across, up, along, 0.015, (messengerH-wireH)/2, 0.015, col(wireCol))
 		}
 	}
-	tunnelDashes(&b, l, t, col)
-	return b.mesh()
 }
 
 // tunnelDashes adds a tunnel's course: a dashed line on the ground over
@@ -182,8 +291,21 @@ func tunnelDashes(b *meshBuilder, l *world.RailLine, t *world.Terrain, col func(
 	}
 }
 
+// platformLook is a station's platform in its network's train's style:
+// its surface and edge, and a canopy over it (none for steam).
+var platformLooks = [world.RailStyles]struct {
+	surface, edge, canopy [3]float32
+	canopyHalf            float32
+}{
+	world.RailSteam:     {surface: [3]float32{0.56, 0.49, 0.40}, edge: [3]float32{0.88, 0.86, 0.80}},
+	world.RailElectric:  {surface: [3]float32{0.62, 0.61, 0.58}, edge: [3]float32{0.90, 0.85, 0.30}, canopy: [3]float32{0.30, 0.42, 0.36}, canopyHalf: 0.25},
+	world.RailHighSpeed: {surface: [3]float32{0.80, 0.79, 0.77}, edge: [3]float32{0.92, 0.86, 0.25}, canopy: [3]float32{0.86, 0.88, 0.90}, canopyHalf: 0.5},
+}
+
 // stationsMesh is every station's platform: beside its track, as long as
-// its network's train, with a yellow edge.
+// its network's train, with an edge, and a canopy over the middle of it
+// (its half's length canopyHalf of the platform's) for an electric or
+// high-speed network.
 func stationsMesh(w *world.World) *Mesh {
 	_, of := w.RailNetworks()
 	var b meshBuilder
@@ -193,15 +315,25 @@ func stationsMesh(w *world.World) *Mesh {
 		if tr == nil || len(tr.Track) < 2 {
 			continue
 		}
-		half := of[tr.ID].Train.Spec().PlatformLength() / 2
+		train := of[tr.ID].Train
+		lk := platformLooks[min(train, world.RailStyles-1)]
+		half := train.Spec().PlatformLength() / 2
+		k := 0
 		for d := max(st.Dist-half, 0); d < min(st.Dist+half, tr.Length()); d += world.RailSampleStep {
 			pos, y, _, _ := tr.At(d)
 			i := min(int(d/world.RailSampleStep), len(tr.Track)-1)
 			_, along, across := railFrame(&tr.RailLine, i)
 			side := across.Mul(st.Side)
 			c := mgl32.Vec3{pos[0], y, pos[1]}.Add(side.Mul(world.StationPlatformSide))
-			b.box(c.Add(up.Mul(-0.6)), across, up, along, 1.75, 1.15, world.RailSampleStep/2+0.02, platformCol)
-			b.box(c.Sub(side.Mul(1.6)).Add(up.Mul(0.56)), across, up, along, 0.15, 0.01, world.RailSampleStep/2+0.02, edgeCol)
+			b.box(c.Add(up.Mul(-0.6)), across, up, along, 1.75, 1.15, world.RailSampleStep/2+0.02, lk.surface)
+			b.box(c.Sub(side.Mul(1.6)).Add(up.Mul(0.56)), across, up, along, 0.15, 0.01, world.RailSampleStep/2+0.02, lk.edge)
+			if lk.canopyHalf > 0 && float32(math.Abs(float64(d-st.Dist))) < half*lk.canopyHalf {
+				b.box(c.Add(side.Mul(0.3)).Add(up.Mul(3.6)), across, up, along, 1.6, 0.08, world.RailSampleStep/2+0.02, lk.canopy)
+				if k%3 == 0 {
+					b.box(c.Add(side.Mul(0.6)).Add(up.Mul(1.8)), across, up, along, 0.08, 1.75, 0.08, [3]float32{0.30, 0.31, 0.33})
+				}
+				k++
+			}
 		}
 	}
 	return b.mesh()

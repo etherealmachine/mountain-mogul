@@ -73,11 +73,19 @@ type Editor struct {
 	// trail is the trail whose popup is open; runTool the run tool's
 	// session while toolTrailPaint is active; trailDraw keeps the drawn
 	// trails up to date (editor_trails.go, run_tool.go).
-	trail         editorTrail
-	runTool       runTool
-	pathTool      pathTool // the footpath tool's session (footpath_tool.go)
-	trailEdit     runTool  // editing the selected run (editSelectedTrail)
-	trailEditUsed bool     // this frame's click went to editing the selected run
+	trail    editorTrail
+	runTool  runTool
+	pathTool pathTool // the footpath tool's session (footpath_tool.go)
+	// railTool and railEdit are the railway tools' sessions, railPopup
+	// a track's or station's popup, railButtons the Rail tool's style
+	// buttons (editor_rail.go).
+	railTool      railTool
+	railEdit      railEdit
+	railPopup     *ui.Window
+	railButtons   [world.RailStyles]*ui.Button
+	railEditUsed  bool    // this frame's mouse went to the selected track's handles
+	trailEdit     runTool // editing the selected run (editSelectedTrail)
+	trailEditUsed bool    // this frame's click went to editing the selected run
 	trailDraw     trailDrawing
 	// skiDraft is the ski-area outline in progress (editor_ski_area.go).
 	skiDraft                  []mgl32.Vec2
@@ -210,6 +218,10 @@ func (e *Editor) Init(app *engine.App) error {
 	e.toolButtons[toolRoadStart] = e.transportSubmenu.AddChild(render.IconRoad, "Road", func() { e.setTool(toolRoadStart) })
 	e.toolButtons[toolFootpath] = e.transportSubmenu.AddChild(render.IconFootprints, "Path", e.activatePathTool)
 	e.toolButtons[toolEdgeConnect] = e.transportSubmenu.AddChild(render.IconFlag, "Edge", func() { e.setTool(toolEdgeConnect) })
+	for st := world.RailStyle(0); st < world.RailStyles; st++ {
+		e.railButtons[st] = e.transportSubmenu.AddChild(render.IconTrain, st.Spec().Label, func() { e.startRailTool(st) })
+	}
+	e.toolButtons[toolStation] = e.transportSubmenu.AddChild(render.IconTrain, "Station", func() { e.setTool(toolStation) })
 
 	// Lifts submenu
 	e.liftsSubmenu = e.menuBar.AddSubmenu(render.IconCableCar, "Lifts")
@@ -402,6 +414,11 @@ func (e *Editor) Update(dt float64) {
 			e.runTool.drawing, e.runTool.nodes = false, nil // drop the run, keep the tool
 		case e.activeTool == toolFootpath && e.pathTool.drawing():
 			e.pathTool.nodes = nil // drop the path, keep the tool
+		case e.activeTool == toolRail && len(e.railTool.points) > 0:
+			e.endRailTool(r) // drop the track, keep the tool
+		case e.railPopup != nil && e.railPopup.Visible:
+			e.railPopup.Visible = false
+			e.railEdit.clear()
 		case e.activeTool == toolParcelRect && e.parcelRectActive:
 			// Cancel the in-progress selection but stay in the tool.
 			e.parcelRectActive = false
@@ -440,6 +457,12 @@ func (e *Editor) Update(dt float64) {
 			deleteSelectedStructure(r, e.world, &e.structureEdit)
 			e.layerCache.fields = nil
 			e.markDirty()
+		case e.railEnv().selected() != nil:
+			e.world.RemoveTrack(e.railEnv().selected())
+			e.railPopup.Visible = false
+			e.railEdit.clear()
+			r.RebuildStaticBatch(e.world)
+			e.markDirty()
 		case e.activeTool == toolSkiArea:
 			e.deleteSelectedSkiArea()
 		case e.activeTool == toolWater:
@@ -465,7 +488,7 @@ func (e *Editor) Update(dt float64) {
 			if rotateSelectedBuilding(r, e.world, &e.structureEdit, delta) {
 				e.layerCache.fields = nil
 				e.markDirty()
-				e.setToast("Rotation " + rotationDegrees(e.structureEdit.building.Rotation))
+				e.setToast(turnedText(e.structureEdit.building))
 			} else {
 				e.setToast("Can't rotate here — overlaps another building")
 			}
@@ -517,6 +540,9 @@ func (e *Editor) Update(dt float64) {
 	}
 	if e.trailPopup != nil && e.trailPopup.Visible {
 		e.trailPopup.HandleInput(inp)
+	}
+	if e.railPopup != nil && e.railPopup.Visible {
+		e.railPopup.HandleInput(inp)
 	}
 
 	// C: toggle the contour overlay via the panel so the hotkey and the
@@ -679,7 +705,9 @@ func (e *Editor) Update(dt float64) {
 		e.entryPopup != nil && e.entryPopup.Visible &&
 			e.entryPopup.ContainsPoint(inp.MousePos[0], inp.MousePos[1]) ||
 		e.trailPopup != nil && e.trailPopup.Visible &&
-			e.trailPopup.ContainsPoint(inp.MousePos[0], inp.MousePos[1])
+			e.trailPopup.ContainsPoint(inp.MousePos[0], inp.MousePos[1]) ||
+		e.railPopup != nil && e.railPopup.Visible &&
+			e.railPopup.ContainsPoint(inp.MousePos[0], inp.MousePos[1])
 	overChrome := e.menuBar.ContainsXY(inp.MousePos[0], inp.MousePos[1]) ||
 		e.topBar.ContainsXY(inp.MousePos[0], inp.MousePos[1]) ||
 		e.startDate.Contains(inp.MousePos[0], inp.MousePos[1]) ||
@@ -721,6 +749,7 @@ func (e *Editor) Update(dt float64) {
 	e.updateRunTool(r, inp, overChrome)
 	e.updateWaterTool(r, inp, overChrome)
 	e.updatePathTool(r, inp, overChrome)
+	e.railEditUsed = e.updateRailTools(inp, overChrome)
 	// Editor mirrors the scenario's node-highlight behaviour while a
 	// road tool is active — same snap rules, same visual cue. While
 	// editing an existing road (toolNone selection), draw the full node
@@ -794,11 +823,13 @@ func (e *Editor) Update(dt float64) {
 					e.applyPlacement(r, shiftHeld)
 				}
 			} else if e.activeTool == toolNone {
-				if !e.trailEditUsed {
+				if !e.trailEditUsed && !e.railEditUsed {
 					e.handleToolNoneMouse(r, inp.LeftClick, inp.LeftHeld)
 				}
-			} else if e.activeTool == toolService || e.activeTool == toolTrailPaint || e.activeTool == toolFootpath {
-				// Handled by updateServiceTool, updateRunTool and updatePathTool.
+			} else if e.activeTool == toolService || e.activeTool == toolTrailPaint || e.activeTool == toolFootpath ||
+				e.activeTool == toolRail || e.activeTool == toolStation {
+				// Handled by updateServiceTool, updateRunTool, updatePathTool
+				// and updateRailTools.
 			} else if e.activeTool == toolParking {
 				if e.hoverValid {
 					pos := mgl32.Vec2{e.hoverWorld[0], e.hoverWorld[2]}
@@ -858,6 +889,9 @@ func (e *Editor) handleToolNoneMouse(r *render.Renderer, leftClick, leftHeld boo
 	pos := mgl32.Vec2{e.hoverWorld[0], e.hoverWorld[2]}
 	switch {
 	case leftClick:
+		if e.railPopup != nil {
+			e.railPopup.Visible = false // a track or station clicked opens it again
+		}
 		if n := entryAt(e.world, pos); n != nil {
 			e.roadEdit.clear()
 			e.structureEdit.clear()
@@ -866,6 +900,15 @@ func (e *Editor) handleToolNoneMouse(r *render.Renderer, leftClick, leftHeld boo
 			e.structureEdit.clear()
 		} else if tryStartStructureEdit(e.world, pos, &e.structureEdit) {
 			e.roadEdit.clear()
+			if b := e.structureEdit.building; b != nil && b.Type == world.BuildingStation {
+				if st := e.world.RailStationByID(b.ID); st != nil {
+					e.railEnv().openStationPopup(st)
+				}
+			}
+		} else if tr := trackAt(e.world, pos); tr != nil {
+			e.roadEdit.clear()
+			e.structureEdit.clear()
+			e.railEnv().openTrackPopup(tr)
 		} else if b := e.world.PaintedBuildingAt(e.hoverCell[0], e.hoverCell[1]); b != nil && b.IsShell() {
 			e.roadEdit.clear()
 			e.structureEdit.clear()
@@ -1017,6 +1060,11 @@ func (e *Editor) applyPlacement(r *render.Renderer, shiftHeld bool) {
 		if f := w.FootpathAt(pick, 1); f != nil {
 			w.RemoveFootpath(f.ID)
 			e.markDirty()
+			return
+		}
+		if tr := trackAt(w, pick); tr != nil {
+			w.RemoveTrack(tr) // its stations go too
+			r.RebuildStaticBatch(w)
 		}
 	case toolParcelRect:
 		gx, gz := e.hoverCell[0], e.hoverCell[1]
@@ -1065,6 +1113,9 @@ func (e *Editor) setTool(t toolMode) {
 		if prev == toolFootpath {
 			e.pathTool = pathTool{}
 			e.app.Renderer.SetFootpathGhost(e.world, nil, false)
+		}
+		if prev == toolRail {
+			e.endRailTool(e.app.Renderer)
 		}
 	}
 	isActive := e.activeTool == t ||
@@ -1206,6 +1257,11 @@ func (e *Editor) syncToolButtons() {
 	}
 	for k, btn := range e.kindButtons {
 		btn.SetActive(e.activeTool == toolService && e.serviceTool.building && e.serviceTool.kind == k)
+	}
+	for st, btn := range e.railButtons {
+		if btn != nil {
+			btn.SetActive(e.activeTool == toolRail && e.railTool.style == world.RailStyle(st))
+		}
 	}
 	liftActive := e.activeTool == toolLiftBase || e.activeTool == toolLiftTop
 	if e.liftDoubleBtn != nil {
@@ -2110,7 +2166,8 @@ func (e *Editor) Render(r *render.Renderer) {
 	// Re-anchor before draw so menuBar.Y matches the live screen height.
 	e.menuBar.Y = float32(r.ScreenHeight()) - e.menuBar.H
 	e.overlayPanel.Bottom = float32(r.ScreenHeight()) - e.menuBar.H
-	edDrawables := []render.UIDrawable{uiDrawFunc(e.drawOSMLabels), e.topBar, e.title, e.startDate, e.menuBar, e.overlayPanel}
+	rail := e.railEnv()
+	edDrawables := []render.UIDrawable{uiDrawFunc(e.drawOSMLabels), uiDrawFunc(rail.drawMarks), uiDrawFunc(rail.drawHandles), e.topBar, e.title, e.startDate, e.menuBar, e.overlayPanel}
 	if e.activeTool == toolSkiArea && len(e.skiDraft) == 0 {
 		edDrawables = append(edDrawables, uiDrawFunc(e.drawSkiHandles))
 	}
@@ -2209,6 +2266,9 @@ func (e *Editor) Render(r *render.Renderer) {
 	}
 	if e.entryPopup != nil && e.entryPopup.Visible {
 		edDrawables = append(edDrawables, e.entryPopup)
+	}
+	if e.railPopup != nil && e.railPopup.Visible {
+		edDrawables = append(edDrawables, e.railPopup)
 	}
 	if e.lotPopup != nil && e.lotPopup.Visible {
 		edDrawables = append(edDrawables, e.lotPopup)

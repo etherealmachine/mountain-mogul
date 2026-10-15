@@ -30,6 +30,9 @@ import (
 // joint or track it's dropped on), grab a handle between two to add a
 // point, right-click a point to take it out. An edit that would make
 // track too steep, or that can't be paid for, is put back.
+//
+// The scenario editor has the same tools, free (editor_rail.go): they
+// work in a railEnv, the game's or the editor's.
 
 // railTool is the Rail tool's session.
 type railTool struct {
@@ -78,6 +81,71 @@ func resolveRailEnd(w *world.World, p mgl32.Vec2) railEnd {
 	return railEnd{pos: p}
 }
 
+// railEnv is what the railway tools work in: the world, the mouse on
+// the ground, the tools' state, and the scene's toast and popups. In the
+// editor (free) nothing's paid for, and a track's popup sets its style
+// instead of upgrading it.
+type railEnv struct {
+	w          *world.World
+	r          *render.Renderer
+	tool       *railTool
+	edit       *railEdit
+	active     toolMode
+	hover      mgl32.Vec2
+	hoverValid bool
+	toast      func(string)
+	free       bool
+	// changed runs after the railway changes (the editor marks itself
+	// dirty); show puts a popup up, and up is whether win is the popup up
+	// now.
+	changed func()
+	show    func(win *ui.Window)
+	up      func(win *ui.Window) bool
+}
+
+// railEnv is the game's railway tools' env.
+func (s *Scenario) railEnv() railEnv {
+	r := s.app.Renderer
+	return railEnv{
+		w: s.world, r: r, tool: &s.railTool, edit: &s.railEdit, active: s.activeTool,
+		hover: mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]}, hoverValid: s.hoverValid,
+		toast: s.setToast, changed: func() {},
+		show: func(win *ui.Window) {
+			s.placePopup(win, r.ScreenWidth(), r.ScreenHeight())
+			s.popup = win
+		},
+		up: func(win *ui.Window) bool { return s.popup == win },
+	}
+}
+
+// afford is whether cost can be paid, toasting what's short for what if
+// not; always in the editor.
+func (env railEnv) afford(cost int, what string) bool {
+	if env.free || env.w.CanAfford(cost) {
+		return true
+	}
+	env.toast(fmt.Sprintf("Need %s for %s: short by %s", settings.FormatDollars(cost), what, settings.FormatDollars(cost-env.w.Available())))
+	return false
+}
+
+// pay pays cost, but not in the editor.
+func (env railEnv) pay(cost int) {
+	if !env.free && cost > 0 {
+		env.w.Spend(cost)
+	}
+}
+
+// priced is msg with its cost, but not in the editor.
+func (env railEnv) priced(msg string, cost int) string {
+	if env.free {
+		return msg
+	}
+	return msg + ": " + settings.FormatDollars(cost)
+}
+
+// canAfford is whether cost can be paid, quietly.
+func (env railEnv) canAfford(cost int) bool { return env.free || env.w.CanAfford(cost) }
+
 // railHandleReach is how near a handle, in pixels, the mouse picks it.
 const railHandleReach = 9
 
@@ -98,11 +166,11 @@ func (s *Scenario) startRailTool(style world.RailStyle) {
 	s.setToast("Click to lay track; finish on a joint or another track, or click the last point again. At the map's edge it comes in from beyond.")
 }
 
-// railClick handles a click with the Rail tool at world (wx, wz).
-func (s *Scenario) railClick(r *render.Renderer, wx, wz float32) {
-	w := s.world
-	rt := &s.railTool
-	e := resolveRailEnd(w, mgl32.Vec2{wx, wz})
+// click handles a click with the Rail tool at p.
+func (env railEnv) click(p mgl32.Vec2) {
+	w := env.w
+	rt := env.tool
+	e := resolveRailEnd(w, p)
 	if len(rt.points) == 0 {
 		rt.start, rt.points = e, []mgl32.Vec2{e.pos}
 		return
@@ -119,50 +187,47 @@ func (s *Scenario) railClick(r *render.Renderer, wx, wz float32) {
 	} else {
 		e = railEnd{pos: last} // finishing at its last point
 	}
-	if s.layTrack(r, rt.style, rt.start, e, points) {
+	if env.lay(rt.style, rt.start, e, points) {
 		*rt = railTool{style: rt.style}
 	}
 }
 
-// layTrack lays track of style through points from end a to end b, if
-// it can be laid and paid for.
-func (s *Scenario) layTrack(r *render.Renderer, style world.RailStyle, a, b railEnd, points []mgl32.Vec2) bool {
-	w := s.world
+// lay lays track of style through points from end a to end b, if it can
+// be laid and paid for.
+func (env railEnv) lay(style world.RailStyle, a, b railEnd, points []mgl32.Vec2) bool {
+	w := env.w
 	ya, yb := a.height(w), b.height(w)
 	if why := world.TrackProblem(style, points, ya, yb); why != "" {
-		s.setToast(why)
+		env.toast(why)
 		return false
 	}
 	cost := world.TrackCost(w.PreviewTrack(style, points, ya, yb))
-	if !w.CanAfford(cost) {
-		s.setToast(fmt.Sprintf("Need %s for this track: short by %s",
-			settings.FormatDollars(cost), settings.FormatDollars(cost-w.Available())))
+	if !env.afford(cost, "this track") {
 		return false
 	}
-	ja := s.railJoint(a)
+	ja := railJoint(w, a)
 	// Splitting for the first end may have replaced the track the second
 	// was on: find it again.
 	if b.track != nil {
 		b = resolveRailEnd(w, b.pos)
 	}
-	jb := s.railJoint(b)
+	jb := railJoint(w, b)
 	if ja == jb {
-		s.setToast("Track has to run between two different places")
+		env.toast("Track has to run between two different places")
 		return false
 	}
 	points[0], points[len(points)-1] = ja.Pos, jb.Pos
-	w.Spend(cost)
+	env.pay(cost)
 	w.AddRailTrack(style, points, ja, jb, keepClaimed(w))
-	s.railChanged(r)
-	r.SetRailGhost(nil, nil, [3]float32{})
-	s.setToast(fmt.Sprintf("%s track laid: %s", style.Spec().Label, settings.FormatDollars(cost)))
+	env.railChanged()
+	env.r.SetRailGhost(nil, nil, [3]float32{})
+	env.toast(env.priced(style.Spec().Label+" track laid", cost))
 	return true
 }
 
 // railJoint is the joint for end e: its own, a junction split into its
 // track, or a new one.
-func (s *Scenario) railJoint(e railEnd) *world.RailJoint {
-	w := s.world
+func railJoint(w *world.World, e railEnd) *world.RailJoint {
 	switch {
 	case e.joint != nil:
 		return e.joint
@@ -173,26 +238,28 @@ func (s *Scenario) railJoint(e railEnd) *world.RailJoint {
 }
 
 // railChanged redraws the ground and the railway after it changes.
-func (s *Scenario) railChanged(r *render.Renderer) {
-	w := s.world
+func (env railEnv) railChanged() {
+	w := env.w
 	w.Terrain.RestampTreeWells()
-	r.FlushTerrainVerts(w.Terrain)
-	r.RebuildStaticBatch(w)
+	env.r.FlushTerrainVerts(w.Terrain)
+	env.r.RebuildStaticBatch(w)
+	env.changed()
 }
 
 // updateRailGhost shows the track as it would be laid with the mouse at
 // the next point.
-func (s *Scenario) updateRailGhost(r *render.Renderer) {
-	rt := &s.railTool
-	w := s.world
-	if len(rt.points) == 0 || !s.hoverValid {
+func (env railEnv) updateGhost() {
+	rt := env.tool
+	w := env.w
+	r := env.r
+	if len(rt.points) == 0 || !env.hoverValid {
 		if rt.ghostN != 0 {
 			r.SetRailGhost(nil, nil, [3]float32{})
 			rt.ghostN = 0
 		}
 		return
 	}
-	hover := resolveRailEnd(w, mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]})
+	hover := resolveRailEnd(w, env.hover)
 	points := append([]mgl32.Vec2(nil), rt.points...)
 	end := railEnd{pos: points[len(points)-1]}
 	if hover.pos.Sub(end.pos).Len() > railFinishReach || hover.joint != nil || hover.track != nil {
@@ -210,12 +277,8 @@ func (s *Scenario) updateRailGhost(r *render.Renderer) {
 	ya, yb := rt.start.height(w), end.height(w)
 	tr := w.PreviewTrack(rt.style, points, ya, yb)
 	rt.ghostCost = world.TrackCost(tr)
-	r.SetRailGhost(tr, w.Terrain, ghostTint(w.CanAfford(rt.ghostCost), world.TrackProblem(rt.style, points, ya, yb) == ""))
+	r.SetRailGhost(tr, w.Terrain, ghostTint(env.canAfford(rt.ghostCost), world.TrackProblem(rt.style, points, ya, yb) == ""))
 }
-
-// railCost is the cost preview for the Rail tool: the track as the ghost
-// last laid it out.
-func (s *Scenario) railCost() int { return s.railTool.ghostCost }
 
 // ---- Stations ----
 
@@ -230,8 +293,8 @@ type stationSpot struct {
 	train world.RailStyle
 }
 
-func (s *Scenario) stationSpotAt(p mgl32.Vec2) stationSpot {
-	w := s.world
+// except is a station left out (one being moved).
+func stationSpotAt(w *world.World, p mgl32.Vec2, except uint64) stationSpot {
 	tr, i, _ := w.TrackNear(p, 15)
 	if tr == nil {
 		return stationSpot{why: "Put a station beside a track"}
@@ -256,7 +319,7 @@ func (s *Scenario) stationSpotAt(p mgl32.Vec2) stationSpot {
 	default:
 		sp.ok = true
 		for _, o := range w.RailStations {
-			if o.TrackID == tr.ID && abs32f(o.Dist-sample.Dist) < 2*half {
+			if o.ID != except && o.TrackID == tr.ID && abs32f(o.Dist-sample.Dist) < 2*half {
 				sp.ok, sp.why = false, "Too near another station"
 			}
 		}
@@ -272,36 +335,35 @@ func abs32f(v float32) float32 {
 }
 
 // updateStationGhost shows the station the Station tool would place.
-func (s *Scenario) updateStationGhost(r *render.Renderer) {
-	if !s.hoverValid {
+func (env railEnv) updateStationGhost() {
+	if !env.hoverValid {
 		return
 	}
-	sp := s.stationSpotAt(mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]})
+	sp := stationSpotAt(env.w, env.hover, 0)
 	if sp.st.TrackID == 0 {
 		return
 	}
-	m, ok := render.StationTransform(s.world, &sp.st)
+	m, ok := render.StationTransform(env.w, &sp.st)
 	if !ok {
 		return
 	}
-	inst := render.StaticInstance{ColorTint: ghostTint(s.world.CanAfford(sp.cost), sp.ok)}
+	inst := render.StaticInstance{ColorTint: ghostTint(env.canAfford(sp.cost), sp.ok)}
 	copy(inst.Transform[:], m[:])
-	r.SetGhosts(render.MeshRailStation, []render.StaticInstance{inst})
+	env.r.SetGhosts(render.MeshRailStation, []render.StaticInstance{inst})
 }
 
 // stationClick places a station where the Station tool is pointing.
-func (s *Scenario) stationClick(r *render.Renderer, p mgl32.Vec2) {
-	w := s.world
-	sp := s.stationSpotAt(p)
+func (env railEnv) stationClick(p mgl32.Vec2) {
+	w := env.w
+	sp := stationSpotAt(w, p, 0)
 	if !sp.ok {
-		s.setToast(sp.why)
+		env.toast(sp.why)
 		return
 	}
-	if !w.CanAfford(sp.cost) {
-		s.setToast(fmt.Sprintf("Need %s for a station: short by %s", settings.FormatDollars(sp.cost), settings.FormatDollars(sp.cost-w.Available())))
+	if !env.afford(sp.cost, "a station") {
 		return
 	}
-	w.Spend(sp.cost)
+	env.pay(sp.cost)
 	st := sp.st
 	b := &world.Building{ID: w.NextID(), Type: world.BuildingStation}
 	st.ID = b.ID
@@ -309,14 +371,47 @@ func (s *Scenario) stationClick(r *render.Renderer, p mgl32.Vec2) {
 	w.RailStations = append(w.RailStations, &st)
 	b.Pos = w.PlatformSpot(&st)
 	w.RailRev++
+	env.r.RebuildStaticBatch(w)
+	env.changed()
+	env.toast(env.priced("Station built", sp.cost))
+}
+
+// moveStation moves station b (its building) to the track spot nearest
+// p, if a station can stand there; whether it moved.
+func moveStation(r *render.Renderer, w *world.World, b *world.Building, p mgl32.Vec2) bool {
+	st := w.RailStationByID(b.ID)
+	if st == nil {
+		return false
+	}
+	sp := stationSpotAt(w, p, st.ID)
+	if !sp.ok || (sp.st.TrackID == st.TrackID && sp.st.Dist == st.Dist && sp.st.Side == st.Side) {
+		return false
+	}
+	st.TrackID, st.Dist, st.Pos, st.Side = sp.st.TrackID, sp.st.Dist, sp.st.Pos, sp.st.Side
+	b.Pos = w.PlatformSpot(st)
+	w.RailRev++
+	r.RebuildRails(w)
 	r.RebuildStaticBatch(w)
-	s.setToast(fmt.Sprintf("Station built: %s", settings.FormatDollars(sp.cost)))
+	return true
+}
+
+// flipStation turns station b's platform to the other side of its track.
+func flipStation(r *render.Renderer, w *world.World, b *world.Building) {
+	st := w.RailStationByID(b.ID)
+	if st == nil {
+		return
+	}
+	st.Side = -st.Side
+	b.Pos = w.PlatformSpot(st)
+	w.RailRev++
+	r.RebuildRails(w)
+	r.RebuildStaticBatch(w)
 }
 
 // openStationPopup shows station st: its train, its service, how often,
 // and who it's bringing.
-func (s *Scenario) openStationPopup(st *world.RailStation, screenW, screenH int) {
-	w := s.world
+func (env railEnv) openStationPopup(st *world.RailStation) {
+	w := env.w
 	win := ui.NewWindow("Station", 0, 0)
 	win.AddLabel("Trains", func() string {
 		r, style, why := w.StationRoute(st, false)
@@ -332,8 +427,13 @@ func (s *Scenario) openStationPopup(st *world.RailStation, screenW, screenH int)
 	})
 	win.AddIntStepperFn("Trains every",
 		func() string { return fmt.Sprintf("%.0f minutes", st.Interval) },
-		func() { st.Interval = max(st.Interval/2, 15) },
-		func() { st.Interval = min(st.Interval*2, 240) })
+		func() { st.Interval = max(st.Interval/2, 15); env.changed() },
+		func() { st.Interval = min(st.Interval*2, 240); env.changed() })
+	if env.free {
+		win.Visible = true
+		env.show(win)
+		return
+	}
 	win.AddLabel("Booked", func() string {
 		n := 0
 		for _, g := range st.Bound {
@@ -351,8 +451,7 @@ func (s *Scenario) openStationPopup(st *world.RailStation, screenW, screenH int)
 		return fmt.Sprintf("%d on the mountain", n)
 	})
 	win.Visible = true
-	s.placePopup(win, screenW, screenH)
-	s.popup = win
+	env.show(win)
 }
 
 func lowerFirstWord(s string) string {
@@ -387,20 +486,20 @@ type railHandle struct {
 func (e *railEdit) clear() { *e = railEdit{} }
 
 // railSelected is the selected track, while its popup's open.
-func (s *Scenario) railSelected() *world.RailTrack {
-	e := &s.railEdit
-	if e.track == 0 || e.win == nil || s.popup != e.win || !e.win.Visible {
+func (env railEnv) selected() *world.RailTrack {
+	e := env.edit
+	if e.track == 0 || e.win == nil || !env.up(e.win) || !e.win.Visible {
 		if !e.drag.ok {
 			e.clear()
 		}
 		return nil
 	}
-	return s.world.RailTrackByID(e.track)
+	return env.w.RailTrackByID(e.track)
 }
 
-// railHandlePos is a handle's place in the world.
-func (s *Scenario) railHandlePos(p mgl32.Vec2) mgl32.Vec3 {
-	return mgl32.Vec3{p[0], render.VisualElevationAt(s.world.Terrain, p[0], p[1]) + 1, p[1]}
+// handlePos is a handle's place in the world.
+func (env railEnv) handlePos(p mgl32.Vec2) mgl32.Vec3 {
+	return mgl32.Vec3{p[0], render.VisualElevationAt(env.w.Terrain, p[0], p[1]) + 1, p[1]}
 }
 
 // railMid is the handle between points i and i+1 of points: on the curve.
@@ -415,14 +514,15 @@ func railMid(points []mgl32.Vec2, i int) mgl32.Vec2 {
 
 // railHandleAt is the selected track's handle under screen point mouse,
 // points before midpoints.
-func (s *Scenario) railHandleAt(r *render.Renderer, mouse mgl32.Vec2) railHandle {
-	tr := s.world.RailTrackByID(s.railEdit.track)
+func (env railEnv) handleAt(mouse mgl32.Vec2) railHandle {
+	r := env.r
+	tr := env.w.RailTrackByID(env.edit.track)
 	if tr == nil {
 		return railHandle{}
 	}
 	best, bestD := railHandle{}, float32(railHandleReach)
 	try := func(h railHandle, p mgl32.Vec2) {
-		sx, sy, ok := r.WorldToScreen(s.railHandlePos(p))
+		sx, sy, ok := r.WorldToScreen(env.handlePos(p))
 		if d := (mgl32.Vec2{sx, sy}).Sub(mouse).Len(); ok && d < bestD {
 			best, bestD = h, d
 			best.ok = true
@@ -442,25 +542,24 @@ func (s *Scenario) railHandleAt(r *render.Renderer, mouse mgl32.Vec2) railHandle
 
 // railEditInput handles the selected track's handles with no tool:
 // whether it used the mouse this frame.
-func (s *Scenario) railEditInput(r *render.Renderer, inp *engine.Input) bool {
-	e := &s.railEdit
-	w := s.world
+func (env railEnv) editInput(inp *engine.Input) bool {
+	e := env.edit
+	w := env.w
 	tr := w.RailTrackByID(e.track)
-	if tr == nil || (s.railSelected() == nil && !e.drag.ok) {
+	if tr == nil || (env.selected() == nil && !e.drag.ok) {
 		return false
 	}
-	hover := mgl32.Vec2{s.hoverWorld[0], s.hoverWorld[2]}
 	if e.drag.ok {
 		if inp.LeftHeld {
-			if s.hoverValid {
-				s.railDragTo(r, tr, hover)
+			if env.hoverValid {
+				env.dragTo(tr, env.hover)
 			}
 		} else {
-			s.railRelease(r, tr, hover)
+			env.release(tr)
 		}
 		return true
 	}
-	e.hover = s.railHandleAt(r, inp.MousePos)
+	e.hover = env.handleAt(inp.MousePos)
 	if !e.hover.ok {
 		return false
 	}
@@ -484,7 +583,7 @@ func (s *Scenario) railEditInput(r *render.Renderer, inp *engine.Input) bool {
 		}
 		e.before, e.beforeCost = w.SnapshotRail(), w.RailCost()
 		tr.Points = append(tr.Points[:e.hover.i], tr.Points[e.hover.i+1:]...)
-		s.railSettle(r, []*world.RailTrack{tr})
+		env.settle([]*world.RailTrack{tr})
 		return true
 	}
 	return false
@@ -492,9 +591,9 @@ func (s *Scenario) railEditInput(r *render.Renderer, inp *engine.Input) bool {
 
 // railDragTo moves the dragged handle to p: a point of the track, or its
 // end's joint (and every track at it).
-func (s *Scenario) railDragTo(r *render.Renderer, tr *world.RailTrack, p mgl32.Vec2) {
-	e := &s.railEdit
-	w := s.world
+func (env railEnv) dragTo(tr *world.RailTrack, p mgl32.Vec2) {
+	e := env.edit
+	w := env.w
 	e.moved = true
 	if e.drag.i == 0 || e.drag.i == len(tr.Points)-1 {
 		j := w.RailJointByID(tr.Ends[min(e.drag.i, 1)])
@@ -506,14 +605,14 @@ func (s *Scenario) railDragTo(r *render.Renderer, tr *world.RailTrack, p mgl32.V
 		w.LayOutTrack(tr)
 		w.RailRev++
 	}
-	r.RebuildRails(w)
+	env.r.RebuildRails(w)
 }
 
-// railRelease ends a drag at p: an end dropped on another joint joins it,
+// release ends a drag: an end dropped on another joint joins it,
 // on another track makes a junction there; then the edit's settled.
-func (s *Scenario) railRelease(r *render.Renderer, tr *world.RailTrack, p mgl32.Vec2) {
-	e := &s.railEdit
-	w := s.world
+func (env railEnv) release(tr *world.RailTrack) {
+	e := env.edit
+	w := env.w
 	drag := e.drag
 	e.drag = railHandle{}
 	if !e.moved {
@@ -539,15 +638,15 @@ func (s *Scenario) railRelease(r *render.Renderer, tr *world.RailTrack, p mgl32.
 	if w.RailTrackByID(e.track) == nil {
 		e.track = 0 // merged away
 	}
-	s.railSettle(r, changed)
+	env.settle(changed)
 }
 
-// railSettle checks an edit of tracks: too steep, or not paid for, and
+// settle checks an edit of tracks: too steep, or not paid for, and
 // it's put back as it was; else charged the difference and the ground
 // graded to the tracks that moved.
-func (s *Scenario) railSettle(r *render.Renderer, tracks []*world.RailTrack) {
-	e := &s.railEdit
-	w := s.world
+func (env railEnv) settle(tracks []*world.RailTrack) {
+	e := env.edit
+	w := env.w
 	for _, tr := range tracks {
 		w.LayOutTrack(tr)
 	}
@@ -562,38 +661,37 @@ func (s *Scenario) railSettle(r *render.Renderer, tracks []*world.RailTrack) {
 		}
 	}
 	extra := w.RailCost() - e.beforeCost
-	if why == "" && extra > 0 && !w.CanAfford(extra) {
+	if why == "" && extra > 0 && !env.canAfford(extra) {
 		why = fmt.Sprintf("Need %s for this change: short by %s", settings.FormatDollars(extra), settings.FormatDollars(extra-w.Available()))
 	}
 	if why != "" {
 		w.RestoreRail(e.before)
-		s.setToast(why)
-		r.RebuildRails(w)
+		env.toast(why)
+		env.r.RebuildRails(w)
 		return
 	}
-	if extra > 0 {
-		w.Spend(extra)
-	}
+	env.pay(extra)
 	keep := keepClaimed(w)
 	for _, tr := range tracks {
 		w.GradeTrack(tr, keep)
 	}
 	w.PlaceStations()
-	s.railChanged(r)
+	env.railChanged()
 }
 
 // trackAt is the track whose line passes within reach of p, for
 // selecting.
-func (s *Scenario) trackAt(p mgl32.Vec2) *world.RailTrack {
-	tr, _, _ := s.world.TrackNear(p, world.RailTrackReach)
+func trackAt(w *world.World, p mgl32.Vec2) *world.RailTrack {
+	tr, _, _ := w.TrackNear(p, world.RailTrackReach)
 	return tr
 }
 
 // openTrackPopup selects track tr and shows its popup: its style, speed,
-// sign, and the upgrade to the next style.
-func (s *Scenario) openTrackPopup(tr *world.RailTrack, screenW, screenH int) {
-	w := s.world
-	s.railEdit = railEdit{track: tr.ID}
+// sign, and the upgrade to the next style (in the editor, buttons for
+// each style).
+func (env railEnv) openTrackPopup(tr *world.RailTrack) {
+	w := env.w
+	*env.edit = railEdit{track: tr.ID}
 	spec := tr.Style.Spec()
 	win := ui.NewWindow(spec.Label+" track", 0, 0)
 	win.AddLabel("Length", func() string { return fmt.Sprintf("%.0f m", tr.Length()) })
@@ -609,50 +707,56 @@ func (s *Scenario) openTrackPopup(tr *world.RailTrack, screenW, screenH int) {
 		}
 		return "-"
 	})
-	if tr.Style+1 < world.RailStyles {
+	switch {
+	case env.free:
+		for style := world.RailStyle(0); style < world.RailStyles; style++ {
+			if style != tr.Style {
+				win.AddActionButton("Make it "+lowerFirstWord(style.Spec().Label), func() { env.restyleTrack(tr, style) })
+			}
+		}
+	case tr.Style+1 < world.RailStyles:
 		next := tr.Style + 1
 		cost := world.UpgradeCost(tr, next)
 		win.AddActionButton(fmt.Sprintf("Upgrade to %s (%s)", lowerFirstWord(next.Spec().Label), settings.FormatDollars(cost)), func() {
-			s.upgradeTrack(tr, next, screenW, screenH)
+			env.restyleTrack(tr, next)
 		})
 	}
 	win.Visible = true
-	s.placePopup(win, screenW, screenH)
-	s.popup = win
-	s.railEdit.win = win
+	env.show(win)
+	env.edit.win = win
 }
 
-// upgradeTrack upgrades track tr to style, if it can be.
-func (s *Scenario) upgradeTrack(tr *world.RailTrack, style world.RailStyle, screenW, screenH int) {
-	w := s.world
+// restyleTrack makes track tr style (an upgrade, in the game), if it can
+// be.
+func (env railEnv) restyleTrack(tr *world.RailTrack, style world.RailStyle) {
+	w := env.w
 	a, b := w.RailJointByID(tr.Ends[0]), w.RailJointByID(tr.Ends[1])
 	if a == nil || b == nil {
 		return
 	}
 	if why := world.TrackProblem(style, tr.Points, a.Y, b.Y); why != "" {
-		s.setToast(why)
+		env.toast(why)
 		return
 	}
 	cost := world.UpgradeCost(tr, style)
-	if !w.CanAfford(cost) {
-		s.setToast(fmt.Sprintf("Need %s to upgrade: short by %s", settings.FormatDollars(cost), settings.FormatDollars(cost-w.Available())))
+	if !env.afford(cost, "the upgrade") {
 		return
 	}
-	w.Spend(cost)
+	env.pay(cost)
 	tr.Style = style
 	w.LayOutTrack(tr)
 	w.GradeTrack(tr, keepClaimed(w))
-	s.railChanged(s.app.Renderer)
-	s.setToast(fmt.Sprintf("Upgraded to %s: %s", lowerFirstWord(style.Spec().Label), settings.FormatDollars(cost)))
-	s.openTrackPopup(tr, screenW, screenH)
+	env.railChanged()
+	env.toast(env.priced("Now "+lowerFirstWord(style.Spec().Label), cost))
+	env.openTrackPopup(tr)
 }
 
 // drawRailHandles draws the selected track's points and the dots between
 // them, the one under the cursor or dragged highlighted.
-func (s *Scenario) drawRailHandles(r *render.Renderer) {
-	e := &s.railEdit
-	tr := s.railSelected()
-	if tr == nil || s.activeTool != toolNone {
+func (env railEnv) drawHandles(r *render.Renderer) {
+	e := env.edit
+	tr := env.selected()
+	if tr == nil || env.active != toolNone {
 		return
 	}
 	active := e.hover
@@ -660,7 +764,7 @@ func (s *Scenario) drawRailHandles(r *render.Renderer) {
 		active = e.drag
 	}
 	dot := func(h railHandle, p mgl32.Vec2, radius float32) {
-		sx, sy, ok := r.WorldToScreen(s.railHandlePos(p))
+		sx, sy, ok := r.WorldToScreen(env.handlePos(p))
 		if !ok {
 			return
 		}
@@ -685,8 +789,8 @@ func (s *Scenario) drawRailHandles(r *render.Renderer) {
 // drawRailMarks draws the railway's signs: a warning over unelectrified
 // track its network's trains can't run on, a speed limit over track that
 // slows them; and, while laying track, its joints as snap targets.
-func (s *Scenario) drawRailMarks(r *render.Renderer) {
-	w := s.world
+func (env railEnv) drawMarks(r *render.Renderer) {
+	w := env.w
 	if len(w.RailTracks) == 0 {
 		return
 	}
@@ -706,9 +810,9 @@ func (s *Scenario) drawRailMarks(r *render.Renderer) {
 			ui.DrawSpeedSign(r, sx, sy, 14, fmt.Sprintf("%.0f", tr.Style.Spec().Speed*3.6))
 		}
 	}
-	if s.activeTool == toolRail {
+	if env.active == toolRail {
 		for _, j := range w.RailJoints {
-			if sx, sy, ok := r.WorldToScreen(s.railHandlePos(j.Pos)); ok {
+			if sx, sy, ok := r.WorldToScreen(env.handlePos(j.Pos)); ok {
 				fill := mgl32.Vec4{0.95, 0.55, 0.2, 0.9}
 				if j.Entry {
 					fill = mgl32.Vec4{0.3, 0.75, 1, 0.9}

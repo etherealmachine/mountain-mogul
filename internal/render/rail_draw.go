@@ -13,8 +13,12 @@ import (
 type railBatch struct {
 	mesh  *Mesh
 	batch *Batch
-	// track is the funicular track it was built for (funicular.go).
+	// track is the funicular track it was built for (funicular.go);
+	// laid, n and style the railway track's layout and style.
 	track *world.RailLine
+	laid  *world.RailSample
+	n     int
+	style world.RailStyle
 }
 
 type railDrawing struct {
@@ -45,8 +49,8 @@ func (rb *railBatch) delete() {
 	}
 }
 
-func newRailBatch(r *Renderer, l *world.RailLine, wired bool, t *world.Terrain, tint [3]float32) *railBatch {
-	return meshBatch(r, railLineMesh(l, wired, t, tint))
+func newRailBatch(r *Renderer, l *world.RailLine, style world.RailStyle, t *world.Terrain, tint [3]float32) *railBatch {
+	return meshBatch(r, railLineMesh(l, style, t, tint))
 }
 
 // meshBatch is a static batch of mesh m drawn once where it is; nil for
@@ -64,12 +68,30 @@ func meshBatch(r *Renderer, m *Mesh) *railBatch {
 // track and stations.
 func (r *Renderer) RebuildRails(w *world.World) {
 	if !r.scene.railBuilt || r.scene.railRev != w.RailRev {
-		for _, rb := range r.scene.rails {
-			rb.delete()
+		// Only the tracks laid out afresh, or restyled, are rebuilt (a
+		// drag changes one or a few every frame).
+		if r.scene.rails == nil {
+			r.scene.rails = map[uint64]*railBatch{}
 		}
-		r.scene.rails = map[uint64]*railBatch{}
+		live := map[uint64]bool{}
 		for _, tr := range w.RailTracks {
-			r.scene.rails[tr.ID] = newRailBatch(r, &tr.RailLine, tr.Style.Spec().Wired, w.Terrain, [3]float32{1, 1, 1})
+			live[tr.ID] = true
+			rb := r.scene.rails[tr.ID]
+			if rb != nil && len(tr.Track) > 0 && rb.laid == &tr.Track[0] && rb.n == len(tr.Track) && rb.style == tr.Style {
+				continue
+			}
+			rb.delete()
+			rb = newRailBatch(r, &tr.RailLine, tr.Style, w.Terrain, [3]float32{1, 1, 1})
+			if rb != nil {
+				rb.laid, rb.n, rb.style = &tr.Track[0], len(tr.Track), tr.Style
+			}
+			r.scene.rails[tr.ID] = rb
+		}
+		for id, rb := range r.scene.rails {
+			if !live[id] {
+				rb.delete()
+				delete(r.scene.rails, id)
+			}
 		}
 		r.scene.stations.delete()
 		r.scene.stations = meshBatch(r, stationsMesh(w))
@@ -132,7 +154,7 @@ func (r *Renderer) SetRailGhost(tr *world.RailTrack, t *world.Terrain, tint [3]f
 	r.scene.railGhost.delete()
 	r.scene.railGhost = nil
 	if tr != nil && len(tr.Track) >= 2 {
-		r.scene.railGhost = newRailBatch(r, &tr.RailLine, tr.Style.Spec().Wired, t, tint)
+		r.scene.railGhost = newRailBatch(r, &tr.RailLine, tr.Style, t, tint)
 	}
 }
 

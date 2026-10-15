@@ -1590,7 +1590,7 @@ func (s *Scenario) Update(dt float64) {
 			s.setToast("Rotation " + rotationDegrees(s.placeRotation))
 		case s.activeTool == toolNone && s.structureEdit.building != nil:
 			if rotateSelectedBuilding(r, s.world, &s.structureEdit, delta) {
-				s.setToast("Rotation " + rotationDegrees(s.structureEdit.building.Rotation))
+				s.setToast(turnedText(s.structureEdit.building))
 			} else if !s.structureEdit.building.IsPainted() {
 				s.setToast("Can't rotate here — overlaps another building")
 			}
@@ -1831,7 +1831,7 @@ func (s *Scenario) Update(dt float64) {
 	// The selected railway track's handles come before anything under
 	// them (rail_tool.go).
 	if s.activeTool == toolNone && s.hoverValid && !s.uiCovers(inp.MousePos[0], inp.MousePos[1], screenW) {
-		s.railEditInput(r, inp)
+		s.railEnv().editInput(inp)
 	}
 	if !inp.LeftClickConsumed && inp.LeftClick && s.activeTool == toolNone && !s.uiCovers(inp.MousePos[0], inp.MousePos[1], screenW) {
 		// Skier pick takes priority over toolNone-level edits and popups.
@@ -1862,10 +1862,10 @@ func (s *Scenario) Update(dt float64) {
 				// Let the existing popup flow still open for buildings
 				// and lifts — structure edit overlays drag-to-move and
 				// Delete on top of the informational popup.
-			} else if tr := s.trackAt(pos); tr != nil {
+			} else if tr := trackAt(s.world, pos); tr != nil {
 				s.roadEdit.clear()
 				s.structureEdit.clear()
-				s.openTrackPopup(tr, r.ScreenWidth(), r.ScreenHeight())
+				s.railEnv().openTrackPopup(tr)
 				inp.LeftClickConsumed = true
 			} else {
 				if s.roadEdit.active() {
@@ -1975,10 +1975,10 @@ func (s *Scenario) Update(dt float64) {
 		}
 	}
 	if s.activeTool == toolRail {
-		s.updateRailGhost(r)
+		s.railEnv().updateGhost()
 	}
 	if s.activeTool == toolStation {
-		s.updateStationGhost(r)
+		s.railEnv().updateStationGhost()
 	}
 	// The footpath tool: lay paths node by node (footpath_tool.go).
 	if s.activeTool == toolFootpath {
@@ -2576,9 +2576,9 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 	wx, wz := s.hoverWorld[0], s.hoverWorld[2]
 	switch s.activeTool {
 	case toolRail:
-		s.railClick(r, wx, wz)
+		s.railEnv().click(mgl32.Vec2{wx, wz})
 	case toolStation:
-		s.stationClick(r, mgl32.Vec2{wx, wz})
+		s.railEnv().stationClick(mgl32.Vec2{wx, wz})
 	case toolSkiRack:
 		if !w.Terrain.IsAccessible(gx, gz) {
 			s.setToast("Can't build on land you don't own")
@@ -2914,7 +2914,7 @@ func (s *Scenario) removeAt(clickPos mgl32.Vec3, r *render.Renderer) {
 		w.RemoveFootpath(f.ID) // no refund, like the other tools
 		return
 	}
-	if tr := s.trackAt(pick); tr != nil {
+	if tr := trackAt(w, pick); tr != nil {
 		w.RemoveTrack(tr) // no refund, like the other tools; its stations go too
 		r.RebuildStaticBatch(w)
 	}
@@ -2960,7 +2960,7 @@ func (s *Scenario) Render(r *render.Renderer) {
 	if s.eventPanel != nil {
 		s.eventPanel.Bottom = float32(r.ScreenHeight()) - s.toolBar.H
 	}
-	drawables := []render.UIDrawable{&fallenMarkers{world: s.world}, uiDrawFunc(s.drawClosedSigns), uiDrawFunc(s.drawRailMarks), uiDrawFunc(s.drawRailHandles), s.topBar, s.toolBar, s.overlayPanel, s.eventPanel}
+	drawables := []render.UIDrawable{&fallenMarkers{world: s.world}, uiDrawFunc(s.drawClosedSigns), uiDrawFunc(func(r *render.Renderer) { s.railEnv().drawMarks(r) }), uiDrawFunc(func(r *render.Renderer) { s.railEnv().drawHandles(r) }), s.topBar, s.toolBar, s.overlayPanel, s.eventPanel}
 
 	// Parcel price labels — shown when the land-buy tool is active so the
 	// player can see what each purchasable parcel costs before clicking.
@@ -3247,7 +3247,7 @@ func (s *Scenario) openBuildingPopup(b *world.Building, screenW, screenH int) {
 		return
 	case world.BuildingStation:
 		if st := s.world.RailStationByID(bldg.ID); st != nil {
-			s.openStationPopup(st, screenW, screenH)
+			s.railEnv().openStationPopup(st)
 		}
 		return
 	case world.BuildingSkiRack:
@@ -4102,9 +4102,9 @@ func (s *Scenario) placementCost() (cost int, affordable, legal, valid bool) {
 		if len(s.railTool.points) == 0 {
 			return 0, false, true, false
 		}
-		cost = s.railCost()
+		cost = s.railTool.ghostCost
 	case toolStation:
-		sp := s.stationSpotAt(pos)
+		sp := stationSpotAt(s.world, pos, 0)
 		if sp.st.TrackID == 0 {
 			return 0, false, true, false
 		}
