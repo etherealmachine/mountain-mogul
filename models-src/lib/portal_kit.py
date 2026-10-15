@@ -20,7 +20,8 @@ def portal(m, w, h, t=1.2):
     r = w / 2
     spring = h - r  # where the arch starts
     face_w, face_h = w + 5.0, h + 2.5
-    opening = union(translate([-1, -r, 0], cube([t + 2, w, spring])),
+    # Cut through the face's foot too: no sill, the floor is the ground.
+    opening = union(translate([-1, -r, -1], cube([t + 2, w, spring + 1])),
                     translate([-1, 0, spring], rotate([0, 90, 0], cylinder(h=t + 2, r=r, fn=24))))
     m.add(difference(translate([0, -face_w / 2, -0.5], cube([t, face_w, face_h + 0.5])), opening), stone)
     # The arch's ring of voussoirs, a little proud.

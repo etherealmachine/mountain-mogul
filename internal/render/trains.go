@@ -67,8 +67,9 @@ func drawTrains(r *Renderer, w *world.World) {
 				continue // beyond the map
 			}
 			pos, y, heading, pitch, tunnel := tr.Route.At(mid)
-			if tunnel {
-				continue
+			if tunnel && inTunnel(tr.Route, mid-c.len/2) && inTunnel(tr.Route, mid+c.len/2) {
+				continue // all of it under the hill; a car partly out is drawn
+				// whole, the hill and the portal's dark inside hiding the rest
 			}
 			if c.flip {
 				heading += math.Pi
@@ -90,4 +91,10 @@ func drawTrains(r *Renderer, w *world.World) {
 		b.SetDynamic(insts)
 		b.Draw()
 	}
+}
+
+// inTunnel reports whether d metres along route r is in a tunnel.
+func inTunnel(r *world.RailRoute, d float32) bool {
+	_, _, _, _, tunnel := r.At(d)
+	return tunnel
 }
