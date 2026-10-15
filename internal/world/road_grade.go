@@ -37,11 +37,11 @@ const (
 // roadBed is a road's graded bed: the carriageway and half a metre
 // either side, shoulders banked out to the ground (trees are cleared by
 // the plowing, road_cells.go).
-var roadBed = BedSpec{Half: RoadHalfWidth + 0.5, Bank: 1.5, CutBank: 0.75, ShoulderMax: 20, PortalTop: 8.4, PortalHalf: 9.5}
+var roadBed = BedSpec{Half: RoadHalfWidth + 0.5, Bank: 1.5, CutBank: 0.75, ShoulderMax: 20, PortalTop: 8.4, PortalHalf: 9.5, PortalOpening: 4.5}
 
 // footpathBed is a path's, for a path half wide.
 func footpathBed(half float32) BedSpec {
-	return BedSpec{Half: half + 0.3, Bank: 1.5, CutBank: 1, ShoulderMax: 10, PortalTop: 5.6, PortalHalf: 6.6}
+	return BedSpec{Half: half + 0.3, Bank: 1.5, CutBank: 1, ShoulderMax: 10, PortalTop: 5.6, PortalHalf: 6.6, PortalOpening: 1.6}
 }
 
 // RoadLine is a road from a to b laid out on its grade, with its tunnels.

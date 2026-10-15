@@ -160,13 +160,30 @@ func setProfile(track []RailSample, heights []float32, tunnels [][2]int) bool {
 // where cut (steeper: a rock cut, so a cut into a sidehill meets the hill
 // instead of running out of shoulder and leaving a cliff), and trees
 // cleared Clear past the bed (0 for none). PortalTop is a tunnel portal's
-// headwall top over the line's surface and PortalHalf half its width:
-// behind a mouth, the hill over the tunnel isn't cut below it, so it
-// meets the portal.
+// headwall top over the line's surface, PortalHalf half its width and
+// PortalOpening half its opening's: behind a mouth, past the portal's
+// dark inside (portalBack), the hill over the tunnel isn't cut below
+// the headwall's top, so it comes down onto the portal; in front of
+// that, across the opening, and in front of the face between its wing
+// walls, the ground stays at the bed, so the hill doesn't show through
+// the opening or over the face.
 type BedSpec struct {
 	Half, Base, Bank, CutBank, ShoulderMax, Clear float32
-	PortalTop, PortalHalf                         float32
+	PortalTop, PortalHalf, PortalOpening          float32
 }
+
+// portalBack is how far in from a mouth a portal's dark inside ends
+// (models-src/lib/portal_kit.py: the face 1.2 m thick, the back wall
+// 0.6 m behind it, 0.2 m thick).
+const portalBack = 2.0
+
+// portalWing is how far out in front of its face a portal's wing walls
+// reach, and portalWingOut how much wider they spread there (PortalHalf
+// is the face's half-width and this).
+const (
+	portalWing    = 4.0
+	portalWingOut = 2.5
+)
 
 // GradeBed cuts and fills the ground under track to its bed (b), except
 // where it tunnels (the hill stays) and the cells keep says to keep (a
@@ -234,20 +251,34 @@ func (t *Terrain) GradeBed(track []RailSample, b BedSpec, keep func(x, z int) bo
 	}
 	if b.PortalTop > 0 {
 		// Behind each mouth, as wide as its portal, the hill comes down no
-		// lower than the headwall's top.
+		// lower than the headwall's top; but across the opening, until
+		// past the portal's dark inside (and a step of the ground's grid
+		// more, so the slope between doesn't reach into it), the ground
+		// stays at the bed.
+		inside := portalBack + 1.5*p.Spacing
 		for _, m := range portalsOf(track) {
 			s, c := float32(math.Sin(float64(m.Heading))), float32(math.Cos(float64(m.Heading)))
 			dir, left := mgl32.Vec2{s, c}, mgl32.Vec2{c, -s}
-			top := m.Y + b.PortalTop
+			top, bed := m.Y+b.PortalTop, m.Y-b.Base
 			for j := 0; j < p.H; j++ {
 				for i := 0; i < p.W; i++ {
 					wx, wz := p.Pos(i, j)
 					q := mgl32.Vec2{wx, wz}.Sub(m.Pos)
-					if q.Dot(dir) <= 0 || float32(math.Abs(float64(q.Dot(left)))) > b.PortalHalf || q.Dot(dir) > reach {
+					u, v := q.Dot(dir), float32(math.Abs(float64(q.Dot(left))))
+					if u <= -portalWing-p.Spacing || u > reach || v > b.PortalHalf+p.Spacing {
 						continue
 					}
+					// In front of the face, between the wing walls (out to
+					// PortalHalf where they meet the ground portalWing out).
+					wing := b.PortalHalf - portalWingOut*(1+min(u, 0)/portalWing)
 					k := j*p.W + i
-					p.After[k] = max(p.After[k], min(p.Before[k], top))
+					switch {
+					case u <= inside && v <= b.PortalOpening+p.Spacing,
+						u <= 0 && v <= wing+p.Spacing:
+						p.After[k] = min(p.After[k], bed)
+					case u > portalBack && v <= b.PortalHalf:
+						p.After[k] = max(p.After[k], min(p.Before[k], top))
+					}
 				}
 			}
 		}
