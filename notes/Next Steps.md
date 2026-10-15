@@ -11,7 +11,7 @@ New features only, a line each, to say yes or no to. A feature big enough to nee
 
 ## Priority
 
-Empty: nothing ranked first.
+1. [[Skier Collisions]] (steps 1–2 built; step 4, readable, next): skiers who fail to avoid each other collide and fall, sometimes hurt; more when fast, unskilled or crowded, so merges and crowded runs show up as a problem ([[Skiing]]).
 
 ## Lifts
 
@@ -41,14 +41,13 @@ Empty: nothing ranked first.
 
 ## Safety
 
-- **Skier-on-skier collisions**: skiers who fail to avoid each other collide and fall, sometimes hurt; more when fast, unskilled or crowded ([[Skiing]]).
 - **Clinic**: treats injuries on site instead of sending guests home.
 - **Medevac**: a helicopter for serious incidents.
 
 ## Guests
 
 - **Splitting up**: the strong skier goes off alone and meets the others for lunch or at the car; "skied with friends", "lost the group" ([[Groups]]).
-- **Snowboarders**: their own physics, board and tastes (DLC, [[Release]]).
+- **Snowboarders**: their own physics, board and tastes, and a reckless streak that looks ahead less and collides more ([[Skier Collisions]]) (DLC, [[Release]]).
 - **What each skill wants**: beginners want rentals and easy terrain, intermediates food and rest, experts terrain and no crowds. *For* [[Kirkwood]].
 - **Rating per skill level**: separate ratings from beginners, intermediates and experts. *For* [[Kirkwood]].
 - **Guest goals beyond lapping**: find the shortest line, go to après, stay near the lodge.
