@@ -24,6 +24,9 @@ type Settings struct {
 	HideDailyReport bool `json:"hide_daily_report,omitempty"`
 	// NoNightPause stops the game pausing at each midnight.
 	NoNightPause bool `json:"no_night_pause,omitempty"`
+	// NoAvalanchePause stops the game pausing when a slide crosses the
+	// runs or catches someone.
+	NoAvalanchePause bool `json:"no_avalanche_pause,omitempty"`
 	// AntiAliasing is the multisample count for the 3D scene: 0 (off),
 	// 2 or 4.
 	AntiAliasing int `json:"anti_aliasing"`

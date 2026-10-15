@@ -3,6 +3,8 @@ package world
 import (
 	"math"
 	"sort"
+
+	"github.com/go-gl/mathgl/mgl32"
 )
 
 // Slide paths (notes/next/Avalanche Control.md): where avalanches start
@@ -362,4 +364,19 @@ func (w *World) SetAvyClosedCells() {
 // avalanche danger, and no open one.
 func (w *World) AvyClosedAt(x, z int) bool {
 	return w.avyClosedCells != nil && w.avyClosedCells[[2]int{x, z}]
+}
+
+// AvyShot is one mortar round of avalanche control: fired from From at
+// Fired, landing on To at Lands (sim seconds).
+type AvyShot struct {
+	From, To     mgl32.Vec3
+	Fired, Lands float64
+}
+
+// AvyBurst is a burst of snow avalanche control set off at Pos at sim
+// time At: a round's blast (Blast), or a ski cut cracking the slope.
+type AvyBurst struct {
+	Pos   mgl32.Vec3
+	At    float64
+	Blast bool
 }

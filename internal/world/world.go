@@ -252,10 +252,27 @@ type World struct {
 	// AvyLimit is the danger at which avalanche control closes the runs
 	// under a slide path (Danger by default).
 	AvyLimit DangerLevel
+	// AvyWorkPaused stops avalanche control's work (the rounds and ski
+	// cuts); runs still close at AvyLimit. Saved.
+	AvyWorkPaused bool
+	// SavedSlideLoads is each slide path's load as a save had it, (x, z,
+	// load) by its centre, for the sim to give back to the paths it finds
+	// (sim.ensureSlidePaths); nil once used.
+	SavedSlideLoads [][3]float32
 
 	// SlidePaths is the avalanche paths (slide_paths.go), found by the
 	// sim from the ground; not saved.
 	SlidePaths []*SlidePath
+	// AvyFront is the cells a running avalanche is passing through now
+	// (set by the sim each tick): the renderer raises its powder cloud
+	// there. Not saved.
+	AvyFront [][2]int
+	// AvyShots is avalanche control's mortar rounds, in flight or just
+	// landed, and AvyBursts the bursts of snow its work set off (a
+	// round's blast, a ski cut's fracture), for the renderer. The sim
+	// drops each a minute after; not saved.
+	AvyShots  []AvyShot
+	AvyBursts []AvyBurst
 
 	// Dark is whether it's too dark to ski unlit (set by the sim each
 	// tick), and DuskHour the clock hour that happens today. Not saved.

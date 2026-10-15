@@ -96,7 +96,7 @@ func (e *Editor) flushGround(r *render.Renderer, final bool) {
 		return
 	}
 	t := e.world.Terrain
-	r.FlushTerrainVerts(t)
+	r.FlushTerrainEdit(t)
 	if final {
 		e.layerCache = layerCache{}
 		r.BuildMogulTex(t)

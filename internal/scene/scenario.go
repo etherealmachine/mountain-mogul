@@ -107,6 +107,17 @@ func refreshTreesAround(r *render.Renderer, w *world.World, cx, cz, radius int) 
 	r.RebuildStaticBatch(w)
 }
 
+// fellTrees is one glade application: it removes trees from the terrain
+// and the drawn forest, and restamps the snow round them. Unlike
+// refreshTreesAround it leaves the other static batches alone, so a
+// drag stays smooth; the stroke ends with a RebuildStaticBatch.
+func fellTrees(r *render.Renderer, w *world.World, trees []world.Tree, cx, cz, radius int) {
+	removeTrees(w.Terrain, trees)
+	r.RemoveTrees(trees)
+	w.Terrain.RestampTreeWellsCells(cx-radius, cz-radius, cx+radius, cz+radius)
+	r.FlushSnowCells(w.Terrain, cx-radius, cz-radius, cx+radius, cz+radius)
+}
+
 // applyLiftPlacementEffects, applyLiftStationApron and clearLiftCorridor
 // live in lift_apron.go — lift terminal grading is its own concern and
 // we expect it to iterate.
@@ -477,6 +488,14 @@ type Scenario struct {
 	settingsMenu *SettingsMenu
 	goalsOnStart bool   // a new game: open on the goals panel
 	eventsSeen   uint64 // the notifications' Seq when last looked at (the unread dot)
+	// avySeq is the events' Seq when last checked for avalanches, avyAlert
+	// the window one opened, and avyPaused whether it paused the game
+	// (avalanche_alert.go); noAlertPause keeps alerts from pausing (for
+	// -screenshot runs).
+	avySeq       uint64
+	avyAlert     *ui.Window
+	avyPaused    bool
+	noAlertPause bool
 	moneyFloats  []moneyFloat
 	confetti     []confetti // the win's confetti (confetti.go)
 	celebratedAt float32    // s.time it started
@@ -743,6 +762,27 @@ func (s *Scenario) SetClockHour(h float64) {
 	s.sim.SkipClockEffects()
 }
 
+// NoAlertPause keeps avalanche alerts from pausing the game (for
+// -screenshot runs, which would otherwise wait for a click); their window
+// still opens.
+func (s *Scenario) NoAlertPause() { s.noAlertPause = true }
+
+// DevAvalanche sets off the slide path nearest the camera, or nearest
+// world (x, z) with "how@x,z" (for -screenshot): how is "slide",
+// "mortar" or "cut" (sim.DevAvalanche).
+func (s *Scenario) DevAvalanche(how string) (mgl32.Vec2, bool) {
+	if s.sim == nil {
+		return mgl32.Vec2{}, false
+	}
+	c := s.app.Renderer.Camera
+	x, z := c.Target[0], c.Target[2]
+	if h, at, ok := strings.Cut(how, "@"); ok {
+		how = h
+		fmt.Sscanf(at, "%f,%f", &x, &z)
+	}
+	return s.sim.DevAvalanche(x, z, how)
+}
+
 // SetTimeScale runs the sim at mult× and unpauses it (for -screenshot).
 // ForceStorm drops one heavy-snow day on the terrain and makes today a
 // heavy-snow day, so the snowfall overlay and canopy snow draw too.
@@ -941,6 +981,7 @@ func (s *Scenario) Init(app *engine.App) error {
 	}
 	// What's already in a save's notifications counts as read.
 	s.eventsSeen = w.Events.Seq
+	s.avySeq = w.Events.Seq
 	s.installWorld(w)
 	// A new game is in the games list straight away.
 	s.autosaveDue = s.newGame && s.saveAllowed
@@ -1158,12 +1199,7 @@ func (s *Scenario) Init(app *engine.App) error {
 	s.eventPanel.Top = topBarH
 	s.eventPanel.Bottom = float32(app.Renderer.ScreenHeight()) - toolBarH
 	s.eventPanel.GetRows = func() []ui.EventRow { return eventRows(s.world) }
-	s.eventPanel.OnJump = func(x, z float32) {
-		s.setFollowGuest(0)
-		c := app.Renderer.Camera
-		c.Target = mgl32.Vec3{x, s.world.Terrain.InterpolatedSurfaceElevationAt(x, z), z}
-		c.Recalculate()
-	}
+	s.eventPanel.OnJump = s.jumpTo
 	s.topBar.SetEventsToggle(func() {
 		s.topBar.SetEventsActive(s.eventPanel.Toggle())
 		s.eventsSeen = s.world.Events.Seq
@@ -1396,6 +1432,7 @@ func (s *Scenario) installWorld(w *world.World) {
 	// Plow roads and parking lots at each day rollover so freshly-fallen
 	// snow doesn't accumulate on asphalt.
 	s.dayReport = nil
+	s.avyAlert, s.avyPaused = nil, false
 	s.sim.OnDayRollover = func(w *world.World) {
 		applyRoadCellState(w)
 		w.PlowRails()
@@ -1754,6 +1791,9 @@ func (s *Scenario) Update(dt float64) {
 	if s.dayReport != nil && s.dayReport.Visible {
 		s.dayReport.HandleInput(inp)
 	}
+	if s.avyAlert != nil && s.avyAlert.Visible {
+		s.avyAlert.HandleInput(inp)
+	}
 	if s.popup != nil && s.popup.Visible && !inp.LeftClickConsumed {
 		s.popup.HandleInput(inp)
 	}
@@ -2015,6 +2055,7 @@ func (s *Scenario) Update(dt float64) {
 	if !inp.LeftHeld {
 		if s.lastGladeCell != [2]int{-1, -1} {
 			s.lastGladeCell = [2]int{-1, -1}
+			r.RebuildStaticBatch(s.world) // fellTrees left the batches reordered
 		}
 		// A finished drag leaves a ghost waiting to be built.
 		if s.activeTool == toolParking && s.lotTool.dragging() {
@@ -2171,6 +2212,7 @@ func (s *Scenario) Update(dt float64) {
 		s.devTick()
 		s.tickSim(dt)
 	}
+	s.checkAvalancheAlerts()
 	if s.autosaveDue {
 		s.autosaveDue = false
 		s.autosave()
@@ -2718,8 +2760,7 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 			return
 		}
 		w.Spend(cost)
-		removeTrees(w.Terrain, trees)
-		refreshTreesAround(r, w, gx, gz, s.gladeBrushRadius()+1)
+		fellTrees(r, w, trees, gx, gz, s.gladeBrushRadius()+1)
 	case toolLiftBase:
 		if !w.Terrain.IsAccessible(gx, gz) {
 			s.setToast("Can't place a lift on land you don't own")
@@ -2766,7 +2807,7 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		} else {
 			applyLiftPlacementEffects(w, lift)
 		}
-		r.FlushTerrainVerts(w.Terrain)
+		r.FlushTerrainEdit(w.Terrain)
 		r.AddLiftCable(lift, w.Terrain) // no-op for helilifts
 		r.RebuildStaticBatch(w)
 		r.ClearAllGhosts()
@@ -2812,7 +2853,7 @@ func (s *Scenario) applyTool(r *render.Renderer) {
 		}
 		w.Spend(cost)
 		applyRoadCellState(w)
-		r.FlushTerrainVerts(w.Terrain)
+		r.FlushTerrainEdit(w.Terrain)
 		r.RebuildStaticBatch(w)
 		r.RebuildRoads(w)
 		// Continue the chain from the just-placed endpoint — the player
@@ -3002,7 +3043,7 @@ func (s *Scenario) removeAt(clickPos mgl32.Vec3, r *render.Renderer) {
 			// effects (no Natural baseline to revert TO). The graded pad
 			// just stays where the building was — the player can paint
 			// trees back or re-stamp later.
-			r.FlushTerrainVerts(w.Terrain)
+			r.FlushTerrainEdit(w.Terrain)
 			r.RebuildStaticBatch(w)
 			if wasParking {
 				r.RebuildRoads(w)
@@ -3173,6 +3214,9 @@ func (s *Scenario) Render(r *render.Renderer) {
 	}
 	if s.dayReport != nil && s.dayReport.Visible {
 		drawables = append(drawables, s.dayReport)
+	}
+	if s.avyAlert != nil && s.avyAlert.Visible {
+		drawables = append(drawables, s.avyAlert)
 	}
 	if s.settingsMenu.Visible() {
 		drawables = append(drawables, s.settingsMenu)
@@ -3545,7 +3589,7 @@ func (s *Scenario) openLiftPopup(lift *world.Lift, screenW, screenH int) {
 			// A new chair can bring a new terminal and cables.
 			r := s.app.Renderer
 			applyLiftPlacementEffects(s.world, l)
-			r.FlushTerrainVerts(s.world.Terrain)
+			r.FlushTerrainEdit(s.world.Terrain)
 			r.RemoveLiftCable(l.ID)
 			r.AddLiftCable(l, s.world.Terrain)
 			r.RebuildStaticBatch(s.world)
@@ -4010,6 +4054,9 @@ func (s *Scenario) uiCovers(x, y float32, screenW float32) bool {
 		return true
 	}
 	if s.dayReport != nil && s.dayReport.ContainsPoint(x, y) {
+		return true
+	}
+	if s.avyAlert != nil && s.avyAlert.Visible && s.avyAlert.ContainsPoint(x, y) {
 		return true
 	}
 	return false

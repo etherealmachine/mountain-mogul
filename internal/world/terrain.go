@@ -230,7 +230,7 @@ func KindShaderPacked(k SnowKind) float32 {
 	case KindBase:
 		return 0.90
 	case KindAvalancheDebris:
-		return 0.20 // paired with ShaderIce=0.45; ice>packed is the debris shader signal
+		return 0.60
 	case KindMachine:
 		return 0.80
 	default:
@@ -255,7 +255,7 @@ func KindShaderIce(k SnowKind) float32 {
 	case KindBase:
 		return 0.00
 	case KindAvalancheDebris:
-		return 0.45 // ice>packed flags debris in the shader (no other kind has this)
+		return 0.05
 	case KindMachine:
 		return 0.05
 	default:
@@ -390,6 +390,10 @@ type Cell struct {
 	Grooming        float32   // 0..1; 1 = freshly groomed corduroy
 	MogulSize       float32   // 0..1; mogul amplitude (visual + physics roughness)
 	SkierTraffic    float32   // accumulated traffic; drives kind transitions
+	// Debris is the SWE (metres) of avalanche debris lying in the
+	// surface snow: part of Top, not extra snow. New snow buries it, a
+	// thaw slumps it, a cat clears it (debris.go).
+	Debris float32
 
 	Passable  bool    // hard structural block (buildings, lift endpoints)
 	TreeCount uint8   // stored trees in this cell; kept in step by Terrain's tree methods (trees.go)
@@ -398,6 +402,9 @@ type Cell struct {
 	AvySnow     float32 // SWE of snow in transit through this cell (0 = inactive)
 	AvyMomentum float32 // wave momentum at this cell
 	AvyTick     int     // generation index when this cell entered the active front
+	// AvyDirX, AvyDirZ is the way the snow in transit is heading, summed
+	// over what arrived, weighted by snow (only its direction matters).
+	AvyDirX, AvyDirZ float32
 }
 
 // Friction coefficients. MuKineticBase is the glide of ungroomed packed
@@ -585,6 +592,9 @@ type Terrain struct {
 
 	// trunks caches each trunk's steering hazard at 1 m (trunk_field.go).
 	trunks trunkField
+	// wells tracks where trees changed since tree wells were last
+	// stamped (RestampTreeWells).
+	wells treeWellState
 
 	// Surface is a 1 m-resolution RGBA8 buffer mirroring the cell grid,
 	// carrying sub-cell features the 5 m mesh can't (skier tracks,

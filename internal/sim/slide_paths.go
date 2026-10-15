@@ -61,8 +61,27 @@ func (s *Simulation) ensureSlidePaths() {
 		}
 		p.Load = loose / float32(len(p.Start)) * initialLoadShare
 	}
+	// A saved game gives back the load each path had, by its centre; a
+	// path with none saved had none.
+	if saved := w.SavedSlideLoads; saved != nil {
+		w.SavedSlideLoads = nil
+		for _, p := range w.SlidePaths {
+			p.Load = 0
+			best := float32(slideLoadMatch * slideLoadMatch)
+			for _, l := range saved {
+				dx, dz := l[0]-p.CentreX, l[1]-p.CentreZ
+				if d := dx*dx + dz*dz; d < best {
+					best, p.Load = d, l[2]
+				}
+			}
+		}
+	}
 	s.updateAvalancheDanger()
 }
+
+// slideLoadMatch is how far, metres, a saved load's centre may be from a
+// path's for it to be that path's (the same ground finds the same paths).
+const slideLoadMatch = 30
 
 // RebuildSlidePaths finds the paths again (after the ground or the runs
 // change), each new one keeping the load of the old one nearest it.
@@ -247,7 +266,11 @@ func (s *Simulation) releasePath(p *world.SlidePath, controlled bool) {
 		}
 		msg += " across " + names
 	}
-	s.World.LogEventAt(world.EventAvalanche, s.SimTime, msg, cellCentre([2]int{int(p.CentreX / world.CellSize), int(p.CentreZ / world.CellSize)}), 0)
+	kind := world.EventAvalanche
+	if controlled {
+		kind = world.EventAvalancheControl
+	}
+	s.World.LogEventAt(kind, s.SimTime, msg, cellCentre([2]int{int(p.CentreX / world.CellSize), int(p.CentreZ / world.CellSize)}), 0)
 }
 
 // sizeWord is a slide path's size in a word, by its start zone's cells.
@@ -349,10 +372,10 @@ func (s *Simulation) updateAvyClosures() {
 		}
 	}
 	if len(shut) > 0 {
-		w.LogEvent(world.EventAvalanche, s.SimTime, "Closed for avalanche danger: "+listNames(shut))
+		w.LogEvent(world.EventAvalancheNotice, s.SimTime, "Closed for avalanche danger: "+listNames(shut))
 	}
 	if len(opened) > 0 {
-		w.LogEvent(world.EventAvalanche, s.SimTime, "Reopened after avalanche danger: "+listNames(opened))
+		w.LogEvent(world.EventAvalancheNotice, s.SimTime, "Reopened after avalanche danger: "+listNames(opened))
 	}
 }
 

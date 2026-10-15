@@ -132,7 +132,7 @@ func (s *shadowMap) render(r *Renderer, lightDir mgl32.Vec3, groundY float32) {
 	s.dynamicShader.Use()
 	s.dynamicShader.SetMat4("uLightVP", s.lightVP)
 	batches := []*Batch{
-		r.snowcatBatch, r.patrollerBatch,
+		r.snowcatBatch, r.patrollerBatch, r.avy.blockBatch,
 		r.chairBatch, r.chairTripleBatch, r.chairQuadBatch,
 	}
 	batches = append(batches, bigLiftShadowBatches(r)...)

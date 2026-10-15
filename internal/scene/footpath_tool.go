@@ -433,7 +433,7 @@ func emitPathMarkers(r *render.Renderer, w *world.World, st *pathTool) {
 // are laid or reshaped, and redraws the ground and trees.
 func clearForPaths(r *render.Renderer, w *world.World) {
 	applyFootpathCellState(w)
-	r.FlushTerrainVerts(w.Terrain)
+	r.FlushTerrainEdit(w.Terrain)
 	r.RebuildStaticBatch(w)
 }
 

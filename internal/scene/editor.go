@@ -55,6 +55,11 @@ type Editor struct {
 	radiusSlider     *ui.VSlider // shown for any brush tool
 	densitySlider    *ui.VSlider // plant tool only
 	strengthSlider   *ui.VSlider // terrain brushes only
+	thinSlider       *ui.VSlider // glade tool only
+	// lastGladeCell is the cell most recently glade-applied this stroke,
+	// or (-1, -1) with the mouse up: a stroke thins each cell it enters
+	// once, as in play.
+	lastGladeCell [2]int
 	// stroke is the terrain brush stroke in progress (terrain_brush.go).
 	stroke terrainStroke
 	// Parcel rect-selection state
@@ -336,6 +341,10 @@ func (e *Editor) Init(app *engine.App) error {
 	e.densitySlider = ui.NewVSlider(0, 0, 18, 200, 0, 100, 100, "Density")
 	e.strengthSlider = ui.NewVSlider(0, 0, 18, 200, 5, 100, 40, "Strength")
 	e.strengthSlider.ValueFormat = "%.0f%%"
+	// Thin matches play's glade tool: the share of the trees under the
+	// brush each application takes.
+	e.thinSlider = ui.NewVSlider(0, 0, 18, 200, 5, 100, 25, "Thin")
+	e.lastGladeCell = [2]int{-1, -1}
 
 	// Auto-gen sliders — drive both forest and snow generation. Persistent
 	// across tool toggles so the player's last settings stick around.
@@ -691,6 +700,11 @@ func (e *Editor) Update(dt float64) {
 				sliderActive = true
 			}
 		}
+		if e.activeTool == toolGlade {
+			if e.thinSlider.HandleInput(inp) {
+				sliderActive = true
+			}
+		}
 	}
 
 	// Auto-gen sliders — adjusting any of them re-runs both the snow and
@@ -783,6 +797,7 @@ func (e *Editor) Update(dt float64) {
 		roadStart:  e.roadStart,
 		rotation:   e.placeRotation,
 		tint:       ghostTint(true, e.placementLegal()),
+		gladeTrees: e.gladeSelection(),
 	})
 	e.updateServiceTool(inp, overChrome)
 	e.updateRunTool(r, inp, overChrome)
@@ -826,6 +841,10 @@ func (e *Editor) Update(dt float64) {
 	if !inp.LeftClick && !inp.LeftHeld {
 		e.suppressBrushUntilRelease = false
 		e.endTerrainStroke(r)
+		if e.lastGladeCell != [2]int{-1, -1} {
+			e.lastGladeCell = [2]int{-1, -1}
+			r.RebuildStaticBatch(e.world) // fellTrees left the batches reordered
+		}
 		e.skiAreaRelease()
 		e.waterRelease()
 		e.labelRelease()
@@ -841,6 +860,7 @@ func (e *Editor) Update(dt float64) {
 		overSlider := e.toolUsesRadiusSlider() && e.radiusSlider.Contains(inp.MousePos[0], inp.MousePos[1])
 		overSlider = overSlider || (e.toolUsesDensitySlider() && e.densitySlider.Contains(inp.MousePos[0], inp.MousePos[1]))
 		overSlider = overSlider || (e.isTerrainBrush() && e.strengthSlider.Contains(inp.MousePos[0], inp.MousePos[1]))
+		overSlider = overSlider || (e.activeTool == toolGlade && e.thinSlider.Contains(inp.MousePos[0], inp.MousePos[1]))
 		if e.activeTool == toolAuto {
 			for _, s := range e.autoSliders() {
 				if s.Contains(inp.MousePos[0], inp.MousePos[1]) {
@@ -898,6 +918,13 @@ func (e *Editor) Update(dt float64) {
 							e.setToast(e.lotTool.why)
 						}
 					}
+				}
+			} else if e.activeTool == toolGlade {
+				gx, gz := e.hoverCell[0], e.hoverCell[1]
+				dragged := inp.LeftHeld && e.lastGladeCell != [2]int{-1, -1} && e.hoverCell != e.lastGladeCell
+				if (inp.LeftClick || dragged) && e.world.Terrain.InBounds(gx, gz) {
+					e.lastGladeCell = e.hoverCell
+					e.applyEditorTool(gx, gz, r, float32(dt))
 				}
 			} else if inp.LeftClick || inp.LeftHeld {
 				gx, gz := e.hoverCell[0], e.hoverCell[1]
@@ -1050,7 +1077,7 @@ func (e *Editor) applyPlacement(r *render.Renderer, shiftHeld bool) {
 			applyLiftPlacementEffects(w, lift)
 			r.AddLiftCable(lift, w.Terrain)
 		}
-		r.FlushTerrainVerts(w.Terrain)
+		r.FlushTerrainEdit(w.Terrain)
 		r.RebuildStaticBatch(w)
 		e.activeTool = toolNone
 		e.syncToolButtons()
@@ -1066,7 +1093,7 @@ func (e *Editor) applyPlacement(r *render.Renderer, shiftHeld bool) {
 			e.setToast(why)
 		} else if placeRoadSegment(w, start, end) != nil {
 			applyRoadCellState(w)
-			r.FlushTerrainVerts(w.Terrain)
+			r.FlushTerrainEdit(w.Terrain)
 			r.RebuildStaticBatch(w)
 			// Continue chaining from the just-placed endpoint. Esc or
 			// re-clicking the Road button drops out of the tool.
@@ -1101,7 +1128,7 @@ func (e *Editor) applyPlacement(r *render.Renderer, shiftHeld bool) {
 		inlandNode := w.AddRoadNode(inland, world.RoadNodeFreestanding)
 		w.AddRoadEdge(edgeNode.ID, inlandNode.ID)
 		applyRoadCellState(w)
-		r.FlushTerrainVerts(w.Terrain)
+		r.FlushTerrainEdit(w.Terrain)
 		r.RebuildStaticBatch(w)
 		r.RebuildRoads(w)
 		// Stay in the tool — designers usually place several edge
@@ -1112,7 +1139,7 @@ func (e *Editor) applyPlacement(r *render.Renderer, shiftHeld bool) {
 			if !b.IsPainted() && b.Pos.Sub(pick).Len() <= buildingPickRadius {
 				wasParking := b.Type == world.BuildingParking
 				w.RemoveBuilding(b.ID)
-				r.FlushTerrainVerts(w.Terrain)
+				r.FlushTerrainEdit(w.Terrain)
 				r.RebuildStaticBatch(w)
 				if wasParking {
 					r.RebuildRoads(w)
@@ -1387,11 +1414,6 @@ func (e *Editor) activateLiftTool(typ world.LiftType) {
 
 const defaultBrushRadius = 2 // cells
 
-// editorGladeShare is the share of the trees under the brush each editor
-// glade application takes. The editor applies it every frame the mouse
-// is held, so a short hold clears a stand.
-const editorGladeShare = 0.4
-
 // brushRadius returns the current radius for tools that use the slider, or
 // the default for tools that don't. Centralising it keeps applyEditorTool
 // and the hover preview in lockstep.
@@ -1404,6 +1426,16 @@ func (e *Editor) brushRadius() int {
 		return r
 	}
 	return defaultBrushRadius
+}
+
+// gladeSelection is the trees a glade click at the hovered cell would
+// take: highlighted while hovering, removed on a click.
+func (e *Editor) gladeSelection() []world.Tree {
+	if e.activeTool != toolGlade || !e.hoverValid {
+		return nil
+	}
+	return gladeSelection(e.world.Terrain, e.hoverCell[0], e.hoverCell[1],
+		e.brushRadius(), e.thinSlider.Value/100)
 }
 
 // toolUsesRadiusSlider reports whether the radius slider is relevant for
@@ -1428,8 +1460,7 @@ func (e *Editor) applyEditorTool(gx, gz int, r *render.Renderer, dt float32) {
 		plantTreesUpTo(w.Terrain, gx, gz, e.brushRadius(), target, rand.Float32)
 		refreshTreesAround(r, w, gx, gz, e.brushRadius())
 	case toolGlade:
-		removeTrees(w.Terrain, gladeSelection(w.Terrain, gx, gz, e.brushRadius(), editorGladeShare))
-		refreshTreesAround(r, w, gx, gz, e.brushRadius()+1)
+		fellTrees(r, w, e.gladeSelection(), gx, gz, e.brushRadius()+1)
 	case toolSmooth, toolFlatten, toolRaise, toolLower:
 		e.applyTerrainBrush(r, dt)
 	}
@@ -1991,7 +2022,7 @@ func (e *Editor) openEntryPopup(id uint64, screenW, screenH int) {
 		}
 		applyRoadCellState(w)
 		r := e.app.Renderer
-		r.FlushTerrainVerts(w.Terrain)
+		r.FlushTerrainEdit(w.Terrain)
 		r.RebuildStaticBatch(w)
 		r.RebuildRoads(w)
 		e.entryPopup.Visible = false
@@ -2305,6 +2336,9 @@ func (e *Editor) Render(r *render.Renderer) {
 		if e.isTerrainBrush() {
 			edDrawables = append(edDrawables, e.strengthSlider)
 		}
+		if e.activeTool == toolGlade {
+			edDrawables = append(edDrawables, e.thinSlider)
+		}
 	}
 	if e.activeTool == toolAuto {
 		e.layoutAutoSliders(r)
@@ -2417,6 +2451,10 @@ func (e *Editor) layoutBrushSliders(r *render.Renderer) {
 	e.strengthSlider.Y = y
 	e.strengthSlider.W = trackW
 	e.strengthSlider.H = trackH
+	e.thinSlider.X = 80
+	e.thinSlider.Y = y
+	e.thinSlider.W = trackW
+	e.thinSlider.H = trackH
 }
 
 // layoutAutoSliders positions the auto-gen sliders inside the snow panel.

@@ -13,8 +13,8 @@ import (
 	"mountain-mogul/internal/world"
 )
 
-// DebugConsole is the cheat-code console, toggled on ~ or opened by
-// typing /. Commands take an optional leading slash: /sandbox, moremoney.
+// DebugConsole is the cheat-code console, opened by typing /: /sandbox,
+// /avalanche.
 type DebugConsole struct {
 	visible      bool
 	input        *ui.TextInput
@@ -55,7 +55,6 @@ func (c *DebugConsole) SetSim(s *sim.Simulation, flushTerrain, flushStatic func(
 }
 
 func (c *DebugConsole) Visible() bool { return c.visible }
-func (c *DebugConsole) Toggle()       { c.visible = !c.visible }
 func (c *DebugConsole) Show()         { c.visible = true }
 
 func (c *DebugConsole) HandleInput(inp *engine.Input) {

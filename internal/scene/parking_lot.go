@@ -509,7 +509,7 @@ func commitLot(r *render.Renderer, w *world.World, lotID uint64, rect world.Foot
 	applyParkingLotEffects(w, b)
 	gradeLotDriveway(w, b)
 	applyRoadCellState(w)
-	r.FlushTerrainVerts(w.Terrain)
+	r.FlushTerrainEdit(w.Terrain)
 	r.RebuildStaticBatch(w)
 	r.RebuildRoads(w)
 	w.RebuildTrailGraph()

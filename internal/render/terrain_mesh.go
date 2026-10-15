@@ -56,7 +56,9 @@ const (
 type terrainChunk struct {
 	first, count int32 // indices
 	min, max     mgl32.Vec3
-	always       bool // the skirt: drawn without culling
+	vert         int32  // first vertex
+	cells        [4]int // corners x0, z0, x1, z1 (inclusive)
+	always       bool   // the skirt: drawn without culling
 	// lods are coarser index ranges over the same vertices, using every
 	// 2nd, 4th, and 8th corner (terrainLODStrides), for when cells are
 	// too small on screen to be worth drawing one by one.
@@ -97,9 +99,24 @@ func buildTerrainCorners(t *world.Terrain) *terrainCorners {
 		smoothY: make([]float32, W*H), ao: make([]float32, W*H),
 		smoothNormals: make([][3]float32, W*H),
 	}
+	c.fill(t, 0, 0, W-1, H-1)
+	return c
+}
 
-	for z := 0; z < H; z++ {
-		for x := 0; x < W; x++ {
+// fill recomputes corners [x0, x1] × [z0, z1] (inclusive). The smoothed
+// elevation, AO and normals read corners around the box, so a partial
+// fill (FlushTerrainEdit) needs their ground y current first.
+func (c *terrainCorners) fill(t *world.Terrain, x0, z0, x1, z1 int) {
+	c.fillPositions(t, x0, z0, x1, z1)
+	c.fillSmoothY(t, x0, z0, x1, z1)
+	c.fillAO(x0, z0, x1, z1)
+	c.fillNormals(x0, z0, x1, z1)
+}
+
+func (c *terrainCorners) fillPositions(t *world.Terrain, x0, z0, x1, z1 int) {
+	W, H := c.w, c.h
+	for z := z0; z <= z1; z++ {
+		for x := x0; x <= x1; x++ {
 			jx, _, jz := terrainJitterXYZ(x, z, W, H, terrainCellSize)
 			s := cornerJitterScale(t, x, z)
 			i := c.at(x, z)
@@ -108,94 +125,112 @@ func buildTerrainCorners(t *world.Terrain) *terrainCorners {
 			c.z[i] = float32(z)*terrainCellSize + jz*s
 		}
 	}
+}
 
-	// Smoothed elevation: separable 5-tap binomial (1,4,6,4,1)/16 over
-	// surface elevation. 10 m of smoothing removes the cell stepping
-	// that would make contour lines bend at every triangle edge, small
-	// next to the 50 m contour interval.
-	{
-		base := make([]float32, W*H)
-		for z := 0; z < H; z++ {
-			for x := 0; x < W; x++ {
-				base[c.at(x, z)] = t.SurfaceElevationAt(x, z)
-			}
-		}
-		kernel := [5]float32{1, 4, 6, 4, 1}
-		const kSum = float32(16)
-		horiz := make([]float32, W*H)
-		for z := 0; z < H; z++ {
-			for x := 0; x < W; x++ {
-				var sum float32
-				for k := -2; k <= 2; k++ {
-					sum += kernel[k+2] * base[c.at(min(max(x+k, 0), W-1), z)]
-				}
-				horiz[c.at(x, z)] = sum / kSum
-			}
-		}
-		for z := 0; z < H; z++ {
-			for x := 0; x < W; x++ {
-				var sum float32
-				for k := -2; k <= 2; k++ {
-					sum += kernel[k+2] * horiz[c.at(x, min(max(z+k, 0), H-1))]
-				}
-				c.smoothY[c.at(x, z)] = sum / kSum
-			}
+// fillSmoothY is the smoothed elevation: separable 5-tap binomial
+// (1,4,6,4,1)/16 over surface elevation. 10 m of smoothing removes the
+// cell stepping that would make contour lines bend at every triangle
+// edge, small next to the 50 m contour interval.
+func (c *terrainCorners) fillSmoothY(t *world.Terrain, x0, z0, x1, z1 int) {
+	W, H := c.w, c.h
+	// The passes read 2 corners beyond the box, clamped to the map.
+	bx0, bz0 := max(x0-2, 0), max(z0-2, 0)
+	bx1, bz1 := min(x1+2, W-1), min(z1+2, H-1)
+	bw, bh := bx1-bx0+1, bz1-bz0+1
+	base := make([]float32, bw*bh)
+	for z := bz0; z <= bz1; z++ {
+		for x := bx0; x <= bx1; x++ {
+			base[(z-bz0)*bw+(x-bx0)] = t.SurfaceElevationAt(x, z)
 		}
 	}
+	kernel := [5]float32{1, 4, 6, 4, 1}
+	const kSum = float32(16)
+	horiz := make([]float32, bw*bh)
+	for z := bz0; z <= bz1; z++ {
+		for x := x0; x <= x1; x++ {
+			var sum float32
+			for k := -2; k <= 2; k++ {
+				sum += kernel[k+2] * base[(z-bz0)*bw+(min(max(x+k, 0), W-1)-bx0)]
+			}
+			horiz[(z-bz0)*bw+(x-bx0)] = sum / kSum
+		}
+	}
+	for z := z0; z <= z1; z++ {
+		for x := x0; x <= x1; x++ {
+			var sum float32
+			for k := -2; k <= 2; k++ {
+				sum += kernel[k+2] * horiz[(min(max(z+k, 0), H-1)-bz0)*bw+(x-bx0)]
+			}
+			c.smoothY[c.at(x, z)] = sum / kSum
+		}
+	}
+}
 
-	// AO: for each corner, march 8 rays at 3 radii and estimate the
-	// elevation angle to the highest blocker above the local slope
-	// plane, so an even slope isn't darkened just for being tilted.
-	const aoRadiusMax = float32(30.0)
-	const aoRings = 3
-	const aoDirs = 8
-	const aoEpsilon = float32(0.5)
-	{
-		var sinTab, cosTab [aoDirs]float32
-		for d := 0; d < aoDirs; d++ {
-			theta := float64(d) * 2 * math.Pi / float64(aoDirs)
-			sinTab[d] = float32(math.Sin(theta))
-			cosTab[d] = float32(math.Cos(theta))
-		}
-		bilinear := func(fx, fz float32) float32 {
-			fx = min(max(fx, 0), float32(W-1))
-			fz = min(max(fz, 0), float32(H-1))
-			x0, z0 := int(fx), int(fz)
-			x1, z1 := min(x0+1, W-1), min(z0+1, H-1)
-			tx, tz := fx-float32(x0), fz-float32(z0)
-			a := c.y[c.at(x0, z0)]*(1-tx) + c.y[c.at(x1, z0)]*tx
-			b := c.y[c.at(x0, z1)]*(1-tx) + c.y[c.at(x1, z1)]*tx
-			return a*(1-tz) + b*tz
-		}
-		for x := 0; x < W; x++ {
-			for z := 0; z < H; z++ {
-				p := c.y[c.at(x, z)]
-				r1 := aoRadiusMax / float32(aoRings) / terrainCellSize
-				gx := (bilinear(float32(x)+r1, float32(z)) - bilinear(float32(x)-r1, float32(z))) / (2 * r1 * terrainCellSize)
-				gz := (bilinear(float32(x), float32(z)+r1) - bilinear(float32(x), float32(z)-r1)) / (2 * r1 * terrainCellSize)
-				occ := float32(0)
-				for ring := 1; ring <= aoRings; ring++ {
-					rWorld := aoRadiusMax * float32(ring) / float32(aoRings)
-					rCells := rWorld / terrainCellSize
-					for d := 0; d < aoDirs; d++ {
-						sy := bilinear(float32(x)+rCells*cosTab[d], float32(z)+rCells*sinTab[d])
-						plane := p + (gx*cosTab[d]+gz*sinTab[d])*rWorld
-						tan := (sy - plane - aoEpsilon) / rWorld
-						if tan > 0 {
-							occ += tan / (tan + 1.0)
-						}
+// AO: for each corner, march 8 rays at 3 radii and estimate the
+// elevation angle to the highest blocker above the local slope plane,
+// so an even slope isn't darkened just for being tilted. It reads
+// ground y up to aoReachCorners away: the outer ring plus a corner of
+// interpolation.
+const (
+	aoReachCorners = 7
+	aoRadiusMax    = float32(30.0)
+	aoRings        = 3
+	aoDirs         = 8
+	aoEpsilon      = float32(0.5)
+)
+
+var aoSin, aoCos = func() (s, c [aoDirs]float32) {
+	for d := 0; d < aoDirs; d++ {
+		theta := float64(d) * 2 * math.Pi / float64(aoDirs)
+		s[d] = float32(math.Sin(theta))
+		c[d] = float32(math.Cos(theta))
+	}
+	return
+}()
+
+func (c *terrainCorners) fillAO(x0, z0, x1, z1 int) {
+	W, H := c.w, c.h
+	bilinear := func(fx, fz float32) float32 {
+		fx = min(max(fx, 0), float32(W-1))
+		fz = min(max(fz, 0), float32(H-1))
+		x0, z0 := int(fx), int(fz)
+		x1, z1 := min(x0+1, W-1), min(z0+1, H-1)
+		tx, tz := fx-float32(x0), fz-float32(z0)
+		a := c.y[c.at(x0, z0)]*(1-tx) + c.y[c.at(x1, z0)]*tx
+		b := c.y[c.at(x0, z1)]*(1-tx) + c.y[c.at(x1, z1)]*tx
+		return a*(1-tz) + b*tz
+	}
+	for x := x0; x <= x1; x++ {
+		for z := z0; z <= z1; z++ {
+			p := c.y[c.at(x, z)]
+			r1 := aoRadiusMax / float32(aoRings) / terrainCellSize
+			gx := (bilinear(float32(x)+r1, float32(z)) - bilinear(float32(x)-r1, float32(z))) / (2 * r1 * terrainCellSize)
+			gz := (bilinear(float32(x), float32(z)+r1) - bilinear(float32(x), float32(z)-r1)) / (2 * r1 * terrainCellSize)
+			occ := float32(0)
+			for ring := 1; ring <= aoRings; ring++ {
+				rWorld := aoRadiusMax * float32(ring) / float32(aoRings)
+				rCells := rWorld / terrainCellSize
+				for d := 0; d < aoDirs; d++ {
+					sy := bilinear(float32(x)+rCells*aoCos[d], float32(z)+rCells*aoSin[d])
+					plane := p + (gx*aoCos[d]+gz*aoSin[d])*rWorld
+					tan := (sy - plane - aoEpsilon) / rWorld
+					if tan > 0 {
+						occ += tan / (tan + 1.0)
 					}
 				}
-				c.ao[c.at(x, z)] = min(max(1.0-occ/float32(aoRings*aoDirs)*1.4, 0.15), 1.0)
 			}
+			c.ao[c.at(x, z)] = min(max(1.0-occ/float32(aoRings*aoDirs)*1.4, 0.15), 1.0)
 		}
 	}
+}
 
-	// Smooth normals from central differences of the smoothed elevation,
-	// shared by every triangle at a corner so lighting is continuous
-	// across cell edges.
-	for x := 0; x < W; x++ {
-		for z := 0; z < H; z++ {
+// fillNormals is the smooth normals, from central differences of the
+// smoothed elevation, shared by every triangle at a corner so lighting
+// is continuous across cell edges.
+func (c *terrainCorners) fillNormals(x0, z0, x1, z1 int) {
+	W, H := c.w, c.h
+	for x := x0; x <= x1; x++ {
+		for z := z0; z <= z1; z++ {
 			xL, xR := max(x-1, 0), min(x+1, W-1)
 			zU, zD := max(z-1, 0), min(z+1, H-1)
 			var dYdx, dYdz float32
@@ -210,7 +245,6 @@ func buildTerrainCorners(t *world.Terrain) *terrainCorners {
 			c.smoothNormals[c.at(x, z)] = [3]float32{nx * invL, ny * invL, nz * invL}
 		}
 	}
-	return c
 }
 
 func smoothstep01(x float32) float32 {
@@ -228,43 +262,25 @@ func cellTris(x, z int) [2][3][2]int {
 }
 
 // buildTerrainGeometry builds the chunked surface and the skirt (four
-// walls and a floor that make the map a diorama block). minY/maxY are
-// the surface's ground range, for the topo and haze shaders.
-func buildTerrainGeometry(t *world.Terrain) (verts []float32, indices []uint32, chunks []terrainChunk, minY, maxY float32) {
-	W, H := t.Width, t.Height
-	c := buildTerrainCorners(t)
+// walls and a floor that make the map a diorama block) from the
+// corners. minY/maxY are the surface's ground range, for the topo and
+// haze shaders. skirtVert is the skirt's first vertex.
+func buildTerrainGeometry(c *terrainCorners) (verts []float32, indices []uint32, chunks []terrainChunk, skirtVert int, minY, maxY float32) {
+	W, H := c.w, c.h
 	chunksX := (W - 2 + terrainChunkCells) / terrainChunkCells
 	chunksZ := (H - 2 + terrainChunkCells) / terrainChunkCells
 	verts = make([]float32, 0, (W+chunksX)*(H+chunksZ)*terrainFloatsPerVert)
 	indices = make([]uint32, 0, (W-1)*(H-1)*6)
 	minY, maxY = float32(math.Inf(1)), float32(math.Inf(-1))
 
-	vert := func(i int, gx, gz float32) {
-		n := c.smoothNormals[i]
-		verts = append(verts,
-			c.x[i], c.y[i], c.z[i],
-			gx, gz,
-			1, 0,
-			c.smoothY[i], c.ao[i],
-			n[0], n[1], n[2],
-		)
-	}
-
 	for cj := 0; cj < chunksZ; cj++ {
 		for ci := 0; ci < chunksX; ci++ {
 			x0, z0 := ci*terrainChunkCells, cj*terrainChunkCells
 			x1, z1 := min(x0+terrainChunkCells, W-1), min(z0+terrainChunkCells, H-1)
 			base := uint32(len(verts) / terrainFloatsPerVert)
-			lo := float32(math.Inf(1))
-			hi := float32(math.Inf(-1))
+			var lo, hi float32
+			verts, lo, hi = c.appendChunkVerts(verts, x0, z0, x1, z1)
 			nx := x1 - x0 + 1
-			for z := z0; z <= z1; z++ {
-				for x := x0; x <= x1; x++ {
-					i := c.at(x, z)
-					vert(i, float32(x), float32(z))
-					lo, hi = min(lo, c.y[i]), max(hi, c.y[i])
-				}
-			}
 			first := int32(len(indices))
 			for z := z0; z < z1; z++ {
 				for x := x0; x < x1; x++ {
@@ -278,9 +294,10 @@ func buildTerrainGeometry(t *world.Terrain) (verts []float32, indices []uint32, 
 			chunk := terrainChunk{
 				first: first,
 				count: int32(len(indices)) - first,
-				min:   mgl32.Vec3{float32(x0)*terrainCellSize - 1, lo, float32(z0)*terrainCellSize - 1},
-				max:   mgl32.Vec3{float32(x1)*terrainCellSize + 1, hi, float32(z1)*terrainCellSize + 1},
+				vert:  int32(base),
+				cells: [4]int{x0, z0, x1, z1},
 			}
+			chunk.setBounds(lo, hi)
 			// Coarse levels: quads of s × s cells, the last one in a row
 			// or column cut short at the map's far edge.
 			for l, s := range terrainLODStrides {
@@ -307,12 +324,50 @@ func buildTerrainGeometry(t *world.Terrain) (verts []float32, indices []uint32, 
 		minY, maxY = 0, 1
 	}
 
-	// Skirt. Wall tops follow the surface's boundary corners (whose
-	// perpendicular jitter is zero, so each wall stays planar) and carry
-	// detail; bottoms sit at terrainSkirtBaseY.
+	skirtVert = len(verts) / terrainFloatsPerVert
+	first := int32(len(indices))
+	verts, indices = c.appendSkirt(verts, indices)
+	chunks = append(chunks, terrainChunk{first: first, count: int32(len(indices)) - first, always: true})
+
+	return verts, indices, chunks, skirtVert, minY, maxY
+}
+
+// appendChunkVerts appends corners [x0, x1] × [z0, z1] as vertices, rows
+// along x, and returns their ground range.
+func (c *terrainCorners) appendChunkVerts(verts []float32, x0, z0, x1, z1 int) (_ []float32, lo, hi float32) {
+	lo, hi = float32(math.Inf(1)), float32(math.Inf(-1))
+	for z := z0; z <= z1; z++ {
+		for x := x0; x <= x1; x++ {
+			i := c.at(x, z)
+			n := c.smoothNormals[i]
+			verts = append(verts,
+				c.x[i], c.y[i], c.z[i],
+				float32(x), float32(z),
+				1, 0,
+				c.smoothY[i], c.ao[i],
+				n[0], n[1], n[2],
+			)
+			lo, hi = min(lo, c.y[i]), max(hi, c.y[i])
+		}
+	}
+	return verts, lo, hi
+}
+
+// setBounds sets the chunk's culling box from its cells and ground range.
+func (ch *terrainChunk) setBounds(lo, hi float32) {
+	x0, z0, x1, z1 := ch.cells[0], ch.cells[1], ch.cells[2], ch.cells[3]
+	ch.min = mgl32.Vec3{float32(x0)*terrainCellSize - 1, lo, float32(z0)*terrainCellSize - 1}
+	ch.max = mgl32.Vec3{float32(x1)*terrainCellSize + 1, hi, float32(z1)*terrainCellSize + 1}
+}
+
+// appendSkirt appends the skirt. Wall tops follow the surface's boundary
+// corners (whose perpendicular jitter is zero, so each wall stays
+// planar) and carry detail; bottoms sit at terrainSkirtBaseY. Its vertex
+// count depends only on the map's size.
+func (c *terrainCorners) appendSkirt(verts []float32, indices []uint32) ([]float32, []uint32) {
+	W, H := c.w, c.h
 	const wallAO = float32(0.75)
 	const floorAO = float32(0.20)
-	first := int32(len(indices))
 	type sv struct {
 		p      [3]float32
 		gx, gz float32
@@ -360,9 +415,7 @@ func buildTerrainGeometry(t *world.Terrain) (verts []float32, indices []uint32, 
 	f01 := sv{p: [3]float32{0, terrainSkirtBaseY, maxZ}}
 	emitTri([3]float32{0, -1, 0}, floorAO, f00, f10, f11)
 	emitTri([3]float32{0, -1, 0}, floorAO, f00, f11, f01)
-	chunks = append(chunks, terrainChunk{first: first, count: int32(len(indices)) - first, always: true})
-
-	return verts, indices, chunks, minY, maxY
+	return verts, indices
 }
 
 // terrainJitterXYZ returns deterministic per-corner offsets in X and Z
@@ -394,11 +447,11 @@ func terrainJitterXYZ(gx, gz, width, height int, cellSize float32) (float32, flo
 }
 
 // cellSnow is one cell's snow values as the corner textures carry them.
-type cellSnow struct{ g, pk, ic, mg, dp, is float32 }
+type cellSnow struct{ g, pk, ic, mg, dp, is, db float32 }
 
 // cornerSnow fills the per-corner snow textures for corners
 // [x0, x1] × [z0, z1]: a holds (Grooming, Packed, Ice, MogulSize) and b
-// (visible depth, instability), each the average of the corner's cells
+// (visible depth, instability, debris depth, 0), each the average of the corner's cells
 // so groomed patches fade into their neighbours instead of stopping at a
 // cell edge. Rows run along x. maxDepth is the deepest corner. Each
 // cell's values are derived once into scratch (grown as needed), not
@@ -421,6 +474,7 @@ func cornerSnow(t *world.Terrain, x0, z0, x1, z1 int, a, b []float32, scratch *[
 			cells[(z-cz0)*cw+(x-cx0)] = cellSnow{
 				g: c.Grooming, pk: c.SurfacePacked(), ic: c.SurfaceIce(),
 				mg: c.MogulSize, dp: c.VisibleSnowDepth(), is: t.AvyDangerShade(x, z),
+				db: c.DebrisDepth(),
 			}
 		}
 	}
@@ -437,18 +491,19 @@ func cornerSnow(t *world.Terrain, x0, z0, x1, z1 int, a, b []float32, scratch *[
 					sum.mg += c.mg
 					sum.dp += c.dp
 					sum.is += c.is
+					sum.db += c.db
 					n++
 				}
 			}
 			i := (cz-z0)*rw + (cx - x0)
 			if n == 0 {
 				a[i*4], a[i*4+1], a[i*4+2], a[i*4+3] = 0, 0, 0, 0
-				b[i*2], b[i*2+1] = 0, 0
+				b[i*4], b[i*4+1], b[i*4+2], b[i*4+3] = 0, 0, 0, 0
 				continue
 			}
 			inv := 1 / n
 			a[i*4], a[i*4+1], a[i*4+2], a[i*4+3] = sum.g*inv, sum.pk*inv, sum.ic*inv, sum.mg*inv
-			b[i*2], b[i*2+1] = sum.dp*inv, sum.is*inv
+			b[i*4], b[i*4+1], b[i*4+2], b[i*4+3] = sum.dp*inv, sum.is*inv, sum.db*inv, 0
 			maxDepth = max(maxDepth, sum.dp*inv)
 		}
 	}
@@ -613,7 +668,10 @@ func (r *Renderer) BuildTerrainMesh(t *world.Terrain) {
 }
 
 func (r *Renderer) uploadTerrainGeometry(t *world.Terrain) {
-	verts, indices, chunks, minY, maxY := buildTerrainGeometry(t)
+	c := buildTerrainCorners(t)
+	verts, indices, chunks, skirtVert, minY, maxY := buildTerrainGeometry(c)
+	r.scene.terrainCorners = c
+	r.scene.terrainSkirtVert = skirtVert
 	r.scene.terrainMinY = minY
 	r.scene.terrainMaxY = maxY
 	r.scene.terrainChunks = chunks
@@ -650,7 +708,7 @@ func (r *Renderer) FlushSnowState(t *world.Terrain) {
 	W, H := t.Width, t.Height
 	if len(s.snowA) != W*H*4 {
 		s.snowA = make([]float32, W*H*4)
-		s.snowB = make([]float32, W*H*2)
+		s.snowB = make([]float32, W*H*4)
 	}
 	workers := min(runtime.NumCPU(), H)
 	for len(s.snowScratch) < workers {
@@ -663,7 +721,7 @@ func (r *Renderer) FlushSnowState(t *world.Terrain) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			depths[w] = cornerSnow(t, 0, z0, W-1, z1, s.snowA[z0*W*4:], s.snowB[z0*W*2:], &s.snowScratch[w])
+			depths[w] = cornerSnow(t, 0, z0, W-1, z1, s.snowA[z0*W*4:], s.snowB[z0*W*4:], &s.snowScratch[w])
 		}()
 	}
 	wg.Wait()
@@ -672,14 +730,15 @@ func (r *Renderer) FlushSnowState(t *world.Terrain) {
 		maxDepth = max(maxDepth, d)
 	}
 	s.terrainSnowPad = maxDepth + terrainDispPad
+	r.avy.staleAll = true
 	if s.cornerSnowTexA == 0 {
 		s.cornerSnowTexA = newDataTexture(gl.RGBA16F, W, H)
-		s.cornerSnowTexB = newDataTexture(gl.RG32F, W, H)
+		s.cornerSnowTexB = newDataTexture(gl.RGBA32F, W, H)
 	}
 	gl.BindTexture(gl.TEXTURE_2D, s.cornerSnowTexA)
 	gl.TexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, int32(W), int32(H), gl.RGBA, gl.FLOAT, gl.Ptr(s.snowA))
 	gl.BindTexture(gl.TEXTURE_2D, s.cornerSnowTexB)
-	gl.TexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, int32(W), int32(H), gl.RG, gl.FLOAT, gl.Ptr(s.snowB))
+	gl.TexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, int32(W), int32(H), gl.RGBA, gl.FLOAT, gl.Ptr(s.snowB))
 	gl.BindTexture(gl.TEXTURE_2D, 0)
 }
 
@@ -717,18 +776,19 @@ func (r *Renderer) FlushSnowCells(t *world.Terrain, x0, z0, x1, z1 int) {
 	w, h := cx1-cx0+1, cz1-cz0+1
 	if cap(s.snowTileA) < w*h*4 {
 		s.snowTileA = make([]float32, w*h*4)
-		s.snowTileB = make([]float32, w*h*2)
+		s.snowTileB = make([]float32, w*h*4)
 	}
-	a, b := s.snowTileA[:w*h*4], s.snowTileB[:w*h*2]
+	a, b := s.snowTileA[:w*h*4], s.snowTileB[:w*h*4]
 	if s.snowScratch == nil {
 		s.snowScratch = make([][]cellSnow, 1)
 	}
 	depth := cornerSnow(t, cx0, cz0, cx1, cz1, a, b, &s.snowScratch[0])
+	r.avy.markDebrisStale(x0, z0, x1, z1)
 	s.terrainSnowPad = max(s.terrainSnowPad, depth+terrainDispPad)
 	gl.BindTexture(gl.TEXTURE_2D, s.cornerSnowTexA)
 	gl.TexSubImage2D(gl.TEXTURE_2D, 0, int32(cx0), int32(cz0), int32(w), int32(h), gl.RGBA, gl.FLOAT, gl.Ptr(a))
 	gl.BindTexture(gl.TEXTURE_2D, s.cornerSnowTexB)
-	gl.TexSubImage2D(gl.TEXTURE_2D, 0, int32(cx0), int32(cz0), int32(w), int32(h), gl.RG, gl.FLOAT, gl.Ptr(b))
+	gl.TexSubImage2D(gl.TEXTURE_2D, 0, int32(cx0), int32(cz0), int32(w), int32(h), gl.RGBA, gl.FLOAT, gl.Ptr(b))
 	gl.BindTexture(gl.TEXTURE_2D, 0)
 }
 
@@ -742,6 +802,7 @@ func (r *Renderer) FlushTerrainDetail(t *world.Terrain) {
 			s.detailTex = 0
 		}
 		s.detailPad = 0
+		s.detailCopy = nil
 		return
 	}
 	d := t.Detail
@@ -760,6 +821,7 @@ func (r *Renderer) FlushTerrainDetail(t *world.Terrain) {
 	gl.TexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, int32(d.W), int32(d.H), gl.RED, gl.FLOAT, gl.Ptr(d.Off))
 	gl.BindTexture(gl.TEXTURE_2D, 0)
 	s.detailPad = d.MaxAbs()
+	s.detailCopy = append(s.detailCopy[:0], d.Off...)
 }
 
 // FlushTerrainMaterial uploads t.Material when it has changed, or frees

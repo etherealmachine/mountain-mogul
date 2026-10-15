@@ -50,6 +50,7 @@ func main() {
 	camYaw := flag.Float64("camera-yaw", math.NaN(), "initial camera yaw in degrees for -screenshot or -testbed UI mode. Default: 225.")
 	camPitch := flag.Float64("camera-pitch", math.NaN(), "initial camera pitch in degrees for -screenshot or -testbed UI mode. Default: 45.")
 	camZoom := flag.Float64("camera-zoom", math.NaN(), "initial camera OrthoScale (world units per half-viewport-height) for -screenshot or -testbed UI mode. Default: auto-fit terrain.")
+	avalanche := flag.String("avalanche", "", "-screenshot: set off the slide path nearest the camera target: slide (it runs on its own), mortar or cut (a patroller's control work)")
 	clockHour := flag.Float64("clock-hour", math.NaN(), "-screenshot: jump the clock to this hour of the current day (e.g. 7.5 for 7:30) before capture")
 	dayPace := flag.Float64("day-pace", 0, "-screenshot: run at the speed button nearest this many real seconds a game day (2560, 80, 40) instead of -time-scale")
 	benchHours := flag.Float64("bench-hours", 0, "-screenshot: keep running frames until this many game hours have passed (overrides -warmup)")
@@ -142,6 +143,7 @@ func main() {
 			seed:           *seed,
 			overlayMode:    *overlayMode,
 			clockHour:      *clockHour,
+			avalanche:      *avalanche,
 			timeScale:      *timeScale,
 			dayPace:        *dayPace,
 			benchHours:     *benchHours,
@@ -312,6 +314,7 @@ type screenshotOpts struct {
 	seed                   int64   // forwarded to NewSimulationWithSeed when loading a testbed
 	overlayMode            int     // render.Overlay* bitmask applied before capture
 	clockHour              float64 // NaN = leave the clock alone; else jump to this hour today
+	avalanche              string  // "" or how to set off the slide path nearest the camera
 	timeScale              float64 // 0 = leave the sim speed alone
 	dayPace                float64 // 0 = leave the speed button alone
 	benchHours             float64 // 0 = run warmupFrames frames
@@ -399,6 +402,12 @@ func runScreenshot(opt screenshotOpts) {
 
 	if opt.showGoals {
 		sc.ShowGoals()
+	}
+
+	sc.NoAlertPause()
+	if opt.avalanche != "" {
+		at, ok := sc.DevAvalanche(opt.avalanche)
+		fmt.Printf("screenshot: avalanche (%s) at %.0f,%.0f: %v\n", opt.avalanche, at[0], at[1], ok)
 	}
 
 	if opt.showBuilding != "" {

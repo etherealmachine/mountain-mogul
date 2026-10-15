@@ -89,6 +89,9 @@ func NewSettingsMenu(app *engine.App, onBack func()) *SettingsMenu {
 	m.addCheck("Pause each night", "",
 		func() bool { return !st().NoNightPause },
 		func(on bool) { st().NoNightPause = !on })
+	m.addCheck("Pause for avalanches", "",
+		func() bool { return !st().NoAvalanchePause },
+		func(on bool) { st().NoAvalanchePause = !on })
 
 	m.backBtn = ui.NewButton(0, 0, 160, 40, "Back", func() {
 		m.visible = false

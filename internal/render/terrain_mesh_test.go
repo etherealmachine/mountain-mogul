@@ -31,7 +31,7 @@ func testTerrain(n int) *world.Terrain {
 func TestTerrainChunksCoverGrid(t *testing.T) {
 	const n = 70
 	tr := testTerrain(n)
-	verts, indices, chunks, _, _ := buildTerrainGeometry(tr)
+	verts, indices, chunks, _, _, _ := buildTerrainGeometry(buildTerrainCorners(tr))
 	seen := make(map[[3][2]int]int)
 	for _, c := range chunks {
 		if c.always {
@@ -70,9 +70,9 @@ func TestTerrainChunksCoverGrid(t *testing.T) {
 func TestVisualElevationMatchesMesh(t *testing.T) {
 	const n = 40
 	tr := testTerrain(n)
-	verts, indices, chunks, _, _ := buildTerrainGeometry(tr)
+	verts, indices, chunks, _, _, _ := buildTerrainGeometry(buildTerrainCorners(tr))
 	snowA := make([]float32, n*n*4)
-	snowB := make([]float32, n*n*2)
+	snowB := make([]float32, n*n*4)
 	cornerSnow(tr, 0, 0, n-1, n-1, snowA, snowB, new([]cellSnow))
 
 	rng := rand.New(rand.NewSource(2))
@@ -88,7 +88,7 @@ func TestVisualElevationMatchesMesh(t *testing.T) {
 				v := int(indices[i+int32(k)]) * terrainFloatsPerVert
 				ps[k] = [2]float32{verts[v], verts[v+2]}
 				gx, gz := int(verts[v+3]), int(verts[v+4])
-				ys[k] = verts[v+1] + snowB[(gz*n+gx)*2]
+				ys[k] = verts[v+1] + snowB[(gz*n+gx)*4]
 				gxs[k], gzs[k] = float32(gx), float32(gz)
 			}
 			// A point well inside the triangle.
@@ -126,13 +126,13 @@ func TestCornerSnowBlockMatchesFull(t *testing.T) {
 	const n = 30
 	tr := testTerrain(n)
 	fullA := make([]float32, n*n*4)
-	fullB := make([]float32, n*n*2)
+	fullB := make([]float32, n*n*4)
 	cornerSnow(tr, 0, 0, n-1, n-1, fullA, fullB, new([]cellSnow))
 
 	x0, z0, x1, z1 := 6, 4, 11, 9
 	w := x1 - x0 + 1
 	a := make([]float32, w*(z1-z0+1)*4)
-	b := make([]float32, w*(z1-z0+1)*2)
+	b := make([]float32, w*(z1-z0+1)*4)
 	cornerSnow(tr, x0, z0, x1, z1, a, b, new([]cellSnow))
 	nonzero := false
 	for z := z0; z <= z1; z++ {
@@ -143,12 +143,12 @@ func TestCornerSnowBlockMatchesFull(t *testing.T) {
 					t.Fatalf("corner (%d, %d) A[%d]: block %v, full %v", x, z, k, a[i*4+k], fullA[j*4+k])
 				}
 			}
-			for k := 0; k < 2; k++ {
-				if b[i*2+k] != fullB[j*2+k] {
-					t.Fatalf("corner (%d, %d) B[%d]: block %v, full %v", x, z, k, b[i*2+k], fullB[j*2+k])
+			for k := 0; k < 4; k++ {
+				if b[i*4+k] != fullB[j*4+k] {
+					t.Fatalf("corner (%d, %d) B[%d]: block %v, full %v", x, z, k, b[i*4+k], fullB[j*4+k])
 				}
 			}
-			nonzero = nonzero || b[i*2+1] != 0
+			nonzero = nonzero || b[i*4+1] != 0
 		}
 	}
 	if !nonzero {

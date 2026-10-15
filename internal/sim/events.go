@@ -35,7 +35,7 @@ func (s *Simulation) logAvalanches(n int, cell [2]int) {
 	if n > 1 {
 		msg = fmt.Sprintf("%d avalanches ran away from the runs", n)
 	}
-	s.World.LogEventAt(world.EventAvalanche, s.SimTime, msg, cellCentre(cell), 0)
+	s.World.LogEventAt(world.EventAvalancheNotice, s.SimTime, msg, cellCentre(cell), 0)
 }
 
 // logDaySummary records the end-of-day recap for the sample just pushed,

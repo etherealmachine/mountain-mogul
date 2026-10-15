@@ -142,6 +142,9 @@ type Patroller struct {
 	// Not saved: a save mid-task sends them back to the patrol room.
 	AvyPathID int
 	TaskUntil float64
+	// Fired is whether their mortar round is in the air (until
+	// TaskUntil). Not saved.
+	Fired bool
 }
 
 // SpawnPatroller creates a new patroller parked at hut's patrol door

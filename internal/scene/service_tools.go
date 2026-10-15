@@ -600,7 +600,7 @@ func (env serviceEnv) finish(b *world.Building, regrade bool) {
 	if regrade {
 		gradePaintedPad(w, b, 0)
 		applyRoadCellState(w)
-		r.FlushTerrainVerts(w.Terrain)
+		r.FlushTerrainEdit(w.Terrain)
 	}
 	w.RebuildTrailGraph()
 	r.RebuildStaticBatch(w)
@@ -1136,10 +1136,19 @@ func (s *Scenario) addAvyControls(w *ui.Window, b *world.Building, reopen func()
 	w.AddLabel("Trained", func() string {
 		return fmt.Sprintf("%s/day more a patroller", formatDollars(world.AvyPatrollerDailyCost))
 	})
-	w.AddIntStepperFn("Close runs at",
+	w.AddIntStepperFn("Close and control at",
 		func() string { return s.world.AvyLimit.String() + " or worse" },
 		func() { s.world.AvyLimit = max(s.world.AvyLimit, 1) - 1 },
 		func() { s.world.AvyLimit = min(s.world.AvyLimit+1, world.DangerExtreme) })
+	w.AddBoolToggle("Control work",
+		func() bool { return !s.world.AvyWorkPaused },
+		func(on bool) { s.world.AvyWorkPaused = !on })
+	w.AddLabel("Spent on control today", func() string {
+		if s.world.AvyWorkPaused {
+			return "paused: runs still close at the limit"
+		}
+		return formatDollars(int(s.world.AvyToday))
+	})
 	w.AddLabel("Danger now", func() string {
 		var worst world.DangerLevel
 		near := 0

@@ -142,7 +142,12 @@ func saveWorld(path string, w *world.World, cam *CameraData, forScenario bool) e
 // sources.
 func WriteScenarioData(path string, data ScenarioData) error {
 	var buf bytes.Buffer
-	gz := gzip.NewWriter(&buf)
+	// Fastest level: default compression took 15 s on Kirkwood for a
+	// file only 10% smaller.
+	gz, err := gzip.NewWriterLevel(&buf, gzip.BestSpeed)
+	if err != nil {
+		return err
+	}
 	enc := msgpack.NewEncoder(gz)
 	enc.SetCustomStructTag("json")
 	enc.UseCompactInts(true)
@@ -310,6 +315,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 				Layers:       layers,
 				Grooming:     c.Grooming,
 				MogulSize:    c.MogulSize,
+				Debris:       c.Debris,
 				SkierTraffic: c.SkierTraffic,
 			})
 		}
@@ -695,6 +701,8 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		Cash:         &w.Cash,
 		DayTicket:    &w.DayTicketPrice,
 		AvyLimit:     int(w.AvyLimit) + 1,
+		AvyPaused:    w.AvyWorkPaused,
+		SlideLoads:   slideLoads(w),
 		Tickets:      (*TicketsData)(&w.Tickets),
 		SeasonPass:   &w.SeasonPassPrice,
 		CreditRate:   &w.CreditRate,
@@ -912,6 +920,7 @@ func dataToWorld(data ScenarioData) *world.World {
 				t.Cells[x][z].GroundElevation = c.Ground
 				t.Cells[x][z].Grooming = c.Grooming
 				t.Cells[x][z].MogulSize = c.MogulSize
+				t.Cells[x][z].Debris = c.Debris
 				t.Cells[x][z].SkierTraffic = c.SkierTraffic
 				if c.TreeDensity > 0 {
 					t.SetCellTreesFromDensity(x, z, c.TreeDensity)
@@ -969,6 +978,8 @@ func dataToWorld(data ScenarioData) *world.World {
 	if data.AvyLimit > 0 {
 		w.AvyLimit = world.DangerLevel(data.AvyLimit - 1)
 	}
+	w.AvyWorkPaused = data.AvyPaused
+	w.SavedSlideLoads = data.SlideLoads
 	if data.DayTicket != nil {
 		w.DayTicketPrice = *data.DayTicket
 	}
@@ -2099,4 +2110,19 @@ func railwayFromData(w *world.World, d *RailwayData) {
 	w.Buildings = kept
 	w.PlaceStations()
 	w.RailRev++
+}
+
+// slideLoads is the slide paths' loads by centre (SlideLoads); the
+// loads a save was loaded with if the sim hasn't found the paths yet.
+func slideLoads(w *world.World) [][3]float32 {
+	if w.SlidePaths == nil {
+		return w.SavedSlideLoads
+	}
+	out := make([][3]float32, 0, len(w.SlidePaths))
+	for _, p := range w.SlidePaths {
+		if p.Load > 0 {
+			out = append(out, [3]float32{p.CentreX, p.CentreZ, p.Load})
+		}
+	}
+	return out
 }

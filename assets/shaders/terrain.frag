@@ -27,8 +27,31 @@ uniform float uTerrainMaxY;
 //   G = tree-well depth      (persistent until tree edits)
 //   B, A = reserved
 // vWorldPos.xz / uWorldSize (mogul.glsl) is the texture's UV.
-uniform sampler2D uSnowSurface;
+// It is cut into square tiles, the layers of an array texture (a 2D
+// texture's side is capped below Kirkwood's size); each layer holds
+// kSurfaceTile pixels plus a one-pixel apron from its neighbours, so
+// filtering never reads across a tile's edge (render/snow_surface.go).
+uniform sampler2DArray uSnowSurface;
+uniform vec2 uSurfaceSize;  // the whole surface in pixels
+uniform int  uSurfaceTilesX; // tiles across
+const int kSurfaceTile = 2048; // render.surfaceTile
 uniform float uTrackClock;      // game minutes, mod 65536 (world.TrackClock plus the fraction)
+
+// surfaceTexel is the surface's pixel p, clamped to its edge.
+vec4 surfaceTexel(ivec2 p) {
+    p = clamp(p, ivec2(0), ivec2(uSurfaceSize) - 1);
+    ivec2 t = p / kSurfaceTile;
+    return texelFetch(uSnowSurface, ivec3(p - t * kSurfaceTile + 1, t.y * uSurfaceTilesX + t.x), 0);
+}
+
+// surfaceSample is the surface filtered at uv (0..1 across the map), from
+// the tile under it: its apron covers the filter's reach past the edge.
+vec4 surfaceSample(vec2 uv) {
+    vec2  p = clamp(uv * uSurfaceSize, vec2(0.5), uSurfaceSize - 0.5);
+    ivec2 t = min(ivec2(p) / kSurfaceTile, ivec2(uSurfaceSize - 1.0) / kSurfaceTile);
+    vec2  l = (p - vec2(t * kSurfaceTile) + 1.0) / float(kSurfaceTile + 2);
+    return texture(uSnowSurface, vec3(l, float(t.y * uSurfaceTilesX + t.x)));
+}
 
 // Where snowcats groomed, mirrored from world.GroomMap at 1 m per texel:
 //   R = groomed, GB = cat heading as (cos 2θ, sin 2θ) mapped to 0..1,
@@ -71,6 +94,20 @@ void cornerSnow(vec2 xz, out vec4 a, out float depth) {
             mix(texelFetch(uCornerSnowA, c01, 0), texelFetch(uCornerSnowA, c11, 0), f.x), f.y);
     depth = mix(mix(texelFetch(uCornerSnowB, c00, 0).r, texelFetch(uCornerSnowB, c10, 0).r, f.x),
                 mix(texelFetch(uCornerSnowB, c01, 0).r, texelFetch(uCornerSnowB, c11, 0).r, f.x), f.y);
+}
+
+// debrisAt is the depth of avalanche debris at world xz (world.Cell's
+// Debris), metres, bilinear between corners: uCornerSnowB's third channel.
+float debrisAt(vec2 xz) {
+    vec2  g  = xz / 5.0;
+    ivec2 c  = ivec2(floor(g));
+    vec2  f  = fract(g);
+    ivec2 hi = textureSize(uCornerSnowB, 0) - 1;
+    float a = texelFetch(uCornerSnowB, clamp(c, ivec2(0), hi), 0).b;
+    float b = texelFetch(uCornerSnowB, clamp(c + ivec2(1, 0), ivec2(0), hi), 0).b;
+    float d = texelFetch(uCornerSnowB, clamp(c + ivec2(0, 1), ivec2(0), hi), 0).b;
+    float e = texelFetch(uCornerSnowB, clamp(c + ivec2(1, 1), ivec2(0), hi), 0).b;
+    return mix(mix(a, b, f.x), mix(d, e, f.x), f.y);
 }
 
 uniform sampler2D uMaterial;
@@ -146,6 +183,31 @@ float fbmNoise(vec2 p) {
     n += 0.5  * valueNoise(p * 2.0);
     n += 0.25 * valueNoise(p * 4.0);
     return n / 1.75;
+}
+
+// Avalanche debris is a jumble of rounded blocks: a cell noise whose
+// cells are the blocks. debrisBlocks gives, for p in block widths, the
+// distance to the nearest block's centre (x), how much nearer that is
+// than the next (y: small along the cracks between blocks), and the
+// offset from the nearest centre (zw), which lights the block as a dome.
+vec4 debrisBlocks(vec2 p) {
+    vec2  i  = floor(p);
+    float f1 = 9.0, f2 = 9.0;
+    vec2  off = vec2(0.0);
+    for (int y = -1; y <= 1; y++) {
+        for (int x = -1; x <= 1; x++) {
+            vec2  c = i + vec2(x, y);
+            vec2  o = vec2(hash3(vec3(c, 3.1)), hash3(vec3(c, 7.7)));
+            vec2  d = p - (c + 0.15 + 0.7 * o);
+            float l = length(d);
+            if (l < f1) {
+                f2 = f1; f1 = l; off = d;
+            } else if (l < f2) {
+                f2 = l;
+            }
+        }
+    }
+    return vec4(f1, f2 - f1, off);
 }
 
 int materialAt(ivec2 p) {
@@ -361,8 +423,8 @@ const float kTrackFade = 0.030227;
 
 // trackTexel is one surface-detail texel's track intensity now: its R
 // faded by the minutes since its clock (B low byte, A high byte).
-float trackTexel(ivec2 p, ivec2 size) {
-    vec4 s = texelFetch(uSnowSurface, clamp(p, ivec2(0), size - 1), 0);
+float trackTexel(ivec2 p) {
+    vec4 s = surfaceTexel(p);
     if (s.r <= 0.0) return 0.0;
     float then = floor(s.b * 255.0 + 0.5) + floor(s.a * 255.0 + 0.5) * 256.0;
     float age  = mod(uTrackClock - then, 65536.0);
@@ -373,12 +435,11 @@ float trackTexel(ivec2 p, ivec2 size) {
 // each texel fades by its own clock, which filtering the packed clock
 // bytes can't do.
 float trackAt(vec2 uv) {
-    ivec2 size = textureSize(uSnowSurface, 0);
-    vec2  p  = uv * vec2(size) - 0.5;
+    vec2  p  = uv * uSurfaceSize - 0.5;
     ivec2 i0 = ivec2(floor(p));
     vec2  f  = p - floor(p);
-    float a = trackTexel(i0, size),               b = trackTexel(i0 + ivec2(1, 0), size);
-    float c = trackTexel(i0 + ivec2(0, 1), size), d = trackTexel(i0 + ivec2(1, 1), size);
+    float a = trackTexel(i0),               b = trackTexel(i0 + ivec2(1, 0));
+    float c = trackTexel(i0 + ivec2(0, 1)), d = trackTexel(i0 + ivec2(1, 1));
     return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
 }
 
@@ -404,15 +465,16 @@ void main() {
     // mips, so it would shimmer).
     float mogulFar = smoothstep(1.5, 3.0, pxM);
     float mogul    = mix(mogulSize(vWorldPos.xz), clamp(snowState.w, 0.0, 1.0), mogulFar);
-    // Avalanche-debris marker: ice > packed is a combination no weather-formed kind
-    // produces (debris is written with packed=0.20, ice=0.45). Drives colour and
+    // Avalanche debris (world.Cell's Debris), shown where it's a couple
+    // of centimetres deep and in full from 25 cm. Drives colour and
     // surface-roughness overrides below; suppresses powder and sparkle.
-    float isDebris = step(packed + 0.02, ice);
+    // The edge is ragged, as debris tongues and lumps are.
+    float isDebris = smoothstep(0.02, 0.25, debrisAt(vWorldPos.xz) * (0.5 + valueNoise(vWorldPos.xz / 4.0 + vec2(7.3, 1.9))));
 
     // Surface-detail sample — sub-cell features rendered from the
     // texture written by the simulation. R = skier tracks (faded by their
     // clock in B and A, trackAt), G = tree-well depth.
-    vec4 surf = texture(uSnowSurface, vWorldPos.xz / uWorldSize);
+    vec4 surf = surfaceSample(vWorldPos.xz / uWorldSize);
     float trackR = trackAt(vWorldPos.xz / uWorldSize);
     // Normalise raw R (additive splats, 0.25 per pass) so one pass reads
     // as half-intensity and two saturate. This caps the crossing peak at
@@ -604,12 +666,32 @@ void main() {
     }
     snowness *= 1.0 - openW;
 
-    // Avalanche-debris tint: warm ochre-grey from rock/soil mixed into tumbled snow.
-    // Coarse grain gives the chunky, disturbed surface character.
+    // Avalanche debris: white blocks of tumbled snow, big ones a couple
+    // of metres across with smaller chunks between, each its own shade,
+    // with cool shadowed cracks and the odd fleck of dirt and rock picked
+    // up on the way down. Once the blocks are too small on screen, a
+    // coarse mottle instead.
+    vec4  dBig = vec4(1.0), dSmall = vec4(1.0);
+    float dNear = 0.0;
     if (isDebris > 0.0 && snowness > 0.05) {
-        float dGrain  = fbmNoise(vWorldPos.xz / 2.2) * 0.08 - 0.04;
-        vec3  debrisCol = vec3(0.78, 0.74, 0.66);
-        snow = mix(snow, snow * debrisCol + vec3(dGrain), isDebris * 0.65);
+        dNear = 1.0 - smoothstep(0.35, 0.9, pxM);
+        float hollow = 0.0, fleck = 0.0, tone = 1.0;
+        if (dNear > 0.0) {
+            // Warped so the lumps are irregular, not a tiling of cells.
+            vec2 warp = vec2(valueNoise(vWorldPos.xz / 1.7), valueNoise(vWorldPos.xz / 1.7 + vec2(5.2, 1.3))) - 0.5;
+            vec2 pb = vWorldPos.xz / 2.0 + warp * 1.2, ps = vWorldPos.xz / 0.8 + vec2(31.7, 12.3) + warp * 1.6;
+            dBig   = debrisBlocks(pb);
+            dSmall = debrisBlocks(ps);
+            // Shadowed hollows where lumps meet, away from their tops.
+            hollow = (0.7 * smoothstep(0.35, 0.8, dBig.x) + 0.3 * smoothstep(0.35, 0.8, dSmall.x)) * dNear;
+            tone   = mix(1.0, 0.95 + 0.07 * hash3(vec3(floor(pb - dBig.zw), 5.0)), dNear);
+            fleck  = step(0.997, hash3(vec3(floor(vWorldPos.xz / 0.3), 11.0))) * dNear;
+        }
+        float mottle = fbmNoise(vWorldPos.xz / 3.0 + vec2(5.1, 2.7));
+        vec3  shade  = mix(vec3(1.0), vec3(0.84, 0.88, 0.96), hollow) * tone;
+        shade *= mix(1.0, 0.9 + 0.14 * mottle, 1.0 - 0.5 * dNear);
+        vec3  dc = mix(snow * shade, vec3(0.42, 0.38, 0.34), fleck * 0.7);
+        snow = mix(snow, dc, isDebris);
     }
 
     vec3  base     = mix(ground, snow, snowness);
@@ -714,8 +796,8 @@ void main() {
             vec2 uvEpz = vec2(0, bumpEps) / uWorldSize;
             vec2 uv = vWorldPos.xz / uWorldSize;
             float g0 = well;
-            float gx = texture(uSnowSurface, uv + uvEps).g;
-            float gz = texture(uSnowSurface, uv + uvEpz).g;
+            float gx = surfaceSample(uv + uvEps).g;
+            float gz = surfaceSample(uv + uvEpz).g;
             const float wellAmp = 0.5; // metres of displacement at trunk
             kick.x += (gx - g0) / bumpEps * wellAmp;
             kick.z += (gz - g0) / bumpEps * wellAmp;
@@ -734,12 +816,15 @@ void main() {
             kick.x += (rx - r0) / bumpEps * trackAmp;
             kick.z += (rz - r0) / bumpEps * trackAmp;
         }
-        // Debris surface roughness — coarser than moguls, represents tumbled chunks.
-        // Fires instead of the powder kick (powderness is zeroed on debris cells).
+        // Debris blocks, each lit as a dome from its centre, over a coarse
+        // lumpy relief that carries on once they're too small to see.
+        // Fires instead of the powder kick (powderness is zeroed on debris).
         if (isDebris > 0.0 && snowness > 0.1) {
-            vec2 doff = vec2(53.1, 17.8); // de-correlates from powder/mogul phases
-            vec2 g = fbmGrad(vWorldPos.xz / 2.0 + doff, pxM / 2.0) / 2.0;
-            const float debrisAmp = 0.30; // metres — 3× powder, reads as chunky rubble
+            if (dNear > 0.0) {
+                kick.xz += (dBig.zw * 0.7 + dSmall.zw * 0.4) * isDebris * dNear;
+            }
+            vec2 g = fbmGrad(vWorldPos.xz / 3.0 + vec2(53.1, 17.8), pxM / 3.0) / 3.0;
+            const float debrisAmp = 0.6; // metres
             kick.xz -= g * debrisAmp * isDebris;
         }
         // Corduroy: ridges run along the cat's heading, about 25 cm apart

@@ -193,6 +193,9 @@ type Simulation struct {
 	avyBudget float32
 	avyFront  [][2]int
 	avyNext   [][2]int
+	// avyDebris is the cells the running slides have dropped debris on,
+	// slumped once they stop (slumpAvyDebris).
+	avyDebris [][2]int
 
 	// sectionsStale triggers a full global section recompute at the start
 	// of the next snowcat tick. Set by InvalidateSections whenever the
@@ -1329,6 +1332,7 @@ func (s *Simulation) applyDailyWeather(dw DayWeather) {
 		for z := range t.Cells[x] {
 			t.Cells[x][z].SkierTraffic *= 0.85
 			t.Cells[x][z].SettleSnow(warm)
+			t.Cells[x][z].SettleDebris(warm)
 		}
 	}
 
@@ -1373,6 +1377,7 @@ func (s *Simulation) pushSnowLayer(dw DayWeather) {
 
 			burialFactor := clamp01(accumSWE / fullBurialSWE)
 			t.Ungroom(x, z, 1-burialFactor)
+			c.BuryDebris(accumSWE)
 			// Fresh snow buries the old tracks: untracked again.
 			c.SkierTraffic *= 1 - burialFactor
 		}
@@ -1571,6 +1576,7 @@ func meltCell(c *world.Cell, melt float32) {
 	if c.Top.Accumulation == 0 {
 		c.Grooming = 0
 	}
+	c.Debris = min(c.Debris, c.TotalSWE())
 }
 
 // =============================================================================

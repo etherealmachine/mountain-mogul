@@ -370,6 +370,7 @@ func clearSnow(w *world.World) {
 		for z := range t.Cells[x] {
 			t.Cells[x][z].Base = 0
 			t.Cells[x][z].Top = world.SnowLayer{}
+			t.Cells[x][z].Debris = 0
 		}
 	}
 	t.Groom.Clear()

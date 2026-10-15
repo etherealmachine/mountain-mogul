@@ -90,7 +90,7 @@ func (e *Editor) retypeLift(l *world.Lift, t world.LiftType) {
 	world.RetypeLift(l, t)
 	l.Bubble = l.Bubble && t.Bubbles()
 	applyLiftPlacementEffects(e.world, l)
-	r.FlushTerrainVerts(e.world.Terrain)
+	r.FlushTerrainEdit(e.world.Terrain)
 	r.RemoveLiftCable(l.ID)
 	r.AddLiftCable(l, e.world.Terrain)
 	r.RebuildStaticBatch(e.world)

@@ -89,7 +89,7 @@ func (s *Simulation) tickPatrollers(dt float64) {
 		case world.PatrollerToCut:
 			s.patrollerToCut(p, dt)
 		case world.PatrollerCutting:
-			s.patrollerCutting(p, base)
+			s.patrollerCutting(p, base, dt)
 		case world.PatrollerToGarage:
 			if s.patrollerWalk(p, dt) {
 				s.patrollerTakeSled(p, base)

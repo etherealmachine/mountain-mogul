@@ -44,9 +44,10 @@ type ScenarioData struct {
 	// Trees is every stored tree as flat world-XZ pairs: x0, z0, x1, z1, …
 	// Older saves have none and carry per-cell TreeDensity instead.
 	Trees []float32 `json:"trees,omitempty"`
-	// Groom is the 1 m groom map (world.GroomMap pixels); empty when
-	// nothing is groomed. Saves without it rebuild from cell grooming.
-	Groom []byte `json:"groom,omitempty"`
+	// Groom is the 1 m groom map's groomed pixels as runs
+	// (world.GroomMap.Bytes); empty when nothing is groomed. Saves
+	// without it rebuild from cell grooming.
+	Groom []byte `json:"groom_runs,omitempty"`
 	// Moguls is the 1 m mogul map (world.MogulMap pixels); empty when
 	// there are none. Saves without it fill moguls evenly from each
 	// cell's MogulSize.
@@ -108,6 +109,12 @@ type ScenarioData struct {
 	// AvyLimit is World.AvyLimit, the danger level plus one (0 in older
 	// saves: the default).
 	AvyLimit int `json:"avy_limit,omitempty"`
+	// AvyPaused is World.AvyWorkPaused.
+	AvyPaused bool `json:"avy_paused,omitempty"`
+	// SlideLoads is each slide path's load, (x, z, load) by its centre:
+	// the unstable snow storms and wind have built up, which the snow on
+	// the ground doesn't show.
+	SlideLoads [][3]float32 `json:"slide_loads,omitempty"`
 	// Tickets is World.Tickets; absent loads the defaults for the day
 	// ticket's price.
 	Tickets    *TicketsData `json:"tickets,omitempty"`
@@ -517,6 +524,7 @@ type CellData struct {
 	Layers       []LayerData `json:"ls,omitempty"`
 	Grooming     float32     `json:"gr,omitempty"`
 	MogulSize    float32     `json:"mg,omitempty"`
+	Debris       float32     `json:"db,omitempty"`
 	SkierTraffic float32     `json:"st,omitempty"`
 	// TreeDensity is the old per-cell forest density. Read on load and
 	// converted to stored trees (ScenarioData.Trees); never written.

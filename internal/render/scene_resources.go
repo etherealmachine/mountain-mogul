@@ -17,18 +17,29 @@ import (
 type SceneResources struct {
 	terrainMesh   *Mesh
 	terrainChunks []terrainChunk
+	// terrainCorners is what the terrain mesh was last built from, and
+	// terrainSkirtVert the skirt's first vertex: FlushTerrainEdit
+	// rebuilds just the chunks round a change from them.
+	terrainCorners   *terrainCorners
+	terrainSkirtVert int
+	// detailCopy is the detail last uploaded, so an edit resends only
+	// the part that changed.
+	detailCopy    []float32
 	terrainWidth  int
 	terrainHeight int
 	terrainMinY   float32 // surface min/max Y (skirts excluded), drives topo shader
 	terrainMaxY   float32
 
-	// snowSurfaceTex is the GPU mirror of Terrain.Surface — a 1 m
-	// resolution RGBA8 texture sampled by terrain.frag for sub-cell
-	// features (skier tracks, tree wells). Sized to
-	// (Width*PxPerCell, Height*PxPerCell).
+	// snowSurfaceTex is the GPU mirror of Terrain.Surface — an RGBA8
+	// array texture of tiles (snow_surface.go) sampled by terrain.frag
+	// for sub-cell features (skier tracks, tree wells). W and H are the
+	// surface's size in pixels (Width*PxPerCell, Height*PxPerCell).
 	snowSurfaceTex  uint32
 	snowSurfaceTexW int32
 	snowSurfaceTexH int32
+
+	// forest caches the trees' static instances (forest_cache.go).
+	forest forestCache
 
 	// groomTex is the GPU mirror of Terrain.Groom, one texel per metre.
 	groomTex uint32

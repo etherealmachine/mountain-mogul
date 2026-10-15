@@ -1,6 +1,7 @@
 package world
 
 import (
+	"encoding/binary"
 	"image"
 	"math"
 )
@@ -188,22 +189,64 @@ func (g *GroomMap) ClearCell(cx, cz int) {
 	}
 }
 
-// Bytes is the map as little-endian bytes, for saving.
+// Bytes is the map's groomed pixels as runs, for saving: almost every
+// pixel is zero, so the dense map (160 MB on Kirkwood) cost seconds to
+// compress. Each run is the uvarint count of zero pixels skipped since
+// the last run, its uvarint length, then that many little-endian
+// pixels, in row-major order.
 func (g *GroomMap) Bytes() []byte {
-	out := make([]byte, len(g.Pixels)*2)
-	for i, v := range g.Pixels {
-		out[2*i], out[2*i+1] = byte(v), byte(v>>8)
+	var out []byte
+	last := 0
+	for i := 0; i < len(g.Pixels); {
+		if g.Pixels[i] == 0 {
+			i++
+			continue
+		}
+		j := i
+		for j < len(g.Pixels) && g.Pixels[j] != 0 {
+			j++
+		}
+		out = binary.AppendUvarint(out, uint64(i-last))
+		out = binary.AppendUvarint(out, uint64(j-i))
+		for _, v := range g.Pixels[i:j] {
+			out = append(out, byte(v), byte(v>>8))
+		}
+		last, i = j, j
 	}
 	return out
 }
 
-// Load copies saved bytes in, reporting false if they don't fit the map.
+// Load fills the map from Bytes' runs, reporting false (and leaving the
+// map clear) if they don't fit it.
 func (g *GroomMap) Load(b []byte) bool {
-	if g == nil || len(b) != len(g.Pixels)*2 {
+	if g == nil || len(b) == 0 {
 		return false
 	}
-	for i := range g.Pixels {
-		g.Pixels[i] = uint16(b[2*i]) | uint16(b[2*i+1])<<8
+	clear(g.Pixels)
+	i := 0
+	for len(b) > 0 {
+		skip, n1 := binary.Uvarint(b)
+		if n1 <= 0 {
+			break
+		}
+		run, n2 := binary.Uvarint(b[n1:])
+		if n2 <= 0 {
+			break
+		}
+		b = b[n1+n2:]
+		i += int(skip)
+		if i+int(run) > len(g.Pixels) || len(b) < 2*int(run) {
+			break
+		}
+		for k := range int(run) {
+			g.Pixels[i+k] = uint16(b[2*k]) | uint16(b[2*k+1])<<8
+		}
+		b = b[2*int(run):]
+		i += int(run)
+	}
+	if len(b) > 0 {
+		clear(g.Pixels)
+		return false
 	}
 	g.markDirty(image.Rect(0, 0, g.W, g.H))
 	return true
@@ -271,6 +314,7 @@ func (t *Terrain) GroomCell(x, z int) {
 	}
 	c := &t.Cells[x][z]
 	c.Grooming = 1
+	c.Debris = 0
 	if top := c.TopLayer(); top != nil {
 		top.Kind = KindPackedPowder
 	}

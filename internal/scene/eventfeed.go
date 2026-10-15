@@ -16,6 +16,8 @@ func eventKindTint(k world.EventKind) mgl32.Vec4 {
 	switch k {
 	case world.EventAvalanche:
 		return mgl32.Vec4{0.95, 0.40, 0.10, 1}
+	case world.EventAvalancheControl, world.EventAvalancheNotice:
+		return mgl32.Vec4{0.95, 0.62, 0.35, 1}
 	case world.EventRescue:
 		return mgl32.Vec4{0.90, 0.25, 0.25, 1}
 	case world.EventLiftOpened, world.EventResortOpened:

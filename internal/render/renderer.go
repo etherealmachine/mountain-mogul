@@ -104,6 +104,7 @@ type Renderer struct {
 	snowmakingRender
 	nightLights
 	trainDrawing
+	avy avalancheDrawing
 
 	uiVAO, uiVBO     uint32
 	whiteTexID       uint32             // 1×1 white texture; always bound to unit 0 during UI pass
@@ -520,6 +521,7 @@ func (r *Renderer) initStaticMeshes() {
 	loadSnowmaking(r, modelDir)
 	loadNightLights(r, modelDir)
 	loadTrains(r, modelDir)
+	loadAvalanches(r, modelDir)
 
 	// Snowcat — dynamic batch. Snowcats drive over the terrain every
 	// tick so they share the agent-style instance path rather than
@@ -565,79 +567,6 @@ func (r *Renderer) SetLogicalSize(w, h int) {
 	r.logicalW = w
 	r.logicalH = h
 	r.Camera.SetViewport(w, h)
-}
-
-// BuildSnowSurfaceTex (re)allocates the GPU mirror of Terrain.Surface and
-// uploads its current contents. Called at scene install time after
-// BuildTerrainMesh. Subsequent edits go through FlushSnowSurface, which
-// uploads only the dirty sub-region.
-func (r *Renderer) BuildSnowSurfaceTex(t *world.Terrain) {
-	if t == nil || t.Surface == nil {
-		return
-	}
-	sd := t.Surface
-
-	if r.scene.snowSurfaceTex != 0 {
-		gl.DeleteTextures(1, &r.scene.snowSurfaceTex)
-		r.scene.snowSurfaceTex = 0
-	}
-
-	var tex uint32
-	gl.GenTextures(1, &tex)
-	gl.BindTexture(gl.TEXTURE_2D, tex)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
-	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA8,
-		int32(sd.PxWidth), int32(sd.PxHeight), 0,
-		gl.RGBA, gl.UNSIGNED_BYTE, gl.Ptr(sd.Pixels))
-	gl.BindTexture(gl.TEXTURE_2D, 0)
-
-	r.scene.snowSurfaceTex = tex
-	r.scene.snowSurfaceTexW = int32(sd.PxWidth)
-	r.scene.snowSurfaceTexH = int32(sd.PxHeight)
-	sd.Dirty = false
-	sd.DirtyBox = image.Rectangle{}
-}
-
-// FlushSnowSurface uploads the dirty sub-region of Terrain.Surface to the
-// GPU texture and clears the buffer's dirty flag. No-op if the texture
-// hasn't been built yet or nothing is dirty. Coalesced to once per frame
-// by the caller.
-func (r *Renderer) FlushSnowSurface(t *world.Terrain) {
-	if t == nil || t.Surface == nil || r.scene.snowSurfaceTex == 0 {
-		return
-	}
-	sd := t.Surface
-	if !sd.Dirty || sd.DirtyBox.Empty() {
-		return
-	}
-	x0, y0 := sd.DirtyBox.Min.X, sd.DirtyBox.Min.Y
-	w := sd.DirtyBox.Dx()
-	h := sd.DirtyBox.Dy()
-	if w <= 0 || h <= 0 {
-		sd.Dirty = false
-		sd.DirtyBox = image.Rectangle{}
-		return
-	}
-	// Sub-row uploads need UNPACK_ROW_LENGTH so glTexSubImage2D walks
-	// the buffer's full stride (PxWidth × 4) while only reading the
-	// dirty sub-region. ALIGNMENT=1 because we're feeding tightly packed
-	// uint8s, not 4-aligned floats.
-	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
-	gl.PixelStorei(gl.UNPACK_ROW_LENGTH, int32(sd.PxWidth))
-	offset := (y0*sd.PxWidth + x0) * 4
-	gl.BindTexture(gl.TEXTURE_2D, r.scene.snowSurfaceTex)
-	gl.TexSubImage2D(gl.TEXTURE_2D, 0,
-		int32(x0), int32(y0), int32(w), int32(h),
-		gl.RGBA, gl.UNSIGNED_BYTE, gl.Ptr(sd.Pixels[offset:]))
-	gl.PixelStorei(gl.UNPACK_ROW_LENGTH, 0)
-	gl.BindTexture(gl.TEXTURE_2D, 0)
-
-	sd.Dirty = false
-	sd.DirtyBox = image.Rectangle{}
 }
 
 // groomTexUnit is the terrain pass's texture unit for the groom map.
@@ -814,6 +743,33 @@ func TreeTransform(t *world.Terrain, ti world.TreeInstance, grow float32) [16]fl
 	return out
 }
 
+// RemoveTrees drops felled forest trees from their batches without
+// rebuilding the rest: a glade stroke on a big map (Kirkwood's 300,000
+// trees) can't afford RebuildStaticBatch for every cell it crosses.
+// Each tree is found by its trunk position and swapped out, so batch
+// order changes; the next RebuildStaticBatch puts everything back.
+func (r *Renderer) RemoveTrees(trees []world.Tree) {
+	for _, tr := range trees {
+		x, z := int(tr.X/world.CellSize), int(tr.Z/world.CellSize)
+		ti := world.TreeInstanceOf(tr, x, z, MeshTree)
+		b, ok := r.staticBatches[ti.Variant]
+		if !ok {
+			continue
+		}
+		in := b.staticInstances
+		for i := range in {
+			// mgl32 is column-major: elements 12 and 14 are the X and Z
+			// translation.
+			if in[i].Transform[12] == ti.WX && in[i].Transform[14] == ti.WZ {
+				in[i] = in[len(in)-1]
+				b.staticInstances = in[:len(in)-1]
+				b.dirty = true
+				break
+			}
+		}
+	}
+}
+
 // RebuildStaticBatch rebuilds all static instance buffers from world state.
 func (r *Renderer) RebuildStaticBatch(w *world.World) {
 	// Clear all static batches
@@ -823,13 +779,8 @@ func (r *Renderer) RebuildStaticBatch(w *world.World) {
 
 	const cellSize = float32(5.0)
 
-	// Forest layer — the stored trees, via the same iterator the
-	// tree-well stamp uses.
-	w.Terrain.ForEachTree(MeshTree, func(ti world.TreeInstance) {
-		if batch, ok := r.staticBatches[ti.Variant]; ok {
-			batch.AddStatic(treeMatrix(w.Terrain, ti, 1), treeTintForVariant(ti.Variant))
-		}
-	})
+	// Forest layer — the stored trees, kept between rebuilds.
+	r.appendForest(w.Terrain)
 
 	// Decorative placed objects (rocks, stumps, lone hand-placed trees).
 	for _, obj := range w.Objects {
@@ -1707,6 +1658,7 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	drawHelicopters(r, w)
 
 	drawTrains(r, w)
+	drawDebrisBlocks(r, w)
 
 	// Cars — on the roads and in the lots. Dynamic: they move every
 	// frame.
@@ -1829,6 +1781,7 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	drawBubbleHoods(r)
 	drawSnowPlumes(r)
 	drawSteam(r, w)
+	drawAvalancheEffects(r, w)
 	r.drawWeatherOverlay(time, light)
 }
 
@@ -2879,8 +2832,13 @@ func (r *Renderer) setupTerrain(sh *Shader, w *world.World, light Lighting, lamp
 		float32(r.scene.terrainWidth) * cellSize,
 		float32(r.scene.terrainHeight) * cellSize,
 	})
+	// The surface's tiles (snow_surface.go): its size in pixels and the
+	// tiles across, for picking a texel's layer.
+	sh.SetVec2("uSurfaceSize", mgl32.Vec2{float32(r.scene.snowSurfaceTexW), float32(r.scene.snowSurfaceTexH)})
+	tilesX, _ := surfaceTiles(int(r.scene.snowSurfaceTexW), int(r.scene.snowSurfaceTexH))
+	sh.SetInt("uSurfaceTilesX", tilesX)
 	gl.ActiveTexture(gl.TEXTURE1)
-	gl.BindTexture(gl.TEXTURE_2D, r.scene.snowSurfaceTex)
+	gl.BindTexture(gl.TEXTURE_2D_ARRAY, r.scene.snowSurfaceTex)
 	sh.SetInt("uCellOverlay", 2)
 	gl.ActiveTexture(gl.TEXTURE2)
 	if r.scene.cellOverlayTex != 0 {

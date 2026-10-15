@@ -77,12 +77,14 @@ func absDiff(a, b float32) float32 {
 	return d
 }
 
-// RestampTreeWells zeros the G channel of Surface and writes a
-// Gaussian-falloff disk for every tree in the terrain. Use after bulk
-// tree changes (auto-forest regenerate, world load, lift/road clears).
-// It walks every tree and marks the whole
-// texture for re-upload, which on a large map costs tens of ms plus a
-// full-texture upload; brushes use RestampTreeWellsCells instead.
+// RestampTreeWells brings the tree wells in Surface's G channel up to
+// date: a Gaussian-falloff disk round every tree. Use after tree
+// changes (auto-forest regenerate, world load, lift/road clears). The
+// first call zeros the channel, stamps every tree and marks the whole
+// texture for re-upload; after that it redoes only the cells whose trees changed since
+// (setCellTrees marks them), so the many tools that call it after a
+// local edit don't restamp all of a big map's trees: Kirkwood's 300,000
+// took 270 ms.
 //
 // Visual scale: 2.0 m radius matches the per-tree footprint the doc
 // calls for; peak 255 (full G) at the trunk so the shader's `well`
@@ -91,6 +93,15 @@ func (t *Terrain) RestampTreeWells() {
 	if t == nil || t.Surface == nil {
 		return
 	}
+	w := &t.wells
+	if w.built {
+		if w.dirty {
+			w.dirty = false
+			t.RestampTreeWellsCells(w.x0, w.z0, w.x1, w.z1)
+		}
+		return
+	}
+	w.built, w.dirty = true, false
 	sd := t.Surface
 	sd.zeroChannel(chTreeWell)
 	const wellRadiusM = float32(2.0)
@@ -99,6 +110,28 @@ func (t *Terrain) RestampTreeWells() {
 	t.ForEachTree(0, func(ti TreeInstance) {
 		sd.stampMaxChannelDisk(ti.WX*ppm, ti.WZ*ppm, radiusPx, chTreeWell, 255)
 	})
+}
+
+// treeWellState is the cell box whose trees changed since the wells were
+// stamped.
+type treeWellState struct {
+	built          bool // the whole map has been stamped once
+	dirty          bool
+	x0, z0, x1, z1 int
+}
+
+// markWellsDirty records that cell (x, z)'s trees changed.
+func (t *Terrain) markWellsDirty(x, z int) {
+	w := &t.wells
+	if !w.built {
+		return // the first restamp does everything
+	}
+	if !w.dirty {
+		w.dirty, w.x0, w.z0, w.x1, w.z1 = true, x, z, x, z
+		return
+	}
+	w.x0, w.z0 = min(w.x0, x), min(w.z0, z)
+	w.x1, w.z1 = max(w.x1, x), max(w.z1, z)
 }
 
 // RestampTreeWellsCells redoes tree wells for the cell rectangle

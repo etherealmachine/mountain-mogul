@@ -290,7 +290,7 @@ func (env railEnv) railChanged() {
 	w := env.w
 	w.GradeStations(keepClaimed(w)) // a platform may have moved or grown
 	w.Terrain.RestampTreeWells()
-	env.r.FlushTerrainVerts(w.Terrain)
+	env.r.FlushTerrainEdit(w.Terrain)
 	env.r.RebuildStaticBatch(w)
 	env.changed()
 }

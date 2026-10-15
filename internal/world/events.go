@@ -11,7 +11,7 @@ const EventLogCapacity = 256
 type EventKind uint8
 
 const (
-	EventAvalanche        EventKind = 0  // natural or triggered slab release
+	EventAvalanche        EventKind = 0  // a slide across the runs, or someone caught: alerts the player
 	EventRescue           EventKind = 1  // patrol delivered an injured guest to the base
 	EventLiftOpened       EventKind = 2  // a lift's hold cleared
 	EventLiftClosed       EventKind = 3  // a lift went on hold
@@ -29,6 +29,8 @@ const (
 	EventRecord           EventKind = 15 // a record day of visitors
 	EventHint             EventKind = 16 // something the resort needs before guests can ski (sim/hints.go)
 	EventCutOff           EventKind = 17 // guests stuck behind open water, waiting for patrol
+	EventAvalancheControl EventKind = 18 // control work brought a slope down on purpose
+	EventAvalancheNotice  EventKind = 19 // slides away from the runs, closures and reopenings for danger
 )
 
 // Event is one entry in the World-level event feed: something the player

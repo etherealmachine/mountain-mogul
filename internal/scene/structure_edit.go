@@ -117,7 +117,7 @@ func dragStructure(r *render.Renderer, w *world.World, sel *structureEditSelecti
 			refreshParkingDriveways(w, sel.building)
 		}
 		applyBuildingPlacementEffects(w, sel.building)
-		r.FlushTerrainVerts(w.Terrain)
+		r.FlushTerrainEdit(w.Terrain)
 		r.RebuildRoads(w)
 	case sel.lift != nil:
 		if sel.liftEnd == 0 {
@@ -133,7 +133,7 @@ func dragStructure(r *render.Renderer, w *world.World, sel *structureEditSelecti
 		}
 		applyLiftPlacementEffects(w, sel.lift)
 		w.RebuildTrailGraph() // the moved end may now touch other trails
-		r.FlushTerrainVerts(w.Terrain)
+		r.FlushTerrainEdit(w.Terrain)
 		r.RemoveLiftCable(sel.lift.ID)
 		r.AddLiftCable(sel.lift, w.Terrain)
 	}
@@ -211,7 +211,7 @@ func rotateSelectedBuilding(r *render.Renderer, w *world.World, sel *structureEd
 		r.RebuildRoads(w)
 	}
 	applyBuildingPlacementEffects(w, b)
-	r.FlushTerrainVerts(w.Terrain)
+	r.FlushTerrainEdit(w.Terrain)
 	r.RebuildStaticBatch(w)
 	return true
 }
@@ -232,7 +232,7 @@ func commitStructureDrag(r *render.Renderer, w *world.World, sel *structureEditS
 		if st := w.RailStationByID(b.ID); st != nil {
 			w.GradeStation(st, keepClaimed(w))
 			w.Terrain.RestampTreeWells()
-			r.FlushTerrainVerts(w.Terrain)
+			r.FlushTerrainEdit(w.Terrain)
 		}
 	}
 	r.RebuildStaticBatch(w)
@@ -249,7 +249,7 @@ func deleteSelectedStructure(r *render.Renderer, w *world.World, sel *structureE
 		wasParking := sel.building.Type == world.BuildingParking
 		w.RemoveBuilding(sel.building.ID)
 		sel.clear()
-		r.FlushTerrainVerts(w.Terrain)
+		r.FlushTerrainEdit(w.Terrain)
 		r.RebuildStaticBatch(w)
 		if wasParking {
 			r.RebuildRoads(w)
@@ -259,7 +259,7 @@ func deleteSelectedStructure(r *render.Renderer, w *world.World, sel *structureE
 		sel.clear()
 		w.RemoveLift(liftID)
 		r.RemoveLiftCable(liftID)
-		r.FlushTerrainVerts(w.Terrain)
+		r.FlushTerrainEdit(w.Terrain)
 		r.RebuildStaticBatch(w)
 	}
 }
