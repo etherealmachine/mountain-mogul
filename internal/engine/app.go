@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"runtime"
 	"sync/atomic"
@@ -110,7 +111,7 @@ func (app *App) SetFullscreen(on bool) {
 		}
 		w.SetMonitor(nil, p[0], p[1], p[2], p[3], 0)
 	}
-	glfw.SwapInterval(SwapInterval()) // vsync again on the new swap chain
+	glfw.SwapInterval(1) // vsync again on the new swap chain
 }
 
 // Destroy cleans up GLFW.
@@ -195,9 +196,23 @@ func (app *App) Run() {
 	defer close(stopWatchdog)
 
 	prev := time.Now()
+	var pace framePacer
+	next := time.Now()
 	for !app.Window.ShouldClose() {
+		// Each frame starts on a schedule of whole frame periods (a
+		// faster display's vsync alone would run on): the swap after it
+		// lands on the same refresh every time.
+		period := FramePeriod()
+		if period > 0 {
+			next = next.Add(time.Duration(period * float64(time.Second)))
+			if wait := time.Until(next); wait > 0 {
+				time.Sleep(wait)
+			} else if wait < -time.Duration(period*float64(time.Second)) {
+				next = time.Now() // fell behind: start the schedule again
+			}
+		}
 		now := time.Now()
-		dt := now.Sub(prev).Seconds()
+		dt := pace.step(now.Sub(prev).Seconds(), period)
 		prev = now
 		heartbeat.Store(now.UnixNano())
 
@@ -245,4 +260,25 @@ func stallWatchdog(heartbeat *atomic.Int64, stop <-chan struct{}) {
 			"\n=== STALL DETECTED (main loop frozen %v) ===\n%s=== end stall dump ===\n\n",
 			age.Truncate(100*time.Millisecond), buf[:n])
 	}
+}
+
+// framePacer turns the measured time between frames into whole display
+// frames. Frames reach the screen on the display's beat, but the loop's
+// clock jitters around it (one frame 8 ms, the next 14), and moving the
+// camera by the measured time made panning judder; by whole frames each
+// one on screen moves as far. What rounding loses or gains is carried
+// to the next frame, so game time keeps up with the clock. If frames come
+// faster than the display's beat (vsync off), they're timed as measured.
+type framePacer struct{ carry, avg float64 }
+
+func (p *framePacer) step(dt, period float64) float64 {
+	p.avg += (dt - p.avg) * 0.1
+	if period <= 0 || dt > 0.25 || p.avg < 0.75*period { // a stall, or unpaced: as measured
+		p.carry = 0
+		return dt
+	}
+	t := dt + p.carry
+	n := math.Max(1, math.Round(t/period))
+	p.carry = math.Max(-period, math.Min(period, t-n*period))
+	return n * period
 }

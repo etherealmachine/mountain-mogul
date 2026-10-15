@@ -68,6 +68,7 @@ func main() {
 	storm := flag.Bool("storm", false, "-screenshot: drop a heavy-snow day on the terrain and make today a heavy-snow day before capture")
 	importPreview := flag.String("import-preview", "", "-screenshot: capture the terrain import map at \"lat,lon,zoom\" (e.g. 38.68,-120.07,14) once the map and the OpenStreetMap overlay have loaded")
 	editorGoals := flag.Bool("editor-goals", false, "with -editor-layers: open the Scenario details dialog on its Goals tab")
+	panKeys := flag.Bool("pan-keys", false, "-screenshot: hold the right arrow key every frame, and print each frame's time and the slow ones (camera panning hitches)")
 	gpuPasses := flag.Bool("gpu-passes", false, "-screenshot: time each render pass on the GPU and print their medians")
 	editorPan := flag.Int("editor-pan", 0, "with -editor-layers: before capture, pan the camera this many frames (2 m a frame) and print the frame times; -cpuprofile covers them")
 	editorTest := flag.Float64("editor-test", 0, "with -editor-layers: start the test run (lifts and trains running empty) and run it this many seconds ahead before capture")
@@ -154,6 +155,7 @@ func main() {
 			groomNow:       *groomNow,
 			lineAttendants: *lineAttendants,
 			gpuPasses:      *gpuPasses,
+			panKeys:        *panKeys,
 			detailTest:     *detailTest,
 			detailFile:     *detailFile,
 		})
@@ -294,6 +296,7 @@ func runTestbedUI(name string, logSlowFrames bool, cam cameraOverrides, liveQuer
 // call site stays readable as we add camera-override flags.
 type screenshotOpts struct {
 	gpuPasses    bool // time each render pass on the GPU
+	panKeys      bool // hold the right arrow, report frame times
 	outPath      string
 	testbedName  string // if set, build the world from the matching sim.Testbed
 	loadPath     string // else load a save (empty → most recent)
@@ -473,6 +476,7 @@ func runScreenshot(opt screenshotOpts) {
 		app.Renderer.EnableGPUPasses()
 	}
 	windowStart := time.Now()
+	var panDts []float64
 	const benchSkip = 3
 	prev := time.Now()
 	var benchStart time.Time
@@ -492,6 +496,12 @@ func runScreenshot(opt screenshotOpts) {
 
 		app.Input.BeginFrame()
 		glfw.PollEvents()
+		if opt.panKeys {
+			app.Input.Held[glfw.KeyRight] = true
+			if frame >= benchSkip {
+				panDts = append(panDts, dt*1000)
+			}
+		}
 
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
@@ -575,6 +585,19 @@ func runScreenshot(opt screenshotOpts) {
 			updateMs[len(updateMs)/2], updateMs[len(updateMs)-1], renderMs[len(renderMs)/2], renderMs[len(renderMs)-1])
 		if opt.gpuPasses {
 			fmt.Print("screenshot: gpu passes (medians):\n" + app.Renderer.GPUPassesReport())
+		}
+		if opt.panKeys && len(panDts) > 0 {
+			s := append([]float64(nil), panDts...)
+			sort.Float64s(s)
+			med := s[len(s)/2]
+			var slow []string
+			for i, d := range panDts {
+				if d > med*1.6 {
+					slow = append(slow, fmt.Sprintf("%d:%.0f", i, d))
+				}
+			}
+			fmt.Printf("screenshot: pan frames %d, dt median %.1f ms, p90 %.1f, max %.1f; over 1.6× the median (frame:ms): %v\n",
+				len(s), med, s[len(s)*9/10], s[len(s)-1], slow)
 		}
 		drawn, total := app.Renderer.TerrainChunkStats()
 		fmt.Printf("screenshot: terrain chunks drawn %d of %d, %d cells per triangle edge\n", drawn, total, app.Renderer.TerrainLOD())

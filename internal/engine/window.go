@@ -28,7 +28,7 @@ func CreateWindow(title string, width, height int) (*glfw.Window, error) {
 	}
 
 	win.MakeContextCurrent()
-	glfw.SwapInterval(SwapInterval()) // vsync
+	glfw.SwapInterval(1) // vsync (the frame rate's held by App.Run's pacing)
 
 	if err := gl.Init(); err != nil {
 		// gl.Init returns a string on error, wrapped for us
@@ -40,15 +40,19 @@ func CreateWindow(title string, width, height int) (*glfw.Window, error) {
 	return win, nil
 }
 
-// SwapInterval is the vsync interval: every refresh on a display of
-// 60 Hz or so, every other one (60 fps) on a faster one, such as a 120 Hz
-// ProMotion screen. The game doesn't need more, and drawing every
-// refresh there keeps the GPU flat out, so frames that run long stutter.
-func SwapInterval() int {
-	if m := glfw.GetPrimaryMonitor(); m != nil {
-		if mode := m.GetVideoMode(); mode != nil && mode.RefreshRate >= 90 {
-			return 2
-		}
+// FramePeriod is the seconds between frames the game draws: the
+// display's refresh, but no faster than 60 a second (on a 120 Hz
+// ProMotion screen, drawing every refresh kept the GPU flat out, so long
+// frames stuttered; macOS's OpenGL ignores a swap interval over 1, so
+// App.Run holds it). 0 if unknown.
+func FramePeriod() float64 {
+	m := glfw.GetPrimaryMonitor()
+	if m == nil {
+		return 0
 	}
-	return 1
+	mode := m.GetVideoMode()
+	if mode == nil || mode.RefreshRate <= 0 {
+		return 0
+	}
+	return max(1/float64(mode.RefreshRate), 1.0/60)
 }
