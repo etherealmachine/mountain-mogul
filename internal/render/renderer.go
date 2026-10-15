@@ -1395,6 +1395,7 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		r.TerrainShader.SetFloat("uBrushRadius", r.brushRadius)
 		r.TerrainShader.SetVec2("uRangeCenter", r.rangeCenter)
 		r.TerrainShader.SetFloat("uRangeRadius", r.rangeRadius)
+		applyMouths(r.TerrainShader, collectMouths(w))
 		r.TerrainShader.SetInt("uOverlayMode", r.TerrainOverlayMode)
 		r.TerrainShader.SetVec3("uCameraPos", r.Camera.WorldPos())
 		r.TerrainShader.SetFloat("uTime", time)

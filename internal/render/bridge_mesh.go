@@ -47,7 +47,7 @@ func deckOrGround(w *world.World) heightFunc { return deckOrGroundWith(w, nil) }
 // deckOrGroundWith is deckOrGround with the bridges of a ghost path or
 // road (extra) too.
 func deckOrGroundWith(w *world.World, extra []world.Bridge) heightFunc {
-	ground := terrainHeight(w.Terrain)
+	ground := mouthGround(terrainHeight(w.Terrain), collectMouths(w))
 	if len(w.Bridges) == 0 && len(extra) == 0 {
 		return ground
 	}

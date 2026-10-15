@@ -118,7 +118,7 @@ func buildRoadStripFromSamples(samples []mgl32.Vec2, height heightFunc, hidden f
 	if len(samples) < 2 {
 		return nil, nil
 	}
-	samples = densify(samples, roadStripStep)
+	samples = splitAtHidden(densify(samples, roadStripStep), hidden)
 	halfWidth := world.RoadHalfWidth
 
 	verts := make([]float32, 0, len(samples)*2*8)
@@ -364,4 +364,31 @@ func pathTunnels(tunnels []world.Tunnel) func(mgl32.Vec2) bool {
 		return nil
 	}
 	return func(p mgl32.Vec2) bool { return world.InTunnelAmong(tunnels, p, false) }
+}
+
+// splitAtHidden puts a sample where samples go into or out of what hidden
+// says is a tunnel, so the strip stops at the mouth, not a step short of
+// it or past it.
+func splitAtHidden(samples []mgl32.Vec2, hidden func(mgl32.Vec2) bool) []mgl32.Vec2 {
+	if hidden == nil || len(samples) < 2 {
+		return samples
+	}
+	out := []mgl32.Vec2{samples[0]}
+	for i := 1; i < len(samples); i++ {
+		a, b := samples[i-1], samples[i]
+		if ha := hidden(a); ha != hidden(b) {
+			lo, hi := float32(0), float32(1)
+			for range 16 {
+				mid := (lo + hi) / 2
+				if hidden(a.Add(b.Sub(a).Mul(mid))) == ha {
+					lo = mid
+				} else {
+					hi = mid
+				}
+			}
+			out = append(out, a.Add(b.Sub(a).Mul((lo+hi)/2)))
+		}
+		out = append(out, b)
+	}
+	return out
 }

@@ -33,6 +33,10 @@ def portal(m, w, h, t=1.2):
     for s in (-1, 1):
         m.add(hull(translate([0, s * face_w / 2 - 0.4, -0.5], cube([t, 0.8, face_h])),
                    translate([-4.0, s * (face_w / 2 + 2.5) - 0.4, -0.5], cube([0.8, 0.8, 1.2]))), stone)
+    # Stone over the opening, back past the dark inside, so from above
+    # the hill (not drawn just behind the face across the opening:
+    # render/tunnel_mouths.go) meets stone.
+    m.add(translate([t, -r - 0.6, h], cube([1.4, w + 1.2, face_h - h])), stone)
     # The dark inside: a back wall just past the opening, so it reads
     # as a hole into the hill.
     m.add(translate([t + 0.6, -r, 0], cube([0.2, w, h])), inside)

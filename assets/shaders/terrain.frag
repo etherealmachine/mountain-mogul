@@ -80,6 +80,33 @@ const int MAT_MEADOW = 0, MAT_DIRT = 1, MAT_SCREE = 2, MAT_ROCK = 3,
 
 out vec4 fragColor;
 
+// Tunnel mouths (render/tunnel_mouths.go): the ground's grid slopes from
+// the bed in front of a portal's face to the hill behind it, so the
+// terrain isn't drawn there: in front of the face, above the bed; and
+// behind it across the opening, from the bed to the opening's top, as
+// far in as the portal's dark inside. A: (x, z, heading, bed's height);
+// B: (face half-width, opening half-width, opening height, inside depth).
+const int MAX_MOUTHS = 16;
+uniform int  uMouthCount;
+uniform vec4 uMouthA[MAX_MOUTHS];
+uniform vec4 uMouthB[MAX_MOUTHS];
+
+bool inMouth(vec3 p) {
+    for (int i = 0; i < uMouthCount; i++) {
+        vec4 a = uMouthA[i];
+        vec4 b = uMouthB[i];
+        vec2 dir = vec2(sin(a.z), cos(a.z));
+        vec2 d = p.xz - a.xy;
+        float u = dot(d, dir);
+        float v = abs(dot(d, vec2(dir.y, -dir.x)));
+        float above = p.y - a.w;
+        if (above < 0.5 || u < -2.0 || u > b.w) continue; // -2: mouthFront
+        if (u <= 0.0 && v < b.x) return true;
+        if (u > 0.0 && v < b.y && above < b.z + 0.3) return true;
+    }
+    return false;
+}
+
 // Cell-hash for the sparkle and mogul passes — cheap integer mixing in float space.
 float hash3(vec3 p) {
     p = fract(p * vec3(443.897, 441.423, 437.195));
@@ -349,6 +376,7 @@ float trackAt(vec2 uv) {
 }
 
 void main() {
+    if (uMouthCount > 0 && inMouth(vWorldPos)) discard;
     vec4  snowState = vSnow;
     float snowDepth = vSnowDepth;
     if (uFragDetail > 0.5 && vInstabilityScore > -0.5) {
