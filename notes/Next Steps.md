@@ -90,6 +90,7 @@ Empty: nothing ranked first.
 ## Campaign
 
 - **Campaign scenarios**: the rest of the [[Scenario Campaign]], each pulling in what its note needs.
+- [[Editor Parity]]: the rest of the game's tools in the editor (building popups, the trail popup's snowmaking and lights).
 
 ## Look
 

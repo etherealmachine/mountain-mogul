@@ -809,6 +809,13 @@ func (w *World) UpgradeLift(l *Lift, target LiftType) bool {
 		return false
 	}
 	w.Spend(cost)
+	RetypeLift(l, target)
+	return true
+}
+
+// RetypeLift makes l a target lift on the same line: its speed and
+// seats (the editor's change of type, and an upgrade's).
+func RetypeLift(l *Lift, target LiftType) {
 	l.Type = target
 	l.Speed = target.DefaultSpeed()
 	l.ResetTowerCache()
@@ -818,7 +825,6 @@ func (w *World) UpgradeLift(l *Lift, target LiftType) bool {
 		copy(fresh, l.Chairs[i].Passengers)
 		l.Chairs[i].Passengers = fresh
 	}
-	return true
 }
 
 // AddBubbles buys bubble covers for every chair of l, a 6-pack or an

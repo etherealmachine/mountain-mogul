@@ -76,11 +76,17 @@ func (s *Simulation) tickTrains(dt float64) {
 // tickTrain runs train tr on dt seconds; false once it's gone beyond the
 // map.
 func (s *Simulation) tickTrain(tr *world.Train, dt float32) bool {
+	return runTrain(tr, dt, s.SimTime, func(st *world.RailStation) { s.trainArrives(tr, st) })
+}
+
+// runTrain runs train tr on dt seconds at sim time now, arrive called at
+// each stop; false once it's gone beyond the map.
+func runTrain(tr *world.Train, dt float32, now float64, arrive func(*world.RailStation)) bool {
 	spec := tr.Style.Spec()
 	r := tr.Route
 	length := spec.TrainLength()
 	if tr.Dwelling {
-		if s.SimTime < tr.DwellUntil {
+		if now < tr.DwellUntil {
 			return true
 		}
 		tr.Dwelling = false
@@ -109,8 +115,8 @@ func (s *Simulation) tickTrain(tr *world.Train, dt float32) bool {
 	tr.Front = min(tr.Front+tr.Speed*dt, stopAt)
 	if tr.Front >= stopAt {
 		tr.Speed, tr.Dwelling = 0, true
-		tr.DwellUntil = s.SimTime + trainDwellMinutes/60*simSecondsPerHour
-		s.trainArrives(tr, r.Stops[tr.Stop].Station)
+		tr.DwellUntil = now + trainDwellMinutes/60*simSecondsPerHour
+		arrive(r.Stops[tr.Stop].Station)
 	}
 	return tr.Front < r.Length+length
 }
