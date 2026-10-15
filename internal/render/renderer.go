@@ -56,6 +56,13 @@ type partBatch struct {
 type Renderer struct {
 	beltFrame     int // frames since belts were last rebuilt (syncBelts)
 	TerrainShader *Shader
+	gpuPasses     *gpuPasses // per-pass GPU timing, a dev tool (gpu_passes.go)
+	// terrainB is a terrain shader to time against the real one, used on
+	// every other frame (MM_TERRAIN_B: its fragment shader's path; with
+	// -gpu-passes, whole frames are timed as "frame A" and "frame B"), a
+	// dev tool; abFrame counts the frames.
+	terrainB *Shader
+	abFrame  int
 	// TerrainMouthShader is the terrain shader with tunnel mouths' cut-
 	// outs, for the chunks with one (tunnel_mouths.go).
 	TerrainMouthShader *Shader
@@ -238,6 +245,11 @@ func NewRenderer(w, h int, assetDir string) (*Renderer, error) {
 	r.TerrainShader, err = LoadShaderTess(shaderDir+"terrain.vert", shaderDir+"terrain.tesc", shaderDir+"terrain.tese", shaderDir+"terrain.frag", lightingPath, shaderDir+"mogul.glsl")
 	if err != nil {
 		return nil, fmt.Errorf("terrain shader: %w", err)
+	}
+	if b := os.Getenv("MM_TERRAIN_B"); b != "" {
+		if r.terrainB, err = LoadShaderTess(shaderDir+"terrain.vert", shaderDir+"terrain.tesc", shaderDir+"terrain.tese", b, lightingPath, shaderDir+"mogul.glsl"); err != nil {
+			return nil, fmt.Errorf("terrain shader B: %w", err)
+		}
 	}
 	r.TerrainMouthShader, err = LoadShaderTessDefs("#define TUNNEL_MOUTHS\n", shaderDir+"terrain.vert", shaderDir+"terrain.tesc", shaderDir+"terrain.tese", shaderDir+"terrain.frag", lightingPath, shaderDir+"mogul.glsl")
 	if err != nil {
@@ -1363,7 +1375,13 @@ func generateCablesMesh(lift *world.Lift, t *world.Terrain, perpOffs []float32, 
 
 // DrawWorld renders the full 3D world.
 func (r *Renderer) DrawWorld(w *world.World, time float32) {
+	if r.terrainB != nil {
+		r.abFrame++
+		r.gpuMark([2]string{"frame A", "frame B"}[r.abFrame%2])
+	}
+	r.gpuMark("begin")
 	r.beginScene()
+	r.gpuMark("shadow map")
 	light := r.Lighting
 	if light == (Lighting{}) {
 		light = DefaultLighting
@@ -1375,6 +1393,7 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		r.shadowMap.render(r, light.SunDir, w.Terrain.InterpolatedSurfaceElevationAt(t[0], t[2]))
 	}
 	r.shadowMap.bind()
+	r.gpuMark("terrain shadow")
 
 	gl.ClearColor(light.Sky[0], light.Sky[1], light.Sky[2], 1.0)
 	gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
@@ -1388,13 +1407,18 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	r.updateNightLights(w)
 	r.bindNightLights()
 
+	r.gpuMark("terrain")
 	// Terrain pass: the chunks with a tunnel mouth drawn with the shader
 	// that cuts them out, the rest without (tunnel_mouths.go).
 	if r.scene.terrainMesh != nil {
 		mouths := collectMouths(w)
+		sh := r.TerrainShader
+		if r.terrainB != nil && r.abFrame%2 == 1 {
+			sh = r.terrainB
+		}
 		r.terrainChunksDrawn = 0
-		r.setupTerrain(r.TerrainShader, w, light, lamps, vp, time)
-		r.drawTerrain(r.TerrainShader, vp, func(c *terrainChunk) bool { return !chunkHasMouth(c, mouths) })
+		r.setupTerrain(sh, w, light, lamps, vp, time)
+		r.drawTerrain(sh, vp, func(c *terrainChunk) bool { return !chunkHasMouth(c, mouths) })
 		if len(mouths) > 0 {
 			r.setupTerrain(r.TerrainMouthShader, w, light, lamps, vp, time)
 			applyMouths(r.TerrainMouthShader, mouths)
@@ -1417,6 +1441,7 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	}
 
 	r.drawTrailLayers(vp)
+	r.gpuMark("static")
 
 	// Static pass
 	r.StaticShader.Use()
@@ -1440,6 +1465,7 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	// top of road quads where they overlap. Shares the cable shader path
 	// (identity instance transform, dark asphalt tint via VertexAttrib).
 	// Lane dashes ride on top of the asphalt with a brighter tint.
+	r.gpuMark("roads, paths")
 	r.syncFootpaths(w)
 	if r.scene.footpathMesh != nil {
 		gl.BindTexture(gl.TEXTURE_2D, r.whiteTexID)
@@ -1478,7 +1504,9 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		batch.Draw()
 	}
 	r.StaticShader.SetInt("uFoliage", 0)
+	r.gpuMark("rails")
 	r.drawRails()
+	r.gpuMark("cables, ghosts")
 
 	r.syncBelts(w)
 	// Cable pass — world-space meshes, drawn with identity instance
@@ -1592,6 +1620,7 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	gl.DepthMask(true)
 	gl.Disable(gl.BLEND)
 
+	r.gpuMark("dynamic")
 	// Dynamic pass (agents)
 	r.DynamicShader.Use()
 	light.apply(r.DynamicShader)
@@ -1790,10 +1819,13 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 		}
 		drawBigLiftChairs(r)
 	}
+	r.gpuMark("guns, poles")
 	drawSnowGuns(r, w, time)
 	r.drawLightPoles(w, light.Night)
 
+	r.gpuMark("water")
 	r.drawWater(w, vp, light, time)
+	r.gpuMark("weather")
 	drawBubbleHoods(r)
 	drawSnowPlumes(r)
 	r.drawWeatherOverlay(time, light)
@@ -1858,6 +1890,7 @@ func guestColor(w *world.World, a *world.Guest) [3]float32 {
 // flushUI at the end emits one (or a few, on texture-switches) DrawArrays
 // for the whole frame's UI instead of one per glyph.
 func (r *Renderer) DrawUI(elements []UIDrawable) {
+	r.gpuMark("ui")
 	r.resolveScene()
 	gl.Disable(gl.DEPTH_TEST)
 	defer gl.Enable(gl.DEPTH_TEST)

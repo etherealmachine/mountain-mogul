@@ -8,6 +8,8 @@ in vec4  vSnow;             // (Grooming, Packed, Ice, MogulSize)
 in float vSnowDepth;        // SnowDepth in metres
 in vec3  vSmoothNormal;     // per-corner smoothed normal, interpolated across triangles
 in float vInstabilityScore; // Cell.InstabilityScore(); 0=stable, 1.0=release threshold; -1 on map-edge skirts
+in float vPatch;            // the snow's broad patchiness, 0–1 (terrain.tese)
+in vec2  vDrift;            // the wind drifts' slope (terrain.tese)
 
 uniform vec2  uBrushCenter;
 uniform float uBrushRadius;
@@ -488,9 +490,9 @@ void main() {
     // rock. Shade colour comes from the sky fill, not from elevation.
     vec3 snow      = vec3(0.95, 0.96, 0.98);
     // Broad patchiness so a snowfield isn't one flat sheet: sheltered
-    // patches a touch brighter and warmer, scoured ones greyer and cooler.
-    float patchN = valueNoise(vWorldPos.xz / 40.0 + vec2(71.3, 12.9)) * 0.65
-                 + valueNoise(vWorldPos.xz / 9.0 + vec2(5.1, 33.7)) * 0.35;
+    // patches a touch brighter and warmer, scoured ones greyer and cooler
+    // (worked out a vertex: terrain.tese).
+    float patchN = vPatch;
     snow *= mix(vec3(0.95, 0.96, 0.99), vec3(1.02, 1.01, 0.99), patchN);
     // Packed-snow tint — noticeably cooler and a touch darker than
     // fresh powder. The geometric depth step at a groomed/powder
@@ -565,12 +567,16 @@ void main() {
             int   m = materialAt(p + o);
             iw += w * vec2(m == MAT_ICE ? 1.0 : 0.0, m == MAT_THIN_ICE ? 1.0 : 0.0);
         }
-        float rough = 0.25 * (valueNoise(vWorldPos.xz / 0.9) - 0.5);
-        iw = smoothstep(vec2(0.35), vec2(0.65), iw + rough);
-        float scour = smoothstep(0.45, 0.7, fbmNoise(vWorldPos.xz / 30.0 + vec2(13.1, 4.7)));
-        float thin  = 1.0 - smoothstep(0.1, 0.4, effDepth);
-        snowness = mix(snowness, min(snowness, 1.0 - 0.9 * scour * thin), iw.x);
-        snowness = mix(snowness, min(snowness, 0.6 * smoothstep(0.55, 0.75, fbmNoise(vWorldPos.xz / 12.0 + vec2(3.3, 9.1)))), iw.y);
+        // The noise only near ice (the roughening is at most ±0.125, so
+        // under 0.2 of ice round the point there's none to show).
+        if (max(iw.x, iw.y) > 0.2) {
+            float rough = 0.25 * (valueNoise(vWorldPos.xz / 0.9) - 0.5);
+            iw = smoothstep(vec2(0.35), vec2(0.65), iw + rough);
+            float scour = smoothstep(0.45, 0.7, fbmNoise(vWorldPos.xz / 30.0 + vec2(13.1, 4.7)));
+            float thin  = 1.0 - smoothstep(0.1, 0.4, effDepth);
+            snowness = mix(snowness, min(snowness, 1.0 - 0.9 * scour * thin), iw.x);
+            snowness = mix(snowness, min(snowness, 0.6 * smoothstep(0.55, 0.75, fbmNoise(vWorldPos.xz / 12.0 + vec2(3.3, 9.1)))), iw.y);
+        }
     }
     // Open water (lakes and creeks) blends across the four material
     // samples around the point, with a little noise, so its edge follows
@@ -683,7 +689,7 @@ void main() {
         // metres across, so lighting varies across open slopes.
         float driftness = (1.0 - groomVis) * smoothstep(0.05, 0.4, effDepth) * (1.0 - isDebris);
         if (driftness > 0.05) {
-            vec2 g = valueNoiseD(vWorldPos.xz / 22.0 + vec2(311.7, 47.3)).yz / 22.0;
+            vec2 g = vDrift; // worked out a vertex (terrain.tese)
             const float driftAmp = 0.6; // metres
             kick.xz -= g * driftAmp * driftness;
         }
@@ -834,13 +840,14 @@ void main() {
         vec3  H    = normalize(L + V);
         // Facets are 25 cm; past ~1.5 m per pixel they'd only shimmer.
         float sparkleK = 1.0 - smoothstep(0.75, 1.5, pxM);
-        if (sparkleK > 0.0 && sunVis > 0.0) {
-            vec3  cell = floor(vWorldPos * 4.0);
+        // Only a cell in five (more on ice) is a facet at all, so the rest
+        // stop at that.
+        vec3 cell = floor(vWorldPos * 4.0);
+        if (sparkleK > 0.0 && sunVis > 0.0 && hash3(cell + 73.0) >= 0.80 - ice * 0.15) {
             vec3  tilt = vec3(hash3(cell), hash3(cell + 17.0), hash3(cell + 41.0)) * 2.0 - 1.0;
             vec3  facet = normalize(Nshading + tilt * 0.6);
             float glint = pow(max(dot(facet, H), 0.0), 600.0);
-            float sparse = step(0.80 - ice * 0.15, hash3(cell + 73.0));
-            float spec = glint * sparse * dot(uSunColor, vec3(1.0 / 3.0)) * sunVis * sparkleK;
+            float spec = glint * dot(uSunColor, vec3(1.0 / 3.0)) * sunVis * sparkleK;
             // Debris doesn't sparkle — dirty rock/soil mixture kills specular glint.
             lit += spec * snowness * (1.0 + ice * 4.0) * vec3(2.4, 2.3, 2.1) * (1.0 - isDebris);
         }

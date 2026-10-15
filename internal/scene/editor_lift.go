@@ -110,7 +110,7 @@ func (e *Editor) runPreview(dt float64) {
 	}
 }
 
-// startTestRun runs the lifts and trains at speed (1 or 4).
+// startTestRun runs the lifts and trains at speed (1 or 8).
 func (e *Editor) startTestRun(speed int) {
 	e.testSpeed = speed
 	e.syncToolButtons()

@@ -110,7 +110,7 @@ func (app *App) SetFullscreen(on bool) {
 		}
 		w.SetMonitor(nil, p[0], p[1], p[2], p[3], 0)
 	}
-	glfw.SwapInterval(1) // vsync again on the new swap chain
+	glfw.SwapInterval(SwapInterval()) // vsync again on the new swap chain
 }
 
 // Destroy cleans up GLFW.

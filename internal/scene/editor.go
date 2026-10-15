@@ -85,7 +85,7 @@ type Editor struct {
 	ropeTool      ropeTool
 	liftPopup     *ui.Window
 	preview       *sim.Preview
-	testSpeed     int     // the test run's speed: 0 (paused), 1 or 4
+	testSpeed     int     // the test run's speed: 0 (paused), 1 or 8
 	trailEdit     runTool // editing the selected run (editSelectedTrail)
 	trailEditUsed bool    // this frame's click went to editing the selected run
 	trailDraw     trailDrawing
@@ -295,7 +295,7 @@ func (e *Editor) Init(app *engine.App) error {
 	e.topBar.SetSettingsButton(func() { e.escapeMenu.Toggle() })
 	// Pause and play run the test run: the lifts and trains, empty
 	// (editor_lift.go).
-	e.topBar.SetSpeedControls(e.stopTestRun, []func(){func() { e.startTestRun(1) }, func() { e.startTestRun(4) }})
+	e.topBar.SetSpeedControls(e.stopTestRun, []func(){func() { e.startTestRun(1) }, func() { e.startTestRun(8) }})
 	e.title = newTitlePanel(e.editorTitle, e.openDetailsPrompt)
 	e.startDate = newStartDatePanel(0,
 		func() time.Time { return e.world.StartDate },
@@ -1328,7 +1328,7 @@ func (e *Editor) syncToolButtons() {
 	case e.testSpeed == 0:
 		e.topBar.SetPauseActive(true)
 	default:
-		e.topBar.SetSpeedActive(min(e.testSpeed/4, 1))
+		e.topBar.SetSpeedActive(min(e.testSpeed/8, 1))
 	}
 	// Highlight submenu parent when any child is active.
 	for _, sub := range []*ui.SubmenuButton{

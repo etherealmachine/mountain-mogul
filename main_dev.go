@@ -68,6 +68,7 @@ func main() {
 	storm := flag.Bool("storm", false, "-screenshot: drop a heavy-snow day on the terrain and make today a heavy-snow day before capture")
 	importPreview := flag.String("import-preview", "", "-screenshot: capture the terrain import map at \"lat,lon,zoom\" (e.g. 38.68,-120.07,14) once the map and the OpenStreetMap overlay have loaded")
 	editorGoals := flag.Bool("editor-goals", false, "with -editor-layers: open the Scenario details dialog on its Goals tab")
+	gpuPasses := flag.Bool("gpu-passes", false, "-screenshot: time each render pass on the GPU and print their medians")
 	editorPan := flag.Int("editor-pan", 0, "with -editor-layers: before capture, pan the camera this many frames (2 m a frame) and print the frame times; -cpuprofile covers them")
 	editorTest := flag.Float64("editor-test", 0, "with -editor-layers: start the test run (lifts and trains running empty) and run it this many seconds ahead before capture")
 	editorOSM := flag.Bool("editor-osm", false, "with -editor-layers: show the OpenStreetMap overlay, with the Layers panel closed")
@@ -152,6 +153,7 @@ func main() {
 			figureGallery:  *figureGallery,
 			groomNow:       *groomNow,
 			lineAttendants: *lineAttendants,
+			gpuPasses:      *gpuPasses,
 			detailTest:     *detailTest,
 			detailFile:     *detailFile,
 		})
@@ -291,6 +293,7 @@ func runTestbedUI(name string, logSlowFrames bool, cam cameraOverrides, liveQuer
 // screenshotOpts bundles the configurable knobs for runScreenshot so the
 // call site stays readable as we add camera-override flags.
 type screenshotOpts struct {
+	gpuPasses    bool // time each render pass on the GPU
 	outPath      string
 	testbedName  string // if set, build the world from the matching sim.Testbed
 	loadPath     string // else load a save (empty → most recent)
@@ -466,6 +469,10 @@ func runScreenshot(opt screenshotOpts) {
 	// the PNG matches exactly what the user would see on screen. Timing
 	// the steady-state portion (after a few warmup frames the GPU pipeline
 	// fills) gives a rough FPS reading we can report.
+	if opt.gpuPasses {
+		app.Renderer.EnableGPUPasses()
+	}
+	windowStart := time.Now()
 	const benchSkip = 3
 	prev := time.Now()
 	var benchStart time.Time
@@ -503,11 +510,12 @@ func runScreenshot(opt screenshotOpts) {
 		t1 := time.Now()
 		// Timing the GPU waits for it every frame, so a long benchmark
 		// skips it to time frames as the game runs them.
-		gpuTimed := frame >= benchSkip && opt.benchHours == 0
+		gpuTimed := frame >= benchSkip && opt.benchHours == 0 && !opt.gpuPasses
 		if gpuTimed {
 			gl.BeginQuery(gl.TIME_ELAPSED, gpuQuery)
 		}
 		sc.Render(app.Renderer)
+		app.Renderer.GPUPassesFrameEnd()
 		if frame >= benchSkip {
 			updateMs = append(updateMs, t1.Sub(t0).Seconds()*1000)
 			renderMs = append(renderMs, time.Since(t1).Seconds()*1000)
@@ -531,6 +539,13 @@ func runScreenshot(opt screenshotOpts) {
 		}
 
 		app.Window.SwapBuffers()
+		if opt.gpuPasses && frame%100 == 99 {
+			fmt.Printf("screenshot: frames %d–%d (anti-aliasing %d): %.1f ms a frame\n", frame-99, frame, app.Renderer.AntiAliasing(), time.Since(windowStart).Seconds()*10)
+			windowStart = time.Now()
+			if os.Getenv("MM_AB_AA") != "" { // alternate anti-aliasing off and on, a window each
+				app.Renderer.SetAntiAliasing(4 - app.Renderer.AntiAliasing())
+			}
+		}
 	}
 	if opt.warmupFrames > benchSkip {
 		elapsed := time.Since(benchStart).Seconds()
@@ -558,6 +573,9 @@ func runScreenshot(opt screenshotOpts) {
 		}
 		fmt.Printf("screenshot: cpu update median %.2f ms, max %.2f; cpu render median %.2f ms, max %.2f\n",
 			updateMs[len(updateMs)/2], updateMs[len(updateMs)-1], renderMs[len(renderMs)/2], renderMs[len(renderMs)-1])
+		if opt.gpuPasses {
+			fmt.Print("screenshot: gpu passes (medians):\n" + app.Renderer.GPUPassesReport())
+		}
 		drawn, total := app.Renderer.TerrainChunkStats()
 		fmt.Printf("screenshot: terrain chunks drawn %d of %d, %d cells per triangle edge\n", drawn, total, app.Renderer.TerrainLOD())
 	}

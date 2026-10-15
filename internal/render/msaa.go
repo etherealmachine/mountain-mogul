@@ -80,7 +80,7 @@ func (r *Renderer) resolveScene() {
 }
 
 // EndFrame finishes the frame's drawing before the swap.
-func (r *Renderer) EndFrame() { r.resolveScene() }
+func (r *Renderer) EndFrame() { r.gpuMark("resolve"); r.resolveScene() }
 
 func (t *sceneTarget) release() {
 	if t.fbo != 0 {

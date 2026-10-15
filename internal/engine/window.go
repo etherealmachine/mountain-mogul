@@ -28,7 +28,7 @@ func CreateWindow(title string, width, height int) (*glfw.Window, error) {
 	}
 
 	win.MakeContextCurrent()
-	glfw.SwapInterval(1) // vsync
+	glfw.SwapInterval(SwapInterval()) // vsync
 
 	if err := gl.Init(); err != nil {
 		// gl.Init returns a string on error, wrapped for us
@@ -38,4 +38,17 @@ func CreateWindow(title string, width, height int) (*glfw.Window, error) {
 	}
 
 	return win, nil
+}
+
+// SwapInterval is the vsync interval: every refresh on a display of
+// 60 Hz or so, every other one (60 fps) on a faster one, such as a 120 Hz
+// ProMotion screen. The game doesn't need more, and drawing every
+// refresh there keeps the GPU flat out, so frames that run long stutter.
+func SwapInterval() int {
+	if m := glfw.GetPrimaryMonitor(); m != nil {
+		if mode := m.GetVideoMode(); mode != nil && mode.RefreshRate >= 90 {
+			return 2
+		}
+	}
+	return 1
 }

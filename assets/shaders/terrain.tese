@@ -107,6 +107,12 @@ flat out vec3  vNormal;
      out float vSnowDepth;
      out vec3  vSmoothNormal;
      out float vInstabilityScore;
+// vPatch is the snow's broad patchiness (terrain.frag), tens of metres
+// across, so worked out here a vertex rather than a pixel.
+     out float vPatch;
+// vDrift is the wind drifts' slope (terrain.frag's normal kick), tens of
+// metres across, likewise.
+     out vec2  vDrift;
 
 // Noise functions mirrored from terrain.frag — same hash/fbm so TES
 // displacement matches the fragment-shader normal-map exactly.
@@ -125,6 +131,22 @@ float valueNoise(vec2 p) {
     float d = hash3(vec3(i.x + 1, i.y + 1, 0.0));
     vec2 u = f * f * (3.0 - 2.0 * f);
     return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+
+// valueNoiseD is valueNoise with its gradient (terrain.frag's).
+vec3 valueNoiseD(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    float a = hash3(vec3(i.x,     i.y,     0.0));
+    float b = hash3(vec3(i.x + 1, i.y,     0.0));
+    float c = hash3(vec3(i.x,     i.y + 1, 0.0));
+    float d = hash3(vec3(i.x + 1, i.y + 1, 0.0));
+    vec2 u  = f * f * (3.0 - 2.0 * f);
+    vec2 du = 6.0 * f * (1.0 - f);
+    float k = a - b - c + d;
+    return vec3(a + (b - a) * u.x + (c - a) * u.y + k * u.x * u.y,
+                du.x * ((b - a) + k * u.y),
+                du.y * ((c - a) + k * u.x));
 }
 
 float fbmNoise(vec2 p) {
@@ -200,6 +222,9 @@ void main() {
     vSnowDepth        = snowDepth;
     vSmoothNormal     = smoothN;
     vInstabilityScore = instab;
+    vDrift            = valueNoiseD(pos.xz / 22.0 + vec2(311.7, 47.3)).yz / 22.0;
+    vPatch            = valueNoise(pos.xz / 40.0 + vec2(71.3, 12.9)) * 0.65
+                      + valueNoise(pos.xz / 9.0 + vec2(5.1, 33.7)) * 0.35;
 
     gl_Position = uViewProj * vec4(pos, 1.0);
 }
