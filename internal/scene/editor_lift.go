@@ -16,8 +16,9 @@ import (
 
 // Lifts, ropes and the test run in the scenario editor: a lift's popup
 // (picked with no tool, as its station's dragged), the game's rope tool,
-// free, and the test run: the top bar's play buttons run the lifts and
-// trains empty (sim.Preview) to watch them.
+// free, and the test run: the lifts and trains run empty (sim.Preview)
+// from the start; the top bar's pause holds them still to look at, play
+// and fast run them on.
 
 // editorChairTypes are the chairlifts a chairlift's popup can change it
 // to: the ones on the game's upgrade ladder, either way.
@@ -98,23 +99,26 @@ func (e *Editor) retypeLift(l *world.Lift, t world.LiftType) {
 	e.openLiftPopup(l)
 }
 
-// startTestRun runs the lifts and trains empty at speed (1 or 4).
-func (e *Editor) startTestRun(speed int) {
-	if e.preview == nil {
-		e.preview = sim.NewPreview(e.world)
-		e.setToast("Test run: the lifts and trains run empty. Pause to stop.")
+// runPreview runs the lifts and trains on dt seconds at the test run's
+// speed: from the editor's start, empty, and still while paused.
+func (e *Editor) runPreview(dt float64) {
+	if e.preview == nil || e.preview.World() != e.world {
+		e.preview = sim.NewPreview(e.world) // a new or reloaded map
 	}
+	for range e.testSpeed {
+		e.preview.Tick(dt)
+	}
+}
+
+// startTestRun runs the lifts and trains at speed (1 or 4).
+func (e *Editor) startTestRun(speed int) {
 	e.testSpeed = speed
 	e.syncToolButtons()
 }
 
-// stopTestRun stops the test run: the trains go, the chairs stay where
-// they are.
+// stopTestRun pauses the lifts and trains where they are, to look at.
 func (e *Editor) stopTestRun() {
-	if e.preview != nil {
-		e.preview.Stop()
-		e.preview = nil
-	}
+	e.testSpeed = 0
 	e.syncToolButtons()
 }
 
@@ -153,6 +157,7 @@ func (e *Editor) updateRopeTool(r *render.Renderer, inp *engine.Input, covered b
 // (the -editor-test screenshot).
 func (e *Editor) StartTestRun(ahead float64) {
 	e.startTestRun(1)
+	e.runPreview(0)
 	for t := 0.0; t < ahead; t += 0.1 {
 		e.preview.Tick(0.1)
 	}

@@ -80,12 +80,12 @@ type Editor struct {
 	railButtons  [world.RailStyles]*ui.Button
 	railEditUsed bool // this frame's mouse went to the selected track's handles
 	// ropeTool is the rope tool's session; liftPopup a lift's popup;
-	// preview the lifts and trains running empty while the Test button's
-	// on (editor_lift.go).
+	// preview the lifts and trains running empty, at testSpeed (0 is
+	// paused: they stay where they are) (editor_lift.go).
 	ropeTool      ropeTool
 	liftPopup     *ui.Window
 	preview       *sim.Preview
-	testSpeed     int     // the test run's speed: 1 or 4
+	testSpeed     int     // the test run's speed: 0 (paused), 1 or 4
 	trailEdit     runTool // editing the selected run (editSelectedTrail)
 	trailEditUsed bool    // this frame's click went to editing the selected run
 	trailDraw     trailDrawing
@@ -133,7 +133,7 @@ func NewEditorScenarioPicker() *ScenarioPicker {
 // NewEditor creates an Editor scene loading from the given path. An empty
 // path starts a blank scenario with no file until the first Save.
 func NewEditor(path string) *Editor {
-	e := &Editor{scenarioPath: path}
+	e := &Editor{scenarioPath: path, testSpeed: 1} // the lifts and trains run from the start
 	e.lotTool.reset(0)
 	return e
 }
@@ -382,11 +382,7 @@ func (e *Editor) Update(dt float64) {
 	inp := e.app.Input
 	r := e.app.Renderer
 	e.time += float32(dt)
-	if e.preview != nil {
-		for range e.testSpeed {
-			e.preview.Tick(dt)
-		}
-	}
+	e.runPreview(dt)
 
 	// Coalesced snow-state flush: any tool that changes snow marks the
 	// cells (Terrain.MarkSnowDirty) and we push them to the GPU once per
@@ -1329,7 +1325,7 @@ func (e *Editor) syncToolButtons() {
 	}
 	switch {
 	case e.topBar == nil:
-	case e.preview == nil:
+	case e.testSpeed == 0:
 		e.topBar.SetPauseActive(true)
 	default:
 		e.topBar.SetSpeedActive(min(e.testSpeed/4, 1))

@@ -21,6 +21,9 @@ func NewPreview(w *world.World) *Preview {
 	return &Preview{w: w, running: map[uint64]*world.Train{}}
 }
 
+// World is the world it previews.
+func (p *Preview) World() *world.World { return p.w }
+
 // Tick runs the preview on dt seconds.
 func (p *Preview) Tick(dt float64) {
 	dt = min(dt, maxWallDtSec)
@@ -68,11 +71,6 @@ func (p *Preview) Tick(dt float64) {
 			delete(p.running, id)
 		}
 	}
-}
-
-// Stop ends the preview: the trains go.
-func (p *Preview) Stop() {
-	p.w.Trains = nil
 }
 
 func trainOn(w *world.World, tr *world.Train) bool {
