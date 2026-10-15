@@ -1195,7 +1195,7 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 		ropeHits           int
 		groomEdgeCrossings int // groomed→ungroomed transitions (PrefersGroomed only)
 	}
-	samples := make([]sampleData, sampleCount)
+	var samples [sampleCount]sampleData
 	var maxDensity float32
 	for i := 0; i < sampleCount; i++ {
 		f := float32(2*i)/float32(sampleCount-1) - 1 // -1 .. +1
@@ -1242,11 +1242,13 @@ func sampleTactical(w *world.World, towers []mgl32.Vec2, grid *spatialGrid, self
 			}
 			density = max(density, stationDensityAt(near, x, z))
 			totalDensity += density
-			_, grooming, _, _ := t.SnowAt(x, z)
-			if prefersGroomed && prevGrooming > 0.5 && grooming < 0.5 {
-				groomEdgeCrossings++
+			if prefersGroomed { // only they mind leaving the groomed snow
+				_, grooming, _, _ := t.SnowAt(x, z)
+				if prevGrooming > 0.5 && grooming < 0.5 {
+					groomEdgeCrossings++
+				}
+				prevGrooming = grooming
 			}
-			prevGrooming = grooming
 			if cell := t.CellAtWorld(x, z); cell != nil {
 				f := cellFeatures(cell, cellSlope(cell))
 				// Moguls at 1 m, so the less skied-out edge of a run

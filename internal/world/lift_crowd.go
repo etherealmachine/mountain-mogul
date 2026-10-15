@@ -171,6 +171,7 @@ func (l *Lift) setCrowd(places []CrowdPlace) {
 			g.CrowdPlace = i + 1
 		}
 	}
+	l.refreshCrowdEdge()
 }
 
 // crowdOccupied is the dearest occupied place's cost, ok false when
@@ -216,11 +217,52 @@ func (l *Lift) crowdPlaceNear(p mgl32.Vec2, slack float32) int {
 	return best
 }
 
+// crowdEdgeCache is crowdPlaceNear's candidates for an arrival
+// (crowdEdge slack): the free places in the edge band, and the cheapest
+// free place. Every guest heading for a lift asks where its line ends,
+// several times a step, from the worker goroutines too; scanning the
+// crowd's 300 places each time was a quarter of a busy step. Places fill
+// and empty only on the main goroutine (joining, leaving, the shuffle),
+// which refreshes it.
+type crowdEdgeCache struct {
+	band     []int32
+	cheapest int
+}
+
+// refreshCrowdEdge recomputes the crowd's edge after its places changed.
+func (l *Lift) refreshCrowdEdge() {
+	e := &l.crowdEdge
+	e.band, e.cheapest = e.band[:0], -1
+	hi, lo := crowdEdge, float32(math.Inf(-1))
+	if c, ok := l.crowdOccupied(); ok {
+		hi, lo = c+crowdEdge, c-crowdEdgeBand
+	}
+	for i := range l.Crowd {
+		c := &l.Crowd[i]
+		if c.Guest != nil {
+			continue
+		}
+		if e.cheapest < 0 {
+			e.cheapest = i
+		}
+		if c.Cost <= hi && c.Cost >= lo {
+			e.band = append(e.band, int32(i))
+		}
+	}
+}
+
 // CrowdArrivalXZ is where an arrival at from heads for: the free place
-// on the crowd's edge nearest them.
+// on the crowd's edge nearest them (crowdPlaceNear, from the cache).
 func (l *Lift) CrowdArrivalXZ(from mgl32.Vec2) mgl32.Vec2 {
-	if i := l.crowdPlaceNear(from, crowdEdge); i >= 0 {
-		return l.Crowd[i].Pos
+	e := &l.crowdEdge
+	best, bestD := e.cheapest, float32(math.MaxFloat32)
+	for _, i := range e.band {
+		if d := l.Crowd[i].Pos.Sub(from).Len(); d < bestD {
+			best, bestD = int(i), d
+		}
+	}
+	if best >= 0 {
+		return l.Crowd[best].Pos
 	}
 	return l.Crowd[len(l.Crowd)-1].Pos
 }
@@ -250,6 +292,7 @@ func (l *Lift) JoinLine(g *Guest, now float64) bool {
 	if i := l.crowdPlaceNear(near, slack); i >= 0 {
 		l.Crowd[i].Guest = g
 		g.CrowdPlace = i + 1
+		l.refreshCrowdEdge()
 	}
 	l.Queue = append(l.Queue, g)
 	return false
@@ -269,6 +312,7 @@ func (l *Lift) LeaveLine(g *Guest) {
 	}
 	if g.CrowdPlace > 0 && g.CrowdPlace <= len(l.Crowd) && l.Crowd[g.CrowdPlace-1].Guest == g {
 		l.Crowd[g.CrowdPlace-1].Guest = nil
+		l.refreshCrowdEdge()
 	}
 	g.CrowdPlace = 0
 }
@@ -280,6 +324,7 @@ func (l *Lift) ClearLine() []*Guest {
 	for i := range l.Crowd {
 		l.Crowd[i].Guest = nil
 	}
+	l.refreshCrowdEdge()
 	for _, g := range out {
 		g.CrowdPlace, g.LineLane = 0, 0
 	}
@@ -343,6 +388,7 @@ func (l *Lift) ShuffleCrowd(slip func() bool) (passed []*Guest) {
 			}
 		}
 	}
+	l.refreshCrowdEdge()
 	return passed
 }
 

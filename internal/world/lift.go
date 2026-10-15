@@ -288,6 +288,9 @@ type Lift struct {
 	Queue  []*Guest
 	Crowd  []CrowdPlace
 	Chairs []Chair
+	// crowdEdge is the crowd's edge for arrivals (crowdEdgeCache), kept
+	// up to date as places fill and empty.
+	crowdEdge crowdEdgeCache
 
 	// liftExtras is state only the full game's lifts have: a heli lift's
 	// flight (heli.go). Empty in the demo, which has no heli.
