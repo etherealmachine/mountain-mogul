@@ -10,3 +10,4 @@ type trainDrawing struct{}
 
 func loadTrains(*Renderer, string)       {}
 func drawTrains(*Renderer, *world.World) {}
+func drawSteam(*Renderer, *world.World)  {}

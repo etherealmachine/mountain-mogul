@@ -1828,6 +1828,7 @@ func (r *Renderer) DrawWorld(w *world.World, time float32) {
 	r.gpuMark("weather")
 	drawBubbleHoods(r)
 	drawSnowPlumes(r)
+	drawSteam(r, w)
 	r.drawWeatherOverlay(time, light)
 }
 

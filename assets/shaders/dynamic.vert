@@ -10,6 +10,7 @@ layout(location = 4) in vec3 iColor;
 layout(location = 5) in float iSpinMode;
 layout(location = 6) in float iPitch; // nose up, radians, about the model's lateral axis
 // 0 = rigid  2 = spin_y (main rotor)  3 = spin_z (tail rotor)
+// 10 and up: scaled by iSpinMode - 10 (steam puffs, render/trains.go)
 
 // per-vertex base colour from the 3MF pipeline (color() blocks in SCAD).
 // Meshes without per-vertex colour leave this unbound — the renderer sets
@@ -61,6 +62,9 @@ void main() {
         }
     }
 
+    if (iSpinMode > 9.5) {
+        spinPos = aPos * (iSpinMode - 10.0);
+    }
     vec3 animPos = spinPos;
     float sp = sin(iPitch);
     float cp = cos(iPitch);
