@@ -36,7 +36,7 @@ func (e *Editor) railEnv() railEnv {
 
 // closePopups hides the editor's popups.
 func (e *Editor) closePopups() {
-	for _, p := range []*ui.Window{e.parcelPopup, e.lotPopup, e.entryPopup, e.trailPopup, e.railPopup, e.liftPopup} {
+	for _, p := range []*ui.Window{e.parcelPopup, e.lotPopup, e.entryPopup, e.trailPopup, e.railPopup, e.liftPopup, e.labelPopup} {
 		if p != nil {
 			p.Visible = false
 		}

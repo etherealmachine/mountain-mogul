@@ -152,6 +152,9 @@ type World struct {
 	// BuildingStation; Trains the trains on their way (not saved).
 	RailStations []*RailStation
 	Trains       []*Train
+	// Labels are names on the map, shown in play: peaks for now
+	// (labels.go).
+	Labels []*Label
 	RopesRev     int
 	ropes        ropeIndex
 

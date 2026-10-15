@@ -61,8 +61,9 @@ func (e *Editor) pollOSMRefresh() {
 		e.setToast("OpenStreetMap refresh failed: " + err.Error())
 	default:
 		geo.ApplyOSM(j.base, m)
+		added := e.world.PeaksFromBase()
 		e.osm.built = time.Time{} // redrape the overlay
 		e.markDirty()
-		e.setToast(fmt.Sprintf("OpenStreetMap refreshed: %s; %d ski-area outline(s).", osmCounts(j.base), len(j.base.Areas)))
+		e.setToast(fmt.Sprintf("OpenStreetMap refreshed: %s; %d ski-area outline(s); %d new peak label(s).", osmCounts(j.base), len(j.base.Areas), added))
 	}
 }

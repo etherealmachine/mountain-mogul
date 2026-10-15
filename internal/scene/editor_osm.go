@@ -41,6 +41,8 @@ const (
 	osmRunWidth    = 3.0
 	osmAreaWidth   = 3.0
 	osmStreamWidth = 2.5
+	osmRailWidth   = 3.0
+	osmPeakBox     = 6.0
 	osmMinRoad     = 3.0
 	osmStationBox  = 12.0
 	// osmRedrape is how often the ribbons are draped again while shown,
@@ -53,6 +55,8 @@ var (
 	osmRoadCol  = mgl32.Vec3{1.0, 0.78, 0.25}
 	osmLiftCol  = mgl32.Vec3{0.95, 0.15, 0.2}
 	osmAreaCol  = mgl32.Vec3{0.75, 0.4, 1.0}
+	osmRailCol  = mgl32.Vec3{0.85, 0.87, 0.92} // pale steel, apart from black runs
+	osmPeakCol  = mgl32.Vec3{0.55, 0.95, 0.45}
 )
 
 // osmRunCol is a run's colour by piste:difficulty, as on a trail map.
@@ -73,7 +77,8 @@ func osmRunCol(difficulty string) mgl32.Vec3 {
 // osmCounts sums up what the base has, for the panel row, or says why
 // there's nothing.
 func osmCounts(base *world.TerrainBase) string {
-	if len(base.Lifts)+len(base.Runs)+len(base.Roads)+len(base.Areas)+len(base.Streams)+len(base.Lakes) == 0 {
+	if len(base.Lifts)+len(base.Runs)+len(base.Roads)+len(base.Areas)+len(base.Streams)+len(base.Lakes)+
+		len(base.Rails)+len(base.Stops)+len(base.Peaks) == 0 {
 		if strings.HasPrefix(base.RoadNote, "couldn't fetch") {
 			return "not fetched"
 		}
@@ -94,6 +99,9 @@ func osmCounts(base *world.TerrainBase) string {
 	add(len(base.Roads), "road", "roads")
 	add(len(base.Streams), "stream", "streams")
 	add(len(base.Lakes), "lake", "lakes")
+	add(len(base.Rails), "railway", "railways")
+	add(len(base.Stops), "station", "stations")
+	add(len(base.Peaks), "peak", "peaks")
 	return strings.Join(parts, ", ")
 }
 
@@ -216,6 +224,32 @@ func buildOSMOverlay(t *world.Terrain, base *world.TerrainBase) ([]float32, []os
 	}
 	for name, k := range longestRoad {
 		d.label(base.Roads[k].Path, name, osmRoadCol, 2)
+	}
+	// Railways, one label per name like roads; their stations as pads.
+	longestRail := map[string]int{}
+	for k, r := range base.Rails {
+		if r.Tunnel {
+			continue
+		}
+		d.ribbon(r.Path, osmRailWidth, osmRailCol)
+		if r.Name != "" {
+			if j, ok := longestRail[r.Name]; !ok || d.inLength(r.Path) > d.inLength(base.Rails[j].Path) {
+				longestRail[r.Name] = k
+			}
+		}
+	}
+	for name, k := range longestRail {
+		d.label(base.Rails[k].Path, name, osmRailCol, 3)
+	}
+	for _, st := range base.Stops {
+		d.pad(st.At, osmStationBox, osmRailCol)
+		if st.Name != "" {
+			d.point(st.At, st.Name+" station", osmRailCol, 1)
+		}
+	}
+	for _, p := range base.Peaks {
+		d.pad(p.At, osmPeakBox, osmPeakCol)
+		d.point(p.At, peakLabel(p.Name, p.Ele, 0), osmPeakCol, 0)
 	}
 	for _, r := range base.Runs {
 		col := osmRunCol(r.Difficulty)
@@ -347,12 +381,26 @@ func (d *osmDraper) quad(ax, az, bx, bz, cx, cz, ex, ez float32, col mgl32.Vec3)
 
 // station marks a lift's end with a square pad.
 func (d *osmDraper) station(p [2]float64) {
+	d.pad(p, osmStationBox, osmLiftCol)
+}
+
+// pad marks point p with a square size metres across.
+func (d *osmDraper) pad(p [2]float64, size float32, col mgl32.Vec3) {
 	x, z, in := d.toWorld(p)
 	if !in {
 		return
 	}
-	h := float32(osmStationBox / 2)
-	d.quad(x-h, z-h, x-h, z+h, x+h, z+h, x+h, z-h, osmLiftCol)
+	h := size / 2
+	d.quad(x-h, z-h, x-h, z+h, x+h, z+h, x+h, z-h, col)
+}
+
+// point labels point p, when it's on the map.
+func (d *osmDraper) point(p [2]float64, text string, col mgl32.Vec3, rank int) {
+	x, z, in := d.toWorld(p)
+	if !in {
+		return
+	}
+	d.labels = append(d.labels, osmLabel{x: x, z: z, text: text, col: mgl32.Vec4{col[0], col[1], col[2], 1}, rank: rank})
 }
 
 // inLength is how much of path, in metres, lies on the map.

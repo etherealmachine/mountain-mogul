@@ -95,6 +95,8 @@ type Editor struct {
 	skiHover, skiDrag         skiHandle  // the outline handle under the cursor, and the one being dragged
 	skiSel                    int        // the selected outline's index, -1 for none
 	water                     waterTool  // the Water tool's session (editor_water.go)
+	labels                    labelTool  // the Labels tool's session (editor_labels.go)
+	labelPopup                *ui.Window // the selected label's popup
 	entryPopup                *ui.Window // road entry opened by clicking its post
 	lotTool                   lotTool
 	serviceTool               serviceTool                    // the building tool's session
@@ -250,6 +252,7 @@ func (e *Editor) Init(app *engine.App) error {
 	e.toolButtons[toolTrailPaint] = e.menuBar.AddIconButton(render.IconFlag, "Trail", func() { e.activateTrailTool() })
 	e.toolButtons[toolSkiArea] = e.menuBar.AddIconButton(render.IconTriangle, "Ski Area", func() { e.activateSkiAreaTool() })
 	e.toolButtons[toolWater] = e.menuBar.AddIconButton(render.IconDrop, "Water", func() { e.activateWaterTool() })
+	e.toolButtons[toolLabels] = e.menuBar.AddIconButton(render.IconMountains, "Labels", func() { e.activateLabelTool() })
 
 	e.toolButtons[toolParcelRect] = e.menuBar.AddIconButton(render.IconGlobe, "Parcels", func() {
 		e.parcelRectIntent = parcelIntentNew
@@ -428,6 +431,10 @@ func (e *Editor) Update(dt float64) {
 			e.railEdit.clear()
 		case e.liftPopup != nil && e.liftPopup.Visible:
 			e.liftPopup.Visible = false
+		case e.labelPopup != nil && e.labelPopup.Visible:
+			e.labelPopup.Visible = false // the label stays selected
+		case e.activeTool == toolLabels && e.labels.sel != 0:
+			e.labels = labelTool{} // let go of the label, keep the tool
 		case e.activeTool == toolRope && e.ropeTool.drawing():
 			e.ropeTool.nodes = nil // drop the rope, keep the tool
 		case e.activeTool == toolParcelRect && e.parcelRectActive:
@@ -481,6 +488,8 @@ func (e *Editor) Update(dt float64) {
 			e.deleteSelectedSkiArea()
 		case e.activeTool == toolWater:
 			e.deleteSelectedWater()
+		case e.activeTool == toolLabels && !e.labelPopup.WantsKeyboard():
+			e.deleteSelectedLabel()
 		}
 	}
 	// R / Shift+R: turn the building about to be placed, or the selected one.
@@ -563,6 +572,12 @@ func (e *Editor) Update(dt float64) {
 			e.markDirty()
 		}
 		e.liftPopup.HandleInput(inp)
+	}
+	if e.labelPopup != nil && e.labelPopup.Visible {
+		if inp.LeftClick && e.labelPopup.ContainsPoint(inp.MousePos[0], inp.MousePos[1]) {
+			e.markDirty()
+		}
+		e.labelPopup.HandleInput(inp)
 	}
 
 	// C: toggle the contour overlay via the panel so the hotkey and the
@@ -729,7 +744,9 @@ func (e *Editor) Update(dt float64) {
 		e.railPopup != nil && e.railPopup.Visible &&
 			e.railPopup.ContainsPoint(inp.MousePos[0], inp.MousePos[1]) ||
 		e.liftPopup != nil && e.liftPopup.Visible &&
-			e.liftPopup.ContainsPoint(inp.MousePos[0], inp.MousePos[1])
+			e.liftPopup.ContainsPoint(inp.MousePos[0], inp.MousePos[1]) ||
+		e.labelPopup != nil && e.labelPopup.Visible &&
+			e.labelPopup.ContainsPoint(inp.MousePos[0], inp.MousePos[1])
 	overChrome := e.menuBar.ContainsXY(inp.MousePos[0], inp.MousePos[1]) ||
 		e.topBar.ContainsXY(inp.MousePos[0], inp.MousePos[1]) ||
 		e.startDate.Contains(inp.MousePos[0], inp.MousePos[1]) ||
@@ -811,6 +828,7 @@ func (e *Editor) Update(dt float64) {
 		e.endTerrainStroke(r)
 		e.skiAreaRelease()
 		e.waterRelease()
+		e.labelRelease()
 		if e.activeTool == toolParking && e.lotTool.dragging() {
 			e.lotTool.release(mgl32.Vec2{e.hoverWorld[0], e.hoverWorld[2]})
 			if e.lotTool.mode == lotPending {
@@ -836,6 +854,8 @@ func (e *Editor) Update(dt float64) {
 				e.skiAreaMouse(r, inp)
 			} else if e.activeTool == toolWater {
 				e.waterMouse(r, inp)
+			} else if e.activeTool == toolLabels {
+				e.labelMouse(r, inp)
 			} else if e.isPlacementTool() {
 				shiftHeld := inp.Held[glfw.KeyLeftShift] || inp.Held[glfw.KeyRightShift]
 				// toolParcelRect can fire off-terrain (first or second click):
@@ -1161,6 +1181,12 @@ func (e *Editor) setTool(t toolMode) {
 		}
 		if prev == toolWater && t != toolWater {
 			e.endWaterTool()
+		}
+		if prev == toolLabels && t != toolLabels {
+			e.labels = labelTool{}
+			if e.labelPopup != nil {
+				e.labelPopup.Visible = false
+			}
 		}
 		if prev == toolFootpath {
 			e.pathTool = pathTool{}
@@ -2212,7 +2238,18 @@ func (e *Editor) Render(r *render.Renderer) {
 	e.menuBar.Y = float32(r.ScreenHeight()) - e.menuBar.H
 	e.overlayPanel.Bottom = float32(r.ScreenHeight()) - e.menuBar.H
 	rail := e.railEnv()
-	edDrawables := []render.UIDrawable{uiDrawFunc(e.drawOSMLabels), uiDrawFunc(rail.drawMarks), uiDrawFunc(func(r *render.Renderer) {
+	// The world's peaks as players see them, unless the OpenStreetMap
+	// overlay is up and labels them itself.
+	peaks := uiDrawFunc(func(r *render.Renderer) {
+		if !e.osm.shown || e.activeTool == toolLabels {
+			sel := uint64(0)
+			if e.activeTool == toolLabels {
+				sel = e.labels.sel
+			}
+			(&mapLabels{world: e.world, selected: sel}).Draw(r)
+		}
+	})
+	edDrawables := []render.UIDrawable{peaks, uiDrawFunc(e.drawOSMLabels), uiDrawFunc(rail.drawMarks), uiDrawFunc(func(r *render.Renderer) {
 		drawLayingCourse(r, e.world, e.activeTool, e.roadStart, mgl32.Vec2{e.hoverWorld[0], e.hoverWorld[2]}, e.hoverValid, &e.pathTool)
 	}), uiDrawFunc(rail.drawHandles), e.topBar, e.title, e.startDate, e.menuBar, e.overlayPanel}
 	if e.activeTool == toolSkiArea && len(e.skiDraft) == 0 {
@@ -2319,6 +2356,9 @@ func (e *Editor) Render(r *render.Renderer) {
 	}
 	if e.liftPopup != nil && e.liftPopup.Visible {
 		edDrawables = append(edDrawables, e.liftPopup)
+	}
+	if e.labelPopup != nil && e.labelPopup.Visible {
+		edDrawables = append(edDrawables, e.labelPopup)
 	}
 	if e.lotPopup != nil && e.lotPopup.Visible {
 		edDrawables = append(edDrawables, e.lotPopup)

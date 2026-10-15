@@ -35,6 +35,9 @@ func BuildWorld(res *ImportResult, off []string, strengths map[string]float32, p
 		Areas:         baseAreas(res.Areas),
 		Streams:       baseStreams(res.Streams),
 		Lakes:         baseLakes(res.Lakes),
+		Rails:         baseRails(res.Rails),
+		Stops:         baseStops(res.Stops),
+		Peaks:         basePeaks(res.Peaks),
 		RoadNote:      res.RoadNote,
 		LidarCoverage: res.LidarCoverage,
 		LidarNote:     res.LidarNote,
@@ -77,5 +80,6 @@ func BuildWorld(res *ImportResult, off []string, strengths map[string]float32, p
 	w.Climate = res.Climate
 	w.TerrainBase = base
 	w.Water = water
+	w.PeaksFromBase()
 	return w, stack, nil
 }

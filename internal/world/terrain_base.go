@@ -30,6 +30,12 @@ type TerrainBase struct {
 	// The OpenStreetMap water in Geo: streams and rivers, and lakes.
 	Streams []BaseStream
 	Lakes   []BaseLake
+	// The OpenStreetMap railways in Geo, their stations and halts, and
+	// the named peaks: drawn by the overlay; peaks are also the world's
+	// (World.Peaks), labelled in play.
+	Rails []BaseRail
+	Stops []BaseStop
+	Peaks []BasePeak
 
 	LidarCoverage float32
 	LidarNote     string
@@ -100,6 +106,29 @@ type BaseStream struct {
 type BaseLake struct {
 	Name, Kind string
 	Paths      [][][2]float64
+}
+
+// BaseRail is one OpenStreetMap railway line: its kind (rail,
+// narrow_gauge, light_rail, funicular), whether it's in a tunnel, and its
+// line as (lat, lon) pairs.
+type BaseRail struct {
+	Name, Kind string
+	Tunnel     bool
+	Path       [][2]float64
+}
+
+// BaseStop is a railway station or halt (Kind) at (lat, lon).
+type BaseStop struct {
+	Name, Kind string
+	At         [2]float64
+}
+
+// BasePeak is a named mountain top at (lat, lon), with its height above
+// sea level in metres, 0 when OpenStreetMap doesn't give one.
+type BasePeak struct {
+	Name string
+	Ele  float32
+	At   [2]float64
 }
 
 // BaseArea is a ski area's mapped boundary, as one or more outlines.

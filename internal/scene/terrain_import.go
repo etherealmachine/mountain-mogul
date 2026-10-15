@@ -3,10 +3,12 @@
 package scene
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"maps"
 	"math"
+	"slices"
 	"sync"
 	"time"
 
@@ -642,7 +644,7 @@ func (t *TerrainImport) updateOSM(sw, sh float32) {
 	j := &osmJob{asked: ask, cancel: cancel}
 	t.osmJob = j
 	go func() {
-		res, err := geo.FetchOSM(ctx, ask, geo.OSMSki)
+		res, err := geo.FetchOSM(ctx, ask, geo.OSMSki|geo.OSMRail|geo.OSMPeaks)
 		j.mu.Lock()
 		j.res, j.err, j.done = res, err, true
 		j.mu.Unlock()
@@ -1045,6 +1047,8 @@ func (t *TerrainImport) selectionHalfPx() float32 {
 var (
 	osmLiftColor = mgl32.Vec4{0.95, 0.2, 0.15, 1}
 	osmAreaColor = mgl32.Vec4{1, 1, 1, 0.55}
+	osmRailColor = mgl32.Vec4{0.92, 0.92, 0.96, 1}
+	osmPeakColor = mgl32.Vec4{0.55, 0.95, 0.45, 1}
 	osmDarkHalo  = mgl32.Vec4{0, 0, 0, 0.6}
 	osmLightHalo = mgl32.Vec4{1, 1, 1, 0.75}
 )
@@ -1086,6 +1090,24 @@ func (d *tiMapDrawable) drawOSM(r *render.Renderer, sw, sh float32) {
 			path(pts, 1.5, osmAreaColor)
 		}
 	}
+	// Railways under the runs: a dark line with a pale core, tunnels
+	// left out; stations as small squares.
+	for _, rl := range t.osm.Rails {
+		if !rl.Tunnel {
+			path(rl.Path, 4, osmDarkHalo)
+		}
+	}
+	for _, rl := range t.osm.Rails {
+		if !rl.Tunnel {
+			path(rl.Path, 2, osmRailColor)
+		}
+	}
+	for _, st := range t.osm.Stops {
+		if x, y := p.at(st.At); y > 32 {
+			r.DrawColorRect(x-4, y-4, 8, 8, osmDarkHalo)
+			r.DrawColorRect(x-3, y-3, 6, 6, osmRailColor)
+		}
+	}
 	// Halos in their own pass so one run's halo never covers another's line.
 	for _, run := range t.osm.Runs {
 		_, halo, thick := osmRunStyle(run.Difficulty)
@@ -1113,6 +1135,35 @@ func (d *tiMapDrawable) drawOSM(r *render.Renderer, sw, sh float32) {
 				r.DrawColorDisc(x, y, 3, osmLightHalo)
 			}
 		}
+	}
+
+	// Peaks: a summit mark, and the name and height when there's room,
+	// the higher peaks first.
+	peaks := slices.Clone(t.osm.Peaks)
+	slices.SortFunc(peaks, func(a, b geo.Peak) int { return cmp.Compare(b.Ele, a.Ele) })
+	var taken [][4]float32
+	for _, pk := range peaks {
+		x, y := p.at(pk.At)
+		if y < 44 || y > sh || x < 0 || x > sw {
+			continue
+		}
+		r.DrawColorTriangle(x-7, y+3, x+7, y+3, x, y-9, osmDarkHalo)
+		r.DrawColorTriangle(x-5, y+2, x+5, y+2, x, y-7, osmPeakColor)
+		if r.Font == nil {
+			continue
+		}
+		text := peakLabel(pk.Name, float32(pk.Ele), 0)
+		tw := r.Font.TextWidth(text)
+		lx, ly := x-tw/2, y-12-float32(render.GlyphH)
+		box := [4]float32{lx - 3, ly - 2, lx + tw + 3, ly + float32(render.GlyphH) + 2}
+		if slices.ContainsFunc(taken, func(o [4]float32) bool {
+			return box[0] < o[2] && box[2] > o[0] && box[1] < o[3] && box[3] > o[1]
+		}) {
+			continue
+		}
+		taken = append(taken, box)
+		r.DrawColorRect(lx-3, ly-2, tw+6, float32(render.GlyphH)+4, mgl32.Vec4{0, 0, 0, 0.6})
+		r.Font.DrawText(r, text, lx, ly, mgl32.Vec4{1, 1, 1, 1})
 	}
 
 	if r.Font == nil {

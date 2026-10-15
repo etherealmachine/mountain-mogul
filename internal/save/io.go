@@ -682,6 +682,7 @@ func worldToData(w *world.World, forScenario bool) ScenarioData {
 		Footpaths:    footpaths,
 		Ropes:        ropes,
 		Railway:      railwayToData(w),
+		Labels:       labelsToData(w.Labels),
 		Guests:       guests,
 		Snowcats:     snowcats,
 		Snowmobiles:  snowmobiles,
@@ -1428,6 +1429,10 @@ func dataToWorld(data ScenarioData) *world.World {
 		}
 	}()
 	railwayFromData(w, data.Railway)
+	for _, l := range data.Labels {
+		w.Labels = append(w.Labels, &world.Label{ID: l.ID, Kind: world.LabelKind(l.Kind), Name: l.Name, Ele: l.Ele, Pos: mgl32.Vec2{l.At[0], l.At[1]}})
+		w.SetMinNextID(l.ID)
+	}
 
 	// Validate parking driveways now that road nodes are in place.
 	// EnsureParkingDriveway is idempotent — a parking lot whose
@@ -1688,6 +1693,15 @@ func terrainBaseToData(b *world.TerrainBase) *TerrainBaseData {
 		}
 		d.Areas = append(d.Areas, ad)
 	}
+	for _, r := range b.Rails {
+		d.Rails = append(d.Rails, BaseRailData{Name: r.Name, Kind: r.Kind, Tunnel: r.Tunnel, Path: flatPath(r.Path)})
+	}
+	for _, st := range b.Stops {
+		d.Stops = append(d.Stops, BaseStopData{Name: st.Name, Kind: st.Kind, At: st.At})
+	}
+	for _, p := range b.Peaks {
+		d.Peaks = append(d.Peaks, BasePeakData{Name: p.Name, Ele: p.Ele, At: p.At})
+	}
 	return d
 }
 
@@ -1811,6 +1825,15 @@ func terrainBaseFromData(d *TerrainBaseData) *world.TerrainBase {
 			ba.Paths = append(ba.Paths, pairPath(p))
 		}
 		b.Areas = append(b.Areas, ba)
+	}
+	for _, r := range d.Rails {
+		b.Rails = append(b.Rails, world.BaseRail{Name: r.Name, Kind: r.Kind, Tunnel: r.Tunnel, Path: pairPath(r.Path)})
+	}
+	for _, st := range d.Stops {
+		b.Stops = append(b.Stops, world.BaseStop{Name: st.Name, Kind: st.Kind, At: st.At})
+	}
+	for _, p := range d.Peaks {
+		b.Peaks = append(b.Peaks, world.BasePeak{Name: p.Name, Ele: p.Ele, At: p.At})
 	}
 	return b
 }
@@ -1999,6 +2022,15 @@ func kidAge(gd GuestData) uint8 {
 		return world.RollKidAge(rand.New(rand.NewSource(int64(gd.ID) ^ 0xa9e)))
 	}
 	return gd.Age
+}
+
+// labelsToData is the world's labels for saving.
+func labelsToData(ls []*world.Label) []LabelData {
+	var out []LabelData
+	for _, l := range ls {
+		out = append(out, LabelData{ID: l.ID, Kind: uint8(l.Kind), Name: l.Name, Ele: l.Ele, At: [2]float32{l.Pos[0], l.Pos[1]}})
+	}
+	return out
 }
 
 // railwayToData is the world's railway for saving.

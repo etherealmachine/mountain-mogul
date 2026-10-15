@@ -31,6 +31,14 @@ const (
 	// OSMWater is streams and rivers (waterway=*, see waterwayKinds) and
 	// lakes, ponds, and reservoirs (natural=water, landuse=reservoir).
 	OSMWater
+	// OSMRail is railway lines (railway=*, see railwayKinds) and their
+	// stations and halts.
+	OSMRail
+	// OSMPeaks is named mountain tops (natural=peak or volcano).
+	OSMPeaks
+
+	// OSMAll is everything an import keeps.
+	OSMAll = OSMSki | OSMRoads | OSMWater | OSMRail | OSMPeaks
 )
 
 // OSMMap is the OpenStreetMap features inside Covered. Data ©
@@ -42,6 +50,9 @@ type OSMMap struct {
 	Roads   []Road
 	Streams []Waterway
 	Lakes   []WaterArea
+	Rails   []Railway
+	Stops   []RailStop
+	Peaks   []Peak
 	Covered Bounds
 
 	layers OSMLayer // what the parse keeps
@@ -96,6 +107,37 @@ type WaterArea struct {
 	Paths [][]LatLon
 }
 
+// Railway is a railway=* line: a main line, narrow gauge, light rail or
+// funicular.
+type Railway struct {
+	ID     int64
+	Name   string
+	Kind   string // railway value: rail, narrow_gauge, light_rail, funicular
+	Tunnel bool
+	Path   []LatLon
+}
+
+// railwayKinds are the railway values kept: track trains run on, not
+// disused or abandoned lines, sidings' platforms or trams in the street.
+var railwayKinds = map[string]bool{"rail": true, "narrow_gauge": true, "light_rail": true, "funicular": true}
+
+// RailStop is a railway station or halt.
+type RailStop struct {
+	ID   int64
+	Name string
+	Kind string // station or halt
+	At   LatLon
+}
+
+// Peak is a named mountain top, with its height above sea level in
+// metres (ele), or 0 when untagged.
+type Peak struct {
+	ID   int64
+	Name string
+	Ele  float64
+	At   LatLon
+}
+
 type SkiLift struct {
 	ID    int64
 	Name  string
@@ -147,6 +189,33 @@ func (m *OSMMap) Merge(o *OSMMap) {
 	for _, a := range o.Areas {
 		if !areas[a.ID] {
 			m.Areas = append(m.Areas, a)
+		}
+	}
+	rails := map[int64]bool{}
+	for _, r := range m.Rails {
+		rails[r.ID] = true
+	}
+	for _, r := range o.Rails {
+		if !rails[r.ID] {
+			m.Rails = append(m.Rails, r)
+		}
+	}
+	stops := map[int64]bool{}
+	for _, st := range m.Stops {
+		stops[st.ID] = true
+	}
+	for _, st := range o.Stops {
+		if !stops[st.ID] {
+			m.Stops = append(m.Stops, st)
+		}
+	}
+	peaks := map[int64]bool{}
+	for _, p := range m.Peaks {
+		peaks[p.ID] = true
+	}
+	for _, p := range o.Peaks {
+		if !peaks[p.ID] {
+			m.Peaks = append(m.Peaks, p)
 		}
 	}
 }
@@ -239,6 +308,18 @@ func overpassFetch(ctx context.Context, b Bounds, layers OSMLayer) (*OSMMap, err
 		sort.Strings(kinds)
 		q += `way["highway"~"^(` + strings.Join(kinds, "|") + `)$"]` + box + ";"
 	}
+	if layers&OSMRail != 0 {
+		kinds := make([]string, 0, len(railwayKinds))
+		for k := range railwayKinds {
+			kinds = append(kinds, k)
+		}
+		sort.Strings(kinds)
+		q += `way["railway"~"^(` + strings.Join(kinds, "|") + `)$"]` + box + ";" +
+			`node["railway"~"^(station|halt)$"]` + box + ";"
+	}
+	if layers&OSMPeaks != 0 {
+		q += `node["natural"~"^(peak|volcano)$"]["name"]` + box + ";"
+	}
 	q += ");out geom;"
 	req, err := http.NewRequest(http.MethodPost, "https://overpass-api.de/api/interpreter",
 		strings.NewReader(url.Values{"data": {q}}.Encode()))
@@ -261,6 +342,7 @@ func overpassFetch(ctx context.Context, b Bounds, layers OSMLayer) (*OSMMap, err
 type overpassElement struct {
 	Type     string            `json:"type"`
 	ID       int64             `json:"id"`
+	Lat, Lon float64           // a node's
 	Tags     map[string]string `json:"tags"`
 	Geometry []LatLon          `json:"geometry"`
 	Members  []struct {
@@ -295,6 +377,8 @@ func parseOverpass(body []byte, layers OSMLayer) (*OSMMap, error) {
 	m := &OSMMap{layers: layers}
 	for _, e := range resp.Elements {
 		switch e.Type {
+		case "node":
+			m.addNode(e.ID, e.Tags, LatLon{e.Lat, e.Lon})
 		case "way":
 			m.addWay(e.ID, e.Tags, e.Geometry)
 		case "relation":
@@ -345,9 +429,10 @@ func tagMap(tags []osmXMLTag) map[string]string {
 func parseOSMXML(body []byte, layers OSMLayer) (*OSMMap, error) {
 	var doc struct {
 		Nodes []struct {
-			ID  int64   `xml:"id,attr"`
-			Lat float64 `xml:"lat,attr"`
-			Lon float64 `xml:"lon,attr"`
+			ID   int64       `xml:"id,attr"`
+			Lat  float64     `xml:"lat,attr"`
+			Lon  float64     `xml:"lon,attr"`
+			Tags []osmXMLTag `xml:"tag"`
 		} `xml:"node"`
 		Ways []struct {
 			ID   int64 `xml:"id,attr"`
@@ -370,11 +455,14 @@ func parseOSMXML(body []byte, layers OSMLayer) (*OSMMap, error) {
 		return nil, err
 	}
 	nodes := make(map[int64]LatLon, len(doc.Nodes))
+	m := &OSMMap{layers: layers}
 	for _, n := range doc.Nodes {
 		nodes[n.ID] = LatLon{n.Lat, n.Lon}
+		if len(n.Tags) > 0 {
+			m.addNode(n.ID, tagMap(n.Tags), LatLon{n.Lat, n.Lon})
+		}
 	}
 	wayPaths := make(map[int64][]LatLon, len(doc.Ways))
-	m := &OSMMap{layers: layers}
 	for _, w := range doc.Ways {
 		path := make([]LatLon, 0, len(w.Refs))
 		for _, r := range w.Refs {
@@ -425,6 +513,10 @@ func (m *OSMMap) addWay(id int64, tags map[string]string, path []LatLon) {
 			m.Lakes = append(m.Lakes, WaterArea{ID: id, Name: tags["name"], Kind: tags["water"], Paths: [][]LatLon{path}})
 		}
 	}
+	if m.layers&OSMRail != 0 && railwayKinds[tags["railway"]] {
+		m.Rails = append(m.Rails, Railway{ID: id, Name: tags["name"], Kind: tags["railway"],
+			Tunnel: tags["tunnel"] != "" && tags["tunnel"] != "no", Path: path})
+	}
 	if m.layers&OSMSki == 0 {
 		return
 	}
@@ -442,6 +534,21 @@ func (m *OSMMap) addWay(id int64, tags map[string]string, path []LatLon) {
 	}
 	if tags["landuse"] == "winter_sports" {
 		m.Areas = append(m.Areas, SkiAreaOutline{ID: id, Name: tags["name"], Paths: [][]LatLon{path}})
+	}
+}
+
+// addNode keeps a tagged node: a railway station or halt, or a named peak.
+func (m *OSMMap) addNode(id int64, tags map[string]string, at LatLon) {
+	if m.layers&OSMRail != 0 {
+		if kind := tags["railway"]; kind == "station" || kind == "halt" {
+			m.Stops = append(m.Stops, RailStop{ID: id, Name: tags["name"], Kind: kind, At: at})
+		}
+	}
+	if m.layers&OSMPeaks != 0 && tags["name"] != "" {
+		if n := tags["natural"]; n == "peak" || n == "volcano" {
+			ele, _ := strconv.ParseFloat(strings.TrimSpace(strings.TrimSuffix(tags["ele"], "m")), 64)
+			m.Peaks = append(m.Peaks, Peak{ID: id, Name: tags["name"], Ele: ele, At: at})
+		}
 	}
 }
 

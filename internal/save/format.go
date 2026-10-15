@@ -84,6 +84,7 @@ type ScenarioData struct {
 	// Railway is the track, its joints and the stations
 	// (world.RailTracks, RailJoints, RailStations).
 	Railway     *RailwayData     `json:"railway,omitempty"`
+	Labels      []LabelData      `json:"labels,omitempty"`
 	Guests      []GuestData      `json:"guests"`
 	Snowcats    []SnowcatData    `json:"snowcats,omitempty"`
 	Snowmobiles []SnowmobileData `json:"snowmobiles,omitempty"`
@@ -176,6 +177,40 @@ type TerrainBaseData struct {
 	Areas         []BaseAreaData     `json:"areas,omitempty"`
 	Streams       []BaseStreamData   `json:"streams,omitempty"`
 	Lakes         []BaseLakeData     `json:"lakes,omitempty"`
+	Rails         []BaseRailData     `json:"rails,omitempty"`
+	Stops         []BaseStopData     `json:"stops,omitempty"`
+	Peaks         []BasePeakData     `json:"peaks,omitempty"`
+}
+
+// BaseRailData is world.BaseRail, its path as flat lat, lon pairs.
+type BaseRailData struct {
+	Name   string    `json:"name,omitempty"`
+	Kind   string    `json:"kind"`
+	Tunnel bool      `json:"tunnel,omitempty"`
+	Path   []float64 `json:"path"`
+}
+
+// BaseStopData is world.BaseStop; At is lat, lon.
+type BaseStopData struct {
+	Name string     `json:"name,omitempty"`
+	Kind string     `json:"kind"`
+	At   [2]float64 `json:"at"`
+}
+
+// BasePeakData is world.BasePeak; At is lat, lon.
+type BasePeakData struct {
+	Name string     `json:"name"`
+	Ele  float32    `json:"ele,omitempty"`
+	At   [2]float64 `json:"at"`
+}
+
+// LabelData is world.Label; At is world x, z.
+type LabelData struct {
+	ID   uint64     `json:"id"`
+	Kind uint8      `json:"kind,omitempty"` // world.LabelKind
+	Name string     `json:"name"`
+	Ele  float32    `json:"ele,omitempty"`
+	At   [2]float32 `json:"at"`
 }
 
 // WaterData is world.Water.

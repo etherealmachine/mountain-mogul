@@ -305,18 +305,44 @@ func baseAreas(as []SkiAreaOutline) []world.BaseArea {
 	return out
 }
 
+func baseRails(rs []Railway) []world.BaseRail {
+	var out []world.BaseRail
+	for _, r := range rs {
+		out = append(out, world.BaseRail{Name: r.Name, Kind: r.Kind, Tunnel: r.Tunnel, Path: basePath(r.Path)})
+	}
+	return out
+}
+
+func baseStops(ss []RailStop) []world.BaseStop {
+	var out []world.BaseStop
+	for _, s := range ss {
+		out = append(out, world.BaseStop{Name: s.Name, Kind: s.Kind, At: [2]float64{s.At.Lat, s.At.Lon}})
+	}
+	return out
+}
+
+func basePeaks(ps []Peak) []world.BasePeak {
+	var out []world.BasePeak
+	for _, p := range ps {
+		out = append(out, world.BasePeak{Name: p.Name, Ele: float32(p.Ele), At: [2]float64{p.At.Lat, p.At.Lon}})
+	}
+	return out
+}
+
 // RefreshOSM fetches base's OpenStreetMap features again (roads, lifts,
-// runs, the ski-area boundary, streams, and lakes) for its square. The
+// runs, the ski-area boundary, streams, lakes, railways, and peaks) for
+// its square. The
 // ground is untouched: the roads, creeks, and lakes layers use the new
 // features the next time they run.
 func RefreshOSM(ctx context.Context, base *world.TerrainBase) (*OSMMap, error) {
-	return FetchOSM(ctx, BoundsOf(base.Geo), OSMRoads|OSMSki|OSMWater)
+	return FetchOSM(ctx, BoundsOf(base.Geo), OSMAll)
 }
 
 // ApplyOSM puts features fetched by RefreshOSM on base.
 func ApplyOSM(base *world.TerrainBase, m *OSMMap) {
 	base.Roads, base.Lifts, base.Runs = baseRoads(m.Roads), baseLifts(m.Lifts), baseRuns(m.Runs)
 	base.Areas, base.Streams, base.Lakes = baseAreas(m.Areas), baseStreams(m.Streams), baseLakes(m.Lakes)
+	base.Rails, base.Stops, base.Peaks = baseRails(m.Rails), baseStops(m.Stops), basePeaks(m.Peaks)
 	base.RoadNote = ""
 	if len(m.Roads) == 0 {
 		base.RoadNote = "no roads mapped here"
